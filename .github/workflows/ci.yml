@@ -21,7 +21,7 @@ env:
 jobs:
   build-and-test:
     name: Build & Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
 
@@ -52,7 +52,7 @@ jobs:
 
   security-scan:
     name: Security Scan (OpenZeppelin)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build-and-test
     # TODO: remove continue-on-error once soroban-scanner v0.0.2 UTF-8 panic is fixed upstream
     continue-on-error: true

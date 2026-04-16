@@ -220,4 +220,11 @@ Three layers:
 
 ## License
 
-Proprietary. All rights reserved.
+[PolyForm Noncommercial 1.0.0](./LICENSE) — research, testing, security
+review, and contributions are permitted. Commercial use requires a
+separate written agreement with XOXNO; contact `security@xoxno.com`.
+
+## Security
+
+See [SECURITY.md](./SECURITY.md). Report vulnerabilities privately to
+`security@xoxno.com`.
