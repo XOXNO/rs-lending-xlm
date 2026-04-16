@@ -1,17 +1,17 @@
 //! Contract-level property test: accounting conservation.
 //!
 //! After every op in a random sequence (supply / borrow / repay / withdraw /
-//! advance_time / claim_revenue), assert a set of pool-level accounting
-//! conservation laws derived from INVARIANTS.md §4 (Pool State Identity),
-//! §5 (Interest Split), and §12 (Claim Revenue).
+//! advance_time / claim_revenue), assert pool-level accounting conservation
+//! laws drawn from INVARIANTS.md §4 (Pool State Identity), §5 (Interest
+//! Split), and §12 (Claim Revenue).
 //!
 //! Laws (per asset X):
 //!
 //!   1. Pool solvency identity (reserves ≥ supplied − borrowed):
 //!        pool_reserves(X) + total_borrowed(X) ≥ total_supplied(X)
 //!      The pool's token balance must cover every supplier's withdrawable
-//!      claim. Extraneous donations or seed-liquidity mean reserves can be
-//!      greater — but never less — than supplied − borrowed.
+//!      claim. Donations or seed liquidity can push reserves above, but
+//!      never below, supplied − borrowed.
 //!
 //!   2. Borrow conservation (user-aggregate ≈ pool-total):
 //!        Σ user_borrow_balance(X) ≈ total_borrowed(X)
@@ -19,14 +19,14 @@
 //!
 //!   3. Supply conservation (user-aggregate ≤ pool-total minus revenue):
 //!        Σ user_supply_balance(X) ≈ total_supplied(X) − protocol_revenue(X)
-//!      Protocol revenue lives inside `supplied_ray` but is not attributed to
-//!      any user. (INVARIANTS.md §4: 0 ≤ revenue_ray ≤ supplied_ray.)
+//!      Protocol revenue lives inside `supplied_ray` but belongs to no user.
+//!      (INVARIANTS.md §4: 0 ≤ revenue_ray ≤ supplied_ray.)
 //!
 //!   4. Reserves non-negative (strict):
 //!        pool_reserves(X) ≥ 0 (no −0.0001 slack).
 //!
-//! The op distribution is intentionally *balanced* — supply outweighs borrow —
-//! to counter the bias noted by Codex in `fuzz_multi_asset_solvency.rs`.
+//! The op distribution deliberately tilts toward supply over borrow, to
+//! counter the bias Codex noted in `fuzz_multi_asset_solvency.rs`.
 
 use proptest::prelude::*;
 use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB};
@@ -53,9 +53,9 @@ fn asset_strat() -> impl Strategy<Value = &'static str> {
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
-    // Weights deliberately favor supply + repay + advance over borrow/withdraw.
-    // This produces richer conservation coverage (Codex noted the existing
-    // fuzz_multi_asset_solvency was borrow-heavy -> few successful operations).
+    // Weights favor supply + repay + advance over borrow/withdraw to widen
+    // conservation coverage. Codex noted that fuzz_multi_asset_solvency was
+    // borrow-heavy and produced few successful operations.
     prop_oneof![
         // 4x supply — should dominate
         4 => (user_strat(), asset_strat(), 1u32..20_000u32)
@@ -76,11 +76,11 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// Tolerance in asset-decimal units: rounding error can be up to 1 unit per
+/// Tolerance in asset-decimal units: rounding error reaches up to 1 unit per
 /// user per side of the sum, plus 1 unit for the pool-side scaling.
 ///
 /// With 2 users on both sides (supply balances on LHS, borrow balances on LHS
-/// and RHS) we budget ≤ 4 units.
+/// and RHS), the budget is ≤ 4 units.
 const TOLERANCE_UNITS: i128 = 4;
 
 fn sum_supply(t: &LendingTest, asset: &str) -> i128 {
@@ -130,6 +130,7 @@ proptest! {
             .build();
 
         // Seed both users so the state is non-trivial from step 1.
+
         t.supply(ALICE, "USDC", 50_000.0);
         t.supply(BOB, "USDC", 50_000.0);
         t.supply(ALICE, "ETH", 20.0);
@@ -194,9 +195,9 @@ proptest! {
                 );
 
                 // Law 1: solvency — the pool's token balance always covers
-                // every supplier's claim. reserves + borrowed ≥ supplied.
-                // Donations or seeded bootstrap liquidity make this an
-                // inequality rather than equality.
+                // every supplier's claim: reserves + borrowed ≥ supplied.
+                // Donations or bootstrap liquidity make this an inequality
+                // rather than equality.
                 let solvency_slack = s.reserves + s.borrowed - s.supplied;
                 prop_assert!(
                     solvency_slack >= -TOLERANCE_UNITS,

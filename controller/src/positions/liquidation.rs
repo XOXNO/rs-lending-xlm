@@ -1,4 +1,4 @@
-use common::constants::{WAD};
+use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
 use common::errors::CollateralError;
 use common::errors::GenericError;
 use common::events::{
@@ -24,12 +24,12 @@ pub fn process_liquidation(
     account_id: u64,
     debt_payments: &Vec<(Address, i128)>,
 ) {
-    // 1. Authentication & Reentrancy Guards
+    // 1. Authentication and reentrancy guards.
     liquidator.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
-    // 2. Initial Validation (MVX: validate_liquidation_payments)
+    // 2. Initial validation (MVX: validate_liquidation_payments).
     if debt_payments.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
@@ -39,17 +39,16 @@ pub fn process_liquidation(
         validation::require_amount_positive(env, amount);
     }
 
-    // Load account into memory for single-pass mutation (Soroban optimization)
+    // Load account into memory for single-pass mutation (Soroban optimization).
     storage::bump_account(env, account_id);
     let mut account = storage::get_account(env, account_id);
     let mut cache = ControllerCache::new(env, false);
-    let account_attrs: EventAccountAttributes = (&account).into();
 
-    // 3. Execution (Math Engine)
+    // 3. Execution (math engine).
     let (seized_collaterals, repaid_tokens, _refunds, _max_debt_usd, _bonus) =
         execute_liquidation(env, &account, debt_payments, &mut cache);
 
-    // 4. State Application: Process Repayments (MVX: process_repayment loop)
+    // 4. State application: process repayments (MVX: process_repayment loop).
     if repaid_tokens.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
@@ -57,7 +56,7 @@ pub fn process_liquidation(
     for i in 0..repaid_tokens.len() {
         let (asset, amount, _repaid_usd, feed, _market_index) = repaid_tokens.get(i).unwrap();
 
-        // Actual pool interaction
+        // Actual pool interaction.
         let pool_addr = cache.cached_pool_address(&asset);
         let token = soroban_sdk::token::Client::new(env, &asset);
         token.transfer(liquidator, &pool_addr, &amount);
@@ -74,6 +73,9 @@ pub fn process_liquidation(
             &mut cache,
         );
 
+        // L-13: re-derive attrs from the post-mutation account so off-chain
+        // indexers see stats matching the recorded action.
+        let post_attrs: EventAccountAttributes = (&account).into();
         emit_update_position(
             env,
             UpdatePositionEvent {
@@ -83,12 +85,12 @@ pub fn process_liquidation(
                 position: result.position.clone().into(),
                 asset_price: Some(feed.price_wad),
                 caller: Some(liquidator.clone()),
-                account_attributes: Some(account_attrs.clone()),
+                account_attributes: Some(post_attrs),
             },
         );
     }
 
-    // 5. State Application: Process Seizures (MVX: process_withdrawal loop)
+    // 5. State application: process seizures (MVX: process_withdrawal loop).
     for i in 0..seized_collaterals.len() {
         let (asset, amount, protocol_fee, feed, _market_index) = seized_collaterals.get(i).unwrap();
 
@@ -107,6 +109,8 @@ pub fn process_liquidation(
             &mut cache,
         );
 
+        // L-13: re-derive attrs from the post-mutation account.
+        let post_attrs: EventAccountAttributes = (&account).into();
         emit_update_position(
             env,
             UpdatePositionEvent {
@@ -116,12 +120,12 @@ pub fn process_liquidation(
                 position: result.position.clone().into(),
                 asset_price: Some(feed.price_wad),
                 caller: Some(liquidator.clone()),
-                account_attributes: Some(account_attrs.clone()),
+                account_attributes: Some(post_attrs),
             },
         );
     }
 
-    // 6. Write-back and Cleanup Check
+    // 6. Write back and run the cleanup check.
     storage::set_account(env, account_id, &account);
 
     check_bad_debt_after_liquidation(env, &mut cache, account_id);
@@ -148,7 +152,7 @@ pub(crate) fn execute_liquidation(
 ) {
     let mut refunds = Vec::new(env);
 
-    // 1. Calculate Health & Totals (MVX: validate_liquidation_health_factor)
+    // 1. Calculate health and totals (MVX: validate_liquidation_health_factor).
     let hf = helpers::calculate_health_factor(
         env,
         cache,
@@ -167,7 +171,7 @@ pub(crate) fn execute_liquidation(
             &account.borrow_positions,
         );
 
-    // 2. Portfolio Seizure Proportions (MVX: calculate_seizure_proportions)
+    // 2. Portfolio seizure proportions (MVX: calculate_seizure_proportions).
     let (proportion_seized, bonus_params) = calculate_seizure_proportions(
         env,
         account,
@@ -176,7 +180,7 @@ pub(crate) fn execute_liquidation(
         cache,
     );
 
-    // 3. Solve Auction (MVX: calculate_liquidation_amounts)
+    // 3. Solve the auction (MVX: calculate_liquidation_amounts).
     let (total_debt_payment_usd, repaid_tokens) =
         calculate_repayment_amounts(env, debt_payments, account, &mut refunds, cache);
 
@@ -191,7 +195,7 @@ pub(crate) fn execute_liquidation(
         total_debt_payment_usd,
     );
 
-    // 4. Distribute Seizure (MVX: calculate_seized_collateral)
+    // 4. Distribute the seizure (MVX: calculate_seized_collateral).
     let seized_collaterals = calculate_seized_collateral(
         env,
         account,
@@ -201,7 +205,7 @@ pub(crate) fn execute_liquidation(
         cache,
     );
 
-    // 5. Handle Excess (MVX: process_excess_payment)
+    // 5. Handle excess (MVX: process_excess_payment).
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
         let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
@@ -251,7 +255,7 @@ fn calculate_repayment_amounts(
     let mut total_repaid_usd = Wad::ZERO;
     let mut repaid_tokens = Vec::new(env);
 
-    // Merge duplicates
+    // Merge duplicates.
     let merged = merge_debt_payments(env, raw_payments);
 
     for i in 0..merged.len() {
@@ -346,7 +350,7 @@ fn calculate_seized_collateral(
         let actual_amount_wad = actual_ray.to_wad();
         let asset_value = actual_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
 
-        // Share = (asset_value / total_collateral) * total_seizure
+        // share = (asset_value / total_collateral) * total_seizure
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
@@ -357,9 +361,13 @@ fn calculate_seized_collateral(
             continue;
         }
 
-        // Split seized amount into base + bonus for fee calculation
+        // Split the seized amount into base and bonus for the fee calculation.
+        // M-05: floor-divide so `base_amount` is the mathematical lower bound;
+        // `bonus_portion` gets any rounding remainder. This guarantees
+        // `protocol_fee >= bonus * fees_bps / BPS` rather than ≤, keeping the
+        // protocol's take from being shaved by half-up rounding.
         let capped_amount = seizure_amount.min(actual_amount);
-        let base_amount = Wad::from_raw(capped_amount).div(env, one_plus_bonus).raw();
+        let base_amount = Wad::from_raw(capped_amount).div_floor(env, one_plus_bonus).raw();
         let bonus_portion = capped_amount - base_amount;
         let protocol_fee = Bps::from_raw(asset_config.liquidation_fees_bps).apply_to(env, bonus_portion);
 
@@ -390,7 +398,12 @@ fn process_excess_payment(
             let refund_amount = Wad::from_raw(amount).mul(env, ratio).raw();
 
             let new_amount = amount - refund_amount;
-            let new_usd = usd - remaining_excess_usd;
+            // M-10: recompute `new_usd` from `new_amount * price` rather than
+            // subtracting the excess. The two precision paths can drift,
+            // leaving the (amount, usd_wad) pair internally inconsistent for
+            // off-chain consumers.
+            let new_amount_wad = Wad::from_token(new_amount, feed.asset_decimals);
+            let new_usd = new_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
 
             refunds.push_back((asset.clone(), refund_amount));
             repaid_tokens.set(
@@ -411,7 +424,7 @@ fn process_excess_payment(
 // ---------------------------------------------------------------------------
 
 fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, account_id: u64) {
-    // Re-load account to get mutated snapshots from storage
+    // Re-load the account to pick up mutated snapshots from storage.
     let account = storage::get_account(env, account_id);
 
     if account.borrow_positions.is_empty() {
@@ -426,7 +439,7 @@ fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, acco
         &account.borrow_positions,
     );
 
-    let bad_debt_threshold = Wad::from_raw(5 * WAD);
+    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
     if total_debt_usd > total_collateral_usd && total_collateral_usd <= bad_debt_threshold {
         execute_bad_debt_cleanup(
             env,
@@ -455,7 +468,7 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         &account.borrow_positions,
     );
 
-    let bad_debt_threshold = Wad::from_raw(5 * WAD);
+    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
     if !(total_debt_usd > total_collateral_usd && total_collateral_usd <= bad_debt_threshold) {
         panic_with_error!(env, CollateralError::CannotCleanBadDebt);
     }

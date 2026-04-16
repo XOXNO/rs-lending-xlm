@@ -3,22 +3,22 @@
 //! The controller exposes three KEEPER-gated endpoints that extend Soroban
 //! storage TTLs:
 //!   * `keepalive_shared_state(assets)` -- bumps per-market keys
-//!     (`Market`, `IsolatedDebt`, `AssetEModes`, `EModeCategory`, `EModeAsset`)
+//!     (`Market`, `IsolatedDebt`, `AssetEModes`, `EModeCategory`, `EModeAsset`).
 //!   * `keepalive_accounts(ids)` -- bumps `AccountMeta` and every
-//!     `SupplyPosition` / `BorrowPosition` key for that account
+//!     `SupplyPosition` / `BorrowPosition` key for that account.
 //!   * `keepalive_pools(assets)` -- forwards to `pool.keepalive()`, bumping
-//!     the pool's instance storage
+//!     the pool's instance storage.
 //!
 //! If these bumps drift out of sync with actual storage (e.g. an orphan
-//! position left in persistent storage after a full exit), entries expire and
-//! break the protocol at a ledger boundary -- a class of bug no directed test
-//! will find.
+//! position left in persistent storage after a full exit), entries expire
+//! and break the protocol at a ledger boundary — a class of bug no directed
+//! test will find.
 //!
 //! Four properties:
-//!   1. `prop_keepalive_accounts_bumps_positions`  -- random account/asset mix
-//!   2. `prop_keepalive_shared_bumps_markets`      -- random market + e-mode
-//!   3. `prop_keepalive_pools_forwards`            -- pool instance TTL grows
-//!   4. `prop_account_orphan_positions_not_stuck`  -- M-14 regression
+//!   1. `prop_keepalive_accounts_bumps_positions`  -- random account/asset mix.
+//!   2. `prop_keepalive_shared_bumps_markets`      -- random market + e-mode.
+//!   3. `prop_keepalive_pools_forwards`            -- pool instance TTL grows.
+//!   4. `prop_account_orphan_positions_not_stuck`  -- M-14 regression.
 
 extern crate std;
 
@@ -35,10 +35,10 @@ const USERS: &[&str] = &["alice", "bob", "carol", "dave", "eve"];
 const ASSETS: &[&str] = &["USDC", "ETH", "WBTC"];
 
 // ---------------------------------------------------------------------------
-// TTL read helpers. In soroban-sdk 25.3.1 the testutils `get_ttl(key)` returns
-// the *remaining* ledgers until expiry (not the absolute live_until_ledger).
-// We assert `remaining >= TTL_BUMP_*` which is equivalent to
-// `live_until_ledger >= current + TTL_BUMP_*`.
+// TTL read helpers. In soroban-sdk 25.3.1 the testutils `get_ttl(key)`
+// returns the *remaining* ledgers until expiry (not the absolute
+// live_until_ledger). The assertion `remaining >= TTL_BUMP_*` is equivalent
+// to `live_until_ledger >= current + TTL_BUMP_*`.
 // ---------------------------------------------------------------------------
 
 fn persistent_ttl(t: &LendingTest, key: &ControllerKey) -> u32 {
@@ -84,7 +84,7 @@ proptest! {
             for &ai in &asset_mix {
                 let asset = ASSETS[ai];
                 if used.contains(&asset) { continue; }
-                // Supply a modest amount so we don't blow past supply caps.
+                // Supply a modest amount so the supply caps remain unbreached.
                 t.supply(user, asset, 100.0);
                 used.push(asset);
             }
@@ -102,8 +102,9 @@ proptest! {
         // Call keepalive_accounts.
         t.ctrl_client().keepalive_accounts(&t.keeper, &ids);
 
-        // Assert every AccountMeta + per-asset SupplyPosition key has TTL >= TTL_BUMP_USER.
-        // Allow 1-ledger tolerance for off-by-one between set time and read time.
+        // Assert every AccountMeta + per-asset SupplyPosition key has
+        // TTL >= TTL_BUMP_USER. Allow 1-ledger tolerance for off-by-one
+        // between set time and read time.
         let min_ttl = TTL_BUMP_USER.saturating_sub(1);
         for (idx, id) in account_ids.iter().enumerate() {
             let meta_ttl = persistent_ttl(&t, &ControllerKey::AccountMeta(*id));
@@ -196,8 +197,8 @@ proptest! {
             }
         }
 
-        // Capture pre-TTL for each pool (will be the default instance TTL
-        // applied at deploy time).
+        // Capture pre-TTL for each pool (the default instance TTL applied
+        // at deploy time).
         let mut pre: std::vec::Vec<(String, u32, Address)> = std::vec::Vec::new();
         for name in &chosen {
             let pool = t.resolve_market(name).pool.clone();
@@ -222,14 +223,15 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 4: M-14 regression -- after a full withdraw, no orphan SupplyPosition
-// entry must remain, and AccountMeta.supply_assets must not contain the asset.
+// Property 4: M-14 regression -- after a full withdraw, no orphan
+// SupplyPosition entry may remain, and AccountMeta.supply_assets must not
+// contain the asset.
 //
-// M-14 was reported "FIXED" at the pool level; this property verifies the fix
-// also holds at the controller storage layer (where `bump_account` iterates
-// `meta.supply_assets`). If an orphan exists, a future keepalive call will
-// silently skip it (it's not in the meta list) AND the key is still persisted
-// -- meaning the entry expires and breaks invariants.
+// M-14 was reported "FIXED" at the pool level; this property verifies the
+// fix also holds at the controller storage layer (where `bump_account`
+// iterates `meta.supply_assets`). If an orphan exists, a future keepalive
+// call silently skips it (the meta list omits it) AND the key remains
+// persisted — so the entry expires and breaks invariants.
 // ---------------------------------------------------------------------------
 
 proptest! {
@@ -250,7 +252,7 @@ proptest! {
         t.supply(user, asset, supply_amt as f64);
         let id = t.find_account_id(user).unwrap();
 
-        // A handful of partial withdraws.
+        // A handful of partial withdrawals.
         for i in 0..num_partials as usize {
             let bps = partial_bps.get(i).copied().unwrap_or(5000);
             let cur = t.supply_balance_raw(user, asset);
@@ -269,13 +271,13 @@ proptest! {
             v.push_back((asset_addr.clone(), 0i128));
             v
         };
-        // Full withdraw may return an error if the account was already pruned;
-        // the key assertion is the post-state.
+        // The full withdraw may return an error if the account was already
+        // pruned; the key assertion is the post-state.
         let _ = t.ctrl_client().try_withdraw(&addr, &id, &withdrawals);
 
         // (a) No orphan SupplyPosition key left.
         let orphan_key = ControllerKey::SupplyPosition(id, asset_addr.clone());
-        // When the account was fully pruned the AccountMeta is also gone;
+        // When the account is fully pruned, the AccountMeta is also gone;
         // in that case the supply key must likewise be gone.
         let has_orphan = persistent_has(&t, &orphan_key);
         prop_assert!(

@@ -1,8 +1,8 @@
 //! Contract-level property test: failed-op atomicity (cache Drop correctness).
 //!
 //! Invariant: when an op reverts, observable pool state for the calling user
-//! must be unchanged. Indexes may advance (global_sync is a separate concern)
-//! but reserves and user balances must not drift.
+//! must remain unchanged. Indexes may advance (global_sync is a separate
+//! concern), but reserves and user balances must not drift.
 
 use proptest::prelude::*;
 use soroban_sdk::Vec;
@@ -49,9 +49,10 @@ proptest! {
                 "USDC reserves drifted on failed borrow: {} -> {}",
                 reserves_before, reserves_after
             );
-            // On a failed borrow, the user's USDC supply balance must be EXACTLY
-            // unchanged (allowing ≤1 raw asset unit for half-up rounding).
-            // A looser `>=` check would silently hide a mint bug where supply grows.
+            // On a failed borrow, the user's USDC supply balance must stay
+            // EXACTLY unchanged (allowing ≤1 raw asset unit for half-up
+            // rounding). A looser `>=` check would silently hide a mint bug
+            // that grows the supply.
             let supply_diff = (supply_balance_after - supply_balance_before).abs();
             prop_assert!(
                 supply_diff <= 1,

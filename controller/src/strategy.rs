@@ -49,48 +49,49 @@ pub fn process_multiply(
     initial_payment: Option<(Address, i128)>,
     convert_steps: Option<SwapSteps>,
 ) -> u64 {
-    // 1. Auth + pause + flash loan guard
+    // 1. Auth, pause, and flash-loan guard.
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
-    // 2. Verify collateral != debt
+    // 2. Collateral and debt must differ.
     if collateral_token == debt_token {
         panic_with_error!(env, GenericError::AssetsAreTheSame);
     }
 
-    // 3. Verify mode is a leveraged strategy mode, not a plain account.
+    // 3. The mode must be a leveraged strategy, not a plain account.
     if mode == PositionMode::Normal {
         panic_with_error!(env, CollateralError::InvalidPositionMode);
     }
 
-    // 4. Validate amounts
+    // 4. Validate amounts.
     validation::require_amount_positive(env, debt_to_flash_loan);
-    // M-10 defense-in-depth: reject `amount_out_min <= 0` at entry. Downstream
-    // `require_amount_positive` would still catch a zero-output swap, but an
-    // explicit entry check fails fast and prevents a malicious router from
-    // ever observing a zero-floor swap request.
+    // M-10 defense-in-depth: reject `amount_out_min <= 0` at entry. The
+    // downstream `require_amount_positive` would still catch a zero-output
+    // swap, but an explicit entry check fails fast and prevents a malicious
+    // router from ever observing a zero-floor swap request.
     validation::require_amount_positive(env, steps.amount_out_min);
 
-    // 5. Handle initial payment if provided
+    // 5. Handle the initial payment when provided.
     let mut collateral_amount: i128 = 0;
     let mut debt_extra: i128 = 0;
     if let Some((payment_token, payment_amount)) = &initial_payment {
         validation::require_amount_positive(env, *payment_amount);
 
-        // Transfer payment tokens from caller to controller
+        // Transfer payment tokens from caller to controller.
         let payment_tok = soroban_sdk::token::Client::new(env, payment_token);
         payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
 
         if *payment_token == *collateral_token {
-            // Case 1: Payment IS collateral -- add directly
+            // Case 1: payment IS collateral; add directly.
             collateral_amount = *payment_amount;
         } else if *payment_token == *debt_token {
-            // Case 2: Payment IS debt token -- add to swap amount (increases leverage)
-            // This will be combined with flash-loaned debt and swapped to collateral
+            // Case 2: payment IS debt token; add to the swap amount
+            // (increasing leverage). Combined with flash-loaned debt and
+            // swapped to collateral.
             debt_extra = *payment_amount;
         } else {
-            // Case 3: Third token -- swap to collateral via convert_steps
+            // Case 3: third token; swap to collateral via convert_steps.
             let convert = match convert_steps {
                 Some(steps) => steps,
                 None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
@@ -107,15 +108,15 @@ pub fn process_multiply(
 
     let is_new_account = account_id == 0;
 
-    let mut cache = ControllerCache::new(env, false); // strategy involves borrows (risk-increasing)
+    let mut cache = ControllerCache::new(env, false); // Strategy borrows are risk-increasing.
 
-    // Validate collateral asset is collateralizable
+    // The collateral asset must be collateralizable.
     let collateral_config = cache.cached_asset_config(collateral_token);
     if !collateral_config.is_collateralizable {
         panic_with_error!(env, CollateralError::NotCollateral);
     }
 
-    // 6. Create or reuse account with correct isolation state
+    // 6. Create or reuse the account with the correct isolation state.
     let (account_id, mut account) = if is_new_account {
         let is_isolated = collateral_config.is_isolated_asset;
         let isolated_asset = if is_isolated {
@@ -133,14 +134,14 @@ pub fn process_multiply(
         );
         (new_id, storage::get_account(env, new_id))
     } else {
-        // Load existing account
+        // Load the existing account.
         let existing = storage::get_account(env, account_id);
-        // The caller was already authenticated at entry. Reused accounts only
-        // need an ownership check here to avoid requiring the same auth twice.
+        // The caller was already authenticated at entry. Reused accounts
+        // need only an ownership check here to avoid requiring the same auth twice.
         if existing.owner != *caller {
             panic_with_error!(env, GenericError::AccountNotInMarket);
         }
-        // Mode check for existing accounts
+        // Mode check for existing accounts.
         if existing.mode != mode {
             panic_with_error!(env, GenericError::AccountModeMismatch);
         }
@@ -162,8 +163,8 @@ pub fn process_multiply(
         caller,
     );
 
-    // 12. Swap debt tokens -> collateral tokens via swap router
-    //     Include any extra debt tokens from initial payment (Case 2)
+    // 12. Swap debt tokens -> collateral tokens via the swap router.
+    //     Include any extra debt tokens from the initial payment (Case 2).
     let swapped_collateral = swap_tokens(
         env,
         debt_token,
@@ -172,11 +173,11 @@ pub fn process_multiply(
         steps,
     );
 
-    // 13. Total collateral = initial + swapped
+    // 13. total_collateral = initial + swapped.
     let total_collateral = collateral_amount + swapped_collateral;
 
-    // 14. Deposit collateral into pool via the shared deposit pipeline.
-    // Handles e-mode, supply caps, risk parameters, and transfers.
+    // 14. Deposit collateral into the pool via the shared deposit pipeline.
+    // It handles e-mode, supply caps, risk parameters, and transfers.
     let mut deposit_assets = Vec::new(env);
     deposit_assets.push_back((collateral_token.clone(), total_collateral));
     supply::process_deposit(
@@ -188,10 +189,11 @@ pub fn process_multiply(
         &mut cache,
     );
 
-    // 16. Finalize strategy: write/cleanup account, validate HF and position limits, and flush cache
+    // 16. Finalize the strategy: write or clean up the account, validate HF
+    // and position limits, and flush the cache.
     strategy_finalize(env, account_id, &mut account, &mut cache);
 
-    // 17. Emit initial multiply payment event
+    // 17. Emit the initial multiply payment event.
     if let Some((payment_token, payment_amount)) = initial_payment {
         let feed = cache.cached_price(&payment_token);
         let amount_wad = Wad::from_token(payment_amount, feed.asset_decimals);
@@ -223,29 +225,29 @@ pub fn process_swap_debt(
     new_debt_token: &Address,
     steps: &SwapSteps,
 ) {
-    // 1. Auth + pause + flash loan guard
+    // 1. Pause and flash-loan guard (auth deferred to caller).
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
-    // 2. Verify tokens are different
+    // 2. Tokens must differ.
     if existing_debt_token == new_debt_token {
         panic_with_error!(env, GenericError::AssetsAreTheSame);
     }
 
-    // Load account once — single storage read
+    // Single storage read for the account.
     let mut account = storage::get_account(env, account_id);
-    // Owner check
+    // Owner check.
     validation::require_account_owner(env, &account, caller);
 
-    let mut cache = ControllerCache::new(env, false); // strategy involves borrows (risk-increasing)
+    let mut cache = ControllerCache::new(env, false); // Strategy borrows are risk-increasing.
 
     validation::require_amount_positive(env, new_debt_amount);
     // M-10 defense-in-depth: reject `amount_out_min <= 0` at entry.
     validation::require_amount_positive(env, steps.amount_out_min);
 
-    // Block swap_debt entirely if either side is siloed. swap_debt holds both
-    // the old and new debt positions simultaneously (new is borrowed before
-    // old is repaid), which violates the siloed-borrow invariant. Matches MVX
+    // Block swap_debt entirely if either side is siloed. swap_debt holds the
+    // old and new debt positions at once (new is borrowed before old is
+    // repaid), which violates the siloed-borrow invariant. Matches MVX
     // `ERROR_SWAP_DEBT_NOT_SUPPORTED` guard.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);
     let mut new_debt_config = cache.cached_asset_config(new_debt_token);
@@ -272,7 +274,7 @@ pub fn process_swap_debt(
         caller,
     );
 
-    // 6. Swap new debt -> existing debt via router (use net amount after fee)
+    // 6. Swap new debt -> existing debt via the router (use the net amount after fee).
     let swapped_amount = swap_tokens(
         env,
         new_debt_token,
@@ -281,7 +283,8 @@ pub fn process_swap_debt(
         steps,
     );
 
-    // 7. Repay existing debt via shared repay path (handles isolated debt + position update)
+    // 7. Repay existing debt via the shared repay path; it handles isolated
+    // debt and the position update.
     let existing_pool_addr = cache.cached_pool_address(existing_debt_token);
     let existing_feed = cache.cached_price(existing_debt_token);
 
@@ -290,7 +293,7 @@ pub fn process_swap_debt(
         .get(existing_debt_token.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
 
-    // Transfer swapped tokens from controller to existing debt pool
+    // Transfer swapped tokens from controller to existing debt pool.
     let existing_tok = soroban_sdk::token::Client::new(env, existing_debt_token);
     existing_tok.transfer(
         &env.current_contract_address(),
@@ -300,7 +303,7 @@ pub fn process_swap_debt(
 
     let controller_balance_before_repay = existing_tok.balance(&env.current_contract_address());
 
-    // Route through shared repay path: pool.repay + position update + isolated debt adjustment
+    // Route through the shared repay path: pool.repay + position update + isolated debt adjustment.
     repay::execute_repayment(
         env,
         &mut account,
@@ -311,8 +314,8 @@ pub fn process_swap_debt(
         &mut cache,
     );
 
-    // Refund any favorable swap slippage (overpayment) back to the caller.
-    // Pool.repay refunds excess to the controller; relay it to the user.
+    // Refund any favorable swap slippage (overpayment) to the caller.
+    // pool.repay refunds excess to the controller; relay it to the user.
     let controller_balance_after_repay = existing_tok.balance(&env.current_contract_address());
     let repay_excess =
         controller_balance_after_repay.saturating_sub(controller_balance_before_repay);
@@ -320,10 +323,10 @@ pub fn process_swap_debt(
         existing_tok.transfer(&env.current_contract_address(), caller, &repay_excess);
     }
 
-    // 8. Write account to storage, clean price cache after swap, and validate HF
-    // (new borrow position was persisted inside handle_create_borrow_strategy;
-    // execute_repayment already handled the existing debt position).
-    // 8. Finalize strategy
+    // 8. Finalize the strategy. The new borrow position was persisted inside
+    // handle_create_borrow_strategy; execute_repayment handled the existing
+    // debt position. strategy_finalize writes the account, cleans the price
+    // cache, and validates HF.
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
@@ -340,29 +343,29 @@ pub fn process_swap_collateral(
     new_collateral: &Address,
     steps: &SwapSteps,
 ) {
-    // 1. Auth + pause + flash loan guard
+    // 1. Pause and flash-loan guard.
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
-    // 2. Verify tokens are different
+    // 2. Tokens must differ.
     if current_collateral == new_collateral {
         panic_with_error!(env, GenericError::AssetsAreTheSame);
     }
 
-    // Load account once — single storage read
+    // Single storage read for the account.
     let mut account = storage::get_account(env, account_id);
-    // Owner check
+    // Owner check.
     validation::require_account_owner(env, &account, caller);
 
-    // 3. Verify not an isolated account
+    // 3. Reject isolated accounts.
     if account.is_isolated {
         panic_with_error!(env, FlashLoanError::SwapCollateralNoIso);
     }
 
     // Allow unsafe price when the account has no outstanding borrows. A debt-
-    // free collateral swap is risk-neutral — the user cannot be liquidated,
-    // so we don't need the tightest oracle tolerance. Matches MVX
-    // controller/src/strategy.rs:314 which uses the same flag.
+    // free collateral swap is risk-neutral; the user cannot be liquidated,
+    // so the tightest oracle tolerance is unnecessary. Matches MVX
+    // controller/src/strategy.rs:314, which uses the same flag.
     let allow_unsafe_price = account.borrow_positions.is_empty();
     let mut cache = ControllerCache::new(env, allow_unsafe_price);
 
@@ -370,10 +373,10 @@ pub fn process_swap_collateral(
     // M-10 defense-in-depth: reject `amount_out_min <= 0` at entry.
     validation::require_amount_positive(env, steps.amount_out_min);
 
-    // Pre-flight validation: check new collateral compatibility before the swap
+    // Pre-flight validation: check new collateral compatibility before the swap.
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 
-    // 5-6. Withdraw current collateral (to controller)
+    // 5-6. Withdraw current collateral to the controller.
     let current_feed = cache.cached_price(current_collateral);
 
     let current_pos = account
@@ -381,9 +384,9 @@ pub fn process_swap_collateral(
         .get(current_collateral.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound));
 
-    // Capture the controller's balance before withdrawal so we can compute the
+    // Capture the controller's balance before withdrawal to compute the
     // actual amount received. Pools may deliver slightly less than requested
-    // (rounding, dust floors, reserve caps), and using the requested figure as
+    // (rounding, dust floors, reserve caps); using the requested figure as
     // the swap input would leak dust or over-approve the aggregator.
     let current_tok_client = soroban_sdk::token::Client::new(env, current_collateral);
     let controller_balance_before_withdraw =
@@ -406,9 +409,9 @@ pub fn process_swap_collateral(
         current_tok_client.balance(&env.current_contract_address());
     let actual_withdrawn = controller_balance_after_withdraw
         .checked_sub(controller_balance_before_withdraw)
-        .expect("withdrawal decreased controller balance");
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
 
-    // 7. Swap current collateral -> new collateral via router (use actual received)
+    // 7. Swap current collateral -> new collateral via the router (use the actual received amount).
     let swapped_amount = swap_tokens(
         env,
         current_collateral,
@@ -417,8 +420,8 @@ pub fn process_swap_collateral(
         steps,
     );
 
-    // 8. Deposit new collateral into pool via the shared deposit pipeline.
-    // Handles e-mode, supply caps, risk parameters, and transfers.
+    // 8. Deposit new collateral into the pool via the shared deposit pipeline.
+    // It handles e-mode, supply caps, risk parameters, and transfers.
     let mut deposit_assets = Vec::new(env);
     deposit_assets.push_back((new_collateral.clone(), swapped_amount));
     supply::process_deposit(
@@ -430,8 +433,8 @@ pub fn process_swap_collateral(
         &mut cache,
     );
 
-    // 10. Write account, clean price cache after swap, and validate HF
-    // 10. Finalize strategy
+    // 10. Finalize the strategy: write account, clean the price cache after
+    // the swap, and validate HF.
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
@@ -451,12 +454,12 @@ fn swap_tokens(
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
-    // Snapshot controller balances on both sides before any approvals so we
-    // can verify exact spend + received amounts against a misbehaving router.
+    // Snapshot controller balances on both sides before any approvals to
+    // verify exact spend and received amounts against a misbehaving router.
     let balance_in_before = token_in_client.balance(&env.current_contract_address());
     let balance_out_before = token_out_client.balance(&env.current_contract_address());
 
-    // Approve router to pull token_in from controller
+    // Approve the router to pull token_in from the controller.
     token_in_client.approve(
         &env.current_contract_address(),
         &router_addr,
@@ -464,7 +467,13 @@ fn swap_tokens(
         &(env.ledger().sequence() + 200),
     );
 
-    // Execute swap via aggregator
+    // Block re-entry from a misbehaving aggregator callback into any
+    // mutating controller endpoint by reusing the flash-loan-ongoing flag
+    // (every mutator's `require_not_flash_loaning` then panics).
+    // The flag is FALSE on entry; strategies do not run inside flash loans.
+    storage::set_flash_loan_ongoing(env, true);
+
+    // Execute the swap via the aggregator.
     let _ = router.swap_exact_tokens_for_tokens(
         token_in,
         token_out,
@@ -475,8 +484,10 @@ fn swap_tokens(
         &(env.ledger().timestamp() + 3600),
     );
 
-    // Verify exact input spend. A well-behaved router must pull at most
-    // `amount_in` and must not return tokens (balance going UP). Either
+    storage::set_flash_loan_ongoing(env, false);
+
+    // Verify the exact input spend. A well-behaved router pulls at most
+    // `amount_in` and never returns tokens (balance going UP). Either
     // direction of misbehavior is an internal error.
     let balance_in_after = token_in_client.balance(&env.current_contract_address());
     if balance_in_after > balance_in_before {
@@ -487,16 +498,27 @@ fn swap_tokens(
         panic_with_error!(env, GenericError::InternalError);
     }
 
-    // Zero any residual allowance so a compromised/lazy router cannot pull
-    // additional funds after the swap returns.
+    // Zero any residual allowance so a compromised or lazy router cannot
+    // pull additional funds after the swap returns.
     token_in_client.approve(&env.current_contract_address(), &router_addr, &0, &0);
 
     // Received must be non-negative. A decrease is impossible from a sane
-    // token contract and indicates aggregator/token misbehavior.
+    // token contract and indicates aggregator or token misbehavior.
     let balance_out_after = token_out_client.balance(&env.current_contract_address());
-    balance_out_after
+    let received = balance_out_after
         .checked_sub(balance_out_before)
-        .expect("swap output went down")
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+
+    // Defense-in-depth: enforce the slippage minimum at the controller, not
+    // only at the aggregator. A misbehaving router that ignores its own
+    // `amount_out_min` parameter would otherwise silently shortchange the
+    // caller. Strategy entrypoints already reject `amount_out_min <= 0`
+    // (M-10), so this is a strict positive lower bound.
+    if received < steps.amount_out_min {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+
+    received
 }
 
 // ---------------------------------------------------------------------------
@@ -513,7 +535,7 @@ pub fn process_repay_debt_with_collateral(
     steps: &SwapSteps,
     close_position: bool,
 ) {
-    // 1. Auth + pause + flash loan guard
+    // 1. Pause and flash-loan guard.
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
     validation::require_amount_positive(env, collateral_amount);
@@ -523,23 +545,24 @@ pub fn process_repay_debt_with_collateral(
         validation::require_amount_positive(env, steps.amount_out_min);
     }
 
-    // Same-asset flow is INTENTIONALLY allowed here, unlike `multiply` and
-    // `swap_debt` / `swap_collateral` where it would be meaningless. Users
-    // with collateral and debt in the same asset (e.g. USDC/USDC self-
-    // collateralized positions common in stablecoin strategies) can net the
-    // two atomically. The swap router is skipped. Matches the MultiversX
-    // reference (`convert_token_from_to` short-circuit when tokens match).
+    // The same-asset flow is INTENTIONALLY allowed here, unlike `multiply`
+    // and `swap_debt` / `swap_collateral`, where it would be meaningless.
+    // Users with collateral and debt in the same asset (e.g., USDC/USDC
+    // self-collateralized positions common in stablecoin strategies) can
+    // net the two atomically. The swap router is skipped. Matches the
+    // MultiversX reference (`convert_token_from_to` short-circuit when
+    // tokens match).
 
-    // Load account once — single storage read
+    // Single storage read for the account.
     let mut account = storage::get_account(env, account_id);
-    // Owner check
+    // Owner check.
     validation::require_account_owner(env, &account, caller);
 
     let mut cache = ControllerCache::new(env, false);
 
     // 2. Validate both positions exist BEFORE moving any tokens. A missing
     // debt position must surface as `DebtPositionNotFound (120)` cleanly,
-    // not as a host panic on a later transfer. Same for collateral.
+    // not as a host panic on a later transfer. The same applies to collateral.
     let collateral_pos = account
         .supply_positions
         .get(collateral_token.clone())
@@ -551,8 +574,8 @@ pub fn process_repay_debt_with_collateral(
 
     let collateral_feed = cache.cached_price(collateral_token);
 
-    // 3. Withdraw collateral (to controller). Snapshot balance so we can
-    // pass the ACTUAL withdrawn amount into the swap — pools may deliver
+    // 3. Withdraw collateral to the controller. Snapshot the balance to
+    // pass the ACTUAL withdrawn amount into the swap; pools may deliver
     // slightly less than requested (rounding, dust floors). Mirrors the
     // M-11 fix in `process_swap_collateral`.
     let collateral_tok_client = soroban_sdk::token::Client::new(env, collateral_token);
@@ -576,10 +599,10 @@ pub fn process_repay_debt_with_collateral(
         collateral_tok_client.balance(&env.current_contract_address());
     let actual_withdrawn = controller_balance_after_withdraw
         .checked_sub(controller_balance_before_withdraw)
-        .expect("withdrawal decreased controller balance");
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
 
     // 4. Convert withdrawn collateral -> debt token. When the two are the
-    // same asset, no swap is needed — the withdrawn amount IS the debt
+    // same asset, no swap is needed; the withdrawn amount IS the debt
     // token amount. Skipping the router saves the swap fee, avoids
     // slippage, and lets self-collateralized positions net out atomically.
     let swapped_debt = if collateral_token == debt_token {
@@ -588,7 +611,7 @@ pub fn process_repay_debt_with_collateral(
         swap_tokens(env, collateral_token, actual_withdrawn, debt_token, steps)
     };
 
-    // 5. Transfer swapped tokens to debt pool and repay
+    // 5. Transfer swapped tokens to the debt pool and repay.
     let debt_pool_addr = cache.cached_pool_address(debt_token);
     let debt_feed = cache.cached_price(debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, debt_token);
@@ -600,7 +623,7 @@ pub fn process_repay_debt_with_collateral(
 
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
-    // Route through shared repay path for isolated debt handling
+    // Route through the shared repay path for isolated debt handling.
     repay::execute_repayment(
         env,
         &mut account,
@@ -611,7 +634,7 @@ pub fn process_repay_debt_with_collateral(
         &mut cache,
     );
 
-    // Refund excess to caller
+    // Refund excess to the caller.
     let controller_balance_after_repay = debt_tok.balance(&env.current_contract_address());
     let repay_excess =
         controller_balance_after_repay.saturating_sub(controller_balance_before_repay);
@@ -619,7 +642,7 @@ pub fn process_repay_debt_with_collateral(
         debt_tok.transfer(&env.current_contract_address(), caller, &repay_excess);
     }
 
-    // 5. HF check
+    // 5. HF check.
     let has_borrows = !account.borrow_positions.is_empty();
     if has_borrows {
         cache.clean_prices_cache();
@@ -634,17 +657,17 @@ pub fn process_repay_debt_with_collateral(
         }
     }
 
-    // 6. Close position: withdraw all remaining collateral and remove account
+    // 6. Close the position: withdraw all remaining collateral and remove the account.
     if close_position {
         if has_borrows {
             panic_with_error!(env, CollateralError::CannotCloseWithRemainingDebt);
         }
 
-        // 6. Close position: withdraw all remaining collateral and remove account
         execute_withdraw_all(env, account_id, &mut account, caller, &mut cache);
     }
 
-    // 7. Finalize strategy (handles the storage::set_account vs utils::remove_account logic)
+    // 7. Finalize the strategy. Handles the storage::set_account vs.
+    // utils::remove_account logic.
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
@@ -658,15 +681,15 @@ pub fn strategy_finalize(
     account: &mut Account,
     cache: &mut ControllerCache,
 ) {
-    // 1. Storage write or removal. If the strategy closed all legs (e.g. swap collateral),
-    // remove the account to keep storage clean.
+    // 1. Storage write or removal. When the strategy closed all legs
+    // (e.g., swap collateral), remove the account to keep storage clean.
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {
         storage::set_account(env, account_id, account);
     }
 
-    // 2. Final security checks (re-check HF after potential market moves or leverage)
+    // 2. Final security checks: re-check HF after potential market moves or leverage.
     cache.clean_prices_cache();
     if !account.borrow_positions.is_empty() {
         let hf = helpers::calculate_health_factor(
@@ -680,10 +703,10 @@ pub fn strategy_finalize(
         }
     }
 
-    // 3. Post-trade invariant: check total borrow legs (strategies may open new legs)
+    // 3. Post-trade invariant: check total borrow legs; strategies may open new legs.
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_BORROW, &Vec::new(env));
 
-    // 4. Persistence: commit all isolated-debt updates
+    // 4. Persistence: commit all isolated-debt updates.
     cache.flush_isolated_debts();
 }
 
@@ -694,7 +717,7 @@ pub fn execute_withdraw_all(
     destination: &Address,
     cache: &mut ControllerCache,
 ) {
-    // Collect keys to avoid borrowing issues during mutation
+    // Collect keys to avoid borrowing issues during mutation.
     let deposit_keys: Vec<Address> = account.supply_positions.keys();
     for i in 0..deposit_keys.len() {
         let asset = deposit_keys.get(i).unwrap();
@@ -728,12 +751,12 @@ pub fn validate_swap_new_collateral_preflight(
 ) {
     let mut config = cache.cached_asset_config(new_collateral);
     if config.is_isolated_asset {
-        // swap_collateral is generally non-isolated positions only.
+        // swap_collateral generally serves non-isolated positions only.
         // Isolated accounts use repayDebtWithCollateral to deleverage.
         panic_with_error!(env, common::errors::EModeError::MixIsolatedCollateral);
     }
 
-    // E-mode category application
+    // Apply the e-mode category.
     let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
     let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, new_collateral);
     emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
@@ -744,7 +767,7 @@ pub fn validate_swap_new_collateral_preflight(
         panic_with_error!(env, common::errors::CollateralError::NotCollateral);
     }
 
-    // Extra pre-flight: check DEPOSIT position limits if destination is a new asset
+    // Extra pre-flight: check DEPOSIT position limits when the destination is a new asset.
     if !account
         .supply_positions
         .contains_key(new_collateral.clone())

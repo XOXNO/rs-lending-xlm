@@ -352,6 +352,14 @@ impl LendingTestBuilder {
         let controller_address = env.register(controller::Controller, (admin.clone(),));
         let ctrl = controller::ControllerClient::new(&env, &controller_address);
 
+        // M-03 + M-02: post-construct hardening that the operator runbook
+        // performs on real deployments. Constructor pauses and grants only
+        // KEEPER. We mirror the post-deploy steps here so the test harness
+        // reflects a real "ready to use" deployment.
+        ctrl.unpause();
+        ctrl.grant_role(&admin, &Symbol::new(&env, "REVENUE"));
+        ctrl.grant_role(&admin, &Symbol::new(&env, "ORACLE"));
+
         // Upload and set pool template
         let pool_wasm_path = "target/wasm32v1-none/release/pool.wasm".to_string();
         // Since tests run from various workspace roots, we try a few relative paths
@@ -373,6 +381,14 @@ impl LendingTestBuilder {
 
         // Set aggregator in controller
         ctrl.set_aggregator(&aggregator_address);
+
+        // L-05: set accumulator BEFORE any create_liquidity_pool call so
+        // the pool can store it at construction. set_accumulator requires
+        // a contract address; reuse the mock aggregator's contract to
+        // satisfy the WASM-executable check (it never receives meaningful
+        // calls in this role).
+        let accumulator = aggregator_address.clone();
+        ctrl.set_accumulator(&accumulator);
 
         // Create keeper and grant KEEPER role
         let keeper = Address::generate(&env);
@@ -424,6 +440,7 @@ impl LendingTestBuilder {
                     cex_symbol: Symbol::new(&env, ""),
                     dex_oracle: None,
                     dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    dex_symbol: Symbol::new(&env, ""),
                     twap_records: 3,
                 };
                 ctrl.configure_market_oracle(&admin, &asset_address, &oracle_cfg);

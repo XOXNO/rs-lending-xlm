@@ -1,34 +1,33 @@
 //! Contract-level property test: admin / role auth matrix.
 //!
-//! Motivation: Codex audit C-01 flagged `edit_e_mode_category` as missing the
+//! Codex audit C-01 flagged `edit_e_mode_category` as missing the
 //! `#[only_owner]` gate. This harness enumerates every privileged controller
 //! endpoint and verifies that calling it **without** the required auth
-//! (achieved via `ControllerClient::set_auths(&[])` — i.e. no signed auth in
-//! the env) is rejected at the host layer.
+//! (via `ControllerClient::set_auths(&[])` — no signed auth in the env)
+//! fails at the host layer.
 //!
-//! Semantics reminder:
+//! Semantics:
 //!   * `LendingTest::build()` calls `env.mock_all_auths()` so normal tests
-//!     succeed. We bypass that mock **per-call** with `set_auths(&[])` which
-//!     requires a real signature — none exists → the host aborts.
+//!     succeed. `set_auths(&[])` bypasses that mock **per-call** and demands
+//!     a real signature — none exists, so the host aborts.
 //!   * `try_<method>` on the generated client returns
 //!     `Result<Result<Ret, ContractErr>, Result<Err, InvokeError>>`.
-//!     An **outer Err** means host-level rejection (auth failure / panic).
-//!     An **outer Ok** (whether inner Ok or Err) means the endpoint body
-//!     executed past the auth gate. That indicates a **missing gate** —
-//!     a C-01-class bug.
+//!     An **outer Err** signals host-level rejection (auth failure / panic).
+//!     An **outer Ok** (inner Ok or Err) means the endpoint body ran past
+//!     the auth gate — a **missing gate**, a C-01-class bug.
 //!
-//! Fuzzed over 64 random inputs per endpoint (role string / asset / amount
-//! parameters), each combined with a random caller address that has no role
-//! and is not the contract owner.
+//! Each endpoint runs against 64 random inputs (role string / asset / amount),
+//! paired with a random caller address that holds no role and does not own
+//! the contract.
 
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Symbol, Vec as SVec};
 use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest};
 
-/// Run `call` with auth mocking disabled and assert it is rejected at the
-/// host layer (outer `Err`). Returns `Ok(())` on correct rejection, `Err(msg)`
-/// if the auth gate is missing.
+/// Run `call` with auth mocking disabled and assert host-layer rejection
+/// (outer `Err`). Returns `Ok(())` on correct rejection, `Err(msg)` if the
+/// auth gate is missing.
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where
     F: FnOnce() -> Result<Result<R, InnerErr>, OuterErr>,
@@ -57,7 +56,7 @@ fn build_ctx() -> LendingTest {
 }
 
 // Blanket AssetConfig + MarketOracleConfigInput builders with plausible shapes.
-// Values don't need to be valid — the auth gate should reject before body runs.
+// Values need not be valid — the auth gate must reject before the body runs.
 fn sample_asset_config() -> common::types::AssetConfig {
     common::types::AssetConfig {
         loan_to_value_bps: 7500,
@@ -89,6 +88,7 @@ fn sample_oracle_cfg(t: &LendingTest) -> common::types::MarketOracleConfigInput 
         cex_symbol: Symbol::new(&t.env, ""),
         dex_oracle: None,
         dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+        dex_symbol: Symbol::new(&t.env, ""),
         twap_records: 3,
     }
 }
@@ -297,9 +297,9 @@ proptest! {
 
     // ---- Cross-role rejection: KEEPER role cannot call ORACLE endpoints ----
     //
-    // We grant the random caller the WRONG role, mock auths for THAT address
-    // only, then try to call endpoints gated on a different role. Host auth
-    // accepts the caller's `require_auth`, but the contract-level role check
+    // Grant the random caller the WRONG role, mock auths for THAT address
+    // only, then call endpoints gated on a different role. Host auth accepts
+    // the caller's `require_auth`, but the contract-level role check
     // (only_role) must reject.
 
     #[test]
@@ -316,16 +316,16 @@ proptest! {
         let usdc = t.resolve_asset("USDC");
         let empty_assets: SVec<Address> = SVec::new(&env);
 
-        // Grant a fresh address only the KEEPER role. The admin has all three
+        // Grant a fresh address only the KEEPER role. The admin holds all three
         // roles from the constructor; `ctrl.grant_role` calls under
         // `mock_all_auths` work because the env already mocks admin's auth.
         let keeper_only = Address::generate(&env);
-        // `grant_role` needs a role Symbol; use the low-level client method.
+        // `grant_role` needs a role Symbol; call the low-level client method.
         ctrl.grant_role(&keeper_only, &Symbol::new(&env, "KEEPER"));
 
-        // only_role macros do `require_auth(caller)` THEN check the role, so
-        // we must provide a valid MockAuth for `keeper_only`. The role check
-        // then fails because `keeper_only` does NOT hold REVENUE / ORACLE.
+        // only_role macros run `require_auth(caller)` first, then check the
+        // role, so we must provide a valid MockAuth for `keeper_only`. The
+        // role check then fails because `keeper_only` lacks REVENUE / ORACLE.
         let args_rev: soroban_sdk::Vec<soroban_sdk::Val> =
             (keeper_only.clone(), empty_assets.clone()).into_val(&env);
         let invoke_rev = MockAuthInvoke {

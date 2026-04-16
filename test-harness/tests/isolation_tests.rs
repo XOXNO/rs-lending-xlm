@@ -67,7 +67,7 @@ fn test_isolated_rejects_second_collateral() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0);
 
-    // Try to supply USDC as second collateral in isolated account
+    // Try to supply USDC as a second collateral in an isolated account.
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
@@ -82,7 +82,7 @@ fn test_isolated_borrow_enabled_asset() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0); // ~$10,000
 
-    // USDC has isolation_borrow_enabled = true
+    // USDC has isolation_borrow_enabled = true.
     t.borrow(ALICE, "USDC", 5_000.0);
     t.assert_position_exists(ALICE, "USDC", PositionType::Borrow);
     t.assert_healthy(ALICE);
@@ -98,7 +98,7 @@ fn test_isolated_borrow_disabled_asset() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0);
 
-    // WBTC has isolation_borrow_enabled = false
+    // WBTC has isolation_borrow_enabled = false.
     let result = t.try_borrow(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
 }
@@ -109,7 +109,7 @@ fn test_isolated_borrow_disabled_asset() {
 
 #[test]
 fn test_isolated_debt_ceiling_enforced() {
-    // Use a very small ceiling
+    // Use a very small ceiling.
     let small_ceiling: i128 = 5_000 * 1_000_000_000_000_000_000; // $5000 WAD
     let mut t = LendingTest::new()
         .with_market(eth_preset())
@@ -126,7 +126,7 @@ fn test_isolated_debt_ceiling_enforced() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0); // ~$10,000
 
-    // Try to borrow beyond ceiling ($5000)
+    // Try to borrow beyond the $5000 ceiling.
     let result = t.try_borrow(ALICE, "USDC", 6_000.0);
     assert_contract_error(result, errors::DEBT_CEILING_REACHED);
 }
@@ -169,7 +169,7 @@ fn test_isolated_debt_decremented_on_liquidation() {
 
     let debt_before = t.get_isolated_debt("ETH");
 
-    // Make liquidatable by dropping ETH price
+    // Drop ETH price to make Alice liquidatable.
     t.set_price("ETH", usd(500));
     t.assert_liquidatable(ALICE);
 
@@ -201,7 +201,7 @@ fn test_isolated_rejects_emode() {
         .with_emode_asset(1, "USDC", true, true)
         .build();
 
-    // Try to create an account with both e-mode and isolation -- should panic
+    // Creating an account with both e-mode and isolation must panic.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut t2 = t;
         t2.create_account_full(ALICE, 1, common::types::PositionMode::Normal, true);
@@ -242,8 +242,9 @@ fn test_isolated_liquidation_works() {
     t.supply(ALICE, "ETH", 5.0);
     t.borrow(ALICE, "USDC", 5_000.0);
 
-    // Drop ETH price moderately to make mildly liquidatable
-    // At $1000: collateral = $5000, threshold 80% => weighted = $4000, debt = $5000 => HF = 0.8
+    // Drop ETH price moderately to make Alice mildly liquidatable.
+    // At $1000: collateral = $5000, threshold 80% => weighted = $4000,
+    // debt = $5000 => HF = 0.8.
     t.set_price("ETH", usd(1000));
     t.assert_liquidatable(ALICE);
 
@@ -258,7 +259,7 @@ fn test_isolated_liquidation_works() {
         debt_after
     );
 
-    // Liquidator should have received ETH collateral
+    // The liquidator should have received ETH collateral.
     let liq_eth = t.token_balance(LIQUIDATOR, "ETH");
     assert!(liq_eth > 0.0, "liquidator should receive ETH collateral");
 }
@@ -288,16 +289,16 @@ fn test_isolated_bad_debt_clears_isolated_tracker() {
     let iso_debt_before = t.get_isolated_debt("ETH");
     assert!(iso_debt_before > 0, "isolated debt should be tracked");
 
-    // Crash ETH price severely
+    // Crash ETH price severely.
     t.set_price("ETH", usd(50));
     t.assert_liquidatable(ALICE);
 
-    // Liquidate -- bad debt handling should engage for tiny underwater positions
+    // Liquidate -- bad-debt handling must engage for tiny underwater positions.
     t.liquidate(LIQUIDATOR, ALICE, "USDC", 100.0);
 
-    // After liquidation + bad debt cleanup, the account should be removed
-    // (collateral was tiny, so bad debt cleanup socializes the loss).
-    // The isolated debt tracker should be cleared to zero.
+    // After liquidation + bad-debt cleanup, the account is removed
+    // (collateral was tiny, so bad-debt cleanup socializes the loss).
+    // The isolated-debt tracker must be cleared to zero.
     let iso_debt_after = t.get_isolated_debt("ETH");
     assert!(
         iso_debt_after < iso_debt_before,

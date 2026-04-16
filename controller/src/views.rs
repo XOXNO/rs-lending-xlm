@@ -418,9 +418,10 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = self
-                .env
-                .register(pool::LiquidityPool, (self.controller.clone(), params));
+            let pool = self.env.register(
+                pool::LiquidityPool,
+                (self.controller.clone(), params, self.controller.clone()),
+            );
             self.env.as_contract(&pool, || {
                 self.env.storage().instance().set(
                     &common::types::PoolKey::State,
@@ -474,6 +475,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }

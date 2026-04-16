@@ -12,10 +12,10 @@ pub fn create_account(
     is_isolated: bool,
     isolated_asset: Option<Address>,
 ) -> u64 {
-    // Validate: e-mode and isolation are mutually exclusive
+    // E-mode and isolation are mutually exclusive.
     emode::validate_e_mode_isolation_exclusion(env, e_mode_category, is_isolated);
 
-    // Validate: e-mode category must not be deprecated
+    // Reject deprecated e-mode categories.
     let emode_cat = emode::e_mode_category(env, e_mode_category);
     emode::ensure_e_mode_not_deprecated(env, &emode_cat);
 

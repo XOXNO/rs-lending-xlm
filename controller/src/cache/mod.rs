@@ -55,7 +55,7 @@ impl ControllerCache {
             current_timestamp_ms,
             allow_unsafe_price,
             allow_disabled_market_price,
-            simulate: !bump_ttl, // Reverting to safe default to debug test failures
+            simulate: !bump_ttl, // Reverted to safe default to debug test failures.
         }
     }
 
@@ -98,7 +98,7 @@ impl ControllerCache {
 
     // -------------------------------------------------------------------
     // Convenience accessors — delegate to cached_market_config so callers
-    // that only need one field don't have to change.
+    // that need only one field stay unchanged.
     // -------------------------------------------------------------------
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> common::types::AssetConfig {
@@ -162,8 +162,8 @@ impl ControllerCache {
             return v;
         }
         let v = storage::get_isolated_debt(&self.env, asset);
-        // Store in the map so that the value is available for future reads
-        // within the same transaction without a second storage access.
+        // Cache the value so future reads in the same transaction skip
+        // another storage access.
         self.isolated_debts.set(asset.clone(), v);
         v
     }

@@ -6,7 +6,7 @@
 //!   - Zero-price oracle always rejects supply
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
-use stellar_fuzz::{build_min_context, ALICE};
+use stellar_fuzz::{arb_amount, build_min_context, ALICE};
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -17,7 +17,7 @@ struct Input {
 }
 
 fuzz_target!(|inp: Input| {
-    let supply = ((inp.supply_amt % 100_000) + 1_000) as f64;
+    let supply = arb_amount(inp.supply_amt, 1_000.0, 101_000.0);
     let dev = (inp.deviation_bps.min(5_000)) as i128;
 
     let mut t = build_min_context();

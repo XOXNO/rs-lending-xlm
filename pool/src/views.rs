@@ -64,7 +64,7 @@ pub fn protocol_revenue(env: &Env) -> i128 {
     actual_ray.to_asset(params.asset_decimals)
 }
 
-/// Returns total supplied amount in **asset decimals** (user-facing).
+/// Returns the total supplied amount in **asset decimals** (user-facing).
 pub fn supplied_amount(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
@@ -73,7 +73,7 @@ pub fn supplied_amount(env: &Env) -> i128 {
     actual_ray.to_asset(params.asset_decimals)
 }
 
-/// Returns total borrowed amount in **asset decimals** (user-facing).
+/// Returns the total borrowed amount in **asset decimals** (user-facing).
 pub fn borrowed_amount(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
@@ -148,7 +148,8 @@ mod tests {
                 supply_index_ray: 2 * RAY,
                 last_timestamp: 950_000,
             };
-            let contract = env.register(crate::LiquidityPool, (admin, params.clone()));
+            let contract =
+                env.register(crate::LiquidityPool, (admin.clone(), params.clone(), admin));
 
             env.as_contract(&contract, || {
                 env.storage().instance().set(&PoolKey::State, &state);
@@ -179,14 +180,14 @@ mod tests {
             assert_eq!(load_params(&t.env).asset_id, t.asset);
             assert_eq!(load_state(&t.env).supplied_ray, 10 * RAY);
             assert_eq!(reserves(&t.env), 12_345);
-            // Views now return asset decimals (7) instead of RAY
-            // supplied: 10 scaled * 2.0 index = 20.0 → 200_000_000 (7 dec)
+            // Views now return asset decimals (7) instead of RAY.
+            // supplied: 10 scaled * 2.0 index = 20.0 → 200_000_000 (7 dec).
             assert_eq!(supplied_amount(&t.env), 200_000_000);
-            // borrowed: 5 scaled * 3.0 index = 15.0 → 150_000_000 (7 dec)
+            // borrowed: 5 scaled * 3.0 index = 15.0 → 150_000_000 (7 dec).
             assert_eq!(borrowed_amount(&t.env), 150_000_000);
-            // revenue: 3 scaled * 2.0 index = 6.0 → 60_000_000 (7 dec)
+            // revenue: 3 scaled * 2.0 index = 6.0 → 60_000_000 (7 dec).
             assert_eq!(protocol_revenue(&t.env), 60_000_000);
-            // utilization stays in RAY (internal math)
+            // utilization stays in RAY (internal math).
             assert_eq!(capital_utilisation(&t.env), (15 * RAY) / 20);
             assert_eq!(delta_time(&t.env), 50_000);
 

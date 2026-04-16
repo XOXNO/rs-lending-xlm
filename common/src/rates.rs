@@ -14,17 +14,17 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
     let max_rate = Ray::from_raw(params.max_borrow_rate_ray);
 
     let annual_rate = if utilization < mid {
-        // Region 1: below mid utilization
+        // Region 1: below mid utilization.
         let contribution = utilization.mul(env, s1).div(env, mid);
         base + contribution
     } else if utilization < optimal {
-        // Region 2: between mid and optimal utilization
+        // Region 2: between mid and optimal utilization.
         let excess = utilization - mid;
         let range = optimal - mid;
         let contribution = excess.mul(env, s2).div(env, range);
         base + s1 + contribution
     } else {
-        // Region 3: above optimal utilization
+        // Region 3: above optimal utilization.
         let base_rate = base + s1 + s2;
         let excess = utilization - optimal;
         let range = Ray::ONE - optimal;
@@ -32,7 +32,7 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
         base_rate + contribution
     };
 
-    // Cap at max borrow rate, convert from annual to per-millisecond
+    // Cap at max borrow rate; convert annual to per-millisecond.
     let capped = if annual_rate > max_rate {
         max_rate
     } else {
@@ -53,9 +53,9 @@ pub fn calculate_deposit_rate(
 
     // L-01 defense-in-depth: upstream validation rejects reserve_factor >=
     // BPS, but clamp here too so a mis-wired caller cannot produce negative
-    // deposit rates (BPS - reserve_factor goes negative, then multiplying
-    // rate_x_util flips sign and bogus supplier rewards accrue).
-    if reserve_factor_bps < 0 || reserve_factor_bps >= BPS {
+    // deposit rates. Otherwise BPS - reserve_factor goes negative, multiplying
+    // rate_x_util flips sign, and bogus supplier rewards accrue.
+    if !(0..BPS).contains(&reserve_factor_bps) {
         return Ray::ZERO;
     }
 
@@ -69,8 +69,8 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
         return Ray::ONE;
     }
 
-    // x = rate_per_ms * time_ms, both in RAY.
-    // Uses I256 to prevent theoretical overflow for extreme rate * delta_ms products.
+    // x = rate_per_ms * time_ms, both in RAY. I256 prevents theoretical
+    // overflow for extreme rate * delta_ms products.
     let x = Ray::from_raw({
         let r = I256::from_i128(env, rate.raw());
         let d = I256::from_i128(env, delta_ms as i128);
@@ -80,10 +80,10 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
             .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
     });
 
-    // M-08: 8-term Taylor expansion of e^x. Error bound drops from ~1.66% at
-    // x=2 (5 terms) to < 0.01% at x=2 (8 terms), keeping interest accurate
-    // for markets idle up to 2 years at 100% borrow rate. Indexes still
-    // accrue correctly on every user tx; 8 terms is defensive padding for
+    // M-08: 8-term Taylor expansion of e^x. The error bound drops from
+    // ~1.66% at x=2 (5 terms) to < 0.01% at x=2 (8 terms), keeping interest
+    // accurate for markets idle up to 2 years at 100% borrow rate. Indexes
+    // accrue correctly on every user tx; 8 terms pads defensively for
     // markets or keepers that fall behind.
     let x_sq = x.mul(env, x);
     let x_cub = x_sq.mul(env, x);

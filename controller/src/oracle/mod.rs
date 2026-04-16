@@ -17,7 +17,7 @@ use crate::cache::ControllerCache;
 // ---------------------------------------------------------------------------
 
 pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
-    // Transaction-level cache hit
+    // Transaction-level cache hit.
     if let Some(feed) = cache.try_get_price(asset) {
         return feed;
     }
@@ -47,9 +47,9 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
         asset_decimals: config.asset_decimals,
         timestamp: cache.current_timestamp_ms / 1000,
     };
-    // Belt-and-suspenders: per-feed oracle timestamps are checked inside the
-    // fetch helpers via `check_staleness` / `check_not_future`. The feed built
-    // here uses the cache clock, so the future check is trivially satisfied.
+    // Belt and suspenders: the fetch helpers check per-feed oracle timestamps
+    // via `check_staleness` and `check_not_future`. The feed built here uses
+    // the cache clock, so the future check is trivially satisfied.
     check_not_future(cache, feed.timestamp);
 
     cache.set_price(asset, &feed);
@@ -81,19 +81,20 @@ fn normal_price(
 
     match configs.exchange_source {
         ExchangeSource::SpotOnly => {
-            // Dev/test mode: single spot price, no TWAP, no deviation check
+            // Dev/test mode: single spot price, no TWAP, no deviation check.
             cex_spot_price(cache, asset, &market, max_stale)
         },
         ExchangeSource::DualOracle => {
-            // Production Tier 1: CEX TWAP vs Stellar DEX spot cross-validation
-            // DEX unavailability degrades gracefully to TWAP-only (never blocks tx)
+            // Production Tier 1: CEX TWAP vs Stellar DEX spot cross-validation.
+            // DEX unavailability degrades gracefully to TWAP-only and never
+            // blocks the transaction.
             let twap = cex_twap_price(cache, asset, &market, max_stale);
             let dex = dex_spot_price(cache, asset, &market, max_stale);
             calculate_final_price(cache, dex, Some(twap), configs)
         },
         _ => {
-            // EXCHANGE_SOURCE_SPOT_VS_TWAP (1) and any other value:
-            // Standard mode: Pulse spot as aggregator, Pulse TWAP as safe price
+            // EXCHANGE_SOURCE_SPOT_VS_TWAP (1) and any other value.
+            // Standard mode: Pulse spot as aggregator, Pulse TWAP as safe price.
             let (spot, twap) = cex_spot_and_twap_price(cache, asset, &market, max_stale);
             calculate_final_price(cache, Some(spot), Some(twap), configs)
         },
@@ -131,7 +132,7 @@ pub(crate) fn calculate_final_price(
             ) {
                 (agg_price + safe_price) / 2
             } else {
-                // Block risk-increasing ops; allow supply/repay
+                // Block risk-increasing ops; allow supply and repay.
                 if !cache.allow_unsafe_price {
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }
@@ -170,7 +171,7 @@ fn check_staleness(cache: &ControllerCache, feed_ts: u64, max_stale: u64) {
 }
 
 /// Reject oracle timestamps significantly in the future (allow 60s clock skew).
-/// Future-dated prices indicate a malicious/malfunctioning oracle feed.
+/// Future-dated prices indicate a malicious or malfunctioning oracle feed.
 fn check_not_future(cache: &ControllerCache, feed_ts: u64) {
     let now_secs = cache.current_timestamp_ms / 1000;
     if feed_ts > now_secs.saturating_add(60) {
@@ -229,13 +230,17 @@ fn cex_spot_and_twap_price(
     let history = client.prices(&ra, &market.twap_records);
     let mut sum: i128 = 0;
     let mut count: i128 = 0;
-    let mut latest_ts: u64 = 0;
+    let mut oldest_ts: u64 = u64::MAX;
 
     for pd in history.iter().flatten() {
         sum += pd.price;
         count += 1;
-        if pd.timestamp > latest_ts {
-            latest_ts = pd.timestamp;
+        // M-07: track the OLDEST sample's timestamp, not the newest. A TWAP
+        // dominated by stale records would otherwise pass the freshness gate
+        // because a single fresh sample would carry the latest_ts. Staleness
+        // must reflect the worst (oldest) input, not the best.
+        if pd.timestamp < oldest_ts {
+            oldest_ts = pd.timestamp;
         }
     }
 
@@ -248,7 +253,7 @@ fn cex_spot_and_twap_price(
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
 
-    check_staleness(cache, latest_ts, max_stale);
+    check_staleness(cache, oldest_ts, max_stale);
     let twap_wad = Wad::from_token(sum / count, decimals).raw();
 
     (spot_wad, twap_wad)
@@ -261,7 +266,7 @@ fn cex_twap_price(
     max_stale: u64,
 ) -> i128 {
     if market.twap_records == 0 {
-        // TWAP disabled (dev/test) — fall back directly to spot
+        // TWAP disabled (dev/test); fall back directly to spot.
         return cex_spot_price(cache, asset, market, max_stale);
     }
 
@@ -278,21 +283,23 @@ fn cex_twap_price(
 
     let mut sum: i128 = 0;
     let mut count: i128 = 0;
-    let mut latest_ts: u64 = 0;
+    let mut oldest_ts: u64 = u64::MAX;
 
     for pd in history.iter().flatten() {
         sum += pd.price;
         count += 1;
-        if pd.timestamp > latest_ts {
-            latest_ts = pd.timestamp;
+        // M-07: track the OLDEST sample's timestamp; staleness must reflect
+        // the worst (oldest) input, not the best.
+        if pd.timestamp < oldest_ts {
+            oldest_ts = pd.timestamp;
         }
-        // None slots = oracle gap in this 5-min window — skip silently.
+        // None slots represent an oracle gap in this 5-min window; skip silently.
         // Partial TWAP (M-of-N valid slots) is always preferable to panicking.
     }
 
     if count == 0 {
-        // All N slots were None: major oracle outage.
-        // Fall back to spot price rather than blocking the entire protocol.
+        // All N slots were None, indicating a major oracle outage. Fall
+        // back to the spot price rather than blocking the entire protocol.
         return cex_spot_price(cache, asset, market, max_stale);
     }
 
@@ -301,7 +308,7 @@ fn cex_twap_price(
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
 
-    check_staleness(cache, latest_ts, max_stale);
+    check_staleness(cache, oldest_ts, max_stale);
 
     Wad::from_token(sum / count, decimals).raw()
 }
@@ -316,12 +323,12 @@ fn dex_spot_price(
 
     let env = cache.env();
     let client = ReflectorClient::new(env, &dex_addr);
-    // DEX oracle uses the on-chain SAC address (always ReflectorAssetKind::Stellar)
-    let ra = to_reflector_asset(asset, &market.dex_asset_kind, &market.cex_symbol);
+    // M-09: use the explicit DEX symbol; previously the CEX symbol was forwarded.
+    let ra = to_reflector_asset(asset, &market.dex_asset_kind, &market.dex_symbol);
 
-    let pd = client.lastprice(&ra)?; // None = asset not tracked on Stellar DEX oracle
+    let pd = client.lastprice(&ra)?; // None: asset not tracked on Stellar DEX oracle.
 
-    // DEX staleness is soft: treat stale as unavailable, allow fallback
+    // DEX staleness is soft: treat stale as unavailable; allow fallback.
     let now_secs = cache.current_timestamp_ms / 1000;
     if now_secs > pd.timestamp && (now_secs - pd.timestamp) > max_stale {
         return None;
@@ -344,9 +351,9 @@ pub(crate) fn is_within_anchor(
     if aggregator == 0 {
         return false;
     }
-    // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS
+    // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS.
     let ratio_ray = common::fp::Ray::from_raw(safe).div(env, common::fp::Ray::from_raw(aggregator)).raw();
-    let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY → BPS decimals
+    let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
 
     ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
 }
@@ -467,7 +474,7 @@ pub fn update_asset_index(
             &sync_data.params,
         )
     } else {
-        let _feed = token_price(cache, asset); // Mutating path: refresh price AND sync state
+        let _feed = token_price(cache, asset); // Mutating path: refresh price and sync state.
         let pool_addr = cache.cached_pool_address(asset);
         let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
         pool_client.update_indexes(&0)
@@ -653,6 +660,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }
@@ -684,10 +692,11 @@ mod tests {
             let mut market = self.market_config(oracle_type, exchange_source);
             market.cex_oracle = Some(reflector.cex_oracle);
             market.cex_asset_kind = reflector.cex_asset_kind;
-            market.cex_symbol = reflector.cex_symbol;
+            market.cex_symbol = reflector.cex_symbol.clone();
             market.cex_decimals = reflector.cex_decimals;
             market.dex_oracle = reflector.dex_oracle;
             market.dex_asset_kind = reflector.dex_asset_kind;
+            market.dex_symbol = reflector.cex_symbol;
             market.dex_decimals = reflector.dex_decimals;
             market.twap_records = reflector.twap_records;
             market

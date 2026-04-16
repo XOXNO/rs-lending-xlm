@@ -10,6 +10,12 @@ cargo-fuzz = true
 # Isolate from parent workspace at repo root.
 [workspace]
 
+[features]
+# Default does NOT pull in serde/sha2 — fuzz targets don't need them.
+# Enable `seed-corpus` only when building the `seed_corpus` host-side binary.
+default = []
+seed-corpus = ["dep:serde", "dep:serde_json", "dep:sha2"]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
@@ -19,12 +25,10 @@ controller = { path = "../controller", features = ["testing"] }
 pool = { path = "../pool" }
 test-harness = { path = "../test-harness", features = ["testing"] }
 
-# Used only by the `seed_corpus` binary (walks test_snapshots JSONs and emits
-# libFuzzer seed files). Fuzz targets do not reference these, so the linker
-# drops them from each target's final binary.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
+# Optional: only compiled when `seed-corpus` feature is enabled.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 # NOTE: contract-level (Env-based) libFuzzer targets require
 # `--sanitizer=thread` on macOS (aarch64) — the default libFuzzer sancov
@@ -70,13 +74,6 @@ doc = false
 bench = false
 
 [[bin]]
-name = "flow_supply_borrow_tsan_smoke"
-path = "fuzz_targets/flow_supply_borrow_tsan_smoke.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "flow_supply_borrow_liquidate"
 path = "fuzz_targets/flow_supply_borrow_liquidate.rs"
 test = false
@@ -98,28 +95,21 @@ doc = false
 bench = false
 
 [[bin]]
-name = "flow_isolation_emode_xor"
-path = "fuzz_targets/flow_isolation_emode_xor.rs"
+name = "flow_multi_op"
+path = "fuzz_targets/flow_multi_op.rs"
 test = false
 doc = false
 bench = false
-
-[[bin]]
-name = "flow_cache_atomicity"
-path = "fuzz_targets/flow_cache_atomicity.rs"
-test = false
-doc = false
-bench = false
-
 
 ## Host-side binary: seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
-## NOT a fuzz target — plain `cargo run --bin seed_corpus`, no libfuzzer_sys.
+## NOT a fuzz target. Build with: `cargo run --bin seed_corpus --features seed-corpus`.
 [[bin]]
 name = "seed_corpus"
 path = "src/bin/seed_corpus.rs"
 test = false
 doc = false
 bench = false
+required-features = ["seed-corpus"]
 
 [profile.release]
 debug = 1

@@ -13,11 +13,11 @@ fn test_isolated_debt_non_isolated_account() {
         .with_market(eth_preset())
         .build();
 
-    // Normal (non-isolated) account
+    // Normal (non-isolated) account.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // ETH isolated debt should be 0 (not an isolated asset in this setup)
+    // ETH isolated debt must be 0 (not an isolated asset in this setup).
     let debt = t.get_isolated_debt("ETH");
     assert_eq!(debt, 0, "non-isolated setup should have 0 isolated debt");
 }
@@ -45,7 +45,7 @@ fn test_isolated_debt_dust_erasure() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 10.0);
 
-    // Borrow a small amount
+    // Borrow a small amount.
     t.borrow(ALICE, "USDC", 1.0);
 
     let debt_after_borrow = t.get_isolated_debt("ETH");
@@ -54,8 +54,8 @@ fn test_isolated_debt_dust_erasure() {
         "should have isolated debt after borrow"
     );
 
-    // Repay slightly more than borrowed (overpay)
-    // This should bring debt to 0 or near-zero and trigger dust erasure
+    // Repay slightly more than borrowed (overpay). This must bring debt to
+    // zero or near-zero and trigger dust erasure.
     t.repay(ALICE, "USDC", 2.0);
 
     let debt_after_repay = t.get_isolated_debt("ETH");
@@ -93,7 +93,7 @@ fn test_isolated_debt_over_repay_clamps() {
     let debt_before = t.get_isolated_debt("ETH");
     assert!(debt_before > 0, "should have debt after borrow");
 
-    // Repay full amount
+    // Repay the full amount.
     t.repay(ALICE, "USDC", 100.0);
 
     let debt_after = t.get_isolated_debt("ETH");
@@ -118,7 +118,7 @@ fn test_validate_healthy_passes() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // HF should be well above 1.0
+    // HF must sit well above 1.0.
     t.assert_healthy(ALICE);
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.0, "HF should be > 1.0, got {}", hf);
@@ -138,14 +138,14 @@ fn test_validate_healthy_fails() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Crash USDC price to make HF < 1.0
+    // Crash the USDC price to push HF below 1.0.
     t.set_price("USDC", usd_cents(50));
 
     t.assert_liquidatable(ALICE);
     let hf = t.health_factor(ALICE);
     assert!(hf < 1.0, "HF should be < 1.0 after price drop, got {}", hf);
 
-    // Attempting to withdraw should fail due to low HF
+    // Attempting to withdraw must fail due to low HF.
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
     assert!(
         result.is_err(),
@@ -163,7 +163,7 @@ fn test_health_factor_no_debt_is_max() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // No borrows = HF should be i128::MAX
+    // No borrows: HF must be i128::MAX.
     let hf_raw = t.health_factor_raw(ALICE);
     assert_eq!(hf_raw, i128::MAX, "HF with no debt should be i128::MAX");
 }
@@ -184,7 +184,7 @@ fn test_health_factor_changes_with_price() {
 
     let hf_before = t.health_factor(ALICE);
 
-    // Increase USDC price -> more collateral value -> higher HF
+    // Raise the USDC price: more collateral value, higher HF.
     t.set_price("USDC", usd(2));
 
     let hf_after = t.health_factor(ALICE);
@@ -207,13 +207,13 @@ fn test_pool_borrow_rate_increases_with_borrows() {
         .with_market(eth_preset())
         .build();
 
-    // Borrow rate should start at base rate (non-zero)
+    // The borrow rate must start at the base rate (non-zero).
     let rate_before = t.pool_borrow_rate("ETH");
 
     t.supply(ALICE, "USDC", 500_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // After borrow, borrow rate should increase (more utilization = higher rate)
+    // After the borrow, the rate must rise (more utilization, higher rate).
     let rate_after = t.pool_borrow_rate("ETH");
     assert!(
         rate_after >= rate_before,
@@ -234,10 +234,10 @@ fn test_borrow_exceeds_ltv_fails() {
         .with_market(eth_preset())
         .build();
 
-    // Supply $10k USDC, LTV=75% => max borrow = $7500
+    // Supply $10k USDC, LTV=75% => max borrow = $7500.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Try to borrow 4 ETH = $8000 > $7500
+    // Borrow 4 ETH = $8000 > $7500.
     let result = t.try_borrow(ALICE, "ETH", 4.0);
     assert!(result.is_err(), "borrow exceeding LTV should fail");
 }
@@ -259,7 +259,7 @@ fn test_total_debt_zero_after_full_repay() {
     let debt_during = t.total_debt(ALICE);
     assert!(debt_during > 0.0, "should have debt after borrow");
 
-    // Repay more than owed to cover potential rounding
+    // Repay more than owed to cover potential rounding.
     t.repay(ALICE, "ETH", 1.1);
 
     let debt_after = t.total_debt(ALICE);

@@ -16,12 +16,12 @@ fn test_total_collateral_usd_multi_asset() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC ($10,000) and 1 ETH ($2,000)
+    // Supply 10k USDC ($10,000) and 1 ETH ($2,000).
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
     let total = t.total_collateral(ALICE);
-    // Should be ~$12,000
+    // Must be ~$12,000.
     assert!(
         (total - 12_000.0).abs() < 1.0,
         "total collateral should be ~$12,000, got {}",
@@ -41,15 +41,15 @@ fn test_total_borrow_usd_multi_asset() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply large collateral
+    // Supply large collateral.
     t.supply(ALICE, "USDC", 500_000.0);
 
-    // Borrow 1 ETH ($2,000) and 0.01 WBTC ($600)
+    // Borrow 1 ETH ($2,000) and 0.01 WBTC ($600).
     t.borrow(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "WBTC", 0.01);
 
     let total = t.total_debt(ALICE);
-    // Should be ~$2,600
+    // Must be ~$2,600.
     assert!(
         (total - 2_600.0).abs() < 1.0,
         "total debt should be ~$2,600, got {}",
@@ -68,10 +68,10 @@ fn test_collateral_amount_for_missing_token() {
         .with_market(eth_preset())
         .build();
 
-    // Supply only USDC
+    // Supply only USDC.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Check ETH collateral (no position) -- should return 0
+    // Check ETH collateral (no position): must return 0.
     let eth_balance = t.supply_balance_raw(ALICE, "ETH");
     assert_eq!(eth_balance, 0, "missing supply position should return 0");
 }
@@ -87,11 +87,11 @@ fn test_borrow_amount_for_missing_token() {
         .with_market(eth_preset())
         .build();
 
-    // Supply USDC, borrow ETH
+    // Supply USDC, borrow ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Check USDC borrow (no borrow position) -- should return 0
+    // Check the USDC borrow (no borrow position): must return 0.
     let usdc_borrow = t.borrow_balance_raw(ALICE, "USDC");
     assert_eq!(usdc_borrow, 0, "missing borrow position should return 0");
 }
@@ -107,10 +107,10 @@ fn test_can_be_liquidated_boundary() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC, borrow conservatively so HF stays above 1.0
+    // Supply 10k USDC, borrow conservatively so HF stays above 1.0.
     t.supply(ALICE, "USDC", 10_000.0);
-    // Borrow $3000 of ETH = 1.5 ETH
-    // HF = (10000 * 0.80) / 3000 = 2.67 -- clearly healthy
+    // Borrow $3000 of ETH = 1.5 ETH.
+    // HF = (10000 * 0.80) / 3000 = 2.67: clearly healthy.
     t.borrow(ALICE, "ETH", 1.5);
 
     assert!(
@@ -131,14 +131,14 @@ fn test_can_be_liquidated_just_below() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 10k USDC, borrow 3 ETH ($6000)
-    // HF = (10000 * 0.80) / 6000 = 1.33
+    // Supply 10k USDC, borrow 3 ETH ($6000).
+    // HF = (10000 * 0.80) / 6000 = 1.33.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Drop USDC to $0.50 => collateral = $5000, weighted = $4000, debt = $6000
-    // HF = 4000/6000 = 0.67 < 1.0
+    // Drop USDC to $0.50 => collateral = $5000, weighted = $4000, debt =
+    // $6000. HF = 4000/6000 = 0.67 < 1.0.
     t.set_price("USDC", usd_cents(50));
 
     assert!(
@@ -264,18 +264,18 @@ fn test_get_isolated_debt_tracks_borrows() {
         })
         .build();
 
-    // Create isolated account and supply ETH
+    // Create an isolated account and supply ETH.
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 10.0);
 
-    // Before borrow: isolated debt should be 0
+    // Before borrow: isolated debt must be 0.
     let debt_before = t.get_isolated_debt("ETH");
     assert_eq!(debt_before, 0, "isolated debt should be 0 before borrow");
 
-    // Borrow 1000 USDC ($1000)
+    // Borrow 1000 USDC ($1000).
     t.borrow(ALICE, "USDC", 1_000.0);
 
-    // After borrow: isolated debt should be ~$1000 WAD
+    // After borrow: isolated debt must be ~$1000 WAD.
     let debt_after = t.get_isolated_debt("ETH");
     let wad = 1_000_000_000_000_000_000i128;
     assert!(
@@ -340,7 +340,7 @@ fn test_liquidation_estimations_basic() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Make liquidatable: drop USDC price
+    // Make liquidatable: drop the USDC price.
     t.set_price("USDC", usd_cents(50));
     assert!(t.can_be_liquidated(ALICE));
 
@@ -350,19 +350,19 @@ fn test_liquidation_estimations_basic() {
     let estimate = ctrl.liquidation_estimations_detailed(&account_id, &payments);
     let hf = ctrl.health_factor(&account_id);
 
-    // HF should be < 1.0 WAD
+    // HF must be < 1.0 WAD.
     let wad = 1_000_000_000_000_000_000i128;
     assert!(hf < wad, "HF should be < 1.0 WAD, got {}", hf);
     assert!(hf > 0, "HF should be positive, got {}", hf);
 
-    // Bonus should be positive
+    // Bonus must be positive.
     assert!(
         estimate.bonus_rate_bps > 0,
         "bonus should be positive, got {}",
         estimate.bonus_rate_bps
     );
 
-    // Ideal repayment should be positive
+    // Ideal repayment must be positive.
     assert!(
         estimate.max_payment_wad > 0,
         "ideal repayment should be positive, got {}",
@@ -397,7 +397,7 @@ fn test_get_market_index_view() {
         .unwrap();
 
     let ray = 1_000_000_000_000_000_000_000_000_000i128;
-    // Fresh market: indexes should be 1.0 RAY
+    // Fresh market: indexes must be 1.0 RAY.
     assert_eq!(
         index.supply_index_ray, ray,
         "fresh supply index should be 1.0 RAY"
@@ -416,7 +416,7 @@ fn test_get_market_index_view() {
 fn test_get_active_accounts_multiple() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create two accounts for Alice
+    // Create two accounts for Alice.
     t.supply(ALICE, "USDC", 1_000.0);
     let id1 = t.resolve_account_id(ALICE);
 

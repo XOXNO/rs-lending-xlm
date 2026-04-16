@@ -19,8 +19,8 @@ fn test_hf_above_one_after_every_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow near the LTV limit (~75% of $100k = $75k, or 37.5 ETH at $2k/ETH).
-    // Borrow incrementally and require HF >= 1.0 after each step.
+    // Borrow near the LTV limit (~75% of $100k = $75k, or 37.5 ETH at $2k/ETH),
+    // incrementally, and require HF >= 1.0 after each step.
     for i in 1..=10 {
         t.borrow(ALICE, "ETH", 3.0);
         let hf = t.health_factor_raw(ALICE);
@@ -47,7 +47,7 @@ fn test_hf_above_one_after_every_withdraw() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 5.0); // ~$10k debt
 
-    // Withdraw incrementally
+    // Withdraw incrementally.
     for i in 1..=5 {
         t.withdraw(ALICE, "USDC", 10_000.0);
         let hf = t.health_factor_raw(ALICE);
@@ -74,7 +74,7 @@ fn test_hf_below_one_required_for_liquidation() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Healthy -- try to liquidate should fail
+    // Healthy -- liquidation must fail.
     t.assert_healthy(ALICE);
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
@@ -115,7 +115,7 @@ fn test_supply_index_monotonically_increasing() {
         .with_market(eth_preset())
         .build();
 
-    // Setup: supply + borrow to generate interest (supply index grows when there are borrows)
+    // Supply + borrow to generate interest (supply index grows when borrows exist).
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -123,10 +123,10 @@ fn test_supply_index_monotonically_increasing() {
     let mut prev_balance = t.supply_balance(BOB, "ETH");
     let initial_balance = prev_balance;
 
-    // Check supply balance grows over time (proxy for supply index increasing).
-    // Require STRICT inequality (>) to catch a stalled accrual regression: an
-    // earlier `>=` would silently accept `current == prev` forever (e.g. if
-    // reserve_factor got set to 100% or the rate fell to zero).
+    // Check supply balance grows over time (proxy for the supply index).
+    // Require STRICT inequality (>) to catch a stalled-accrual regression:
+    // a `>=` check would silently accept `current == prev` forever (e.g. if
+    // reserve_factor reached 100% or the rate fell to zero).
     for week in 1..=4 {
         t.advance_and_sync(days(7));
         let current_balance = t.supply_balance(BOB, "ETH");
@@ -141,8 +141,8 @@ fn test_supply_index_monotonically_increasing() {
     }
 
     // After 4 weeks of ALICE borrowing 10 ETH against BOB's 100 ETH supply,
-    // total accrual must be non-trivial (> dust). This catches "index inches
-    // up by 1 ulp per week" regressions.
+    // total accrual must exceed dust. This catches "index inches up by 1
+    // ulp per week" regressions.
     let total_growth = prev_balance - initial_balance;
     assert!(
         total_growth > 0.0001,
@@ -168,8 +168,8 @@ fn test_borrow_index_monotonically_increasing() {
     let mut prev_debt = t.borrow_balance(ALICE, "ETH");
     let initial_debt = prev_debt;
 
-    // Strict inequality — a frozen borrow index would mean borrowers pay no
-    // interest, which is a critical solvency bug that `>=` would hide.
+    // Strict inequality — a frozen borrow index means borrowers pay no
+    // interest, a critical solvency bug that `>=` would hide.
     for week in 1..=4 {
         t.advance_and_sync(days(7));
         let current_debt = t.borrow_balance(ALICE, "ETH");
@@ -205,14 +205,14 @@ fn test_position_limits_enforced() {
         .with_position_limits(2, 2)
         .build();
 
-    // Supply to 2 markets (at the limit)
+    // Supply to 2 markets (at the limit).
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // Third supply must reject with the specific POSITION_LIMIT_EXCEEDED error.
-    // A bare `is_err()` check accepts any failure (pause, oracle stale,
-    // internal error) and would miss a regression that swapped the error
-    // code for a less-informative one.
+    // The third supply must reject with the specific POSITION_LIMIT_EXCEEDED
+    // error. A bare `is_err()` check accepts any failure (pause, oracle
+    // stale, internal error) and would miss a regression that swapped the
+    // error code for a less informative one.
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
@@ -243,8 +243,8 @@ fn test_isolation_and_emode_mutually_exclusive() {
     //
     // The previous version called `create_account_full` through a harness
     // helper that pre-asserts the exclusion in Rust (not the contract), so
-    // a regression that dropped the on-chain guard could have silently
-    // passed the old `is_err()` check.
+    // a regression that dropped the on-chain guard could silently pass the
+    // old `is_err()` check.
     let alice = t.get_or_create_user(ALICE);
     let usdc_addr = t.resolve_asset("USDC");
     let assets = soroban_sdk::vec![&t.env, (usdc_addr, 1_000_0000000i128)];
@@ -272,12 +272,12 @@ fn test_total_supply_matches_pool_balance() {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 30_000.0);
 
-    // Total supply across users should match
+    // Total supply across users should match.
     let alice_supply = t.supply_balance(ALICE, "USDC");
     let bob_supply = t.supply_balance(BOB, "USDC");
     let total_user_supply = alice_supply + bob_supply;
 
-    // Should be close to 80k
+    // Should land near 80k.
     assert!(
         (total_user_supply - 80_000.0).abs() < 10.0,
         "total supply should be ~80k, got {}",
@@ -285,8 +285,8 @@ fn test_total_supply_matches_pool_balance() {
     );
 
     // Invariant: pool token balance >= total user supply.
-    // The pool was seeded with 1M initial liquidity, then users supplied 80k more,
-    // so the pool contract should hold at least the user-supplied amount.
+    // The pool was seeded with 1M initial liquidity, then users supplied 80k
+    // more, so the pool contract holds at least the user-supplied amount.
     let pool_balance = t.pool_reserves("USDC");
     assert!(
         pool_balance >= total_user_supply,
@@ -307,25 +307,25 @@ fn test_full_lifecycle_supply_borrow_repay_withdraw() {
         .with_market(eth_preset())
         .build();
 
-    // 1. Supply
+    // 1. Supply.
     t.supply(ALICE, "USDC", 100_000.0);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_supply_near(ALICE, "USDC", 100_000.0, 1.0);
 
-    // 2. Borrow
+    // 2. Borrow.
     t.borrow(ALICE, "ETH", 5.0);
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
     t.assert_healthy(ALICE);
 
-    // 3. Advance time (interest accrues)
+    // 3. Advance time (interest accrues).
     t.advance_and_sync(days(30));
     let debt_with_interest = t.borrow_balance(ALICE, "ETH");
     assert!(debt_with_interest > 5.0, "debt should include interest");
 
-    // 4. Repay full debt (with extra for interest)
+    // 4. Repay full debt (with extra for interest).
     t.repay(ALICE, "ETH", debt_with_interest + 0.1);
 
-    // 5. Borrow balance should be ~0
+    // 5. Borrow balance should be ~0.
     let remaining_debt = t.borrow_balance(ALICE, "ETH");
     assert!(
         remaining_debt < 0.001,
@@ -333,10 +333,10 @@ fn test_full_lifecycle_supply_borrow_repay_withdraw() {
         remaining_debt
     );
 
-    // 6. Withdraw all collateral
+    // 6. Withdraw all collateral.
     t.withdraw_all(ALICE, "USDC");
 
-    // 7. Supply balance should be ~0
+    // 7. Supply balance should be ~0.
     let remaining_supply = t.supply_balance(ALICE, "USDC");
     assert!(
         remaining_supply < 0.01,
@@ -344,7 +344,7 @@ fn test_full_lifecycle_supply_borrow_repay_withdraw() {
         remaining_supply
     );
 
-    // 8. Remove the account if it still exists. The protocol may have already
-    // cleaned it up after the final position close.
+    // 8. Remove the account if it still exists. The protocol may have
+    // already cleaned it up after the final position close.
     let _ = t.try_remove_account(ALICE);
 }

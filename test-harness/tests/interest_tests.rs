@@ -47,7 +47,7 @@ fn test_interest_accrues_on_supply() {
         .with_market(eth_preset())
         .build();
 
-    // Need both supply and borrow to generate interest
+    // Generating interest requires both supply and borrow.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -76,15 +76,15 @@ fn test_interest_rate_increases_with_utilization() {
         .with_market(eth_preset())
         .build();
 
-    // Low utilization
+    // Low utilization.
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
     t.borrow(BOB, "ETH", 1.0);
 
     let rate_low = t.pool_borrow_rate("ETH");
 
-    // Higher utilization -- borrow more (within 75% LTV of $500k = $375k)
-    t.borrow(BOB, "ETH", 80.0); // 81 ETH total = $162k, within LTV
+    // Higher utilization: borrow more, within the 75% LTV of $500k = $375k.
+    t.borrow(BOB, "ETH", 80.0); // 81 ETH = $162k, within the LTV.
 
     let rate_high = t.pool_borrow_rate("ETH");
     assert!(
@@ -111,7 +111,7 @@ fn test_compound_interest_over_multiple_periods() {
 
     let debt_start = t.borrow_balance(ALICE, "ETH");
 
-    // Advance in 4 quarters
+    // Advance in four quarters.
     t.advance_and_sync(days(90));
     let debt_q1 = t.borrow_balance(ALICE, "ETH");
 
@@ -124,17 +124,17 @@ fn test_compound_interest_over_multiple_periods() {
     t.advance_and_sync(days(90));
     let debt_q4 = t.borrow_balance(ALICE, "ETH");
 
-    // Each quarter should accrue interest
+    // Every quarter must accrue interest.
     assert!(debt_q1 > debt_start, "Q1: debt should grow");
     assert!(debt_q2 > debt_q1, "Q2: debt should grow");
     assert!(debt_q3 > debt_q2, "Q3: debt should grow");
     assert!(debt_q4 > debt_q3, "Q4: debt should grow");
 
-    // Compound effect: interest on interest -- later quarters should accrue more
+    // Compounding (interest on interest) means later quarters accrue more.
     let interest_q1 = debt_q1 - debt_start;
     let interest_q4 = debt_q4 - debt_q3;
     assert!(
-        interest_q4 >= interest_q1 * 0.99, // allow small rounding
+        interest_q4 >= interest_q1 * 0.99, // Allow small rounding.
         "later quarters should accrue at least as much interest (compound): q1={}, q4={}",
         interest_q1,
         interest_q4
@@ -157,7 +157,7 @@ fn test_interest_zero_when_no_borrows() {
 
     let supply_after = t.supply_balance(ALICE, "USDC");
 
-    // With no borrows, there should be zero interest for suppliers
+    // With no borrows, suppliers earn zero interest.
     let diff = (supply_after - supply_before).abs();
     assert!(
         diff < 0.01,
@@ -209,10 +209,10 @@ fn test_advance_time_without_sync_stale() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Advance time only (no index sync)
+    // Advance time without syncing indexes.
     t.advance_time(days(30));
 
-    // Views should still work (may return stale values, but shouldn't panic)
+    // Views still work; values may be stale but must not panic.
     let hf = t.health_factor(ALICE);
     assert!(
         hf > 0.0,
@@ -239,7 +239,7 @@ fn test_advance_and_sync_specific_markets() {
 
     let debt_before = t.borrow_balance(ALICE, "ETH");
 
-    // Only sync ETH market
+    // Sync only the ETH market.
     t.advance_and_sync_markets(days(365), &["ETH"]);
 
     let debt_after = t.borrow_balance(ALICE, "ETH");

@@ -1,9 +1,10 @@
 //! Contract-level property test: oracle tolerance tier enforcement.
 //!
 //! Invariants:
-//!   - Supply (risk-decreasing) always succeeds regardless of safe vs spot deviation
-//!   - Borrow (risk-increasing) either succeeds with safe price, uses avg, or
-//!     reverts — never panics unexpectedly
+//!   - Supply (risk-decreasing) always succeeds, regardless of safe-vs-spot
+//!     deviation.
+//!   - Borrow (risk-increasing) either succeeds with safe price, uses avg,
+//!     or reverts — never panics unexpectedly.
 
 use proptest::prelude::*;
 use test_harness::{eth_preset, helpers::usd, usdc_preset, LendingTest, ALICE};
@@ -22,10 +23,10 @@ proptest! {
             .with_market(eth_preset())
             .build();
 
-        // First supply at matching prices to seed the account
+        // First supply at matching prices to seed the account.
         t.supply(ALICE, "USDC", supply_amt as f64);
 
-        // Desynchronize spot vs TWAP on ETH
+        // Desynchronize spot vs TWAP on ETH.
         let eth_spot = usd(2000);
         let mult = if direction_up {
             10_000 + deviation_bps as i128
@@ -39,7 +40,7 @@ proptest! {
         reflector.set_price(&eth_addr, &eth_spot);
         reflector.set_twap_price(&eth_addr, &eth_twap);
 
-        // Supply (risk-decreasing) must succeed regardless of deviation
+        // Supply (risk-decreasing) must succeed regardless of deviation.
         let res = t.try_supply(ALICE, "USDC", 1.0);
         prop_assert!(
             res.is_ok(),
@@ -52,7 +53,7 @@ proptest! {
     ///
     /// Contract behavior (controller/src/oracle/mod.rs):
     ///   `check_staleness` panics with `OracleError::PriceFeedStale` when
-    ///   `(now - feed_ts) > max_stale` (default 900s).
+    ///   `(now - feed_ts) > max_stale` (default 900 s).
     #[test]
     fn prop_supply_rejects_stale_price(
         supply_amt in 1_000u64..100_000u64,
@@ -66,8 +67,8 @@ proptest! {
         // Seed USDC supply while prices are fresh so the account exists.
         t.supply(ALICE, "USDC", supply_amt as f64);
 
-        // Advance the ledger past max_price_stale_seconds WITHOUT refreshing
-        // oracle prices: every price now has a stale timestamp.
+        // Advance the ledger past max_price_stale_seconds without refreshing
+        // oracle prices: every price now carries a stale timestamp.
         t.advance_time_no_refresh(stale_seconds);
 
         let res = t.try_supply(ALICE, "USDC", 1.0);

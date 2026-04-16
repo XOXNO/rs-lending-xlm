@@ -8,8 +8,8 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// Helper: build SwapSteps with a single hop that yields `min_amount_out`
-// from the mock swap router.
+// Helper: build SwapSteps with a single hop that yields `min_amount_out` from
+// the mock swap router.
 // ---------------------------------------------------------------------------
 
 fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
@@ -38,10 +38,10 @@ fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i
 // test_multiply_creates_leveraged_position
 //
 // Full multiply flow:
-//   1. Flash borrow 1 ETH ($2000)
-//   2. Swap ETH -> USDC (mock: returns 3000 USDC)
-//   3. Deposit 3000 USDC as collateral
-//   4. HF = 3000 * 0.8 / 2000 = 1.2
+//   1. Flash-borrow 1 ETH ($2000).
+//   2. Swap ETH -> USDC (mock returns 3000 USDC).
+//   3. Deposit 3000 USDC as collateral.
+//   4. HF = 3000 * 0.8 / 2000 = 1.2.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -51,7 +51,7 @@ fn test_multiply_creates_leveraged_position() {
         .with_market(eth_preset())
         .build();
 
-    // Flash borrow 1 ETH, swap to 3000 USDC (mock favorable rate)
+    // Flash-borrow 1 ETH, swap to 3000 USDC (favorable mock rate).
     t.fund_router("USDC", 3000.0);
     let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
     let account_id = t.multiply(
@@ -65,7 +65,7 @@ fn test_multiply_creates_leveraged_position() {
 
     assert!(account_id > 0, "account should be created");
 
-    // Supply position: 3000 USDC
+    // Supply position: 3000 USDC.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -73,7 +73,7 @@ fn test_multiply_creates_leveraged_position() {
         supply
     );
 
-    // Borrow position: 1 ETH
+    // Borrow position: 1 ETH.
     let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
     assert!(
         (0.99..=1.01).contains(&borrow),
@@ -81,7 +81,7 @@ fn test_multiply_creates_leveraged_position() {
         borrow
     );
 
-    // HF = 3000 * 0.8 / 2000 = 1.2
+    // HF = 3000 * 0.8 / 2000 = 1.2.
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
     assert!(hf < 2.0, "HF should be reasonable, got {}", hf);
@@ -89,7 +89,7 @@ fn test_multiply_creates_leveraged_position() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_mode_long
-// Mode=2 (Long) -- same flow, different mode stored on account.
+// Mode=2 (Long): same flow, with a different mode stored on the account.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -161,7 +161,7 @@ fn test_multiply_mode_short() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_wbtc_collateral
-// Different asset pair: borrow USDC, collateral WBTC.
+// Different asset pair: borrow USDC with WBTC collateral.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -171,10 +171,10 @@ fn test_multiply_wbtc_collateral() {
         .with_market(wbtc_preset())
         .build();
 
-    // Borrow 1000 USDC, swap to 0.02 WBTC (at $60000, that's $1200 worth)
-    // WBTC 8 decimals: 0.02 WBTC = 2_000_000 raw
-    // HF = 1200 * 0.8 / 1000 = 0.96 -- too low!
-    // Need more: 0.03 WBTC = $1800. HF = 1800*0.8/1000 = 1.44
+    // Borrow 1000 USDC, swap to 0.02 WBTC (at $60000, $1200 worth).
+    // WBTC 8 decimals: 0.02 WBTC = 2_000_000 raw.
+    // HF = 1200 * 0.8 / 1000 = 0.96: too low.
+    // Need more: 0.03 WBTC = $1800. HF = 1800*0.8/1000 = 1.44.
     t.fund_router_raw("WBTC", 3_000_000);
     let steps = build_swap_steps(&t, "USDC", "WBTC", 3_000_000);
     let account_id = t.multiply(
@@ -205,9 +205,9 @@ fn test_multiply_wbtc_collateral() {
 // ---------------------------------------------------------------------------
 // test_swap_debt_replaces_borrow
 //
-// Setup: supply USDC, borrow ETH
-// Swap debt: ETH -> WBTC (borrow WBTC, swap to ETH, repay ETH)
-// Verify: ETH borrow reduced/gone, WBTC borrow exists
+// Setup: supply USDC, borrow ETH.
+// Swap debt: ETH -> WBTC (borrow WBTC, swap to ETH, repay ETH).
+// Verify: ETH borrow shrinks or disappears, WBTC borrow exists.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -221,18 +221,17 @@ fn test_swap_debt_replaces_borrow() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Verify initial state
+    // Verify initial state.
     let initial_eth = t.borrow_balance(ALICE, "ETH");
     assert!(initial_eth > 0.9, "should have ~1 ETH borrow");
 
-    // Swap ETH debt -> WBTC debt
-    // Borrow 1 WBTC ($60000), swap to ETH (need enough to repay 1 ETH)
-    // min_amount_out = 1_0000000 raw ETH (1 ETH)
+    // Swap ETH debt -> WBTC debt. Borrow 1 WBTC ($60000), swap to ETH (need
+    // enough to repay 1 ETH). min_amount_out = 1_0000000 raw ETH (1 ETH).
     t.fund_router("ETH", 1.0);
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
     t.swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
-    // WBTC borrow should now exist
+    // The WBTC borrow must now exist.
     let wbtc_borrow = t.borrow_balance(ALICE, "WBTC");
     assert!(
         wbtc_borrow > 0.0,
@@ -240,7 +239,7 @@ fn test_swap_debt_replaces_borrow() {
         wbtc_borrow
     );
 
-    // HF should still be valid
+    // HF must remain valid.
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "HF should be >= 1.0 after swap_debt, got {}", hf);
 }
@@ -248,7 +247,7 @@ fn test_swap_debt_replaces_borrow() {
 // ---------------------------------------------------------------------------
 // test_swap_debt_partial
 //
-// Swap only part of the debt -- both old and new borrows coexist.
+// Swap only part of the debt: old and new borrows coexist.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -262,14 +261,14 @@ fn test_swap_debt_partial() {
     t.supply(ALICE, "USDC", 200_000.0);
     t.borrow(ALICE, "ETH", 2.0);
 
-    // Swap only part of ETH debt: borrow 0.5 WBTC, swap to ~0.5 ETH worth
-    // 0.5 WBTC = 50_000_000 raw (8 decimals)
-    // Swap output = 0.5 ETH = 5_000_000 raw (7 decimals) -- partial repay
+    // Swap only part of the ETH debt: borrow 0.5 WBTC, swap to ~0.5 ETH.
+    // 0.5 WBTC = 50_000_000 raw (8 decimals).
+    // Swap output = 0.5 ETH = 5_000_000 raw (7 decimals): partial repay.
     t.fund_router_raw("ETH", 5_000_000);
     let steps = build_swap_steps(&t, "WBTC", "ETH", 5_000_000);
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 
-    // Both borrows should exist
+    // Both borrows must exist.
     let eth_borrow = t.borrow_balance(ALICE, "ETH");
     assert!(
         eth_borrow > 0.0 && eth_borrow < 2.0,
@@ -295,9 +294,9 @@ fn test_swap_debt_partial() {
 // ---------------------------------------------------------------------------
 // test_swap_collateral_replaces_supply
 //
-// Setup: supply USDC, borrow ETH
-// Swap collateral: USDC -> ETH (withdraw USDC, swap to ETH, deposit ETH)
-// Verify: USDC supply reduced, ETH supply created
+// Setup: supply USDC, borrow ETH.
+// Swap collateral: USDC -> ETH (withdraw USDC, swap to ETH, deposit ETH).
+// Verify: USDC supply shrinks, ETH supply is created.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -313,12 +312,12 @@ fn test_swap_collateral_replaces_supply() {
     let initial_usdc = t.supply_balance(ALICE, "USDC");
     assert!(initial_usdc >= 99_999.0, "should have ~100K USDC supply");
 
-    // Swap 20,000 USDC -> 10 ETH (mock rate $2000/ETH)
+    // Swap 20,000 USDC -> 10 ETH (mock rate $2000/ETH).
     t.fund_router("ETH", 10.0);
     let steps = build_swap_steps(&t, "USDC", "ETH", 10_0000000);
     t.swap_collateral(ALICE, "USDC", 20_000.0, "ETH", &steps);
 
-    // USDC supply should be reduced
+    // USDC supply must shrink.
     let usdc_after = t.supply_balance(ALICE, "USDC");
     assert!(
         usdc_after < initial_usdc,
@@ -327,7 +326,7 @@ fn test_swap_collateral_replaces_supply() {
         usdc_after
     );
 
-    // ETH supply should be created
+    // ETH supply must be created.
     let eth_supply = t.supply_balance(ALICE, "ETH");
     assert!(
         (9.99..=10.01).contains(&eth_supply),
@@ -345,7 +344,7 @@ fn test_swap_collateral_replaces_supply() {
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_no_borrows
-// Swap collateral with no borrows -- HF check is skipped.
+// Swap collateral with no borrows: the HF check is skipped.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -357,7 +356,7 @@ fn test_swap_collateral_no_borrows() {
 
     t.supply(ALICE, "USDC", 50_000.0);
 
-    // Swap some USDC to ETH -- no borrows, so no HF check
+    // Swap some USDC to ETH: no borrows, so no HF check.
     t.fund_router("ETH", 5.0);
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     t.swap_collateral(ALICE, "USDC", 10_000.0, "ETH", &steps);
@@ -380,9 +379,10 @@ fn test_swap_collateral_no_borrows() {
 // ---------------------------------------------------------------------------
 // test_repay_debt_with_collateral_reduces_positions
 //
-// Setup: supply USDC, borrow ETH
-// Repay with collateral: USDC -> ETH (withdraw USDC, swap to ETH, repay ETH)
-// Verify: both USDC collateral and ETH debt decrease
+// Setup: supply USDC, borrow ETH.
+// Repay with collateral: USDC -> ETH (withdraw USDC, swap to ETH, repay
+// ETH).
+// Verify: USDC collateral and ETH debt both decrease.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -431,7 +431,7 @@ fn test_repay_debt_with_collateral_reduces_positions() {
 // test_multiply_emode_stablecoin
 //
 // E-mode multiply with stablecoins: borrow USDT, deposit USDC.
-// E-mode params: LTV=97%, LT=98%, bonus=2%.
+// E-mode parameters: LTV=97%, LT=98%, bonus=2%.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -444,9 +444,9 @@ fn test_multiply_emode_stablecoin() {
         .with_emode_asset(1, "USDT", true, true)
         .build();
 
-    // E-mode multiply: borrow USDT, collateral USDC
-    // Borrow 1000 USDT, swap to 1050 USDC (favorable mock rate)
-    // With e-mode LT=98%: HF = 1050 * 0.98 / 1000 = 1.029
+    // E-mode multiply: borrow USDT, collateral USDC.
+    // Borrow 1000 USDT, swap to 1050 USDC (favorable mock rate).
+    // With e-mode LT=98%: HF = 1050 * 0.98 / 1000 = 1.029.
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("USDT");
@@ -469,14 +469,14 @@ fn test_multiply_emode_stablecoin() {
 
     assert!(account_id > 0, "e-mode account should be created");
 
-    // Verify positions
+    // Verify positions.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(supply > 0.0, "should have USDC supply in e-mode");
 
     let borrow = t.borrow_balance_for(ALICE, account_id, "USDT");
     assert!(borrow > 0.0, "should have USDT borrow in e-mode");
 
-    // HF should be healthy with e-mode params
+    // HF must be healthy with e-mode parameters.
     let hf = ctrl.health_factor(&account_id);
     let hf_f64 = hf as f64 / 1_000_000_000_000_000_000f64;
     assert!(hf_f64 >= 1.0, "e-mode HF should be >= 1.0, got {}", hf_f64);
@@ -488,7 +488,7 @@ fn test_multiply_emode_stablecoin() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_large_amounts
-// Multiply with large borrow amounts to verify no overflow.
+// Multiply with large borrow amounts to verify no overflow occurs.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -498,8 +498,8 @@ fn test_multiply_large_amounts() {
         .with_market(eth_preset())
         .build();
 
-    // Borrow 100 ETH ($200,000), swap to $300,000 USDC
-    // HF = 300000 * 0.8 / 200000 = 1.2
+    // Borrow 100 ETH ($200,000), swap to $300,000 USDC.
+    // HF = 300000 * 0.8 / 200000 = 1.2.
     t.fund_router("USDC", 300_000.0);
     let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_000_000_000);
     let account_id = t.multiply(
@@ -535,7 +535,7 @@ fn test_multiply_large_amounts() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_two_users
-// Two users both multiply independently.
+// Two users multiply independently.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -545,7 +545,7 @@ fn test_multiply_two_users() {
         .with_market(eth_preset())
         .build();
 
-    // Alice: borrow 1 ETH, get 3000 USDC
+    // Alice: borrow 1 ETH, receive 3000 USDC.
     t.fund_router("USDC", 3000.0);
     let steps_alice = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
     let alice_id = t.multiply(
@@ -557,7 +557,7 @@ fn test_multiply_two_users() {
         &steps_alice,
     );
 
-    // Bob: borrow 2 ETH, get 6000 USDC
+    // Bob: borrow 2 ETH, receive 6000 USDC.
     t.fund_router("USDC", 6000.0);
     let steps_bob = build_swap_steps(&t, "ETH", "USDC", 6000_0000000);
     let bob_id = t.multiply(
@@ -588,7 +588,7 @@ fn test_multiply_two_users() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_hf_improvement
-// Swapping to a cheaper debt can improve HF.
+// Swapping to a cheaper debt can improve the HF.
 // ---------------------------------------------------------------------------
 
 #[test]

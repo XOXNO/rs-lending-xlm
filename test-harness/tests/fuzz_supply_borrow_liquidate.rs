@@ -1,10 +1,10 @@
 //! Contract-level property test: supply → borrow → time/price → liquidate.
 //!
 //! Invariants asserted each iteration:
-//!   - HF ≥ 1.0 after any successful borrow
-//!   - Liquidation only accepted when HF < 1.0
-//!   - supply_index / borrow_index monotonically non-decreasing
-//!   - Liquidation never makes HF worse (when account still exists)
+//!   - HF ≥ 1.0 after any successful borrow.
+//!   - Liquidation accepted only when HF < 1.0.
+//!   - supply_index / borrow_index monotonically non-decreasing.
+//!   - Liquidation never worsens HF while the account still exists.
 //!
 //! Run:
 //!   cargo test -p test-harness --test fuzz_supply_borrow_liquidate
@@ -28,7 +28,8 @@ fn capture_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        // Keep default case count small for CI; override with PROPTEST_CASES env var.
+        // Keep default case count small for CI; override with the
+        // PROPTEST_CASES env var.
         cases: 64,
         max_global_rejects: 100_000,
         ..ProptestConfig::default()
@@ -61,10 +62,10 @@ proptest! {
         if borrow_amt < 0.0001 {
             return Ok(());
         }
-        // Capture HF before borrow attempt so we can assert atomicity on failure.
+        // Capture HF before the borrow attempt to assert atomicity on failure.
         let hf_pre_borrow = t.health_factor_raw(ALICE);
         if t.try_borrow(ALICE, "ETH", borrow_amt).is_err() {
-            // Even when borrow is rejected, state must be atomic: HF unchanged.
+            // Even when the borrow is rejected, state must stay atomic: HF unchanged.
             let hf_post_reject = t.health_factor_raw(ALICE);
             prop_assert_eq!(
                 hf_pre_borrow, hf_post_reject,
@@ -106,8 +107,8 @@ proptest! {
         // --- Conditional liquidation ---
         let hf_pre_liq = t.health_factor_raw(ALICE);
         if hf_pre_liq >= WAD {
-            // Still healthy: no liquidation executed this iteration.
-            // Even so, indexes must stay monotonic through the "healthy exit" path.
+            // Still healthy: no liquidation runs this iteration. Indexes
+            // must still stay monotonic through the healthy-exit path.
             let idx_healthy_exit = capture_indexes(&t, "USDC");
             prop_assert!(
                 idx_healthy_exit.0 >= idx_after_accrual.0,
@@ -125,22 +126,23 @@ proptest! {
         let current_debt_eth = t.borrow_balance(ALICE, "ETH");
         let repay_frac = liq_repay_frac_bps as f64 / 10_000.0;
         let repay_amt = (current_debt_eth * repay_frac).max(0.0001);
-        // Capture total debt pre-liquidation to verify the "debt strictly reduced
-        // or account closed" invariant after a successful liquidation.
+        // Capture total debt pre-liquidation to verify the "debt strictly
+        // reduced or account closed" invariant after a successful
+        // liquidation.
         let debt_before_liquidation = t.total_debt_raw(ALICE);
         let liq_result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
 
         // Post-liquidation invariant:
-        // We do NOT assert HF strictly improves — when a position is heavily
-        // underwater (HF < 1 + bonus, approximately < 1.08), partial
-        // liquidations mathematically degrade HF because the liquidator
-        // seizes (debt_repaid * (1 + bonus)) in collateral. This is correct
+        // Do NOT assert HF strictly improves — when a position is heavily
+        // underwater (HF < 1 + bonus, roughly < 1.08), partial liquidations
+        // mathematically degrade HF because the liquidator seizes
+        // (debt_repaid * (1 + bonus)) in collateral. This is correct
         // protocol behavior: each liquidation reduces bad-debt exposure
         // even as HF drops further toward zero.
         //
         // What we CAN assert:
-        //   - HF remains finite and positive
-        //   - Total debt is strictly reduced (or position closed)
+        //   - HF stays finite and positive.
+        //   - Total debt is strictly reduced (or the position closes).
         if t.find_account_id(ALICE).is_some() {
             let hf_post = t.health_factor_raw(ALICE);
             prop_assert!(
@@ -159,7 +161,7 @@ proptest! {
                 );
             }
         } else if liq_result.is_ok() {
-            // Account was closed by the liquidation — that satisfies the invariant.
+            // Liquidation closed the account — that satisfies the invariant.
         }
 
         let idx_final = capture_indexes(&t, "USDC");

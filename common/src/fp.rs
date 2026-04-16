@@ -2,12 +2,11 @@
 //!
 //! Three precision types — [`Ray`], [`Wad`], and [`Bps`] — prevent accidental
 //! mixing of precisions at compile time. All arithmetic uses half-up rounding
-//! (0.5 rounds away from zero) via the single [`fp_core::mul_div_half_up`]
-//! primitive.
+//! (0.5 rounds away from zero) via the [`fp_core::mul_div_half_up`] primitive.
 //!
-//! These types are **computation-only** and are never stored on-chain.
-//! At serialization boundaries use `from_raw()` / `.raw()` to convert to/from
-//! the `i128` fields required by `#[contracttype]` structs.
+//! These types are **computation-only**; they never reach on-chain storage.
+//! At serialization boundaries, use `from_raw()` / `.raw()` to convert
+//! to and from the `i128` fields required by `#[contracttype]` structs.
 
 use core::ops::{Add, Sub};
 use soroban_sdk::Env;
@@ -52,20 +51,20 @@ impl Ray {
     }
 
     /// Convert a RAY-precision value to WAD (27 → 18 decimals).
-    /// Use this when the value is truly in RAY precision (e.g., after
+    /// Use only when the value is truly in RAY precision (e.g., after
     /// `scaled * index` where both are RAY-native).
     pub fn to_wad(self) -> Wad {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
     /// Convert a RAY-precision value to asset decimals for token transfers.
-    /// This is the only place precision is lost — use at the transfer boundary.
+    /// The only place precision is lost; use at the transfer boundary.
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
     }
 
     /// Upscale a token amount from asset decimals to RAY precision.
-    /// Use at the token-entry boundary before any scaled arithmetic.
+    /// Use at the token-entry boundary, before any scaled arithmetic.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(amount, asset_decimals, RAY_DECIMALS))
     }
@@ -116,13 +115,20 @@ impl Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, other.0))
     }
 
-    /// Create a Wad from a token amount with the given decimal precision.
+    /// Divide two Wad values, rounding the result DOWN toward zero.
+    /// Use when a guaranteed lower bound matters (e.g., the base side of
+    /// the liquidation seizure split, so the bonus side is never understated).
+    pub fn div_floor(self, env: &Env, other: Wad) -> Wad {
+        Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
+    }
+
+    /// Create a Wad from a token amount at the given decimal precision.
     /// Upscales losslessly to 18 decimals.
     pub fn from_token(amount: i128, decimals: u32) -> Self {
         Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
     }
 
-    /// Convert a Wad back to a token amount with the given decimal precision.
+    /// Convert a Wad back to a token amount at the given decimal precision.
     /// Downscales with half-up rounding.
     pub fn to_token(self, decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
@@ -185,12 +191,12 @@ impl Bps {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
     }
 
-    /// Apply basis-point rate to a raw amount: `amount * bps / 10_000`.
+    /// Apply a basis-point rate to a raw amount: `amount * bps / 10_000`.
     pub fn apply_to(self, env: &Env, amount: i128) -> i128 {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
     }
 
-    /// Apply basis-point rate to a Wad value: `value * (bps / 10_000)`.
+    /// Apply a basis-point rate to a Wad value: `value * (bps / 10_000)`.
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)
@@ -248,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_ray_to_wad() {
-        // 1.0 in RAY → WAD (27 → 18 decimals)
+        // 1.0 in RAY → WAD (27 → 18 decimals).
         let r = Ray::from_raw(RAY); // 1.0 in RAY
         let w = r.to_wad();
         assert_eq!(w.raw(), WAD); // 1.0 in WAD
@@ -256,21 +262,21 @@ mod tests {
 
     #[test]
     fn test_ray_from_asset() {
-        // 1.0 XLM (7 decimals) → RAY
+        // 1.0 XLM (7 decimals) → RAY.
         let r = Ray::from_asset(10_000_000, 7);
         assert_eq!(r.raw(), RAY); // 1.0 in RAY
     }
 
     #[test]
     fn test_ray_to_asset() {
-        // 1.0 in RAY → 7-decimal asset
+        // 1.0 in RAY → 7-decimal asset.
         let r = Ray::from_raw(RAY);
         assert_eq!(r.to_asset(7), 10_000_000);
     }
 
     #[test]
     fn test_ray_asset_roundtrip() {
-        // from_asset → to_asset should be identity
+        // from_asset → to_asset must be identity.
         let original = 12_345_678;
         let ray = Ray::from_asset(original, 7);
         assert_eq!(ray.to_asset(7), original);
@@ -290,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_wad_from_token() {
-        // 1.0 USDC (6 decimals) → WAD
+        // 1.0 USDC (6 decimals) → WAD.
         let w = Wad::from_token(1_000_000, 6);
         assert_eq!(w.raw(), 1_000_000_000_000_000_000);
     }
@@ -315,7 +321,7 @@ mod tests {
         let env = Env::default();
         let ltv = Bps::from_raw(8000); // 80%
         let w = ltv.to_wad(&env);
-        // 8000 * WAD / 10000 = 0.8 WAD
+        // 8000 * WAD / 10000 = 0.8 WAD.
         assert_eq!(w.raw(), 800_000_000_000_000_000);
     }
 
@@ -339,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_ray_one_plus_compound() {
-        // Simulate: RAY::ONE + x + term2 = 1.0 + 0.1 + 0.005
+        // Simulate: RAY::ONE + x + term2 = 1.0 + 0.1 + 0.005.
         let x = Ray::from_raw(RAY / 10);
         let term2 = Ray::from_raw(RAY / 200);
         let result = Ray::ONE + x + term2;

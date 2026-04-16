@@ -1,4 +1,4 @@
-use common::constants::{MAX_LIQUIDATION_BONUS, RAY};
+use common::constants::{MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
     Account, AssetConfig, MarketParams, MarketStatus, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
@@ -56,13 +56,15 @@ pub fn validate_bulk_position_limits(
     } else if position_type == POSITION_TYPE_BORROW {
         (account.borrow_positions.len(), limits.max_borrow_positions)
     } else {
-        return; // No limits for other types
+        // M-08: panic on unknown position_type. Silent return would skip
+        // the limit check entirely if a future caller passes a wrong value.
+        panic_with_error!(env, GenericError::InvalidPositionType);
     };
 
     // Count how many new positions the batch would create.
     //
-    // Repeated assets in the same batch resolve to the same position and
-    // should not be counted twice.
+    // Repeated assets in one batch resolve to the same position; do not
+    // count them twice.
     let mut seen: Map<Address, bool> = Map::new(env);
     let mut new_positions_count: u32 = 0;
     for i in 0..assets.len() {
@@ -112,19 +114,28 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
 }
 
 pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
-    // Guard: liquidation threshold must stay above LTV so new debt cannot
-    // start in liquidatable territory.
-    if config.liquidation_threshold_bps <= config.loan_to_value_bps {
+    // Guard: LTV must be non-negative.
+    if config.loan_to_value_bps < 0 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: liquidation_bonus must satisfy the protocol-wide parity bound.
-    if config.liquidation_bonus_bps > MAX_LIQUIDATION_BONUS {
+    // Guard: liquidation threshold must stay above LTV and at or below 100%
+    // so new debt cannot start in liquidatable territory and HF math stays
+    // bounded.
+    if config.liquidation_threshold_bps <= config.loan_to_value_bps
+        || config.liquidation_threshold_bps > 10_000
+    {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: liquidation_fees must not exceed 100% (sanity bound).
-    if config.liquidation_fees_bps > 10_000 {
+    // Guard: liquidation_bonus must be non-negative and stay within the
+    // protocol-wide parity bound.
+    if config.liquidation_bonus_bps < 0 || config.liquidation_bonus_bps > MAX_LIQUIDATION_BONUS {
+        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
+    }
+
+    // Guard: liquidation_fees must be non-negative and not exceed 100% (sanity bound).
+    if config.liquidation_fees_bps < 0 || config.liquidation_fees_bps > 10_000 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
@@ -132,14 +143,32 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     if config.supply_cap < 0 || config.borrow_cap < 0 {
         panic_with_error!(env, CollateralError::InvalidBorrowParams);
     }
+
+    // Guard: isolation debt ceiling must be non-negative. A negative ceiling
+    // makes the `isolated_debt > ceiling` check vacuously true, permitting
+    // unlimited isolated borrowing.
+    if config.isolation_debt_ceiling_usd_wad < 0 {
+        panic_with_error!(env, CollateralError::InvalidBorrowParams);
+    }
+
+    // H-04: flashloan_fee_bps bounds. A negative fee would have the pool pay
+    // receivers; a fee above MAX_FLASHLOAN_FEE_BPS exceeds the protocol cap.
+    // Enforced here so `create_liquidity_pool` and `edit_asset_config` share
+    // one validation site.
+    if config.flashloan_fee_bps < 0 {
+        panic_with_error!(env, FlashLoanError::NegativeFlashLoanFee);
+    }
+    if config.flashloan_fee_bps > MAX_FLASHLOAN_FEE_BPS {
+        panic_with_error!(env, FlashLoanError::StrategyFeeExceeds);
+    }
 }
 
 pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
     if last <= first {
         panic_with_error!(env, OracleError::BadAnchorTolerances);
     }
-    // Upper bound is enforced by `MAX_LAST_TOLERANCE` in the range check at
-    // the caller (`validate_and_calculate_tolerances`). No redundant cap here.
+    // The caller's range check (`validate_and_calculate_tolerances`) enforces
+    // the upper bound via `MAX_LAST_TOLERANCE`. No redundant cap here.
 }
 
 #[cfg(test)]
@@ -250,6 +279,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }
@@ -265,8 +295,12 @@ mod tests {
         });
     }
 
+    // M-08: previously this fn silently no-op'd for unknown position_type.
+    // Audit fix made it panic with InvalidPositionType (= 23) so a buggy
+    // caller cannot bypass the position-limit check.
     #[test]
-    fn test_validate_bulk_position_limits_ignores_unknown_position_type() {
+    #[should_panic(expected = "Error(Contract, #23)")]
+    fn test_validate_bulk_position_limits_panics_for_unknown_position_type() {
         let t = TestSetup::new();
         t.as_contract(|| {
             let account = t.account_with_supply();
@@ -292,6 +326,61 @@ mod tests {
             assets.push_back((t.asset_b.clone(), 2));
 
             validate_bulk_position_limits(&t.env, &account, POSITION_TYPE_DEPOSIT, &assets);
+        });
+    }
+
+    // H-04: validate_asset_config now also enforces flashloan_fee_bps bounds.
+    // Previously these checks lived only in `edit_asset_config`, leaving
+    // `create_liquidity_pool` (which calls validate_asset_config) wide open.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #411)")]
+    fn test_validate_asset_config_rejects_negative_flashloan_fee() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let cfg = AssetConfig {
+                loan_to_value_bps: 7_500,
+                liquidation_threshold_bps: 8_000,
+                liquidation_bonus_bps: 500,
+                liquidation_fees_bps: 100,
+                is_collateralizable: true,
+                is_borrowable: true,
+                e_mode_enabled: false,
+                is_isolated_asset: false,
+                is_siloed_borrowing: false,
+                is_flashloanable: true,
+                isolation_borrow_enabled: true,
+                isolation_debt_ceiling_usd_wad: 1_000_000,
+                flashloan_fee_bps: -1, // invalid: negative
+                borrow_cap: i128::MAX,
+                supply_cap: i128::MAX,
+            };
+            validate_asset_config(&t.env, &cfg);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #409)")]
+    fn test_validate_asset_config_rejects_excessive_flashloan_fee() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let cfg = AssetConfig {
+                loan_to_value_bps: 7_500,
+                liquidation_threshold_bps: 8_000,
+                liquidation_bonus_bps: 500,
+                liquidation_fees_bps: 100,
+                is_collateralizable: true,
+                is_borrowable: true,
+                e_mode_enabled: false,
+                is_isolated_asset: false,
+                is_siloed_borrowing: false,
+                is_flashloanable: true,
+                isolation_borrow_enabled: true,
+                isolation_debt_ceiling_usd_wad: 1_000_000,
+                flashloan_fee_bps: 501, // > MAX_FLASHLOAN_FEE_BPS (500)
+                borrow_cap: i128::MAX,
+                supply_cap: i128::MAX,
+            };
+            validate_asset_config(&t.env, &cfg);
         });
     }
 

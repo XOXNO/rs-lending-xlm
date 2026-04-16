@@ -23,7 +23,7 @@ fn test_borrow_basic() {
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 
-    // Wallet should have received the borrowed ETH
+    // The wallet must hold the borrowed ETH.
     let eth_wallet = t.token_balance(ALICE, "ETH");
     assert!(
         eth_wallet > 0.99,
@@ -70,10 +70,10 @@ fn test_borrow_multiple_assets_bulk() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply enough collateral
+    // Supply enough collateral.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow 1 ETH ($2000) + 0.01 WBTC ($600) via bulk call
+    // Borrow 1 ETH ($2000) and 0.01 WBTC ($600) in one bulk call.
     t.borrow_bulk(ALICE, &[("ETH", 1.0), ("WBTC", 0.01)]);
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
@@ -92,11 +92,11 @@ fn test_borrow_rejects_exceeding_ltv() {
         .with_market(eth_preset())
         .build();
 
-    // Supply $10k, LTV = 75% => max borrow value = $7500
-    // ETH = $2000, so max borrow = ~3.75 ETH
+    // Supply $10k. LTV = 75%, so max borrow value = $7500.
+    // ETH = $2000, so max borrow ~ 3.75 ETH.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Try to borrow 5 ETH = $10k -- should exceed LTV
+    // Borrow 5 ETH = $10k, which must exceed the LTV.
     let result = t.try_borrow(ALICE, "ETH", 5.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -115,9 +115,9 @@ fn test_borrow_rejects_zero_amount() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let result = t.try_borrow(ALICE, "ETH", 0.0);
-    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14) so regressions
-    // that fall through to a different validator surface loudly instead of
-    // being hidden by a generic is_err() assertion.
+    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14). A generic
+    // is_err() would hide regressions that fall through to a different
+    // validator.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
@@ -183,7 +183,7 @@ fn test_borrow_rejects_when_paused() {
 
 #[test]
 fn test_borrow_cap_enforcement() {
-    let cap = 1_0000000i128; // 1 ETH in asset decimals (7 dec)
+    let cap = 1_0000000i128; // 1 ETH in asset decimals (7 dec).
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -194,7 +194,7 @@ fn test_borrow_cap_enforcement() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Try to borrow 2 ETH -- exceeds 1 ETH cap
+    // Borrowing 2 ETH exceeds the 1 ETH cap.
     let result = t.try_borrow(ALICE, "ETH", 2.0);
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
 }
@@ -209,14 +209,14 @@ fn test_borrow_position_limit_exceeded() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market(wbtc_preset())
-        .with_position_limits(4, 1) // only 1 borrow position allowed
+        .with_position_limits(4, 1) // Only one borrow position allowed.
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 0.1);
 
-    // Second borrow position should exceed limit.
-    // Note: Error is wrapped as InvalidAction by Soroban host (cross-contract path)
+    // The second borrow position must exceed the limit. Soroban wraps the
+    // error as InvalidAction on the cross-contract path.
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert!(
         result.is_err(),
@@ -242,7 +242,7 @@ fn test_borrow_siloed_asset_blocks_mixed() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 0.1);
 
-    // Borrowing WBTC should fail because ETH is siloed
+    // Borrowing WBTC must fail because ETH is siloed.
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
 }
@@ -268,7 +268,7 @@ fn test_borrow_isolated_requires_enabled() {
     t.create_isolated_account(ALICE, "USDC");
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // ETH doesn't have isolation_borrow_enabled, should fail
+    // ETH lacks isolation_borrow_enabled, so this must fail.
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
 }
@@ -279,7 +279,7 @@ fn test_borrow_isolated_requires_enabled() {
 
 #[test]
 fn test_borrow_isolated_debt_ceiling() {
-    // Set a very low ceiling: $100 WAD
+    // Set a very low ceiling: $100 WAD.
     let ceiling = 100 * 1_000_000_000_000_000_000i128;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -296,7 +296,7 @@ fn test_borrow_isolated_debt_ceiling() {
     t.create_isolated_account(ALICE, "USDC");
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrowing 1 ETH = $2000 should exceed $100 ceiling
+    // Borrowing 1 ETH = $2000 must exceed the $100 ceiling.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::DEBT_CEILING_REACHED);
 }
@@ -318,8 +318,8 @@ fn test_borrow_emode_enhanced_ltv() {
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Standard LTV = 75%, so $7500 would be the normal limit.
-    // E-mode LTV = 97%, so a $9500 borrow should still be allowed.
+    // Standard LTV = 75% caps the normal limit at $7500.
+    // E-mode LTV = 97%, so a $9500 borrow stays allowed.
     t.borrow(ALICE, "USDT", 9_500.0);
     t.assert_healthy(ALICE);
 
@@ -338,12 +338,12 @@ fn test_borrow_health_factor_exactly_one() {
         .with_market(usdt_stable_preset())
         .build();
 
-    // Supply $10k USDC. LTV = 75% => max borrow = $7500.
+    // Supply $10k USDC. LTV = 75%, so max borrow = $7500.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Borrow exactly at LTV limit: $7500 USDT
-    // HF = (10_000 * 0.80) / 7500 = 1.0667 -- healthy but tight
-    // Note: HF uses liquidation_threshold (80%), not LTV (75%)
+    // Borrow at the LTV limit: $7500 USDT.
+    // HF = (10_000 * 0.80) / 7500 = 1.0667 -- healthy but tight.
+    // HF uses liquidation_threshold (80%), not LTV (75%).
     t.borrow(ALICE, "USDT", 7_500.0);
     t.assert_healthy(ALICE);
 
@@ -367,10 +367,10 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
         .with_market(wbtc_preset())
         .build();
 
-    // Supply enough collateral
+    // Supply enough collateral.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow small amounts of both in a single batch via harness
+    // Borrow small amounts of each in one batch through the harness.
     t.borrow_bulk(ALICE, &[("ETH", 0.5), ("WBTC", 0.005)]);
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);

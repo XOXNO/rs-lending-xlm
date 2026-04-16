@@ -16,7 +16,7 @@ use test_harness::{
 fn test_edit_asset_config() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Change LTV from default 7500 to 6000
+    // Change LTV from default 7500 to 6000.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value_bps = 6000;
     });
@@ -26,7 +26,7 @@ fn test_edit_asset_config() {
         config.loan_to_value_bps, 6000,
         "LTV should be updated to 6000"
     );
-    // Threshold should remain unchanged
+    // Threshold must remain unchanged.
     assert_eq!(
         config.liquidation_threshold_bps, 8000,
         "threshold should remain 8000"
@@ -41,13 +41,13 @@ fn test_edit_asset_config() {
 fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Set threshold == LTV directly via controller client (should panic)
+    // Set threshold == LTV through the controller client; this must panic.
     let asset = t.resolve_market("USDC").asset.clone();
     let ctrl = t.ctrl_client();
 
     let mut config = ctrl.get_market_config(&asset).asset_config;
     config.loan_to_value_bps = 8000;
-    config.liquidation_threshold_bps = 8000; // equal to LTV
+    config.liquidation_threshold_bps = 8000; // Equal to LTV.
 
     let result = ctrl.try_edit_asset_config(&asset, &config);
     assert!(
@@ -82,16 +82,16 @@ fn test_pause_blocks_operations() {
         .with_market(eth_preset())
         .build();
 
-    // Supply first so account exists
+    // Supply first so the account exists.
     t.supply(ALICE, "USDC", 10_000.0);
 
     t.pause();
 
-    // try_supply should fail when paused
+    // try_supply must fail while paused.
     let supply_result = t.try_supply(ALICE, "USDC", 1000.0);
     assert_contract_error(supply_result, errors::CONTRACT_PAUSED);
 
-    // try_borrow should also fail when paused
+    // try_borrow must also fail while paused.
     let borrow_result = t.try_borrow(ALICE, "ETH", 0.5);
     assert_contract_error(borrow_result, errors::CONTRACT_PAUSED);
 }
@@ -110,12 +110,12 @@ fn test_unpause_restores_operations() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     t.pause();
-    // Verify paused
+    // Verify the pause took effect.
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 
     t.unpause();
-    // Should succeed after unpause
+    // The call must succeed after unpause.
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert!(result.is_ok(), "supply should work after unpause");
 }
@@ -128,11 +128,11 @@ fn test_unpause_restores_operations() {
 fn test_upgrade_pool_params() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Snapshot the borrow rate BEFORE upgrading params
+    // Snapshot the borrow rate before upgrading params.
     let rate_before = t.pool_borrow_rate("USDC");
 
-    let new_base_rate = RAY * 2 / 100; // 2% (much higher than default)
-    let new_slope1 = RAY * 8 / 100; // 8%
+    let new_base_rate = RAY * 2 / 100; // 2%, far above default.
+    let new_slope1 = RAY * 8 / 100; // 8%.
 
     t.upgrade_pool_params(
         "USDC",
@@ -146,9 +146,9 @@ fn test_upgrade_pool_params() {
         1000,            // reserve_factor
     );
 
-    // Verify the pool rate actually changed by comparing before/after.
-    // With zero utilization, the rate = base_rate / MILLISECONDS_PER_YEAR.
-    // The new base_rate (2%) is higher than the default, so the rate should increase.
+    // Compare before/after to confirm the pool rate changed. At zero
+    // utilization the rate equals base_rate / MILLISECONDS_PER_YEAR, so the
+    // higher base_rate (2%) must raise it.
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(
         rate_after > rate_before,
@@ -180,12 +180,13 @@ fn test_configure_market_oracle() {
         cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
         dex_oracle: None,
         dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
         twap_records: 3,
     };
 
-    t.mock_reflector_client().set_price(&asset, &1_0000000i128); // dummy price for dry-run
+    t.mock_reflector_client().set_price(&asset, &1_0000000i128); // Dummy price for dry-run.
 
-    // Should not panic -- admin has permission
+    // Must not panic; the admin has permission.
     ctrl.configure_market_oracle(&t.admin(), &asset, &config);
 }
 
@@ -202,7 +203,7 @@ fn test_set_aggregator() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
 
-    // Should not panic -- admin has permission
+    // Must not panic; the admin has permission.
     ctrl.set_aggregator(&new_aggregator);
 }
 
@@ -217,8 +218,9 @@ fn test_oracle_tolerance_validation() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Try setting tolerance with first below MIN_FIRST_TOLERANCE (50 bps).
-    // API now takes raw deviation BPS (first, last) instead of OraclePriceFluctuation.
+    // Set tolerance with first below MIN_FIRST_TOLERANCE (50 bps). The API
+    // now takes raw deviation BPS (first, last) instead of
+    // OraclePriceFluctuation.
     let result = ctrl.try_edit_oracle_tolerance(&t.admin(), &asset, &10, &500);
     assert!(
         result.is_err(),
@@ -234,20 +236,20 @@ fn test_oracle_tolerance_validation() {
 fn test_grant_and_revoke_role() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB user
+    // Create BOB.
     t.get_or_create_user(BOB);
 
-    // Grant KEEPER role to BOB
+    // Grant KEEPER to BOB.
     t.grant_role(BOB, "KEEPER");
     assert!(t.has_role(BOB, "KEEPER"), "BOB should have KEEPER role");
 
-    // BOB should NOT have REVENUE role
+    // BOB must lack the REVENUE role.
     assert!(
         !t.has_role(BOB, "REVENUE"),
         "BOB should not have REVENUE role"
     );
 
-    // Revoke KEEPER from BOB
+    // Revoke KEEPER from BOB.
     t.revoke_role(BOB, "KEEPER");
     assert!(
         !t.has_role(BOB, "KEEPER"),
@@ -263,12 +265,12 @@ fn test_grant_and_revoke_role() {
 fn test_role_enforcement_keeper() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB (no KEEPER role)
+    // Create BOB (no KEEPER role).
     let bob_addr = t.get_or_create_user(BOB);
 
-    // BOB tries to call update_indexes without KEEPER role -- should fail.
-    // Use bare `is_err()` because Soroban wraps cross-contract errors at the
-    // outer caller boundary.
+    // BOB calls update_indexes without KEEPER; this must fail. Use bare
+    // `is_err()` because Soroban wraps cross-contract errors at the outer
+    // caller boundary.
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
@@ -286,7 +288,7 @@ fn test_role_enforcement_keeper() {
 fn test_role_enforcement_revenue() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB (no REVENUE role)
+    // Create BOB (no REVENUE role).
     let bob_addr = t.get_or_create_user(BOB);
 
     // Use bare `is_err()` because Soroban wraps cross-contract errors at the
@@ -322,6 +324,7 @@ fn test_role_enforcement_oracle() {
         cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
         dex_oracle: None,
         dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
         twap_records: 3,
     };
 
@@ -365,6 +368,7 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
         cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
         dex_oracle: None,
         dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
         twap_records: 2,
     };
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
@@ -408,11 +412,11 @@ fn test_create_liquidity_pool_uniqueness() {
 
 #[test]
 fn test_market_initialization_cascade() {
-    let t = LendingTest::new().build(); // empty protocol
+    let t = LendingTest::new().build(); // Empty protocol.
     let ctrl = t.ctrl_client();
     let admin = &t.admin;
 
-    // Register a new token
+    // Register a new token.
     let asset = t
         .env
         .register_stellar_asset_contract_v2(admin.clone())
@@ -423,10 +427,11 @@ fn test_market_initialization_cascade() {
     // 0. Pre-approve the token contract (allow-list gate, T1-7).
     ctrl.approve_token_wasm(&asset);
 
-    // 1. Create liquidity pool without existing oracle -> Success (starts as PendingOracle)
+    // 1. Create the liquidity pool with no oracle; the call succeeds and
+    //    leaves the market in PendingOracle.
     ctrl.create_liquidity_pool(&asset, &params, &config);
 
-    // Verify market is pending (PendingOracle = 0)
+    // Confirm the market is pending (PendingOracle = 0).
     let m = ctrl.get_market_config(&asset);
     assert_eq!(
         (m.status as u32),
@@ -445,12 +450,13 @@ fn test_market_initialization_cascade() {
         cex_symbol: Symbol::new(&t.env, ""),
         dex_oracle: None,
         dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
         twap_records: 3,
     };
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(admin, &asset, &reflector_cfg);
 
-    // 3. Verify market is now Active (Active = 1)
+    // 3. Confirm the market is now Active (Active = 1).
     let m = ctrl.get_market_config(&asset);
     assert_eq!((m.status as u32), 1, "market should be in Active status");
 }

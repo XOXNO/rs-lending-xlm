@@ -138,7 +138,7 @@ fn isolation_debt_ceiling_respected(
     let isolated_config = crate::storage::asset_config::get_asset_config(&e, &isolated_asset);
     let current_debt = crate::storage::isolation::get_isolated_debt(&e, &isolated_asset);
 
-    cvlr_assert!(current_debt <= isolated_config.debt_ceiling_usd_wad);
+    cvlr_assert!(current_debt <= isolated_config.isolation_debt_ceiling_usd_wad);
 }
 
 // ---------------------------------------------------------------------------

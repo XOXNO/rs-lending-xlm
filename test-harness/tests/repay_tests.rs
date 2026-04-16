@@ -19,7 +19,7 @@ fn test_repay_partial() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 2.0);
 
-    // Repay 1 ETH
+    // Repay 1 ETH.
     t.repay(ALICE, "ETH", 1.0);
 
     let borrow = t.borrow_balance(ALICE, "ETH");
@@ -45,7 +45,7 @@ fn test_repay_full_clears_position() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Repay slightly more to ensure full clearance
+    // Repay slightly more to clear the position fully.
     t.repay(ALICE, "ETH", 1.01);
 
     let borrow = t.borrow_balance(ALICE, "ETH");
@@ -55,7 +55,7 @@ fn test_repay_full_clears_position() {
         borrow
     );
 
-    // Borrow position should be removed
+    // The borrow position must be removed.
     t.assert_borrow_count(ALICE, 0);
 }
 
@@ -73,18 +73,18 @@ fn test_repay_overpayment_refunded() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Record ALICE's ETH wallet before repay
-    // After borrow, ALICE has ~1 ETH in wallet
+    // Record Alice's ETH wallet before repay. After borrow, Alice holds
+    // ~1 ETH in her wallet.
     let wallet_before = t.token_balance(ALICE, "ETH");
 
-    // Repay 2.0 ETH (overpayment by ~1 ETH)
-    // repay() mints `amount` to user, so user will have wallet_before + 2.0 after mint
-    // Then repay takes ~1 ETH, leaving wallet_before + 2.0 - 1.0 = wallet_before + 1.0
+    // Repay 2.0 ETH (~1 ETH overpayment). repay() mints `amount` to the
+    // user, so the wallet holds wallet_before + 2.0 after the mint. Repay
+    // then takes ~1 ETH, leaving wallet_before + 1.0.
     t.repay(ALICE, "ETH", 2.0);
 
     let wallet_after = t.token_balance(ALICE, "ETH");
-    // The excess should have been refunded
-    // wallet_after should be approximately wallet_before + 1.0 (the overpayment back)
+    // The excess must have been refunded: wallet_after should be roughly
+    // wallet_before + 1.0.
     assert!(
         wallet_after > wallet_before + 0.9,
         "overpayment should be refunded: before={}, after={}",
@@ -92,7 +92,7 @@ fn test_repay_overpayment_refunded() {
         wallet_after
     );
 
-    // Borrow should be cleared
+    // The borrow must be cleared.
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(borrow < 0.01, "borrow should be ~0");
 }
@@ -111,13 +111,13 @@ fn test_repay_by_third_party() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // BOB repays ALICE's debt using the controller directly
+    // Bob repays Alice's debt using the controller directly.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let eth_market = t.resolve_market("ETH");
     let eth_addr = eth_market.asset.clone();
 
-    // Mint ETH to BOB so he can pay
+    // Mint ETH to Bob so he can pay.
     let repay_amount = 1_0100000i128; // 1.01 ETH (7 decimals)
     eth_market.token_admin.mint(&bob_addr, &repay_amount);
 
@@ -125,7 +125,7 @@ fn test_repay_by_third_party() {
     let payments = soroban_sdk::vec![&t.env, (eth_addr, repay_amount)];
     ctrl.repay(&bob_addr, &alice_account_id, &payments);
 
-    // ALICE's borrow should be cleared
+    // Alice's borrow must be cleared.
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(
         borrow < 0.01,
@@ -150,7 +150,7 @@ fn test_repay_multiple_assets() {
     t.borrow(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "WBTC", 0.01);
 
-    // Repay both via controller bulk call
+    // Repay both via the controller's bulk call.
     let account_id = t.resolve_account_id(ALICE);
     let addr = t.users.get(ALICE).unwrap().address.clone();
     let eth_addr = t.resolve_asset("ETH");
@@ -159,7 +159,7 @@ fn test_repay_multiple_assets() {
     let eth_repay = 1_0100000i128; // 1.01 ETH
     let wbtc_repay = 1_100_000i128; // 0.011 WBTC
 
-    // Mint tokens for repayment
+    // Mint tokens for repayment.
     t.resolve_market("ETH").token_admin.mint(&addr, &eth_repay);
     t.resolve_market("WBTC")
         .token_admin
@@ -215,7 +215,7 @@ fn test_repay_rejects_position_not_found() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    // No borrow of ETH
+    // No ETH borrow.
 
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::POSITION_NOT_FOUND);
@@ -291,13 +291,13 @@ fn test_repay_cleans_up_empty_account() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Repay full
+    // Repay in full.
     t.repay(ALICE, "ETH", 1.01);
 
-    // Withdraw all -- triggers auto-removal
+    // Withdraw all: triggers auto-removal.
     t.withdraw_all(ALICE, "USDC");
 
-    // Account was auto-removed when all positions cleared
+    // The account was auto-removed when all positions cleared.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),

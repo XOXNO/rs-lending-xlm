@@ -30,17 +30,22 @@ pub trait LiquidityPoolInterface {
         protocol_fee: i128,
         price_wad: i128,
     ) -> PoolPositionMutation;
+    /// H-02: parameter order aligned with `borrow` so the two i128 args
+    /// (`amount`, `price_wad`) sit in identical positions across both
+    /// endpoints. A controller-side typo can no longer silently swap them.
     fn repay(
         env: Env,
         caller: Address,
+        amount: i128,
         position: AccountPosition,
         price_wad: i128,
-        amount: i128,
     ) -> PoolPositionMutation;
     fn update_indexes(env: Env, price_wad: i128) -> MarketIndex;
     fn add_rewards(env: Env, price_wad: i128, amount: i128);
-    fn flash_loan_begin(env: Env, asset: Address, amount: i128, receiver: Address);
-    fn flash_loan_end(env: Env, asset: Address, amount: i128, fee: i128, receiver: Address);
+    /// Pool always uses its own `params.asset_id` for the token transfer;
+    /// no caller-supplied `asset` argument (audit fix H-01).
+    fn flash_loan_begin(env: Env, amount: i128, receiver: Address);
+    fn flash_loan_end(env: Env, amount: i128, fee: i128, receiver: Address);
     fn create_strategy(
         env: Env,
         caller: Address,
@@ -50,7 +55,11 @@ pub trait LiquidityPoolInterface {
         price_wad: i128,
     ) -> PoolStrategyMutation;
     fn seize_position(env: Env, position: AccountPosition, price_wad: i128) -> AccountPosition;
-    fn claim_revenue(env: Env, caller: Address, price_wad: i128) -> i128;
+    /// L-05: pool transfers revenue to the accumulator address it stored
+    /// at construction; no caller-supplied destination. Closes the
+    /// controller-misconfig surface where revenue could be routed
+    /// out-of-band.
+    fn claim_revenue(env: Env, price_wad: i128) -> i128;
     fn update_params(
         env: Env,
         max_borrow_rate: i128,

@@ -4,8 +4,9 @@ use soroban_sdk::{contracttype, Address, BytesN, Map, Symbol, Vec};
 // Position types
 // ---------------------------------------------------------------------------
 
-// Deposit or borrow -- the two position types a user can hold.
-// Stored as u32 in composite storage keys (Soroban does not support u8 in contracttype).
+// The two position types a user can hold: deposit or borrow.
+// Composite storage keys store these as u32, since Soroban `contracttype`
+// does not support u8.
 pub const POSITION_TYPE_DEPOSIT: u32 = 1;
 pub const POSITION_TYPE_BORROW: u32 = 2;
 
@@ -149,7 +150,7 @@ impl AccountAttributes {
     }
 }
 
-// Account metadata stored separately from per-position storage.
+// Account metadata, stored apart from per-position storage.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -187,7 +188,7 @@ pub struct EModeAssetConfig {
 // Reflector oracle config enums
 // ---------------------------------------------------------------------------
 
-// Identifies which SEP-40 asset variant to use when calling a Reflector oracle.
+// Selects the SEP-40 asset variant for Reflector oracle calls.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReflectorAssetKind {
@@ -262,6 +263,13 @@ pub struct MarketOracleConfigInput {
     pub cex_symbol: Symbol,
     pub dex_oracle: Option<Address>,
     pub dex_asset_kind: ReflectorAssetKind,
+    /// M-09: explicit DEX symbol; previously `cex_symbol` was forwarded to
+    /// the DEX feed, which silently sent the wrong symbol when the two
+    /// kinds differed (e.g. CEX `Stellar(addr)` + DEX `Other("XLM")`).
+    /// Operators MUST pass a valid DEX-side symbol; the controller probes
+    /// `dex_client.lastprice(...)` at config time and rejects unresolvable
+    /// symbols with `OracleError::InvalidTicker`.
+    pub dex_symbol: Symbol,
     pub twap_records: u32,
 }
 
@@ -408,7 +416,7 @@ pub struct SwapSteps {
 // Consolidated storage types
 // ---------------------------------------------------------------------------
 
-// Market lifecycle state.
+// Market lifecycle status.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -431,12 +439,15 @@ pub struct MarketConfig {
     pub cex_decimals: u32,
     pub dex_oracle: Option<Address>,
     pub dex_asset_kind: ReflectorAssetKind,
+    /// M-09: explicit DEX symbol; see `MarketOracleConfigInput::dex_symbol`.
+    /// Storage layout change — existing markets must be re-configured via
+    /// `configure_market_oracle` after upgrade. See `DEPLOYMENT.md`.
+    pub dex_symbol: Symbol,
     pub dex_decimals: u32,
     pub twap_records: u32,
 }
 
-// Account state stored per account.
-// Read and written by user operations.
+// Per-account state. User operations read and write it.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -489,9 +500,8 @@ impl From<&AccountMeta> for AccountAttributes {
 
 // Controller contract storage keys.
 //
-// Note: Soroban #[contracttype] enums do not support u8 in variant data,
+// Soroban `#[contracttype]` enums do not support u8 in variant data,
 // so all small integer fields use u32.
-//
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
@@ -519,15 +529,19 @@ pub enum ControllerKey {
     PoolsCount,
 }
 
-// Pool storage keys (all Instance).
+// Pool storage keys (all Instance-scoped).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
     Params,
     State,
+    /// L-05: revenue destination, set once at pool construction by the
+    /// controller (router::create_liquidity_pool). `claim_revenue` reads
+    /// from storage rather than trusting a caller-supplied address.
+    Accumulator,
 }
 
-// Mutable pool state (single Instance entry).
+// Mutable pool state, held in a single Instance entry.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolState {

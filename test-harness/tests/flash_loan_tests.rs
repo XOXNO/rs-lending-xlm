@@ -7,15 +7,15 @@ use test_harness::{
 // ---------------------------------------------------------------------------
 // 1. test_flash_loan_mock_auth_limitation_documented
 // ---------------------------------------------------------------------------
-// Context: `mock_all_auths` in recording mode cannot authorize the nested
+// `mock_all_auths` in recording mode cannot authorize the nested
 // `StellarAssetClient::mint()` call that the good flash-loan receiver uses
-// to pay the fee. Rather than misleadingly naming a test "success" while
-// asserting `is_err()`, this test documents the harness limitation and
-// verifies the error is an auth/host failure (not a misplaced contract
-// error code that could hide a real protocol regression).
+// to pay the fee. Rather than naming a test "success" while asserting
+// `is_err()`, this test documents the harness limitation and verifies the
+// error is an auth/host failure -- not a misplaced contract error code
+// that could mask a real protocol regression.
 //
 // A dedicated property test covers the true success path under an explicit
-// MockAuth tree; see `fuzz_strategy_flashloan.rs::prop_flash_loan_success_repayment`
+// MockAuth tree: `fuzz_strategy_flashloan.rs::prop_flash_loan_success_repayment`
 // (currently `#[ignore]` pending SDK support for nested SAC admin auth).
 
 #[test]
@@ -25,31 +25,30 @@ fn test_flash_loan_mock_auth_limitation_documented() {
         .with_market(eth_preset())
         .build();
 
-    // Supply some liquidity so the pool has funds
+    // Supply liquidity so the pool has funds.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Advance and sync to generate some baseline revenue
+    // Advance and sync to generate baseline revenue.
     t.advance_and_sync(days(30));
 
     let receiver = t.deploy_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &receiver);
 
     // `try_flash_loan` already flattens to `Result<(), soroban_sdk::Error>`.
-    // Under mock_all_auths recording mode the nested SAC mint auth is not
-    // recordable, so the call must not succeed. If this ever returns `Ok`
-    // under the same harness it signals either (a) the SDK now records the
-    // nested auth (in which case the property test in fuzz_strategy_flashloan
-    // should be un-ignored) or (b) a new code path is erroneously reporting
-    // success — both cases warrant investigation.
+    // Recording-mode mock_all_auths cannot record the nested SAC mint auth,
+    // so the call must not succeed. An `Ok` here means either (a) the SDK
+    // now records the nested auth (un-ignore the property test in
+    // fuzz_strategy_flashloan) or (b) a new code path falsely reports
+    // success. Both cases warrant investigation.
     assert!(
         result.is_err(),
         "flash loan with good receiver must not return Ok under recording-mode mock_all_auths: {:?}",
         result
     );
     // Sanity: the returned error must not match FLASHLOAN_NOT_ENABLED or any
-    // other controller-side precondition error — those would indicate a
-    // regression in which a guard fires BEFORE the receiver invocation.
+    // other controller-side precondition error. Such a code would mean a
+    // guard fired before the receiver invocation -- a regression.
     if let Err(err) = &result {
         for regression_code in [401u32, 400u32, 14u32] {
             let predictable = soroban_sdk::Error::from_contract_error(regression_code);
@@ -74,8 +73,8 @@ fn test_flash_loan_rejects_bad_repayment() {
 
     let bad_receiver = t.deploy_bad_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &bad_receiver);
-    // Bad receiver triggers a cross-contract failure that surfaces as a host error,
-    // not a specific contract error code.
+    // The bad receiver triggers a cross-contract failure that surfaces as
+    // a host error, not a specific contract error code.
     assert!(
         result.is_err(),
         "flash loan should fail when receiver doesn't repay"
@@ -92,7 +91,7 @@ fn test_flash_loan_rejects_disabled() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Disable flash loans for USDC
+    // Disable flash loans for USDC.
     t.edit_asset_config("USDC", |cfg| {
         cfg.is_flashloanable = false;
     });
@@ -223,15 +222,15 @@ fn test_flash_loan_reentrancy_blocks_liquidation() {
 
 #[test]
 fn test_flash_loan_fee_config_matches_default_preset() {
-    // The previous version of this test asserted `expected_fee == 90.0`
-    // (tautological: `100_000 * 9 / 10_000` is always 90 at compile time)
-    // and `result.is_err()` due to the same mock_all_auths limitation. It
-    // proved nothing the compiler didn't already prove.
+    // The previous version asserted `expected_fee == 90.0` (tautological:
+    // `100_000 * 9 / 10_000` is always 90 at compile time) and
+    // `result.is_err()` from the same mock_all_auths limitation. It proved
+    // nothing the compiler did not.
     //
     // This rewrite pins the default preset config values so any change to
-    // `usdc_preset()` surfaces in CI. The actual end-to-end fee transfer is
-    // exercised via the pool inline `test_flash_loan` in pool/src/lib.rs,
-    // which uses the admin (covered by mock_all_auths) as the receiver.
+    // `usdc_preset()` surfaces in CI. The end-to-end fee transfer runs in
+    // the inline `test_flash_loan` in pool/src/lib.rs, which uses the admin
+    // (covered by mock_all_auths) as receiver.
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let config = t.get_asset_config("USDC");

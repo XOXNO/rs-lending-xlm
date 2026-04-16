@@ -14,14 +14,14 @@ fn setup() -> LendingTest {
         .build()
 }
 
-/// Enable dual-source pricing for an asset so the controller compares
-/// aggregator vs safe (TWAP) prices for tolerance checks.
+/// Enable dual-source pricing so the controller compares aggregator and
+/// safe (TWAP) prices for tolerance checks.
 fn enable_dual_source(t: &LendingTest, asset_name: &str) {
     t.set_exchange_source(asset_name, common::types::ExchangeSource::SpotVsTwap);
 }
 
 // ===========================================================================
-// 1. Price within first tolerance (safe) -- all operations work
+// 1. Price within first tolerance: all operations succeed
 // ===========================================================================
 
 #[test]
@@ -30,25 +30,25 @@ fn test_safe_price_allows_all_operations() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Safe price matches aggregator exactly -- within first tolerance
+    // Safe price matches aggregator exactly: within first tolerance.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
-    // Supply (risk-decreasing)
+    // Supply (risk-decreasing).
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow (risk-increasing)
+    // Borrow (risk-increasing).
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Repay (risk-decreasing)
+    // Repay (risk-decreasing).
     t.repay(ALICE, "ETH", 1.0);
 
-    // Withdraw (risk-increasing when has borrows)
+    // Withdraw (risk-increasing when borrows exist).
     t.withdraw(ALICE, "USDC", 1_000.0);
 }
 
 // ===========================================================================
-// 2. Price within second tolerance -- operations still work
+// 2. Price within second tolerance: operations still succeed
 // ===========================================================================
 
 #[test]
@@ -57,19 +57,19 @@ fn test_second_tolerance_allows_risk_decreasing() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Default tolerance: first=200 BPS (2%), last=500 BPS (5%)
-    // Set safe price 3% away from aggregator (between first and second)
-    // Aggregator: $1.00, Safe: $1.03 (3% deviation)
+    // Default tolerance: first=200 BPS (2%), last=500 BPS (5%).
+    // Set safe price 3% away from aggregator (between first and second).
+    // Aggregator: $1.00, Safe: $1.03 (3% deviation).
     t.set_safe_price("USDC", usd_cents(103), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
-    // Supply should work (risk-decreasing)
+    // Supply succeeds (risk-decreasing).
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow should also work (within second tolerance, uses average price)
+    // Borrow also succeeds (within second tolerance, uses average price).
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Repay should work (risk-decreasing)
+    // Repay succeeds (risk-decreasing).
     t.repay(ALICE, "ETH", 1.0);
 }
 
@@ -79,19 +79,19 @@ fn test_second_tolerance_allows_borrow() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set USDC safe price 3% above aggregator (within second tolerance)
+    // Set USDC safe price 3% above aggregator (within second tolerance).
     t.set_safe_price("USDC", usd_cents(103), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow should work -- price deviation is within second tolerance band
+    // Borrow succeeds: price deviation is within the second tolerance band.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(result.is_ok(), "borrow should work within second tolerance");
 }
 
 // ===========================================================================
-// 3. Price beyond second tolerance -- risk-increasing ops blocked
+// 3. Price beyond second tolerance: risk-increasing ops blocked
 // ===========================================================================
 
 #[test]
@@ -99,11 +99,11 @@ fn test_unsafe_price_allows_supply() {
     let mut t = setup();
     enable_dual_source(&t, "USDC");
 
-    // Set USDC safe price 10% away from aggregator (beyond second tolerance of 5%)
-    // Aggregator: $1.00, Safe: $1.10 (10% deviation)
+    // Set USDC safe price 10% from aggregator (beyond second tolerance of 5%).
+    // Aggregator: $1.00, Safe: $1.10 (10% deviation).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Supply should still work (allow_unsafe_price=true for supply)
+    // Supply still succeeds (allow_unsafe_price=true for supply).
     let result = t.try_supply(ALICE, "USDC", 10_000.0);
     assert!(result.is_ok(), "supply should work even with unsafe price");
 }
@@ -114,21 +114,21 @@ fn test_unsafe_price_allows_repay() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // First set up positions with matching prices
+    // First set up positions with matching prices.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Now deviate ETH safe price beyond second tolerance
+    // Deviate the ETH safe price beyond the second tolerance.
     t.set_safe_price("ETH", usd(2200), true, true); // 10% deviation
 
-    // Repay should still work (allow_unsafe_price=true for repay).
-    // The previous version of this test had NO assertion — it relied on the
-    // implicit "panic-if-repay-fails" behavior of `t.repay()`. A regression
-    // that ACCEPTED the repay syntactically but did nothing to the position
-    // would have passed. Snapshot the debt before/after to verify the repay
+    // Repay still succeeds (allow_unsafe_price=true for repay). The previous
+    // version of this test had no assertion — it relied on the implicit
+    // "panic-if-repay-fails" behavior of `t.repay()`. A regression that
+    // accepted the repay syntactically but left the position untouched would
+    // have passed. Snapshot the debt before and after to verify the repay
     // actually reduced the scaled borrow.
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.repay(ALICE, "ETH", 1.0);
@@ -147,17 +147,17 @@ fn test_unsafe_price_blocks_borrow() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set matching safe prices first for supply
+    // Set matching safe prices first for supply.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Now deviate USDC safe price beyond second tolerance (10% up)
+    // Deviate the USDC safe price beyond the second tolerance (10% up).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Borrow should fail -- USDC (collateral) price is unsafe, and borrow
-    // uses allow_unsafe_price=false
+    // Borrow fails: USDC (collateral) price is unsafe, and borrow uses
+    // allow_unsafe_price=false.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_err(),
@@ -171,16 +171,16 @@ fn test_unsafe_price_blocks_borrow_debt_asset() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set matching safe prices first for supply
+    // Set matching safe prices first for supply.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Now deviate ETH safe price beyond second tolerance
+    // Deviate the ETH safe price beyond the second tolerance.
     t.set_safe_price("ETH", usd(2200), true, true); // 10% above aggregator
 
-    // Borrow should fail -- ETH (debt asset) price is unsafe
+    // Borrow fails: ETH (debt asset) price is unsafe.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_err(),
@@ -194,17 +194,18 @@ fn test_unsafe_price_blocks_withdraw_with_borrows() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set matching safe prices first
+    // Set matching safe prices first.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Now deviate USDC safe price beyond second tolerance
+    // Deviate the USDC safe price beyond the second tolerance.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Withdraw should fail when user has borrows (risk-increasing, allow_unsafe_price=false)
+    // Withdraw fails when the user has borrows (risk-increasing,
+    // allow_unsafe_price=false).
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert!(
         result.is_err(),
@@ -218,25 +219,25 @@ fn test_unsafe_price_blocks_liquidation() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set matching safe prices for initial setup
+    // Set matching safe prices for initial setup.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
-    // Supply and borrow to create a position
+    // Supply and borrow to create a position.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 30.0);
 
-    // Drop ETH aggregator price to make Alice liquidatable
+    // Drop the ETH aggregator price to make Alice liquidatable.
     t.set_price("ETH", usd(3500));
     t.set_safe_price("ETH", usd(3500), true, true);
 
-    // Confirm liquidatable
+    // Confirm liquidatable.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // Now deviate the safe price beyond tolerance so liquidation is blocked
+    // Deviate the safe price beyond tolerance so liquidation is blocked.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Liquidation should fail -- allow_unsafe_price=false for liquidate
+    // Liquidation fails: allow_unsafe_price=false for liquidate.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert!(result.is_err(), "liquidation should fail with unsafe price");
 }
@@ -249,14 +250,16 @@ fn test_unsafe_price_blocks_liquidation() {
 fn test_stale_price_blocks_supply() {
     let mut t = setup();
 
-    // Supply first while price is fresh
+    // Supply first while the price is fresh.
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Advance time beyond staleness window (900 seconds) WITHOUT refreshing prices
+    // Advance time beyond the staleness window (900 seconds) without
+    // refreshing prices.
     t.advance_time_no_refresh(1000);
 
-    // Supply also fails with stale price because the oracle adapter's get_price()
-    // enforces staleness unconditionally before the controller sees the price.
+    // Supply also fails with a stale price because the oracle adapter's
+    // get_price() enforces staleness unconditionally before the controller
+    // sees the price.
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert!(
         result.is_err(),
@@ -270,10 +273,10 @@ fn test_stale_price_blocks_borrow() {
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Advance time beyond staleness window WITHOUT refreshing prices
+    // Advance time beyond the staleness window without refreshing prices.
     t.advance_time_no_refresh(1000);
 
-    // Borrow should fail -- stale price blocked for risk-increasing ops
+    // Borrow fails: stale price blocked for risk-increasing ops.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(result.is_err(), "borrow should fail with stale price");
 }
@@ -285,10 +288,10 @@ fn test_stale_price_blocks_withdraw_with_borrows() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Advance time beyond staleness window WITHOUT refreshing
+    // Advance time beyond the staleness window without refreshing.
     t.advance_time_no_refresh(1000);
 
-    // Withdraw should fail when has borrows (risk-increasing)
+    // Withdraw fails when borrows exist (risk-increasing).
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert!(
         result.is_err(),
@@ -310,14 +313,14 @@ fn test_tolerance_at_exact_first_boundary() {
     // The controller's tolerance stores pre-computed ratio bounds:
     //   upper = 10000 + 200 = 10200
     //   lower = 10000^2 / 10200 = 9804
-    // Set safe price exactly at 2% deviation: $1.02
+    // Set safe price exactly at 2% deviation: $1.02.
     t.set_safe_price("USDC", usd_cents(102), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // At exactly the first boundary, should be within first tolerance
-    // and use safe price directly (most favorable for user)
+    // At exactly the first boundary, the price stays within first tolerance
+    // and uses the safe price directly (most favorable for the user).
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_ok(),
@@ -331,14 +334,15 @@ fn test_tolerance_just_beyond_first_boundary() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Set safe price at 2.1% deviation (just past first tolerance of 2%)
-    // This puts it in the second tolerance zone -> average price used
+    // Set safe price at 2.1% deviation (just past first tolerance of 2%).
+    // This puts it in the second tolerance zone, where the average price is
+    // used.
     t.set_safe_price("USDC", usd_cents(103), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Should still work (average price used, within second tolerance)
+    // Still succeeds (average price used, within second tolerance).
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_ok(),
@@ -352,14 +356,14 @@ fn test_safe_price_below_aggregator_blocks_borrow() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Safe price 10% BELOW aggregator (negative deviation)
-    // Aggregator: $1.00, Safe: $0.90
+    // Safe price 10% below aggregator (negative deviation).
+    // Aggregator: $1.00, Safe: $0.90.
     t.set_safe_price("USDC", usd_cents(90), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Beyond second tolerance in the negative direction -> blocked
+    // Beyond second tolerance in the negative direction: blocked.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_err(),
@@ -379,7 +383,7 @@ fn test_tolerance_config_rejects_first_below_min() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // MIN_FIRST_TOLERANCE = 50 BPS
+    // MIN_FIRST_TOLERANCE = 50 BPS.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &10, &500);
     assert!(
         result.is_err(),
@@ -395,7 +399,7 @@ fn test_tolerance_config_rejects_first_above_max() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // MAX_FIRST_TOLERANCE = 5000 BPS
+    // MAX_FIRST_TOLERANCE = 5000 BPS.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &6000, &7000);
     assert!(
         result.is_err(),
@@ -411,7 +415,7 @@ fn test_tolerance_config_rejects_last_below_min() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // MIN_LAST_TOLERANCE = 150 BPS, first=200 is valid
+    // MIN_LAST_TOLERANCE = 150 BPS, first=200 is valid.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &100, &100);
     assert!(
         result.is_err(),
@@ -427,7 +431,7 @@ fn test_tolerance_config_rejects_last_above_max() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // MAX_LAST_TOLERANCE = 10000 BPS
+    // MAX_LAST_TOLERANCE = 10000 BPS.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &200, &11000);
     assert!(
         result.is_err(),
@@ -443,7 +447,7 @@ fn test_tolerance_config_rejects_last_less_than_first() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // last (200) < first (300) -> should fail
+    // last (200) < first (300): must fail.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &300, &200);
     assert!(
         result.is_err(),
@@ -459,7 +463,7 @@ fn test_tolerance_config_valid_update() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Valid tolerance update
+    // Valid tolerance update.
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &300, &600);
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }
@@ -477,10 +481,10 @@ fn test_set_accumulator() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
 
-    // Should not panic -- admin has permission
+    // Must not panic: admin has permission.
     ctrl.set_accumulator(&accumulator);
 
-    // Verify it's stored by reading storage directly
+    // Verify storage by reading directly.
     let stored: soroban_sdk::Address = t.env.as_contract(&t.controller, || {
         t.env
             .storage()
@@ -500,7 +504,7 @@ fn test_set_liquidity_pool_template() {
 
     ctrl.set_liquidity_pool_template(&hash);
 
-    // Verify it's stored by reading storage directly
+    // Verify storage by reading directly.
     let stored: soroban_sdk::BytesN<32> = t.env.as_contract(&t.controller, || {
         t.env
             .storage()
@@ -517,13 +521,13 @@ fn test_disable_token_oracle_blocks_operations() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Disable USDC oracle -> oracle_type set to 0 (None)
+    // Disable the USDC oracle: oracle_type becomes 0 (None).
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     t.ctrl_client().disable_token_oracle(&admin, &usdc_asset);
 
-    // Price should now return 0 for USDC, making HF-sensitive ops behave
-    // differently. Borrow against zero-value collateral should fail.
+    // The price now returns 0 for USDC, changing HF-sensitive behavior.
+    // Borrowing against zero-value collateral must fail.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert!(
         result.is_err(),
@@ -540,11 +544,11 @@ fn test_edit_asset_in_e_mode_category() {
         .with_emode_asset(1, "USDC", true, true)
         .build();
 
-    // Initially: can_collateral=true, can_borrow=true
-    // Edit: set can_borrow=false
+    // Initially: can_collateral=true, can_borrow=true.
+    // Edit: set can_borrow=false.
     t.edit_asset_in_e_mode("USDC", 1, true, false);
 
-    // Verify the update took effect by reading storage
+    // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<common::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
         t.env
@@ -564,7 +568,7 @@ fn test_edit_asset_in_e_mode_category() {
 }
 
 // ===========================================================================
-// 8. Dual-source pricing -- average price used in second tolerance zone
+// 8. Dual-source pricing: average price used in second tolerance zone
 // ===========================================================================
 
 #[test]
@@ -573,16 +577,17 @@ fn test_second_tolerance_uses_average_price() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Aggregator: $1.00, Safe: $1.03 (3% deviation, between first 2% and last 5%)
-    // Average price = ($1.00 + $1.03) / 2 = $1.015
-    // This means collateral value is slightly higher with average vs aggregator
+    // Aggregator: $1.00, Safe: $1.03 (3% deviation, between first 2% and
+    // last 5%). Average price = ($1.00 + $1.03) / 2 = $1.015. Collateral
+    // value is therefore slightly higher with the average than with the
+    // aggregator alone.
     t.set_safe_price("USDC", usd_cents(103), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // The average price should be used for valuation
+    // The average price drives valuation.
     t.assert_healthy(ALICE);
 }
 
@@ -596,11 +601,11 @@ fn test_exchange_source_safe_only() {
     t.set_exchange_source("USDC", common::types::ExchangeSource::SpotVsTwap);
     t.set_exchange_source("ETH", common::types::ExchangeSource::SpotVsTwap);
 
-    // Set safe prices (these will be used since exchange_source=1)
+    // Set safe prices (used because exchange_source=1).
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
 
-    // Operations should work using safe price only
+    // Operations succeed using the safe price alone.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
@@ -617,15 +622,15 @@ fn test_mixed_tolerance_states() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // USDC: within first tolerance (matching prices)
+    // USDC: within first tolerance (matching prices).
     t.set_safe_price("USDC", usd(1), true, true);
 
-    // ETH: beyond second tolerance (10% deviation)
+    // ETH: beyond second tolerance (10% deviation).
     t.set_safe_price("ETH", usd(2200), true, true);
 
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Borrow ETH should fail because ETH's price is beyond second tolerance
+    // Borrowing ETH must fail: ETH's price is beyond the second tolerance.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert!(
         result.is_err(),
@@ -634,7 +639,7 @@ fn test_mixed_tolerance_states() {
 }
 
 // ===========================================================================
-// 11. Denial of Service on Liquidation during Flash Crash
+// 11. Denial of service on liquidation during a flash crash
 // ===========================================================================
 
 #[test]
@@ -643,42 +648,42 @@ fn test_liquidation_dos_flash_crash() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Perfect market conditions
+    // Perfect market conditions.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
     t.set_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
 
-    // Provide initial liquidity
+    // Provide initial liquidity.
     t.supply(test_harness::KEEPER_USER, "USDC", 100_000.0);
 
-    // Alice supplies ETH and borrows maximum USDC
+    // Alice supplies ETH and borrows the maximum USDC.
     t.supply(ALICE, "ETH", 10.0); // 20,000 USD collateral
-    t.borrow(ALICE, "USDC", 15_000.0); // LTV is ~0.8 for ETH, so she borrows up to the limit
+    t.borrow(ALICE, "USDC", 15_000.0); // LTV is ~0.8 for ETH, so borrow up to the limit
 
-    // HF should be healthy
+    // HF must be healthy.
     let hf_before = t.health_factor(ALICE);
     assert!(hf_before >= 1.0, "Alice should be healthy");
 
     // ==========================================
-    // THE FLASH CRASH
+    // The flash crash
     // ==========================================
-    // Spot price of ETH drops sharply to 1400 USD (30% drop).
-    // TWAP is slow, so it remains at 1950 USD.
+    // The spot price of ETH drops sharply to 1400 USD (a 30% drop). TWAP
+    // moves slowly and stays at 1950 USD.
     t.set_price("ETH", usd(1400));
     t.set_safe_price("ETH", usd(1950), true, true);
 
-    // Give liquidator some USDC to perform the liquidation
+    // Give the liquidator some USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
-    // The liquidator sees Alice's health factor falling below 1 based on actual spot price!
-    // They attempt to liquidate Alice's underwater position.
+    // The liquidator sees Alice's health factor falling below 1 on the spot
+    // price and attempts to liquidate the underwater position.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 15_000.0);
 
-    // The protocol WILL PANIC and REVERT because liquidation uses allow_unsafe_price = false,
-    // and the 30% deviation between SPOT ($1400) and TWAP ($1950) exceeds second_tolerance,
-    // throwing an OracleError.
-    // This perfectly DoS-es liquidations precisely when they are most critical!
+    // The protocol panics and reverts: liquidation uses
+    // allow_unsafe_price=false, and the 30% deviation between SPOT ($1400)
+    // and TWAP ($1950) exceeds second_tolerance, raising an OracleError.
+    // This perfectly DoSes liquidations precisely when they matter most.
     assert!(
         result.is_err(),
         "Liquidation was perfectly DOSed by the oracle safety bands!"
@@ -686,7 +691,7 @@ fn test_liquidation_dos_flash_crash() {
 }
 
 // ===========================================================================
-// 12. Liquidation Collateral Extraction via Second Tolerance Averaging
+// 12. Liquidation collateral extraction via second-tolerance averaging
 // ===========================================================================
 
 #[test]
@@ -695,17 +700,17 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
 
-    // Start with perfect market conditions
+    // Start with perfect market conditions.
     t.set_safe_price("USDC", usd(1), true, true);
     t.set_safe_price("ETH", usd(2000), true, true);
     t.set_price("USDC", usd(1));
     t.set_price("ETH", usd(2000));
 
-    // Provide initial liquidity
+    // Provide initial liquidity.
     t.supply(test_harness::KEEPER_USER, "USDC", 100_000.0);
 
-    // Increase ETH LTV and Threshold to make it super sensitive
-    // Must do this BEFORE supplying so the position records these values.
+    // Raise ETH LTV and threshold to make the position very sensitive.
+    // Apply this before supplying so the position records these values.
     t.edit_asset_config("ETH", |c| {
         c.loan_to_value_bps = 9500;
         c.liquidation_threshold_bps = 9800;
@@ -714,16 +719,16 @@ fn test_liquidation_collateral_extraction_via_averaging() {
     // Use a loose tolerance to allow a wide 10% averaging band.
     t.set_oracle_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
 
-    // Alice supplies ETH (20,000 USD collateral)
+    // Alice supplies ETH (20,000 USD collateral).
     t.supply(ALICE, "ETH", 10.0);
 
-    // Alice borrows heavily: 18,900 USDC against 19,000 max LTV
+    // Alice borrows heavily: 18,900 USDC against 19,000 max LTV.
     t.borrow(ALICE, "USDC", 18_900.0);
 
-    // Give liquidator USDC to perform the liquidation
+    // Give the liquidator USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
-    // Spot falls to 1820 while the averaged price remains 1910.
+    // Spot falls to 1820 while the averaged price stays at 1910.
     // Threshold value = 10 * 1910 * 0.99 = 18,909, below the 19,500 debt.
 
     t.set_price("ETH", usd(1820));

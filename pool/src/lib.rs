@@ -22,7 +22,7 @@ use soroban_sdk::{
 
 /// Temporary instance-storage key used by flash_loan_begin / flash_loan_end
 /// to record the pool's pre-loan token balance and verify the post-repay
-/// delta meets expectations. Written in `begin`, read and cleared in `end`.
+/// delta meets expectations. Written in `begin`; read and cleared in `end`.
 const FLASH_LOAN_PRE_BALANCE: Symbol = symbol_short!("FL_PREBAL");
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -38,9 +38,9 @@ fn verify_admin(env: &Env) {
     ownable::enforce_owner_auth(env);
 }
 
-/// Saturating subtraction for RAY-scaled totals to absorb rounding drift.
+/// Saturating subtraction for RAY-scaled totals; absorbs rounding drift.
 /// Without this, sequences of scaled debits can underflow and panic even
-/// though the protocol is fundamentally solvent.
+/// though the protocol remains fundamentally solvent.
 fn saturating_sub_ray(a: Ray, b: Ray) -> Ray {
     if b.raw() >= a.raw() {
         Ray::ZERO
@@ -49,7 +49,7 @@ fn saturating_sub_ray(a: Ray, b: Ray) -> Ray {
     }
 }
 
-// Emits a market state snapshot event.
+// Emit a market-state snapshot event.
 fn emit_market_update(env: &Env, cache: &Cache, price_wad: i128, reserves: i128) {
     let asset = cache.params.asset_id.clone();
     emit_update_market_state(
@@ -74,12 +74,21 @@ impl LiquidityPool {
     // Constructor
     // -----------------------------------------------------------------------
 
-    pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
+    pub fn __constructor(
+        env: Env,
+        admin: Address,
+        params: MarketParams,
+        accumulator: Address,
+    ) {
         // Store the pool owner.
         ownable::set_owner(&env, &admin);
 
         // Store market parameters.
         env.storage().instance().set(&PoolKey::Params, &params);
+
+        // L-05: store the accumulator address once. claim_revenue reads
+        // from this slot rather than trusting a caller-supplied address.
+        env.storage().instance().set(&PoolKey::Accumulator, &accumulator);
 
         // Initialize pool state.
         let state = common::types::PoolState {
@@ -119,7 +128,7 @@ impl LiquidityPool {
         emit_market_update(&env, &cache, price_wad, reserves);
         cache.save();
         PoolPositionMutation {
-            position: position,
+            position,
             market_index,
             actual_amount: amount,
         }
@@ -144,7 +153,7 @@ impl LiquidityPool {
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed = cache.borrowed + scaled_debt;
 
-        // Transfer tokens to borrower
+        // Transfer tokens to the borrower.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount);
 
@@ -156,7 +165,7 @@ impl LiquidityPool {
         emit_market_update(&env, &cache, price_wad, reserves);
         cache.save();
         PoolPositionMutation {
-            position: position,
+            position,
             market_index,
             actual_amount: amount,
         }
@@ -175,18 +184,18 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        // Gross withdrawal: cap at position's current value
+        // Gross withdrawal: cap at the position's current value.
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
         let current_supply_actual = cache.calculate_original_supply(pos_scaled);
         let (scaled_withdrawal, gross_amount) = if amount >= current_supply_actual {
-            // Full withdrawal
+            // Full withdrawal.
             (pos_scaled, current_supply_actual)
         } else {
-            // Partial withdrawal
+            // Partial withdrawal.
             let scaled = cache.calculate_scaled_supply(amount);
             // Dust-lock guard: if the residual scaled amount would round to
-            // zero asset tokens, treat as a full withdrawal so the user does
-            // not leave behind permanently-stuck dust.
+            // zero asset tokens, treat the call as a full withdrawal so the
+            // user leaves no permanently-stuck dust behind.
             let remaining_scaled = saturating_sub_ray(pos_scaled, scaled);
             let remaining_actual = cache.calculate_original_supply(remaining_scaled);
             if remaining_actual == 0 {
@@ -196,7 +205,7 @@ impl LiquidityPool {
             }
         };
 
-        // Apply liquidation fee if applicable
+        // Apply the liquidation fee if applicable.
         let mut net_transfer = gross_amount;
         if is_liquidation && protocol_fee > 0 {
             if net_transfer < protocol_fee {
@@ -206,7 +215,7 @@ impl LiquidityPool {
             interest::add_protocol_revenue(&mut cache, protocol_fee);
         }
 
-        // Verify reserves after fee deduction
+        // Verify reserves after fee deduction.
         if !cache.has_reserves(net_transfer) {
             panic_with_error!(&env, CollateralError::InsufficientLiquidity);
         }
@@ -214,7 +223,7 @@ impl LiquidityPool {
         cache.supplied = saturating_sub_ray(cache.supplied, scaled_withdrawal);
         position.scaled_amount_ray -= scaled_withdrawal.raw();
 
-        // Transfer tokens to caller
+        // Transfer tokens to the caller.
         if net_transfer > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &net_transfer);
@@ -228,7 +237,7 @@ impl LiquidityPool {
         emit_market_update(&env, &cache, price_wad, reserves);
         cache.save();
         PoolPositionMutation {
-            position: position,
+            position,
             market_index,
             actual_amount: gross_amount,
         }
@@ -237,9 +246,9 @@ impl LiquidityPool {
     pub fn repay(
         env: Env,
         caller: Address,
+        amount: i128,
         mut position: AccountPosition,
         price_wad: i128,
-        amount: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
@@ -249,11 +258,11 @@ impl LiquidityPool {
         let current_debt = cache.calculate_original_borrow(pos_scaled);
 
         let (scaled_repay, overpayment) = if amount >= current_debt {
-            // Full repayment
+            // Full repayment.
             let over = amount - current_debt;
             (pos_scaled, over)
         } else {
-            // Partial repayment
+            // Partial repayment.
             let scaled = cache.calculate_scaled_borrow(amount);
             (scaled, 0i128)
         };
@@ -261,7 +270,7 @@ impl LiquidityPool {
         position.scaled_amount_ray -= scaled_repay.raw();
         cache.borrowed = saturating_sub_ray(cache.borrowed, scaled_repay);
 
-        // Refund overpayment
+        // Refund any overpayment.
         if overpayment > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &overpayment);
@@ -276,7 +285,7 @@ impl LiquidityPool {
         emit_market_update(&env, &cache, price_wad, reserves);
         cache.save();
         PoolPositionMutation {
-            position: position,
+            position,
             market_index,
             actual_amount: actual_applied,
         }
@@ -303,7 +312,7 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        // amount is in asset decimals — upscale to RAY for consistency with
+        // amount is in asset decimals; upscale to RAY for consistency with
         // RAY-native supplied and supply_index.
         let amount_ray = Ray::from_asset(amount, cache.params.asset_decimals);
         cache.supply_index =
@@ -314,7 +323,7 @@ impl LiquidityPool {
         cache.save();
     }
 
-    pub fn flash_loan_begin(env: Env, asset: Address, amount: i128, receiver: Address) {
+    pub fn flash_loan_begin(env: Env, amount: i128, receiver: Address) {
         verify_admin(&env);
 
         let mut cache = Cache::load(&env);
@@ -324,9 +333,11 @@ impl LiquidityPool {
             panic_with_error!(&env, CollateralError::InsufficientLiquidity);
         }
 
-        // Snapshot the pool balance *before* paying out, so `flash_loan_end`
-        // can verify the post-repay delta covers amount + fee (M-13).
-        let tok = token::Client::new(&env, &asset);
+        // H-01: pool always uses its own asset; never trust a caller-supplied
+        // address. Snapshot the pool balance *before* paying out so
+        // `flash_loan_end` can verify the post-repay delta covers amount + fee
+        // (M-13).
+        let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&env.current_contract_address());
         env.storage()
             .instance()
@@ -337,7 +348,7 @@ impl LiquidityPool {
         cache.save();
     }
 
-    pub fn flash_loan_end(env: Env, asset: Address, amount: i128, fee: i128, receiver: Address) {
+    pub fn flash_loan_end(env: Env, amount: i128, fee: i128, receiver: Address) {
         verify_admin(&env);
 
         let mut cache = Cache::load(&env);
@@ -347,13 +358,15 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::NegativeFlashLoanFee);
         }
 
-        // Pull repayment from receiver
-        let tok = token::Client::new(&env, &asset);
+        // H-01: pool's own asset; never trust a caller-supplied address.
+        // Pull repayment from the receiver.
+        let tok = token::Client::new(&env, &cache.params.asset_id);
         let total = amount + fee;
-        tok.transfer(&receiver, &env.current_contract_address(), &total);
+        let pool_addr = env.current_contract_address();
+        tok.transfer(&receiver, &pool_addr, &total);
 
-        // M-13: verify the pool's balance delta matches expectation. If the
-        // pre-balance snapshot is missing (begin was not called), reject.
+        // M-13: verify the pool's balance delta matches expectation. Reject
+        // if the pre-balance snapshot is missing (begin was not called).
         let pre_balance: i128 = env
             .storage()
             .instance()
@@ -366,7 +379,7 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
 
-        // Record fee as protocol revenue
+        // Record the fee as protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
         let reserves = cache.get_reserves_for(&cache.params.asset_id);
@@ -397,7 +410,7 @@ impl LiquidityPool {
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed = cache.borrowed + scaled_debt;
 
-        // Fee goes to protocol revenue
+        // Fee goes to protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
         let amount_to_send = amount - fee;
@@ -414,7 +427,7 @@ impl LiquidityPool {
         emit_market_update(&env, &cache, price_wad, reserves);
         cache.save();
         PoolStrategyMutation {
-            position: position,
+            position,
             market_index,
             actual_amount: amount,
             amount_received: amount_to_send,
@@ -431,17 +444,26 @@ impl LiquidityPool {
         interest::global_sync(&env, &mut cache);
 
         if position.position_type == common::types::AccountPositionType::Borrow {
-            // Socialize bad debt — use RAY precision for index adjustment
+            // Socialize bad debt; use RAY precision for index adjustment.
             let current_debt_ray =
                 cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
             interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-            cache.borrowed = cache.borrowed - Ray::from_raw(position.scaled_amount_ray);
+            // H-05: saturating sub. Repeated bad-debt cleanups can drift the
+            // position's scaled amount above tracked `cache.borrowed` (prior
+            // caps prevented full debt removal); plain subtraction would
+            // underflow and panic, blocking subsequent cleanups.
+            cache.borrowed =
+                saturating_sub_ray(cache.borrowed, Ray::from_raw(position.scaled_amount_ray));
             position.scaled_amount_ray = 0;
         } else if position.position_type == common::types::AccountPositionType::Deposit {
-            // Absorb dust into revenue
+            // Absorb dust into revenue.
             let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
             cache.revenue = cache.revenue + pos_scaled;
             position.scaled_amount_ray = 0;
+        } else {
+            // L-10: defensive panic. Future enum variants must be handled
+            // explicitly; silent no-op would mask a regression.
+            panic_with_error!(&env, common::errors::GenericError::InvalidPositionType);
         }
 
         let reserves = cache.get_reserves_for(&cache.params.asset_id);
@@ -450,7 +472,7 @@ impl LiquidityPool {
         position
     }
 
-    pub fn claim_revenue(env: Env, caller: Address, price_wad: i128) -> i128 {
+    pub fn claim_revenue(env: Env, price_wad: i128) -> i128 {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -467,11 +489,19 @@ impl LiquidityPool {
         let amount_to_transfer = current_reserves.min(treasury_actual);
 
         if amount_to_transfer > 0 {
-            // Send revenue to the controller.
+            // L-05: revenue destination is the accumulator stored at
+            // construction; never trust a caller-supplied address.
+            let accumulator: Address = env
+                .storage()
+                .instance()
+                .get(&PoolKey::Accumulator)
+                .unwrap_or_else(|| {
+                    panic_with_error!(&env, common::errors::GenericError::AccumulatorNotSet)
+                });
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(
                 &env.current_contract_address(),
-                &caller,
+                &accumulator,
                 &amount_to_transfer,
             );
 
@@ -484,19 +514,23 @@ impl LiquidityPool {
                 revenue_scaled.mul(&env, ratio)
             };
 
-            let actual_revenue_burn = if scaled_to_burn.raw() < cache.revenue.raw() {
-                scaled_to_burn
-            } else {
-                cache.revenue
-            };
-            let actual_supplied_burn = if scaled_to_burn.raw() < cache.supplied.raw() {
-                scaled_to_burn
-            } else {
-                cache.supplied
+            // M-04: clamp once against BOTH accumulators so the post-state
+            // preserves the `revenue ≤ supplied` invariant under any
+            // rounding path. The two-clamp pattern that lived here could
+            // burn different amounts from each side when the inputs diverged.
+            let actual_burn = {
+                let mut min = scaled_to_burn;
+                if cache.revenue.raw() < min.raw() {
+                    min = cache.revenue;
+                }
+                if cache.supplied.raw() < min.raw() {
+                    min = cache.supplied;
+                }
+                min
             };
 
-            cache.revenue = saturating_sub_ray(cache.revenue, actual_revenue_burn);
-            cache.supplied = saturating_sub_ray(cache.supplied, actual_supplied_burn);
+            cache.revenue = saturating_sub_ray(cache.revenue, actual_burn);
+            cache.supplied = saturating_sub_ray(cache.supplied, actual_burn);
         }
 
         let reserves = cache.get_reserves_for(&cache.params.asset_id);
@@ -519,12 +553,12 @@ impl LiquidityPool {
     ) {
         verify_admin(&env);
 
-        // Sync interest to current timestamp before changing rate model
+        // Sync interest to current timestamp before changing the rate model.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
         cache.save();
 
-        // Validate — unified rate-model validation matching
+        // Unified rate-model validation, matching
         // `controller/src/validation.rs::validate_interest_rate_model`.
         if base_borrow_rate < 0 || slope1 < 0 || slope2 < 0 || slope3 < 0 {
             panic_with_error!(&env, CollateralError::InvalidBorrowParams);
@@ -538,7 +572,7 @@ impl LiquidityPool {
         if optimal_utilization >= RAY {
             panic_with_error!(&env, CollateralError::OptUtilTooHigh);
         }
-        if reserve_factor < 0 || reserve_factor >= 10_000 {
+        if !(0..10_000).contains(&reserve_factor) {
             panic_with_error!(&env, CollateralError::InvalidReserveFactor);
         }
         // Monotone slope chain: base <= slope1 <= slope2 <= slope3 <= max.
@@ -684,7 +718,7 @@ mod tests {
                 .clone();
             let asset_decimals = 7u32;
 
-            // Set initial ledger timestamp (seconds)
+            // Set initial ledger timestamp (seconds).
             env.ledger().set(LedgerInfo {
                 timestamp: 1000,
                 protocol_version: 25,
@@ -709,9 +743,12 @@ mod tests {
                 asset_decimals,
             };
 
-            let pool_address = env.register(LiquidityPool, (admin.clone(), params));
+            // L-05: pool now requires an accumulator at construction.
+            // Test fixture uses `admin` as a stand-in destination.
+            let pool_address =
+                env.register(LiquidityPool, (admin.clone(), params, admin.clone()));
 
-            // Mint tokens to pool for reserves
+            // Mint tokens to the pool for reserves.
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
             token_admin.mint(&pool_address, &100_000_000_000_000i128);
 
@@ -768,7 +805,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: supply increases supplied_ray and returns updated position
+    // Test: supply increases supplied_ray and returns the updated position.
     // -----------------------------------------------------------------------
     #[test]
     fn test_supply() {
@@ -790,18 +827,18 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: borrow decreases reserves and records debt
+    // Test: borrow decreases reserves and records debt.
     // -----------------------------------------------------------------------
     #[test]
     fn test_borrow() {
         let t = TestSetup::new();
         let client = t.client();
 
-        // First supply
+        // Supply first.
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &50_000_000_000i128);
 
-        // Borrow
+        // Borrow.
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
         let borrow_amount = 100_0000000i128;
@@ -833,7 +870,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: withdraw reduces supply, transfers tokens
+    // Test: withdraw reduces supply and transfers tokens.
     // -----------------------------------------------------------------------
     #[test]
     fn test_withdraw() {
@@ -914,7 +951,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: repay reduces borrow, handles overpayment
+    // Test: repay reduces borrow and handles overpayment.
     // -----------------------------------------------------------------------
     #[test]
     fn test_repay() {
@@ -930,9 +967,9 @@ mod tests {
 
         assert!(updated_borrow.position.scaled_amount_ray > 0);
 
-        // Repay with exact amount (no overpayment since no time passed)
+        // Repay the exact amount; no overpayment, since no time has passed.
         let repay_amount = 100_0000000i128;
-        let final_pos = client.repay(&borrower, &updated_borrow.position, &0i128, &repay_amount);
+        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position, &0i128);
 
         assert_eq!(final_pos.actual_amount, repay_amount);
         assert!(
@@ -954,14 +991,14 @@ mod tests {
         let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
 
         let repay_amount = 200_0000000i128;
-        let final_pos = client.repay(&borrower, &updated_borrow.position, &0i128, &repay_amount);
+        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position, &0i128);
 
         assert_eq!(final_pos.actual_amount, 100_0000000i128);
         assert_eq!(final_pos.position.scaled_amount_ray, 0);
     }
 
     // -----------------------------------------------------------------------
-    // Test: interest accrual
+    // Test: interest accrual.
     // -----------------------------------------------------------------------
     #[test]
     fn test_interest_accrual() {
@@ -977,7 +1014,7 @@ mod tests {
 
         let initial_indexes = client.update_indexes(&0i128);
 
-        // Advance time by ~1 year
+        // Advance time by ~1 year.
         t.advance_time(31_556_926);
 
         let new_indexes = client.update_indexes(&0i128);
@@ -993,7 +1030,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: flash loan begin + end
+    // Test: flash loan begin and end.
     // -----------------------------------------------------------------------
     #[test]
     fn test_flash_loan() {
@@ -1003,17 +1040,17 @@ mod tests {
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &10_000_000_000i128);
 
-        // Use the admin as receiver since mock_all_auths covers admin auth
+        // Use admin as receiver, since mock_all_auths covers admin auth.
         let receiver = t.admin.clone();
         let flash_amount = 100_0000000i128;
         let flash_fee = 1_0000000i128;
 
-        // Mint tokens to receiver so they can repay (amount + fee)
+        // Mint tokens to the receiver so they can repay (amount + fee).
         let token_admin_client = token::StellarAssetClient::new(&t.env, &t.asset);
         token_admin_client.mint(&receiver, &(flash_amount + flash_fee));
 
-        // Begin: tokens sent to receiver
-        client.flash_loan_begin(&t.asset, &flash_amount, &receiver);
+        // Begin: tokens sent to the receiver. H-01: pool ABI no longer takes asset.
+        client.flash_loan_begin(&flash_amount, &receiver);
 
         let tok = token::Client::new(&t.env, &t.asset);
         let receiver_balance = tok.balance(&receiver);
@@ -1022,9 +1059,9 @@ mod tests {
             "receiver should have enough tokens for repayment"
         );
 
-        // End: pull back amount + fee
+        // End: pull back amount + fee.
         let revenue_before = client.protocol_revenue();
-        client.flash_loan_end(&t.asset, &flash_amount, &flash_fee, &receiver);
+        client.flash_loan_end(&flash_amount, &flash_fee, &receiver);
         let revenue_after = client.protocol_revenue();
 
         assert!(
@@ -1040,7 +1077,7 @@ mod tests {
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan_begin(&t.asset, &200_000_000_000_000i128, &receiver);
+        client.flash_loan_begin(&200_000_000_000_000i128, &receiver);
     }
 
     #[test]
@@ -1050,7 +1087,7 @@ mod tests {
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan_end(&t.asset, &1_0000000i128, &-1i128, &receiver);
+        client.flash_loan_end(&1_0000000i128, &-1i128, &receiver);
     }
 
     #[test]
@@ -1076,7 +1113,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: seize_position bad debt socialization
+    // Test: seize_position socializes bad debt.
     // -----------------------------------------------------------------------
     #[test]
     fn test_seize_position_bad_debt() {
@@ -1104,7 +1141,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: seize_position deposit dust
+    // Test: seize_position absorbs deposit dust.
     // -----------------------------------------------------------------------
     #[test]
     fn test_seize_position_deposit_dust() {
@@ -1127,7 +1164,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: claim_revenue
+    // Test: claim_revenue.
     // -----------------------------------------------------------------------
     #[test]
     fn test_claim_revenue() {
@@ -1141,17 +1178,17 @@ mod tests {
         let borrow_pos = t.borrow_position();
         client.borrow(&borrower, &10_000_000_000i128, &borrow_pos, &0i128);
 
-        // Advance time to accrue interest
+        // Advance time to accrue interest.
         t.advance_time(31_556_926);
 
-        // Sync indexes to accrue revenue
+        // Sync indexes to accrue revenue.
         client.update_indexes(&0i128);
 
         let revenue = client.protocol_revenue();
         if revenue > 0 {
             let tok = token::Client::new(&t.env, &t.asset);
             let admin_balance_before = tok.balance(&t.admin);
-            let claimed = client.claim_revenue(&t.admin, &0i128);
+            let claimed = client.claim_revenue(&0i128);
             let admin_balance_after = tok.balance(&t.admin);
 
             if claimed > 0 {
@@ -1172,7 +1209,7 @@ mod tests {
         let oversized_supply = client.supply(&supply_pos, &0i128, &200_000_000_000_000i128);
         let _ = client.seize_position(&oversized_supply.position, &0i128);
 
-        let claimed = client.claim_revenue(&t.admin, &0i128);
+        let claimed = client.claim_revenue(&0i128);
         let remaining_revenue = client.protocol_revenue();
 
         assert!(
@@ -1276,7 +1313,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: views
+    // Test: views.
     // -----------------------------------------------------------------------
     #[test]
     fn test_views() {
@@ -1328,10 +1365,10 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Extra targeted coverage tests
+    // Extra targeted coverage tests.
     // -----------------------------------------------------------------------
 
-    // Covers withdraw liquidation-fee success branch (lines 205-206).
+    // Covers the withdraw liquidation-fee success branch (lines 205-206).
     #[test]
     fn test_withdraw_liquidation_fee_accrues_to_revenue() {
         let t = TestSetup::new();
@@ -1347,8 +1384,8 @@ mod tests {
         let tok = token::Client::new(&t.env, &t.asset);
         let user_balance_before = tok.balance(&user);
 
-        let gross = 1_000_0000000i128;
-        let fee = 1_0000000i128;
+        let gross = 10_000_000_000_i128;
+        let fee = 10_000_000_i128;
         let final_pos = client.withdraw(
             &user,
             &gross,
@@ -1372,7 +1409,7 @@ mod tests {
         assert_eq!(final_pos.actual_amount, gross);
     }
 
-    // Covers repay partial branch (lines 257-258).
+    // Covers the repay partial branch (lines 257-258).
     #[test]
     fn test_repay_partial_amount() {
         let t = TestSetup::new();
@@ -1385,11 +1422,11 @@ mod tests {
         let borrow_pos = t.borrow_position();
         let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
 
-        // Advance time to accrue a bit of interest so current_debt > initial.
+        // Advance time to accrue interest so current_debt > initial.
         t.advance_time(60);
 
         let partial = 10_0000000i128;
-        let final_pos = client.repay(&borrower, &updated_borrow.position, &0i128, &partial);
+        let final_pos = client.repay(&borrower, &partial, &updated_borrow.position, &0i128);
 
         assert_eq!(
             final_pos.actual_amount, partial,
@@ -1405,7 +1442,7 @@ mod tests {
         );
     }
 
-    // Covers add_rewards full body (lines 301-315).
+    // Covers the full add_rewards body (lines 301-315).
     #[test]
     fn test_add_rewards_increases_supply_index() {
         let t = TestSetup::new();
@@ -1425,13 +1462,13 @@ mod tests {
         );
     }
 
-    // Covers create_strategy happy path (lines 394-422).
+    // Covers the create_strategy happy path (lines 394-422).
     #[test]
     fn test_create_strategy_emits_position_and_transfers_net() {
         let t = TestSetup::new();
         let client = t.client();
 
-        // Provide reserves from a supply so create_strategy can transfer.
+        // Supply reserves so create_strategy can transfer.
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &50_000_000_000i128);
 
@@ -1462,24 +1499,24 @@ mod tests {
         );
     }
 
-    // Covers claim_revenue zero-revenue early-return branch (lines 460-463).
+    // Covers the claim_revenue zero-revenue early-return branch (lines 460-463).
     #[test]
     fn test_claim_revenue_zero_revenue_early_returns() {
         let t = TestSetup::new();
         let client = t.client();
 
-        // No supply, no accrual — revenue is zero.
-        let claimed = client.claim_revenue(&t.admin, &0i128);
+        // No supply, no accrual; revenue is zero.
+        let claimed = client.claim_revenue(&0i128);
         assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
     }
 
-    // Covers update_params full successful path (lines 556-587).
+    // Covers the update_params full successful path (lines 556-587).
     //
-    // Regression target: if `update_params` silently dropped a field (e.g. used
-    // the wrong source variable when rewriting the struct), the happy path
-    // would still return Ok. This test reads back every updated field through
-    // `get_sync_data()` and asserts exact equality, so a dropped write is
-    // guaranteed to surface.
+    // Regression target: if `update_params` silently dropped a field (e.g.
+    // used the wrong source variable when rewriting the struct), the happy
+    // path would still return Ok. This test reads every updated field back
+    // through `get_sync_data()` and asserts exact equality, so a dropped
+    // write must surface.
     #[test]
     fn test_update_params_happy_path() {
         let t = TestSetup::new();
@@ -1498,7 +1535,7 @@ mod tests {
             &new_max, &new_base, &new_s1, &new_s2, &new_s3, &new_mid, &new_opt, &new_reserve,
         );
 
-        // Read back: every field must round-trip exactly.
+        // Every field must round-trip exactly.
         let sync = client.get_sync_data();
         assert_eq!(sync.params.max_borrow_rate_ray, new_max, "max_borrow_rate_ray");
         assert_eq!(sync.params.base_borrow_rate_ray, new_base, "base_borrow_rate_ray");
@@ -1509,10 +1546,10 @@ mod tests {
         assert_eq!(sync.params.optimal_utilization_ray, new_opt, "optimal_utilization_ray");
         assert_eq!(sync.params.reserve_factor_bps, new_reserve, "reserve_factor_bps");
 
-        // Downstream-behavior sanity: after bumping base rate from 1% to still 1%
-        // but with higher slopes, the borrow rate at 50% utilisation must reflect
-        // the *new* slope1 (5% vs old 4%). We don't pin an exact number — the
-        // point is that the borrow path picks up the updated params.
+        // Downstream sanity: with the base rate still 1% but higher slopes,
+        // the borrow rate at 50% utilisation must reflect the *new* slope1
+        // (5% vs the old 4%). We do not pin an exact number; the point is
+        // that the borrow path picks up the updated params.
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &10_000_000_000i128);
         let borrower = Address::generate(&t.env);
@@ -1520,14 +1557,14 @@ mod tests {
         let _ = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
     }
 
-    // Covers update_params validation: slope ordering rejection (line 545-550).
+    // Covers update_params validation: slope-ordering rejection (lines 545-550).
     #[test]
     #[should_panic(expected = "Error(Contract, #116)")]
     fn test_update_params_rejects_invalid_slope_ordering() {
         let t = TestSetup::new();
         let client = t.client();
 
-        // slope3 < slope2 — invalid.
+        // slope3 < slope2: invalid.
         client.update_params(
             &(2 * RAY),
             &(RAY / 100),
@@ -1540,7 +1577,7 @@ mod tests {
         );
     }
 
-    // Covers update_params mid_utilization == 0 rejection (lines 532-534).
+    // Covers the update_params mid_utilization == 0 rejection (lines 532-534).
     #[test]
     #[should_panic(expected = "Error(Contract, #117)")]
     fn test_update_params_rejects_mid_utilization_zero() {
@@ -1559,7 +1596,7 @@ mod tests {
         );
     }
 
-    // Covers update_params negative reserve_factor rejection (lines 541-543).
+    // Covers the update_params negative reserve_factor rejection (lines 541-543).
     #[test]
     #[should_panic(expected = "Error(Contract, #119)")]
     fn test_update_params_rejects_negative_reserve_factor() {
@@ -1578,13 +1615,13 @@ mod tests {
         );
     }
 
-    // Covers keepalive endpoint (lines 594-599).
+    // Covers the keepalive endpoint (lines 594-599).
     //
     // The previous version of this test only called `keepalive()` with no
-    // assertions — a silent regression that skipped the TTL extension would
+    // assertions; a silent regression that skipped the TTL extension would
     // have passed. We now:
     //   1. Assert that a non-admin caller cannot invoke keepalive (auth gate).
-    //   2. Assert that after admin-authorized keepalive, the instance entry's
+    //   2. Assert that, after admin-authorized keepalive, the instance entry's
     //      live_until_ledger is at least `current + TTL_THRESHOLD_INSTANCE`.
     //      A silent no-op would leave the ledger at its original (minimal) TTL.
     #[test]
@@ -1594,12 +1631,12 @@ mod tests {
 
         // Admin-authorized call succeeds. `env.mock_all_auths()` covers the
         // `verify_admin` gate. The host auto-records the auth requirement,
-        // demonstrating the endpoint actually calls `ownable::enforce_owner_auth`.
+        // proving the endpoint calls `ownable::enforce_owner_auth`.
         client.keepalive();
 
         // Assert the instance entry TTL was extended. `get_ttl` returns the
         // live_until ledger; reading from inside the pool contract frame is
-        // required since `.instance()` is keyed by current_contract_address.
+        // required, since `.instance()` is keyed by current_contract_address.
         let live_until = t
             .env
             .as_contract(&t.pool, || t.env.storage().instance().get_ttl());
@@ -1612,11 +1649,12 @@ mod tests {
         );
     }
 
-    // Covers keepalive auth gate (line 595 `verify_admin`).
+    // Covers the keepalive auth gate (line 595, `verify_admin`).
     //
     // A regression that dropped the `verify_admin` call would still let the
-    // test above pass (mock_all_auths covers any address). This variant opts
-    // out of blanket auth and asserts a fresh non-admin cannot invoke it.
+    // test above pass (mock_all_auths covers any address). This variant
+    // opts out of blanket auth and asserts that a fresh non-admin cannot
+    // invoke it.
     #[test]
     #[should_panic]
     fn test_keepalive_rejects_non_admin() {
@@ -1651,7 +1689,7 @@ mod tests {
         };
         let pool = env.register(LiquidityPool, (admin, params));
         let client = LiquidityPoolClient::new(&env, &pool);
-        // No mock_all_auths, no admin auth — must panic.
+        // No mock_all_auths and no admin auth: must panic.
         client.keepalive();
     }
 }

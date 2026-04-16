@@ -7,10 +7,10 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// Helpers: deterministic pseudo-random (no std::rand in soroban)
+// Helpers: deterministic pseudo-random (Soroban lacks std::rand).
 // ---------------------------------------------------------------------------
 
-/// Simple LCG for deterministic "randomness" in tests.
+/// LCG for deterministic test "randomness".
 struct Rng(u64);
 
 impl Rng {
@@ -57,7 +57,7 @@ fn test_chaos_multi_user_random_operations() {
 
     let mut rng = Rng::new(42);
 
-    // Phase 1: All users supply random assets with random amounts
+    // Phase 1: every user supplies a random asset and amount.
     for user in &users {
         let asset = *rng.pick(&supply_assets);
         let amount = match asset {
@@ -69,45 +69,45 @@ fn test_chaos_multi_user_random_operations() {
         t.supply(user, asset, amount);
     }
 
-    // Phase 2: Half the users borrow (conservative amounts)
+    // Phase 2: half the users borrow conservative amounts.
     let mut borrow_successes = 0u32;
     let mut borrow_failures = 0u32;
     for user in &users[0..8] {
         let asset = *rng.pick(&borrow_assets);
-        // Borrow ~20% of collateral value (very safe, well within 75% LTV)
+        // Borrow ~20% of collateral value: safe, well within the 75% LTV.
         let amount = match asset {
             "USDC" => rng.range(500, 5_000) as f64,
             "ETH" => rng.range(1, 3) as f64 * 0.1,
             "WBTC" => rng.range(1, 5) as f64 * 0.001,
             _ => unreachable!(),
         };
-        // Track successes vs failures from insufficient collateral
+        // Track successes against insufficient-collateral failures.
         match t.try_borrow(user, asset, amount) {
             Ok(_) => borrow_successes += 1,
             Err(_) => borrow_failures += 1,
         }
     }
 
-    // Advance 1 week + sync
+    // Advance one week and sync.
     t.advance_and_sync(days(7));
 
-    // Phase 3: Some partial repays and additional borrows
+    // Phase 3: partial repays and more borrows.
     for user in users.iter().take(5) {
         let user = *user;
         let asset = *rng.pick(&borrow_assets);
-        // Small repays may fail if the sampled asset is not borrowed by that
-        // user, so the result is ignored here.
+        // Small repays may fail if the user never borrowed the sampled
+        // asset; ignore the result.
         let _ = t.try_repay(user, asset, 100.0);
     }
 
-    // Advance another week
+    // Advance another week.
     t.advance_and_sync(days(7));
 
-    // Phase 4: Price movement — ETH drops 10%
+    // Phase 4: price movement -- ETH drops 10%.
     t.set_price("ETH", usd(1800));
     t.advance_and_sync(days(7));
 
-    // Phase 5: More activity
+    // Phase 5: more activity.
     for user in &users[8..12] {
         let user = *user;
         let asset = *rng.pick(&borrow_assets);
@@ -123,19 +123,19 @@ fn test_chaos_multi_user_random_operations() {
         }
     }
 
-    // Advance final weeks
+    // Advance the final weeks.
     t.advance_and_sync(days(7));
     t.advance_and_sync(days(7));
 
-    // Restore price
+    // Restore the price.
     t.set_price("ETH", usd(2000));
 
     // -----------------------------------------------------------------------
-    // OPERATION SUCCESS TRACKING
+    // Operation success tracking.
     // -----------------------------------------------------------------------
 
-    // All 15 supplies should succeed (Phase 1 uses safe amounts)
-    // At least some borrows and repays should succeed
+    // Phase 1 uses safe amounts, so all 15 supplies must succeed. Some
+    // borrows and repays must also succeed.
     assert!(
         borrow_successes >= 3,
         "at least 3 of 12 borrows should succeed, got {} successes / {} failures",
@@ -144,15 +144,15 @@ fn test_chaos_multi_user_random_operations() {
     );
 
     // -----------------------------------------------------------------------
-    // INVARIANT CHECKS
+    // Invariant checks.
     // -----------------------------------------------------------------------
 
-    // 1. All accounts with borrows must have HF >= 1.0 (or be cleaned up)
+    // 1. Every borrowing account must keep HF >= 1.0 or be cleaned up.
     for user in &users {
         if let Some(user_state) = t.users.get(*user) {
             if user_state.default_account_id.is_some() {
                 let hf = t.health_factor(user);
-                // HF >= 1.0 or user has no borrows (HF = max)
+                // HF >= 1.0 or no borrows (HF = max).
                 assert!(
                     hf >= 1.0 || hf == f64::MAX || hf > 1e18,
                     "user {} HF should be >= 1.0, got {}",
@@ -163,7 +163,7 @@ fn test_chaos_multi_user_random_operations() {
         }
     }
 
-    // 2. Supply and borrow indexes must have increased from 1.0 RAY
+    // 2. Supply and borrow indexes must have risen above 1.0 RAY.
     for asset in &["USDC", "ETH", "WBTC"] {
         let asset_addr = t.resolve_asset(asset);
         let ctrl = t.ctrl_client();
@@ -184,7 +184,7 @@ fn test_chaos_multi_user_random_operations() {
         );
     }
 
-    // 3. Protocol revenue should be >= 0 for all markets
+    // 3. Every market must hold protocol revenue >= 0.
     for asset in &["USDC", "ETH", "WBTC"] {
         let rev = t.snapshot_revenue(asset);
         assert!(rev >= 0, "{} revenue should be >= 0, got {}", asset, rev);
@@ -205,33 +205,34 @@ fn test_chaos_bank_run_full_exit() {
     let suppliers = [ALICE, BOB, CAROL, DAVE, EVE];
     let _borrowers = [ALICE, BOB, CAROL];
 
-    // Setup: everyone supplies
+    // Setup: everyone supplies.
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 30_000.0);
     t.supply(CAROL, "ETH", 10.0);
     t.supply(DAVE, "ETH", 5.0);
     t.supply(EVE, "USDC", 20_000.0);
 
-    // Some borrow
-    t.borrow(ALICE, "ETH", 5.0); // ~$10k vs $50k collateral
-    t.borrow(BOB, "ETH", 3.0); // ~$6k vs $30k collateral
-    t.borrow(CAROL, "USDC", 5_000.0); // $5k vs $20k collateral
+    // Some borrow.
+    t.borrow(ALICE, "ETH", 5.0); // ~$10k vs $50k collateral.
+    t.borrow(BOB, "ETH", 3.0); // ~$6k vs $30k collateral.
+    t.borrow(CAROL, "USDC", 5_000.0); // $5k vs $20k collateral.
 
-    // Accrue 90 days of interest
+    // Accrue 90 days of interest.
     t.advance_and_sync(days(30));
     t.advance_and_sync(days(30));
     t.advance_and_sync(days(30));
 
-    // Snapshot revenue before exit
+    // Snapshot revenue before exit.
     let usdc_rev_before = t.snapshot_revenue("USDC");
     let eth_rev_before = t.snapshot_revenue("ETH");
 
-    // BANK RUN: all borrowers repay with massive overpayment (pool refunds excess)
-    t.repay(ALICE, "ETH", 100.0); // way more than owed
+    // Bank run: all borrowers repay with massive overpayment; the pool
+    // refunds the excess.
+    t.repay(ALICE, "ETH", 100.0); // Far more than owed.
     t.repay(BOB, "ETH", 100.0);
     t.repay(CAROL, "USDC", 100_000.0);
 
-    // All borrowers should have ~0 debt now
+    // Every borrower must now hold ~0 debt.
     assert!(
         t.borrow_balance(ALICE, "ETH") < 0.001,
         "Alice debt should be ~0 after full repay"
@@ -245,11 +246,11 @@ fn test_chaos_bank_run_full_exit() {
         "Carol debt should be ~0 after full repay"
     );
 
-    // All suppliers withdraw everything.
-    // Track successes: each user should succeed for the asset they supplied.
+    // Every supplier withdraws everything. Track successes: each user must
+    // succeed for the asset they supplied.
     let mut withdraw_successes = 0u32;
     for user in &suppliers {
-        // Try withdrawing each asset (some won't have positions, that's ok)
+        // Try each asset; some users have no position, which is fine.
         if t.try_withdraw(user, "USDC", 999_999.0).is_ok() {
             withdraw_successes += 1;
         }
@@ -257,14 +258,14 @@ fn test_chaos_bank_run_full_exit() {
             withdraw_successes += 1;
         }
     }
-    // All 5 suppliers should successfully withdraw from their supplied asset
+    // All 5 suppliers must withdraw their supplied asset.
     assert!(
         withdraw_successes >= 5,
         "all suppliers should successfully withdraw: got {} successes out of 5 suppliers",
         withdraw_successes
     );
 
-    // SOLVENCY CHECK: pool reserves must be >= 0
+    // Solvency check: pool reserves must remain >= 0.
     let usdc_reserves = t.pool_reserves("USDC");
     let eth_reserves = t.pool_reserves("ETH");
     assert!(
@@ -278,7 +279,7 @@ fn test_chaos_bank_run_full_exit() {
         eth_reserves
     );
 
-    // REVENUE CHECK: protocol collected fees
+    // Revenue check: the protocol collected fees.
     let usdc_rev_after = t.snapshot_revenue("USDC");
     let eth_rev_after = t.snapshot_revenue("ETH");
     assert!(
@@ -302,24 +303,24 @@ fn test_chaos_sustained_high_utilization() {
         .with_market(eth_preset())
         .build();
 
-    // Supply + borrow to ~85% utilization (above optimal 80%)
+    // Supply and borrow to ~85% utilization (above optimal 80%).
     t.supply(ALICE, "USDC", 100_000.0);
-    t.supply(BOB, "ETH", 100.0); // $200k collateral
+    t.supply(BOB, "ETH", 100.0); // $200k collateral.
 
-    // Borrow ~85% of USDC supply
+    // Borrow ~85% of the USDC supply.
     t.borrow(BOB, "USDC", 85_000.0);
 
     let mut prev_debt = t.borrow_balance(BOB, "USDC");
     let mut prev_supply = t.supply_balance(ALICE, "USDC");
 
-    // Simulate 12 months with monthly syncs
+    // Simulate 12 months with monthly syncs.
     for month in 1..=12 {
         t.advance_and_sync(days(30));
 
         let new_debt = t.borrow_balance(BOB, "USDC");
         let new_supply = t.supply_balance(ALICE, "USDC");
 
-        // Debt must strictly increase (interest accruing)
+        // Debt must strictly rise as interest accrues.
         assert!(
             new_debt > prev_debt,
             "month {}: debt should increase: {} -> {}",
@@ -328,7 +329,7 @@ fn test_chaos_sustained_high_utilization() {
             new_debt
         );
 
-        // Supply balance should increase (depositors earn interest)
+        // The supply balance must rise; depositors earn interest.
         assert!(
             new_supply > prev_supply,
             "month {}: supply should increase: {} -> {}",
@@ -341,8 +342,8 @@ fn test_chaos_sustained_high_utilization() {
         prev_supply = new_supply;
     }
 
-    // After 1 year at 85% utilization, debt should have grown significantly
-    // (slope3 kicks in above optimal, ~300% slope)
+    // After one year at 85% utilization, debt must have grown sharply;
+    // slope3 kicks in above optimal at ~300%.
     let final_debt = t.borrow_balance(BOB, "USDC");
     let growth = final_debt / 85_000.0;
     assert!(
@@ -351,12 +352,12 @@ fn test_chaos_sustained_high_utilization() {
         growth
     );
 
-    // Note: HF may have dropped below 1.0 due to extreme interest accrual.
-    // This is correct protocol behavior — the account becomes liquidatable
-    // when debt grows past collateral value. A keeper/liquidator would handle this.
+    // HF may drop below 1.0 from extreme interest accrual. This is correct
+    // protocol behavior: the account becomes liquidatable once debt exceeds
+    // collateral value, and a keeper or liquidator handles it.
     let final_hf = t.health_factor(BOB);
     if final_hf < 1.0 {
-        // Account is liquidatable — this is expected at extreme utilization over time
+        // Liquidatable: expected at extreme utilization over time.
         assert!(
             t.can_be_liquidated(BOB),
             "low HF account should be liquidatable"
@@ -375,25 +376,25 @@ fn test_chaos_price_oscillation_no_wrongful_liquidation() {
         .with_market(eth_preset())
         .build();
 
-    // Supply 100k USDC, borrow 10 ETH ($20k) — HF = (100k*0.8)/20k = 4.0
+    // Supply 100k USDC, borrow 10 ETH ($20k); HF = (100k*0.8)/20k = 4.0.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Oscillate ETH price: $2000 -> $1500 -> $2500 -> $1800 -> $2200
+    // Oscillate ETH price: $2000 -> $1500 -> $2500 -> $1800 -> $2200.
     let prices = [1500, 2500, 1800, 2200, 2000];
     for price in &prices {
         t.set_price("ETH", usd(*price));
         t.advance_and_sync(days(1));
 
-        // Alice should NEVER be liquidatable with 4x over-collateralization
-        // Even at $2500 ETH, debt = $25k, HF = (100k*0.8)/25k = 3.2
+        // With 4x over-collateralization, Alice must remain non-liquidatable.
+        // Even at $2500 ETH, debt = $25k and HF = (100k*0.8)/25k = 3.2.
         assert!(
             !t.can_be_liquidated(ALICE),
             "well-collateralized account should never be liquidatable at ETH=${}",
             price
         );
 
-        // Try liquidation — should always fail
+        // Liquidation must always fail.
         let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
         assert!(
             result.is_err(),
@@ -415,12 +416,12 @@ fn test_chaos_multi_market_accounting() {
         .with_market(wbtc_preset())
         .build();
 
-    // Alice supplies all 3 markets
+    // Alice supplies all three markets.
     t.supply(ALICE, "USDC", 200_000.0);
     t.supply(ALICE, "ETH", 10.0);
     t.supply(ALICE, "WBTC", 0.5);
 
-    // Borrow from all 3 markets
+    // Borrow from all three markets.
     t.borrow(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.borrow(ALICE, "WBTC", 0.01);
@@ -429,14 +430,14 @@ fn test_chaos_multi_market_accounting() {
     let total_debt_before = t.total_debt(ALICE);
     let hf_before = t.health_factor(ALICE);
 
-    // Advance 6 months
+    // Advance six months.
     t.advance_and_sync(days(180));
 
     let total_collateral_after = t.total_collateral(ALICE);
     let total_debt_after = t.total_debt(ALICE);
     let hf_after = t.health_factor(ALICE);
 
-    // Collateral should increase (supply interest)
+    // Collateral must rise from supply interest.
     assert!(
         total_collateral_after >= total_collateral_before,
         "collateral should not decrease: {} -> {}",
@@ -444,7 +445,7 @@ fn test_chaos_multi_market_accounting() {
         total_collateral_after
     );
 
-    // Debt should increase (borrow interest)
+    // Debt must rise from borrow interest.
     assert!(
         total_debt_after > total_debt_before,
         "debt should grow with interest: {} -> {}",
@@ -452,7 +453,7 @@ fn test_chaos_multi_market_accounting() {
         total_debt_after
     );
 
-    // HF should decrease (debt grows faster than collateral)
+    // HF must drop because debt grows faster than collateral.
     assert!(
         hf_after < hf_before,
         "HF should decrease as debt grows: {} -> {}",
@@ -460,15 +461,15 @@ fn test_chaos_multi_market_accounting() {
         hf_after
     );
 
-    // But should still be healthy (started very over-collateralized)
+    // The account must remain healthy; it started heavily over-collateralized.
     t.assert_healthy(ALICE);
 
-    // Full repay cycle
+    // Full repay cycle.
     t.repay(ALICE, "USDC", 999_999.0);
     t.repay(ALICE, "ETH", 999.0);
     t.repay(ALICE, "WBTC", 999.0);
 
-    // After full repay, debt should be ~0
+    // After full repay, debt must be ~0.
     let final_debt = t.total_debt(ALICE);
     assert!(
         final_debt < 1.0,
@@ -488,17 +489,17 @@ fn test_chaos_keeper_revenue_lifecycle() {
         .with_market(eth_preset())
         .build();
 
-    // Phase 1: Users supply and borrow
+    // Phase 1: users supply and borrow.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 50.0);
     t.borrow(ALICE, "ETH", 10.0);
     t.borrow(BOB, "USDC", 30_000.0);
 
-    // Phase 2: Keeper updates indexes manually (not via advance_and_sync)
+    // Phase 2: the keeper updates indexes manually, not via advance_and_sync.
     t.advance_time(days(7));
     t.update_indexes_for(&["USDC", "ETH"]);
 
-    // Indexes should have increased
+    // Indexes must have risen.
     let usdc_addr = t.resolve_asset("USDC");
     let eth_addr = t.resolve_asset("ETH");
     let ctrl = t.ctrl_client();
@@ -521,11 +522,11 @@ fn test_chaos_keeper_revenue_lifecycle() {
         "ETH borrow index should increase"
     );
 
-    // Phase 3: More time passes, keeper syncs again
+    // Phase 3: more time passes; the keeper syncs again.
     t.advance_time(days(30));
     t.update_indexes_for(&["USDC", "ETH"]);
 
-    // Phase 4: Verify revenue accumulated from interest
+    // Phase 4: confirm interest produced revenue.
     let usdc_rev = t.snapshot_revenue("USDC");
     let eth_rev = t.snapshot_revenue("ETH");
     assert!(
@@ -537,13 +538,13 @@ fn test_chaos_keeper_revenue_lifecycle() {
         "ETH should have protocol revenue after 37 days"
     );
 
-    // Set accumulator address before claiming (controller requires it)
+    // Set the accumulator address before claiming; the controller requires it.
     let accumulator = t
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
     t.ctrl_client().set_accumulator(&accumulator);
 
-    // Actually claim it
+    // Claim the revenue.
     let claimed_usdc = t.claim_revenue("USDC");
     assert!(
         claimed_usdc > 0,
@@ -558,10 +559,10 @@ fn test_chaos_keeper_revenue_lifecycle() {
         claimed_eth
     );
 
-    // Phase 5: Add external rewards
+    // Phase 5: add external rewards.
     t.add_rewards("USDC", 1_000.0);
 
-    // Alice's USDC supply balance should have increased from rewards
+    // Alice's USDC supply balance must rise from rewards.
     let alice_supply = t.supply_balance(ALICE, "USDC");
     assert!(
         alice_supply > 100_000.0,
@@ -569,14 +570,14 @@ fn test_chaos_keeper_revenue_lifecycle() {
         alice_supply
     );
 
-    // Phase 6: Continue for 60 more days, then full exit
+    // Phase 6: continue 60 more days, then exit fully.
     t.advance_and_sync(days(60));
 
-    // Full repay
+    // Full repay.
     t.repay(ALICE, "ETH", 999.0);
     t.repay(BOB, "USDC", 999_999.0);
 
-    // Full withdraw -- verify these succeed since users have positions
+    // Full withdraw; both users hold positions, so these must succeed.
     let alice_withdraw = t.try_withdraw(ALICE, "USDC", 999_999.0);
     assert!(
         alice_withdraw.is_ok(),
@@ -588,7 +589,7 @@ fn test_chaos_keeper_revenue_lifecycle() {
         "Bob should successfully withdraw ETH after full repay"
     );
 
-    // Solvency invariant
+    // Solvency invariant.
     assert!(t.pool_reserves("USDC") >= 0.0, "USDC pool solvent");
     assert!(t.pool_reserves("ETH") >= 0.0, "ETH pool solvent");
 }

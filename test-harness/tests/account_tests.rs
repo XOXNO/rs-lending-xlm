@@ -74,7 +74,7 @@ fn test_create_isolated_account() {
 fn test_create_account_full_custom() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // mode=1 for Multiply
+    // mode=1 for Multiply.
     let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
     assert!(account_id > 0);
 
@@ -93,10 +93,10 @@ fn test_remove_empty_account() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     t.create_account(ALICE);
-    // Account exists -- now remove it
+    // Remove the account.
     t.remove_account(ALICE);
 
-    // Active accounts should be empty
+    // Active accounts must be empty.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),
@@ -137,7 +137,7 @@ fn test_multiple_accounts_per_user() {
     let id2 = t.create_account_full(ALICE, 0, common::types::PositionMode::Normal, false);
     assert_ne!(id1, id2, "accounts should have different IDs");
 
-    // Supply to each
+    // Supply to each account.
     t.supply_to(ALICE, id1, "USDC", 1_000.0);
     t.supply_to(ALICE, id2, "ETH", 0.5);
 
@@ -164,13 +164,13 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Repay in full
+    // Repay in full.
     t.repay(ALICE, "ETH", 1.01);
 
-    // Withdraw all -- this triggers auto-removal of the account
+    // Withdraw all; this triggers auto-removal of the account.
     t.withdraw_all(ALICE, "USDC");
 
-    // Account was auto-removed by cleanup_account_if_empty
+    // cleanup_account_if_empty auto-removed the account.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),
@@ -187,7 +187,7 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
 fn test_get_active_accounts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Initially no accounts
+    // No accounts exist yet.
     t.get_or_create_user(ALICE);
     let accounts_before = t.get_active_accounts(ALICE);
     assert_eq!(accounts_before.len(), 0);
@@ -207,9 +207,9 @@ fn test_account_owner_verified() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // BOB should not be able to withdraw from ALICE's account. `mock_all_auths`
-    // bypasses signature checks, so this test calls the controller directly
-    // and relies on ownership validation.
+    // BOB must not withdraw from ALICE's account. Because `mock_all_auths`
+    // bypasses signature checks, this test calls the controller directly and
+    // relies on ownership validation.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let usdc_addr = t.resolve_asset("USDC");

@@ -7,8 +7,8 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// Helper: build SwapSteps with a single hop that yields `min_amount_out`
-// from the mock swap router.
+// Helper: build SwapSteps with a single hop that yields `min_amount_out` from
+// the mock swap router.
 // ---------------------------------------------------------------------------
 
 fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
@@ -43,9 +43,9 @@ fn test_multiply_rejects_non_borrowable_debt() {
         })
         .build();
 
-    // ETH is not borrowable -- multiply must fail with a specific error
+    // ETH is not borrowable: multiply must fail with a specific error
     // (ASSET_NOT_BORROWABLE). A bare is_err() would accept upstream failures
-    // like pause/flash-loan guards and miss regressions.
+    // like the pause or flash-loan guards and miss regressions.
     let steps = build_swap_steps(&t, "ETH", "USDC", 1_0000000);
     let result = t.try_multiply(
         ALICE,
@@ -95,7 +95,7 @@ fn test_multiply_rejects_during_flash_loan() {
         .with_market(eth_preset())
         .build();
 
-    // Set flash loan ongoing flag to simulate reentrancy
+    // Set the flash-loan ongoing flag to simulate reentrancy.
     t.set_flash_loan_ongoing(true);
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
@@ -126,7 +126,7 @@ fn test_swap_collateral_rejects_isolated() {
         })
         .build();
 
-    // Create isolated account and supply
+    // Create an isolated account and supply.
     t.create_isolated_account(ALICE, "USDC");
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -137,12 +137,12 @@ fn test_swap_collateral_rejects_isolated() {
 
 // NOTE: `test_multiply_happy_path`, `test_swap_debt_happy_path`, and
 // `test_swap_collateral_happy_path` were removed as redundant. They are
-// fully covered (with STRONGER assertions) by the dedicated happy-path
+// fully covered (with stronger assertions) by the dedicated happy-path
 // suite in `strategy_happy_tests.rs`:
 //   - `test_multiply_creates_leveraged_position` (supply in [2999..=3001],
 //     borrow in [0.99..=1.01] vs. the old `> 0.0` loose check).
-//   - `test_swap_debt_replaces_borrow` (asserts `initial_eth > 0.9`, the old
-//     variant only asserted `> 0.0`).
+//   - `test_swap_debt_replaces_borrow` (asserts `initial_eth > 0.9`, vs.
+//     the old variant which asserted only `> 0.0`).
 //   - `test_swap_collateral_replaces_supply` (asserts initial supply in
 //     [99_999..] plus `eth_supply in [9.99..=10.01]`).
 //
@@ -151,9 +151,10 @@ fn test_swap_collateral_rejects_isolated() {
 // stricter assertions elsewhere.
 //
 // `test_swap_collateral_rejects_same_token`, `test_multiply_rejects_zero_amount`,
-// and `test_multiply_rejects_invalid_mode` also used to live here with generic
-// `is_err()` asserts. They are fully covered by the strict `assert_contract_error`
-// variants in `strategy_edge_tests.rs` (`test_swap_collateral_same_token_error_code`,
+// and `test_multiply_rejects_invalid_mode` also used to live here with
+// generic `is_err()` asserts. They are fully covered by the strict
+// `assert_contract_error` variants in `strategy_edge_tests.rs`
+// (`test_swap_collateral_same_token_error_code`,
 // `test_multiply_zero_debt_amount`, `test_multiply_rejects_mode_4`).
 
 // ---------------------------------------------------------------------------
@@ -202,21 +203,21 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     // Seed liquidity for the flash loan and the USDC borrow.
     t.supply(test_harness::KEEPER_USER, "USDC", 1_000_000.0);
 
-    // 1. Give Alice the isolated asset
+    // 1. Give Alice the isolated asset.
     let alice_addr = t.get_or_create_user(test_harness::ALICE);
     let shit_market = t.resolve_market("SHITCOIN");
     shit_market
         .token_admin
         .mint(&alice_addr, &(100_000 * 1_000_000_000_000_000_000_i128));
 
-    // Provide initial payment as collateral to the multiply function.
+    // Provide the initial payment as collateral to the multiply function.
     // Because the collateral is isolated, multiply must create an isolated
     // account and enforce the $100 ceiling on the USDC debt leg.
-    // amount_out_min = 1 is a trivial positive sentinel (passes M-10 entry
-    // check) — this test fails before the swap router is reached.
+    // amount_out_min = 1 is a trivial positive sentinel (passes the M-10
+    // entry check); this test fails before reaching the swap router.
     let steps = build_swap_steps(&t, "USDC", "SHITCOIN", 1);
 
-    // Call multiply directly using the raw client
+    // Call multiply directly using the raw client.
     let ctrl = t.ctrl_client();
     let usdc_addr = t.resolve_asset("USDC");
     let shit_addr = t.resolve_asset("SHITCOIN");
@@ -234,10 +235,10 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
         &None,
     );
 
-    // The multiply must surface the isolated debt ceiling breach with a specific
-    // error code so regressions that substitute a different error (e.g. HF guard
-    // triggering first) are caught. Convert the nested Result from `try_multiply`
-    // into a single Result<_, Error>.
+    // The multiply must surface the isolated debt-ceiling breach with a
+    // specific error code so regressions that substitute a different error
+    // (e.g. the HF guard triggering first) are caught. Convert the nested
+    // Result from `try_multiply` into a single Result<_, Error>.
     let flat: Result<u64, soroban_sdk::Error> = match result {
         Ok(Ok(id)) => Ok(id),
         Ok(Err(err)) => Err(err),

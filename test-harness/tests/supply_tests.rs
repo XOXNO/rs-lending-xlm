@@ -17,7 +17,7 @@ fn test_supply_single_asset() {
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 
-    // Wallet should be ~0
+    // Wallet must be ~0.
     let wallet = t.token_balance(ALICE, "USDC");
     assert!(
         wallet < 0.01,
@@ -25,10 +25,10 @@ fn test_supply_single_asset() {
         wallet
     );
 
-    // Supply balance should be ~10_000
+    // Supply balance must be ~10_000.
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
 
-    // Total collateral in USD should be ~$10k
+    // Total collateral in USD must be ~$10k.
     let coll = t.total_collateral(ALICE);
     assert!(
         coll > 9_999.0 && coll < 10_001.0,
@@ -48,7 +48,7 @@ fn test_supply_to_existing_account() {
     t.supply(ALICE, "USDC", 5_000.0);
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
 
-    // Supply more to the same account
+    // Supply more to the same account.
     t.supply(ALICE, "USDC", 3_000.0);
     t.assert_supply_near(ALICE, "USDC", 8_000.0, 1.0);
 }
@@ -64,7 +64,8 @@ fn test_supply_multiple_assets_bulk() {
         .with_market(eth_preset())
         .build();
 
-    // Bulk supply via harness method — single controller call, auto-mints
+    // Bulk supply via the harness method: a single controller call that
+    // auto-mints.
     t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
@@ -79,7 +80,7 @@ fn test_supply_multiple_assets_bulk() {
 fn test_supply_creates_account_on_first_call() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // No explicit create_account -- supply auto-creates
+    // No explicit create_account: supply auto-creates.
     t.supply(ALICE, "USDC", 1_000.0);
 
     let accounts = t.get_active_accounts(ALICE);
@@ -174,7 +175,7 @@ fn test_supply_rejects_when_paused() {
 
 #[test]
 fn test_supply_cap_enforcement() {
-    // Set a low supply cap of 500 tokens (7 decimals)
+    // Set a low supply cap of 500 tokens (7 decimals).
     let cap = 500_0000000i128; // 500 tokens in asset decimals
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -183,7 +184,7 @@ fn test_supply_cap_enforcement() {
         })
         .build();
 
-    // Supply 600 USDC should exceed the 500 token cap
+    // Supply 600 USDC: must exceed the 500-token cap.
     let result = t.try_supply(ALICE, "USDC", 600.0);
     assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
 }
@@ -204,8 +205,8 @@ fn test_supply_position_limit_exceeded() {
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // Third supply should exceed limit of 2
-    // Note: Error wrapped as InvalidAction by Soroban host (cross-contract path)
+    // The third supply must exceed the limit of 2. Note: the Soroban host
+    // wraps the error as InvalidAction on the cross-contract path.
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert!(
         result.is_err(),
@@ -253,7 +254,7 @@ fn test_supply_isolated_rejects_second_asset() {
     t.create_isolated_account(ALICE, "USDC");
     t.supply(ALICE, "USDC", 5_000.0);
 
-    // Supplying ETH to an isolated account should fail
+    // Supplying ETH to an isolated account must fail.
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
@@ -274,7 +275,7 @@ fn test_supply_emode_rejects_non_category_asset() {
 
     t.create_emode_account(ALICE, 1);
 
-    // Supplying ETH to an e-mode stablecoin account should fail
+    // Supplying ETH to an e-mode stablecoin account must fail.
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
@@ -287,12 +288,12 @@ fn test_supply_emode_rejects_non_category_asset() {
 fn test_supply_raw_precision() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Supply exactly 1 unit (smallest: 1 with 7 decimals = 0.0000001 USDC)
+    // Supply exactly 1 unit (smallest: 1 with 7 decimals = 0.0000001 USDC).
     let raw_amount = 1i128;
     t.supply_raw(ALICE, "USDC", raw_amount);
 
     let balance = t.supply_balance_raw(ALICE, "USDC");
-    // Should be at least 1 (could be exactly 1 or close due to index)
+    // Must be at least 1 (could be exactly 1 or close due to the index).
     assert!(
         balance >= 1,
         "raw supply should preserve precision, got {}",

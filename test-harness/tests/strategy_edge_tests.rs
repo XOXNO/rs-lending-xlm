@@ -10,8 +10,8 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// Helper: build SwapSteps with a single hop that yields `min_amount_out`
-// from the mock swap router.
+// Helper: build SwapSteps with a single hop that yields `min_amount_out` from
+// the mock swap router.
 // ---------------------------------------------------------------------------
 
 fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
@@ -44,7 +44,7 @@ fn dai_preset() -> MarketPreset {
 }
 
 /// Flatten the nested result returned by the raw `ctrl_client().try_*` calls
-/// into `Result<T, soroban_sdk::Error>` so we can use `assert_contract_error`.
+/// into `Result<T, soroban_sdk::Error>` so it can feed `assert_contract_error`.
 /// A host-level InvokeError (pre-contract host check) is escalated via
 /// `.expect()` so regressions that never reach the contract surface loudly.
 fn flatten<T>(
@@ -81,8 +81,8 @@ fn supply_position_params(t: &LendingTest, account_id: u64, asset_name: &str) ->
 
 // ---------------------------------------------------------------------------
 // test_multiply_with_debt_token_initial_payment
-// Initial payment in the debt token should increase the swap input without
-// increasing the stored debt leg.
+// An initial payment in the debt token must enlarge the swap input without
+// enlarging the stored debt leg.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -156,9 +156,9 @@ fn test_multiply_rejects_when_paused() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_borrow_cap_would_exceed
-// Borrow cap check happens AFTER pool.create_strategy(). The borrow cap
-// is set extremely low ($0.001), so the multiply rejects after the borrow
-// exceeds the cap.
+// The borrow-cap check runs after pool.create_strategy(). The borrow cap is
+// set extremely low ($0.001), so multiply rejects after the borrow exceeds
+// the cap.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -167,13 +167,13 @@ fn test_multiply_borrow_cap_would_exceed() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_config("ETH", |c| {
-            // Set borrow cap extremely low: 1 unit (0.0000001 ETH)
+            // Set borrow cap extremely low: 1 unit (0.0000001 ETH).
             c.borrow_cap = 1;
         })
         .build();
 
-    // Attempt to multiply with 1 ETH debt -- exceeds borrow cap.
-    // The flow: create_strategy -> check borrow cap -> reject with specific code.
+    // Attempt to multiply with 1 ETH debt, exceeding the borrow cap. Flow:
+    // create_strategy -> check borrow cap -> reject with a specific code.
     let steps = build_swap_steps(&t, "ETH", "USDC", 5000_0000000);
     let result = t.try_multiply(
         ALICE,
@@ -187,15 +187,15 @@ fn test_multiply_borrow_cap_would_exceed() {
 }
 
 // NOTE: `test_multiply_supply_cap_would_exceed` used to live here. It did not
-// fund the mock router, so the mock's own `transfer` would fail before the
-// cap check fired. The strict, deterministic replacement is
+// fund the mock router, so the mock's own `transfer` failed before the cap
+// check fired. The strict, deterministic replacement is
 // `test_multiply_rejects_supply_cap_after_deposit` (below), which funds the
 // router and asserts SUPPLY_CAP_REACHED.
 
 // ---------------------------------------------------------------------------
 // test_multiply_preserves_existing_collateral_balance
-// Reusing an account that already holds the collateral asset must add onto the
-// existing position instead of replacing it.
+// Reusing an account that already holds the collateral asset must add to the
+// existing position, not replace it.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -239,8 +239,8 @@ fn test_multiply_preserves_existing_collateral_balance() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_emode_wrong_category_debt
-// E-mode account in stablecoin category, but debt is ETH (not in category).
-// Validation happens before the swap, so this should get a clean error.
+// E-mode account in the stablecoin category, but debt is ETH (not in
+// category). Validation runs before the swap, so the error is clean.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -277,13 +277,14 @@ fn test_multiply_emode_wrong_category_debt() {
     );
 
     // ETH is not in e-mode category 1. `token_e_mode_config` surfaces
-    // `EModeCategoryNotFound` (300) when the asset isn't registered.
+    // `EModeCategoryNotFound` (300) when the asset is unregistered.
     assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
 }
 
 // ---------------------------------------------------------------------------
 // test_multiply_emode_wrong_category_collateral
-// E-mode account in stablecoin category, but collateral is ETH (not in category).
+// E-mode account in the stablecoin category, but collateral is ETH (not in
+// category).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -298,7 +299,7 @@ fn test_multiply_emode_wrong_category_collateral() {
         .build();
 
     let caller = t.get_or_create_user(ALICE);
-    let collateral_addr = t.resolve_asset("ETH"); // NOT in e-mode category
+    let collateral_addr = t.resolve_asset("ETH"); // not in e-mode category
     let debt_addr = t.resolve_asset("USDC"); // in e-mode category
     // Fund the mock router so the swap itself succeeds; this lets the emode
     // check on the deposit leg fire (otherwise the router fails first).
@@ -310,7 +311,7 @@ fn test_multiply_emode_wrong_category_collateral() {
         &caller,
         &0u64,            // account_id = 0 (create new)
         &1u32,            // e_mode_category = 1
-        &collateral_addr, // ETH -- not in e-mode category
+        &collateral_addr, // ETH: not in e-mode category
         &1000_0000000i128,
         &debt_addr,
         &common::types::PositionMode::Multiply,
@@ -319,8 +320,8 @@ fn test_multiply_emode_wrong_category_collateral() {
         &None, // convert_steps
     );
 
-    // ETH isn't in the e-mode category so `token_e_mode_config` rejects with
-    // EMODE_CATEGORY_NOT_FOUND (300).
+    // ETH is not in the e-mode category, so `token_e_mode_config` rejects
+    // with EMODE_CATEGORY_NOT_FOUND (300).
     assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
 }
 
@@ -342,7 +343,7 @@ fn test_multiply_isolated_debt_not_enabled() {
         // ETH has isolation_borrow_enabled = false (default)
         .build();
 
-    t.fund_router("USDC", 3000.0); // Pre-fund router with output tokens
+    t.fund_router("USDC", 3000.0); // Pre-fund the router with output tokens.
     let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
     let result = t.try_multiply(
         ALICE,
@@ -357,7 +358,7 @@ fn test_multiply_isolated_debt_not_enabled() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account
-// Existing non-isolated accounts must not add an isolated collateral leg.
+// An existing non-isolated account must not add an isolated collateral leg.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -399,15 +400,15 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
         &None,
     );
 
-    // The account's `is_isolated` flag is False but the requested collateral
+    // The account's `is_isolated` flag is false but the requested collateral
     // would force isolation: reject with MIX_ISOLATED_COLLATERAL (303).
     assert_contract_error(flatten(result), errors::MIX_ISOLATED_COLLATERAL);
 }
 
 // ---------------------------------------------------------------------------
 // test_multiply_siloed_debt_conflict
-// Debt asset is siloed, but `multiply` creates a fresh account with no
-// existing borrows. The siloed-borrow restriction is therefore covered in
+// The debt asset is siloed, but `multiply` creates a fresh account with no
+// existing borrows. The siloed-borrow restriction therefore lives in the
 // `swap_debt` tests instead.
 // ---------------------------------------------------------------------------
 
@@ -419,7 +420,7 @@ fn test_multiply_rejects_mode_4() {
         .build();
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    // mode = 4 is out of range (valid: 1, 2, 3)
+    // mode = 4 is out of range (valid: 1, 2, 3).
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -433,7 +434,7 @@ fn test_multiply_rejects_mode_4() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_rejects_new_collateral_when_supply_limit_reached
-// Existing account already at the supply-position limit cannot open a new
+// An existing account at the supply-position limit cannot open a new
 // collateral leg through multiply.
 // ---------------------------------------------------------------------------
 
@@ -507,7 +508,7 @@ fn test_multiply_existing_account_wrong_owner() {
     );
 
     // Bob calls multiply targeting Alice's existing account. The ownership
-    // check must fail with AccountNotInMarket (not pass as generic auth fail).
+    // check must fail with AccountNotInMarket, not as a generic auth failure.
     assert_contract_error(flatten(result), errors::ACCOUNT_NOT_IN_MARKET);
 }
 
@@ -522,7 +523,7 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_config("USDC", |c| {
-            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC)
+            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC).
         })
         .build();
 
@@ -673,7 +674,7 @@ fn test_swap_debt_rejects_during_flash_loan() {
 // ---------------------------------------------------------------------------
 // test_swap_collateral_applies_emode_params_to_destination_position
 // The destination collateral leg must inherit the account's active eMode
-// parameters, not the market's base params.
+// parameters, not the market's base parameters.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -703,7 +704,7 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_non_borrowable_new_debt
-// New debt asset is_borrowable=false -- should reject before swap.
+// New debt asset is_borrowable=false: must reject before the swap.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -727,7 +728,7 @@ fn test_swap_debt_non_borrowable_new_debt() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_siloed_conflict
-// New debt is siloed, but existing borrows include a different token.
+// The new debt is siloed, but existing borrows include a different token.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -754,7 +755,7 @@ fn test_swap_debt_siloed_conflict() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_existing_siloed_borrow_blocks_new
-// Account has an existing siloed borrow; swapping another debt triggers block.
+// The account has an existing siloed borrow; swapping another debt blocks.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -768,7 +769,7 @@ fn test_swap_debt_existing_siloed_borrow_blocks_new() {
         })
         .build();
 
-    // Supply + borrow siloed ETH
+    // Supply, then borrow siloed ETH.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
@@ -778,13 +779,15 @@ fn test_swap_debt_existing_siloed_borrow_blocks_new() {
     t.fund_router("ETH", 1.0);
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
-    // Existing ETH borrow is siloed, so the strategy must reject any new debt.
+    // The existing ETH borrow is siloed, so the strategy must reject any new
+    // debt.
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
 }
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_isolated_not_borrowable
-// Isolated account trying to swap to a debt asset without isolation_borrow_enabled.
+// An isolated account swaps to a debt asset without
+// isolation_borrow_enabled.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -803,12 +806,14 @@ fn test_swap_debt_isolated_not_borrowable() {
         // WBTC does NOT have isolation_borrow_enabled (default false)
         .build();
 
-    // Create isolated account, supply isolated collateral, borrow ETH (which is enabled)
+    // Create an isolated account, supply isolated collateral, and borrow ETH
+    // (which is enabled).
     t.create_isolated_account(ALICE, "USDC");
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Try to swap ETH debt to WBTC debt -- WBTC not borrowable in isolation
+    // Try to swap ETH debt to WBTC debt: WBTC is not borrowable in
+    // isolation.
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
@@ -816,8 +821,8 @@ fn test_swap_debt_isolated_not_borrowable() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_borrow_cap_new_debt
-// New debt asset has a borrow cap that would be exceeded.
-// The cap check happens after pool.borrow(), which happens before the swap.
+// The new debt asset has a borrow cap that would be exceeded. The cap check
+// runs after pool.borrow(), which runs before the swap.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -827,7 +832,7 @@ fn test_swap_debt_borrow_cap_new_debt() {
         .with_market(eth_preset())
         .with_market(wbtc_preset())
         .with_market_config("WBTC", |c| {
-            // Set very low borrow cap: 1 unit (0.0000001 WBTC)
+            // Set a very low borrow cap: 1 unit (0.0000001 WBTC).
             c.borrow_cap = 1;
         })
         .build();
@@ -835,7 +840,7 @@ fn test_swap_debt_borrow_cap_new_debt() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Swap ETH debt to WBTC -- WBTC borrow cap is tiny.
+    // Swap ETH debt to WBTC: the WBTC borrow cap is tiny.
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
@@ -843,7 +848,7 @@ fn test_swap_debt_borrow_cap_new_debt() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_emode_wrong_category
-// E-mode account, new debt asset not in the e-mode category.
+// E-mode account; the new debt asset is not in the e-mode category.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -858,12 +863,12 @@ fn test_swap_debt_emode_wrong_category() {
         // ETH not in e-mode
         .build();
 
-    // Create e-mode account, supply USDC, borrow USDT (both in e-mode)
+    // Create an e-mode account, supply USDC, borrow USDT (both in e-mode).
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDT debt to ETH -- ETH not in e-mode category.
+    // Try to swap USDT debt to ETH: ETH is not in the e-mode category.
     let steps = build_swap_steps(&t, "ETH", "USDT", 5000_0000000);
     let result = t.try_swap_debt(ALICE, "USDT", 5_000.0, "ETH", &steps);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
@@ -942,7 +947,7 @@ fn test_swap_collateral_non_collateralizable() {
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_to_isolated_asset
-// New collateral is an isolated asset -- swap_collateral blocks this.
+// The new collateral is an isolated asset: swap_collateral blocks this.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -960,15 +965,16 @@ fn test_swap_collateral_to_isolated_asset() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Try swapping to isolated asset -- should be blocked
+    // Try swapping to an isolated asset: must be blocked.
     let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
 
 // NOTE: `test_swap_collateral_supply_cap` used to live here. It did not fund
-// the mock router, which meant the output-side `transfer` could fail before
-// the cap check. Strict replacement: `test_swap_collateral_rejects_supply_cap_after_deposit`.
+// the mock router, so the output-side `transfer` could fail before the cap
+// check. Strict replacement:
+// `test_swap_collateral_rejects_supply_cap_after_deposit`.
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_rejects_supply_cap_after_deposit
@@ -982,7 +988,7 @@ fn test_swap_collateral_rejects_supply_cap_after_deposit() {
         .with_market(eth_preset())
         .with_market(wbtc_preset())
         .with_market_config("WBTC", |c| {
-            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 WBTC)
+            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 WBTC).
         })
         .build();
 
@@ -998,9 +1004,9 @@ fn test_swap_collateral_rejects_supply_cap_after_deposit() {
 
 // ---------------------------------------------------------------------------
 // test_repay_debt_with_collateral_same_token
-// Same-asset flow is INTENTIONALLY supported (self-collateralized unwinds):
-// withdrawn collateral is used directly to repay same-asset debt, router is
-// skipped. Mirrors MultiversX `convert_token_from_to` short-circuit.
+// The same-asset flow is intentionally supported (self-collateralized
+// unwinds): withdrawn collateral repays same-asset debt directly and skips
+// the router. Mirrors the MultiversX `convert_token_from_to` short-circuit.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1011,7 +1017,7 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
         .build();
 
     // Alice: USDC collateral + USDC debt (self-collateralized position).
-    // Needs a second asset to open the position since LTV < 100%.
+    // Needs a second asset to open the position because LTV < 100%.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 20.0); // extra collateral so USDC debt is borrowable
     t.borrow(ALICE, "USDC", 30_000.0);
@@ -1020,16 +1026,16 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
     let supply_before = t.supply_balance(ALICE, "USDC");
     assert!(debt_before > 29_000.0 && debt_before < 31_000.0);
 
-    // Net 10k USDC collateral against 10k USDC debt in one call.
-    // `steps` is unused in the same-asset path, but the API still requires a value.
+    // Net 10k USDC collateral against 10k USDC debt in one call. `steps` is
+    // unused in the same-asset path, but the API still requires a value.
     let steps = t.mock_swap_steps("USDC", "USDC", 0);
     t.repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &steps, false);
 
     let debt_after = t.borrow_balance(ALICE, "USDC");
     let supply_after = t.supply_balance(ALICE, "USDC");
 
-    // Debt reduced by ~10k, collateral reduced by ~10k. Allow 1% tolerance
-    // for accrued interest and rounding across the withdraw+repay chain.
+    // Debt reduces by ~10k, collateral reduces by ~10k. Allow 1% tolerance
+    // for accrued interest and rounding across the withdraw and repay chain.
     let debt_delta = debt_before - debt_after;
     let supply_delta = supply_before - supply_after;
     assert!(
@@ -1044,7 +1050,7 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
 
 // ---------------------------------------------------------------------------
 // test_repay_debt_with_collateral_refund_only_uses_repay_excess
-// Favorable repay slippage should only refund the per-call excess.
+// Favorable repay slippage must refund only the per-call excess.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1108,7 +1114,7 @@ fn test_repay_debt_with_collateral_health_factor_guard() {
 
 // ---------------------------------------------------------------------------
 // test_repay_debt_with_collateral_close_position_removes_account
-// A full close should repay the debt, drain remaining collateral, and remove
+// A full close must repay the debt, drain remaining collateral, and remove
 // the account.
 // ---------------------------------------------------------------------------
 
@@ -1135,8 +1141,8 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
 
 // ---------------------------------------------------------------------------
 // test_repay_debt_with_collateral_removes_empty_account_without_close
-// Even without close_position=true, the account should be removed when the flow
-// zeroes every remaining position.
+// Even without close_position=true, the account must be removed when the
+// flow zeroes every remaining position.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1190,7 +1196,7 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_emode_wrong_category
-// E-mode account, new collateral not in the e-mode category.
+// E-mode account; new collateral is not in the e-mode category.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1204,14 +1210,14 @@ fn test_swap_collateral_emode_wrong_category() {
         .with_emode_asset(1, "USDT", true, true)
         .build();
 
-    // Create e-mode account, supply USDC, borrow USDT
+    // Create an e-mode account, supply USDC, borrow USDT.
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDC collateral to ETH -- ETH not in e-mode.
-    // The error may be ASSET_NOT_IN_EMODE or EMODE_CATEGORY_NOT_FOUND depending
-    // on how the validation resolves the e-mode asset lookup.
+    // Try to swap USDC collateral to ETH: ETH is not in e-mode. The error
+    // may be ASSET_NOT_IN_EMODE or EMODE_CATEGORY_NOT_FOUND, depending on
+    // how the validation resolves the e-mode asset lookup.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
@@ -1219,8 +1225,8 @@ fn test_swap_collateral_emode_wrong_category() {
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_no_borrows_skip_hf
-// Swap collateral with no borrows -- the HF check is skipped.
-// With the working mock router, this should succeed.
+// Swap collateral with no borrows: the HF check is skipped. With the
+// working mock router, this succeeds.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1230,12 +1236,12 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         .with_market(eth_preset())
         .build();
 
-    // Supply only, no borrows
+    // Supply only, no borrows.
     t.supply(ALICE, "USDC", 100_000.0);
 
-    // Swap collateral -- HF check is skipped (no borrows).
-    // With the working mock router, this succeeds.
-    t.fund_router("ETH", 5.0); // Pre-fund router with output tokens
+    // Swap collateral: the HF check is skipped (no borrows). With the
+    // working mock router, this succeeds.
+    t.fund_router("ETH", 5.0); // Pre-fund the router with output tokens.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert!(
@@ -1243,7 +1249,7 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         "swap_collateral with no borrows should succeed"
     );
 
-    // Verify ETH supply position created
+    // Verify the ETH supply position was created.
     let eth_supply = t.supply_balance(ALICE, "ETH");
     assert!(
         eth_supply > 0.0,
@@ -1258,8 +1264,8 @@ fn test_swap_collateral_no_borrows_skip_hf() {
 
 // ---------------------------------------------------------------------------
 // test_strategy_empty_swap_steps
-// Empty hops vec -- swap_tokens accesses steps.hops.len() - 1 which
-// underflows with empty hops. This should panic/crash gracefully.
+// An empty hops vec underflows: swap_tokens reads steps.hops.len() - 1.
+// This must panic and crash gracefully.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1269,15 +1275,15 @@ fn test_strategy_empty_swap_steps_multiply() {
         .with_market(eth_preset())
         .build();
 
-    // Build empty swap steps
+    // Build empty swap steps.
     let empty_steps = SwapSteps {
         amount_out_min: 0,
         distribution: soroban_sdk::Vec::new(&t.env),
     };
 
-    // Should fail -- empty hops will cause underflow in swap_tokens
-    // (steps.hops.len() - 1 on an empty vec).
-    // The error happens after create_strategy, inside swap_tokens.
+    // Must fail: empty hops cause underflow in swap_tokens
+    // (steps.hops.len() - 1 on an empty vec). The error happens after
+    // create_strategy, inside swap_tokens.
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -1333,8 +1339,8 @@ fn test_swap_debt_zero_amount() {
     t.borrow(ALICE, "ETH", 1.0);
 
     let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
-    // Note: try_swap_debt passes new_amount through f64_to_i128, so 0.0 -> 0
-    // The validation require_amount_positive should catch this.
+    // Note: try_swap_debt passes new_amount through f64_to_i128, so 0.0 -> 0.
+    // The validation require_amount_positive must catch this.
     let result = t.try_swap_debt(ALICE, "ETH", 0.0, "WBTC", &steps);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
@@ -1360,7 +1366,7 @@ fn test_swap_collateral_zero_amount() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_wrong_account_owner
-// Bob tries to swap Alice's debt -- should be rejected.
+// Bob tries to swap Alice's debt: must be rejected.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1374,7 +1380,7 @@ fn test_swap_debt_wrong_account_owner() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // Get Alice's account ID, then try to swap using Bob's address
+    // Get Alice's account ID, then try to swap using Bob's address.
     let alice_account_id = t.resolve_account_id(ALICE);
     let bob_addr = t.get_or_create_user(BOB);
     let existing_addr = t.resolve_asset("ETH");
@@ -1390,7 +1396,7 @@ fn test_swap_debt_wrong_account_owner() {
         &new_addr,
         &steps,
     );
-    // Flatten Result<Result<(), Error>, InvokeError> so we can assert code.
+    // Flatten Result<Result<(), Error>, InvokeError> so the code can assert.
     let flat: Result<(), soroban_sdk::Error> = match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e.into()),
@@ -1403,7 +1409,7 @@ fn test_swap_debt_wrong_account_owner() {
 
 // ---------------------------------------------------------------------------
 // test_swap_collateral_wrong_account_owner
-// Bob tries to swap Alice's collateral -- should be rejected.
+// Bob tries to swap Alice's collateral: must be rejected.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1443,7 +1449,7 @@ fn test_swap_collateral_wrong_account_owner() {
 
 // ---------------------------------------------------------------------------
 // test_multiply_same_asset_different_direction
-// Verify that collateral == debt is caught even when amounts differ.
+// Verify that collateral == debt is caught even when the amounts differ.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1467,7 +1473,7 @@ fn test_multiply_same_asset_is_caught() {
 
 // ---------------------------------------------------------------------------
 // test_swap_debt_same_token
-// Already tested in strategy_tests.rs, but let's verify the error code.
+// Already tested in strategy_tests.rs; verify the error code here too.
 // ---------------------------------------------------------------------------
 
 #[test]

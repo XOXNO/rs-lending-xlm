@@ -1,9 +1,9 @@
 //! Contract-level property test: E-Mode vs Isolation mutual exclusivity.
 //!
 //! Invariants:
-//!   - Creating an account with e_mode_category > 0 AND is_isolated=true panics
-//!   - Once created as e-mode, the account's `is_isolated` is always false
-//!   - Once created as isolated, the account's `e_mode_category_id` is always 0
+//!   - Creating an account with e_mode_category > 0 AND is_isolated=true panics.
+//!   - An e-mode account always has `is_isolated` false.
+//!   - An isolated account always has `e_mode_category_id` zero.
 
 use common::types::{AccountMeta, ControllerKey, PositionMode};
 use proptest::prelude::*;
@@ -34,7 +34,7 @@ proptest! {
             .build();
 
         if choose_emode {
-            // Create valid e-mode account
+            // Create a valid e-mode account.
             t.create_emode_account(ALICE, 1);
             t.supply(ALICE, "USDC", supply_amt as f64);
 
@@ -47,7 +47,7 @@ proptest! {
             prop_assert_eq!(meta.e_mode_category_id, 1);
             prop_assert!(!meta.is_isolated, "XOR broken: emode AND isolated");
         } else {
-            // Attempt invalid combo → must panic
+            // Invalid combo: must panic.
             let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 t.create_account_full(ALICE, 1, PositionMode::Normal, true);
             }));

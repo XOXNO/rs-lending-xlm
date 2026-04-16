@@ -2,8 +2,8 @@ use soroban_sdk::contracterror;
 
 // ---------------------------------------------------------------------------
 // Domain-specific error enums. Each `#[contracterror]` enum occupies its own
-// error-code range so codes never collide across domains.
-// Import only the category your module needs.
+// code range, so codes never collide across domains. Import only the
+// category your module needs.
 // ---------------------------------------------------------------------------
 
 #[contracterror]

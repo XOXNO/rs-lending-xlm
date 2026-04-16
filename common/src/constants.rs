@@ -14,6 +14,16 @@ pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
 pub const MAX_LIQUIDATION_BONUS: i128 = 1_500;
 
+/// Bad-debt socialization threshold: an account with collateral at or
+/// below $5 USD AND debt > collateral triggers `apply_bad_debt_to_supply_index`.
+/// Stored in WAD precision (1 USD = 10^18). Referenced by liquidation paths
+/// and `clean_bad_debt_standalone`.
+pub const BAD_DEBT_USD_THRESHOLD: i128 = 5 * WAD;
+
+/// Maximum permitted flash-loan fee, in BPS. 500 = 5%. Validated at both
+/// `create_liquidity_pool` (via `validate_asset_config`) and `edit_asset_config`.
+pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
+
 pub const K_SCALING_FACTOR: i128 = 20_000;
 
 pub const MIN_FIRST_TOLERANCE: i128 = 50;
@@ -22,13 +32,13 @@ pub const MAX_FIRST_TOLERANCE: i128 = 5_000;
 
 pub const MIN_LAST_TOLERANCE: i128 = 150;
 
-// 50% — hard safety ceiling. Matches `validate_oracle_bounds` in the controller.
+// 50% hard safety ceiling. Matches `validate_oracle_bounds` in the controller.
 pub const MAX_LAST_TOLERANCE: i128 = 5_000;
 
 pub const ONE_DAY_LEDGERS: u32 = 17_280;
 
 // ---------------------------------------------------------------------------
-// Tiered TTL constants (matching Blend v2 best practices)
+// Tiered TTL constants (Blend v2 best practices)
 // ---------------------------------------------------------------------------
 
 pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
@@ -40,7 +50,7 @@ pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
 pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * 100; // ~100 days
 pub const TTL_BUMP_USER: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
 
-// Legacy aliases (for migration — will be removed)
+// Legacy aliases pending removal.
 pub const TTL_THRESHOLD: u32 = TTL_THRESHOLD_INSTANCE;
 pub const TTL_EXTEND_TO: u32 = TTL_BUMP_INSTANCE;
 

@@ -89,6 +89,194 @@ fn borrowed_lte_supplied(e: Env, asset: Address) {
     cvlr_assert!(borrowed_actual <= supplied_actual + revenue_actual);
 }
 
+// ---------------------------------------------------------------------------
+// Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md §12)
+// ---------------------------------------------------------------------------
+
+/// Claimed revenue must never exceed the pool's pre-call token reserves.
+/// Pool-side `claim_revenue` caps the transfer at `min(reserves, treasury_actual)`
+/// (`pool/src/lib.rs:467-477`), so the controller-returned amount is bounded by
+/// the reserves snapshot taken immediately before the call.
+///
+/// Invariant: claimed_amount <= pre_reserves
+#[rule]
+fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+
+    let pre_reserves = pool_client.reserves();
+
+    let amounts = crate::Controller::claim_revenue(
+        e.clone(),
+        caller,
+        soroban_sdk::vec![&e, asset],
+    );
+    let claimed = amounts.get(0).unwrap();
+
+    cvlr_assert!(claimed <= pre_reserves);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3c: Utilization is zero when supplied_ray is zero  (INVARIANTS.md §8)
+// ---------------------------------------------------------------------------
+
+/// Empty-market convention: if `state.supplied_ray == 0`, then
+/// `capital_utilisation() == 0`. Guards against divide-by-zero and pins
+/// the empty-market rate model to zero.
+///
+/// Note: uses `get_sync_data().state.supplied_ray` directly because
+/// `supplied_amount()` (asset decimals) can round tiny positive raw values
+/// to zero while the raw product `supplied_ray * supply_index` is still
+/// nonzero — only the raw ray value is the correct zero-test.
+#[rule]
+fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+
+    let sync = pool_client.get_sync_data();
+    cvlr_assume!(sync.state.supplied_ray == 0);
+
+    cvlr_assert!(pool_client.capital_utilisation() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3d: Isolation debt stays non-negative across repay  (INVARIANTS.md §11)
+// ---------------------------------------------------------------------------
+
+/// `adjust_isolated_debt_usd` (controller/src/utils.rs:61-92) clamps at zero
+/// and applies a sub-$1 dust erasure. Given a non-negative pre-state, the
+/// tracker must remain non-negative after any repay.
+#[rule]
+fn isolation_debt_never_negative_after_repay(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
+
+    crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
+
+    cvlr_assert!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3e: Borrow respects pool reserves  (INVARIANTS.md §13)
+// ---------------------------------------------------------------------------
+
+/// A successful borrow requires `pre_reserves >= amount`. The pool enforces
+/// this via `has_reserves(amount)` (`pool/src/lib.rs:139`); if the guard
+/// fails the call panics with `InsufficientLiquidity`. Therefore any path
+/// that reaches the post-state with the borrow applied must have had
+/// sufficient reserves pre-call.
+#[rule]
+fn borrow_respects_reserves(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+    let pre_reserves = pool_client.reserves();
+
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+
+    // If the borrow did not revert, reserves must have covered the amount.
+    cvlr_assert!(pre_reserves >= amount);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3f: LTV borrow bound enforced  (INVARIANTS.md §10)
+// ---------------------------------------------------------------------------
+
+/// After any successful borrow, the account's total debt (USD WAD) must
+/// not exceed its LTV-weighted collateral. Distinct from the liquidation
+/// threshold: LTV gates new borrows, liquidation threshold gates seizure.
+#[rule]
+fn ltv_borrow_bound_enforced(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+
+    let total_borrow = crate::Controller::total_borrow_in_usd(e.clone(), account_id);
+    let ltv_collateral = crate::Controller::ltv_collateral_in_usd(e.clone(), account_id);
+
+    cvlr_assert!(total_borrow <= ltv_collateral);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3g: Supply index stays above floor across supply  (INVARIANTS.md §7)
+// ---------------------------------------------------------------------------
+
+/// Bad-debt socialization clamps supply_index at `SUPPLY_INDEX_FLOOR_RAW`
+/// (`pool/src/interest.rs:14`). Outside that path the index only grows.
+/// This rule checks the floor is inductively preserved across a supply,
+/// which exercises interest accrual but no bad-debt path.
+#[rule]
+fn supply_index_above_floor_after_supply(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    const SUPPLY_INDEX_FLOOR_RAW: i128 = 1_000_000_000_000_000_000; // 10^18
+
+    cvlr_assume!(amount > 0);
+
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+
+    let pre = pool_client.get_sync_data();
+    cvlr_assume!(pre.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
+
+    let post = pool_client.get_sync_data();
+    cvlr_assert!(post.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+}
+
+// ---------------------------------------------------------------------------
+// Rule 3h: Supply index does not decrease across borrow  (INVARIANTS.md §7)
+// ---------------------------------------------------------------------------
+
+/// The only sanctioned path that decreases `supply_index` is
+/// `apply_bad_debt_to_supply_index`, invoked exclusively from
+/// `seize_position`. A borrow triggers interest accrual (`global_sync`)
+/// which can only grow the index. Combined with the existing
+/// `index_rules::supply_index_monotonic_after_accrual` (which covers
+/// supply), this rule extends §7 monotonicity to the borrow path.
+#[rule]
+fn supply_index_monotonic_across_borrow(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+    let pre = pool_client.get_sync_data();
+
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+
+    let post = pool_client.get_sync_data();
+    cvlr_assert!(post.state.supply_index_ray >= pre.state.supply_index_ray);
+}
+
 // ===========================================================================
 // Zero/Negative Amount Reverts
 // ===========================================================================

@@ -15,14 +15,14 @@ use common::types::{OracleProviderConfig, ReflectorConfig};
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Vec};
 
-// Local storage keys for controller-only features that don't belong in the
-// shared `ControllerKey` enum (e.g., token-wasm allow-list for market creation).
+// Local storage keys for controller-only features that do not belong in the
+// shared `ControllerKey` enum (e.g., the token-wasm allow-list for market creation).
 #[contracttype]
 #[derive(Clone, Debug)]
 enum LocalKey {
-    // Allow-list of token contract addresses that are eligible to back a new
-    // liquidity pool. Gated behind admin approval to prevent hostile/malicious
-    // token implementations from being onboarded.
+    // Allow-list of token contract addresses eligible to back a new liquidity
+    // pool. Admin approval gates this list to keep hostile or malicious token
+    // implementations off the protocol.
     ApprovedToken(Address),
 }
 
@@ -491,7 +491,7 @@ pub mod asset_config {
         pub is_siloed_borrowing: bool,
         pub is_flashloanable: bool,
         pub isolation_borrow_enabled: bool,
-        pub debt_ceiling_usd_wad: i128,
+        pub isolation_debt_ceiling_usd_wad: i128,
         pub flashloan_fee_bps: i128,
         pub borrow_cap: i128,
         pub supply_cap: i128,
@@ -514,7 +514,7 @@ pub mod asset_config {
             is_siloed_borrowing: cfg.is_siloed_borrowing,
             is_flashloanable: cfg.is_flashloanable,
             isolation_borrow_enabled: cfg.isolation_borrow_enabled,
-            debt_ceiling_usd_wad: cfg.isolation_debt_ceiling_usd_wad,
+            isolation_debt_ceiling_usd_wad: cfg.isolation_debt_ceiling_usd_wad,
             flashloan_fee_bps: cfg.flashloan_fee_bps,
             borrow_cap: cfg.borrow_cap,
             supply_cap: cfg.supply_cap,
@@ -671,7 +671,7 @@ pub fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {
 pub fn set_isolated_debt(env: &Env, asset: &Address, debt: i128) {
     let key = ControllerKey::IsolatedDebt(asset.clone());
     env.storage().persistent().set(&key, &debt);
-    // IsolatedDebt is global per-asset state (debt ceiling tracker), not user data.
+    // IsolatedDebt is global per-asset state (debt-ceiling tracker), not user data.
     bump_shared(env, &key);
 }
 
@@ -827,6 +827,7 @@ mod tests {
                 cex_decimals: 14,
                 dex_oracle: Some(Address::generate(&self.env)),
                 dex_asset_kind: ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 14,
                 twap_records: 3,
             }

@@ -4,16 +4,18 @@ exclude = ["fuzz", "vendor"]
 resolver = "2"
 
 [workspace.dependencies]
-soroban-sdk = "25.3.1"
-stellar-access = "0.7.0"
-stellar-contract-utils = "0.7.0"
-stellar-macros = "0.7.0"
+# F.2: pinned exactly during the audit window. Revert to caret post-audit.
+soroban-sdk = "=25.3.1"
+stellar-access = "=0.7.0"
+stellar-contract-utils = "=0.7.0"
+stellar-macros = "=0.7.0"
 
 # Certora formal verification (only compiled with `certora` feature)
+# F.1: pinned by rev so `cargo update` cannot float the verification stack.
 cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
-cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git" }
-cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git" }
-cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git" }
+cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
 
 
 # Vendored cvlr with #![no_std] patched onto cvlr-spec. Upstream cvlr-spec

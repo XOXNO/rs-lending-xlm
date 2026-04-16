@@ -6,7 +6,7 @@
 //!   - Bad receiver: try_flash_loan must Err (no silent success)
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
-use stellar_fuzz::{build_min_context, ALICE};
+use stellar_fuzz::{arb_amount, assert_global_invariants, build_min_context, ALICE};
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -16,12 +16,12 @@ struct Input {
 }
 
 fuzz_target!(|inp: Input| {
-    let seed = ((inp.seed_usdc % 100_000) + 10_000) as f64;
-    let loan = ((inp.loan_usdc % 50_000) + 1) as f64;
+    let seed = arb_amount(inp.seed_usdc, 10_000.0, 110_000.0);
+    let loan = arb_amount(inp.loan_usdc, 1.0, 50_001.0);
 
     let mut t = build_min_context();
-    // Seed pool liquidity so the flash loan has funds to draw.
     t.supply(ALICE, "USDC", seed);
+    assert_global_invariants(&t, ALICE, &["USDC", "ETH"], 0.0);
 
     if inp.use_bad {
         let bad = t.deploy_bad_flash_loan_receiver();

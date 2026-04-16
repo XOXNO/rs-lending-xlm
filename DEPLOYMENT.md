@@ -14,6 +14,22 @@ The operator interface is the Makefile plus `configs/script.sh`. One reproducibl
 - e-mode configuration
 - smoke testing
 
+### Pipeline overview
+
+```mermaid
+flowchart LR
+    B[make build] --> O[make optimize]
+    O --> D[make deploy-artifacts]
+    D --> DP[make deploy-&lt;network&gt;<br/>upload pool WASM<br/>deploy controller]
+    DP --> CC[make configure-controller<br/>set aggregator + pool template]
+    CC --> MK[setupAllMarkets<br/>createMarket → configureMarketOracle → editAssetConfig]
+    MK --> EM[setupAllEModes<br/>addEModeCategory → addAssetToEMode]
+    EM --> SM[smoke: supply / borrow / update_indexes / claim_revenue / repay / withdraw]
+```
+
+`make setup-<network>` wraps `deploy → configure-controller →
+_setup-markets` so the full chain runs end-to-end.
+
 ## Source Of Truth
 
 Configuration files:
@@ -267,6 +283,57 @@ Two distinct decimal domains exist:
 
 Operators supply neither during oracle setup.
 
+### Token allowlist policy (audit-prep)
+
+`approve_token_wasm` admits a token contract. The protocol's accounting
+math assumes 1:1 transfer semantics and a fixed per-address balance.
+Operators MUST NOT allowlist:
+
+- **Fee-on-transfer tokens.** Borrow / withdraw / liquidation seizure /
+  add_rewards do not balance-delta on the egress side. A FoT token causes
+  borrowers to under-receive while debt is booked at the requested
+  amount; liquidators get less bonus than the math books; bad debt
+  cascades. Findings H-06.
+- **Rebasing tokens (positive or negative).** Pool reserves are read live
+  via `tok.balance(pool)`; rebases drift reserves from scaled supply.
+  Positive rebases let `claim_revenue` extract the rebase delta;
+  negative rebases stall withdrawals while debt accounting is unchanged.
+  Finding H-07.
+
+Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1
+transfer semantics. The on-chain validation cannot enforce this
+property.
+
+### SAC issuer upgrade
+
+A Stellar issuer can upgrade their issued-asset SAC. If the upgrade
+changes `decimals()` or transfer semantics, `MarketParams.asset_decimals`
+and `MarketConfig.cex_decimals`/`dex_decimals` go stale. The protocol
+has no on-chain endpoint to refresh these values. Operator runbook:
+
+1. Monitor issuers for upgrade events.
+2. On any change, `pause()` and review.
+3. If the change is benign, document and unpause.
+4. If the change breaks accounting, migrate users to a new market backed
+   by a different token contract.
+
+Finding H-08.
+
+### M-09 migration: `dex_symbol` field
+
+The audit-prep upgrade adds a required `dex_symbol: Symbol` field to
+`MarketConfig`. This is a breaking storage layout change. After
+deploying the upgrade:
+
+1. For every existing market with `dex_oracle.is_some()`, call
+   `configure_market_oracle` with the same parameters plus the new
+   `dex_symbol` (use the same value as `cex_symbol` to preserve current
+   behavior).
+2. Run `make view NETWORK=<network> FN=get_market_config ARGS="..."`
+   to verify each market deserializes and reports the new field.
+3. Until step 1 completes per market, oracle reads from that market
+   panic on the new mandatory probe.
+
 ## Suggested Operator Sequence
 
 Fresh environment:
@@ -308,3 +375,4 @@ make invoke NETWORK=testnet FN=withdraw ARGS="..."
 - [README.md](./README.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [INVARIANTS.md](./INVARIANTS.md)
+- [MATH_REVIEW.md](./MATH_REVIEW.md)

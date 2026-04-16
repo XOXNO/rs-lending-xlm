@@ -15,9 +15,9 @@ use crate::cache::ControllerCache;
 // ---------------------------------------------------------------------------
 // Cap validation
 // ---------------------------------------------------------------------------
-// Supply cap validation lives in `positions::supply::validate_supply_cap`
-// because it is only used by the supply flow. Borrow cap validation stays
-// in `positions::borrow` for the same reason.
+// Supply cap validation lives in `positions::supply::validate_supply_cap`,
+// since only the supply flow uses it. Borrow cap validation stays in
+// `positions::borrow` for the same reason.
 
 // ---------------------------------------------------------------------------
 // Borrow-specific validations
@@ -75,12 +75,12 @@ pub fn calculate_health_factor(
     borrow_positions: &Map<Address, AccountPosition>,
 ) -> i128 {
     if borrow_positions.is_empty() {
-        return i128::MAX; // No debt = infinite HF
+        return i128::MAX; // No debt means infinite HF.
     }
 
     let mut weighted_collateral_total = Wad::ZERO;
 
-    // Sum weighted collateral
+    // Sum weighted collateral.
     for position in supply_positions.values() {
         let feed = cache.cached_price(&position.asset);
         let market_index = cache.cached_market_index(&position.asset);
@@ -95,7 +95,7 @@ pub fn calculate_health_factor(
             weighted_collateral_total + weighted_collateral(env, value, Bps::from_raw(position.liquidation_threshold_bps));
     }
 
-    // Sum borrow values
+    // Sum borrow values.
     let mut total_borrow = Wad::ZERO;
     for position in borrow_positions.values() {
         let feed = cache.cached_price(&position.asset);
@@ -277,7 +277,7 @@ pub fn estimate_liquidation_amount(
     );
 
     // Unrecoverable-position path: even the softest target leaves HF below
-    // 1.0, so use the base bonus against the maximum collateral-backed
+    // 1.0, so apply the base bonus against the maximum collateral-backed
     // repayment.
     let base_bonus_wad = base_bonus.to_wad(env);
     let one_plus_base = Wad::ONE + base_bonus_wad;
@@ -366,7 +366,7 @@ pub fn get_account_bonus_params(
     supply_positions: &Map<Address, AccountPosition>,
 ) -> (Bps, Bps) {
     let mut total_collateral = Wad::ZERO;
-    // Store (value_wad_raw, bonus_bps) as raw i128 since Wad cannot be stored in Soroban Vec.
+    // Store (value_wad_raw, bonus_bps) as raw i128: Soroban Vec cannot hold Wad.
     let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
 
     for position in supply_positions.values() {

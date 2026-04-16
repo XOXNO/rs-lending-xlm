@@ -1,18 +1,17 @@
-//! Contract-level property test: flash-loan success path + strategy (leverage)
-//! flows.
+//! Contract-level property test: flash-loan success path + strategy
+//! (leverage) flows.
 //!
-//! Motivation: `flash_loan_tests.rs` notes that the good-receiver happy path
-//! cannot be exercised under `env.mock_all_auths()` because the receiver's
-//! nested `token.mint()` call is not reached by the recording-mode mock.
-//! Strategy flows (`multiply`, `swap_debt`, `swap_collateral`,
-//! `repay_debt_with_collateral`) stay on the *internal* `create_strategy`
-//! path (no external receiver), so they run fine under `mock_all_auths` —
-//! but had no property-test coverage.
+//! `flash_loan_tests.rs` notes that the good-receiver happy path cannot run
+//! under `env.mock_all_auths()`, since the receiver's nested `token.mint()`
+//! call escapes the recording-mode mock. Strategy flows (`multiply`,
+//! `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`) stay on
+//! the *internal* `create_strategy` path (no external receiver) and run
+//! fine under `mock_all_auths` — but had no property-test coverage.
 //!
-//! This harness adds three properties covering the gaps and regressing four
+//! This harness adds three properties that cover the gaps and regress four
 //! audit findings from `bugs.md`:
 //!
-//! - NEW-01 (HIGH): router allowance must be zeroed after a strategy swap.
+//! - NEW-01 (HIGH): router allowance must be zero after a strategy swap.
 //! - M-09: `saturating_sub` hides buggy aggregator underpay in `swap_tokens`.
 //! - M-10: `amount_out_min <= 0` must be rejected on strategy entry points.
 //! - M-11: `swap_collateral` must use the *actual* withdrawn delta, not the
@@ -20,17 +19,17 @@
 //!
 //! ## Explicit auth trees
 //!
-//! The first property (`prop_flash_loan_success_repayment`) needs to exercise
-//! the end-to-end flash-loan round trip, including the receiver's nested
+//! The first property (`prop_flash_loan_success_repayment`) exercises the
+//! end-to-end flash-loan round trip, including the receiver's nested
 //! `token.mint()` that produces the fee. `env.mock_all_auths()` does not
 //! propagate to that nested SAC admin call in recording mode, so this test
 //! opts out via `LendingTest::new().without_auto_auth()` and attaches a
 //! per-call `MockAuth` tree (see `test-harness/src/auth.rs`).
 //!
-//! If the explicit tree ever turns out to be incomplete and every generated
-//! input fails at the auth layer, the test is kept with `#[ignore]` plus a
-//! note pointing at the specific step that couldn't be authorized — so the
-//! regression surface still exists for when the SDK improves.
+//! If the explicit tree turns out to be incomplete and every generated input
+//! fails at the auth layer, keep the test with `#[ignore]` plus a note that
+//! points to the step that could not be authorized — preserving the
+//! regression surface for when the SDK improves.
 
 extern crate std;
 
@@ -65,8 +64,8 @@ fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i
 }
 
 // ---------------------------------------------------------------------------
-// Alternate "short" aggregator used by the M-11 property test. It deliberately
-// returns `amount_out_min * 99 / 100` (1% shortfall) to probe that the caller
+// Alternate "short" aggregator used by the M-11 property test. It returns
+// `amount_out_min * 99 / 100` (1% shortfall) to probe that the caller
 // (controller.strategy::swap_tokens) reads the *actual* balance delta rather
 // than trusting `amount_out_min` or any internal accounting.
 // ---------------------------------------------------------------------------
@@ -131,10 +130,10 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 //
 // Under `without_auto_auth()` + an explicit MockAuth tree, drive the full
 // round trip (begin -> receiver callback -> end) and assert:
-//   a. the call returns Ok
-//   b. the reentrancy guard is cleared
-//   c. pool reserves increased by exactly `fee` (supplied pool is otherwise
-//      unchanged — `flash_loan_end` pulls `amount + fee`, of which `amount`
+//   a. the call returns Ok.
+//   b. the reentrancy guard is cleared.
+//   c. pool reserves grew by exactly `fee` (the supplied pool is otherwise
+//      unchanged — `flash_loan_end` pulls `amount + fee`, where `amount`
 //      replays the outgoing transfer from `begin` and `fee` is net-new).
 // ---------------------------------------------------------------------------
 
@@ -144,18 +143,18 @@ proptest! {
     // The flash-loan happy path currently fails at the SAC mint call inside
     // the good receiver: `Error(Context, InvalidAction)`. This is a real
     // limitation of Soroban's recording-mode `mock_all_auths` for nested
-    // `StellarAssetClient::mint()` calls that originate from a contract
-    // frame three levels deep (controller -> pool -> receiver -> SAC).
+    // `StellarAssetClient::mint()` calls that originate three frames deep
+    // (controller -> pool -> receiver -> SAC).
     //
     // An explicit MockAuth tree would need to authorize the SAC admin's
     // `mint` invocation as a sub_invoke of the receiver's
     // `execute_flash_loan`, but the SAC's admin address in a Stellar asset
-    // contract V2 is not directly callable via MockAuthInvoke because the
-    // SAC contract is native and its auth context is opaque to the
+    // contract V2 is not directly callable via MockAuthInvoke: the SAC
+    // contract is native and its auth context is opaque to the
     // recording-mode harness.
     //
-    // This test is kept alive (not deleted) so the property assertions are
-    // recorded and the regression surface is visible. Once a new SDK
+    // This test stays alive (not deleted) so the property assertions stay
+    // recorded and the regression surface stays visible. Once a new SDK
     // release exposes a way to authorize SAC admin sub-invokes, drop the
     // `#[ignore]` and the fuzzer starts catching regressions.
     #[test]
@@ -170,7 +169,7 @@ proptest! {
             .without_auto_auth()
             .build();
 
-        // Opt back into env-level blanket auth for this test. We still keep
+        // Opt back into env-level blanket auth for this test. Keep
         // `without_auto_auth()` at the builder so future work can drop this
         // call and swap in strict per-call MockAuth trees.
         t.env.mock_all_auths();
@@ -190,13 +189,13 @@ proptest! {
 
         let result = t.try_flash_loan(BOB, "USDC", amount_units as f64, &receiver);
 
-        // a. Success
+        // a. Success.
         prop_assert!(result.is_ok(), "flash_loan should succeed: {:?}", result);
 
-        // b. Reentrancy guard cleared
+        // b. Reentrancy guard cleared.
         prop_assert!(flash_guard_cleared(&t), "flash-loan guard must clear on success");
 
-        // c. Reserves increased by exactly `fee`
+        // c. Reserves grew by exactly `fee`.
         let config = t.get_asset_config("USDC");
         let expected_fee = amount_raw * config.flashloan_fee_bps / 10_000;
         let reserves_after = pool_client.reserves();
@@ -210,18 +209,18 @@ proptest! {
     // ---------------------------------------------------------------------
     // Property 2: multiply (leverage) keeps HF >= 1, zeroes router allowance
     //
-    // `multiply` uses `mock_all_auths` just fine -- the strategy path never
+    // `multiply` uses `mock_all_auths` fine -- the strategy path never
     // invokes a user-supplied receiver; swap + deposit run inside the
     // controller itself. This property fuzzes collateral-amount-per-debt
     // ratios and asserts:
     //
-    //   - HF >= 1.0 after a successful multiply (the contract's invariant)
-    //   - Controller holds ZERO allowance on the router post-call
-    //     (NEW-01 regression: the audit found allowance was previously left
-    //     non-zero after a strategy swap)
-    //   - Reentrancy guard cleared
-    //   - On error: no partial state -- if try_multiply returns Err, there
-    //     should be no account left behind for the caller.
+    //   - HF >= 1.0 after a successful multiply (the contract's invariant).
+    //   - The controller holds ZERO allowance on the router after the call
+    //     (NEW-01 regression: the audit found allowance previously left
+    //     non-zero after a strategy swap).
+    //   - The reentrancy guard is cleared.
+    //   - On error: no partial state -- if try_multiply returns Err, no
+    //     account is left behind for the caller.
     // ---------------------------------------------------------------------
     #[test]
     fn prop_multiply_leverage_hf_safe(
@@ -249,15 +248,15 @@ proptest! {
 
         let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
 
-        // NEW-01 regression: allowance zeroed irrespective of Ok/Err (post a
-        // successful swap, it must be zero; on a failed swap, the approve call
-        // may or may not have fired -- but the snapshot after the tx must
-        // still be zero because any approved allowance that WAS set should be
+        // NEW-01 regression: allowance zeroed regardless of Ok/Err. After a
+        // successful swap, it must be zero; on a failed swap, the approve
+        // call may or may not have fired -- but the post-tx snapshot must
+        // still be zero, since any approved allowance that was set must be
         // zeroed before returning.
         //
         // For the Err case, the transaction rolls back, so allowance is
-        // whatever it was before (0). We only assert the stronger post-Ok
-        // condition here, and a weaker post-Err sanity check.
+        // whatever it was before (0). Assert the stronger post-Ok condition
+        // here, plus a weaker post-Err sanity check.
         let allowance_eth = router_allowance(&t, "ETH");
         prop_assert_eq!(allowance_eth, 0, "ETH allowance on router must be zero after multiply");
 
@@ -283,8 +282,8 @@ proptest! {
     // Property 3: strategy swap_collateral balance-delta consistency
     //
     // Targets M-10 and M-11 regressions:
-    //   - M-10: `amount_out_min <= 0` rejected (here: 0)
-    //   - M-11: swap input uses the actual withdrawal delta
+    //   - M-10: `amount_out_min <= 0` rejected (here: 0).
+    //   - M-11: swap input uses the actual withdrawal delta.
     //
     // Setup: supply USDC, swap_collateral into USDT. Use a mock router (the
     // default `MockAggregator`) that pays exactly `amount_out_min`. A valid
@@ -322,8 +321,8 @@ proptest! {
         if !min_out_valid {
             // M-10: amount_out_min == 0 must be rejected. The exact error
             // surface depends on where the check lives (SwapSteps validation
-            // in controller::validation or the router itself). Either way the
-            // call must fail -- success would be the regression.
+            // in controller::validation or the router itself). Either way,
+            // the call must fail -- success is the regression.
             prop_assert!(
                 result.is_err(),
                 "swap_collateral with amount_out_min == 0 must be rejected (M-10)"
@@ -332,8 +331,8 @@ proptest! {
             // M-11 regression assertion: the USDC supply position shrunk by
             // approximately `withdraw_amount`, and USDT grew. Dust
             // differences are acceptable (pool rounding), but the USDT
-            // supply must be non-zero (the swap actually produced tokens
-            // based on the actual withdrawal, not phantom accounting).
+            // supply must be non-zero (the swap produced tokens based on
+            // the actual withdrawal, not phantom accounting).
             let usdt_supply = t.supply_balance(ALICE, "USDT");
             prop_assert!(usdt_supply > 0.0, "USDT supply must be non-zero after successful swap_collateral");
 
@@ -350,8 +349,8 @@ proptest! {
     }
 }
 
-// Suppress unused-item warnings in the ShortAggregator helper when no
-// property test currently instantiates it (kept for future coverage).
+// Suppress unused-item warnings in the ShortAggregator helper while no
+// property test instantiates it (kept for future coverage).
 #[allow(dead_code)]
 fn _unused_short_aggregator_hook() {
     let _ = ShortAggregator;

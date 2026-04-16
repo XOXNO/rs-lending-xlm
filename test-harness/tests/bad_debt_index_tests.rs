@@ -5,17 +5,17 @@ use test_harness::{
 };
 
 // ===========================================================================
-// Bad debt supply index tests — the ONLY case where supply_index decreases.
+// Bad debt supply index tests — the only case where supply_index decreases.
 //
-// When an account's debt exceeds its collateral and collateral < $5:
-//   1. All remaining collateral is seized (dust → protocol revenue)
-//   2. Remaining debt is "socialized" via pool.seize_position(borrow_pos)
-//   3. Pool calls apply_bad_debt_to_supply_index(debt_amount)
-//   4. Supply index is reduced: new = old * (total - bad_debt) / total
-//   5. Every supplier's balance decreases proportionally
+// When debt exceeds collateral and collateral < $5:
+//   1. Seize all remaining collateral (dust -> protocol revenue).
+//   2. Socialize remaining debt via pool.seize_position(borrow_pos).
+//   3. Pool calls apply_bad_debt_to_supply_index(debt_amount).
+//   4. Reduce supply index: new = old * (total - bad_debt) / total.
+//   5. Every supplier's balance shrinks proportionally.
 //
-// This is the protocol's loss distribution mechanism — suppliers absorb
-// the loss that the protocol couldn't recover through liquidation.
+// This is the protocol's loss-distribution mechanism: suppliers absorb the
+// loss that liquidation could not recover.
 // ===========================================================================
 
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
@@ -40,26 +40,26 @@ fn test_bad_debt_decreases_supply_index() {
         .with_market(eth_preset())
         .build();
 
-    // Bob supplies ETH (will absorb the bad debt loss)
+    // Bob supplies ETH and will absorb the bad-debt loss.
     t.supply(BOB, "ETH", 100.0);
 
-    // Alice supplies small USDC collateral, borrows ETH
-    t.supply(ALICE, "USDC", 10.0); // $10 collateral
-    t.borrow(ALICE, "ETH", 0.003); // $6 debt at $2000/ETH
+    // Alice supplies small USDC collateral and borrows ETH.
+    t.supply(ALICE, "USDC", 10.0); // $10 collateral.
+    t.borrow(ALICE, "ETH", 0.003); // $6 debt at $2000/ETH.
 
     let (si_before, _) = get_indexes(&t, "ETH");
 
-    // Crash USDC to $0.10 → collateral = $1, debt = $6
-    // HF = ($1 * 0.80) / $6 = 0.13
+    // Crash USDC to $0.10: collateral = $1, debt = $6.
+    // HF = ($1 * 0.80) / $6 = 0.13.
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
-    // Liquidate — will trigger bad debt cleanup since collateral < $5
+    // Liquidate; bad-debt cleanup fires because collateral < $5.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let (si_after, _) = get_indexes(&t, "ETH");
 
-    // Supply index should have DECREASED — bad debt socialized
+    // Bad-debt socialization must drop the supply index.
     assert!(
         si_after < si_before,
         "supply index should DECREASE after bad debt: before={}, after={}",
@@ -67,10 +67,10 @@ fn test_bad_debt_decreases_supply_index() {
         si_after
     );
 
-    // The decrease should be proportional to bad_debt / total_supplied
-    // Bad debt ≈ 0.002 ETH ($4 of remaining debt after partial liquidation)
-    // Total supplied ≈ 100 ETH (Bob's supply)
-    // Expected reduction ≈ 0.002/100 = 0.002% of index
+    // The drop must be proportional to bad_debt / total_supplied.
+    // Bad debt ~ 0.002 ETH ($4 of remaining debt after partial liquidation).
+    // Total supplied ~ 100 ETH (Bob's supply).
+    // Expected reduction ~ 0.002/100 = 0.002% of the index.
     let decrease_ratio = si_after as f64 / si_before as f64;
     assert!(
         decrease_ratio > 0.99 && decrease_ratio < 1.0,
@@ -90,18 +90,18 @@ fn test_bad_debt_loss_distributed_proportionally() {
         .with_market(eth_preset())
         .build();
 
-    // Bob 75%, Carol 25% of ETH supply
+    // Bob holds 75% and Carol 25% of the ETH supply.
     t.supply(BOB, "ETH", 75.0);
     t.supply(CAROL, "ETH", 25.0);
 
-    // Alice creates bad debt position
+    // Alice opens a bad-debt position.
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
 
     let bob_before = t.supply_balance(BOB, "ETH");
     let carol_before = t.supply_balance(CAROL, "ETH");
 
-    // Crash and liquidate → bad debt cleanup
+    // Crash and liquidate; bad-debt cleanup fires.
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
@@ -111,7 +111,7 @@ fn test_bad_debt_loss_distributed_proportionally() {
     let bob_loss = bob_before - bob_after;
     let carol_loss = carol_before - carol_after;
 
-    // Both should have lost something
+    // Both must lose value.
     assert!(
         bob_loss > 0.0,
         "Bob should lose from bad debt: {:.6}",
@@ -123,7 +123,7 @@ fn test_bad_debt_loss_distributed_proportionally() {
         carol_loss
     );
 
-    // Bob's loss should be 3x Carol's (75/25 = 3:1)
+    // Bob's loss must equal 3x Carol's (75/25 = 3:1).
     if carol_loss > 0.0001 {
         let ratio = bob_loss / carol_loss;
         assert!(
@@ -147,22 +147,22 @@ fn test_bad_debt_index_floored_at_one() {
         .with_market(eth_preset())
         .build();
 
-    // Very small supply, large relative bad debt
-    t.supply(BOB, "ETH", 0.01); // tiny ETH supply ($20)
+    // Very small supply with large relative bad debt.
+    t.supply(BOB, "ETH", 0.01); // Tiny ETH supply ($20).
 
-    // Alice borrows almost all of it
+    // Alice borrows nearly all of it.
     t.supply(ALICE, "USDC", 100.0);
-    t.borrow(ALICE, "ETH", 0.005); // $10 debt
+    t.borrow(ALICE, "ETH", 0.005); // $10 debt.
 
-    // Crash USDC completely
-    t.set_price("USDC", usd_cents(1)); // $0.01 → collateral = $1
+    // Crash USDC fully.
+    t.set_price("USDC", usd_cents(1)); // $0.01: collateral = $1.
 
-    // Liquidate → bad debt will be large relative to supply
+    // Liquidate; bad debt is large relative to supply.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let (si_after, _) = get_indexes(&t, "ETH");
 
-    // Supply index should be >= 1 (floored)
+    // Supply index must remain >= 1 (floored).
     assert!(
         si_after >= 1,
         "supply index should be floored at 1, got {}",
@@ -185,25 +185,25 @@ fn test_supply_index_recovers_after_bad_debt() {
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
 
-    // Crash and create bad debt
+    // Crash and create bad debt.
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let (si_after_bad_debt, _) = get_indexes(&t, "ETH");
 
-    // Restore price
+    // Restore the price.
     t.set_price("USDC", usd(1));
 
-    // New borrower creates utilization → interest accrues
+    // A new borrower drives utilization, which accrues interest.
     t.supply(DAVE, "USDC", 500_000.0);
     t.borrow(DAVE, "ETH", 30.0);
 
-    // Advance time for interest to accrue
+    // Advance time so interest accrues.
     t.advance_and_sync(days(365));
 
     let (si_recovered, _) = get_indexes(&t, "ETH");
 
-    // Supply index should have grown PAST the post-bad-debt level
+    // The supply index must grow past the post-bad-debt level.
     assert!(
         si_recovered > si_after_bad_debt,
         "supply index should recover with new interest: post_bad_debt={}, recovered={}",
@@ -225,22 +225,22 @@ fn test_keeper_clean_bad_debt_decreases_supply_index() {
 
     t.supply(BOB, "ETH", 100.0);
 
-    // Create position that will become bad debt
-    t.supply(ALICE, "USDC", 8.0); // $8 collateral
-    t.borrow(ALICE, "ETH", 0.002); // $4 debt
+    // Create a position that will become bad debt.
+    t.supply(ALICE, "USDC", 8.0); // $8 collateral.
+    t.borrow(ALICE, "ETH", 0.002); // $4 debt.
 
     let (si_before, _) = get_indexes(&t, "ETH");
 
-    // Crash USDC → collateral < $5
-    t.set_price("USDC", usd_cents(5)); // $0.40 collateral
+    // Crash USDC so collateral drops below $5.
+    t.set_price("USDC", usd_cents(5)); // $0.40 collateral.
 
-    // Use keeper to clean bad debt directly (not via liquidation)
+    // Clean the bad debt through the keeper, not liquidation.
     let account_id = t.resolve_account_id(ALICE);
     t.clean_bad_debt_by_id(account_id);
 
     let (si_after, _) = get_indexes(&t, "ETH");
 
-    // Supply index should decrease
+    // The supply index must drop.
     assert!(
         si_after < si_before,
         "keeper clean_bad_debt should decrease supply index: before={}, after={}",
@@ -248,7 +248,7 @@ fn test_keeper_clean_bad_debt_decreases_supply_index() {
         si_after
     );
 
-    // Alice's positions should be gone
+    // Alice's positions must be gone.
     t.assert_no_positions(ALICE);
 }
 
@@ -267,18 +267,18 @@ fn test_bad_debt_does_not_affect_borrow_index() {
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
 
-    // Sync first to get clean indexes
+    // Sync first to get clean indexes.
     t.advance_and_sync(days(1));
     let (_, bi_before) = get_indexes(&t, "ETH");
 
-    // Create and resolve bad debt
+    // Create and resolve bad debt.
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let (_, bi_after) = get_indexes(&t, "ETH");
 
-    // Borrow index should NOT decrease — it should only ever go up
-    // (small increase from global_sync during liquidation is ok)
+    // The borrow index must never decrease; it only rises. A small bump
+    // from global_sync during liquidation is fine.
     assert!(
         bi_after >= bi_before,
         "borrow index should never decrease, even during bad debt: before={}, after={}",
@@ -298,29 +298,28 @@ fn test_bad_debt_reduction_matches_formula() {
         .with_market(eth_preset())
         .build();
 
-    // Large supply so the bad debt effect is measurable but small
-    t.supply(BOB, "ETH", 1000.0); // $2M supply
+    // Large supply keeps the bad-debt effect measurable but small.
+    t.supply(BOB, "ETH", 1000.0); // $2M supply.
 
-    // Create known bad debt
-    t.supply(ALICE, "USDC", 10.0); // $10
-    t.borrow(ALICE, "ETH", 0.003); // $6 debt = 0.003 ETH
+    // Create a known bad debt.
+    t.supply(ALICE, "USDC", 10.0); // $10.
+    t.borrow(ALICE, "ETH", 0.003); // $6 debt = 0.003 ETH.
 
     let bob_balance_before = t.supply_balance(BOB, "ETH");
 
-    // Crash and trigger bad debt
+    // Crash to trigger bad debt.
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let bob_balance_after = t.supply_balance(BOB, "ETH");
     let bob_loss = bob_balance_before - bob_balance_after;
 
-    // Bob's loss should be approximately equal to the bad debt amount
-    // Bad debt ≈ remaining borrow after partial liquidation ≈ 0.002 ETH
-    // This gets socialized across 1000 ETH of supply
-    // Bob's loss ≈ bad_debt (since Bob is ~sole supplier)
+    // Bob's loss must approximate the bad-debt amount. Bad debt ~ remaining
+    // borrow after partial liquidation ~ 0.002 ETH, socialized across 1000
+    // ETH of supply. Bob is ~ the sole supplier, so his loss ~ bad debt.
     assert!(
         bob_loss > 0.0 && bob_loss < 0.01,
-        "Bob's loss should be small (≈ bad debt amount): {:.6} ETH",
+        "Bob's loss should be small (~ bad debt amount): {:.6} ETH",
         bob_loss
     );
 }

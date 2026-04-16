@@ -2,10 +2,10 @@
 //!
 //! Fuzz sequences of supply/borrow/repay/withdraw across 3 assets and 2 users.
 //! After every step, assert:
-//!   - Sum of user supply scaled values ≤ pool's total_scaled (no phantom liquidity)
-//!   - Reserves ≥ 0
-//!   - Each user's HF ≥ 1.0 (or account doesn't exist)
-//!   - Indexes monotonic
+//!   - Sum of user supply scaled values ≤ pool's total_scaled (no phantom liquidity).
+//!   - Reserves ≥ 0.
+//!   - Each user's HF ≥ 1.0 (or the account does not exist).
+//!   - Indexes monotonic.
 
 use common::constants::WAD;
 use proptest::prelude::*;
@@ -46,15 +46,15 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 fn assert_invariants(t: &LendingTest) {
-    // NOTE: we deliberately do NOT assert `HF >= 1 for every live account`.
-    // HF is only required to be >= 1 at the moment of a borrow or withdraw.
-    // Once time advances, interest accrual on outstanding debt naturally
-    // pushes near-threshold positions below 1.0 — this is correct protocol
-    // behavior (the user becomes liquidatable), not a solvency failure.
+    // NOTE: this fuzzer does NOT assert `HF >= 1 for every live account`.
+    // HF must be >= 1 only at the moment of a borrow or withdraw. Once time
+    // advances, interest accrual on outstanding debt pushes near-threshold
+    // positions below 1.0 — correct protocol behavior (the user becomes
+    // liquidatable), not a solvency failure.
     //
     // The real cross-op invariants this sequence fuzzer checks are:
-    //   1. No operation returns a negative pool reserve
-    //   2. Index monotonicity (asserted per-op in the main loop below)
+    //   1. No operation returns a negative pool reserve.
+    //   2. Index monotonicity (asserted per-op in the main loop below).
     for asset in &["USDC", "ETH", "WBTC"] {
         let r = t.pool_reserves(asset);
         assert!(r >= -0.0001, "{} reserves negative: {}", asset, r);
@@ -88,15 +88,15 @@ proptest! {
             .with_market(wbtc_preset())
             .build();
 
-        // Prime both users with collateral so borrows have any chance
+        // Prime both users with collateral so borrows can succeed.
         t.supply(ALICE, "USDC", 50_000.0);
         t.supply(BOB, "USDC", 50_000.0);
 
         let mut last_idx = capture_all_indexes(&t);
 
         for op in ops {
-            // Each try_* returns its own Result type; just run the op and
-            // ignore success/failure — invariants are checked afterward.
+            // Each try_* returns its own Result type; run the op and
+            // ignore success/failure — invariants get checked afterward.
             match op {
                 Op::Supply { user, asset, amt } => {
                     let _ = t.try_supply(user, asset, amt as f64);
@@ -121,10 +121,10 @@ proptest! {
                 }
             }
 
-            // Global invariants after every op (success OR failure)
+            // Global invariants after every op (success or failure).
             assert_invariants(&t);
 
-            // Index monotonicity
+            // Index monotonicity.
             let next_idx = capture_all_indexes(&t);
             for (i, (before, after)) in last_idx.iter().zip(next_idx.iter()).enumerate() {
                 prop_assert!(

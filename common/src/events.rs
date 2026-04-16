@@ -250,8 +250,8 @@ pub struct UpdateMarketStateEvent {
 #[derive(Clone, Debug)]
 pub struct UpdatePositionEvent {
     /// Discriminator for the controller entrypoint that produced this event.
-    /// Soroban has no log-level `identifier` like MultiversX, so downstream
-    /// indexers cannot tell a `supply` from a `withdraw` without this field:
+    /// Soroban has no log-level `identifier` like MultiversX, so without this
+    /// field downstream indexers cannot tell a `supply` from a `withdraw`:
     /// every balance-mutating entrypoint emits the same `["position","update"]`
     /// topic. The off-chain activity pipeline maps this onto
     /// `XoxnoLendingActivity` (see `xoxno-api-v2/.../stellar-lending-activity.mapper.ts`).
@@ -476,6 +476,7 @@ mod tests {
             cex_decimals: 14,
             dex_oracle: None,
             dex_asset_kind: ReflectorAssetKind::Stellar,
+            dex_symbol: Symbol::new(env, ""),
             dex_decimals: 7,
             twap_records: 12,
         }
@@ -493,7 +494,7 @@ mod tests {
             EventAccountPositionType::Deposit,
             EventAccountPositionType::Borrow
         );
-        // From branches
+        // From branches.
         assert_eq!(
             EventAccountPositionType::from(AccountPositionType::Deposit),
             EventAccountPositionType::Deposit
@@ -575,7 +576,7 @@ mod tests {
             borrow_assets: Vec::new(&env),
         };
         let attrs = EventAccountAttributes::from(&meta);
-        assert_eq!(attrs.is_isolated_position, true);
+        assert!(attrs.is_isolated_position);
         assert_eq!(attrs.e_mode_category_id, 0);
         assert_eq!(attrs.mode, EventPositionMode::None);
         assert_eq!(attrs.isolated_token, Some(iso));
@@ -595,7 +596,7 @@ mod tests {
             borrow_assets: Vec::new(&env),
         };
         let attrs = EventAccountAttributes::from(&meta);
-        assert_eq!(attrs.is_isolated_position, false);
+        assert!(!attrs.is_isolated_position);
         assert_eq!(attrs.e_mode_category_id, 3);
         assert_eq!(attrs.mode, EventPositionMode::Long);
         assert_eq!(attrs.isolated_token, None);
@@ -800,7 +801,7 @@ mod tests {
                 },
             );
 
-            // reference vec! to keep it used even if macro path changes
+            // Reference vec! to keep it used even if the macro path changes.
             let _ignored: Vec<Address> = vec![&env];
         });
     }

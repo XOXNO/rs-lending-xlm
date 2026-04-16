@@ -27,7 +27,7 @@ fn test_rescale_same_decimals() {
 
 #[test]
 fn test_rescale_upscale() {
-    // 100 at 7 decimals -> 18 decimals = 100 * 10^11
+    // 100 at 7 decimals -> 18 decimals = 100 * 10^11.
     let result = rescale_half_up(100, 7, 18);
     assert_eq!(result, 100 * 100_000_000_000i128);
 }
@@ -67,11 +67,11 @@ fn test_mul_div_half_up_zero() {
 #[test]
 fn test_mul_div_half_up_precision_boundary() {
     let env = Env::default();
-    // 3 * (WAD/2) / WAD: 3 * 0.5 = 1.5, rounds up to 2
+    // 3 * (WAD/2) / WAD: 3 * 0.5 = 1.5, rounds up to 2.
     let result = mul_div_half_up(&env, 3, WAD / 2, WAD);
     assert_eq!(result, 2);
 
-    // 1 * (WAD/2) / WAD: 0.5, rounds up to 1
+    // 1 * (WAD/2) / WAD: 0.5, rounds up to 1.
     let result = mul_div_half_up(&env, 1, WAD / 2, WAD);
     assert_eq!(result, 1);
 }
@@ -83,7 +83,7 @@ fn test_mul_div_half_up_precision_boundary() {
 #[test]
 fn test_div_half_up_exact() {
     let env = Env::default();
-    // 10 / 2 = 5 exactly (no rounding needed)
+    // 10 / 2 = 5 exactly (no rounding needed).
     let result = mul_div_half_up(&env, 10 * WAD, WAD, 2 * WAD);
     assert_eq!(result, 5 * WAD);
 }
@@ -95,7 +95,7 @@ fn test_div_half_up_exact() {
 #[test]
 fn test_div_half_up_rounds_up() {
     let env = Env::default();
-    // 2/3 in WAD: result is 0.666... which rounds up
+    // 2/3 in WAD: 0.666... rounds up.
     let result = mul_div_half_up(&env, 2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, 666_666_666_666_666_667);
 }
@@ -107,11 +107,11 @@ fn test_div_half_up_rounds_up() {
 #[test]
 fn test_mul_half_up_signed_negative() {
     let env = Env::default();
-    // -3 * 0.5 = -1.5, rounds away from zero to -2
+    // -3 * 0.5 = -1.5, rounds away from zero to -2.
     let result = mul_div_half_up_signed(&env, -3, WAD / 2, WAD);
     assert_eq!(result, -2);
 
-    // -1 * 0.5 = -0.5, rounds away from zero to -1
+    // -1 * 0.5 = -0.5, rounds away from zero to -1.
     let result = mul_div_half_up_signed(&env, -1, WAD / 2, WAD);
     assert_eq!(result, -1);
 }
@@ -123,9 +123,9 @@ fn test_mul_half_up_signed_negative() {
 #[test]
 fn test_div_half_up_signed_negative() {
     let env = Env::default();
-    // For signed division, we test via the signed primitive
-    // -2/3: product = -2*WAD*WAD, negative so subtract half => rounds away from zero
-    // We compute: mul_div_half_up_signed(-2*WAD, WAD, 3*WAD) which is signed div
+    // For signed division, test via the signed primitive.
+    // -2/3: product = -2*WAD*WAD, negative, so subtract half => rounds away from zero.
+    // Compute: mul_div_half_up_signed(-2*WAD, WAD, 3*WAD) — a signed div.
     let result = mul_div_half_up_signed(&env, -2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, -666_666_666_666_666_667);
 
@@ -139,11 +139,11 @@ fn test_div_half_up_signed_negative() {
 
 #[test]
 fn test_div_by_int_half_up() {
-    // 7 / 2 = 3.5, rounds up to 4
+    // 7 / 2 = 3.5, rounds up to 4.
     assert_eq!(div_by_int_half_up(7, 2), 4);
-    // 6 / 2 = 3 exactly
+    // 6 / 2 = 3 exactly.
     assert_eq!(div_by_int_half_up(6, 2), 3);
-    // 5 / 3 = 1.666..., half_b=1, (5+1)/3 = 2
+    // 5 / 3 = 1.666..., half_b=1, (5+1)/3 = 2.
     assert_eq!(div_by_int_half_up(5, 3), 2);
 }
 
@@ -165,14 +165,14 @@ fn test_min_max_equal() {
 
 fn make_test_params() -> common::types::MarketParams {
     common::types::MarketParams {
-        base_borrow_rate_ray: RAY / 100,         // 1%
-        slope1_ray: RAY * 4 / 100,               // 4%
-        slope2_ray: RAY * 10 / 100,              // 10%
-        slope3_ray: RAY * 300 / 100,             // 300%
-        mid_utilization_ray: RAY * 50 / 100,     // 50%
-        optimal_utilization_ray: RAY * 80 / 100, // 80%
-        max_borrow_rate_ray: RAY,                // 100%
-        reserve_factor_bps: 1000,                // 10%
+        base_borrow_rate_ray: RAY / 100,         // 1%.
+        slope1_ray: RAY * 4 / 100,               // 4%.
+        slope2_ray: RAY * 10 / 100,              // 10%.
+        slope3_ray: RAY * 300 / 100,             // 300%.
+        mid_utilization_ray: RAY * 50 / 100,     // 50%.
+        optimal_utilization_ray: RAY * 80 / 100, // 80%.
+        max_borrow_rate_ray: RAY,                // 100%.
+        reserve_factor_bps: 1000,                // 10%.
         asset_id: soroban_sdk::Address::from_str(
             &Env::default(),
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",

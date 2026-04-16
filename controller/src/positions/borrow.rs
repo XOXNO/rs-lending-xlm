@@ -27,7 +27,7 @@ pub fn handle_create_borrow_strategy(
 ) -> i128 {
     validation::require_asset_supported(env, debt_token);
 
-    // E-mode validation and override
+    // Validate and override e-mode.
     let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
     emode::ensure_e_mode_not_deprecated(env, &e_mode);
     let debt_emode_config = emode::token_e_mode_config(env, account.e_mode_category_id, debt_token);
@@ -83,8 +83,8 @@ pub fn handle_create_borrow_strategy(
         },
     );
 
-    // Persist the updated position on the in-memory account (single write
-    // happens when the strategy caller invokes storage::set_account).
+    // Persist the updated position on the in-memory account. The strategy
+    // caller writes once via storage::set_account.
     update::update_or_remove_position(account, &updated_borrow_position);
 
     result.amount_received
@@ -98,14 +98,14 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    // Load account once (replaces MVX's validate_account + account NFT payment)
+    // Load the account once (replaces MVX's validate_account + account NFT payment).
     let mut account = storage::get_account(env, account_id);
 
     if account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 
-    // Pre-flight position limit check (atomic rejection of the full batch)
+    // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, &account, POSITION_TYPE_BORROW, borrows);
 
     let mut cache = ControllerCache::new(env, false);
@@ -128,7 +128,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
         );
     }
 
-    // Single storage write at the end of the batch
+    // Single storage write at the end of the batch.
     storage::set_account(env, account_id, &account);
     cache.flush_isolated_debts();
 }
@@ -220,8 +220,8 @@ pub fn handle_isolated_debt(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     let collateral_config = cache.cached_asset_config(&isolated_token);
 
-    // Read current debt from cache to stay consistent with pending in-batch deltas
-    // and with repay.rs's adjust_isolated_debt_usd path.
+    // Read current debt from the cache to stay consistent with pending
+    // in-batch deltas and with repay.rs's adjust_isolated_debt_usd path.
     let current_debt = cache.get_isolated_debt(&isolated_token);
     let new_debt = current_debt + amount_in_usd_wad;
 
@@ -229,7 +229,7 @@ pub fn handle_isolated_debt(
         panic_with_error!(env, EModeError::DebtCeilingReached);
     }
 
-    // Write back through the cache; storage write + event deferred to flush.
+    // Write back through the cache; flush defers the storage write and event.
     cache.set_isolated_debt(&isolated_token, new_debt);
 
     emit_update_debt_ceiling(
@@ -279,11 +279,11 @@ fn validate_borrow_cap(
     asset: &Address,
 ) {
     if asset_config.borrow_cap == 0 {
-        return; // zero means no cap
+        return; // Zero means no cap.
     }
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let current_borrowed = pool_client.borrowed_amount(); // now returns asset decimals
+    let current_borrowed = pool_client.borrowed_amount(); // Returns asset decimals.
     if current_borrowed.saturating_add(amount) > asset_config.borrow_cap {
         panic_with_error!(env, CollateralError::BorrowCapReached);
     }
@@ -316,7 +316,7 @@ fn validate_ltv_collateral(
     amount: i128,
     feed: &PriceFeed,
 ) {
-    // Total existing borrows in WAD USD (iterated each call because borrows mutate)
+    // Total existing borrows in WAD USD. Iterated each call because borrows mutate.
     let mut total_borrowed_wad: i128 = 0;
     for asset in borrow_positions.keys() {
         let position = borrow_positions.get(asset.clone()).unwrap();
@@ -356,7 +356,7 @@ fn validate_borrow_asset(
         panic_with_error!(env, CollateralError::NotBorrowableSiloed);
     }
 
-    // If an existing borrow is siloed (or the new asset is siloed), every other
+    // When any existing borrow or the new asset is siloed, every other
     // existing borrow must match the new asset.
     for existing in account.borrow_positions.keys() {
         if existing != *asset {
@@ -383,7 +383,7 @@ fn process_borrow(
     amount: i128,
     ltv_collateral: i128,
 ) {
-    // validate_payment equivalent — asset must be supported and amount > 0.
+    // validate_payment equivalent: asset must be supported, amount must be positive.
     validation::require_asset_supported(env, asset);
     validation::require_amount_positive(env, amount);
 
@@ -435,7 +435,7 @@ fn process_borrow(
     );
 
     // In-memory update (Soroban equivalent of MVX's update_bulk_borrow_positions).
-    // Subsequent iterations of process_borrow see the mutated borrow_positions map.
+    // Later iterations of process_borrow see the mutated borrow_positions map.
     update::update_or_remove_position(account, &updated_position);
 }
 
@@ -494,7 +494,7 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params));
+            let pool = env.register(pool::LiquidityPool, (controller.clone(), params, controller.clone()));
 
             Self {
                 env,
@@ -553,6 +553,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }

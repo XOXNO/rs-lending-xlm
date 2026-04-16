@@ -17,15 +17,15 @@ pub fn process_withdraw(
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    // Load account once — single storage read
+    // Load the account once: single storage read.
     let mut account = storage::get_account(env, account_id);
 
-    // Owner check
+    // Owner check.
     if account.owner != *caller {
         panic_with_error!(env, common::errors::GenericError::AccountNotInMarket);
     }
 
-    let mut cache = ControllerCache::new(env, false); // withdraw is risk-increasing
+    let mut cache = ControllerCache::new(env, false); // Withdraw is risk-increasing.
 
     for (asset, amount) in withdrawals {
         process_single_withdrawal(
@@ -39,7 +39,7 @@ pub fn process_withdraw(
         );
     }
 
-    // Post-batch health factor check (skip if no borrows)
+    // Post-batch health factor check; skip when no borrows exist.
     if !account.borrow_positions.is_empty() {
         let hf = helpers::calculate_health_factor(
             env,
@@ -52,7 +52,7 @@ pub fn process_withdraw(
         }
     }
 
-    // Branches correctly: if closed out, remove entirely instead of rewriting empty account.
+    // When the account closes out, remove it entirely instead of rewriting an empty account.
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::validate_account_is_empty(env, &account);
         utils::remove_account(env, account_id);
@@ -70,20 +70,21 @@ fn process_single_withdrawal(
     amount: i128,
     cache: &mut ControllerCache,
 ) {
-    // Price fetch — withdraw is risk-increasing so cache has allow_unsafe_price=false.
-    // oracle::token_price() blocks automatically when deviation exceeds second tolerance.
+    // Price fetch; withdraw is risk-increasing, so the cache has
+    // allow_unsafe_price=false. oracle::token_price() blocks automatically
+    // when deviation exceeds the second tolerance.
     let feed = cache.cached_price(asset);
 
-    // Position must exist
+    // The position must exist.
     let position = match account.supply_positions.get(asset.clone()) {
         Some(pos) => pos,
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
 
-    // 0 = withdraw all
+    // 0 means withdraw all.
     let withdraw_amount = if amount == 0 { i128::MAX } else { amount };
 
-    // Shared withdrawal execution (also used by liquidation)
+    // Shared withdrawal execution (also used by liquidation).
     let result = execute_withdrawal(
         env,
         account_id,
@@ -97,7 +98,7 @@ fn process_single_withdrawal(
         cache,
     );
 
-    // Withdraw uses supply_index_ray
+    // Withdraw uses supply_index_ray.
     emit_update_position(
         env,
         UpdatePositionEvent {

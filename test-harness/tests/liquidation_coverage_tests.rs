@@ -16,7 +16,7 @@ fn test_liquidation_skips_excess_debt_payments() {
 
     let alice = "alice_excess";
 
-    // Alice supplies 100k USDC, borrows 2.5 ETH (~$5000)
+    // Alice supplies 100k USDC and borrows 2.5 ETH (~$5000).
     t.supply(alice, "USDC", 100_000.0);
     t.borrow(alice, "ETH", 2.5);
 
@@ -36,11 +36,11 @@ fn test_liquidation_skips_excess_debt_payments() {
     );
 }
 
-// Post-audit (T1-3, M-02): zero oracle prices are rejected globally by
-// `token_price`. The original scenario (USDC price = 0 → degenerate HF math →
-// liquidation fails with INVALID_PAYMENTS) is now unreachable. This test now
-// asserts the new, safer behavior: reading any price for an asset whose oracle
-// returned 0 immediately panics with `OracleError::InvalidPrice` (#217).
+// Post-audit (T1-3, M-02): `token_price` now rejects zero oracle prices
+// globally. The original scenario (USDC price = 0 → degenerate HF math →
+// liquidation fails with INVALID_PAYMENTS) is now unreachable. This test
+// asserts the safer behavior: reading any price for an asset whose oracle
+// returned 0 panics immediately with `OracleError::InvalidPrice` (#217).
 #[test]
 #[should_panic(expected = "Error(Contract, #217)")]
 fn test_liquidation_zero_collateral_proportion() {
@@ -73,12 +73,12 @@ fn test_liquidation_seize_proportional_dust_collateral() {
 
     let alice = "alice_dust";
 
-    // Supply 20k USDC to have enough collateral for 6 ETH borrow
+    // Supply 20k USDC for enough collateral to back a 6 ETH borrow.
     t.supply(alice, "USDC", 20_000.0);
     t.supply(alice, "ETH", 0.0000001); // 1 unit
-    t.borrow(alice, "ETH", 6.0); // $12,000. Initial Weighted = 16,000.
+    t.borrow(alice, "ETH", 6.0); // $12,000. Initial weighted = 16,000.
 
-    // Drop USDC to $0.50 => collateral value $10,000. Weighted = $8,000.
+    // Drop USDC to $0.50 => collateral value $10,000, weighted $8,000.
     // Debt = $12,000. HF = 8000/12000 = 0.66.
     t.set_price("USDC", usd_cents(50));
 
@@ -104,9 +104,9 @@ fn test_liquidation_rejects_if_no_debt_repaid() {
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable("alice_rej");
 
-    // Pay with a tiny amount that rescale might turn into 0
+    // Pay with a tiny amount that rescale might turn into 0.
     let result = t.try_liquidate(LIQUIDATOR, "alice_rej", "ETH", 0.000000001);
-    assert_contract_error(result, 14); // AmountMustBePositive
+    assert_contract_error(result, 14); // AmountMustBePositive.
 }
 
 #[test]
@@ -121,32 +121,32 @@ fn test_liquidation_multi_debt_capped() {
 
     let alice = "alice_multi";
 
-    // Alice supplies $1000 USDC. Borrows 0.15 ETH (~$300) and $100 USDC.
+    // Alice supplies $1000 USDC, borrows 0.15 ETH (~$300) and $100 USDC.
     // Total debt ~$400.
     t.supply(alice, "USDC", 1000.0);
     t.borrow(alice, "ETH", 0.15);
     t.borrow(alice, "USDC", 100.0);
 
-    // Drop USDC to $0.50 => Collateral $500. Weighted $400. Debt $400.
-    // Near boundary. Drop just a bit more.
-    t.set_price("USDC", usd_cents(40)); // Collateral $400. Weighted $320. Debt $400. HF = 0.8.
+    // Drop USDC to $0.50 => collateral $500, weighted $400, debt $400.
+    // Near boundary; drop just a bit more.
+    t.set_price("USDC", usd_cents(40)); // Collateral $400, weighted $320, debt $400, HF = 0.8.
 
     t.assert_liquidatable(alice);
 
-    // Liquidator pays with two different tokens.
+    // The liquidator pays with two different tokens.
     // Ideal repayment for $400 debt with $320 weighted is:
     // (400 - 320) / (1 - 0.1) = 80 / 0.9 = ~$88.
 
-    // 1. Pay with ETH (0.1 ETH = $200). This fulfills ideal (~$148).
-    // 2. Pay with USDC ($50). This should be skipped (continue) because remaining_ideal <= 0.
+    // 1. Pay with ETH (0.1 ETH = $200). This fulfills the ideal (~$148).
+    // 2. Pay with USDC ($50). The contract must skip this (continue) because remaining_ideal <= 0.
 
     t.liquidate_multi(LIQUIDATOR, alice, &[("ETH", 0.1), ("USDC", 50.0)]);
 
-    // The ETH debt should have decreased by the capped amount (roughly $148 worth of ETH).
+    // The ETH debt should have dropped by the capped amount (~$148 worth of ETH).
     let debt_eth = t.borrow_balance(alice, "ETH");
     assert!(debt_eth < 0.15);
 
-    // The USDC debt should be UNCHANGED because it was skipped.
+    // The USDC debt must remain UNCHANGED because the contract skipped it.
     let debt_usdc = t.borrow_balance(alice, "USDC");
     assert_eq!(debt_usdc, 100.0);
 }

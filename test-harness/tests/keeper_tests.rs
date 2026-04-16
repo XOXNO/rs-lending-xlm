@@ -30,13 +30,13 @@ fn test_update_indexes_refreshes_rates() {
         .with_market(eth_preset())
         .build();
 
-    // Setup: supply + borrow to create utilization
+    // Supply + borrow to create utilization.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
     let borrow_before = t.borrow_balance(ALICE, "ETH");
 
-    // Advance time and sync indexes
+    // Advance time and sync indexes.
     t.advance_and_sync(days(30));
 
     let borrow_after = t.borrow_balance(ALICE, "ETH");
@@ -59,21 +59,21 @@ fn test_clean_bad_debt_removes_positions() {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies small USDC and borrows ETH near limit
+    // Alice supplies small USDC and borrows ETH near the limit.
     t.supply(ALICE, "USDC", 10.0); // $10 collateral
     t.borrow(ALICE, "ETH", 0.003); // ~$6 debt
 
-    // Crash USDC price so collateral becomes nearly worthless and below $5
-    // $10 * $0.01 = $0.10 collateral (< $5 bad debt threshold)
+    // Crash USDC price so collateral becomes nearly worthless and falls below $5.
+    // $10 * $0.01 = $0.10 collateral (< $5 bad-debt threshold).
     t.set_price("USDC", usd_cents(1));
 
-    // Verify account can be liquidated
+    // Verify the account can be liquidated.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // Clean bad debt
+    // Clean bad debt.
     t.clean_bad_debt_for(ALICE);
 
-    // After cleaning bad debt, positions should be removed
+    // After cleaning bad debt, positions must be removed.
     t.assert_no_positions(ALICE);
 }
 
@@ -88,7 +88,7 @@ fn test_clean_bad_debt_rejects_healthy() {
         .with_market(eth_preset())
         .build();
 
-    // Alice with healthy position
+    // Alice with a healthy position.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.assert_healthy(ALICE);
@@ -112,18 +112,18 @@ fn test_clean_bad_debt_rejects_above_threshold() {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies significant collateral and borrows near limit
+    // Alice supplies significant collateral and borrows near the limit.
     t.supply(ALICE, "USDC", 1000.0); // $1000 collateral
     t.borrow(ALICE, "ETH", 0.3); // ~$600 debt
 
-    // Drop USDC price to make liquidatable but collateral > $5
-    // $1000 * $0.50 = $500 collateral (well above $5 threshold)
+    // Drop USDC price to make Alice liquidatable while collateral > $5.
+    // $1000 * $0.50 = $500 collateral (well above the $5 threshold).
     t.set_price("USDC", usd_cents(50));
 
-    // Should be liquidatable
+    // Should be liquidatable.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // But collateral is above $5 threshold, so clean_bad_debt should fail
+    // Collateral is above the $5 threshold, so clean_bad_debt must fail.
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert!(
@@ -149,14 +149,14 @@ fn test_update_account_threshold_safe() {
     let hf_before = t.health_factor(ALICE);
     let account_id = t.resolve_account_id(ALICE);
 
-    // Update safe params (has_risks=false): LTV, bonus, fees
-    // This should succeed without HF check
+    // Update safe params (has_risks=false): LTV, bonus, fees.
+    // Should succeed without an HF check.
     t.update_account_threshold("USDC", false, &[account_id]);
 
-    // Position should still exist and be healthy
+    // Position should still exist and stay healthy.
     t.assert_healthy(ALICE);
 
-    // Verify the account's health factor is still valid after threshold propagation
+    // Verify the account's health factor is still valid after threshold propagation.
     let hf_after = t.health_factor(ALICE);
     assert!(
         hf_after >= 1.0,
@@ -183,13 +183,13 @@ fn test_update_account_threshold_risky() {
     let hf_before = t.health_factor(ALICE);
     let account_id = t.resolve_account_id(ALICE);
 
-    // Update risky params (has_risks=true): liquidation threshold
-    // This should trigger HF check but pass since HF is very high
+    // Update risky params (has_risks=true): liquidation threshold.
+    // Should trigger the HF check but pass since HF is very high.
     t.update_account_threshold("USDC", true, &[account_id]);
 
     t.assert_healthy(ALICE);
 
-    // Verify the HF is still valid after risky threshold update
+    // Verify the HF is still valid after the risky threshold update.
     let hf_after = t.health_factor(ALICE);
     assert!(
         hf_after >= 1.0,
@@ -210,15 +210,16 @@ fn test_update_account_threshold_rejects_low_hf() {
         .with_market(eth_preset())
         .build();
 
-    // Supply and borrow near limit so HF is close to 1.0
+    // Supply and borrow near the limit so HF stays close to 1.0.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // ~$6000 debt on $10k collateral, HF ~ 1.33
 
     let account_id = t.resolve_account_id(ALICE);
 
-    // Lower the threshold in the config so HF would drop below 1.05 safety buffer.
-    // Must also lower LTV to remain below threshold (contract validates threshold > LTV).
-    // $10k * 61% = $6100 weighted collateral / $6000 debt = HF ~1.017 < 1.05
+    // Lower the threshold so HF drops below the 1.05 safety buffer.
+    // Also lower LTV to remain below the threshold (the contract validates
+    // threshold > LTV).
+    // $10k * 61% = $6100 weighted collateral / $6000 debt = HF ~1.017 < 1.05.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value_bps = 5000;
         c.liquidation_threshold_bps = 6100;
@@ -266,22 +267,22 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
 fn test_keeper_role_required() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB without KEEPER role
+    // Create BOB without the KEEPER role.
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
 
-    // BOB tries `update_indexes` without the KEEPER role.
-    // Use bare `is_err()` because Soroban wraps cross-contract errors at the
-    // outer caller boundary.
+    // BOB calls `update_indexes` without the KEEPER role.
+    // Use bare `is_err()` because Soroban wraps cross-contract errors at
+    // the outer caller boundary.
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(
         result.is_err(),
         "non-keeper should not be able to call update_indexes"
     );
 
-    // BOB tries clean_bad_debt without KEEPER role
+    // BOB calls clean_bad_debt without the KEEPER role.
     let result = ctrl.try_clean_bad_debt(&bob_addr, &999u64);
     assert!(
         result.is_err(),

@@ -528,7 +528,7 @@ dependencies = [
 [[package]]
 name = "cvlr-soroban"
 version = "0.4.0"
-source = "git+https://github.com/Certora/cvlr-soroban.git#d2d516a5b27d1926608aa2ce06544dc81c09b435"
+source = "git+https://github.com/Certora/cvlr-soroban.git?rev=d2d516a5b27d1926608aa2ce06544dc81c09b435#d2d516a5b27d1926608aa2ce06544dc81c09b435"
 dependencies = [
  "cvlr-asserts 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cvlr-log 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -539,7 +539,7 @@ dependencies = [
 [[package]]
 name = "cvlr-soroban-derive"
 version = "0.4.0"
-source = "git+https://github.com/Certora/cvlr-soroban.git#d2d516a5b27d1926608aa2ce06544dc81c09b435"
+source = "git+https://github.com/Certora/cvlr-soroban.git?rev=d2d516a5b27d1926608aa2ce06544dc81c09b435#d2d516a5b27d1926608aa2ce06544dc81c09b435"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -551,7 +551,7 @@ dependencies = [
 [[package]]
 name = "cvlr-soroban-macros"
 version = "0.4.0"
-source = "git+https://github.com/Certora/cvlr-soroban.git#d2d516a5b27d1926608aa2ce06544dc81c09b435"
+source = "git+https://github.com/Certora/cvlr-soroban.git?rev=d2d516a5b27d1926608aa2ce06544dc81c09b435#d2d516a5b27d1926608aa2ce06544dc81c09b435"
 
 [[package]]
 name = "cvlr-spec"

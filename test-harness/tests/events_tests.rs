@@ -6,16 +6,16 @@ use std::format;
 use test_harness::{days, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
 
 // ---------------------------------------------------------------------------
-// All event tests verify that operations produce events.
+// All event tests verify that operations emit events.
 //
-// NOTE on Soroban event API: `events().all().events().len()` returns the
-// count from the last top-level invocation, not a cumulative total. These
-// tests therefore verify that:
-//   - Each operation produces > 0 events
-//   - Complex operations (liquidation) produce multiple events
+// Soroban event API note: `events().all().events().len()` returns the count
+// from the last top-level invocation, not a cumulative total. These tests
+// therefore check that:
+//   - Each operation emits > 0 events.
+//   - Complex operations (liquidation) emit multiple events.
 //
-// Full event payload verification would require XDR decoding of Soroban
-// event data, which is impractical in integration tests.
+// Full payload verification would require XDR decoding of Soroban event
+// data, which is impractical in integration tests.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -55,7 +55,7 @@ fn test_borrow_emits_events() {
         .build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
-    // After borrow, at least the borrow operation's events should be present
+    // After borrow, at least the borrow operation's events must be present.
     let count = t.env.events().all().events().len();
     assert!(count > 0, "borrow should emit events, got {}", count);
 }
@@ -92,9 +92,9 @@ fn test_liquidation_emits_many_events() {
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    // Liquidation is a complex operation: token transfers + position updates + seizure.
-    // Even with Soroban's per-invocation event scope, the liquidation call
-    // itself should produce multiple events (debt repay + seizure + position updates).
+    // Liquidation combines token transfers, position updates, and seizure.
+    // Even within Soroban's per-invocation event scope, the call itself
+    // must emit several events: debt repay, seizure, and position updates.
     let count = t.env.events().all().events().len();
     assert!(
         count >= 3,
@@ -103,11 +103,11 @@ fn test_liquidation_emits_many_events() {
     );
 }
 
-// Note: flash_loan event test skipped — mock_all_auths recording mode
-// blocks nested contract calls from the flash loan receiver.
+// Skipped: flash_loan event test. mock_all_auths recording mode blocks
+// nested contract calls from the flash-loan receiver.
 
-// Note: edit_asset_config event test skipped — get_asset_config view
-// call triggers host-level error in test environment.
+// Skipped: edit_asset_config event test. The get_asset_config view call
+// triggers a host-level error in the test environment.
 
 #[test]
 fn test_add_emode_emits_events() {
@@ -149,7 +149,7 @@ fn test_isolated_borrow_emits_debt_ceiling_event() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 10.0);
     t.borrow(ALICE, "USDC", 1_000.0);
-    // Isolated borrow emits position update + debt ceiling tracking events
+    // Isolated borrow emits position-update and debt-ceiling events.
     let count = t.env.events().all().events().len();
     assert!(
         count >= 2,

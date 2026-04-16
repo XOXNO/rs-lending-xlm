@@ -15,10 +15,10 @@ fn test_withdraw_partial() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw(ALICE, "USDC", 3_000.0);
 
-    // Supply should be ~7000
+    // Supply must be ~7000.
     t.assert_supply_near(ALICE, "USDC", 7_000.0, 1.0);
 
-    // Wallet should have received ~3000
+    // The wallet must have received ~3000.
     let wallet = t.token_balance(ALICE, "USDC");
     assert!(
         wallet > 2_999.0 && wallet < 3_001.0,
@@ -38,7 +38,7 @@ fn test_withdraw_full_with_zero_amount() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
 
-    // Supply balance should be 0
+    // Supply balance must be 0.
     let supply = t.supply_balance(ALICE, "USDC");
     assert!(
         supply < 0.01,
@@ -46,7 +46,7 @@ fn test_withdraw_full_with_zero_amount() {
         supply
     );
 
-    // Wallet should have ~10k back
+    // Wallet must have ~10k back.
     let wallet = t.token_balance(ALICE, "USDC");
     assert!(
         wallet > 9_999.0,
@@ -69,7 +69,7 @@ fn test_withdraw_multiple_assets() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 5.0);
 
-    // Withdraw from both
+    // Withdraw from both.
     t.withdraw(ALICE, "USDC", 2_000.0);
     t.withdraw(ALICE, "ETH", 1.0);
 
@@ -90,7 +90,7 @@ fn test_withdraw_rejects_position_not_found() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Try to withdraw ETH -- ALICE has no ETH position
+    // Try to withdraw ETH: Alice has no ETH position.
     let result = t.try_withdraw(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::POSITION_NOT_FOUND);
 }
@@ -106,12 +106,12 @@ fn test_withdraw_rejects_exceeding_hf() {
         .with_market(eth_preset())
         .build();
 
-    // Supply $10k, borrow $3500 ETH (1.75 ETH) -- near LTV
+    // Supply $10k, borrow $3500 ETH (1.75 ETH): near LTV.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.75);
 
-    // Withdrawing $6000 USDC would leave only $4k collateral
-    // HF = (4000 * 0.80) / 3500 = 0.91 < 1.0 -- should fail
+    // Withdrawing $6000 USDC would leave only $4k collateral.
+    // HF = (4000 * 0.80) / 3500 = 0.91 < 1.0: must fail.
     let result = t.try_withdraw(ALICE, "USDC", 6_000.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
@@ -126,7 +126,7 @@ fn test_withdraw_allowed_without_borrows() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Full withdraw is OK when no borrows exist
+    // Full withdraw is OK when no borrows exist.
     t.withdraw_all(ALICE, "USDC");
 
     let supply = t.supply_balance(ALICE, "USDC");
@@ -177,10 +177,10 @@ fn test_withdraw_removes_position_when_empty() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // Withdraw all USDC
+    // Withdraw all USDC.
     t.withdraw_all(ALICE, "USDC");
 
-    // Should only have ETH supply
+    // Only the ETH supply must remain.
     t.assert_supply_count(ALICE, 1);
     t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
 }
@@ -196,7 +196,8 @@ fn test_withdraw_cleans_up_empty_account() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
 
-    // Account was auto-removed by cleanup_account_if_empty when all positions cleared
+    // The account was auto-removed by cleanup_account_if_empty when all
+    // positions cleared.
     let accounts = t.get_active_accounts(ALICE);
     assert_eq!(
         accounts.len(),
@@ -215,7 +216,7 @@ fn test_withdraw_full_amount_returned() {
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Wallet is 0 after supply
+    // Wallet is 0 after supply.
     let wallet_before = t.token_balance(ALICE, "USDC");
     assert!(wallet_before < 0.01);
 
@@ -237,15 +238,15 @@ fn test_withdraw_full_amount_returned() {
 fn test_withdraw_raw_precision() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Supply 1000 USDC raw units
+    // Supply 1000 USDC raw units.
     let supply_amount = 1000i128;
     t.supply_raw(ALICE, "USDC", supply_amount);
 
-    // Withdraw 500 raw units
+    // Withdraw 500 raw units.
     t.withdraw_raw(ALICE, "USDC", 500i128);
 
     let remaining = t.supply_balance_raw(ALICE, "USDC");
-    // Should be approximately 500 (may differ slightly due to index)
+    // Must be approximately 500 (may differ slightly due to the index).
     assert!(
         (499..=501).contains(&remaining),
         "remaining supply should be ~500, got {}",

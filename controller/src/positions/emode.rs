@@ -101,22 +101,22 @@ pub fn validate_isolated_collateral(
     asset: &Address,
     asset_config: &AssetConfig,
 ) {
-    // Neither account nor asset is isolated — nothing to check.
+    // Neither account nor asset is isolated; nothing to check.
     if !account.is_isolated && !asset_config.is_isolated_asset {
         return;
     }
 
-    // Non-isolated account trying to supply an isolated asset — reject.
+    // Reject non-isolated accounts supplying an isolated asset.
     if !account.is_isolated && asset_config.is_isolated_asset {
         panic_with_error!(env, EModeError::MixIsolatedCollateral);
     }
 
-    // Isolated account: first deposit is always OK.
+    // The first deposit on an isolated account always passes.
     if account.supply_positions.is_empty() {
         return;
     }
 
-    // If deposits exist, the new asset must match the existing one.
+    // When deposits exist, the new asset must match the existing one.
     for existing_asset in account.supply_positions.keys() {
         if existing_asset != *asset {
             panic_with_error!(env, EModeError::MixIsolatedCollateral);

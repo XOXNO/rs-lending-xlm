@@ -260,8 +260,7 @@ clean:
 
 FUZZ_TARGETS := fp_mul_div fp_rescale fp_div_by_int rates_borrow compound_monotonic
 FUZZ_CONTRACT_TARGETS := flow_supply_borrow_liquidate flow_flash_loan \
-                          flow_oracle_tolerance flow_isolation_emode_xor \
-                          flow_cache_atomicity
+                          flow_oracle_tolerance flow_multi_op
 FUZZ_TIME ?= 60
 
 # macOS requires `--sanitizer=thread -Zbuild-std` to link the contract-level
@@ -299,7 +298,7 @@ fuzz-build:
 ## Seed fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
 ## a campaign to give libFuzzer realistic numeric entropy from the start.
 fuzz-seed-corpus:
-	@cd fuzz && cargo run --release --bin seed_corpus -- --output corpus
+	@cd fuzz && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 
 # ---------------------------------------------------------------------------
 # Contract-level property tests (proptest inside test-harness)

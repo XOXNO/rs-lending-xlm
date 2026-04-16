@@ -106,11 +106,13 @@ impl Controller {
         // Set the contract owner.
         ownable::set_owner(&env, &admin);
 
-        // Set the access-control admin and initial roles.
+        // M-02: grant ONLY the KEEPER role at construct (the minimal
+        // bootstrap need). REVENUE and ORACLE require explicit `grant_role`
+        // after deploy. Minimizes blast radius if the Owner key is
+        // compromised in the bootstrap window.
         access_control::set_admin(&env, &admin);
-        for role in default_operational_roles(&env) {
-            access_control::grant_role_no_auth(&env, &admin, &role, &admin);
-        }
+        let keeper_role = soroban_sdk::Symbol::new(&env, KEEPER_ROLE);
+        access_control::grant_role_no_auth(&env, &admin, &keeper_role, &admin);
 
         storage::set_position_limits(
             &env,
@@ -119,6 +121,12 @@ impl Controller {
                 max_borrow_positions: 10,
             },
         );
+
+        // M-03: pause on construct. Operator must call `unpause` after
+        // wiring aggregator/accumulator/pool template/oracles/markets.
+        // Mirrors the auto-pause on `upgrade`. Closes the bootstrap-window
+        // exposure where defaults could be exercised before hardening.
+        stellar_contract_utils::pausable::pause(&env);
     }
 
     // -----------------------------------------------------------------------
@@ -317,7 +325,7 @@ impl Controller {
         let mut cache = cache::ControllerCache::new(&env, true);
         utils::sync_market_indexes(&env, &mut cache, &assets);
 
-        // Keep pools list entries alive (write-once data that needs periodic TTL bumps)
+        // Keep pool list entries alive: write-once data needs periodic TTL bumps.
         storage::bump_pools_list(&env);
     }
 
@@ -367,12 +375,12 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
         validation::require_asset_supported(&env, &asset);
 
-        // risk-adjusting (a risky update can tip a position into liquidation),
-        // so oracle prices must be within tight tolerance.
+        // Risk-adjusting: a risky update can tip a position into liquidation,
+        // so oracle prices must stay within tight tolerance.
         let mut cache = cache::ControllerCache::new(&env, false);
 
-        // the config per account so each iteration can apply its own e-mode
-        // overrides without cross-account contamination.
+        // Clone the config per account so each iteration applies its own
+        // e-mode overrides without cross-account contamination.
         let base_config = cache.cached_asset_config(&asset);
         let price_feed = cache.cached_price(&asset);
         let controller_addr = env.current_contract_address();
@@ -517,10 +525,10 @@ impl Controller {
 
     /// Admin: approve a token address to back a new liquidity pool.
     ///
-    /// Soroban SDK does not expose a runtime lookup of a deployed contract's
-    /// Wasm hash, so the allow-list is keyed by token contract address rather
-    /// than Wasm hash. The emitted event still carries a `BytesN<32>` for
-    /// schema compatibility; we derive it deterministically from the address.
+    /// The Soroban SDK exposes no runtime lookup of a deployed contract's
+    /// Wasm hash, so the allow-list keys by token contract address rather
+    /// than by Wasm hash. The emitted event still carries a `BytesN<32>` for
+    /// schema compatibility, derived deterministically from the address.
     #[stellar_macros::only_owner]
     pub fn approve_token_wasm(env: Env, token: Address) {
         crate::storage::set_token_approved(&env, &token, true);
@@ -831,6 +839,7 @@ mod tests {
                     cex_decimals: 0,
                     dex_oracle: None,
                     dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    dex_symbol: Symbol::new(&self.env, ""),
                     dex_decimals: 0,
                     twap_records: 0,
                 };
@@ -851,25 +860,34 @@ mod tests {
             let stored_owner = ownable::get_owner(&t.env);
             assert_eq!(stored_owner, Some(t.admin.clone()));
 
-            // Verify AccessControl admin
+            // Verify AccessControl admin.
             let stored_ac_admin = access_control::get_admin(&t.env);
             assert_eq!(stored_ac_admin, Some(t.admin.clone()));
 
-            // Verify roles granted to admin
+            // M-02: only KEEPER is granted at construct. REVENUE and ORACLE
+            // require explicit `grant_role` after deploy.
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, KEEPER_ROLE))
                     .is_some()
             );
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, REVENUE_ROLE))
-                    .is_some()
+                    .is_none(),
+                "M-02: REVENUE must NOT be granted at construct"
             );
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, ORACLE_ROLE))
-                    .is_some()
+                    .is_none(),
+                "M-02: ORACLE must NOT be granted at construct"
             );
 
-            // Verify default position limits
+            // M-03: contract is paused after construct.
+            assert!(
+                stellar_contract_utils::pausable::paused(&t.env),
+                "M-03: contract must be paused at construct"
+            );
+
+            // Verify default position limits.
             let limits = storage::get_position_limits(&t.env);
             assert_eq!(limits.max_supply_positions, 10);
             assert_eq!(limits.max_borrow_positions, 10);
@@ -907,15 +925,15 @@ mod tests {
 
             let account = storage::get_account(&t.env, id1);
 
-            // Verify owner
+            // Verify owner.
             assert_eq!(account.owner, owner);
 
-            // Verify attrs
+            // Verify attrs.
             assert!(!account.is_isolated);
             assert_eq!(account.e_mode_category_id, 0);
             assert_eq!(account.mode, common::types::PositionMode::Normal);
 
-            // Verify empty position maps
+            // Verify empty position maps.
             assert_eq!(account.supply_positions.len(), 0);
             assert_eq!(account.borrow_positions.len(), 0);
         });
@@ -929,7 +947,7 @@ mod tests {
         let t = TestSetup::new();
         let owner = Address::generate(&t.env);
 
-        // Verify storage is cleaned
+        // Verify storage is cleaned.
         t.env.as_contract(&t.contract, || {
             let id = utils::create_account(
                 &t.env,
@@ -980,14 +998,14 @@ mod tests {
             update::store_position(&mut account, &position);
             storage::set_account(&t.env, id, &account);
 
-            // Check position map has the asset
+            // Check that the position map has the asset.
             let account = storage::get_account(&t.env, id);
             assert_eq!(account.supply_positions.len(), 1);
             let stored = account.supply_positions.get(asset.clone());
             assert!(stored.is_some());
             assert_eq!(stored.unwrap().scaled_amount_ray, 1_000_000);
 
-            // Store same asset again -- should not duplicate
+            // Store the same asset again; the position must not duplicate.
             let mut account = storage::get_account(&t.env, id);
             update::store_position(&mut account, &position);
             storage::set_account(&t.env, id, &account);
@@ -1014,7 +1032,7 @@ mod tests {
                 false,
                 None,
             );
-            // Store a position first
+            // Store a position first.
             let position = AccountPosition {
                 position_type: common::types::AccountPositionType::Deposit,
                 asset: asset.clone(),
@@ -1029,7 +1047,7 @@ mod tests {
             update::store_position(&mut account, &position);
             storage::set_account(&t.env, id, &account);
 
-            // Now update with zero amount
+            // Now update with zero amount.
             let zero_position = AccountPosition {
                 position_type: common::types::AccountPositionType::Deposit,
                 asset: asset.clone(),
@@ -1044,12 +1062,12 @@ mod tests {
             update::update_or_remove_position(&mut account, &zero_position);
             storage::set_account(&t.env, id, &account);
 
-            // Position should be removed
+            // Position should be removed.
             let account = storage::get_account(&t.env, id);
             let stored = account.supply_positions.get(asset.clone());
             assert!(stored.is_none());
 
-            // Position map should be empty
+            // Position map should be empty.
             assert_eq!(account.supply_positions.len(), 0);
         });
     }
@@ -1061,7 +1079,7 @@ mod tests {
     #[should_panic]
     fn test_config_requires_admin() {
         let env = Env::default();
-        // Do NOT mock all auths
+        // Do NOT mock all auths.
         let admin = Address::generate(&env);
         let contract = env.register(Controller, (admin.clone(),));
         let client = ControllerClient::new(&env, &contract);
@@ -1071,7 +1089,7 @@ mod tests {
             max_supply_positions: 10,
             max_borrow_positions: 10,
         };
-        // This should panic because non_admin is not admin
+        // Must panic: non_admin is not admin.
         client.set_position_limits(&limits);
     }
 
@@ -1086,9 +1104,9 @@ mod tests {
         let asset = Address::generate(&t.env);
 
         let mut bad_config = t.sample_asset_config();
-        // Set threshold <= LTV to trigger validation
+        // Set threshold <= LTV to trigger validation.
         bad_config.loan_to_value_bps = 8000;
-        bad_config.liquidation_threshold_bps = 8000; // equal, should fail
+        bad_config.liquidation_threshold_bps = 8000; // equal, must fail
 
         client.edit_asset_config(&asset, &bad_config);
     }
@@ -1102,7 +1120,7 @@ mod tests {
         let client = t.client();
         let asset = Address::generate(&t.env);
 
-        // Seed a default market so edit_asset_config can read-modify-write
+        // Seed a default market so edit_asset_config can read-modify-write.
         t.seed_market_config(&asset);
 
         let config = t.sample_asset_config();
@@ -1154,7 +1172,7 @@ mod tests {
         assert_eq!(id2, 2);
 
         t.env.as_contract(&t.contract, || {
-            // Verify stored category
+            // Verify stored category.
             let cat = storage::get_emode_category(&t.env, id1);
             assert_eq!(cat.category_id, 1);
             assert_eq!(cat.loan_to_value_bps, 9700);
@@ -1172,7 +1190,7 @@ mod tests {
         let t = TestSetup::new();
         let client = t.client();
 
-        // threshold == ltv should fail
+        // threshold == ltv must fail.
         client.add_e_mode_category(&9800i128, &9800i128, &200i128);
     }
 
@@ -1206,7 +1224,7 @@ mod tests {
         let id = client.add_e_mode_category(&9700i128, &9800i128, &200i128);
         client.remove_e_mode_category(&id);
 
-        // Should fail — category is deprecated
+        // Must fail: the category is deprecated.
         client.add_asset_to_e_mode_category(&asset, &id, &true, &true);
     }
 
@@ -1232,7 +1250,7 @@ mod tests {
             let account = storage::get_account(&t.env, id);
             assert!(account.is_isolated);
 
-            // Check isolated asset is stored in account
+            // Check that the isolated asset is stored on the account.
             assert_eq!(account.isolated_asset, Some(iso_asset));
         });
     }
@@ -1256,13 +1274,13 @@ mod tests {
             )
         });
 
-        // Set tight limits
+        // Set tight limits.
         client.set_position_limits(&PositionLimits {
             max_supply_positions: 2,
             max_borrow_positions: 2,
         });
 
-        // Store 2 supply positions inside contract context
+        // Store two supply positions inside contract context.
         let asset1 = Address::generate(&t.env);
         let asset2 = Address::generate(&t.env);
 
@@ -1283,7 +1301,7 @@ mod tests {
             }
             storage::set_account(&t.env, id, &account);
 
-            // Now the limit check should fail for a third
+            // The limit check must now fail for a third position.
             let account = storage::get_account(&t.env, id);
             assert_eq!(account.supply_positions.len(), 2);
             let limits = storage::get_position_limits(&t.env);
@@ -1302,13 +1320,16 @@ mod tests {
     fn test_edit_oracle_tolerance_bad_first() {
         let t = TestSetup::new();
         let client = t.client();
+        // M-02 + M-03 hardening: grant ORACLE role and unpause.
+        client.grant_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE));
+        client.unpause();
         let asset = t
             .env
             .register_stellar_asset_contract_v2(Address::generate(&t.env))
             .address()
             .clone();
 
-        // Seed a default market so configure_market_oracle can read-modify-write
+        // Seed a default market so configure_market_oracle can read-modify-write.
         t.seed_market_config(&asset);
         let oracle_config = common::types::MarketOracleConfigInput {
             exchange_source: common::types::ExchangeSource::SpotOnly,
@@ -1320,11 +1341,12 @@ mod tests {
             cex_symbol: Symbol::new(&t.env, "USDC"),
             dex_oracle: None,
             dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            dex_symbol: Symbol::new(&t.env, ""),
             twap_records: 3,
         };
         client.configure_market_oracle(&t.admin, &asset, &oracle_config);
 
-        // Now try to set invalid tolerance: first=10 is below MIN_FIRST_TOLERANCE (50)
+        // Try an invalid tolerance: first=10 falls below MIN_FIRST_TOLERANCE (50).
         client.edit_oracle_tolerance(&t.admin, &asset, &10, &500);
     }
 
@@ -1336,6 +1358,9 @@ mod tests {
     fn test_configure_market_oracle_rejects_missing_dual_oracle_dex() {
         let t = TestSetup::new();
         let client = t.client();
+        // M-02 + M-03 hardening: grant ORACLE role and unpause.
+        client.grant_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE));
+        client.unpause();
         let asset = t
             .env
             .register_stellar_asset_contract_v2(Address::generate(&t.env))
@@ -1354,6 +1379,7 @@ mod tests {
             cex_symbol: Symbol::new(&t.env, "USDC"),
             dex_oracle: None,
             dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            dex_symbol: Symbol::new(&t.env, ""),
             twap_records: 3,
         };
 
@@ -1368,18 +1394,23 @@ mod tests {
         let t = TestSetup::new();
         let client = t.client();
 
-        // Initially not paused
+        // M-03: paused at construct. Operator must unpause before any
+        // user-facing flow runs.
+        t.env.as_contract(&t.contract, || {
+            assert!(stellar_contract_utils::pausable::paused(&t.env));
+        });
+        client.unpause();
         t.env.as_contract(&t.contract, || {
             assert!(!stellar_contract_utils::pausable::paused(&t.env));
         });
 
-        // Pause
+        // Pause.
         client.pause();
         t.env.as_contract(&t.contract, || {
             assert!(stellar_contract_utils::pausable::paused(&t.env));
         });
 
-        // Unpause
+        // Unpause.
         client.unpause();
         t.env.as_contract(&t.contract, || {
             assert!(!stellar_contract_utils::pausable::paused(&t.env));
@@ -1407,8 +1438,10 @@ mod tests {
     fn test_require_not_paused_passes_when_unpaused() {
         let t = TestSetup::new();
 
+        // M-03: constructor pauses. Unpause first, then verify the guard
+        // passes.
+        t.client().unpause();
         t.env.as_contract(&t.contract, || {
-            // Default: not paused — should not panic
             validation::require_not_paused(&t.env);
         });
     }
@@ -1420,12 +1453,12 @@ mod tests {
     #[should_panic]
     fn test_pause_requires_admin() {
         let env = Env::default();
-        // Do NOT mock all auths — auth should fail
+        // Do NOT mock all auths — auth must fail.
         let admin = Address::generate(&env);
         let contract = env.register(Controller, (admin.clone(),));
         let client = ControllerClient::new(&env, &contract);
 
-        // Call pause without auth — should panic
+        // Call pause without auth — must panic.
         client.pause();
     }
 
@@ -1437,22 +1470,29 @@ mod tests {
         let t = TestSetup::new();
         let client = t.client();
 
-        // Admin has all roles by default
+        // M-02: only KEEPER granted at construct. Operator must explicitly
+        // grant REVENUE and ORACLE post-deploy.
         assert!(client.has_role(&t.admin, &Symbol::new(&t.env, KEEPER_ROLE)));
+        assert!(!client.has_role(&t.admin, &Symbol::new(&t.env, REVENUE_ROLE)));
+        assert!(!client.has_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE)));
+
+        // Operator post-deploy hardening grants the other two roles.
+        client.grant_role(&t.admin, &Symbol::new(&t.env, REVENUE_ROLE));
+        client.grant_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE));
         assert!(client.has_role(&t.admin, &Symbol::new(&t.env, REVENUE_ROLE)));
         assert!(client.has_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE)));
 
-        // Grant KEEPER role to a bot address
+        // Grant KEEPER role to a bot address.
         let keeper_bot = Address::generate(&t.env);
         assert!(!client.has_role(&keeper_bot, &Symbol::new(&t.env, KEEPER_ROLE)));
 
         client.grant_role(&keeper_bot, &Symbol::new(&t.env, KEEPER_ROLE));
         assert!(client.has_role(&keeper_bot, &Symbol::new(&t.env, KEEPER_ROLE)));
 
-        // Bot should NOT have other roles
+        // Bot must NOT hold other roles.
         assert!(!client.has_role(&keeper_bot, &Symbol::new(&t.env, REVENUE_ROLE)));
 
-        // Revoke KEEPER role from bot
+        // Revoke KEEPER role from the bot.
         client.revoke_role(&keeper_bot, &Symbol::new(&t.env, KEEPER_ROLE));
         assert!(!client.has_role(&keeper_bot, &Symbol::new(&t.env, KEEPER_ROLE)));
     }

@@ -80,12 +80,16 @@ Run with `--sanitizer=thread -Zbuild-std` on macOS (see workaround above).
 
 | Target | Flow exercised | Key assertion |
 |---|---|---|
-| `flow_supply_borrow_liquidate` | supply USDC → borrow ETH → advance time → liquidate | HF > 0 post-supply; `try_liquidate` never aborts |
+| `flow_supply_borrow_liquidate` | supply USDC → borrow ETH → advance time → liquidate | HF≥1 after successful borrow, reserves≥0 after accrual, reserves≥0 + HF>0 after liquidation; `try_liquidate` never aborts |
 | `flow_flash_loan` | flash loan USDC through good / bad receiver | bad receiver always returns `Err` |
 | `flow_oracle_tolerance` | supply under spot/TWAP deviation; optional zero-price flip | zero-price oracle always rejects supply |
-| `flow_isolation_emode_xor` | create an e-mode account + supply | account meta consistent; HF > 0 |
-| `flow_cache_atomicity` | supply → try_borrow (may fail) | USDC reserves + user supply unchanged on failed borrow |
-| `flow_supply_borrow_tsan_smoke` | single supply | HF > 0 (link-check harness) |
+| `flow_multi_op` | libFuzzer-mutated `Vec<Op>` of supply/borrow/withdraw/repay/advance across USDC+ETH | On success: HF≥1 after borrow/withdraw, HF>0 after supply/repay, reserves≥0. **On failure: reserves + user raw supply/borrow balances unchanged** (subsumes the retired `flow_cache_atomicity` atomicity check). |
+
+Retired targets (2026-04): `flow_isolation_emode_xor` (panic-case only
+reachable from the proptest `catch_unwind` harness), `flow_cache_atomicity`
+(rolled into `flow_multi_op`'s on-failure snapshot check), and
+`flow_supply_borrow_tsan_smoke` (link-check only — subsumed by any
+contract-level target building under TSAN).
 
 ### Input-domain conventions
 

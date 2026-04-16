@@ -90,31 +90,31 @@ impl Cache {
         token.balance(&self.env.current_contract_address())
     }
 
-    /// Convert asset-decimal amount to RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Convert an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.supply_index)
     }
 
-    /// Convert asset-decimal amount to RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Convert an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    /// Recover actual amount in RAY precision: `scaled * index` (stays in RAY).
+    /// Recover the actual amount in RAY precision: `scaled * index` (stays in RAY).
     pub fn calculate_original_borrow_ray(&self, scaled: Ray) -> Ray {
         scaled.mul(&self.env, self.borrow_index)
     }
 
-    /// Recover actual amount in asset decimals for token transfers.
+    /// Recover the actual amount in asset decimals for token transfers.
     pub fn calculate_original_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Recover actual amount in asset decimals for token transfers.
+    /// Recover the actual amount in asset decimals for token transfers.
     pub fn calculate_original_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
@@ -165,7 +165,8 @@ mod tests {
                 asset_id: Address::generate(&env),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin, params.clone()));
+            let contract =
+                env.register(crate::LiquidityPool, (admin.clone(), params.clone(), admin));
 
             Self {
                 env,

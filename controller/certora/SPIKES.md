@@ -1,5 +1,18 @@
 # Certora Spike Outputs — Ground Truth, 2026-04-16
 
+> **Update — Spike A partially superseded.** The `cvlr-spec` compile
+> blocker below has been addressed by vendoring CVLR under
+> `vendor/cvlr/` with `#![no_std]` patched onto `cvlr-spec/src/lib.rs`.
+> Workspace `Cargo.toml` now redirects all `cvlr-*` crates to the
+> vendored copies. `cargo check -p controller --features certora
+> --no-default-features` now passes. Spike A's compile-time claim is
+> obsolete as of the patch; the end-to-end prover run remains
+> unverified because the `.certora-venv` binary is not present at the
+> repo-local path used by the original spike. See
+> [MATH_REVIEW.md §3.1.2](../../MATH_REVIEW.md#312-toolchain-status).
+>
+> Spikes B and C still apply unchanged.
+
 Three spikes executed empirically against the current repo. Every claim below is
 from CLI output, not conjecture.
 

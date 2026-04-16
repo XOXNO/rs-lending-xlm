@@ -4,7 +4,7 @@ use common::constants::RAY;
 use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL};
 
 // ===========================================================================
-// Rigorous interest tests — verify AMOUNTS, not just direction.
+// Rigorous interest tests: verify amounts, not just direction.
 //
 // The lending protocol's interest model:
 //   borrow_index(t) = borrow_index(t-1) * compound_interest(rate, delta_ms)
@@ -18,7 +18,7 @@ use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALIC
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Helper: read raw indexes from pool
+// Helper: read raw indexes from the pool.
 // ---------------------------------------------------------------------------
 
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
@@ -43,23 +43,23 @@ fn test_borrow_index_matches_compound_formula() {
         .with_market(eth_preset())
         .build();
 
-    // Supply and borrow to establish utilization
+    // Supply and borrow to establish utilization.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
-    t.borrow(ALICE, "ETH", 10.0); // 10% utilization of 100 ETH
+    t.borrow(ALICE, "ETH", 10.0); // 10% utilization of 100 ETH.
 
     let (_si_before, bi_before) = get_indexes(&t, "ETH");
     assert_eq!(bi_before, RAY, "fresh borrow index should be 1.0 RAY");
 
-    // Advance 1 year and sync
+    // Advance one year and sync.
     t.advance_and_sync(days(365));
 
     let (_si_after, bi_after) = get_indexes(&t, "ETH");
 
-    // borrow_index grows by compound_interest(rate, delta_ms)
+    // borrow_index grows by compound_interest(rate, delta_ms).
     // At 10% utilization with default params:
-    //   rate = base(1%) + util(10%) * slope1(4%) / mid(50%) = 1% + 0.8% = 1.8% annual
-    // So borrow_index after 1 year ≈ 1.0 * e^0.018 ≈ 1.01816
+    //   rate = base(1%) + util(10%) * slope1(4%) / mid(50%) = 1% + 0.8% = 1.8% annual.
+    // Therefore borrow_index after 1 year ~ 1.0 * e^0.018 ~ 1.01816.
     let growth = bi_after as f64 / RAY as f64;
     assert!(
         growth > 1.01 && growth < 1.05,
@@ -67,7 +67,7 @@ fn test_borrow_index_matches_compound_formula() {
         growth
     );
 
-    // Index must be strictly greater (compound interest > 0)
+    // The index must rise strictly: compound interest > 0.
     assert!(bi_after > bi_before, "borrow index must increase");
 }
 
@@ -82,9 +82,9 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
         .with_market(eth_preset())
         .build();
 
-    t.supply(BOB, "ETH", 100.0); // Bob is sole supplier
+    t.supply(BOB, "ETH", 100.0); // Bob is the sole supplier.
     t.supply(ALICE, "USDC", 500_000.0);
-    t.borrow(ALICE, "ETH", 50.0); // 50% utilization
+    t.borrow(ALICE, "ETH", 50.0); // 50% utilization.
 
     let (si_before, bi_before) = get_indexes(&t, "ETH");
 
@@ -95,11 +95,11 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
     let bi_growth = bi_after as f64 / bi_before as f64;
     let si_growth = si_after as f64 / si_before as f64;
 
-    // Reserve factor = 10% (1000 BPS), so suppliers get 90% of interest
-    // supply_index_growth ≈ utilization * borrow_index_growth * (1 - reserve_factor)
-    // At 50% utilization: supplier_growth ≈ 0.5 * bi_growth * 0.9
+    // Reserve factor = 10% (1000 BPS), so suppliers receive 90% of interest.
+    // supply_index_growth ~ utilization * borrow_index_growth * (1 - reserve_factor).
+    // At 50% utilization: supplier_growth ~ 0.5 * bi_growth * 0.9.
 
-    // Both should have grown
+    // Both must have grown.
     assert!(
         si_growth > 1.0,
         "supply index should increase: {:.6}",
@@ -111,8 +111,8 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
         bi_growth
     );
 
-    // Supply index growth should be less than borrow index growth
-    // (protocol takes reserve_factor cut + utilization < 100%)
+    // Supply-index growth must trail borrow-index growth: the protocol
+    // takes the reserve-factor cut and utilization stays under 100%.
     assert!(
         si_growth < bi_growth,
         "supply index growth ({:.6}) should be less than borrow index growth ({:.6})",
@@ -132,10 +132,10 @@ fn test_interest_accounting_identity() {
         .with_market(eth_preset())
         .build();
 
-    // Single supplier, single borrower for clean accounting
+    // One supplier, one borrower keeps the accounting clean.
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
-    t.borrow(BOB, "ETH", 30.0); // 30% utilization
+    t.borrow(BOB, "ETH", 30.0); // 30% utilization.
 
     let supply_before = t.supply_balance(ALICE, "ETH");
     let debt_before = t.borrow_balance(BOB, "ETH");
@@ -150,12 +150,12 @@ fn test_interest_accounting_identity() {
     let borrower_interest = debt_after - debt_before;
     let supplier_interest = supply_after - supply_before;
 
-    // protocol_revenue() returns actual token units in asset precision (7 decimals for ETH)
+    // protocol_revenue() returns token units in asset precision (7 decimals for ETH).
     let protocol_revenue_raw = rev_after - rev_before;
-    let protocol_revenue = protocol_revenue_raw as f64 / 1e7; // 7 decimals
+    let protocol_revenue = protocol_revenue_raw as f64 / 1e7; // 7 decimals.
 
-    // The accounting identity: borrower pays = suppliers earn + protocol earns
-    // Allow 1% tolerance for rounding across multiple RAY multiplications
+    // Accounting identity: borrower pays = suppliers earn + protocol earns.
+    // Allow 1% tolerance for rounding across multiple RAY multiplications.
     let total_earned = supplier_interest + protocol_revenue;
     let ratio = if borrower_interest > 0.0 {
         total_earned / borrower_interest
@@ -196,7 +196,7 @@ fn test_reserve_factor_exact_split() {
         .with_market(usdc_preset())
         .build();
 
-    // reserve_factor_bps = 1000 (10%)
+    // reserve_factor_bps = 1000 (10%).
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
     t.borrow(BOB, "ETH", 50.0);
@@ -213,10 +213,10 @@ fn test_reserve_factor_exact_split() {
 
     let borrower_interest = debt_after - debt_before;
     let supplier_interest = supply_after - supply_before;
-    // protocol_revenue() returns actual token units in asset precision (7 decimals)
+    // protocol_revenue() returns token units in asset precision (7 decimals).
     let protocol_revenue = (rev_after_raw - rev_before_raw) as f64 / 1e7;
 
-    // Protocol should get ~10% of total interest
+    // Protocol must take ~10% of total interest.
     let protocol_share = protocol_revenue / borrower_interest;
     assert!(
         (protocol_share - 0.10).abs() < 0.02,
@@ -225,7 +225,7 @@ fn test_reserve_factor_exact_split() {
         protocol_share * 100.0
     );
 
-    // Suppliers should get ~90%
+    // Suppliers must take ~90%.
     let supplier_share = supplier_interest / borrower_interest;
     assert!(
         (supplier_share - 0.90).abs() < 0.02,
@@ -250,20 +250,20 @@ fn test_scaled_amount_times_index_equals_actual() {
     t.supply(BOB, "ETH", 50.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    // Advance to accrue interest
+    // Advance to accrue interest.
     t.advance_and_sync(days(180));
 
-    // Read the raw position scaled amount from storage
+    // Read the raw scaled position from storage.
     let account_id = t.resolve_account_id(ALICE);
     let eth_addr = t.resolve_asset("ETH");
 
-    // Get the actual borrow balance (unscaled)
+    // Read the unscaled borrow balance.
     let actual_borrow = t.borrow_balance_raw(ALICE, "ETH");
 
-    // Get the borrow index
+    // Read the borrow index.
     let (_, borrow_index) = get_indexes(&t, "ETH");
 
-    // Read scaled position from split position storage
+    // Read the scaled position from split position storage.
     let scaled_borrow = t.env.as_contract(&t.controller_address(), || {
         t.env
             .storage()
@@ -275,16 +275,16 @@ fn test_scaled_amount_times_index_equals_actual() {
             .scaled_amount_ray
     });
 
-    // Verify: actual ≈ rescale(scaled * borrow_index / RAY, 27, 7)
-    // scaled_borrow is now RAY-native, so product / RAY gives RAY result
+    // Verify: actual ~ rescale(scaled * borrow_index / RAY, 27, 7).
+    // scaled_borrow is RAY-native, so the product / RAY produces a RAY result.
     let actual_in_ray = (scaled_borrow as f64 * borrow_index as f64) / RAY as f64;
-    // Convert from RAY (27 dec) to asset decimals (7 dec)
-    let computed_actual = actual_in_ray / 10f64.powi(20); // 27 - 7 = 20
+    // Convert RAY (27 dec) to asset decimals (7 dec).
+    let computed_actual = actual_in_ray / 10f64.powi(20); // 27 - 7 = 20.
     let reported_actual = actual_borrow as f64;
 
-    // Should be very close (rounding error < 1 token unit)
+    // The values must stay within one token unit of rounding.
     let diff = (computed_actual - reported_actual).abs();
-    let one_unit = 10f64.powi(7); // 7 decimals for ETH
+    let one_unit = 10f64.powi(7); // 7 decimals for ETH.
     assert!(
         diff < one_unit * 2.0,
         "scaled * index / RAY should equal actual: computed={:.0}, reported={:.0}, diff={:.0}",
@@ -300,8 +300,8 @@ fn test_scaled_amount_times_index_equals_actual() {
 
 #[test]
 fn test_rate_curve_three_regions() {
-    // Default params: base=1%, slope1=4%, slope2=10%, slope3=300%
-    // mid=50%, optimal=80%
+    // Default params: base=1%, slope1=4%, slope2=10%, slope3=300%.
+    // mid=50%, optimal=80%.
     let mut t = LendingTest::new()
         .with_market(eth_preset())
         .with_market(usdc_preset())
@@ -310,18 +310,18 @@ fn test_rate_curve_three_regions() {
     t.supply(ALICE, "ETH", 1000.0);
     t.supply(BOB, "USDC", 10_000_000.0);
 
-    // Region 1: utilization < mid (50%)
-    // Borrow 200 ETH = 20% utilization
+    // Region 1: utilization < mid (50%).
+    // Borrow 200 ETH = 20% utilization.
     t.borrow(BOB, "ETH", 200.0);
     let rate_20pct = t.pool_borrow_rate("ETH");
 
     // Region 1 formula: rate = base + util * slope1 / mid
-    // = 1% + 20% * 4% / 50% = 1% + 1.6% = 2.6% annual
-    // Per-ms rate = 2.6% / ms_per_year, in RAY
+    //   = 1% + 20% * 4% / 50% = 1% + 1.6% = 2.6% annual.
+    // Per-ms rate = 2.6% / ms_per_year, in RAY.
     assert!(rate_20pct > 0.0, "rate at 20% util should be positive");
 
-    // Borrow more to reach 40% utilization
-    t.borrow(BOB, "ETH", 200.0); // now 400/1000 = 40%
+    // Borrow more to reach 40% utilization.
+    t.borrow(BOB, "ETH", 200.0); // Now 400/1000 = 40%.
     let rate_40pct = t.pool_borrow_rate("ETH");
     assert!(
         rate_40pct > rate_20pct,
@@ -330,13 +330,13 @@ fn test_rate_curve_three_regions() {
         rate_20pct
     );
 
-    // Region 2: mid <= utilization < optimal
-    // Borrow to reach 60% utilization
-    t.borrow(BOB, "ETH", 200.0); // now 600/1000 = 60%
+    // Region 2: mid <= utilization < optimal.
+    // Borrow to reach 60% utilization.
+    t.borrow(BOB, "ETH", 200.0); // Now 600/1000 = 60%.
     let rate_60pct = t.pool_borrow_rate("ETH");
 
     // Region 2 formula: rate = base + slope1 + (util - mid) * slope2 / (opt - mid)
-    // = 1% + 4% + (60% - 50%) * 10% / (80% - 50%) = 5% + 3.33% = 8.33%
+    //   = 1% + 4% + (60% - 50%) * 10% / (80% - 50%) = 5% + 3.33% = 8.33%.
     assert!(
         rate_60pct > rate_40pct,
         "60% util rate (region 2) should exceed 40% (region 1): {} > {}",
@@ -344,8 +344,8 @@ fn test_rate_curve_three_regions() {
         rate_40pct
     );
 
-    // Region 2 should show a steeper slope than region 1
-    let slope_r1 = (rate_40pct - rate_20pct) / 0.20; // rate change per 20% util
+    // Region 2 must slope steeper than region 1.
+    let slope_r1 = (rate_40pct - rate_20pct) / 0.20; // Rate change per 20% util.
     let slope_r2 = (rate_60pct - rate_40pct) / 0.20;
     assert!(
         slope_r2 > slope_r1,
@@ -354,14 +354,14 @@ fn test_rate_curve_three_regions() {
         slope_r1
     );
 
-    // Region 3: utilization >= optimal (80%)
-    // Borrow to reach 85% utilization
-    t.borrow(BOB, "ETH", 250.0); // now 850/1000 = 85%
+    // Region 3: utilization >= optimal (80%).
+    // Borrow to reach 85% utilization.
+    t.borrow(BOB, "ETH", 250.0); // Now 850/1000 = 85%.
     let rate_85pct = t.pool_borrow_rate("ETH");
 
     // Region 3 formula: rate = base + slope1 + slope2 + (util - opt) * slope3 / (1 - opt)
-    // = 1% + 4% + 10% + (85% - 80%) * 300% / (100% - 80%) = 15% + 75% = 90%
-    // This is VERY high (slope3 = 300% is aggressive)
+    //   = 1% + 4% + 10% + (85% - 80%) * 300% / (100% - 80%) = 15% + 75% = 90%.
+    // Very high; slope3 = 300% is aggressive.
     assert!(
         rate_85pct > rate_60pct,
         "85% util rate (region 3) should far exceed 60% (region 2): {} > {}",
@@ -369,7 +369,7 @@ fn test_rate_curve_three_regions() {
         rate_60pct
     );
 
-    // Region 3 slope should be MUCH steeper (slope3=300% vs slope2=10%)
+    // Region 3 must slope much steeper (slope3=300% vs slope2=10%).
     let jump = rate_85pct / rate_60pct;
     assert!(
         jump > 3.0,
@@ -384,7 +384,7 @@ fn test_rate_curve_three_regions() {
 
 #[test]
 fn test_single_vs_multi_sync_taylor_accuracy() {
-    // Setup A: single 365-day sync
+    // Setup A: a single 365-day sync.
     let mut t_single = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -395,7 +395,7 @@ fn test_single_vs_multi_sync_taylor_accuracy() {
     t_single.advance_and_sync(days(365));
     let debt_single = t_single.borrow_balance(ALICE, "ETH");
 
-    // Setup B: daily syncs over 365 days
+    // Setup B: daily syncs across 365 days.
     let mut t_multi = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -408,12 +408,11 @@ fn test_single_vs_multi_sync_taylor_accuracy() {
     }
     let debt_multi = t_multi.borrow_balance(ALICE, "ETH");
 
-    // Both should produce similar results
-    // The Taylor approximation is accurate for small rate*time products
-    // For low utilization (~10%), rate is ~1.8% annual
-    // Single sync: e^(0.018) ≈ 1.01816 (exact)
-    // Multi sync: (e^(0.018/365))^365 ≈ 1.01816 (also exact for daily)
-    // Difference should be < 1% of the interest amount
+    // Both runs must produce similar results. The Taylor approximation
+    // stays accurate for small rate*time products. For low utilization
+    // (~10%), the rate is ~1.8% annual. Single sync: e^(0.018) ~ 1.01816
+    // (exact). Multi sync: (e^(0.018/365))^365 ~ 1.01816 (exact for daily).
+    // The difference must remain under 1% of the interest amount.
     let interest_single = debt_single - 10.0;
     let interest_multi = debt_multi - 10.0;
 
@@ -448,9 +447,9 @@ fn test_supply_index_unchanged_without_borrows() {
 
     let (si_after, _bi_after) = get_indexes(&t, "USDC");
 
-    // With zero utilization, no interest accrues
-    // borrow_index still grows (compound_interest with base_rate > 0),
-    // but supply_index should NOT grow (no borrower interest to distribute)
+    // With zero utilization, no interest accrues. borrow_index still grows
+    // because compound_interest uses base_rate > 0, but supply_index must
+    // not grow: there is no borrower interest to distribute.
     assert_eq!(
         si_after, RAY,
         "supply index should stay at 1.0 RAY with no borrows, got {}",
@@ -469,11 +468,11 @@ fn test_multiple_suppliers_share_proportionally() {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies 75%, Bob supplies 25%
+    // Alice supplies 75% and Bob supplies 25%.
     t.supply(ALICE, "ETH", 75.0);
     t.supply(BOB, "ETH", 25.0);
     t.supply(CAROL, "USDC", 1_000_000.0);
-    t.borrow(CAROL, "ETH", 50.0); // 50% utilization
+    t.borrow(CAROL, "ETH", 50.0); // 50% utilization.
 
     let alice_before = t.supply_balance(ALICE, "ETH");
     let bob_before = t.supply_balance(BOB, "ETH");
@@ -486,7 +485,7 @@ fn test_multiple_suppliers_share_proportionally() {
     let alice_interest = alice_after - alice_before;
     let bob_interest = bob_after - bob_before;
 
-    // Alice should earn 3x Bob's interest (75/25 = 3:1)
+    // Alice must earn 3x Bob's interest (75/25 = 3:1).
     let ratio = alice_interest / bob_interest;
     assert!(
         (ratio - 3.0).abs() < 0.1,
@@ -512,20 +511,20 @@ fn test_interest_grows_with_time_checkpoints() {
     let mut prev_debt = t.borrow_balance(ALICE, "ETH");
     let mut prev_interest = 0.0f64;
 
-    // Check at 1 day, 1 week, 1 month, 3 months, 6 months, 1 year
+    // Check at 1 day, 1 week, 1 month, 3 months, 6 months, 1 year.
     let checkpoints = [
         (days(1), "1 day"),
-        (days(6), "1 week"),    // cumulative: 7 days
-        (days(23), "1 month"),  // cumulative: 30 days
-        (days(60), "3 months"), // cumulative: 90 days
-        (days(90), "6 months"), // cumulative: 180 days
-        (days(185), "1 year"),  // cumulative: 365 days
+        (days(6), "1 week"),    // Cumulative: 7 days.
+        (days(23), "1 month"),  // Cumulative: 30 days.
+        (days(60), "3 months"), // Cumulative: 90 days.
+        (days(90), "6 months"), // Cumulative: 180 days.
+        (days(185), "1 year"),  // Cumulative: 365 days.
     ];
 
     for (advance, label) in &checkpoints {
         t.advance_and_sync(*advance);
         let debt = t.borrow_balance(ALICE, "ETH");
-        let interest = debt - 5.0; // initial borrow was 5 ETH
+        let interest = debt - 5.0; // The initial borrow was 5 ETH.
 
         assert!(
             debt > prev_debt,
@@ -546,7 +545,7 @@ fn test_interest_grows_with_time_checkpoints() {
         prev_interest = interest;
     }
 
-    // After 1 year, interest should be meaningful (>0.01 ETH at low util)
+    // After one year, interest must be meaningful: > 0.01 ETH at low util.
     assert!(
         prev_interest > 0.01,
         "1 year of interest should be >0.01 ETH, got {:.6}",
@@ -569,17 +568,17 @@ fn test_pool_solvency_invariant() {
     t.supply(BOB, "USDC", 500_000.0);
     t.borrow(BOB, "ETH", 50.0);
 
-    // Check solvency at multiple time points
+    // Check solvency at multiple time points.
     for month in 1..=12 {
         t.advance_and_sync(days(30));
 
         let pool_client = t.pool_client("ETH");
-        let supplied = pool_client.supplied_amount(); // RAY
-        let borrowed = pool_client.borrowed_amount(); // RAY
-        let revenue = pool_client.protocol_revenue(); // RAY
+        let supplied = pool_client.supplied_amount(); // RAY.
+        let borrowed = pool_client.borrowed_amount(); // RAY.
+        let revenue = pool_client.protocol_revenue(); // RAY.
 
-        // Solvency: total supply >= total borrows
-        // (supply includes protocol revenue as scaled supply tokens)
+        // Solvency: total supply >= total borrows. Supply includes protocol
+        // revenue as scaled supply tokens.
         assert!(
             supplied >= borrowed,
             "month {}: supplied ({}) must >= borrowed ({})",
@@ -588,7 +587,7 @@ fn test_pool_solvency_invariant() {
             borrowed
         );
 
-        // Revenue must be non-negative
+        // Revenue must remain non-negative.
         assert!(
             revenue >= 0,
             "month {}: revenue must be >= 0, got {}",
@@ -596,7 +595,7 @@ fn test_pool_solvency_invariant() {
             revenue
         );
 
-        // Revenue must be <= supplied (can't have more revenue than total supply)
+        // Revenue must stay <= supplied; revenue cannot exceed total supply.
         assert!(
             revenue <= supplied,
             "month {}: revenue ({}) must <= supplied ({})",
@@ -619,24 +618,24 @@ fn test_index_values_accessible_and_rational() {
         .with_market(wbtc_preset())
         .build();
 
-    // Different utilization levels per market
+    // Different utilization levels per market.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 100.0);
     t.supply(ALICE, "WBTC", 1.0);
     t.supply(BOB, "USDC", 100_000.0);
-    t.borrow(BOB, "ETH", 10.0); // ~10% util
-    t.borrow(BOB, "WBTC", 0.5); // ~50% util
+    t.borrow(BOB, "ETH", 10.0); // ~10% util.
+    t.borrow(BOB, "WBTC", 0.5); // ~50% util.
 
     t.advance_and_sync(days(365));
 
     for asset in &["USDC", "ETH", "WBTC"] {
         let (si, bi) = get_indexes(&t, asset);
 
-        // Both indexes must be >= RAY (1.0)
+        // Both indexes must satisfy >= RAY (1.0).
         assert!(si >= RAY, "{} supply index {} must be >= RAY", asset, si);
         assert!(bi >= RAY, "{} borrow index {} must be >= RAY", asset, bi);
 
-        // Borrow index >= supply index (borrowers pay more than suppliers earn)
+        // Borrow index >= supply index; borrowers pay more than suppliers earn.
         assert!(
             bi >= si,
             "{}: borrow index ({}) must be >= supply index ({})",
@@ -646,7 +645,7 @@ fn test_index_values_accessible_and_rational() {
         );
     }
 
-    // WBTC (50% util) should have higher indexes than ETH (10% util)
+    // WBTC (50% util) must show higher indexes than ETH (10% util).
     let (_, bi_eth) = get_indexes(&t, "ETH");
     let (_, bi_wbtc) = get_indexes(&t, "WBTC");
     assert!(
@@ -656,8 +655,8 @@ fn test_index_values_accessible_and_rational() {
         bi_eth
     );
 
-    // USDC (no borrows) should have borrow index > RAY (base_rate > 0)
-    // but supply index = RAY (no borrower interest to distribute)
+    // USDC (no borrows) must show borrow index > RAY (base_rate > 0) but
+    // supply index = RAY (no borrower interest to distribute).
     let (si_usdc, bi_usdc) = get_indexes(&t, "USDC");
     assert_eq!(
         si_usdc, RAY,

@@ -49,7 +49,7 @@ pub fn validate_account_is_empty(env: &Env, account: &Account) {
 
 pub fn sync_market_indexes(_env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
-        // cached_market_index calls pool.update_indexes internally
+        // cached_market_index calls pool.update_indexes internally.
         cache.cached_market_index(&asset);
     }
 }
@@ -74,7 +74,7 @@ pub fn adjust_isolated_debt_usd(
     let amount_wad = Wad::from_token(token_amount, asset_decimals);
     let usd_wad = amount_wad.mul(env, Wad::from_raw(*price_wad)).raw();
 
-    // Single read — cache hit if handle_isolated_debt already loaded this value.
+    // Single read — cache hits if handle_isolated_debt already loaded this value.
     let current = cache.get_isolated_debt(&isolated_asset);
     let mut new_debt = if usd_wad >= current {
         0
@@ -82,12 +82,12 @@ pub fn adjust_isolated_debt_usd(
         current - usd_wad
     };
 
-    // Dust erasure: if remaining < $1 USD, zero the tracker.
+    // Dust erasure: zero the tracker when remaining < $1 USD.
     if new_debt > 0 && new_debt < WAD {
         new_debt = 0;
     }
 
-    // Write into accumulator — storage write and event deferred to flush.
+    // Write into the accumulator; flush defers the storage write and event.
     cache.set_isolated_debt(&isolated_asset, new_debt);
 }
 

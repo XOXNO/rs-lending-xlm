@@ -15,12 +15,13 @@ fn setup_liquidatable() -> LendingTest {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies 10k USDC, borrows 3 ETH (~$6000, near 75% LTV of $10k)
+    // Alice supplies 10k USDC and borrows 3 ETH (~$6000, near 75% LTV of $10k).
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Drop USDC price to $0.50 => collateral $5000, threshold $4000, debt $6000 => HF ~0.67
+    // Drop USDC price to $0.50 => collateral $5000, threshold $4000,
+    // debt $6000 => HF ~0.67.
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
     t
@@ -34,7 +35,7 @@ fn setup_liquidatable() -> LendingTest {
 fn test_liquidation_basic_proportional() {
     let mut t = setup_liquidatable();
 
-    // Liquidator pays 1 ETH ($2000) of debt
+    // The liquidator pays 1 ETH ($2000) of debt.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
@@ -44,7 +45,7 @@ fn test_liquidation_basic_proportional() {
         liq_usdc_after
     );
 
-    // Verify the bonus: collateral received should be worth MORE than debt paid.
+    // Verify the bonus: collateral received should exceed the debt paid.
     // USDC price is $0.50, so collateral value = usdc_received * 0.50.
     // Debt paid = 1 ETH = $2000.
     let collateral_value_usd = liq_usdc_after * 0.50;
@@ -68,15 +69,15 @@ fn test_liquidation_targeted_single_collateral() {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies USDC, borrows ETH
+    // Alice supplies USDC and borrows ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Drop USDC to make liquidatable
+    // Drop USDC to make Alice liquidatable.
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    // Liquidate 1 ETH of debt — Stellar controller uses proportional seizure only
+    // Liquidate 1 ETH of debt — the Stellar controller uses proportional seizure only.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
@@ -98,7 +99,7 @@ fn test_liquidation_rejects_healthy_account() {
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 1.0); // well within LTV
+    t.borrow(ALICE, "ETH", 1.0); // well within LTV.
     t.assert_healthy(ALICE);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
@@ -134,11 +135,11 @@ fn test_liquidation_dynamic_bonus_moderate() {
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    // Liquidator should have received collateral worth more than debt paid
+    // The liquidator should have received collateral worth more than the debt paid.
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
-    // At USDC price $0.50, collateral value in USD
+    // Collateral value in USD at USDC price $0.50.
     let collateral_received_usd = liq_usdc * 0.50;
-    // Debt paid is 1 ETH = $2000
+    // Debt paid is 1 ETH = $2000.
     assert!(
         collateral_received_usd > 2000.0,
         "liquidator should profit from bonus: received ${} of collateral for $2000 debt",
@@ -160,14 +161,14 @@ fn test_liquidation_dynamic_bonus_deep_underwater() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Crash USDC price severely => HF much lower
+    // Crash USDC price severely => HF much lower.
     t.set_price("USDC", usd_cents(25));
     t.assert_liquidatable(ALICE);
 
     let hf = t.health_factor(ALICE);
     assert!(hf < 0.5, "HF should be deeply underwater, got {}", hf);
 
-    // Liquidation should still work
+    // Liquidation must still work.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
@@ -210,12 +211,12 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
 fn test_liquidation_liquidator_profit() {
     let mut t = setup_liquidatable();
 
-    // Liquidator pays 1 ETH ($2000) of debt
+    // The liquidator pays 1 ETH ($2000) of debt.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    // Liquidator receives USDC collateral at discounted price (bonus)
+    // The liquidator receives USDC collateral at a discounted price (bonus).
     let usdc_received = t.token_balance(LIQUIDATOR, "USDC");
-    let usdc_value_usd = usdc_received * 0.50; // USDC is at $0.50
+    let usdc_value_usd = usdc_received * 0.50; // USDC is at $0.50.
 
     assert!(
         usdc_value_usd > 2000.0,
@@ -235,23 +236,23 @@ fn test_liquidation_multi_debt_payment() {
         .with_market(eth_preset())
         .build();
 
-    // Supply USDC, borrow ETH near limit
+    // Supply USDC and borrow ETH near the limit.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // ~$6000
 
-    // Drop USDC price deeply to keep account liquidatable after first pass
+    // Drop USDC price deeply so the account stays liquidatable after the first pass.
     t.set_price("USDC", usd_cents(30));
     t.assert_liquidatable(ALICE);
 
-    // First liquidation
+    // First liquidation.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
 
-    // Check if still liquidatable for second pass
+    // Check whether still liquidatable for a second pass.
     if t.can_be_liquidated(ALICE) {
         t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
     }
 
-    // Liquidator should have accumulated collateral
+    // The liquidator should have accumulated collateral.
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(
         liq_usdc > 0.0,
@@ -267,8 +268,8 @@ fn test_liquidation_multi_debt_payment() {
 fn test_liquidation_caps_at_actual_debt() {
     let mut t = setup_liquidatable();
 
-    // Try to repay far more debt than the account actually owes. The
-    // liquidation should cap repayment at the real debt amount.
+    // Try to repay far more debt than the account owes. The liquidation
+    // must cap repayment at the real debt amount.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 100.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
@@ -290,15 +291,15 @@ fn test_liquidation_proportional_multi_collateral() {
         .with_market(eth_preset())
         .build();
 
-    // Alice supplies USDC, borrows ETH
+    // Alice supplies USDC and borrows ETH.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Drop USDC price to make liquidatable
+    // Drop USDC price to make Alice liquidatable.
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    // Proportional liquidation -- with single collateral, all seizure is from that asset
+    // Proportional liquidation -- with single collateral, all seizure comes from that asset.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
@@ -307,7 +308,7 @@ fn test_liquidation_proportional_multi_collateral() {
         "liquidator should receive USDC collateral in proportional mode"
     );
 
-    // Verify debt decreased
+    // Verify the debt decreased.
     let debt_after = t.borrow_balance(ALICE, "ETH");
     assert!(
         debt_after < 3.0,
@@ -327,18 +328,19 @@ fn test_liquidation_improves_health_factor() {
         .with_market(eth_preset())
         .build();
 
-    // Setup: supply USDC, borrow ETH at moderate utilization
+    // Supply USDC and borrow ETH at moderate utilization.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // ~$6000
 
-    // Drop USDC price to make mildly liquidatable (HF ~0.8-0.9)
-    // At $0.70: collateral = $7000, threshold = 80% => weighted = $5600, debt = $6000 => HF = 0.93
+    // Drop USDC price to make Alice mildly liquidatable (HF ~0.8-0.9).
+    // At $0.70: collateral = $7000, threshold = 80% => weighted = $5600,
+    // debt = $6000 => HF = 0.93.
     t.set_price("USDC", usd_cents(70));
     t.assert_liquidatable(ALICE);
 
     let hf_before = t.health_factor(ALICE);
 
-    // Small liquidation to improve HF
+    // Small liquidation to improve HF.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
 
     let hf_after = t.health_factor(ALICE);
@@ -364,17 +366,17 @@ fn test_liquidation_caps_at_max_bonus() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Crash price extremely => very low HF
+    // Crash price extremely => very low HF.
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
-    // Liquidate a small amount
+    // Liquidate a small amount.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
 
-    // The collateral received should not imply a bonus > 15%
+    // The collateral received must not imply a bonus > 15%.
     let usdc_received = t.token_balance(LIQUIDATOR, "USDC");
-    let usdc_value = usdc_received * 0.10; // USDC at $0.10
-    let debt_paid = 0.5 * 2000.0; // 0.5 ETH at $2000
+    let usdc_value = usdc_received * 0.10; // USDC at $0.10.
+    let debt_paid = 0.5 * 2000.0; // 0.5 ETH at $2000.
 
     // Max bonus = 15% (1500 BPS), so max value ratio = 1.15.
     // Add 1% tolerance for protocol-fee effects on the seized amount.
@@ -400,15 +402,15 @@ fn test_liquidation_bad_debt_cleanup_auto() {
         .with_market(eth_preset())
         .build();
 
-    // Small position
+    // Small position.
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.03); // ~$60
 
-    // Crash USDC price so collateral is nearly worthless
+    // Crash USDC price so collateral is nearly worthless.
     t.set_price("USDC", usd_cents(5));
     t.assert_liquidatable(ALICE);
 
-    // Tiny underwater positions should be cleaned up automatically during
+    // Tiny underwater positions get cleaned up automatically during
     // liquidation.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.03);
 
@@ -433,16 +435,16 @@ fn test_liquidation_bad_debt_socializes_loss() {
         .with_market(eth_preset())
         .build();
 
-    // Small position
+    // Small position.
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.03);
 
-    // Crash price so collateral is nearly worthless
+    // Crash price so collateral is nearly worthless.
     t.set_price("USDC", usd_cents(1));
     t.assert_liquidatable(ALICE);
 
-    // Deeply underwater tiny positions should socialize the residual loss
-    // during liquidation.
+    // Deeply underwater tiny positions socialize the residual loss during
+    // liquidation.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.03);
 
     // The account is removed during cleanup, so execution is confirmed
@@ -474,7 +476,7 @@ fn test_liquidation_isolated_debt_adjustment() {
         })
         .build();
 
-    // Create isolated account for Alice
+    // Create an isolated account for Alice.
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0); // ~$10,000
     t.borrow(ALICE, "USDC", 5_000.0);
@@ -482,8 +484,8 @@ fn test_liquidation_isolated_debt_adjustment() {
     let debt_before = t.get_isolated_debt("ETH");
     assert!(debt_before > 0, "isolated debt should be tracked");
 
-    // Make liquidatable
-    t.set_price("ETH", usd(500)); // ETH drops to $500
+    // Make Alice liquidatable.
+    t.set_price("ETH", usd(500)); // ETH drops to $500.
     t.assert_liquidatable(ALICE);
 
     t.liquidate(LIQUIDATOR, ALICE, "USDC", 2_000.0);
@@ -505,7 +507,7 @@ fn test_liquidation_isolated_debt_adjustment() {
 fn test_liquidation_rejects_during_flash_loan() {
     let mut t = setup_liquidatable();
 
-    // Set flash loan ongoing flag
+    // Set the flash-loan-ongoing flag.
     t.set_flash_loan_ongoing(true);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
@@ -522,8 +524,7 @@ fn test_liquidation_rejects_during_flash_loan() {
 fn test_liquidation_rejects_empty_debt_payments() {
     let mut t = setup_liquidatable();
 
-    // Use an exact zero payment. `0.0000001` ETH would still be non-zero at
-    // 7 decimals.
+    // Use an exact zero payment. `0.0000001` ETH stays non-zero at 7 decimals.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.0);
     assert!(result.is_err(), "liquidation with zero amount should fail");
 }

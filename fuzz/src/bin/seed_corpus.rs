@@ -12,7 +12,7 @@
 //! mutation engine has something non-trivial to bit-flip from iteration 0.
 //!
 //! Usage:
-//!   cargo run --release --bin seed_corpus -- --output corpus
+//!   cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 //!
 //! Snapshots that fail to parse are logged and skipped; never abort the run.
 
@@ -528,29 +528,42 @@ fn pack_compound_monotonic(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `flow_supply_borrow_liquidate`: reads bytes[0..=3] as u8s controlling
-/// supply/borrow_frac/time_jump/liq_frac. 4 bytes are plenty.
+/// `flow_supply_borrow_liquidate`: Arbitrary layout is 8 bytes LE:
+/// `{ supply_raw: u32, borrow_frac_raw: u8, jump_hours: u16, liq_frac_raw: u8 }`.
 fn pack_flow_supply_borrow_liquidate(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    // Derive supply size buckets from position amounts (map to u8 via log).
-    let mut supply_bytes: BTreeSet<u8> = BTreeSet::new();
+    let mut supplies: BTreeSet<u32> = BTreeSet::new();
     for &amt in &f.position_amounts {
-        let scaled = (amt / 1_000_000).clamp(0, 255) as u8;
-        supply_bytes.insert(scaled);
+        let v = (amt / 1_000_000).clamp(0, u32::MAX as i128) as u32;
+        supplies.insert(v);
     }
-    for b in [0u8, 1, 8, 32, 64, 128, 200, 255] {
-        supply_bytes.insert(b);
+    for s in [1_000u32, 10_000, 50_000, 100_000] {
+        supplies.insert(s);
     }
-    for s in supply_bytes.iter().take(16) {
-        for bf in [0u8, 64, 128, 192, 230, 255] {
-            for jump in [0u8, 1, 4, 16, 64, 200] {
-                for lf in [0u8, 64, 128, 200, 255] {
-                    out.push(vec![*s, bf, jump, lf]);
+    for s in supplies.iter().take(8) {
+        for bf in [0u8, 128, 230, 255] {
+            for jh in [0u16, 24, 240] {
+                for lf in [0u8, 128, 255] {
+                    let mut buf = Vec::with_capacity(8);
+                    push_u32_le(&mut buf, *s);
+                    buf.push(bf);
+                    push_u16_le(&mut buf, jh);
+                    buf.push(lf);
+                    out.push(buf);
                 }
             }
         }
     }
     out
+}
+
+/// `flow_multi_op`: Arbitrary over `{ ops: Vec<Op> }`. The vec length is
+/// framed by libFuzzer's Arbitrary impl (length-prefix); a few small seeds
+/// with empty or single-op sequences give the mutator a good starting point.
+fn pack_flow_multi_op(_f: &ExtractedFields) -> Vec<Vec<u8>> {
+    // Empty-vec + tiny seeds. Keep this minimal — libFuzzer builds the
+    // interesting state-machine prefixes on its own.
+    vec![vec![], vec![0u8], vec![0u8, 1, 0, 0, 0, 0], vec![1u8, 2, 0, 0, 0, 0]]
 }
 
 /// `flow_flash_loan`: Arbitrary over { seed_usdc: u32, loan_usdc: u32, use_bad: bool }
@@ -615,67 +628,7 @@ fn pack_flow_oracle_tolerance(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `flow_isolation_emode_xor`: { choose_emode: bool, supply_amt: u32 }
-fn pack_flow_isolation_emode_xor(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut amts: BTreeSet<u32> = BTreeSet::new();
-    for &x in &f.position_amounts {
-        let v = (x / 1_000_000_000_000_000_000).clamp(0, u32::MAX as i128) as u32;
-        amts.insert(v);
-    }
-    for a in [100u32, 1_000, 10_000, 50_000] {
-        amts.insert(a);
-    }
-    for amt in amts.iter().take(16) {
-        for choose in [0u8, 1] {
-            let mut buf = Vec::with_capacity(5);
-            buf.push(choose);
-            push_u32_le(&mut buf, *amt);
-            out.push(buf);
-        }
-    }
-    out
-}
 
-/// `flow_cache_atomicity`: { supply_usdc: u32, borrow_eth: u32 }
-fn pack_flow_cache_atomicity(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut amts: BTreeSet<u32> = BTreeSet::new();
-    for &x in &f.position_amounts {
-        let v = (x / 1_000_000_000_000_000_000).clamp(0, u32::MAX as i128) as u32;
-        amts.insert(v);
-    }
-    for a in [1_000u32, 5_000, 10_000, 50_000] {
-        amts.insert(a);
-    }
-    for s in amts.iter().take(16) {
-        for b in [1u32, 100, 500, 1_000, 5_000, 10_000] {
-            let mut buf = Vec::with_capacity(8);
-            push_u32_le(&mut buf, *s);
-            push_u32_le(&mut buf, b);
-            out.push(buf);
-        }
-    }
-    out
-}
-
-/// `flow_supply_borrow_tsan_smoke`: reads a single byte.
-fn pack_flow_supply_borrow_tsan_smoke(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut bytes: BTreeSet<u8> = BTreeSet::new();
-    for &x in &f.position_amounts {
-        bytes.insert((x & 0xFF) as u8);
-    }
-    for b in 0u8..=255 {
-        if b % 7 == 0 {
-            bytes.insert(b);
-        }
-    }
-    for b in bytes {
-        out.push(vec![b]);
-    }
-    out
-}
 
 // ---------------------------------------------------------------------------
 // Output
@@ -802,15 +755,7 @@ fn main() -> std::io::Result<()> {
             "flow_oracle_tolerance",
             pack_flow_oracle_tolerance(&merged),
         ),
-        (
-            "flow_isolation_emode_xor",
-            pack_flow_isolation_emode_xor(&merged),
-        ),
-        ("flow_cache_atomicity", pack_flow_cache_atomicity(&merged)),
-        (
-            "flow_supply_borrow_tsan_smoke",
-            pack_flow_supply_borrow_tsan_smoke(&merged),
-        ),
+        ("flow_multi_op", pack_flow_multi_op(&merged)),
     ];
 
     for (target, inputs) in targets {

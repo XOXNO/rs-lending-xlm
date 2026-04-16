@@ -164,6 +164,13 @@ same supply index as depositor balances.
 
 Revenue claims burn scaled revenue from both in the same proportion.
 
+A third invariant-preserving path lives in `seize_position` on a `Deposit`
+position (`pool/src/lib.rs:441-446`): the seized scaled amount moves from
+the user's position into `revenue_ray` *without* a matching change to
+`supplied_ray`, because the position's scaled value was already counted
+in `supplied_ray`. The invariant `revenue_ray ≤ supplied_ray` still
+holds because the seized scaled remains part of `supplied_ray`.
+
 ## 5. Interest Split Invariant
 
 When borrow interest accrues, the protocol splits it into:
@@ -202,6 +209,25 @@ Then:
 
 No value disappears.
 
+### Accrual pipeline
+
+```mermaid
+flowchart LR
+    A["delta_ms = now - last_accrual"] --> B["U = borrowed*bidx / supplied*sidx"]
+    B --> C["r_annual = piecewise rate(U)"]
+    C --> D["r_per_ms = r_annual / MS_PER_YEAR"]
+    D --> E["factor = exp_Taylor8(r_per_ms * delta_ms)"]
+    E --> F["new_bidx = bidx * factor"]
+    F --> G["accrued = borrowed*(new_bidx - bidx)"]
+    G --> H["fee = accrued * reserve_factor_bps / BPS"]
+    G --> I["rewards = accrued - fee"]
+    I --> J["new_sidx = sidx * (1 + rewards / supplied*sidx)"]
+    H --> K["revenue_ray += fee / new_sidx<br/>supplied_ray += fee / new_sidx"]
+```
+
+Every arrow preserves one of the §3-§7 invariants. Rule coverage of each
+edge is mapped in `MATH_REVIEW.md` §3.7.
+
 ## 6. Borrow Index Monotonicity
 
 Borrow index updates depend on:
@@ -212,9 +238,11 @@ Borrow index updates depend on:
 
 The implementation uses:
 
-- piecewise annual borrow rate
+- piecewise annual borrow rate (three regions around `mid_utilization` and
+  `optimal_utilization`)
 - conversion to per-millisecond rate
-- 5-term Taylor approximation of `e^(rate * time)`
+- 8-term Taylor approximation of `e^(rate * time)` in
+  `common::rates::compound_interest`
 
 ### Invariant
 
@@ -267,11 +295,26 @@ No hidden third path is permitted.
 
 ### Safety floor
 
-During bad debt application, the new supply index floors at `1`. So:
+During bad debt application, the new supply index floors at
+`SUPPLY_INDEX_FLOOR_RAW = 10^18` in raw Ray units (declared at
+`pool/src/interest.rs:14`). In decimal terms that is `10^-9`, nine orders of
+magnitude below nominal `1.0 RAY = 10^27`.
 
-- `supply_index_ray >= 1`
+So:
 
-always holds.
+- `supply_index_ray >= 10^18` (raw)
+
+always holds. The floor is tight enough to prevent divide-by-near-zero
+overflow in `amount / supply_index` conversions, while leaving socialization
+headroom below a full `1.0 RAY` reset.
+
+Paired silent-drop rule: `add_protocol_revenue_ray` at
+`pool/src/interest.rs:63-75` skips fee accrual when
+`supply_index < SUPPLY_INDEX_FLOOR_RAW`. The asset-decimal variant
+`add_protocol_revenue` (lines 49-59) does not currently mirror this guard;
+it is safe only because the floor clamp in
+`apply_bad_debt_to_supply_index` prevents the trigger condition from
+arising.
 
 ## 8. Utilization Invariant
 
@@ -340,6 +383,25 @@ Observed on-chain:
 
 which is `~1.4 WAD`, exactly consistent with the formula.
 
+### Liquidation cascade
+
+```mermaid
+flowchart TD
+    A["HF < 1.0 WAD ?"] -->|no| REV["revert HealthFactorTooHigh"]
+    A -->|yes| T102{"try target 1.02 WAD"}
+    T102 -->|feasible| D["d_ideal"]
+    T102 -->|infeasible| T101{"try target 1.01 WAD"}
+    T101 -->|feasible| D
+    T101 -->|infeasible| FB["fallback: d_max = total_coll / (1+base_bonus)<br/>regression guard: new_hf < old_hf"]
+    FB --> D
+    D --> REP["liquidator repays debt_to_repay"]
+    REP --> SEIZE["seize collateral per-asset:<br/>base + bonus + protocol_fee_on_bonus"]
+    SEIZE --> BAD{"debt > coll &amp; coll ≤ $5 ?"}
+    BAD -->|yes| SOCIAL["apply_bad_debt_to_supply_index<br/>floor supply_index ≥ 10^18 raw"]
+    BAD -->|no| OK["event + return"]
+    SOCIAL --> OK
+```
+
 ## 10. LTV Borrow Bound Invariant
 
 Before a borrow batch, the controller computes:
@@ -390,11 +452,20 @@ If remaining isolated debt is:
 
 - `0 < debt < 1 USD WAD`
 
-the tracker is zeroed.
+the tracker is zeroed in `adjust_isolated_debt_usd`
+(`controller/src/utils.rs:61-92`).
 
 ### Why
 
 This keeps stale sub-dollar residue from permanently blocking isolated-asset accounts.
+
+### Asymmetry note
+
+The dust-erasure rule runs only on the decrement path. The increment path
+in `handle_isolated_debt` (`controller/src/positions/borrow.rs:204-242`)
+does not apply a symmetric rule. Borrow + full-repay cycles therefore
+ratchet the tracker downward by up to the sub-$1 residual per cycle. See
+`MATH_REVIEW.md` §5.1 for the rule that should be added.
 
 ## 12. Claim Revenue Invariant
 
@@ -416,6 +487,19 @@ And after a full claim:
 
 - corresponding `revenue_ray` share is removed
 - corresponding `supplied_ray` share is removed
+
+### Partial claim mechanics
+
+When `reserves < treasury_actual` the pool transfers `reserves` and burns a
+**proportional** slice of both totals (`pool/src/lib.rs:478-496`):
+
+- `ratio = amount_to_transfer / treasury_actual`
+- `scaled_to_burn = revenue_scaled * ratio`
+- `revenue_ray -= min(scaled_to_burn, revenue_ray)`
+- `supplied_ray -= min(scaled_to_burn, supplied_ray)`
+
+This preserves both the reserve-cap invariant (`claimed ≤ reserves`) and
+the subset invariant (`revenue_ray ≤ supplied_ray`).
 
 ### Why
 
@@ -466,6 +550,29 @@ The market config stores:
 
 Token precision and price-feed precision are different domains. Conflating them creates pricing
 bugs.
+
+### Price resolution
+
+```mermaid
+flowchart TD
+    TP["token_price(asset)"] --> SRC{"ExchangeSource"}
+    SRC -->|SpotOnly DEV| CEX["CEX spot only"]
+    SRC -->|DualOracle| DUAL["CEX TWAP + DEX spot"]
+    SRC -->|SpotVsTwap default| SVT["CEX spot + CEX TWAP"]
+    CEX --> FINAL["calculate_final_price(aggregator, safe)"]
+    DUAL --> FINAL
+    SVT --> FINAL
+    FINAL --> T1{"within first tolerance ?"}
+    T1 -->|yes| SAFE["return safe price"]
+    T1 -->|no| T2{"within last tolerance ?"}
+    T2 -->|yes| AVG["return (agg + safe) / 2<br/>truncating div"]
+    T2 -->|no| RISKY{"allow_unsafe_price ?<br/>(supply/repay only)"}
+    RISKY -->|yes| SAFE
+    RISKY -->|no| PANIC["panic: DeviationBreached"]
+```
+
+Tolerance bands are in BPS on `MarketConfig`:
+`first_tolerance_bps < last_tolerance_bps ≤ MAX_LAST_TOLERANCE (5000 bps)`.
 
 ## 15. Controller And Pool Separation Invariant
 
@@ -564,3 +671,5 @@ re-verify:
 - [README.md](./README.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [DEPLOYMENT.md](./DEPLOYMENT.md)
+- [MATH_REVIEW.md](./MATH_REVIEW.md) — rule-coverage audit and remediation
+  plan for the invariants on this page.

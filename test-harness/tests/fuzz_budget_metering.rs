@@ -1,21 +1,21 @@
 //! Contract-level property test: budget-bounded metering.
 //!
 //! The default `LendingTest::new().build()` path calls `reset_unlimited()` +
-//! `disable_resource_limits()` so most correctness tests aren't bounded by
-//! Soroban's cost model. Mainnet **does** enforce these limits, however, and
-//! pathological batch sizes (e.g. `keepalive_accounts([N IDs])`) never hit
-//! the real ceiling in the default harness.
+//! `disable_resource_limits()`, so most correctness tests ignore Soroban's
+//! cost model. Mainnet enforces these limits, and pathological batch sizes
+//! (e.g. `keepalive_accounts([N IDs])`) never hit the real ceiling in the
+//! default harness.
 //!
-//! This file opts IN to Soroban's default budget via the
-//! `LendingTestBuilder::with_budget_enabled()` flag and fuzzes batch sizes.
+//! This file opts in to Soroban's default budget via
+//! `LendingTestBuilder::with_budget_enabled()` and fuzzes batch sizes.
 //!
 //! Acceptable outcomes:
 //!   * `Ok(_)` -- operation stays within budget.
-//!   * `Err(ExceededLimit)` or any Soroban-host budget panic -- the cost model
-//!     correctly rejects the oversized batch. Whitelist this.
+//!   * `Err(ExceededLimit)` or any Soroban-host budget panic -- the cost
+//!     model correctly rejects the oversized batch. Whitelist this.
 //!
 //! Unacceptable:
-//!   * Any *other* panic. The cost model should produce clean errors, never
+//!   * Any *other* panic. The cost model must produce clean errors, never
 //!     opaque panics.
 
 extern crate std;
@@ -26,7 +26,7 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Vec as SVec};
 use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest};
 
-/// Build a harness with Soroban's default budget + resource limits enabled.
+/// Build a harness with Soroban's default budget and resource limits enabled.
 fn build_ctx_with_budget() -> LendingTest {
     LendingTest::new()
         .with_market(usdc_preset())
@@ -41,6 +41,7 @@ fn build_ctx_with_budget() -> LendingTest {
 // fails cleanly with a budget error. Never produces an opaque panic.
 // ---------------------------------------------------------------------------
 
+
 proptest! {
     // Expensive setup: keep case count modest.
     #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
@@ -53,10 +54,10 @@ proptest! {
     ) {
         let mut t = build_ctx_with_budget();
 
-        // Create accounts WITHOUT any supply (keeps setup cheap; keepalive still
-        // must exercise the per-id path through `try_get_account` + `bump_user`).
-        // We generate synthetic account IDs by calling create_account, which only
-        // bumps the AccountNonce -- very cheap.
+        // Create accounts without any supply (cheap setup; keepalive still
+        // exercises the per-id path through `try_get_account` + `bump_user`).
+        // create_account generates synthetic IDs and only bumps the
+        // AccountNonce -- very cheap.
         let mut ids = SVec::<u64>::new(&t.env);
         for i in 0..num_accounts {
             // Fresh user per account so create_account succeeds.
@@ -82,7 +83,7 @@ proptest! {
             }
             Err(payload) => {
                 // Opaque panic -- classify. Soroban host panics include
-                // "budget", "exceeded", or "limit" in the message string.
+                // "budget", "exceeded", or "limit" in the message.
                 let msg = if let Some(s) = payload.downcast_ref::<&str>() {
                     (*s).to_string()
                 } else if let Some(s) = payload.downcast_ref::<std::string::String>() {
@@ -107,7 +108,7 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 2: `multiply` with realistic leverage (<= 3x) executes within the
+// Property 2: `multiply` with realistic leverage (<= 3x) runs within the
 // default budget or fails cleanly. Catches cost-model regressions on the
 // flash-loan + strategy path.
 // ---------------------------------------------------------------------------
@@ -132,8 +133,8 @@ proptest! {
 
         // Collateral: USDC, debt: ETH (standard strategy pair).
         // debt_amount = (supply_usd * (leverage_bps - 10_000) / 10_000) / eth_price
-        // Use a tiny number so we don't blow past liquidity; the test is about
-        // the cost model, not the economics.
+        // Use a tiny number to stay within liquidity; the test targets the
+        // cost model, not the economics.
         let borrow_eth = (supply_u as f64) * (leverage_bps as f64 - 10_000.0) / 10_000.0 / 2_000.0;
 
         let steps = t.mock_swap_steps("ETH", "USDC", common::constants::WAD);

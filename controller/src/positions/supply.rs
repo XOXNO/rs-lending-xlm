@@ -24,27 +24,27 @@ pub fn process_supply(
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
-    // Resolve or create account
+    // Resolve or create the account.
     let acct_id = if account_id == 0 {
         utils::create_account_for_first_asset(env, caller, e_mode_category, assets)
     } else {
         account_id
     };
 
-    // Load account once — single storage read
+    // Load the account once: single storage read.
     let mut account = storage::get_account(env, acct_id);
 
-    // Owner check (skip for newly created accounts — caller is the owner)
+    // Owner check; skip for newly created accounts since the caller is the owner.
     if account_id != 0 && account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 
-    let mut cache = ControllerCache::new(env, true); // supply is risk-decreasing
+    let mut cache = ControllerCache::new(env, true); // Supply is risk-decreasing.
 
-    // Process deposits for all assets in the batch
+    // Process deposits for every asset in the batch.
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
 
-    // Single write at the end of the batch
+    // Single write at the end of the batch.
     storage::set_account(env, acct_id, &account);
 
     acct_id
@@ -62,15 +62,15 @@ pub fn process_deposit(
     assets: &Vec<(Address, i128)>,
     cache: &mut ControllerCache,
 ) {
-    // Fetch e-mode category once, reused across every iteration
+    // Fetch the e-mode category once and reuse across every iteration.
     let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
     emode::ensure_e_mode_not_deprecated(env, &e_mode);
 
-    // Pre-flight position limit check (atomic rejection of the full batch)
+    // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
 
     for (asset, amount) in assets {
-        // validate_payment equivalent — asset must be supported and amount > 0
+        // validate_payment equivalent: asset must be supported, amount must be positive.
         validation::require_asset_supported(env, &asset);
         validation::require_amount_positive(env, amount);
 
@@ -147,9 +147,15 @@ pub fn update_deposit_position(
 ) -> AccountPosition {
     let mut position = get_or_create_deposit_position(account, account_id, asset_config, asset);
 
-    // Auto-upgrade risk parameters to match the latest asset config.
+    // Upgrade risk parameters to match the latest asset config. M-06: refresh
+    // `liquidation_threshold_bps` alongside the other three so post-edit
+    // top-ups stay consistent with live AssetConfig — the keeper-mediated
+    // `update_account_threshold` path is no longer the only refresher.
     if position.loan_to_value_bps != asset_config.loan_to_value_bps {
         position.loan_to_value_bps = asset_config.loan_to_value_bps;
+    }
+    if position.liquidation_threshold_bps != asset_config.liquidation_threshold_bps {
+        position.liquidation_threshold_bps = asset_config.liquidation_threshold_bps;
     }
     if position.liquidation_bonus_bps != asset_config.liquidation_bonus_bps {
         position.liquidation_bonus_bps = asset_config.liquidation_bonus_bps;
@@ -161,8 +167,8 @@ pub fn update_deposit_position(
     let market_index =
         update_market_position(env, cache, &mut position, asset, amount, caller, feed);
 
-    // Event (supply uses supply_index_ray). The pool already synced indexes
-    // and returned the exact market index used for this mutation.
+    // Event (supply uses supply_index_ray). The pool synced indexes and
+    // returned the exact market index used for this mutation.
     emit_update_position(
         env,
         UpdatePositionEvent {
@@ -176,8 +182,8 @@ pub fn update_deposit_position(
         },
     );
 
-    // Update the in-memory account. Storage is written once at the end of
-    // `process_supply`.
+    // Update the in-memory account. `process_supply` writes storage once at
+    // the end of the batch.
     update::update_or_remove_position(account, &position);
 
     position
@@ -199,7 +205,7 @@ fn update_market_position(
     let pool_addr = cache.cached_pool_address(asset);
 
     // Transfer caller -> pool before calling supply, using balance-delta
-    // accounting so fee-on-transfer or rebasing tokens cannot inflate the
+    // accounting, so fee-on-transfer or rebasing tokens cannot inflate the
     // booked amount relative to what the pool actually received.
     let token = soroban_sdk::token::Client::new(env, asset);
     let pool_balance_before = token.balance(&pool_addr);
@@ -213,7 +219,7 @@ fn update_market_position(
     }
 
     // Call pool.supply and replace the in-memory position with the updated
-    // version (scaled_amount_ray reflects the pool's new supply index).
+    // version. scaled_amount_ray reflects the pool's new supply index.
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let result = pool_client.supply(position, &feed.price_wad, &actual_received);
     *position = result.position;
@@ -237,8 +243,8 @@ fn validate_supply_cap(
     }
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let current_total = pool_client.supplied_amount(); // now returns asset decimals
-    let total = current_total.saturating_add(amount); // both in asset decimals
+    let current_total = pool_client.supplied_amount(); // Returns asset decimals.
+    let total = current_total.saturating_add(amount); // Both in asset decimals.
     if total > asset_config.supply_cap {
         panic_with_error!(env, CollateralError::SupplyCapReached);
     }
@@ -259,7 +265,7 @@ pub fn update_position_threshold(
     feed: &PriceFeed,
     cache: &mut ControllerCache,
 ) {
-    // Load account — no-op when the account is gone (bad-debt cleanup, full exit).
+    // Load account; no-op when the account is gone (bad-debt cleanup, full exit).
     let mut account = match storage::try_get_account(env, account_id) {
         Some(acct) => acct,
         None => return,
@@ -272,16 +278,15 @@ pub fn update_position_threshold(
 
     storage::bump_account(env, account_id);
 
-    // Apply e-mode override to the asset config (per-account, because
-    // e_mode_category may differ across accounts). Uses the shared emode
-    // helpers — no duplicated logic.
+    // Apply the per-account e-mode override (e_mode_category may differ
+    // across accounts). Uses the shared emode helpers; no duplicated logic.
     //
-    // NOTE: We intentionally do NOT call ensure_e_mode_not_deprecated here.
-    // The keeper must be able to propagate updated thresholds to accounts
-    // in deprecated eMode categories, allowing graceful wind-down to base
-    // asset params. When the category is deprecated and its assets have been
-    // removed, asset_emode_config will be None and apply_e_mode_to_asset_config
-    // becomes a no-op, so base params flow through naturally.
+    // NOTE: Do NOT call ensure_e_mode_not_deprecated here. The keeper must
+    // propagate updated thresholds to accounts in deprecated eMode categories,
+    // allowing graceful wind-down to base asset params. When the category is
+    // deprecated and its assets have been removed, asset_emode_config is None
+    // and apply_e_mode_to_asset_config becomes a no-op, so base params flow
+    // through naturally.
     let e_mode_category = emode::e_mode_category(env, account.e_mode_category_id);
     let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, asset);
     emode::apply_e_mode_to_asset_config(env, asset_config, &e_mode_category, asset_emode_config);
@@ -307,7 +312,7 @@ pub fn update_position_threshold(
     update::store_position(&mut account, &updated_pos);
     storage::set_account(env, account_id, &account);
 
-    // Risky updates can tip a position into liquidation — enforce a 5%
+    // Risky updates can tip a position into liquidation; enforce a 5%
     // safety buffer after the store so the position is not immediately
     // liquidatable.
     if has_risks {
@@ -322,8 +327,8 @@ pub fn update_position_threshold(
         }
     }
 
-    // Emit position update event with amount = 0 (no deposit/withdraw —
-    // this is a parameter-only change).
+    // Emit a position update event with amount = 0; no deposit or withdraw
+    // occurred, only a parameter change.
     let market_index = cache.cached_market_index(asset);
     emit_update_position(
         env,
@@ -389,7 +394,7 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params));
+            let pool = env.register(pool::LiquidityPool, (controller.clone(), params, controller.clone()));
 
             Self {
                 env,
@@ -447,6 +452,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }

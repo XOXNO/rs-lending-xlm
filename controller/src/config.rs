@@ -1,7 +1,7 @@
 use common::constants::{
     BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
 };
-use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, OracleError};
+use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 use common::events::{
     emit_remove_emode_asset, emit_update_asset_config, emit_update_asset_oracle,
     emit_update_emode_asset, emit_update_emode_category, EventOracleProvider,
@@ -19,13 +19,6 @@ use soroban_sdk::{panic_with_error, token, Address, BytesN, Env, Executable};
 
 use crate::oracle::reflector::{ReflectorAsset, ReflectorClient};
 use crate::{storage, validation};
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-const MAX_FLASHLOAN_FEE_BPS: i128 = 500; // 5%
 
 fn require_contract_address(env: &Env, addr: &Address, error: impl Into<soroban_sdk::Error>) {
     if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
@@ -64,11 +57,9 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
 
 pub fn edit_asset_config(env: &Env, asset: Address, config: AssetConfig) {
     validation::validate_asset_config(env, &config);
-
-    // Validate: flashloan fee within global protocol bounds
-    if config.flashloan_fee_bps > MAX_FLASHLOAN_FEE_BPS {
-        panic_with_error!(env, FlashLoanError::StrategyFeeExceeds);
-    }
+    // Note: `validate_asset_config` now also enforces `flashloan_fee_bps`
+    // bounds (audit fix H-04), so callers from `create_liquidity_pool` are
+    // covered too. This function trusts the shared validation.
 
     let mut market = storage::get_market_config(env, &asset);
     let mut next_config = config;
@@ -91,9 +82,9 @@ pub fn edit_asset_config(env: &Env, asset: Address, config: AssetConfig) {
 
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
     // L-13: bound PositionLimits to sane values.
-    // - lower bound 1: 0 positions would brick supply/borrow for every user
+    // - lower bound 1: 0 positions would brick supply/borrow for every user.
     // - upper bound 32: liquidation iterates through positions; unbounded
-    //   values risk on-chain gas exhaustion in liquidation
+    //   values risk on-chain gas exhaustion during liquidation.
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
         || limits.max_supply_positions > 32
@@ -109,10 +100,10 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
 // ---------------------------------------------------------------------------
 
 pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
-    if threshold <= ltv {
+    if ltv < 0 || threshold <= ltv || threshold > 10_000 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if bonus > common::constants::MAX_LIQUIDATION_BONUS {
+    if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
@@ -132,10 +123,10 @@ pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -
 }
 
 pub fn edit_e_mode_category(env: &Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
-    if threshold <= ltv {
+    if ltv < 0 || threshold <= ltv || threshold > 10_000 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if bonus > common::constants::MAX_LIQUIDATION_BONUS {
+    if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
     let mut cat = storage::try_get_emode_category(env, id)
@@ -155,8 +146,8 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     storage::set_emode_category(env, id, &cat);
 
     // NOTE: Soroban storage is not iterable, so stale membership entries
-    // remain after deprecation. The deprecated flag prevents new positions
-    // from using this category; stale entries are rejected at runtime.
+    // survive deprecation. The deprecated flag blocks new positions from
+    // using this category; runtime checks reject stale entries.
 
     emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
 }
@@ -172,19 +163,19 @@ pub fn add_asset_to_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    // Validate category exists and is not deprecated (single read)
+    // Validate that the category exists and is not deprecated (single read).
     let cat = storage::try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     if cat.is_deprecated {
         panic_with_error!(env, EModeError::EModeCategoryDeprecated);
     }
 
-    // Guard: asset must be supported in the primary market
+    // Guard: asset must be supported in the primary market.
     if !storage::has_market_config(env, &asset) {
         panic_with_error!(env, GenericError::AssetNotSupported);
     }
 
-    // Guard: asset must not already be in this category
+    // Guard: asset must not already belong to this category.
     if storage::get_emode_asset(env, category_id, &asset).is_some() {
         panic_with_error!(env, EModeError::AssetAlreadyInEmode);
     }
@@ -195,8 +186,8 @@ pub fn add_asset_to_e_mode_category(
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
-    // Maintain the asset -> category index. When the asset enters its first
-    // e-mode category, enable `e_mode_enabled` on the market config.
+    // Maintain the asset -> category index. Enable `e_mode_enabled` on the
+    // market config when the asset enters its first e-mode category.
     let mut asset_cats = storage::get_asset_emodes(env, &asset);
     let is_first_category = asset_cats.is_empty();
     if !asset_cats.contains(category_id) {
@@ -229,7 +220,7 @@ pub fn edit_asset_in_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    // Guard: asset must exist in this category
+    // Guard: asset must exist in this category.
     if storage::get_emode_asset(env, category_id, &asset).is_none() {
         panic_with_error!(env, EModeError::AssetNotInEmode);
     }
@@ -254,7 +245,7 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     storage::remove_emode_asset(env, category_id, &asset);
 
     // Remove the asset -> category index entry. Disable `e_mode_enabled`
-    // when the asset no longer belongs to any e-mode category.
+    // once the asset belongs to no e-mode category.
     let mut asset_cats = storage::get_asset_emodes(env, &asset);
     if let Some(idx) = asset_cats.iter().position(|id| id == category_id) {
         asset_cats.remove(idx as u32);
@@ -346,8 +337,24 @@ fn resolve_oracle_decimals(
         panic_with_error!(env, GenericError::InvalidTicker);
     }
 
+    // M-09: probe the DEX feed with the operator-supplied dex_symbol/kind.
+    // Previously the code forwarded cex_symbol to the DEX, which silently
+    // sent the wrong symbol when the two kinds differed. Reject unresolvable
+    // DEX symbols at config time rather than at first price call.
     let dex_decimals = if let Some(dex_addr) = config.dex_oracle.clone() {
-        ReflectorClient::new(env, &dex_addr).decimals()
+        let dex_client = ReflectorClient::new(env, &dex_addr);
+        let dex_asset = match config.dex_asset_kind {
+            common::types::ReflectorAssetKind::Stellar => {
+                ReflectorAsset::Stellar(asset.clone())
+            },
+            common::types::ReflectorAssetKind::Other => {
+                ReflectorAsset::Other(config.dex_symbol.clone())
+            },
+        };
+        if dex_client.lastprice(&dex_asset).is_none() {
+            panic_with_error!(env, GenericError::InvalidTicker);
+        }
+        dex_client.decimals()
     } else {
         0
     };
@@ -376,8 +383,8 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         resolve_oracle_decimals(env, &asset, &config);
     // In production, persist the on-chain token precision discovered from the
     // asset contract. The integration harness uses Soroban's built-in SAC
-    // helper, which is fixed at 7 decimals, so under `testing` we preserve
-    // the synthetic market precision seeded at market-creation time.
+    // helper, fixed at 7 decimals, so under `testing` we preserve the
+    // synthetic market precision seeded at market creation.
     let persisted_asset_decimals =
         if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
             market.oracle_config.asset_decimals
@@ -406,6 +413,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
     market.cex_decimals = cex_decimals;
     market.dex_oracle = config.dex_oracle;
     market.dex_asset_kind = config.dex_asset_kind;
+    market.dex_symbol = config.dex_symbol;
     market.dex_decimals = dex_decimals;
     market.twap_records = config.twap_records;
     storage::set_market_config(env, &asset, &market);
@@ -427,7 +435,7 @@ pub fn edit_oracle_tolerance(
 ) {
     // Auth handled by the ORACLE-gated endpoint in the contract impl.
 
-    // Validate raw deviation BPS and compute pre-computed ratio bounds
+    // Validate raw deviation BPS and compute the ratio bounds.
     let tolerance = validate_and_calculate_tolerances(env, first_tolerance, last_tolerance);
 
     let mut market = storage::get_market_config(env, &asset);
@@ -464,6 +472,7 @@ pub fn set_reflector_config(env: &Env, asset: Address, config: ReflectorConfig) 
             cex_symbol: config.cex_symbol.clone(),
             dex_oracle: config.dex_oracle.clone(),
             dex_asset_kind: config.dex_asset_kind.clone(),
+            dex_symbol: config.cex_symbol.clone(),
             twap_records: config.twap_records,
         },
     );
@@ -492,9 +501,10 @@ pub fn set_token_oracle(
             .cex_oracle
             .unwrap_or_else(|| panic_with_error!(env, OracleError::ReflectorNotConfigured)),
         cex_asset_kind: market.cex_asset_kind,
-        cex_symbol: market.cex_symbol,
+        cex_symbol: market.cex_symbol.clone(),
         dex_oracle: market.dex_oracle,
         dex_asset_kind: market.dex_asset_kind,
+        dex_symbol: market.dex_symbol,
         twap_records: market.twap_records,
     };
 
@@ -533,7 +543,7 @@ mod tests {
                 .address()
                 .clone();
 
-            // Register a dummy reflector config so interest updates don't panic
+            // Register a dummy reflector config so interest updates don't panic.
             let reflector = env.register(crate::helpers::testutils::TestReflector, ());
             let r_client = crate::helpers::testutils::TestReflectorClient::new(&env, &reflector);
             r_client.set_spot(
@@ -626,6 +636,7 @@ mod tests {
                 cex_decimals: 0,
                 dex_oracle: None,
                 dex_asset_kind: ReflectorAssetKind::Stellar,
+                dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
             }
@@ -946,9 +957,9 @@ mod tests {
         });
     }
 
-    // Full contract deployment and deterministic salt uniqueness are verified
-    // in the integration test suite (test-harness/tests/admin_config_tests.rs)
-    // where the actual pool WASM is available for the host deployer.
+    // The integration test suite (test-harness/tests/admin_config_tests.rs)
+    // verifies full contract deployment and deterministic salt uniqueness,
+    // since the actual pool WASM is available there for the host deployer.
 
     #[test]
     #[should_panic(expected = "Error(Contract, #113)")]
