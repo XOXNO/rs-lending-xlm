@@ -1,0 +1,28 @@
+[package]
+name = "cvlr-macros"
+description = "Miscellaneous macros" 
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true}
+quote = { workspace = true }
+syn = { workspace = true }
+darling = "0.20" 
+
+[dev-dependencies]
+# path-dependency to break cyclic dev dependency on crates
+cvlr = { path = "../cvlr", features = ["rt", "no-loc"] }
+macrotest = { workspace = true }
+trybuild = { workspace = true }

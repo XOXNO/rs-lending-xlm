@@ -1,0 +1,131 @@
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+    paths:
+      - 'common/**'
+      - 'pool/**'
+      - 'controller/**'
+      - 'test-harness/**'
+      - 'fuzz/**'
+  schedule:
+    # Nightly long-run at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: 'Seconds per function-level target'
+        required: false
+        default: '300'
+      proptest_cases:
+        description: 'Cases per contract-level property test'
+        required: false
+        default: '5000'
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pin untrusted workflow_dispatch inputs into env to avoid injection.
+  FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
+  PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
+
+jobs:
+  # PR gate: fast smoke (5 min total).
+  pr-smoke:
+    if: github.event_name == 'pull_request'
+    name: Fuzz smoke (PR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.93'
+          targets: wasm32-unknown-unknown
+
+      - name: Install Rust nightly (for cargo-fuzz)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock') }}
+
+      - name: Build pool WASM (required by test-harness)
+        run: stellar contract build || cargo build -p pool --target wasm32v1-none --release
+
+      - name: Function-level fuzz (30s each)
+        run: make fuzz FUZZ_TIME=30
+
+      - name: Contract-level proptest (256 cases each)
+        run: make proptest PROPTEST_CASES=256
+
+  miri-common:
+    if: github.event_name == 'pull_request'
+    name: Miri pass on common
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - run: make miri-common
+
+  # Nightly: long run, surfaces findings into issues on failure.
+  nightly-long:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Fuzz long run
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.93'
+          targets: wasm32-unknown-unknown
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            fuzz/target
+          key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build pool WASM
+        run: stellar contract build || cargo build -p pool --target wasm32v1-none --release
+
+      - name: Function-level fuzz (long)
+        env:
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
+        run: make fuzz FUZZ_TIME="$FUZZ_TIME"
+
+      - name: Contract-level proptest (long)
+        env:
+          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || '50000' }}
+        run: make proptest PROPTEST_CASES="$PROPTEST_CASES"
+
+      - name: Upload fuzz artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.run_id }}
+          path: |
+            fuzz/artifacts/
+            test-harness/tests/*.proptest-regressions

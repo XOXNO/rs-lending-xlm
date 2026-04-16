@@ -1,0 +1,21 @@
+[package]
+name = "cvlr-nondet"
+description = "Non-deterministic (i.e., symbolic) values"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std"]
+std = []
+rt = []
+
+[dependencies]
+cvlr-asserts = { workspace = true }

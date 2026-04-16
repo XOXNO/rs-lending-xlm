@@ -1,0 +1,28 @@
+[package]
+name = "cvlr-log"
+description = "Logging in Certora Calltrace" 
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+
+[features]
+default = ["mathint"]
+rt = ["cvlr-mathint/rt"]
+mathint = ["dep:cvlr-mathint"]
+no-loc = []
+
+[dependencies]
+cvlr-mathint = { workspace = true, optional = true }
+
+[dev-dependencies]
+cvlr = { path = "../cvlr", features = ["rt", "no-loc"] }
+trybuild = { workspace = true }
+macrotest = { workspace = true }

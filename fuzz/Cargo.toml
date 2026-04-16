@@ -1,0 +1,125 @@
+[package]
+name = "stellar-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Isolate from parent workspace at repo root.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+soroban-sdk = { version = "25.3.1", features = ["testutils"] }
+common = { path = "../common" }
+controller = { path = "../controller", features = ["testing"] }
+pool = { path = "../pool" }
+test-harness = { path = "../test-harness", features = ["testing"] }
+
+# Used only by the `seed_corpus` binary (walks test_snapshots JSONs and emits
+# libFuzzer seed files). Fuzz targets do not reference these, so the linker
+# drops them from each target's final binary.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+# NOTE: contract-level (Env-based) libFuzzer targets require
+# `--sanitizer=thread` on macOS (aarch64) — the default libFuzzer sancov
+# build fails to link the `stellar-access` cdylib variant. TSAN avoids the
+# cdylib path. See fuzz/README.md.
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fp_mul_div"
+path = "fuzz_targets/fp_mul_div.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fp_rescale"
+path = "fuzz_targets/fp_rescale.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fp_div_by_int"
+path = "fuzz_targets/fp_div_by_int.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rates_borrow"
+path = "fuzz_targets/rates_borrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compound_monotonic"
+path = "fuzz_targets/compound_monotonic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_supply_borrow_tsan_smoke"
+path = "fuzz_targets/flow_supply_borrow_tsan_smoke.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_supply_borrow_liquidate"
+path = "fuzz_targets/flow_supply_borrow_liquidate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_flash_loan"
+path = "fuzz_targets/flow_flash_loan.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_oracle_tolerance"
+path = "fuzz_targets/flow_oracle_tolerance.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_isolation_emode_xor"
+path = "fuzz_targets/flow_isolation_emode_xor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_cache_atomicity"
+path = "fuzz_targets/flow_cache_atomicity.rs"
+test = false
+doc = false
+bench = false
+
+
+## Host-side binary: seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
+## NOT a fuzz target — plain `cargo run --bin seed_corpus`, no libfuzzer_sys.
+[[bin]]
+name = "seed_corpus"
+path = "src/bin/seed_corpus.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

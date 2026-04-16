@@ -1,0 +1,34 @@
+{
+  "testnet": {
+    "1": {
+      "name": "Stablecoins",
+      "ltv": "9700",
+      "liquidation_threshold": "9800",
+      "liquidation_bonus": "200",
+      "assets": {
+        "USDC": {
+          "can_be_collateral": true,
+          "can_be_borrowed": true
+        },
+        "EURC": {
+          "can_be_collateral": true,
+          "can_be_borrowed": true
+        }
+      }
+    }
+  },
+  "mainnet": {
+    "1": {
+      "name": "Stablecoins",
+      "ltv": "9700",
+      "liquidation_threshold": "9800",
+      "liquidation_bonus": "200",
+      "assets": {
+        "USDC": {
+          "can_be_collateral": true,
+          "can_be_borrowed": true
+        }
+      }
+    }
+  }
+}

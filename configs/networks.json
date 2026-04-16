@@ -1,0 +1,18 @@
+{
+  "testnet": {
+    "rpc_url": "https://soroban-testnet.stellar.org",
+    "network_passphrase": "Test SDF Network ; September 2015",
+    "controller": "CAJ34VYFM323KIZ5Y6MVY64NSVPBGZK6IOGDC7L6VSZMAXA4UBNZIF2V",
+    "aggregator": "",
+    "pool_wasm_hash": "88843c87e9d29458778e4396b20c97876f480be84e3df3cd9a852325b6d43bad",
+    "ledger_index": 0
+  },
+  "mainnet": {
+    "rpc_url": "https://mainnet.sorobanrpc.com",
+    "network_passphrase": "Public Global Stellar Network ; September 2015",
+    "controller": "",
+    "aggregator": "",
+    "pool_wasm_hash": "",
+    "ledger_index": 0
+  }
+}

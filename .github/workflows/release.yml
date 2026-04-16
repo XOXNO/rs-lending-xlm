@@ -1,0 +1,56 @@
+name: Release Build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+  attestations: write
+
+jobs:
+  release-controller:
+    name: Build Controller
+    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
+    with:
+      release_name: ${{ github.event.inputs.tag || github.ref_name }}
+      package: 'controller'
+      relative_path: '["."]'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}
+
+  release-pool:
+    name: Build Pool
+    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
+    with:
+      release_name: ${{ github.event.inputs.tag || github.ref_name }}
+      package: 'pool'
+      relative_path: '["."]'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}
+
+  release-oracle-adapter:
+    name: Build Oracle Adapter
+    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
+    with:
+      release_name: ${{ github.event.inputs.tag || github.ref_name }}
+      package: 'oracle_adapter'
+      relative_path: '["."]'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}
+
+  release-swap-router:
+    name: Build Swap Router
+    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
+    with:
+      release_name: ${{ github.event.inputs.tag || github.ref_name }}
+      package: 'swap_router'
+      relative_path: '["."]'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}

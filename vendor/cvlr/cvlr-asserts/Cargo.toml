@@ -1,0 +1,27 @@
+[package]
+name = "cvlr-asserts"
+description = "Asserts and assumes for post- and pre-conditions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+
+[features]
+vacuity = []
+rt = []
+no-loc = []
+
+[dependencies]
+
+[dev-dependencies]
+# path-dependency to break cyclic dev dependency on crates
+cvlr = { path = "../cvlr", features = ["rt"] }
+cvlr-asserts = { path = ".", features = ["rt"] }
+macrotest = { workspace = true }

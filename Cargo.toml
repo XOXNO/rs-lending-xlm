@@ -1,0 +1,43 @@
+[workspace]
+members = ["common", "pool-interface", "pool", "controller", "test-harness"]
+exclude = ["fuzz", "vendor"]
+resolver = "2"
+
+[workspace.dependencies]
+soroban-sdk = "25.3.1"
+stellar-access = "0.7.0"
+stellar-contract-utils = "0.7.0"
+stellar-macros = "0.7.0"
+
+# Certora formal verification (only compiled with `certora` feature)
+cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
+cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git" }
+cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git" }
+cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git" }
+
+
+# Vendored cvlr with #![no_std] patched onto cvlr-spec. Upstream cvlr-spec
+# is missing this attribute, which prevents compilation against the
+# wasm32v1-none target used by soroban-sdk 25+. Track upstream fix and
+# remove this patch once it lands.
+[patch."https://github.com/Certora/cvlr.git"]
+cvlr = { path = "vendor/cvlr/cvlr" }
+cvlr-asserts = { path = "vendor/cvlr/cvlr-asserts" }
+cvlr-early-panic = { path = "vendor/cvlr/cvlr-early-panic" }
+cvlr-log = { path = "vendor/cvlr/cvlr-log" }
+cvlr-nondet = { path = "vendor/cvlr/cvlr-nondet" }
+cvlr-decimal = { path = "vendor/cvlr/cvlr-decimal" }
+cvlr-derive = { path = "vendor/cvlr/cvlr-derive" }
+cvlr-fixed = { path = "vendor/cvlr/cvlr-fixed" }
+cvlr-macros = { path = "vendor/cvlr/cvlr-macros" }
+cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = "thin"

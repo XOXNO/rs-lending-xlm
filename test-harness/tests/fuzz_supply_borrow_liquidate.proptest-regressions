@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b926cf95fd6b6b1225f9605ae15c95ee245754d554d1e9fee50b609e1957c876 # shrinks to supply_usdc = 1000, borrow_frac_bps = 5672, time_jump_secs = 168072, eth_price_rise_bps = 11783, liq_repay_frac_bps = 857
