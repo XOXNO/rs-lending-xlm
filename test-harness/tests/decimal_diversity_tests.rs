@@ -244,7 +244,9 @@ fn test_interest_accrual_mixed_decimals() {
     let borrow_before = t.borrow_balance(ALICE, "DAI18");
 
     // Advance 7 days; the short window stays healthy at default rates.
-    t.advance_and_sync(7 * 24 * 60 * 60 * 1000);
+    // `advance_and_sync` takes seconds (not milliseconds — that would walk
+    // the ledger ~19 years and overflow `compound_interest`).
+    t.advance_and_sync(7 * 24 * 60 * 60);
 
     let borrow_after = t.borrow_balance(ALICE, "DAI18");
     assert!(

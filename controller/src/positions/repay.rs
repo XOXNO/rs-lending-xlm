@@ -453,7 +453,11 @@ mod tests {
 
             clear_position_isolated_debt(&t.env, &position, &account, &mut cache);
 
-            assert_eq!(cache.get_isolated_debt(&t.asset), WAD);
+            // clear_position_isolated_debt passes `outstanding == repaid` to
+            // adjust_isolated_debt_usd, which zeroes the tracker (full clear).
+            // Matches the oracle-independent proportional-decay design in
+            // utils::adjust_isolated_debt_usd.
+            assert_eq!(cache.get_isolated_debt(&t.asset), 0);
         });
     }
 }

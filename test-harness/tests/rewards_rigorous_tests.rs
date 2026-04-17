@@ -183,28 +183,19 @@ fn test_add_rewards_compounds_over_multiple_calls() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Rewards with zero supply are a no-op (index unchanged)
+// 5. Rewards with zero supply must be rejected (no silent token drop)
 // ---------------------------------------------------------------------------
 
+// The pool panics `NoSuppliersToReward` (error 37) when `cache.supplied == 0`
+// because `update_supply_index` would short-circuit and the transferred
+// tokens would land in the pool's balance untracked. Rejecting fail-fast is
+// safer than silently crediting the reserve pot.
 #[test]
-fn test_add_rewards_noop_when_no_supply() {
+#[should_panic(expected = "Error(Contract, #37)")]
+fn test_add_rewards_rejects_when_no_supply() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    // No one has supplied: supply_scaled = 0.
-    let (si_before, _) = get_indexes(&t, "USDC");
-
-    // With zero supply, `add_rewards` transfers tokens but must leave the
-    // supply index unchanged.
+    // No one has supplied: supply_scaled = 0 → pool must reject.
     t.add_rewards("USDC", 1_000.0);
-
-    let (si_after, _) = get_indexes(&t, "USDC");
-
-    // The index must stay unchanged: rewards distributed to zero suppliers
-    // are a no-op.
-    assert_eq!(
-        si_before, si_after,
-        "supply index should not change when there are no suppliers"
-    );
 }
 
 // ---------------------------------------------------------------------------
