@@ -59,18 +59,16 @@ pub fn sync_market_indexes(_env: &Env, cache: &mut ControllerCache, assets: &Vec
 
 /// Decrements the isolated-debt tracker by the repaid fraction of
 /// outstanding debt: `new_debt = current * (outstanding - repaid) /
-/// outstanding`. Oracle-independent. Full repayment (repaid >=
-/// outstanding) zeros the tracker. Sub-$1 residuals are also zeroed to
-/// prevent dust lockup.
-///
-/// `price_wad` and `asset_decimals` remain in the signature for call-site
-/// compatibility but do not affect the decrement.
+/// outstanding`. Oracle-independent — the decrement depends only on
+/// ledger state (`position.scaled_amount_ray * borrow_index → tokens`),
+/// so a diverged or stale oracle on the lax repay path cannot shrink the
+/// tracker faster than the real share being cleared. Full repayment
+/// (`repaid >= outstanding`) zeros the tracker. Sub-$1 residuals are also
+/// zeroed so dust cannot keep the isolated flag alive.
 pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,
     token_amount: i128,
-    _price_wad: &i128,
-    _asset_decimals: u32,
     outstanding_before: i128,
     cache: &mut ControllerCache,
 ) {
@@ -139,7 +137,7 @@ mod tests {
         cache.set_isolated_debt(&tracked_asset, 77);
 
         // Non-isolated account: no-op regardless of outstanding_before.
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, 10_000_000, &mut cache);
+        adjust_isolated_debt_usd(&env, &account, 10_000_000, 10_000_000, &mut cache);
 
         assert_eq!(cache.get_isolated_debt(&tracked_asset), 77);
     }
@@ -153,7 +151,7 @@ mod tests {
 
         cache.set_isolated_debt(&isolated_asset, WAD + (WAD / 2));
         // Full clear: outstanding == repaid -> decrement fraction = 1 -> tracker zeroed.
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, 10_000_000, &mut cache);
+        adjust_isolated_debt_usd(&env, &account, 10_000_000, 10_000_000, &mut cache);
 
         assert_eq!(cache.get_isolated_debt(&isolated_asset), 0);
     }

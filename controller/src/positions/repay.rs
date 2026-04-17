@@ -131,13 +131,10 @@ pub fn execute_repayment(
     // proportionally to `repaid / outstanding` so the tracker does not
     // drift under oracle divergence on the lax-oracle repay path.
     if account.is_isolated && result.actual_amount > 0 {
-        let feed = cache.cached_price(&position.asset);
         utils::adjust_isolated_debt_usd(
             env,
             account,
             result.actual_amount,
-            &price_wad,
-            feed.asset_decimals,
             outstanding_before,
             cache,
         );
@@ -163,17 +160,8 @@ pub fn clear_position_isolated_debt(
         .to_asset(feed.asset_decimals);
 
     if actual_amount > 0 {
-        let feed = cache.cached_price(&position.asset);
         // Full clear: pass `outstanding == repaid` so the tracker zeroes.
-        utils::adjust_isolated_debt_usd(
-            env,
-            account,
-            actual_amount,
-            &feed.price_wad,
-            feed.asset_decimals,
-            actual_amount,
-            cache,
-        );
+        utils::adjust_isolated_debt_usd(env, account, actual_amount, actual_amount, cache);
     }
 }
 
