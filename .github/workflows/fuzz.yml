@@ -42,7 +42,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.93'
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Install Rust nightly (for cargo-fuzz)
         uses: dtolnay/rust-toolchain@nightly
@@ -60,8 +60,15 @@ jobs:
             fuzz/target
           key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock') }}
 
+      - name: Install stellar-cli
+        run: |
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE '^stellar 25\.[2-9]|^stellar 2[6-9]'; then
+            cargo install --locked stellar-cli@25.2.0
+          fi
+          stellar --version
+
       - name: Build pool WASM (required by test-harness)
-        run: stellar contract build || cargo build -p pool --target wasm32v1-none --release
+        run: stellar contract build
 
       - name: Function-level fuzz (30s each)
         run: make fuzz FUZZ_TIME=30
@@ -95,7 +102,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.93'
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - uses: dtolnay/rust-toolchain@nightly
 
@@ -111,8 +118,15 @@ jobs:
             fuzz/target
           key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock') }}
 
+      - name: Install stellar-cli
+        run: |
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE '^stellar 25\.[2-9]|^stellar 2[6-9]'; then
+            cargo install --locked stellar-cli@25.2.0
+          fi
+          stellar --version
+
       - name: Build pool WASM
-        run: stellar contract build || cargo build -p pool --target wasm32v1-none --release
+        run: stellar contract build
 
       - name: Function-level fuzz (long)
         env:
