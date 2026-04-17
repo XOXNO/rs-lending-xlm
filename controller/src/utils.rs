@@ -57,49 +57,31 @@ pub fn sync_market_indexes(_env: &Env, cache: &mut ControllerCache, assets: &Vec
 // Isolated debt adjustment
 // ---------------------------------------------------------------------------
 
-/// Decrements the isolated-debt tracker by the repaid fraction of
-/// outstanding debt: `new_debt = current * (outstanding - repaid) /
-/// outstanding`. Oracle-independent — the decrement depends only on
-/// ledger state (`position.scaled_amount_ray * borrow_index → tokens`),
-/// so a diverged or stale oracle on the lax repay path cannot shrink the
-/// tracker faster than the real share being cleared. Full repayment
-/// (`repaid >= outstanding`) zeros the tracker. Sub-$1 residuals are also
-/// zeroed so dust cannot keep the isolated flag alive.
+/// Decrements the isolated-debt tracker by the USD value of `token_amount`:
+/// `new_debt = max(0, current - token_amount × price_wad)`. Zeros residuals
+/// below `WAD` ($1). No-op for non-isolated accounts.
 pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,
     token_amount: i128,
-    outstanding_before: i128,
+    price_wad: &i128,
+    asset_decimals: u32,
     cache: &mut ControllerCache,
 ) {
     let Some(isolated_asset) = account.isolated_asset.clone() else {
         return;
     };
 
-    if token_amount <= 0 || outstanding_before <= 0 {
-        return;
-    }
+    let amount_wad = Wad::from_token(token_amount, asset_decimals);
+    let usd_wad = amount_wad.mul(env, Wad::from_raw(*price_wad)).raw();
 
     let current = cache.get_isolated_debt(&isolated_asset);
-    if current == 0 {
-        return;
-    }
-
-    let mut new_debt = if token_amount >= outstanding_before {
+    let mut new_debt = if usd_wad >= current {
         0
     } else {
-        // Computed via Wad to bound intermediate width at extreme values.
-        let remaining = outstanding_before - token_amount;
-        let fraction_wad = Wad::from_raw(common::fp_core::mul_div_floor(
-            env,
-            remaining,
-            WAD,
-            outstanding_before,
-        ));
-        Wad::from_raw(current).mul(env, fraction_wad).raw()
+        current - usd_wad
     };
 
-    // Zero sub-$1 residuals so dust cannot keep the isolated flag live.
     if new_debt > 0 && new_debt < WAD {
         new_debt = 0;
     }
@@ -136,8 +118,7 @@ mod tests {
 
         cache.set_isolated_debt(&tracked_asset, 77);
 
-        // Non-isolated account: no-op regardless of outstanding_before.
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, 10_000_000, &mut cache);
+        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, &mut cache);
 
         assert_eq!(cache.get_isolated_debt(&tracked_asset), 77);
     }
@@ -150,9 +131,9 @@ mod tests {
         let mut cache = ControllerCache::new(&env, true);
 
         cache.set_isolated_debt(&isolated_asset, WAD + (WAD / 2));
-        // Full clear: outstanding == repaid -> decrement fraction = 1 -> tracker zeroed.
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, 10_000_000, &mut cache);
+        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, &mut cache);
 
+        // 0.5 WAD residual is below the dust floor.
         assert_eq!(cache.get_isolated_debt(&isolated_asset), 0);
     }
 

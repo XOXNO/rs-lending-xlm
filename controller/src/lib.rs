@@ -1327,7 +1327,7 @@ mod tests {
         // Seed a default market so configure_market_oracle can read-modify-write.
         t.seed_market_config(&asset);
         let oracle_config = common::types::MarketOracleConfigInput {
-            exchange_source: common::types::ExchangeSource::SpotOnly,
+            exchange_source: common::types::ExchangeSource::SpotVsTwap,
             max_price_stale_seconds: 900,
             first_tolerance_bps: 200,
             last_tolerance_bps: 500,
@@ -1341,7 +1341,7 @@ mod tests {
         };
         client.configure_market_oracle(&t.admin, &asset, &oracle_config);
 
-        // Try an invalid tolerance: first=10 falls below MIN_FIRST_TOLERANCE (50).
+        // first=10 falls below MIN_FIRST_TOLERANCE.
         client.edit_oracle_tolerance(&t.admin, &asset, &10, &500);
     }
 

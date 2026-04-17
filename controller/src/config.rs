@@ -517,8 +517,8 @@ mod tests {
 
     use super::*;
     use common::types::{
-        AssetConfig, MarketConfig, MarketParams, MarketStatus, OraclePriceFluctuation,
-        OracleProviderConfig, ReflectorAssetKind, ReflectorConfig,
+        AssetConfig, ExchangeSource, MarketConfig, MarketParams, MarketStatus,
+        OraclePriceFluctuation, OracleProviderConfig, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Symbol};
@@ -865,6 +865,7 @@ mod tests {
         t.as_controller(|| {
             let mut market = t.market_config(common::types::OracleType::Normal);
             market.status = MarketStatus::Disabled;
+            market.oracle_config.exchange_source = ExchangeSource::SpotVsTwap;
             storage::set_market_config(&t.env, &t.asset, &market);
             let mut reflector = t.reflector_config(3);
             reflector.dex_oracle = Some(t.dex_oracle.clone());

@@ -127,15 +127,15 @@ pub fn execute_repayment(
 
     update::update_or_remove_position(account, &result.position);
 
-    // Adjust isolated debt using the applied amount. Decrement
-    // proportionally to `repaid / outstanding` so the tracker does not
-    // drift under oracle divergence on the lax-oracle repay path.
+    // Adjust isolated debt using the applied amount, not the requested amount.
     if account.is_isolated && result.actual_amount > 0 {
+        let feed = cache.cached_price(&position.asset);
         utils::adjust_isolated_debt_usd(
             env,
             account,
             result.actual_amount,
-            outstanding_before,
+            &price_wad,
+            feed.asset_decimals,
             cache,
         );
     }
@@ -160,8 +160,15 @@ pub fn clear_position_isolated_debt(
         .to_asset(feed.asset_decimals);
 
     if actual_amount > 0 {
-        // Full clear: pass `outstanding == repaid` so the tracker zeroes.
-        utils::adjust_isolated_debt_usd(env, account, actual_amount, actual_amount, cache);
+        let feed = cache.cached_price(&position.asset);
+        utils::adjust_isolated_debt_usd(
+            env,
+            account,
+            actual_amount,
+            &feed.price_wad,
+            feed.asset_decimals,
+            cache,
+        );
     }
 }
 
@@ -441,11 +448,8 @@ mod tests {
 
             clear_position_isolated_debt(&t.env, &position, &account, &mut cache);
 
-            // clear_position_isolated_debt passes `outstanding == repaid` to
-            // adjust_isolated_debt_usd, which zeroes the tracker (full clear).
-            // Matches the oracle-independent proportional-decay design in
-            // utils::adjust_isolated_debt_usd.
-            assert_eq!(cache.get_isolated_debt(&t.asset), 0);
+            // 2 WAD - (1 token × $1) = 1 WAD.
+            assert_eq!(cache.get_isolated_debt(&t.asset), WAD);
         });
     }
 }
