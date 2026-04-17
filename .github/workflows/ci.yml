@@ -88,16 +88,17 @@ jobs:
         #      whole workspace scan;
         #   4. `--exclude <substring>...` CLI flag that skips matching paths
         #      during file discovery (see scan steps below);
-        #   5. run the scan on a 1 GiB-stack worker thread (upstream's
+        #   5. run the scan on a 4 GiB-stack worker thread (upstream's
         #      symbol resolver overflows the default 8 MiB main-thread stack
-        #      on real workspaces);
+        #      on real workspaces; the Linux self-hosted runner needed more
+        #      headroom than macOS);
         #   6. canonicalize corpus keys so the symbol resolver's internal
         #      canonical-path lookups hit.
         # When upstream ships these, switch the --git URL back to
         # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
         run: |
           cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
-            --rev 66bb918c570172f69ee288ceaf97d2d83c34ece1 \
+            --rev 43231611f039c444c4a1db0ef2ef25c3257afff1 \
             soroban-security-detectors-runner
 
       - name: Run security detectors
