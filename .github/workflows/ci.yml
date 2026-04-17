@@ -103,18 +103,24 @@ jobs:
 
       - name: Run security detectors
         # --exclude drops vendored Certora sources, cargo build artifacts, and
-        # Certora Prover working snapshots. None of those are part of the
-        # deployable contract surface.
+        # Certora Prover working snapshots. Then scope_scanner_output.py
+        # narrows findings to the deployable crates (common, pool-interface,
+        # pool, controller) — test-harness/ and fuzz/ have to stay in the
+        # scan corpus so the symbol resolver can see cross-crate references
+        # (passing a smaller corpus makes the resolver recurse unboundedly),
+        # but their findings are noise for an audit gate.
         run: |
           soroban-scanner scan . --project-root . \
-            --exclude vendor/ target/ .certora_internal
+            --exclude vendor/ target/ .certora_internal \
+            | python3 .github/scripts/scope_scanner_output.py
 
       - name: Run security detectors (strict)
         if: github.event_name == 'pull_request'
         run: |
           soroban-scanner scan . --project-root . \
             --exclude vendor/ target/ .certora_internal \
-            2>&1 | tee scan-results.txt
+            | python3 .github/scripts/scope_scanner_output.py \
+            | tee scan-results.txt
           if grep -q "CRITICAL\|HIGH" scan-results.txt; then
             echo "::error::Security scan found CRITICAL or HIGH severity issues"
             exit 1
