@@ -4,13 +4,24 @@
 //! invariant assertion helpers. Each fuzz target should focus on its
 //! scenario, not on boilerplate.
 
-pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest, ALICE};
+pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 /// Build a minimal two-market (USDC + ETH) lending context for fuzz targets.
 pub fn build_min_context() -> LendingTest {
     LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .build()
+}
+
+/// Build a three-market (USDC + ETH + XLM) lending context. Used by
+/// `flow_e2e` so op sequences can cross-pollinate across assets (USD stable,
+/// volatile, native) without per-asset market setup noise in each target.
+pub fn build_wide_context() -> LendingTest {
+    LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(xlm_preset())
         .build()
 }
 
@@ -72,8 +83,14 @@ pub struct StateSnapshot {
 pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
     StateSnapshot {
         reserves: assets.iter().map(|a| t.pool_reserves(a)).collect(),
-        supply_raw: assets.iter().map(|a| t.supply_balance_raw(user, a)).collect(),
-        borrow_raw: assets.iter().map(|a| t.borrow_balance_raw(user, a)).collect(),
+        supply_raw: assets
+            .iter()
+            .map(|a| t.supply_balance_raw(user, a))
+            .collect(),
+        borrow_raw: assets
+            .iter()
+            .map(|a| t.borrow_balance_raw(user, a))
+            .collect(),
     }
 }
 
@@ -87,21 +104,27 @@ pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSn
         assert!(
             (b - a).abs() < 1e-4,
             "asset[{}] reserves drifted on failed op: {} -> {}",
-            i, b, a
+            i,
+            b,
+            a
         );
     }
     for (i, (b, a)) in before.supply_raw.iter().zip(&after.supply_raw).enumerate() {
         assert!(
             (a - b).abs() <= 1,
             "asset[{}] user supply drifted on failed op: {} -> {}",
-            i, b, a
+            i,
+            b,
+            a
         );
     }
     for (i, (b, a)) in before.borrow_raw.iter().zip(&after.borrow_raw).enumerate() {
         assert!(
             (a - b).abs() <= 1,
             "asset[{}] user borrow drifted on failed op: {} -> {}",
-            i, b, a
+            i,
+            b,
+            a
         );
     }
 }

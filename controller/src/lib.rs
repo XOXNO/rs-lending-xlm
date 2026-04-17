@@ -103,13 +103,11 @@ impl Controller {
     // -----------------------------------------------------------------------
 
     pub fn __constructor(env: Env, admin: Address) {
-        // Set the contract owner.
         ownable::set_owner(&env, &admin);
 
-        // M-02: grant ONLY the KEEPER role at construct (the minimal
-        // bootstrap need). REVENUE and ORACLE require explicit `grant_role`
-        // after deploy. Minimizes blast radius if the Owner key is
-        // compromised in the bootstrap window.
+        // Grant only KEEPER at construct. REVENUE and ORACLE require an
+        // explicit `grant_role` after deploy so a compromised owner key in
+        // the bootstrap window cannot immediately exercise those roles.
         access_control::set_admin(&env, &admin);
         let keeper_role = soroban_sdk::Symbol::new(&env, KEEPER_ROLE);
         access_control::grant_role_no_auth(&env, &admin, &keeper_role, &admin);
@@ -122,10 +120,9 @@ impl Controller {
             },
         );
 
-        // M-03: pause on construct. Operator must call `unpause` after
-        // wiring aggregator/accumulator/pool template/oracles/markets.
-        // Mirrors the auto-pause on `upgrade`. Closes the bootstrap-window
-        // exposure where defaults could be exercised before hardening.
+        // Pause at construct; operator must `unpause` after wiring
+        // aggregator, accumulator, pool template, oracles, and markets.
+        // `upgrade` applies the same auto-pause.
         stellar_contract_utils::pausable::pause(&env);
     }
 
@@ -375,18 +372,16 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
         validation::require_asset_supported(&env, &asset);
 
-        // Risk-adjusting: a risky update can tip a position into liquidation,
-        // so oracle prices must stay within tight tolerance.
+        // Risk-adjusting path: a threshold tightening can tip a position into
+        // liquidation, so oracle prices must stay within tight tolerance.
         let mut cache = cache::ControllerCache::new(&env, false);
 
-        // Clone the config per account so each iteration applies its own
-        // e-mode overrides without cross-account contamination.
         let base_config = cache.cached_asset_config(&asset);
         let price_feed = cache.cached_price(&asset);
         let controller_addr = env.current_contract_address();
 
         for account_id in account_ids {
-            // Per-account clone so e-mode overrides stay account-specific.
+            // Clone per account so e-mode overrides stay account-specific.
             let mut account_asset_config = base_config.clone();
 
             supply::update_position_threshold(
@@ -1453,12 +1448,12 @@ mod tests {
     #[should_panic]
     fn test_pause_requires_admin() {
         let env = Env::default();
-        // Do NOT mock all auths — auth must fail.
+        // Do NOT mock all auths -- auth must fail.
         let admin = Address::generate(&env);
         let contract = env.register(Controller, (admin.clone(),));
         let client = ControllerClient::new(&env, &contract);
 
-        // Call pause without auth — must panic.
+        // Call pause without auth -- must panic.
         client.pause();
     }
 

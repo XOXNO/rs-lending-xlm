@@ -11,7 +11,7 @@
 //!
 //! If these bumps drift out of sync with actual storage (e.g. an orphan
 //! position left in persistent storage after a full exit), entries expire
-//! and break the protocol at a ledger boundary — a class of bug no directed
+//! and break the protocol at a ledger boundary -- a class of bug no directed
 //! test will find.
 //!
 //! Four properties:
@@ -233,7 +233,7 @@ proptest! {
 // fix also holds at the controller storage layer (where `bump_account`
 // iterates `meta.supply_assets`). If an orphan exists, a future keepalive
 // call silently skips it (the meta list omits it) AND the key remains
-// persisted — so the entry expires and breaks invariants.
+// persisted -- so the entry expires and breaks invariants.
 // ---------------------------------------------------------------------------
 
 proptest! {

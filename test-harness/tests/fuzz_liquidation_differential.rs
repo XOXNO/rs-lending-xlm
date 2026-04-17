@@ -1,4 +1,4 @@
-//! Phase-B differential fuzz harness — production liquidation math against a
+//! Phase-B differential fuzz harness -- production liquidation math against a
 //! `num_rational::BigRational` reference.
 //!
 //! For each randomly-generated scenario:
@@ -11,9 +11,9 @@
 //!   6. Compare aggregate debt reduction, collateral seizure, and protocol
 //!      fees against the reference within a documented ulp bound.
 //!
-//! The primary comparison is **total debt reduction in USD WAD** — the most
-//! sensitive aggregate across the full chain (HF → bonus → ideal repayment →
-//! seizure → rescale). Per-asset seizure and fees also get compared for the
+//! The primary comparison is **total debt reduction in USD WAD** -- the most
+//! sensitive aggregate across the full chain (HF -> bonus -> ideal repayment ->
+//! seizure -> rescale). Per-asset seizure and fees also get compared for the
 //! single-collateral scenario exercised here.
 //!
 //! Run:
@@ -22,11 +22,11 @@
 //!   PROPTEST_CASES=1000 cargo test --release -p test-harness \
 //!       --test fuzz_liquidation_differential -- --test-threads=1
 //!
-//! Bound rationale (from the plan): each half-up op drifts ≤ 0.5 ulp; the
+//! Bound rationale (from the plan): each half-up op drifts <= 0.5 ulp; the
 //! chain here has ~6 ops, so worst-case drift is ~3 ulp.
 //!
 //! **Empirical calibration** (observed during initial runs): the *per-asset
-//! token* bound is tightest — production and reference agree to within a
+//! token* bound is tightest -- production and reference agree to within a
 //! handful of ulps at the token level. USD-WAD aggregates run looser: the
 //! production path re-derives USD totals through `total_collateral_in_usd` /
 //! `total_borrow_in_usd`, each of which rounds `scaled * index * price` per
@@ -34,12 +34,12 @@
 //! value and multiplies by `one_plus_bonus` with no rounding. For a $40
 //! seizure, drifts run up to ~1e15 WAD (= 0.001 USD), or ~2.5e-5 relative.
 //! The harness therefore uses a relative bound of 1e-3 (0.1%) on USD
-//! aggregates — a generous envelope that still catches real bugs (any drift
+//! aggregates -- a generous envelope that still catches real bugs (any drift
 //! over 0.1% signals a systematic rounding-direction error, not the
 //! 0.5-ulp-per-op accumulation this harness tolerates).
 //!
-//! Per-asset token comparison — the more physically meaningful one, since
-//! this is what the protocol actually transfers — keeps a tight 1e-6
+//! Per-asset token comparison -- the more physically meaningful one, since
+//! this is what the protocol actually transfers -- keeps a tight 1e-6
 //! relative bound.
 
 extern crate std;
@@ -107,7 +107,7 @@ proptest! {
         t.set_price("ETH", new_eth_price);
 
         if t.health_factor_raw(ALICE) >= WAD {
-            // Not underwater — scenario does not apply.
+            // Not underwater -- scenario does not apply.
             return Ok(());
         }
 
@@ -125,7 +125,7 @@ proptest! {
         let coll_wad = t.total_collateral_raw(ALICE);
         let debt_wad = t.total_debt_raw(ALICE);
         if debt_wad >= coll_wad {
-            // Underwater past the collateral value — bad-debt socialization
+            // Underwater past the collateral value -- bad-debt socialization
             // very likely fires after any sizeable liquidation.
             return Ok(());
         }
@@ -183,7 +183,7 @@ proptest! {
             if ref_total_repaid_usd_wad == 0 {
                 return Ok(());
             }
-            // Otherwise we have drifted — flag only if the reference
+            // Otherwise we have drifted -- flag only if the reference
             // predicted a non-trivial repayment.
             prop_assert!(
                 ref_total_repaid_usd_wad.abs() < ULP_BOUND_USD_WAD,

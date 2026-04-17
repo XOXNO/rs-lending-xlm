@@ -4,7 +4,7 @@
 /// actual contract. Skolem variables allow proving universally quantified
 /// properties for an arbitrary representative.
 // ---------------------------------------------------------------------------
-// Ghost state — tracked by the prover, not stored on-chain
+// Ghost state -- tracked by the prover, not stored on-chain
 // ---------------------------------------------------------------------------
 
 /// Whether a health factor check was performed during this operation.
@@ -20,7 +20,7 @@ static mut GHOST_SUPPLY_INDEX_BEFORE: i128 = 0;
 static mut GHOST_BORROW_INDEX_BEFORE: i128 = 0;
 
 // ---------------------------------------------------------------------------
-// Skolem variables — arbitrary representatives for universal properties
+// Skolem variables -- arbitrary representatives for universal properties
 // ---------------------------------------------------------------------------
 
 /// Arbitrary account ID for proving per-account properties.

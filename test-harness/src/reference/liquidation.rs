@@ -157,7 +157,7 @@ pub fn bigrational_to_i128_wad(x: &BigRational) -> i128 {
 }
 
 /// Interpret an f64 amount at `decimals` precision as an exact BigRational
-/// of token units. Uses the f64 representation as input (not exact bits) —
+/// of token units. Uses the f64 representation as input (not exact bits) --
 /// this is what the harness does when it calls `try_liquidate(..., amount_f64)`.
 pub fn float_to_bigrational(x: f64, decimals: u32) -> BigRational {
     // Route through the same i128 conversion the harness uses to avoid
@@ -581,7 +581,7 @@ pub fn compute_liquidation(
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot helpers — read from LendingTest views
+// Snapshot helpers -- read from LendingTest views
 // ---------------------------------------------------------------------------
 
 fn account_id_for(t: &LendingTest, user: &str) -> Option<u64> {

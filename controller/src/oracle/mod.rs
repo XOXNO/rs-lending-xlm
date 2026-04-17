@@ -47,9 +47,8 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
         asset_decimals: config.asset_decimals,
         timestamp: cache.current_timestamp_ms / 1000,
     };
-    // Belt and suspenders: the fetch helpers check per-feed oracle timestamps
-    // via `check_staleness` and `check_not_future`. The feed built here uses
-    // the cache clock, so the future check is trivially satisfied.
+    // Redundant guard: fetch helpers already call `check_not_future` on the
+    // source feed; the cache-clock timestamp built here satisfies it trivially.
     check_not_future(cache, feed.timestamp);
 
     cache.set_price(asset, &feed);
@@ -93,8 +92,7 @@ fn normal_price(
             calculate_final_price(cache, dex, Some(twap), configs)
         }
         _ => {
-            // EXCHANGE_SOURCE_SPOT_VS_TWAP (1) and any other value.
-            // Standard mode: Pulse spot as aggregator, Pulse TWAP as safe price.
+            // SpotVsTwap (default): CEX spot as aggregator, CEX TWAP as safe.
             let (spot, twap) = cex_spot_and_twap_price(cache, asset, &market, max_stale);
             calculate_final_price(cache, Some(spot), Some(twap), configs)
         }
@@ -102,7 +100,7 @@ fn normal_price(
 }
 
 // ---------------------------------------------------------------------------
-// Final price selection with tolerance validation (unchanged logic)
+// Final price selection with tolerance validation
 // ---------------------------------------------------------------------------
 
 pub(crate) fn calculate_final_price(
@@ -235,10 +233,8 @@ fn cex_spot_and_twap_price(
     for pd in history.iter().flatten() {
         sum += pd.price;
         count += 1;
-        // M-07: track the OLDEST sample's timestamp, not the newest. A TWAP
-        // dominated by stale records would otherwise pass the freshness gate
-        // because a single fresh sample would carry the latest_ts. Staleness
-        // must reflect the worst (oldest) input, not the best.
+        // Track the oldest sample timestamp so the freshness gate reflects
+        // the worst input rather than the best.
         if pd.timestamp < oldest_ts {
             oldest_ts = pd.timestamp;
         }
@@ -288,13 +284,12 @@ fn cex_twap_price(
     for pd in history.iter().flatten() {
         sum += pd.price;
         count += 1;
-        // M-07: track the OLDEST sample's timestamp; staleness must reflect
-        // the worst (oldest) input, not the best.
+        // Track the oldest sample so the freshness gate uses the worst input.
         if pd.timestamp < oldest_ts {
             oldest_ts = pd.timestamp;
         }
-        // None slots represent an oracle gap in this 5-min window; skip silently.
-        // Partial TWAP (M-of-N valid slots) is always preferable to panicking.
+        // `None` slots mark oracle gaps in the window; accept partial TWAP
+        // rather than panic.
     }
 
     if count == 0 {
@@ -323,7 +318,6 @@ fn dex_spot_price(
 
     let env = cache.env();
     let client = ReflectorClient::new(env, &dex_addr);
-    // M-09: use the explicit DEX symbol; previously the CEX symbol was forwarded.
     let ra = to_reflector_asset(asset, &market.dex_asset_kind, &market.dex_symbol);
 
     let pd = client.lastprice(&ra)?; // None: asset not tracked on Stellar DEX oracle.
@@ -748,7 +742,7 @@ mod tests {
         cex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &123_000_000,
-            &1_000, // match ledger timestamp — stale prices are no longer accepted
+            &1_000, // match ledger timestamp -- stale prices are no longer accepted
         );
 
         t.as_controller(|| {
@@ -1557,7 +1551,7 @@ mod tests {
     #[test]
     fn test_price_components_dual_oracle_within_second_tier() {
         // Covers lines 394-399: DualOracle branch where aggregator exists but
-        // falls outside first tier — forces within_second recomputation.
+        // falls outside first tier -- forces within_second recomputation.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
         let dex_client = MockReflectorClient::new(&t.env, &t.dex_oracle);

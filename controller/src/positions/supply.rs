@@ -51,7 +51,7 @@ pub fn process_supply(
 }
 
 // ---------------------------------------------------------------------------
-// process_deposit — batch loop + per-asset validation
+// process_deposit -- batch loop + per-asset validation
 // ---------------------------------------------------------------------------
 
 pub fn process_deposit(
@@ -147,15 +147,13 @@ pub fn update_deposit_position(
 ) -> AccountPosition {
     let mut position = get_or_create_deposit_position(account, account_id, asset_config, asset);
 
-    // Upgrade risk parameters to match the latest asset config. M-06: refresh
-    // `liquidation_threshold_bps` alongside the other three so post-edit
-    // top-ups stay consistent with live AssetConfig — the keeper-mediated
-    // `update_account_threshold` path is no longer the only refresher.
+    // Refresh LTV, liquidation bonus, and liquidation fees from the latest
+    // asset config. Do NOT refresh `liquidation_threshold_bps` here: only
+    // the keeper path (`update_position_threshold`) propagates threshold
+    // changes, and it enforces the 5% HF buffer required to prevent an
+    // immediate liquidation from a threshold reduction.
     if position.loan_to_value_bps != asset_config.loan_to_value_bps {
         position.loan_to_value_bps = asset_config.loan_to_value_bps;
-    }
-    if position.liquidation_threshold_bps != asset_config.liquidation_threshold_bps {
-        position.liquidation_threshold_bps = asset_config.liquidation_threshold_bps;
     }
     if position.liquidation_bonus_bps != asset_config.liquidation_bonus_bps {
         position.liquidation_bonus_bps = asset_config.liquidation_bonus_bps;
@@ -278,15 +276,11 @@ pub fn update_position_threshold(
 
     storage::bump_account(env, account_id);
 
-    // Apply the per-account e-mode override (e_mode_category may differ
-    // across accounts). Uses the shared emode helpers; no duplicated logic.
-    //
-    // NOTE: Do NOT call ensure_e_mode_not_deprecated here. The keeper must
-    // propagate updated thresholds to accounts in deprecated eMode categories,
-    // allowing graceful wind-down to base asset params. When the category is
-    // deprecated and its assets have been removed, asset_emode_config is None
-    // and apply_e_mode_to_asset_config becomes a no-op, so base params flow
-    // through naturally.
+    // Apply the per-account e-mode override. `ensure_e_mode_not_deprecated`
+    // is deliberately NOT called: the keeper must propagate updated
+    // thresholds to accounts in deprecated categories so they wind down to
+    // base asset params. For deprecated categories with no asset entry,
+    // `apply_e_mode_to_asset_config` becomes a no-op.
     let e_mode_category = emode::e_mode_category(env, account.e_mode_category_id);
     let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, asset);
     emode::apply_e_mode_to_asset_config(env, asset_config, &e_mode_category, asset_emode_config);

@@ -169,7 +169,7 @@ fn test_liquidation_asymmetric_90pct_6dec_10pct_18dec() {
     // Borrow $7,500 SOL (50 SOL at $150).
     t.borrow(ALICE, "SOL9", 50.0);
 
-    // SOL price rises to $175 → debt = $8,750 > $8,000 threshold.
+    // SOL price rises to $175 -> debt = $8,750 > $8,000 threshold.
     t.set_price("SOL9", usd(175));
     t.advance_and_sync(1000);
 
@@ -187,7 +187,7 @@ fn test_liquidation_asymmetric_90pct_6dec_10pct_18dec() {
     let dai_seized = dai_before - dai_after;
     let usdc_seized = usdc_before - usdc_after;
 
-    // Both should be seized — even the small 10% DAI position.
+    // Both should be seized -- even the small 10% DAI position.
     assert!(
         dai_seized > 0.0,
         "Even the 10% DAI18 position should be partially seized, got seized={}",
@@ -230,7 +230,7 @@ fn test_liquidation_multi_debt_6dec_and_18dec() {
     t.borrow(ALICE, "DAI18", 7_000.0); // $7,000 at 18 decimals.
                                        // Total debt: $14,000.
 
-    // SOL drops to $120 → collateral = $15,960, threshold = $12,768 < $14,000.
+    // SOL drops to $120 -> collateral = $15,960, threshold = $12,768 < $14,000.
     t.set_price("SOL9", usd(120));
     t.advance_and_sync(1000);
 
@@ -288,8 +288,8 @@ fn test_liquidation_multi_debt_different_decimals() {
     t.borrow(ALICE, "USDC6", 7_000.0);
     t.borrow(ALICE, "SOL9", 46.7);
 
-    // Crash DAI → $0.85 → collateral=$17,000, threshold=$13,600,
-    // debt=$14,000 → underwater.
+    // Crash DAI -> $0.85 -> collateral=$17,000, threshold=$13,600,
+    // debt=$14,000 -> underwater.
     t.set_price("DAI18", usd(1) * 85 / 100);
     t.advance_and_sync(1000);
 
@@ -332,10 +332,10 @@ fn test_bad_debt_cleanup_mixed_decimals() {
     t.borrow(ALICE, "DAI18", 150.0);
 
     // Crash collateral price only (debt price stays at $1).
-    t.set_price("USDC6", usd(1) / 1000); // $0.001 → collateral = $0.20.
+    t.set_price("USDC6", usd(1) / 1000); // $0.001 -> collateral = $0.20.
     t.advance_and_sync(1000);
 
-    // Collateral: $0.20, debt: $150 → deeply underwater.
+    // Collateral: $0.20, debt: $150 -> deeply underwater.
     let hf = t.health_factor(ALICE);
     assert!(hf < 0.01, "HF should be deeply underwater, got {}", hf);
 
@@ -394,7 +394,7 @@ fn test_liquidation_protocol_fee_cross_decimal() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. 4 collaterals x 4 debts — ALL unique decimals (6,7,8,9,10,12,15,18).
+// 7. 4 collaterals x 4 debts -- ALL unique decimals (6,7,8,9,10,12,15,18).
 //    The ultimate cross-decimal liquidation stress test.
 //    If this exceeds Soroban's budget, it reveals the max position complexity.
 // ---------------------------------------------------------------------------
@@ -420,11 +420,11 @@ fn test_liquidation_2x2_four_unique_decimals() {
     // --- Borrow 2 debts with different decimals ---
     t.borrow(ALICE, "D8", 0.058); // ~$3,480 at 8 decimals.
     t.borrow(ALICE, "D9", 23.0); // ~$3,450 at 9 decimals.
-                                 // Total debt ~$6,930, threshold $8,000 → healthy.
+                                 // Total debt ~$6,930, threshold $8,000 -> healthy.
 
     t.assert_healthy(ALICE);
 
-    // --- 15% collateral drop → underwater ---
+    // --- 15% collateral drop -> underwater ---
     t.set_price("C6", usd(1) * 85 / 100);
     t.set_price("C18", usd(1) * 85 / 100);
     t.advance_and_sync(1000);
@@ -497,7 +497,7 @@ fn test_liquidation_2x2_four_unique_decimals() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. 4 collaterals x 4 debts — ALL 8 unique decimals (6,7,8,9,10,12,15,18)
+// 8. 4 collaterals x 4 debts -- ALL 8 unique decimals (6,7,8,9,10,12,15,18)
 // ---------------------------------------------------------------------------
 
 #[test]

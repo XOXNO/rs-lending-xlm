@@ -55,7 +55,7 @@ impl ControllerCache {
             current_timestamp_ms,
             allow_unsafe_price,
             allow_disabled_market_price,
-            simulate: !bump_ttl, // Reverted to safe default to debug test failures.
+            simulate: !bump_ttl,
         }
     }
 
@@ -64,7 +64,7 @@ impl ControllerCache {
     }
 
     // -------------------------------------------------------------------
-    // Prices (single cache — oracle module resolves tolerance internally)
+    // Prices (single cache -- oracle module resolves tolerance internally)
     // -------------------------------------------------------------------
 
     pub fn try_get_price(&self, asset: &Address) -> Option<PriceFeed> {
@@ -84,7 +84,7 @@ impl ControllerCache {
     }
 
     // -------------------------------------------------------------------
-    // Market config (consolidated) — bumps shared TTL on first load
+    // Market config (consolidated) -- bumps shared TTL on first load
     // -------------------------------------------------------------------
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
@@ -97,7 +97,7 @@ impl ControllerCache {
     }
 
     // -------------------------------------------------------------------
-    // Convenience accessors — delegate to cached_market_config so callers
+    // Convenience accessors -- delegate to cached_market_config so callers
     // that need only one field stay unchanged.
     // -------------------------------------------------------------------
 

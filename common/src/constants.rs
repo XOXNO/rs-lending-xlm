@@ -32,13 +32,14 @@ pub const MAX_FIRST_TOLERANCE: i128 = 5_000;
 
 pub const MIN_LAST_TOLERANCE: i128 = 150;
 
-// 50% hard safety ceiling. Matches `validate_oracle_bounds` in the controller.
+/// Absolute ceiling on oracle last-tolerance (BPS). Enforced in
+/// `validate_oracle_bounds`.
 pub const MAX_LAST_TOLERANCE: i128 = 5_000;
 
 pub const ONE_DAY_LEDGERS: u32 = 17_280;
 
 // ---------------------------------------------------------------------------
-// Tiered TTL constants (Blend v2 best practices)
+// Tiered storage TTLs (ledger counts)
 // ---------------------------------------------------------------------------
 
 pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
@@ -50,7 +51,6 @@ pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
 pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * 100; // ~100 days
 pub const TTL_BUMP_USER: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
 
-// Legacy aliases pending removal.
 pub const TTL_THRESHOLD: u32 = TTL_THRESHOLD_INSTANCE;
 pub const TTL_EXTEND_TO: u32 = TTL_BUMP_INSTANCE;
 

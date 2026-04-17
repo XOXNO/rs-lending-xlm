@@ -11,7 +11,7 @@ use crate::cache::ControllerCache;
 use crate::{helpers, storage, validation};
 
 // ---------------------------------------------------------------------------
-// handle_create_borrow_strategy — matches MVX handle_create_borrow_strategy
+// handle_create_borrow_strategy
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -91,19 +91,25 @@ pub fn handle_create_borrow_strategy(
 }
 
 // ---------------------------------------------------------------------------
-// Batch entry point (equivalent to MVX #[endpoint] fn borrow in lib.rs)
+// Batch entry point
 // ---------------------------------------------------------------------------
 
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<(Address, i128)>) {
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    // Load the account once (replaces MVX's validate_account + account NFT payment).
     let mut account = storage::get_account(env, account_id);
 
     if account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
+
+    // Block new borrows in a deprecated e-mode category. Otherwise a user
+    // whose stored `loan_to_value_bps` still reflects the boosted e-mode
+    // cap could borrow against that inflated value after deprecation,
+    // draining the `(e_mode_ltv - base_ltv) * collateral` slack as bad debt.
+    let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
+    emode::ensure_e_mode_not_deprecated(env, &e_mode);
 
     // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, &account, POSITION_TYPE_BORROW, borrows);
@@ -134,7 +140,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
 }
 
 // ---------------------------------------------------------------------------
-// handle_borrow_position — matches MVX handle_borrow_position
+// handle_borrow_position
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -182,7 +188,7 @@ fn handle_borrow_position(
 }
 
 // ---------------------------------------------------------------------------
-// execute_borrow — matches MVX execute_borrow
+// execute_borrow
 // ---------------------------------------------------------------------------
 
 fn execute_borrow(
@@ -198,7 +204,7 @@ fn execute_borrow(
 }
 
 // ---------------------------------------------------------------------------
-// handle_isolated_debt — matches MVX handle_isolated_debt
+// handle_isolated_debt
 // ---------------------------------------------------------------------------
 
 pub fn handle_isolated_debt(
@@ -242,7 +248,7 @@ pub fn handle_isolated_debt(
 }
 
 // ---------------------------------------------------------------------------
-// get_or_create_borrow_position — matches MVX get_or_create_borrow_position
+// get_or_create_borrow_position
 // ---------------------------------------------------------------------------
 
 fn get_or_create_borrow_position(
@@ -267,7 +273,7 @@ fn get_or_create_borrow_position(
 }
 
 // ---------------------------------------------------------------------------
-// validate_borrow_cap — matches MVX validate_borrow_cap
+// validate_borrow_cap
 // ---------------------------------------------------------------------------
 
 fn validate_borrow_cap(
@@ -290,7 +296,7 @@ fn validate_borrow_cap(
 }
 
 // ---------------------------------------------------------------------------
-// validate_borrow_collateral — matches MVX validate_borrow_collateral
+// validate_borrow_collateral
 // ---------------------------------------------------------------------------
 
 fn validate_borrow_collateral(
@@ -305,7 +311,7 @@ fn validate_borrow_collateral(
 }
 
 // ---------------------------------------------------------------------------
-// validate_ltv_collateral — matches MVX validate_ltv_collateral
+// validate_ltv_collateral
 // ---------------------------------------------------------------------------
 
 fn validate_ltv_collateral(
@@ -338,7 +344,7 @@ fn validate_ltv_collateral(
 }
 
 // ---------------------------------------------------------------------------
-// validate_borrow_asset — matches MVX validate_borrow_asset
+// validate_borrow_asset
 // ---------------------------------------------------------------------------
 
 fn validate_borrow_asset(
@@ -369,7 +375,7 @@ fn validate_borrow_asset(
 }
 
 // ---------------------------------------------------------------------------
-// process_borrow — matches MVX process_borrow exactly
+// process_borrow exactly
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -434,8 +440,8 @@ fn process_borrow(
         &price_feed,
     );
 
-    // In-memory update (Soroban equivalent of MVX's update_bulk_borrow_positions).
-    // Later iterations of process_borrow see the mutated borrow_positions map.
+    // Mutate the in-memory account so subsequent iterations of
+    // `process_borrow` see the updated `borrow_positions` map.
     update::update_or_remove_position(account, &updated_position);
 }
 

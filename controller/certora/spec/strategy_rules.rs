@@ -484,7 +484,7 @@ fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Addres
 }
 
 // ---------------------------------------------------------------------------
-// Rule 13: DELETED — claim_revenue_decreases_pool_revenue was vacuous.
+// Rule 13: DELETED -- claim_revenue_decreases_pool_revenue was vacuous.
 // The revenue_before was a nondet value not tied to actual pool state,
 // so the assertion `amount <= revenue_before` proved nothing.
 // The basic property (claim returns non-negative amount) is covered by

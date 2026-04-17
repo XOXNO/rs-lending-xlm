@@ -114,12 +114,11 @@ pub fn execute_repayment(
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
-    // H-02: param order aligned with pool.borrow — (caller, amount, position, price).
     let mut result = pool_client.repay(caller, &amount, position, &price_wad);
 
     // Derive the applied repayment from the pre-repay scaled debt and the
-    // pool-returned synced borrow index. This keeps controller accounting
-    // correct even if a pool return shape regresses or overpayment paths drift.
+    // pool-returned synced borrow index. Prevents accounting drift when the
+    // caller overpays: the applied amount is clamped to outstanding debt.
     let feed = cache.cached_price(&position.asset);
     let outstanding_before = Ray::from_raw(position.scaled_amount_ray)
         .mul(env, Ray::from_raw(result.market_index.borrow_index_ray))
@@ -128,7 +127,9 @@ pub fn execute_repayment(
 
     update::update_or_remove_position(account, &result.position);
 
-    // Adjust isolated debt using the applied amount, not the requested amount.
+    // Adjust isolated debt using the applied amount. Decrement
+    // proportionally to `repaid / outstanding` so the tracker does not
+    // drift under oracle divergence on the lax-oracle repay path.
     if account.is_isolated && result.actual_amount > 0 {
         let feed = cache.cached_price(&position.asset);
         utils::adjust_isolated_debt_usd(
@@ -137,6 +138,7 @@ pub fn execute_repayment(
             result.actual_amount,
             &price_wad,
             feed.asset_decimals,
+            outstanding_before,
             cache,
         );
     }
@@ -162,12 +164,14 @@ pub fn clear_position_isolated_debt(
 
     if actual_amount > 0 {
         let feed = cache.cached_price(&position.asset);
+        // Full clear: pass `outstanding == repaid` so the tracker zeroes.
         utils::adjust_isolated_debt_usd(
             env,
             account,
             actual_amount,
             &feed.price_wad,
             feed.asset_decimals,
+            actual_amount,
             cache,
         );
     }
@@ -239,7 +243,7 @@ mod tests {
             r_client.set_spot(
                 &crate::helpers::testutils::TestReflectorAsset::Stellar(asset.clone()),
                 &10_0000000_0000000i128,
-                &1_000, // match ledger timestamp — future-dated oracle prices now rejected
+                &1_000, // match ledger timestamp -- future-dated oracle prices now rejected
             );
 
             let setup = Self {

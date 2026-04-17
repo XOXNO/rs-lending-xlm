@@ -352,10 +352,9 @@ impl LendingTestBuilder {
         let controller_address = env.register(controller::Controller, (admin.clone(),));
         let ctrl = controller::ControllerClient::new(&env, &controller_address);
 
-        // M-03 + M-02: post-construct hardening that the operator runbook
-        // performs on real deployments. Constructor pauses and grants only
-        // KEEPER. We mirror the post-deploy steps here so the test harness
-        // reflects a real "ready to use" deployment.
+        // Mirror the post-deploy operator runbook: the constructor pauses
+        // the contract and grants only KEEPER, so the harness unpauses and
+        // grants REVENUE and ORACLE to admin to reach a ready-to-use state.
         ctrl.unpause();
         ctrl.grant_role(&admin, &Symbol::new(&env, "REVENUE"));
         ctrl.grant_role(&admin, &Symbol::new(&env, "ORACLE"));
@@ -382,11 +381,10 @@ impl LendingTestBuilder {
         // Set aggregator in controller
         ctrl.set_aggregator(&aggregator_address);
 
-        // L-05: set accumulator BEFORE any create_liquidity_pool call so
-        // the pool can store it at construction. set_accumulator requires
-        // a contract address; reuse the mock aggregator's contract to
-        // satisfy the WASM-executable check (it never receives meaningful
-        // calls in this role).
+        // Accumulator must be set before any `create_liquidity_pool` call
+        // so the pool stores it at construction. `set_accumulator` requires
+        // a contract address; reuse the mock aggregator to satisfy the
+        // WASM-executable check (it never receives accumulator calls).
         let accumulator = aggregator_address.clone();
         ctrl.set_accumulator(&accumulator);
 
@@ -420,7 +418,7 @@ impl LendingTestBuilder {
             // 1. First, deploy the pool and initialize the market (Step 1: creates the MarketConfig in PendingOracle state)
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
             let asset_config = pm.config.to_asset_config();
-            // Pre-approve the token contract — the controller's allow-list gate
+            // Pre-approve the token contract -- the controller's allow-list gate
             // (T1-7) now requires explicit admin approval before market creation.
             ctrl.approve_token_wasm(&asset_address);
             let pool_address =

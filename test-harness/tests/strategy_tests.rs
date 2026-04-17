@@ -1,10 +1,9 @@
 extern crate std;
 
+use common::constants::WAD;
 use common::types::{DexDistribution, Protocol, SwapSteps};
 use soroban_sdk::vec;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE,
-};
+use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 // ---------------------------------------------------------------------------
 // Helper: build SwapSteps with a single hop that yields `min_amount_out` from
@@ -30,7 +29,7 @@ fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i
 }
 
 // ---------------------------------------------------------------------------
-// 1. test_multiply_rejects_non_borrowable_debt — asserts ASSET_NOT_BORROWABLE
+// 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -59,7 +58,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. test_multiply_rejects_non_collateralizable — asserts NOT_COLLATERAL
+// 2. test_multiply_rejects_non_collateralizable -- asserts NOT_COLLATERAL
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -85,7 +84,7 @@ fn test_multiply_rejects_non_collateralizable() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. test_multiply_rejects_during_flash_loan — asserts FLASH_LOAN_ONGOING
+// 3. test_multiply_rejects_during_flash_loan -- asserts FLASH_LOAN_ONGOING
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -111,7 +110,7 @@ fn test_multiply_rejects_during_flash_loan() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. test_swap_collateral_rejects_isolated — asserts SWAP_COLLATERAL_NO_ISO
+// 4. test_swap_collateral_rejects_isolated -- asserts SWAP_COLLATERAL_NO_ISO
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -121,7 +120,7 @@ fn test_swap_collateral_rejects_isolated() {
         .with_market(eth_preset())
         .with_market_config("USDC", |c| {
             c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = 1_000_000_000_000_000_000_000_000;
+            c.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
             // $1M
         })
         .build();
@@ -166,7 +165,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     let shitcoin_preset = test_harness::MarketPreset {
         name: "SHITCOIN",
         decimals: 18,
-        price_wad: 1_000_000_000_000_000_000,
+        price_wad: WAD,
         initial_liquidity: 10_000_000.0,
         config: test_harness::AssetConfigPreset {
             loan_to_value_bps: 8000, // 80% LTV
@@ -180,7 +179,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
             is_siloed_borrowing: false,
             e_mode_enabled: false,
             isolation_borrow_enabled: true,
-            isolation_debt_ceiling_usd_wad: 100 * 1_000_000_000_000_000_000, // ONLY 100 USD BORROW ALLOWED!
+            isolation_debt_ceiling_usd_wad: 100 * WAD, // ONLY 100 USD BORROW ALLOWED!
             flashloan_fee_bps: 9,
             borrow_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
             supply_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
@@ -206,9 +205,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     // 1. Give Alice the isolated asset.
     let alice_addr = t.get_or_create_user(test_harness::ALICE);
     let shit_market = t.resolve_market("SHITCOIN");
-    shit_market
-        .token_admin
-        .mint(&alice_addr, &(100_000 * 1_000_000_000_000_000_000_i128));
+    shit_market.token_admin.mint(&alice_addr, &(100_000 * WAD));
 
     // Provide the initial payment as collateral to the multiply function.
     // Because the collateral is isolated, multiply must create an isolated
@@ -231,7 +228,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
         &usdc_addr,
         &common::types::PositionMode::Multiply,
         &steps,
-        &Some((shit_addr.clone(), 100_000 * 1_000_000_000_000_000_000_i128)),
+        &Some((shit_addr.clone(), 100_000 * WAD)),
         &None,
     );
 

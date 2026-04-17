@@ -5,7 +5,7 @@ use test_harness::{
 };
 
 // ===========================================================================
-// Bad debt supply index tests — the only case where supply_index decreases.
+// Bad debt supply index tests -- the only case where supply_index decreases.
 //
 // When debt exceeds collateral and collateral < $5:
 //   1. Seize all remaining collateral (dust -> protocol revenue).

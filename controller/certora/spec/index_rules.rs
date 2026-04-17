@@ -1,8 +1,8 @@
 /// Index Safety & Monotonicity Rules
 ///
 /// From CLAUDE.md:
-///   - supply_index >= RAY — violation = total supplier loss
-///   - borrow_index >= RAY — violation = interest calculation errors
+///   - supply_index >= RAY -- violation = total supplier loss
+///   - borrow_index >= RAY -- violation = interest calculation errors
 ///   - Indexes must be monotonically increasing
 ///     (except bad debt socialization for supply_index)
 use cvlr::macros::rule;
@@ -17,7 +17,7 @@ use common::fp::Ray;
 // ---------------------------------------------------------------------------
 
 /// The supply index must always be >= RAY (10^27).
-/// A supply index below 1.0 means suppliers have lost principal —
+/// A supply index below 1.0 means suppliers have lost principal --
 /// this should only happen during explicit bad debt socialization.
 #[rule]
 fn supply_index_gte_ray(e: Env, asset: Address) {

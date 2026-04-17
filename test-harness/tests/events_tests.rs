@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use soroban_sdk::testutils::Events;
 use std::format;
 
@@ -133,7 +135,7 @@ fn test_index_sync_emits_events() {
 
 #[test]
 fn test_isolated_borrow_emits_debt_ceiling_event() {
-    let ceiling = 1_000_000i128 * 1_000_000_000_000_000_000i128;
+    let ceiling = 1_000_000i128 * WAD;
     let mut t = LendingTest::new()
         .with_market(eth_preset())
         .with_market(usdc_preset())

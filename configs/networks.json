@@ -2,9 +2,9 @@
   "testnet": {
     "rpc_url": "https://soroban-testnet.stellar.org",
     "network_passphrase": "Test SDF Network ; September 2015",
-    "controller": "CAJ34VYFM323KIZ5Y6MVY64NSVPBGZK6IOGDC7L6VSZMAXA4UBNZIF2V",
+    "controller": "CB7NBTEP7QT44R56QMK4A5YJFA4UPOPJKV3LHTFIA5XUPKJ7R4YAYEZE",
     "aggregator": "",
-    "pool_wasm_hash": "88843c87e9d29458778e4396b20c97876f480be84e3df3cd9a852325b6d43bad",
+    "pool_wasm_hash": "6982d1c191faa97b49c0b94e129ca1068ca5bd0ea54c5031aafc0324e0758def",
     "ledger_index": 0
   },
   "mainnet": {

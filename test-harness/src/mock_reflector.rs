@@ -33,7 +33,7 @@ impl MockReflector {
     /// Test helper: set price (WAD input is converted to 14-decimal storage
     /// so controller's rescale_to_wad() is fully exercised in tests).
     pub fn set_price(env: Env, asset: Address, price_wad: i128) {
-        let price_14 = price_wad / 10_000; // WAD(18) → 14 decimals
+        let price_14 = price_wad / 10_000; // WAD(18) -> 14 decimals
         env.storage()
             .temporary()
             .set(&MockKey::Spot(asset), &(price_14, env.ledger().timestamp()));

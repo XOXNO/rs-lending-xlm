@@ -1553,18 +1553,18 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stellar-access"
-version = "0.7.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec08d321dff797b611228fea28527311f2f03721cb264433490f711d5afd1d6"
+checksum = "c97819607191798ca13708de6354b88520d28152a52cc4662b35946eab109387"
 dependencies = [
  "soroban-sdk",
 ]
 
 [[package]]
 name = "stellar-contract-utils"
-version = "0.7.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acd8001a84e189032af6d8d17355a923d98ea97917064d6e6003ff3e5accb0f5"
+checksum = "cfea5d1ad2be565d6a7b3324ed3cca631ba558c7eea2ab3dbef1b50d04e8e654"
 dependencies = [
  "soroban-sdk",
 ]
@@ -1587,9 +1587,9 @@ dependencies = [
 
 [[package]]
 name = "stellar-macros"
-version = "0.7.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad14d3698274547aa5a61874c986855c549231f95b39c0de03b0bd96b6bcac9f"
+checksum = "001ba62e418f20769cd3a0ea9f58efd5eedec7371997cbb910def7bdfb099e61"
 dependencies = [
  "proc-macro2",
  "quote",

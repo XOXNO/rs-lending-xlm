@@ -5,7 +5,7 @@
 //! positions, etc.), then packs them into per-target byte layouts matching
 //! each fuzz target's `Arbitrary`-derived input struct.
 //!
-//! The goal is NOT byte-perfect matching of the `Arbitrary` decoder — libFuzzer
+//! The goal is NOT byte-perfect matching of the `Arbitrary` decoder -- libFuzzer
 //! tolerates short/long/imperfect seeds as long as they decode to a valid input.
 //! The real payoff is populating the input space with realistic numeric
 //! magnitudes (RAY indexes, bps rates, timestamps, position amounts) so the
@@ -16,6 +16,7 @@
 //!
 //! Snapshots that fail to parse are logged and skipped; never abort the run.
 
+use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -39,7 +40,7 @@ struct ExtractedFields {
     // u32 values (asset_decimals, etc.).
     u32s: Vec<u32>,
 
-    // Structured per-market fields — when we can identify them by symbol key.
+    // Structured per-market fields -- when we can identify them by symbol key.
     // These are far more useful for `rates_borrow` than a shapeless i128 heap.
     market_params: Vec<MarketParamsFields>,
     market_states: Vec<MarketStateFields>,
@@ -103,10 +104,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             .unwrap_or(false)
         {
             // Only pick up files under a `test_snapshots` ancestor.
-            if path
-                .components()
-                .any(|c| c.as_os_str() == "test_snapshots")
-            {
+            if path.components().any(|c| c.as_os_str() == "test_snapshots") {
                 out.push(path);
             }
         }
@@ -245,17 +243,12 @@ fn harvest_structured(val: &Value, out: &mut ExtractedFields) {
                 }
             }
 
-            // Any map with `amount` or `scaled_amount` or `borrowed`/`supplied` — treat as position.
+            // Any map with `amount` or `scaled_amount` or `borrowed`/`supplied` -- treat as position.
             let entries = soroban_map_entries(val);
             for (sym, v) in &entries {
                 if matches!(
                     sym.as_str(),
-                    "amount"
-                        | "scaled_amount"
-                        | "supplied"
-                        | "borrowed"
-                        | "debt"
-                        | "collateral"
+                    "amount" | "scaled_amount" | "supplied" | "borrowed" | "debt" | "collateral"
                 ) {
                     if let Some(x) = extract_i128(v) {
                         if x > 0 {
@@ -344,50 +337,64 @@ fn push_u64_le(buf: &mut Vec<u8>, v: u64) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
-fn push_u32_le(buf: &mut Vec<u8>, v: u32) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
 fn push_u16_le(buf: &mut Vec<u8>, v: u16) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
-/// `fp_mul_div`: In { a: i128, b: i128, d_choice: u8 } — 33 bytes LE.
-fn pack_fp_mul_div(f: &ExtractedFields) -> Vec<Vec<u8>> {
+/// `fp_math`: In { kind: u8, a: i128, b: i128, choice: u8, extra: u8 } -- 35
+/// bytes LE. `kind % 3` dispatches to the MulDiv / DivByInt / Rescale arm;
+/// each arm interprets the shared fields as needed. See
+/// `fuzz_targets/fp_math.rs` for the layout contract.
+///
+/// This packer emits seeds for all three arms from the same extracted numeric
+/// pool so libFuzzer can cross-pollinate bytes between arms during mutation.
+fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    // Pair consecutive i128s as (a, b). Also include index-pair seeds from
-    // market states, which exercise the realistic RAY * RAY / RAY path.
+
+    let push = |out: &mut Vec<Vec<u8>>, kind: u8, a: i128, b: i128, choice: u8, extra: u8| {
+        let mut buf = Vec::with_capacity(35);
+        buf.push(kind);
+        push_i128_le(&mut buf, a);
+        push_i128_le(&mut buf, b);
+        buf.push(choice);
+        buf.push(extra);
+        out.push(buf);
+    };
+
+    // --- MulDiv arm (kind = 0): pair i128s as (a, b); try all 3 divisors.
+    // Index pairs (supply_idx, borrow_idx) exercise the realistic RAY*RAY/RAY
+    // path the protocol actually hits during compounding.
     let mut pairs: Vec<(i128, i128)> = Vec::new();
     for s in &f.market_states {
         if let (Some(a), Some(b)) = (s.supply_index_ray, s.borrow_index_ray) {
             pairs.push((a, b));
         }
     }
-    // Also any amount * index pairs we can find.
     for chunk in f.i128s.chunks(2) {
         if chunk.len() == 2 {
             pairs.push((chunk[0], chunk[1]));
         }
     }
-    for (i, (a, b)) in pairs.into_iter().enumerate() {
+    for (a, b) in &pairs {
         for d in 0u8..3 {
-            let mut buf = Vec::with_capacity(33);
-            push_i128_le(&mut buf, a);
-            push_i128_le(&mut buf, b);
-            buf.push(d);
-            out.push(buf);
-            // Cap at ~3 divisor variants per pair to avoid blowup.
-            let _ = i;
+            push(&mut out, 0, *a, *b, d, 0);
         }
     }
-    out
-}
 
-/// `fp_rescale`: In { a: i128, from: u8, to: u8 } — 18 bytes.
-fn pack_fp_rescale(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    // Common precision transitions in the protocol: 27→18 (RAY→WAD), 18→7
-    // (WAD→asset_decimals=7), 18→6 (USDC), 4→18, 27→4, etc.
+    // --- DivByInt arm (kind = 1): i128 pairs with b > 0.
+    for chunk in f.i128s.chunks(2) {
+        if chunk.len() < 2 {
+            continue;
+        }
+        let (a, b) = (chunk[0], chunk[1]);
+        if b <= 0 {
+            continue;
+        }
+        push(&mut out, 1, a, b, 0, 0);
+    }
+
+    // --- Rescale arm (kind = 2): single i128 × common precision transitions.
+    // 27->18 (RAY->WAD), 18->7 (WAD->asset_decimals=7), 18->6 (USDC), etc.
     let transitions: [(u8, u8); 8] = [
         (27, 18),
         (18, 27),
@@ -400,33 +407,10 @@ fn pack_fp_rescale(f: &ExtractedFields) -> Vec<Vec<u8>> {
     ];
     for &a in f.i128s.iter().take(200) {
         for &(from, to) in &transitions {
-            let mut buf = Vec::with_capacity(18);
-            push_i128_le(&mut buf, a);
-            buf.push(from);
-            buf.push(to);
-            out.push(buf);
+            push(&mut out, 2, a, 0, from, to);
         }
     }
-    out
-}
 
-/// `fp_div_by_int`: In { a: i128, b: i128 } — 32 bytes.
-fn pack_fp_div_by_int(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    // Pair i128s; skip when b <= 0 since the target short-circuits on that.
-    for chunk in f.i128s.chunks(2) {
-        if chunk.len() < 2 {
-            continue;
-        }
-        let (a, b) = (chunk[0], chunk[1]);
-        if b <= 0 {
-            continue;
-        }
-        let mut buf = Vec::with_capacity(32);
-        push_i128_le(&mut buf, a);
-        push_i128_le(&mut buf, b);
-        out.push(buf);
-    }
     out
 }
 
@@ -436,64 +420,15 @@ fn pack_fp_div_by_int(f: &ExtractedFields) -> Vec<Vec<u8>> {
 ///
 /// That's 2+1+1+1+2+1+1+2+1 = 12 bytes matching Arbitrary's derive-default LE
 /// decoding (integers are consumed LE, bytes in field order).
-fn pack_rates_borrow(f: &ExtractedFields) -> Vec<Vec<u8>> {
+/// `rates_and_index`: 29 bytes matching the `In` struct in
+/// `fuzz_targets/rates_and_index.rs`. Merges the retired `rates_borrow` and
+/// `compound_monotonic` packers so libFuzzer can cross-pollinate rate/params
+/// bytes with accrual/borrow bytes inside a single target.
+fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
-    for p in &f.market_params {
-        // Convert RAY-denominated params to the %-scale the target uses.
-        // RAY * pct / 100 == raw  =>  pct = raw * 100 / RAY.
-        let to_pct = |v: Option<i128>| -> i128 { v.map(|r| r * 100 / RAY).unwrap_or(0) };
-        let base_pct = to_pct(p.base_borrow_rate_ray).clamp(0, 50) as u8;
-        let s1_pct = to_pct(p.slope1_ray).clamp(0, 50) as u8;
-        let s2_pct = to_pct(p.slope2_ray).clamp(0, 100) as u8;
-        let s3_pct = to_pct(p.slope3_ray).clamp(0, 500) as u16;
-        let mid_pct = to_pct(p.mid_utilization_ray).clamp(1, 98) as u8;
-        let opt_pct = to_pct(p.optimal_utilization_ray).clamp(mid_pct as i128 + 1, 99) as u8;
-        let max_pct = to_pct(p.max_borrow_rate_ray).clamp(1, 1000) as u16;
+    const MS_PER_YEAR: i128 = MILLISECONDS_PER_YEAR as i128;
 
-        for util in [0u16, 2500, 5000, 7500, 9500, 9999, 10000] {
-            for flip in [0u8, 1, 7, 8] {
-                let mut buf = Vec::with_capacity(12);
-                push_u16_le(&mut buf, util);
-                buf.push(base_pct);
-                buf.push(s1_pct);
-                buf.push(s2_pct);
-                push_u16_le(&mut buf, s3_pct);
-                buf.push(mid_pct);
-                buf.push(opt_pct);
-                push_u16_le(&mut buf, max_pct);
-                buf.push(flip);
-                out.push(buf);
-            }
-        }
-    }
-    out
-}
-
-/// `compound_monotonic`: In { rate_apr_bps: u16, delta_ms: u64 } — 10 bytes.
-fn pack_compound_monotonic(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
-    const MS_PER_YEAR: i128 = 31_556_926_000;
-
-    // Convert borrow rates (per-ms, RAY) into APR bps. rate_per_ms * MS_YR / RAY * 10_000.
-    let mut rates_bps: BTreeSet<u16> = BTreeSet::new();
-    for p in &f.market_params {
-        // max_borrow_rate_ray is *annual* (RAY-scaled), so apr_bps = v * 10_000 / RAY.
-        if let Some(v) = p.max_borrow_rate_ray {
-            let bps = v.saturating_mul(10_000) / RAY;
-            rates_bps.insert(bps.clamp(0, 50_000) as u16);
-        }
-        if let Some(v) = p.base_borrow_rate_ray {
-            rates_bps.insert(((v.saturating_mul(10_000) / RAY).clamp(0, 50_000)) as u16);
-        }
-    }
-    // Seed a handful of representative APRs even if no params found.
-    for apr in [0u16, 100, 500, 1000, 5000, 10_000, 25_000, 50_000] {
-        rates_bps.insert(apr);
-    }
-
-    // Time deltas: use last_timestamp values + fixed ladder.
+    // Extract realistic time deltas from market states + fixed ladder.
     let mut deltas: BTreeSet<u64> = BTreeSet::new();
     for s in &f.market_states {
         if let Some(t) = s.last_timestamp {
@@ -516,13 +451,58 @@ fn pack_compound_monotonic(f: &ExtractedFields) -> Vec<Vec<u8>> {
     ] {
         deltas.insert(d);
     }
+    let delta_samples: Vec<u64> = deltas.iter().copied().take(4).collect();
 
-    for apr in rates_bps.iter().take(32) {
-        for dt in deltas.iter().take(32) {
-            let mut buf = Vec::with_capacity(10);
-            push_u16_le(&mut buf, *apr);
-            push_u64_le(&mut buf, *dt);
-            out.push(buf);
+    // Extract realistic borrowed amounts from position_amounts.
+    let mut borroweds: BTreeSet<u64> = BTreeSet::new();
+    for &a in &f.position_amounts {
+        let v = a.clamp(0, u64::MAX as i128) as u64;
+        borroweds.insert(v);
+    }
+    for b in [1_000u64, 1_000_000, 100_000_000_000, 1_000_000_000_000_000] {
+        borroweds.insert(b);
+    }
+    let borrowed_samples: Vec<u64> = borroweds.iter().copied().take(4).collect();
+
+    for p in &f.market_params {
+        // Convert RAY-denominated params to the %-scale the target uses.
+        let to_pct = |v: Option<i128>| -> i128 { v.map(|r| r * 100 / RAY).unwrap_or(0) };
+        let base_pct = to_pct(p.base_borrow_rate_ray).clamp(0, 50) as u8;
+        let s1_pct = to_pct(p.slope1_ray).clamp(0, 50) as u8;
+        let s2_pct = to_pct(p.slope2_ray).clamp(0, 100) as u8;
+        let s3_pct = to_pct(p.slope3_ray).clamp(0, 500) as u16;
+        let mid_pct = to_pct(p.mid_utilization_ray).clamp(1, 98) as u8;
+        let opt_pct = to_pct(p.optimal_utilization_ray).clamp(mid_pct as i128 + 1, 99) as u8;
+        let max_pct = to_pct(p.max_borrow_rate_ray).clamp(1, 1000) as u16;
+        let reserve_pct = p
+            .reserve_factor_bps
+            .map(|r| r.clamp(0, BPS - 1) / 100)
+            .unwrap_or(10)
+            .clamp(0, 50) as u8;
+
+        // Keep seed count per market param bounded: 4 utils × 2 flips × 4 deltas
+        // × 4 borroweds = 128. Times ~1.4k snapshots → ~180k total seeds.
+        for util in [0u16, 5000, 9500, 10000] {
+            for flip in [0u8, 1] {
+                for &delta_ms in &delta_samples {
+                    for &borrowed_units in &borrowed_samples {
+                        let mut buf = Vec::with_capacity(29);
+                        push_u16_le(&mut buf, util);
+                        buf.push(base_pct);
+                        buf.push(s1_pct);
+                        buf.push(s2_pct);
+                        push_u16_le(&mut buf, s3_pct);
+                        buf.push(mid_pct);
+                        buf.push(opt_pct);
+                        push_u16_le(&mut buf, max_pct);
+                        buf.push(flip);
+                        buf.push(reserve_pct);
+                        push_u64_le(&mut buf, delta_ms);
+                        push_u64_le(&mut buf, borrowed_units);
+                        out.push(buf);
+                    }
+                }
+            }
         }
     }
     out
@@ -530,105 +510,56 @@ fn pack_compound_monotonic(f: &ExtractedFields) -> Vec<Vec<u8>> {
 
 /// `flow_supply_borrow_liquidate`: Arbitrary layout is 8 bytes LE:
 /// `{ supply_raw: u32, borrow_frac_raw: u8, jump_hours: u16, liq_frac_raw: u8 }`.
-fn pack_flow_supply_borrow_liquidate(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut supplies: BTreeSet<u32> = BTreeSet::new();
-    for &amt in &f.position_amounts {
-        let v = (amt / 1_000_000).clamp(0, u32::MAX as i128) as u32;
-        supplies.insert(v);
-    }
-    for s in [1_000u32, 10_000, 50_000, 100_000] {
-        supplies.insert(s);
-    }
-    for s in supplies.iter().take(8) {
-        for bf in [0u8, 128, 230, 255] {
-            for jh in [0u16, 24, 240] {
-                for lf in [0u8, 128, 255] {
-                    let mut buf = Vec::with_capacity(8);
-                    push_u32_le(&mut buf, *s);
-                    buf.push(bf);
-                    push_u16_le(&mut buf, jh);
-                    buf.push(lf);
-                    out.push(buf);
-                }
-            }
-        }
-    }
-    out
+/// `flow_e2e`: Arbitrary over `{ ops: Vec<Op> }`. libFuzzer's vec-length
+/// prefix means we don't need to emit precise byte layouts — a handful of
+/// short seeds kickstart mutation, and the coverage-guided engine builds out
+/// interesting op-sequence prefixes on its own.
+///
+/// The seeds below cover the common bootstraps the retired flow targets used
+/// to seed explicitly: a supply, a supply+borrow, a supply+borrow+liquidate
+/// sequence, a flash-loan op, and an empty vec.
+fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
+    vec![
+        // Empty op sequence.
+        vec![],
+        // Single Supply (Op discriminant 0, user=0, asset=0, amount=small).
+        vec![0, 0, 0, 0, 0x00, 0x10, 0x00, 0x00],
+        // Supply → Borrow pair.
+        vec![
+            0, 0, 0, 0, 0x00, 0x10, 0x00, 0x00, // Supply ALICE USDC
+            1, 0, 1, 0, 0x00, 0x10, 0x00, 0x00, // Borrow ALICE ETH
+        ],
+        // Supply → Borrow → AdvanceAndSync → Liquidate.
+        vec![
+            0, 0, 0, 0, 0x00, 0x40, 0x00, 0x00, // Supply ALICE USDC large
+            1, 0, 1, 0, 0x00, 0x08, 0x00, 0x00, // Borrow ALICE ETH
+            7, 0x20, 0x00, // AdvanceAndSync 32h
+            4, 0, 1, 0xC0, // Liquidate ALICE ETH 75%
+        ],
+        // FlashLoan good + bad.
+        vec![5, 0, 0, 0, 0x00, 0x04, 0x00, 0x00, 0], // good
+        vec![5, 0, 0, 0, 0x00, 0x04, 0x00, 0x00, 1], // bad
+    ]
 }
 
-/// `flow_multi_op`: Arbitrary over `{ ops: Vec<Op> }`. The vec length is
-/// framed by libFuzzer's Arbitrary impl (length-prefix); a few small seeds
-/// with empty or single-op sequences give the mutator a good starting point.
-fn pack_flow_multi_op(_f: &ExtractedFields) -> Vec<Vec<u8>> {
-    // Empty-vec + tiny seeds. Keep this minimal — libFuzzer builds the
-    // interesting state-machine prefixes on its own.
-    vec![vec![], vec![0u8], vec![0u8, 1, 0, 0, 0, 0], vec![1u8, 2, 0, 0, 0, 0]]
+/// `flow_strategy`: short Vec<Op> seeds covering each strategy variant plus
+/// an AdvanceAndSync. The bootstrap does the heavy setup, so seeds stay tiny.
+fn pack_flow_strategy(_f: &ExtractedFields) -> Vec<Vec<u8>> {
+    vec![
+        // Empty — forces bootstrap-only path.
+        vec![],
+        // Multiply USDC-collateral / ETH-debt.
+        vec![0, 0, 1, 0x00, 0x10, 0x00, 0x00, 0],
+        // SwapDebt XLM → USDC.
+        vec![1, 2, 0, 0x00, 0x10, 0x00, 0x00],
+        // SwapCollateral USDC → ETH.
+        vec![2, 0, 1, 0x00, 0x10, 0x00, 0x00],
+        // RepayWithCollateral USDC→XLM, close_position=false.
+        vec![3, 0, 2, 0x00, 0x10, 0x00, 0x00, 0],
+        // AdvanceAndSync 8h.
+        vec![4, 0x08, 0x00],
+    ]
 }
-
-/// `flow_flash_loan`: Arbitrary over { seed_usdc: u32, loan_usdc: u32, use_bad: bool }
-/// — 9 bytes LE + 1 byte bool.
-fn pack_flow_flash_loan(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    // Derive seed/loan from i128 magnitudes / 10^18 (they're WAD-scaled).
-    let mut seeds: BTreeSet<u32> = BTreeSet::new();
-    for &x in &f.i128s {
-        if x > 0 {
-            // Take a few magnitudes.
-            let v = (x / 1_000_000_000_000_000_000).clamp(0, u32::MAX as i128) as u32;
-            seeds.insert(v);
-        }
-    }
-    for s in [1_000u32, 10_000, 50_000, 100_000, 500_000, 1_000_000] {
-        seeds.insert(s);
-    }
-    for seed in seeds.iter().take(16) {
-        for loan in [1u32, 100, 1_000, 10_000, 50_000] {
-            for bad in [0u8, 1] {
-                let mut buf = Vec::with_capacity(9);
-                push_u32_le(&mut buf, *seed);
-                push_u32_le(&mut buf, loan);
-                buf.push(bad);
-                out.push(buf);
-            }
-        }
-    }
-    out
-}
-
-/// `flow_oracle_tolerance`: Arbitrary over
-/// { supply_amt: u32, deviation_bps: u16, direction_up: bool, zero_price: bool }
-/// — 4 + 2 + 1 + 1 = 8 bytes.
-fn pack_flow_oracle_tolerance(f: &ExtractedFields) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut amts: BTreeSet<u32> = BTreeSet::new();
-    for &x in &f.i128s {
-        if x > 0 {
-            let v = (x / 1_000_000_000_000_000_000).clamp(0, u32::MAX as i128) as u32;
-            amts.insert(v);
-        }
-    }
-    for a in [100u32, 1_000, 10_000, 100_000] {
-        amts.insert(a);
-    }
-    for amt in amts.iter().take(16) {
-        for dev in [0u16, 199, 200, 499, 500, 1_000, 5_000] {
-            for dir in [0u8, 1] {
-                for zero in [0u8, 1] {
-                    let mut buf = Vec::with_capacity(8);
-                    push_u32_le(&mut buf, *amt);
-                    push_u16_le(&mut buf, dev);
-                    buf.push(dir);
-                    buf.push(zero);
-                    out.push(buf);
-                }
-            }
-        }
-    }
-    out
-}
-
-
 
 // ---------------------------------------------------------------------------
 // Output
@@ -741,26 +672,15 @@ fn main() -> std::io::Result<()> {
 
     // Per-target packing.
     let targets: Vec<(&str, Vec<Vec<u8>>)> = vec![
-        ("fp_mul_div", pack_fp_mul_div(&merged)),
-        ("fp_rescale", pack_fp_rescale(&merged)),
-        ("fp_div_by_int", pack_fp_div_by_int(&merged)),
-        ("rates_borrow", pack_rates_borrow(&merged)),
-        ("compound_monotonic", pack_compound_monotonic(&merged)),
-        (
-            "flow_supply_borrow_liquidate",
-            pack_flow_supply_borrow_liquidate(&merged),
-        ),
-        ("flow_flash_loan", pack_flow_flash_loan(&merged)),
-        (
-            "flow_oracle_tolerance",
-            pack_flow_oracle_tolerance(&merged),
-        ),
-        ("flow_multi_op", pack_flow_multi_op(&merged)),
+        ("fp_math", pack_fp_math(&merged)),
+        ("rates_and_index", pack_rates_and_index(&merged)),
+        ("flow_e2e", pack_flow_e2e(&merged)),
+        ("flow_strategy", pack_flow_strategy(&merged)),
     ];
 
     for (target, inputs) in targets {
         if inputs.is_empty() {
-            eprintln!("seed_corpus: {}: no inputs packed — skipping", target);
+            eprintln!("seed_corpus: {}: no inputs packed -- skipping", target);
             continue;
         }
         let n = write_corpus(target, inputs, &out_dir)?;

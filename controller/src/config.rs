@@ -57,9 +57,6 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
 
 pub fn edit_asset_config(env: &Env, asset: Address, config: AssetConfig) {
     validation::validate_asset_config(env, &config);
-    // Note: `validate_asset_config` now also enforces `flashloan_fee_bps`
-    // bounds (audit fix H-04), so callers from `create_liquidity_pool` are
-    // covered too. This function trusts the shared validation.
 
     let mut market = storage::get_market_config(env, &asset);
     let mut next_config = config;
@@ -81,10 +78,8 @@ pub fn edit_asset_config(env: &Env, asset: Address, config: AssetConfig) {
 // ---------------------------------------------------------------------------
 
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    // L-13: bound PositionLimits to sane values.
-    // - lower bound 1: 0 positions would brick supply/borrow for every user.
-    // - upper bound 32: liquidation iterates through positions; unbounded
-    //   values risk on-chain gas exhaustion during liquidation.
+    // Reject 0 (would brick supply/borrow for every user) and > 32 (would
+    // let liquidation iteration exhaust gas).
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
         || limits.max_supply_positions > 32
@@ -100,7 +95,7 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
 // ---------------------------------------------------------------------------
 
 pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
-    if ltv < 0 || threshold <= ltv || threshold > 10_000 {
+    if ltv < 0 || threshold <= ltv || threshold > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
     if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
@@ -123,7 +118,7 @@ pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -
 }
 
 pub fn edit_e_mode_category(env: &Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
-    if ltv < 0 || threshold <= ltv || threshold > 10_000 {
+    if ltv < 0 || threshold <= ltv || threshold > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
     if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
@@ -145,9 +140,9 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     cat.is_deprecated = true;
     storage::set_emode_category(env, id, &cat);
 
-    // NOTE: Soroban storage is not iterable, so stale membership entries
-    // survive deprecation. The deprecated flag blocks new positions from
-    // using this category; runtime checks reject stale entries.
+    // Soroban storage is not iterable, so per-asset membership entries
+    // survive deprecation. The `is_deprecated` flag blocks new positions
+    // from entering this category; runtime checks reject existing entries.
 
     emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
 }
@@ -337,10 +332,8 @@ fn resolve_oracle_decimals(
         panic_with_error!(env, GenericError::InvalidTicker);
     }
 
-    // M-09: probe the DEX feed with the operator-supplied dex_symbol/kind.
-    // Previously the code forwarded cex_symbol to the DEX, which silently
-    // sent the wrong symbol when the two kinds differed. Reject unresolvable
-    // DEX symbols at config time rather than at first price call.
+    // Probe the DEX feed with the operator-supplied dex_symbol and
+    // dex_asset_kind and reject unresolvable symbols at config time.
     let dex_decimals = if let Some(dex_addr) = config.dex_oracle.clone() {
         let dex_client = ReflectorClient::new(env, &dex_addr);
         let dex_asset = match config.dex_asset_kind {
@@ -373,16 +366,28 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         panic_with_error!(env, GenericError::PairNotActive);
     }
 
+    // `ExchangeSource::SpotOnly` has no tolerance, TWAP, or divergence
+    // check; forbid it in production builds so a compromised ORACLE key
+    // cannot weaken a live market to unprotected pricing. Test builds
+    // retain SpotOnly for coverage.
+    #[cfg(not(feature = "testing"))]
+    if matches!(
+        config.exchange_source,
+        common::types::ExchangeSource::SpotOnly
+    ) {
+        panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
+    }
+
     if config.max_price_stale_seconds < 60 || config.max_price_stale_seconds > 86_400 {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
     }
 
     let (asset_decimals, cex_decimals, dex_decimals) =
         resolve_oracle_decimals(env, &asset, &config);
-    // In production, persist the on-chain token precision discovered from the
-    // asset contract. The integration harness uses Soroban's built-in SAC
-    // helper, fixed at 7 decimals, so under `testing` we preserve the
-    // synthetic market precision seeded at market creation.
+    // Persist token precision discovered from the asset contract. Under the
+    // `testing` feature, preserve any synthetic precision seeded at market
+    // creation because the integration harness uses Soroban's SAC helper
+    // (fixed at 7 decimals).
     let persisted_asset_decimals =
         if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
             market.oracle_config.asset_decimals
@@ -431,9 +436,6 @@ pub fn edit_oracle_tolerance(
     first_tolerance: i128,
     last_tolerance: i128,
 ) {
-    // Auth handled by the ORACLE-gated endpoint in the contract impl.
-
-    // Validate raw deviation BPS and compute the ratio bounds.
     let tolerance = validate_and_calculate_tolerances(env, first_tolerance, last_tolerance);
 
     let mut market = storage::get_market_config(env, &asset);

@@ -1,4 +1,4 @@
-use common::constants::{MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY};
+use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
     Account, AssetConfig, MarketParams, MarketStatus, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
@@ -56,15 +56,13 @@ pub fn validate_bulk_position_limits(
     } else if position_type == POSITION_TYPE_BORROW {
         (account.borrow_positions.len(), limits.max_borrow_positions)
     } else {
-        // M-08: panic on unknown position_type. Silent return would skip
-        // the limit check entirely if a future caller passes a wrong value.
+        // Panic rather than silently skipping the limit check if a future
+        // caller passes an unrecognized position type.
         panic_with_error!(env, GenericError::InvalidPositionType);
     };
 
-    // Count how many new positions the batch would create.
-    //
-    // Repeated assets in one batch resolve to the same position; do not
-    // count them twice.
+    // Repeated assets in one batch resolve to the same position; dedupe
+    // before comparing against the position cap.
     let mut seen: Map<Address, bool> = Map::new(env);
     let mut new_positions_count: u32 = 0;
     for i in 0..assets.len() {
@@ -108,53 +106,47 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     if params.optimal_utilization_ray >= RAY {
         panic_with_error!(env, CollateralError::OptUtilTooHigh);
     }
-    if params.reserve_factor_bps < 0 || params.reserve_factor_bps >= 10_000 {
+    if params.reserve_factor_bps < 0 || params.reserve_factor_bps >= BPS {
         panic_with_error!(env, CollateralError::InvalidReserveFactor);
     }
 }
 
 pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
-    // Guard: LTV must be non-negative.
     if config.loan_to_value_bps < 0 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: liquidation threshold must stay above LTV and at or below 100%
-    // so new debt cannot start in liquidatable territory and HF math stays
-    // bounded.
+    // Liquidation threshold must sit strictly above LTV and at or below
+    // 100% so new debt cannot open in liquidatable territory and HF math
+    // stays bounded.
     if config.liquidation_threshold_bps <= config.loan_to_value_bps
-        || config.liquidation_threshold_bps > 10_000
+        || config.liquidation_threshold_bps > BPS
     {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: liquidation_bonus must be non-negative and stay within the
-    // protocol-wide parity bound.
     if config.liquidation_bonus_bps < 0 || config.liquidation_bonus_bps > MAX_LIQUIDATION_BONUS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: liquidation_fees must be non-negative and not exceed 100% (sanity bound).
-    if config.liquidation_fees_bps < 0 || config.liquidation_fees_bps > 10_000 {
+    if config.liquidation_fees_bps < 0 || config.liquidation_fees_bps > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    // Guard: caps must be non-negative (0 = no cap, >0 = enforced limit).
+    // Cap sentinels: 0 = unlimited, >0 = enforced.
     if config.supply_cap < 0 || config.borrow_cap < 0 {
         panic_with_error!(env, CollateralError::InvalidBorrowParams);
     }
 
-    // Guard: isolation debt ceiling must be non-negative. A negative ceiling
-    // makes the `isolated_debt > ceiling` check vacuously true, permitting
-    // unlimited isolated borrowing.
+    // A negative isolation ceiling would make the `isolated_debt > ceiling`
+    // check vacuously true and permit unlimited isolated borrowing.
     if config.isolation_debt_ceiling_usd_wad < 0 {
         panic_with_error!(env, CollateralError::InvalidBorrowParams);
     }
 
-    // H-04: flashloan_fee_bps bounds. A negative fee would have the pool pay
-    // receivers; a fee above MAX_FLASHLOAN_FEE_BPS exceeds the protocol cap.
-    // Enforced here so `create_liquidity_pool` and `edit_asset_config` share
-    // one validation site.
+    // Shared validation for both `create_liquidity_pool` and
+    // `edit_asset_config`. A negative fee would have the pool pay
+    // receivers; a fee above `MAX_FLASHLOAN_FEE_BPS` exceeds the cap.
     if config.flashloan_fee_bps < 0 {
         panic_with_error!(env, FlashLoanError::NegativeFlashLoanFee);
     }
@@ -167,8 +159,8 @@ pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
     if last <= first {
         panic_with_error!(env, OracleError::BadAnchorTolerances);
     }
-    // The caller's range check (`validate_and_calculate_tolerances`) enforces
-    // the upper bound via `MAX_LAST_TOLERANCE`. No redundant cap here.
+    // Upper bound on `last` is enforced by the caller's range check via
+    // `MAX_LAST_TOLERANCE`.
 }
 
 #[cfg(test)]

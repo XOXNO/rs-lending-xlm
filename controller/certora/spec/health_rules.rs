@@ -79,7 +79,7 @@ fn liquidation_requires_unhealthy_account(
     crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
 
     // If execution reaches here, liquidation succeeded on a healthy account.
-    // The prover must show this line is unreachable — otherwise the rule fails.
+    // The prover must show this line is unreachable -- otherwise the rule fails.
     cvlr_satisfy!(false);
 }
 
@@ -111,7 +111,7 @@ fn supply_cannot_decrease_hf(
 }
 
 // ---------------------------------------------------------------------------
-// Sanity rules (reachability checks — ensures rules aren't vacuously true)
+// Sanity rules (reachability checks -- ensures rules aren't vacuously true)
 // ---------------------------------------------------------------------------
 
 #[rule]

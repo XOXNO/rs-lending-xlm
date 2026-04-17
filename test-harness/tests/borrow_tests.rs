@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     xlm_preset, LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
@@ -257,7 +259,7 @@ fn test_borrow_isolated_requires_enabled() {
         .with_market(usdc_preset())
         .with_market_config("USDC", |cfg| {
             cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000_000_000_000_000_000_000;
+            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
         })
         .with_market(eth_preset())
         .with_market_config("ETH", |cfg| {
@@ -280,7 +282,7 @@ fn test_borrow_isolated_requires_enabled() {
 #[test]
 fn test_borrow_isolated_debt_ceiling() {
     // Set a very low ceiling: $100 WAD.
-    let ceiling = 100 * 1_000_000_000_000_000_000i128;
+    let ceiling = 100 * WAD;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market_config("USDC", |cfg| {

@@ -54,25 +54,22 @@ cargo install cargo-fuzz  # once
 From `stellar/fuzz/`:
 
 ```bash
-cargo +nightly fuzz run fp_mul_div -- -max_total_time=30 -sanitizer=none
+cargo +nightly fuzz run fp_math -- -max_total_time=30 -sanitizer=none
 
 # All function-level targets via Makefile
 cd .. && make fuzz              # 60s each (default)
 make fuzz FUZZ_TIME=3600        # 1 hour per target (nightly)
 
 # Triage a crash
-cargo +nightly fuzz fmt fp_mul_div artifacts/fp_mul_div/crash-<hash>
+cargo +nightly fuzz fmt fp_math artifacts/fp_math/crash-<hash>
 ```
 
 ### Targets
 
 | Target | Function under test | Invariants |
 |---|---|---|
-| `fp_mul_div` | `mul_div_half_up` (I256-backed) | commutativity, identity, zero-absorbing, half-up bound |
-| `fp_rescale` | `rescale_half_up` | upscale↔downscale roundtrip, sign preservation |
-| `fp_div_by_int` | `div_by_int_half_up` | away-from-zero rounding, error bound |
-| `rates_borrow` | `calculate_borrow_rate` (3-region piecewise) | non-negative, max-cap, monotonicity |
-| `compound_monotonic` | `compound_interest` (5-term Taylor) | identity, monotonicity, `≥ 1+r·t` floor |
+| `fp_math` | `mul_div_half_up` / `div_by_int_half_up` / `rescale_half_up` (unified: `kind % 3` dispatch) | per-arm: commutativity+identity+half-up (MulDiv); sign+error bound+f64 diff (DivByInt); roundtrip+sign preservation+away-from-zero (Rescale) |
+| `rates_and_index` | pipeline: `calculate_borrow_rate` → `compound_interest` → `calculate_supplier_rewards` | rate: non-negative, max-cap, monotonicity. compound: identity, monotonicity in delta, `≥ 1+r·t` Taylor floor. §5 interest split: `rewards + fee == accrued` (exact), `fee ≈ reserve_factor/BPS × accrued` (half-up), `fee == 0` iff reserve_factor=0 |
 
 ### Contract-level libFuzzer targets
 
@@ -80,14 +77,17 @@ Run with `--sanitizer=thread -Zbuild-std` on macOS (see workaround above).
 
 | Target | Flow exercised | Key assertion |
 |---|---|---|
-| `flow_supply_borrow_liquidate` | supply USDC → borrow ETH → advance time → liquidate | HF≥1 after successful borrow, reserves≥0 after accrual, reserves≥0 + HF>0 after liquidation; `try_liquidate` never aborts |
-| `flow_flash_loan` | flash loan USDC through good / bad receiver | bad receiver always returns `Err` |
-| `flow_oracle_tolerance` | supply under spot/TWAP deviation; optional zero-price flip | zero-price oracle always rejects supply |
-| `flow_multi_op` | libFuzzer-mutated `Vec<Op>` of supply/borrow/withdraw/repay/advance across USDC+ETH | On success: HF≥1 after borrow/withdraw, HF>0 after supply/repay, reserves≥0. **On failure: reserves + user raw supply/borrow balances unchanged** (subsumes the retired `flow_cache_atomicity` atomicity check). |
+| `flow_e2e` | libFuzzer-mutated `Vec<Op>` across three markets (USDC/ETH/XLM) and two borrowers. Ops: Supply, Borrow, Withdraw, Repay, Liquidate, FlashLoan (good/bad receiver), OracleJitter, AdvanceAndSync, ClaimRevenue, CleanBadDebt. | **On success**: HF≥1 for the op-affected user after risk-increasing ops (Borrow/Withdraw); HF>0 otherwise; reserves≥0 across all assets. Bad flash-loan receiver always returns `Err`. **On failure**: reserves + both users' raw supply/borrow balances unchanged (cache-Drop atomicity; subsumes the retired `flow_cache_atomicity` proptest property). |
+| `flow_strategy` | libFuzzer-mutated `Vec<Op>` of strategy entrypoints (`multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`) plus `AdvanceAndSync` accrual nudges. Aggregator pre-funded per iteration; ALICE bootstrapped with a baseline position so swap/repay ops reach their target. | HF≥1 after risk-increasing ops (Multiply/SwapDebt/SwapCollateral), HF>0 after repay; reserves≥0 across all assets. **NEW-01 regression — router allowance must be zero** after every successful strategy op (a non-zero residual approval to the aggregator is the high-severity audit finding this target regresses). Cache atomicity on failure. |
 
-Retired targets (2026-04): `flow_isolation_emode_xor` (panic-case only
-reachable from the proptest `catch_unwind` harness), `flow_cache_atomicity`
-(rolled into `flow_multi_op`'s on-failure snapshot check), and
+Retired targets (2026-04): `flow_supply_borrow_liquidate`, `flow_flash_loan`,
+`flow_oracle_tolerance`, and `flow_multi_op` — all subsumed by `flow_e2e`'s
+op-sequence fuzzer. Retired proptest harnesses (2026-04):
+`fuzz_supply_borrow_liquidate`, `fuzz_oracle_tolerance`, `fuzz_cache_atomicity`,
+and `fuzz_isolation_emode_xor` — covered by `flow_e2e`'s Op sequences + the
+`isolation_tests.rs` / `emode_tests.rs` unit suites. Their shrunk regression
+inputs were all reachable via the bootstrap+Op sequences in `pack_flow_e2e`
+(see `fuzz/src/bin/seed_corpus.rs`). Earlier rounds retired
 `flow_supply_borrow_tsan_smoke` (link-check only — subsumed by any
 contract-level target building under TSAN).
 
@@ -125,10 +125,6 @@ PROPTEST_CASES=1 cargo test --release -p test-harness --test fuzz_supply_borrow_
 
 | Test file | Invariants |
 |---|---|
-| `fuzz_supply_borrow_liquidate` | HF ≥ 1 after borrow; indexes monotonic; HF > 0 post-liquidation |
-| `fuzz_isolation_emode_xor` | e-mode ⊕ isolation (XOR) enforced; creating both panics |
-| `fuzz_oracle_tolerance` | Supply/repay (risk-decreasing) always succeed under any safe vs spot deviation |
-| `fuzz_cache_atomicity` | Failed borrow leaves reserves + user balance unchanged; indexes monotonic |
 | `fuzz_multi_asset_solvency` | 5–15 random ops across 3 assets / 2 users; all global invariants hold after every step |
 | `fuzz_conservation` | Accounting conservation — reserves + borrowed ≥ supplied; Σuser_borrow ≈ pool_borrowed; Σuser_supply + revenue ≈ pool_supplied; reserves ≥ 0 strictly (per step, 5–15 random ops) |
 | `fuzz_auth_matrix` | Every privileged controller endpoint (only_owner / only_role) rejects unauthenticated callers; KEEPER role cannot call REVENUE/ORACLE endpoints. Regression gate for audit bug C-01 (`edit_e_mode_category` missing `#[only_owner]`) |
@@ -227,9 +223,10 @@ Output lands in `fuzz/corpus/<target>/<sha256-prefix>`. Re-running is
 idempotent (hash-keyed filenames; duplicates skip). Typical yield on a clean
 checkout: ~18k seed files across 11 targets from ~1.4k snapshots.
 
-Empirically, `fp_mul_div` starts a seeded campaign around `cov: 835` in its
-first 2k iterations versus `cov: 820` at iteration 3k from an empty corpus —
-the mutation engine begins ahead of where the empty baseline climbs to.
+Empirically, `fp_math` starts a seeded campaign well ahead of an empty
+baseline because the packer emits seeds across all three arms (MulDiv /
+DivByInt / Rescale) from the same extracted numeric pool — libFuzzer
+cross-pollinates bytes between arms during mutation.
 
 To add a regression from a historical bug: drop the minimized `crash-*` file
 into `corpus/<target>/` (any location works — libFuzzer reads the whole dir).

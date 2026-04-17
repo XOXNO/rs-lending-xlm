@@ -9,21 +9,6 @@ pub mod testutils;
 use crate::cache::ControllerCache;
 
 // ---------------------------------------------------------------------------
-// Position construction
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Cap validation
-// ---------------------------------------------------------------------------
-// Supply cap validation lives in `positions::supply::validate_supply_cap`,
-// since only the supply flow uses it. Borrow cap validation stays in
-// `positions::borrow` for the same reason.
-
-// ---------------------------------------------------------------------------
-// Borrow-specific validations
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Position value helpers (used by health factor, liquidation, views)
 // ---------------------------------------------------------------------------
 
@@ -113,7 +98,16 @@ pub fn calculate_health_factor(
         return i128::MAX;
     }
 
-    weighted_collateral_total.div(env, total_borrow).raw()
+    // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
+    // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
+    // collateral the numerator can exceed i128; treating overflow as infinite
+    // HF keeps the account usable instead of locking it behind a panic.
+    let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
+    let wad = soroban_sdk::I256::from_i128(env, common::constants::WAD);
+    let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
+    let numerator = w.mul(&wad);
+    let result = numerator.div(&tb);
+    result.to_i128().unwrap_or(i128::MAX)
 }
 
 #[cfg(feature = "certora")]
@@ -132,7 +126,7 @@ pub fn calculate_health_factor_for(
 }
 
 // ---------------------------------------------------------------------------
-// Account totals (extracted from liquidation — shared with views)
+// Account totals (extracted from liquidation -- shared with views)
 // ---------------------------------------------------------------------------
 
 pub fn calculate_account_totals(
@@ -251,7 +245,9 @@ pub fn estimate_liquidation_amount(
         }
     }
 
-    let target_fallback = Wad::from_raw(1_010_000_000_000_000_000);
+    // 1.01 * WAD — a slight-overshoot HF target used as fallback when the
+    // first attempt cannot restore HF to exactly 1.0 under the bonus curve.
+    let target_fallback = Wad::from_raw(WAD + WAD / 100);
     let bonus_fallback =
         calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_fallback);
     let fallback_result = try_liquidation_at_target(

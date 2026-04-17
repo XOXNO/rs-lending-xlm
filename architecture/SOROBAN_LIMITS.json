@@ -1,0 +1,32 @@
+{
+  "contract_max_size_bytes": 131072,
+  "compute": {
+    "ledger_max_instructions": 580000000,
+    "tx_max_instructions": 400000000,
+    "tx_memory_limit": 41943040
+  },
+  "ledger_cost": {
+    "tx_max_disk_read_entries": 200,
+    "tx_max_disk_read_bytes": 200000,
+    "tx_max_write_ledger_entries": 200,
+    "tx_max_write_bytes": 132096,
+    "tx_max_footprint_entries": 400
+  },
+  "events": {
+    "tx_max_contract_events_size_bytes": 16384
+  },
+  "bandwidth": {
+    "ledger_max_txs_size_bytes": 266240,
+    "tx_max_size_bytes": 132096
+  },
+  "contract_data_key_size_bytes": 250,
+  "contract_data_entry_size_bytes": 65536,
+  "state_archival": {
+    "max_entry_ttl": 3110400,
+    "min_temporary_ttl": 17280,
+    "min_persistent_ttl": 2073600,
+    "persistent_rent_rate_denominator": 1215,
+    "temp_rent_rate_denominator": 2430
+  },
+  "scp_timing_ms": 5000
+}

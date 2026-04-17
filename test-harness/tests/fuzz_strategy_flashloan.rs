@@ -6,7 +6,7 @@
 //! call escapes the recording-mode mock. Strategy flows (`multiply`,
 //! `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`) stay on
 //! the *internal* `create_strategy` path (no external receiver) and run
-//! fine under `mock_all_auths` — but had no property-test coverage.
+//! fine under `mock_all_auths` -- but had no property-test coverage.
 //!
 //! This harness adds three properties that cover the gaps and regress four
 //! audit findings from `bugs.md`:
@@ -28,7 +28,7 @@
 //!
 //! If the explicit tree turns out to be incomplete and every generated input
 //! fails at the auth layer, keep the test with `#[ignore]` plus a note that
-//! points to the step that could not be authorized — preserving the
+//! points to the step that could not be authorized -- preserving the
 //! regression surface for when the SDK improves.
 
 extern crate std;
@@ -130,7 +130,7 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 //   a. the call returns Ok.
 //   b. the reentrancy guard is cleared.
 //   c. pool reserves grew by exactly `fee` (the supplied pool is otherwise
-//      unchanged — `flash_loan_end` pulls `amount + fee`, where `amount`
+//      unchanged -- `flash_loan_end` pulls `amount + fee`, where `amount`
 //      replays the outgoing transfer from `begin` and `fee` is net-new).
 // ---------------------------------------------------------------------------
 

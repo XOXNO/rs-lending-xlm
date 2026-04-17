@@ -1,4 +1,4 @@
-/// Interest Rate Model — Formal Verification Rules
+/// Interest Rate Model -- Formal Verification Rules
 ///
 /// Verifies correctness of the 3-region piecewise linear borrow rate model,
 /// the 5-term Taylor compound interest approximation, deposit rate calculation,
@@ -252,7 +252,7 @@ fn deposit_rate_less_than_borrow(e: Env) {
 }
 
 // ===========================================================================
-// Rule 8: Compound interest identity — zero time yields RAY (1.0)
+// Rule 8: Compound interest identity -- zero time yields RAY (1.0)
 // ===========================================================================
 
 /// When no time has elapsed (delta_ms == 0), the compound interest factor
@@ -319,9 +319,9 @@ fn compound_interest_monotonic_in_rate(e: Env) {
 // Rule 11: Compound interest >= simple interest (e^x >= 1 + x)
 // ===========================================================================
 
-/// The Taylor expansion (5-term) of e^x always exceeds the linear
-/// approximation `1 + x` for non-negative x. This ensures compound
-/// interest never underestimates simple interest.
+/// The Taylor expansion of e^x always exceeds the linear approximation
+/// `1 + x` for non-negative x, so compound interest never underestimates
+/// simple interest.
 #[rule]
 fn compound_interest_ge_simple(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -351,7 +351,7 @@ fn compound_interest_ge_simple(e: Env) {
 }
 
 // ===========================================================================
-// Rule 12: Supplier rewards conservation — no interest is lost
+// Rule 12: Supplier rewards conservation -- no interest is lost
 // ===========================================================================
 
 /// The split of accrued interest into supplier rewards and protocol fee
@@ -397,7 +397,7 @@ fn supplier_rewards_conservation(e: Env) {
 
     cvlr_assert!(diff <= 1);
 
-    // Verify protocol fee matches expected: mul_half_up(accrued, reserve_factor, BPS) within ±1
+    // Verify protocol fee matches expected: mul_half_up(accrued, reserve_factor, BPS) within +/-1
     let expected_fee = mul_div_half_up(&e, accrued_interest, params.reserve_factor_bps, BPS);
     let fee_diff = if protocol_fee.raw() >= expected_fee {
         protocol_fee.raw() - expected_fee

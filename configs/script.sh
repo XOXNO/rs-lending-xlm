@@ -367,6 +367,7 @@ configure_market_oracle() {
             cex_symbol: .reflector.cex_symbol,
             dex_oracle: (.reflector.dex_oracle // null),
             dex_asset_kind: .reflector.dex_asset_kind,
+            dex_symbol: (.reflector.dex_symbol // .reflector.cex_symbol),
             twap_records: .reflector.twap_records
         }
     " "$MARKET_CONFIG_FILE" > "$cfg_file"

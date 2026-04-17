@@ -1,3 +1,4 @@
+use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::events::{emit_pool_insolvent, PoolInsolventEvent};
 use common::fp::Ray;
 use common::rates::{
@@ -9,18 +10,39 @@ use soroban_sdk::Env;
 use crate::cache::Cache;
 
 /// Minimum supply_index that keeps scaled-amount math well-conditioned:
-/// 10^18 in RAY (= 10^-9 decimal). Below this, division in
-/// `calculate_scaled_supply` produces astronomical scaled values that can
-/// overflow i128.
-const SUPPLY_INDEX_FLOOR_RAW: i128 = 1_000_000_000_000_000_000;
+/// 10^18 in RAY (= 10^-9 decimal, numerically equal to `WAD`). Below this,
+/// division in `calculate_scaled_supply` produces astronomical scaled
+/// values that can overflow i128.
+const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
+
+/// Cap on compound interval per `global_sync` call. The 8-term Taylor
+/// expansion in `compound_interest` holds only for
+/// `x = rate * delta_ms / MS_PER_YEAR <= 2`; capping `delta_ms` at one year
+/// and iterating keeps `x <= annual_rate` (bounded by `max_borrow_rate`)
+/// and avoids i128 overflow in `x_pow8`.
+const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 pub fn global_sync(env: &Env, cache: &mut Cache) {
-    let delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
+    let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
-    if delta_ms == 0 {
+    if total_delta_ms == 0 {
         return;
     }
 
+    // Iterate compound interest in bounded chunks so a market idle for
+    // multiple years cannot push `x` into the Taylor degradation /
+    // overflow regime. Each chunk fully commits its own sub-accrual.
+    let mut remaining = total_delta_ms;
+    while remaining > 0 {
+        let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
+        global_sync_step(env, cache, chunk);
+        remaining -= chunk;
+    }
+
+    cache.last_timestamp = cache.current_timestamp;
+}
+
+fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     let util = Ray::from_raw(cache.calculate_utilization());
     let borrow_rate = calculate_borrow_rate(env, util, &cache.params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
@@ -43,8 +65,6 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 
     // Protocol fee is already in RAY from rates math.
     add_protocol_revenue_ray(cache, protocol_fee);
-
-    cache.last_timestamp = cache.current_timestamp;
 }
 
 /// Converts a fee in **asset decimals** to RAY-scaled supply tokens.
@@ -54,10 +74,8 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee_amount: i128) {
     if fee_amount <= 0 {
         return;
     }
-    // Skip revenue accrual when supply_index is at or near the safety floor:
+    // Skip accrual when the supply index is at or near the safety floor:
     // dividing by a near-zero index produces astronomical scaled amounts.
-    // Mirrors the guard in `add_protocol_revenue_ray`. Closes audit finding
-    // H-03 (also flagged in MATH_REVIEW.md §5.5).
     if cache.supply_index.raw() < SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
@@ -119,11 +137,11 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     // The controller should subscribe to PoolInsolventEvent and disable the
     // asset or oracle; the pool itself has no status field to pause writes.
     if new_index_raw < old_index_raw / 10 {
-        // bad_debt_ratio_bps = min(bad_debt / total_supplied, 100%) * 10_000.
+        // bad_debt_ratio_bps = min(bad_debt / total_supplied, 100%) * BPS.
         let ratio_ray = capped.div(&cache.env, total_supplied_value);
-        // ratio_ray is in [0, RAY]; convert to BPS (0..=10_000):
-        // bps = ratio_ray * 10_000 / RAY.
-        let bad_debt_ratio_bps = ratio_ray.raw() / (common::constants::RAY / 10_000);
+        // ratio_ray is in [0, RAY]; convert to BPS (0..=BPS):
+        // bps = ratio_ray * BPS / RAY.
+        let bad_debt_ratio_bps = ratio_ray.raw() / (RAY / BPS);
 
         emit_pool_insolvent(
             &cache.env,
@@ -279,9 +297,9 @@ mod tests {
     }
 
     // H-03: same floor guard now applies to the asset-decimal variant.
-    // Closes audit finding H-03 (also in MATH_REVIEW.md §5.5). The asset
+    // Closes audit finding H-03 (also in MATH_REVIEW.md Sec.5.5). The asset
     // path is reached from liquidation withdraw fee, flash-loan fee, and
-    // strategy fee — all run after global_sync, which can clamp the index.
+    // strategy fee -- all run after global_sync, which can clamp the index.
     #[test]
     fn test_add_protocol_revenue_skips_when_supply_index_below_floor() {
         let t = TestSetup::new();
@@ -296,7 +314,7 @@ mod tests {
             });
             let (rev_before, supp_before) = (cache.revenue, cache.supplied);
 
-            // Non-zero asset-denominated fee — would explode without the guard.
+            // Non-zero asset-denominated fee -- would explode without the guard.
             add_protocol_revenue(&mut cache, 1_000_000);
 
             assert_eq!(cache.revenue, rev_before);
@@ -340,7 +358,7 @@ mod tests {
                 last_timestamp: 0,
             });
 
-            // bad_debt > total_supplied → capped path + >90% reduction
+            // bad_debt > total_supplied -> capped path + >90% reduction
             // emits the event and clamps the new index (~0) to the floor.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from_raw(100 * RAY));
 
@@ -373,12 +391,12 @@ mod tests {
             });
             let old_index = cache.supply_index.raw();
 
-            // 91% of 1000*RAY = 910*RAY bad debt; index collapses >10×.
+            // 91% of 1000*RAY = 910*RAY bad debt; index collapses >10x.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from_raw(910 * RAY));
 
             assert!(
                 cache.supply_index.raw() < old_index / 10,
-                "index should have dropped more than 10×"
+                "index should have dropped more than 10x"
             );
         });
     }

@@ -56,7 +56,7 @@ fn mint_to(t: &LendingTest, asset_name: &str, target: &Address, raw_amount: i128
 }
 
 // ---------------------------------------------------------------------------
-// BadMode::Refund — router returns token_in to the caller, violating the
+// BadMode::Refund -- router returns token_in to the caller, violating the
 // `balance_in_after > balance_in_before` invariant. Must panic with
 // InternalError.
 // ---------------------------------------------------------------------------
@@ -72,8 +72,8 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
     // Seed the bad router with USDC output so it can satisfy the swap's
     // `amount_out_min` transfer before the adversarial token_in refund.
     mint_to(&t, "USDC", &bad, 300_000_000_000); // 3000 USDC
-                                               // Seed the bad router with ETH so it can perform the net-positive refund
-                                               // back to the controller (violating the balance_in_after invariant).
+                                                // Seed the bad router with ETH so it can perform the net-positive refund
+                                                // back to the controller (violating the balance_in_after invariant).
     mint_to(&t, "ETH", &bad, 100_000_000); // 10 ETH (7 decimals)
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
@@ -86,12 +86,12 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         &steps,
     );
 
-    // strategy.rs:474 — if balance_in_after > balance_in_before, InternalError.
+    // strategy.rs:474 -- if balance_in_after > balance_in_before, InternalError.
     assert_contract_error(result, errors::INTERNAL_ERROR);
 }
 
 // ---------------------------------------------------------------------------
-// BadMode::OverPull — router pulls 2x the approved amount. The controller
+// BadMode::OverPull -- router pulls 2x the approved amount. The controller
 // pre-approves exactly `amount_in`, so `transfer_from` for 2x must fail
 // inside the token contract (host-level). This proves the controller does
 // not over-approve.
@@ -128,11 +128,11 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
 }
 
 // ---------------------------------------------------------------------------
-// BadMode::OutputShortfall — router pulls token_in but transfers zero
+// BadMode::OutputShortfall -- router pulls token_in but transfers zero
 // token_out. The controller's `received < amount_out_min` postcheck (added
 // during audit prep) rejects the swap immediately. Previously this case
 // would propagate zero into the deposit path, which would reject with
-// AMOUNT_MUST_BE_POSITIVE — a weaker, later defense.
+// AMOUNT_MUST_BE_POSITIVE -- a weaker, later defense.
 // ---------------------------------------------------------------------------
 
 #[test]

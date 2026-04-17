@@ -37,7 +37,7 @@ fn test_liquidation_skips_excess_debt_payments() {
 }
 
 // Post-audit (T1-3, M-02): `token_price` now rejects zero oracle prices
-// globally. The original scenario (USDC price = 0 → degenerate HF math →
+// globally. The original scenario (USDC price = 0 -> degenerate HF math ->
 // liquidation fails with INVALID_PAYMENTS) is now unreachable. This test
 // asserts the safer behavior: reading any price for an asset whose oracle
 // returned 0 panics immediately with `OracleError::InvalidPrice` (#217).

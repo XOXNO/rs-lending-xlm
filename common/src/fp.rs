@@ -1,6 +1,6 @@
 //! Type-safe fixed-point arithmetic for the lending protocol.
 //!
-//! Three precision types — [`Ray`], [`Wad`], and [`Bps`] — prevent accidental
+//! Three precision types -- [`Ray`], [`Wad`], and [`Bps`] -- prevent accidental
 //! mixing of precisions at compile time. All arithmetic uses half-up rounding
 //! (0.5 rounds away from zero) via the [`fp_core::mul_div_half_up`] primitive.
 //!
@@ -15,7 +15,7 @@ use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::fp_core;
 
 // ===========================================================================
-// Ray — 27-decimal fixed point (indexes, rates, scaled amounts)
+// Ray -- 27-decimal fixed point (indexes, rates, scaled amounts)
 // ===========================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -50,7 +50,7 @@ impl Ray {
         Ray(fp_core::div_by_int_half_up(self.0, n))
     }
 
-    /// Convert a RAY-precision value to WAD (27 → 18 decimals).
+    /// Convert a RAY-precision value to WAD (27 -> 18 decimals).
     /// Use only when the value is truly in RAY precision (e.g., after
     /// `scaled * index` where both are RAY-native).
     pub fn to_wad(self) -> Wad {
@@ -89,7 +89,7 @@ impl Sub for Ray {
 }
 
 // ===========================================================================
-// Wad — 18-decimal fixed point (USD values, prices, health factor)
+// Wad -- 18-decimal fixed point (USD values, prices, health factor)
 // ===========================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -170,7 +170,7 @@ impl Sub for Wad {
 }
 
 // ===========================================================================
-// Bps — basis points (LTV, thresholds, bonuses, fees)
+// Bps -- basis points (LTV, thresholds, bonuses, fees)
 // ===========================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -190,7 +190,7 @@ impl Bps {
         self.0
     }
 
-    /// Convert basis points to a WAD ratio: `8000 BPS → 0.8 WAD`.
+    /// Convert basis points to a WAD ratio: `8000 BPS -> 0.8 WAD`.
     pub fn to_wad(self, env: &Env) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
     }
@@ -253,12 +253,12 @@ mod tests {
     #[test]
     fn test_ray_div_by_int() {
         let x = Ray::from_raw(7);
-        assert_eq!(x.div_by_int(2).raw(), 4); // 3.5 → 4
+        assert_eq!(x.div_by_int(2).raw(), 4); // 3.5 -> 4
     }
 
     #[test]
     fn test_ray_to_wad() {
-        // 1.0 in RAY → WAD (27 → 18 decimals).
+        // 1.0 in RAY -> WAD (27 -> 18 decimals).
         let r = Ray::from_raw(RAY); // 1.0 in RAY
         let w = r.to_wad();
         assert_eq!(w.raw(), WAD); // 1.0 in WAD
@@ -266,21 +266,21 @@ mod tests {
 
     #[test]
     fn test_ray_from_asset() {
-        // 1.0 XLM (7 decimals) → RAY.
+        // 1.0 XLM (7 decimals) -> RAY.
         let r = Ray::from_asset(10_000_000, 7);
         assert_eq!(r.raw(), RAY); // 1.0 in RAY
     }
 
     #[test]
     fn test_ray_to_asset() {
-        // 1.0 in RAY → 7-decimal asset.
+        // 1.0 in RAY -> 7-decimal asset.
         let r = Ray::from_raw(RAY);
         assert_eq!(r.to_asset(7), 10_000_000);
     }
 
     #[test]
     fn test_ray_asset_roundtrip() {
-        // from_asset → to_asset must be identity.
+        // from_asset -> to_asset must be identity.
         let original = 12_345_678;
         let ray = Ray::from_asset(original, 7);
         assert_eq!(ray.to_asset(7), original);
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_wad_from_token() {
-        // 1.0 USDC (6 decimals) → WAD.
+        // 1.0 USDC (6 decimals) -> WAD.
         let w = Wad::from_token(1_000_000, 6);
         assert_eq!(w.raw(), 1_000_000_000_000_000_000);
     }

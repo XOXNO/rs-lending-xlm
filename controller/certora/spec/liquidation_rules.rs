@@ -64,7 +64,7 @@ fn hf_improves_after_liquidation(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 2: DELETED — no_over_liquidation was vacuous (tautology on min).
+// Rule 2: DELETED -- no_over_liquidation was vacuous (tautology on min).
 // min(x, y) <= y is true by definition. The debt cap is already implicitly
 // tested by hf_improves_after_liquidation which exercises the full
 // liquidation flow including the min-cap logic.
@@ -95,7 +95,7 @@ fn bonus_bounded(e: Env, hf_wad: i128, base_bonus_bps: i128, max_bonus_bps: i128
 }
 
 // ---------------------------------------------------------------------------
-// Rule 4: DELETED — bonus_zero_at_threshold was provably wrong.
+// Rule 4: DELETED -- bonus_zero_at_threshold was provably wrong.
 // At HF=1.0 WAD, gap = (1.02 - 1.0)/1.02 = 0.0196, scale = 0.0392,
 // so bonus = base + 0.0392*(max-base), NOT base_bonus.
 // The correct boundary (HF=1.02 where gap=0 and bonus=base) is tested
@@ -115,8 +115,8 @@ fn bonus_max_at_deep_underwater(e: Env, base_bonus_bps: i128, max_bonus_bps: i12
     cvlr_assume!(max_bonus_bps >= base_bonus_bps);
     cvlr_assume!(max_bonus_bps <= MAX_LIQUIDATION_BONUS);
 
-    // HF = 0.5 WAD (deeply underwater) — gap = (1.02 - 0.5) / 1.02 ≈ 0.51
-    // scale = min(2 * 0.51, 1.0) = 1.0 → bonus = max_bonus_bps
+    // HF = 0.5 WAD (deeply underwater) -- gap = (1.02 - 0.5) / 1.02 ~= 0.51
+    // scale = min(2 * 0.51, 1.0) = 1.0 -> bonus = max_bonus_bps
     let hf_deep: i128 = WAD / 2;
 
     let bonus = crate::helpers::calculate_linear_bonus(
@@ -276,9 +276,9 @@ fn bad_debt_supply_index_decreases(e: Env, account_id: u64) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 10: DELETED — payment_dedup was vacuous (reimplements dedup locally).
+// Rule 10: DELETED -- payment_dedup was vacuous (reimplements dedup locally).
 // The rule constructed a Map, inserted values, then asserted properties of
-// the Map it just built — a tautology. Dedup correctness is covered by
+// the Map it just built -- a tautology. Dedup correctness is covered by
 // liquidation integration tests.
 // ---------------------------------------------------------------------------
 
@@ -312,7 +312,7 @@ fn ideal_repayment_targets_102(
 
     // Assume uniform collateral (proportion_seized = average threshold)
     let proportion_seized_wad = mul_div_half_up(&e, weighted_collateral_wad, WAD, total_debt_wad);
-    // total_collateral ≈ total_debt * HF / proportion_seized (approximation)
+    // total_collateral ~= total_debt * HF / proportion_seized (approximation)
     let total_collateral_wad = total_debt_wad; // Simplification for rule verification
 
     let (ideal, bonus) = crate::helpers::estimate_liquidation_amount(

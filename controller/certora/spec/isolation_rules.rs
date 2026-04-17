@@ -20,7 +20,7 @@ use common::constants::{MAX_LIQUIDATION_BONUS, RAY};
 
 /// For every registered asset, LTV must be strictly less than the liquidation
 /// threshold. Otherwise, a position could be simultaneously at max borrow
-/// capacity AND eligible for liquidation — an impossible state.
+/// capacity AND eligible for liquidation -- an impossible state.
 #[rule]
 fn ltv_less_than_liquidation_threshold(e: Env, asset: Address) {
     let config = crate::storage::asset_config::get_asset_config(&e, &asset);

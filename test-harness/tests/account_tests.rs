@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
 };
@@ -53,7 +55,7 @@ fn test_create_isolated_account() {
         .with_market(usdc_preset())
         .with_market_config("USDC", |cfg| {
             cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000_000_000_000_000_000_000;
+            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
             // $1M WAD
         })
         .build();

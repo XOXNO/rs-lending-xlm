@@ -1,10 +1,7 @@
 use soroban_sdk::contracterror;
 
-// ---------------------------------------------------------------------------
-// Domain-specific error enums. Each `#[contracterror]` enum occupies its own
-// code range, so codes never collide across domains. Import only the
-// category your module needs.
-// ---------------------------------------------------------------------------
+// Each enum occupies a disjoint numeric range; codes never collide across
+// domains.
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -46,6 +43,8 @@ pub enum GenericError {
     InternalError = 34,
     TokenNotApproved = 35,
     InvalidPositionLimits = 36,
+    NoSuppliersToReward = 37,
+    SpotOnlyNotProductionSafe = 38,
 }
 
 #[contracterror]

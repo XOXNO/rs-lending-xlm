@@ -143,6 +143,11 @@ jobs:
           FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
         run: make fuzz FUZZ_TIME="$FUZZ_TIME"
 
+      - name: Contract-level fuzz (long)
+        env:
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
+        run: make fuzz-contract FUZZ_TIME="$FUZZ_TIME"
+
       - name: Contract-level proptest (long)
         env:
           PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || '50000' }}

@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE};
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ fn test_isolated_debt_non_isolated_account() {
 
 #[test]
 fn test_isolated_debt_dust_erasure() {
-    let isolation_ceiling = 1_000_000i128 * 1_000_000_000_000_000_000i128;
+    let isolation_ceiling = 1_000_000i128 * WAD;
 
     let mut t = LendingTest::new()
         .with_market(eth_preset())
@@ -72,7 +74,7 @@ fn test_isolated_debt_dust_erasure() {
 
 #[test]
 fn test_isolated_debt_over_repay_clamps() {
-    let isolation_ceiling = 1_000_000i128 * 1_000_000_000_000_000_000i128;
+    let isolation_ceiling = 1_000_000i128 * WAD;
 
     let mut t = LendingTest::new()
         .with_market(eth_preset())

@@ -1,22 +1,20 @@
 pub mod compat;
-/// Certora Sunbeam formal verification specs for the rs-lending controller.
+/// Certora Sunbeam formal verification specs for the controller.
+/// Compiled only under the `certora` feature.
 ///
-/// These modules contain `#[rule]` functions verified by the Certora Prover.
-/// They are only compiled when the `certora` feature is enabled.
-///
-/// Structure mirrors Blend v2's Certora setup:
-///   - `model`          — ghost state, skolem variables, helpers
-///   - `health_rules`   — health factor invariants
-///   - `index_rules`    — index monotonicity & safety
-///   - `interest_rules` — interest rate model & compound interest invariants
-///   - `position_rules` — position integrity (add/remove consistency)
-///   - `isolation_rules` — isolation mode & e-mode constraints
-///   - `flash_loan_rules` — reentrancy & repayment invariants
-///   - `liquidation_rules` — liquidation bonus, seizure, bad debt invariants
-///   - `oracle_rules`   — price staleness, tolerance bands, cache consistency
-///   - `boundary_rules` — exact boundary conditions, off-by-one, overflow safety
-///   - `solvency_rules` — pool solvency, zero-amount reverts, scaled conservation
-///   - `summaries/`     — function abstractions for prover feasibility
+/// Modules:
+///   - `model`             ghost state, skolem variables, helpers
+///   - `health_rules`      health factor invariants
+///   - `index_rules`       index monotonicity and safety
+///   - `interest_rules`    rate model and compound-interest invariants
+///   - `position_rules`    position add/remove consistency
+///   - `isolation_rules`   isolation and e-mode constraints
+///   - `flash_loan_rules`  reentrancy and repayment invariants
+///   - `liquidation_rules` bonus, seizure, bad-debt invariants
+///   - `oracle_rules`      staleness, tolerance bands, cache consistency
+///   - `boundary_rules`    boundary conditions and overflow safety
+///   - `solvency_rules`    pool solvency and scaled-amount conservation
+///   - `summaries/`        function abstractions for prover feasibility
 pub mod model;
 
 pub mod boundary_rules;

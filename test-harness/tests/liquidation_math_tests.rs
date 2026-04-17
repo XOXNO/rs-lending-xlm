@@ -4,7 +4,7 @@ use common::constants::{RAY, WAD};
 use test_harness::{eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 // ===========================================================================
-// Rigorous liquidation math tests — verify EXACT bonus, seizure, and HF.
+// Rigorous liquidation math tests -- verify EXACT bonus, seizure, and HF.
 //
 // Liquidation formula:
 //   bonus = base + (max - base) * min(2 * gap, 1)
@@ -42,7 +42,7 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
 
-    // Drop USDC to $0.74 → collateral = $7,400, weighted = $5,920,
+    // Drop USDC to $0.74 -> collateral = $7,400, weighted = $5,920,
     // debt = $6,000. HF = 5920/6000 = 0.9867.
     t.set_price("USDC", usd_cents(74));
     t.assert_liquidatable(ALICE);
@@ -306,7 +306,7 @@ fn test_bad_debt_index_decrease_exact() {
     let supplied_before = pool_client.supplied_amount(); // RAY.
     let (si_before, _) = get_indexes(&t, "ETH");
 
-    // Crash USDC → bad debt.
+    // Crash USDC -> bad debt.
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
@@ -317,8 +317,8 @@ fn test_bad_debt_index_decrease_exact() {
     // So: si_after / si_before = (total - bad_debt) / total = 1 - bad_debt/total.
     let actual_ratio = si_after as f64 / si_before as f64;
 
-    // bad_debt ≈ 0.002 ETH (remaining after partial liquidation).
-    // total_supplied ≈ 1000 ETH (in actual value = supplied_ray * index / RAY).
+    // bad_debt ~= 0.002 ETH (remaining after partial liquidation).
+    // total_supplied ~= 1000 ETH (in actual value = supplied_ray * index / RAY).
     let _total_supplied_actual = supplied_before as f64 / RAY as f64;
 
     // The index ratio should reflect: 1 - (small_debt / 1000).
@@ -338,7 +338,7 @@ fn test_bad_debt_index_decrease_exact() {
 
     assert!(
         (0.0..0.005).contains(&bob_loss),
-        "Bob's loss should be <= bad debt (~0.003 ETH), got {:.6} ETH — index over-decremented!",
+        "Bob's loss should be <= bad debt (~0.003 ETH), got {:.6} ETH -- index over-decremented!",
         bob_loss
     );
 }

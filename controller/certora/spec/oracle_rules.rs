@@ -187,7 +187,7 @@ fn beyond_tolerance_blocks_risk_ops(
         // Risk-increasing op with beyond-tolerance price must be blocked
         // The code panics with OracleError::UnsafePriceNotAllowed
         // This assertion validates the invariant: this path leads to revert
-        cvlr_assert!(false); // Must not complete — code panics before reaching here
+        cvlr_assert!(false); // Must not complete -- code panics before reaching here
     }
 
     // Supply/repay (allow_unsafe_price=true) can proceed even beyond tolerance

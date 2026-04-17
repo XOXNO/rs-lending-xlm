@@ -3,18 +3,18 @@
 //! Codex audit C-01 flagged `edit_e_mode_category` as missing the
 //! `#[only_owner]` gate. This harness enumerates every privileged controller
 //! endpoint and verifies that calling it **without** the required auth
-//! (via `ControllerClient::set_auths(&[])` — no signed auth in the env)
+//! (via `ControllerClient::set_auths(&[])` -- no signed auth in the env)
 //! fails at the host layer.
 //!
 //! Semantics:
 //!   * `LendingTest::build()` calls `env.mock_all_auths()` so normal tests
 //!     succeed. `set_auths(&[])` bypasses that mock **per-call** and demands
-//!     a real signature — none exists, so the host aborts.
+//!     a real signature -- none exists, so the host aborts.
 //!   * `try_<method>` on the generated client returns
 //!     `Result<Result<Ret, ContractErr>, Result<Err, InvokeError>>`.
 //!     An **outer Err** signals host-level rejection (auth failure / panic).
 //!     An **outer Ok** (inner Ok or Err) means the endpoint body ran past
-//!     the auth gate — a **missing gate**, a C-01-class bug.
+//!     the auth gate -- a **missing gate**, a C-01-class bug.
 //!
 //! Each endpoint runs against 64 random inputs (role string / asset / amount),
 //! paired with a random caller address that holds no role and does not own
@@ -36,7 +36,7 @@ where
     match call() {
         Err(_) => Ok(()), // correct: host-level auth failure
         Ok(Ok(_)) => Err(format!(
-            "CRITICAL: {} executed successfully without auth — endpoint is NOT gated",
+            "CRITICAL: {} executed successfully without auth -- endpoint is NOT gated",
             label
         )),
         Ok(Err(contract_err)) => Err(format!(
@@ -56,7 +56,7 @@ fn build_ctx() -> LendingTest {
 }
 
 // Blanket AssetConfig + MarketOracleConfigInput builders with plausible shapes.
-// Values need not be valid — the auth gate must reject before the body runs.
+// Values need not be valid -- the auth gate must reject before the body runs.
 fn sample_asset_config() -> common::types::AssetConfig {
     common::types::AssetConfig {
         loan_to_value_bps: 7500,
@@ -186,7 +186,7 @@ proptest! {
         }).unwrap();
         let _ = (max_supply, max_borrow);
 
-        // E-mode category management (all only_owner — C-01 regression gate)
+        // E-mode category management (all only_owner -- C-01 regression gate)
         expect_rejected("add_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_add_e_mode_category(&ltv, &threshold, &bonus)
         }).unwrap();
@@ -247,7 +247,7 @@ proptest! {
 
         // ---- only_role endpoints ---------------------------------------
 
-        // Empty Vec<Address> is fine — auth is checked before body runs.
+        // Empty Vec<Address> is fine -- auth is checked before body runs.
         let empty_assets: SVec<Address> = SVec::new(&env);
         let empty_ids: SVec<u64> = SVec::new(&env);
 
@@ -338,7 +338,7 @@ proptest! {
             address: &keeper_only,
             invoke: &invoke_rev,
         }];
-        // KEEPER → REVENUE endpoint: caller-auth OK, role check fails.
+        // KEEPER -> REVENUE endpoint: caller-auth OK, role check fails.
         let res = ctrl
             .mock_auths(&auth_rev)
             .try_claim_revenue(&keeper_only, &empty_assets);
@@ -347,7 +347,7 @@ proptest! {
             "CRITICAL: KEEPER-only address succeeded against REVENUE endpoint claim_revenue"
         );
 
-        // KEEPER → ORACLE endpoint: disable_token_oracle
+        // KEEPER -> ORACLE endpoint: disable_token_oracle
         let args_dto: soroban_sdk::Vec<soroban_sdk::Val> =
             (keeper_only.clone(), usdc.clone()).into_val(&env);
         let invoke_dto = MockAuthInvoke {

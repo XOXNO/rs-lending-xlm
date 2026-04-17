@@ -127,7 +127,7 @@ fn test_div_half_up_signed_negative() {
     let env = Env::default();
     // For signed division, test via the signed primitive.
     // -2/3: product = -2*WAD*WAD, negative, so subtract half => rounds away from zero.
-    // Compute: mul_div_half_up_signed(-2*WAD, WAD, 3*WAD) — a signed div.
+    // Compute: mul_div_half_up_signed(-2*WAD, WAD, 3*WAD) -- a signed div.
     let result = mul_div_half_up_signed(&env, -2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, -666_666_666_666_666_667);
 

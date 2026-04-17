@@ -6,7 +6,7 @@
 /// From CLAUDE.md:
 ///   - Max 10 positions per type (gas safety for liquidation iteration)
 ///   - Position type must remain consistent with storage key
-///   - Sum(user_scaled) <= total_scaled — no phantom liquidity
+///   - Sum(user_scaled) <= total_scaled -- no phantom liquidity
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};

@@ -168,7 +168,7 @@ fn test_borrow_index_monotonically_increasing() {
     let mut prev_debt = t.borrow_balance(ALICE, "ETH");
     let initial_debt = prev_debt;
 
-    // Strict inequality — a frozen borrow index means borrowers pay no
+    // Strict inequality -- a frozen borrow index means borrowers pay no
     // interest, a critical solvency bug that `>=` would hide.
     for week in 1..=4 {
         t.advance_and_sync(days(7));
@@ -228,7 +228,7 @@ fn test_isolation_and_emode_mutually_exclusive() {
         .with_market(usdt_stable_preset())
         .with_market_config("USDC", |c| {
             c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = 1_000_000_000_000_000_000_000_000;
+            c.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
         })
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)

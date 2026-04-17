@@ -1,4 +1,4 @@
-/// Boundary Condition & Overflow Safety — Formal Verification Rules
+/// Boundary Condition & Overflow Safety -- Formal Verification Rules
 ///
 /// Certora Sunbeam rules that probe exact boundary values where behavior
 /// changes. Each rule targets the precise edge (==, == -1, == +1) of a
@@ -161,7 +161,7 @@ fn borrow_rate_at_100_percent_sanity(e: Env) {
 // ---------------------------------------------------------------------------
 // Rule 5: compound_interest_at_max_rate_max_time
 // At 100% APY compounded over 1 full year, the Taylor expansion must not
-// overflow and the result must stay below 100 * RAY (10000% — sane upper bound).
+// overflow and the result must stay below 100 * RAY (10000% -- sane upper bound).
 // e^1.0 ~= 2.718 RAY, well within bounds.
 // ---------------------------------------------------------------------------
 
@@ -204,7 +204,7 @@ fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
 // `process_liquidation` to gate liquidations at lib.rs:190 -> liquidation.rs:157).
 //
 // The original bodies computed `hf < WAD` on a local `let hf = WAD`, which
-// proved nothing about the protocol — a broken guard in production would have
+// proved nothing about the protocol -- a broken guard in production would have
 // still passed. The rewritten rules constrain the real cached HF via
 // cvlr_assume and then assert the liquidation-guard predicate against it.
 #[rule]
@@ -235,7 +235,7 @@ fn liquidation_at_hf_just_below_one(e: Env, account_id: u64) {
     let hf = crate::helpers::calculate_health_factor_for(&e, &mut cache, account_id);
     cvlr_assume!(hf == WAD - 1); // one ulp below boundary
 
-    // HF == WAD - 1 satisfies `hf < WAD` so the guard does NOT fire — account is
+    // HF == WAD - 1 satisfies `hf < WAD` so the guard does NOT fire -- account is
     // liquidatable. This catches a bug that widened the guard (e.g. `hf >= WAD - 10`).
     cvlr_assert!(hf < WAD);
 }

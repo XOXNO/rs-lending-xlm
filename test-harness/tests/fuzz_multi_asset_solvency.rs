@@ -2,9 +2,9 @@
 //!
 //! Fuzz sequences of supply/borrow/repay/withdraw across 3 assets and 2 users.
 //! After every step, assert:
-//!   - Sum of user supply scaled values ≤ pool's total_scaled (no phantom liquidity).
-//!   - Reserves ≥ 0.
-//!   - Each user's HF ≥ 1.0 (or the account does not exist).
+//!   - Sum of user supply scaled values <= pool's total_scaled (no phantom liquidity).
+//!   - Reserves >= 0.
+//!   - Each user's HF >= 1.0 (or the account does not exist).
 //!   - Indexes monotonic.
 
 use common::constants::WAD;
@@ -89,7 +89,7 @@ fn assert_invariants(t: &LendingTest) {
     // NOTE: this fuzzer does NOT assert `HF >= 1 for every live account`.
     // HF must be >= 1 only at the moment of a borrow or withdraw. Once time
     // advances, interest accrual on outstanding debt pushes near-threshold
-    // positions below 1.0 — correct protocol behavior (the user becomes
+    // positions below 1.0 -- correct protocol behavior (the user becomes
     // liquidatable), not a solvency failure.
     //
     // The real cross-op invariants this sequence fuzzer checks are:
@@ -140,7 +140,7 @@ proptest! {
 
         for op in ops {
             // Each try_* returns its own Result type; run the op and
-            // ignore success/failure — invariants get checked afterward.
+            // ignore success/failure -- invariants get checked afterward.
             match op {
                 Op::Supply { user, asset, amt } => {
                     let _ = t.try_supply(user, asset, amt as f64);

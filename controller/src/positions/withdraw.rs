@@ -17,10 +17,8 @@ pub fn process_withdraw(
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    // Load the account once: single storage read.
     let mut account = storage::get_account(env, account_id);
 
-    // Owner check.
     if account.owner != *caller {
         panic_with_error!(env, common::errors::GenericError::AccountNotInMarket);
     }
@@ -70,18 +68,23 @@ fn process_single_withdrawal(
     amount: i128,
     cache: &mut ControllerCache,
 ) {
-    // Price fetch; withdraw is risk-increasing, so the cache has
-    // allow_unsafe_price=false. oracle::token_price() blocks automatically
-    // when deviation exceeds the second tolerance.
+    // Reject negative amounts. `amount == 0` is the "withdraw all" sentinel;
+    // any negative value would otherwise reach `pool.withdraw` and, via
+    // saturating_sub_ray on signed i128, mint phantom collateral.
+    if amount < 0 {
+        panic_with_error!(env, common::errors::GenericError::AmountMustBePositive);
+    }
+
+    // Withdraw runs on the strict-price cache (allow_unsafe_price=false);
+    // `oracle::token_price` blocks when deviation exceeds second tolerance.
     let feed = cache.cached_price(asset);
 
-    // The position must exist.
     let position = match account.supply_positions.get(asset.clone()) {
         Some(pos) => pos,
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
 
-    // 0 means withdraw all.
+    // `amount == 0` sentinel: withdraw all.
     let withdraw_amount = if amount == 0 { i128::MAX } else { amount };
 
     // Shared withdrawal execution (also used by liquidation).

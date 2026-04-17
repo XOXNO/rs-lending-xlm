@@ -9,7 +9,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 // ---------------------------------------------------------------------------
-// Rule 1: DELETED — flash_loan_guard_active_during_callback was vacuous.
+// Rule 1: DELETED -- flash_loan_guard_active_during_callback was vacuous.
 // It assumed the guard was true then asserted it was true (tautology).
 // The guard behavior is properly tested by no_mutations_during_flash_loan
 // which sets the guard in storage and attempts a borrow.
@@ -76,7 +76,7 @@ fn no_mutations_during_flash_loan(e: Env, caller: Address, account_id: u64, asse
     // This must revert with FlashLoanOngoing.
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    // If execution reaches here, borrow succeeded despite the guard — violation.
+    // If execution reaches here, borrow succeeded despite the guard -- violation.
     cvlr_satisfy!(false);
 }
 

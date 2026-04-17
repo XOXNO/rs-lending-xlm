@@ -2,28 +2,28 @@
 //!
 //! After every op in a random sequence (supply / borrow / repay / withdraw /
 //! advance_time / claim_revenue), assert pool-level accounting conservation
-//! laws drawn from INVARIANTS.md §4 (Pool State Identity), §5 (Interest
-//! Split), and §12 (Claim Revenue).
+//! laws drawn from INVARIANTS.md Sec.4 (Pool State Identity), Sec.5 (Interest
+//! Split), and Sec.12 (Claim Revenue).
 //!
 //! Laws (per asset X):
 //!
-//! 1. Pool solvency identity (reserves ≥ supplied − borrowed):
-//!    `pool_reserves(X) + total_borrowed(X) ≥ total_supplied(X)`. The
+//! 1. Pool solvency identity (reserves >= supplied - borrowed):
+//!    `pool_reserves(X) + total_borrowed(X) >= total_supplied(X)`. The
 //!    pool's token balance must cover every supplier's withdrawable claim.
 //!    Donations or seed liquidity can push reserves above, but never below,
-//!    `supplied − borrowed`.
+//!    `supplied - borrowed`.
 //!
-//! 2. Borrow conservation (user-aggregate ≈ pool-total):
-//!    `Σ user_borrow_balance(X) ≈ total_borrowed(X)` within a small
+//! 2. Borrow conservation (user-aggregate ~= pool-total):
+//!    `Sum user_borrow_balance(X) ~= total_borrowed(X)` within a small
 //!    per-user rounding tolerance (1 asset-decimal unit each).
 //!
-//! 3. Supply conservation (user-aggregate ≤ pool-total minus revenue):
-//!    `Σ user_supply_balance(X) ≈ total_supplied(X) − protocol_revenue(X)`.
+//! 3. Supply conservation (user-aggregate <= pool-total minus revenue):
+//!    `Sum user_supply_balance(X) ~= total_supplied(X) - protocol_revenue(X)`.
 //!    Protocol revenue lives inside `supplied_ray` but belongs to no user.
-//!    (architecture/INVARIANTS.md §4: `0 ≤ revenue_ray ≤ supplied_ray`.)
+//!    (architecture/INVARIANTS.md Sec.4: `0 <= revenue_ray <= supplied_ray`.)
 //!
 //! 4. Reserves non-negative (strict):
-//!    `pool_reserves(X) ≥ 0` (no −0.0001 slack).
+//!    `pool_reserves(X) >= 0` (no -0.0001 slack).
 //!
 //! The op distribution deliberately tilts toward supply over borrow, to
 //! counter the bias Codex noted in `fuzz_multi_asset_solvency.rs`.
@@ -77,7 +77,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     // conservation coverage. Codex noted that fuzz_multi_asset_solvency was
     // borrow-heavy and produced few successful operations.
     prop_oneof![
-        // 4x supply — should dominate
+        // 4x supply -- should dominate
         4 => (user_strat(), asset_strat(), 1u32..20_000u32)
             .prop_map(|(u, a, amt)| Op::Supply { user: u, asset: a, amt }),
         // 2x repay (proportion of existing debt)
@@ -100,7 +100,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 /// user per side of the sum, plus 1 unit for the pool-side scaling.
 ///
 /// With 2 users on both sides (supply balances on LHS, borrow balances on LHS
-/// and RHS), the budget is ≤ 4 units.
+/// and RHS), the budget is <= 4 units.
 const TOLERANCE_UNITS: i128 = 4;
 
 fn sum_supply(t: &LendingTest, asset: &str) -> i128 {
@@ -184,14 +184,14 @@ proptest! {
             for asset in &ASSETS {
                 let s = snapshot(&t, asset);
 
-                // Law 4: reserves ≥ 0 (strict, no slack).
+                // Law 4: reserves >= 0 (strict, no slack).
                 prop_assert!(
                     s.reserves >= 0,
                     "step {} op {:?}: {} reserves < 0: {}",
                     i, op, asset, s.reserves
                 );
 
-                // Law 3: revenue bounded by supply (INVARIANTS §4).
+                // Law 3: revenue bounded by supply (INVARIANTS Sec.4).
                 prop_assert!(
                     s.revenue <= s.supplied + TOLERANCE_UNITS,
                     "step {} op {:?}: {} revenue ({}) exceeds supplied ({})",
@@ -203,13 +203,13 @@ proptest! {
                 prop_assert!(
                     borrow_diff <= TOLERANCE_UNITS,
                     "step {} op {:?}: {} borrow mismatch \
-                     Σuser({}) vs pool({}), diff {} > {}",
+                     Sumuser({}) vs pool({}), diff {} > {}",
                     i, op, asset, s.sum_user_borrow, s.borrowed,
                     borrow_diff, TOLERANCE_UNITS
                 );
 
-                // Law 1: solvency — the pool's token balance always covers
-                // every supplier's claim: reserves + borrowed ≥ supplied.
+                // Law 1: solvency -- the pool's token balance always covers
+                // every supplier's claim: reserves + borrowed >= supplied.
                 // Donations or bootstrap liquidity make this an inequality
                 // rather than equality.
                 let solvency_slack = s.reserves + s.borrowed - s.supplied;
@@ -222,13 +222,13 @@ proptest! {
                 );
 
                 // Law 3: supply conservation.
-                // supplied = Σuser_supply + revenue (up to rounding).
+                // supplied = Sumuser_supply + revenue (up to rounding).
                 let supply_conservation_diff =
                     (s.supplied - s.sum_user_supply - s.revenue).abs();
                 prop_assert!(
                     supply_conservation_diff <= TOLERANCE_UNITS,
                     "step {} op {:?}: {} supply conservation violated \
-                     pool_supplied({}) - Σuser({}) - revenue({}) = {} > {}",
+                     pool_supplied({}) - Sumuser({}) - revenue({}) = {} > {}",
                     i, op, asset,
                     s.supplied, s.sum_user_supply, s.revenue,
                     supply_conservation_diff, TOLERANCE_UNITS

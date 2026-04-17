@@ -49,7 +49,7 @@ COV_DIR := target/coverage
 # Contract crates (order matters for deployment)
 CONTRACTS := pool controller
 
-# Coverage exclusions (no executable code / stubs only)
+# Coverage exclusions (no executable code / stubs only).
 COV_IGNORE := --ignore-filename-regex="types\.rs|providers\.rs|router\.rs"
 
 # Network config (override via env or CLI, for example `make SIGNER=ledger mainnet setupAll`)
@@ -258,9 +258,8 @@ clean:
 # Fuzzing (function-level math primitives)
 # ---------------------------------------------------------------------------
 
-FUZZ_TARGETS := fp_mul_div fp_rescale fp_div_by_int rates_borrow compound_monotonic
-FUZZ_CONTRACT_TARGETS := flow_supply_borrow_liquidate flow_flash_loan \
-                          flow_oracle_tolerance flow_multi_op
+FUZZ_TARGETS := fp_math rates_and_index
+FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy
 FUZZ_TIME ?= 60
 
 # macOS requires `--sanitizer=thread -Zbuild-std` to link the contract-level
@@ -287,7 +286,7 @@ fuzz-contract:
 		cd fuzz && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ..; \
 	done
 
-## Run a single fuzz target: make fuzz-one TARGET=fp_mul_div FUZZ_TIME=300
+## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300
 fuzz-one:
 	@cd fuzz && cargo +nightly fuzz run $(TARGET) $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME)
 
@@ -304,9 +303,7 @@ fuzz-seed-corpus:
 # Contract-level property tests (proptest inside test-harness)
 # ---------------------------------------------------------------------------
 
-PROPTEST_TESTS := fuzz_supply_borrow_liquidate fuzz_isolation_emode_xor \
-                  fuzz_oracle_tolerance fuzz_cache_atomicity fuzz_multi_asset_solvency \
-                  fuzz_conservation fuzz_auth_matrix \
+PROPTEST_TESTS := fuzz_multi_asset_solvency fuzz_conservation fuzz_auth_matrix \
                   fuzz_ttl_keepalive fuzz_budget_metering \
                   fuzz_strategy_flashloan fuzz_liquidation_differential
 PROPTEST_CASES ?= 256
@@ -619,7 +616,7 @@ help:
 	@echo "  make info               Show deployed contract IDs"
 	@echo "  make view FN=x          Call a view function"
 	@echo ""
-	@echo "Config-driven operations (reads from JSON, like MultiversX):"
+	@echo "Config-driven operations (reads from JSON):"
 	@echo "  make testnet addEModeCategory 1"
 	@echo "  make testnet addAssetToEMode 1 USDC"
 	@echo "  make testnet createMarket USDC"

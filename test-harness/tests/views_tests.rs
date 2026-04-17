@@ -1,5 +1,6 @@
 extern crate std;
 
+use common::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
     STABLECOIN_EMODE,
@@ -250,7 +251,7 @@ fn test_get_emode_category_view() {
 
 #[test]
 fn test_get_isolated_debt_tracks_borrows() {
-    let isolation_ceiling = 1_000_000i128 * 1_000_000_000_000_000_000i128;
+    let isolation_ceiling = 1_000_000i128 * WAD;
 
     let mut t = LendingTest::new()
         .with_market(eth_preset())
@@ -277,7 +278,7 @@ fn test_get_isolated_debt_tracks_borrows() {
 
     // After borrow: isolated debt must be ~$1000 WAD.
     let debt_after = t.get_isolated_debt("ETH");
-    let wad = 1_000_000_000_000_000_000i128;
+    let wad = WAD;
     assert!(
         debt_after > 999 * wad && debt_after < 1001 * wad,
         "isolated debt should be ~$1000, got {}",
@@ -351,7 +352,7 @@ fn test_liquidation_estimations_basic() {
     let hf = ctrl.health_factor(&account_id);
 
     // HF must be < 1.0 WAD.
-    let wad = 1_000_000_000_000_000_000i128;
+    let wad = WAD;
     assert!(hf < wad, "HF should be < 1.0 WAD, got {}", hf);
     assert!(hf > 0, "HF should be positive, got {}", hf);
 
@@ -396,7 +397,7 @@ fn test_get_market_index_view() {
         .get(0)
         .unwrap();
 
-    let ray = 1_000_000_000_000_000_000_000_000_000i128;
+    let ray = RAY;
     // Fresh market: indexes must be 1.0 RAY.
     assert_eq!(
         index.supply_index_ray, ray,

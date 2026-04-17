@@ -495,7 +495,7 @@ fn test_multiple_suppliers_share_proportionally() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. Interest grows with time — linear check at multiple points
+// 10. Interest grows with time -- linear check at multiple points
 // ---------------------------------------------------------------------------
 
 #[test]

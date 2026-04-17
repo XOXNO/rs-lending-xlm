@@ -1,8 +1,8 @@
 /// Solvency & Cross-Contract Consistency Rules
 ///
 /// From CLAUDE.md:
-///   - reserves >= available_liquidity — withdrawal failures if violated
-///   - Sum(user_scaled) <= total_scaled — phantom liquidity if violated
+///   - reserves >= available_liquidity -- withdrawal failures if violated
+///   - Sum(user_scaled) <= total_scaled -- phantom liquidity if violated
 ///   - borrowed_ray * borrow_index <= supplied_ray * supply_index (healthy pool)
 ///   - revenue_ray <= supplied_ray (revenue is subset of supply)
 ///
@@ -90,7 +90,7 @@ fn borrowed_lte_supplied(e: Env, asset: Address) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md §12)
+// Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md Sec.12)
 // ---------------------------------------------------------------------------
 
 /// Claimed revenue must never exceed the pool's pre-call token reserves.
@@ -113,7 +113,7 @@ fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3c: Utilization is zero when supplied_ray is zero  (INVARIANTS.md §8)
+// Rule 3c: Utilization is zero when supplied_ray is zero  (INVARIANTS.md Sec.8)
 // ---------------------------------------------------------------------------
 
 /// Empty-market convention: if `state.supplied_ray == 0`, then
@@ -123,7 +123,7 @@ fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
 /// Note: uses `get_sync_data().state.supplied_ray` directly because
 /// `supplied_amount()` (asset decimals) can round tiny positive raw values
 /// to zero while the raw product `supplied_ray * supply_index` is still
-/// nonzero — only the raw ray value is the correct zero-test.
+/// nonzero -- only the raw ray value is the correct zero-test.
 #[rule]
 fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
@@ -136,7 +136,7 @@ fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3d: Isolation debt stays non-negative across repay  (INVARIANTS.md §11)
+// Rule 3d: Isolation debt stays non-negative across repay  (INVARIANTS.md Sec.11)
 // ---------------------------------------------------------------------------
 
 /// `adjust_isolated_debt_usd` (controller/src/utils.rs:61-92) clamps at zero
@@ -158,7 +158,7 @@ fn isolation_debt_never_negative_after_repay(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3e: Borrow respects pool reserves  (INVARIANTS.md §13)
+// Rule 3e: Borrow respects pool reserves  (INVARIANTS.md Sec.13)
 // ---------------------------------------------------------------------------
 
 /// A successful borrow requires `pre_reserves >= amount`. The pool enforces
@@ -187,7 +187,7 @@ fn borrow_respects_reserves(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3f: LTV borrow bound enforced  (INVARIANTS.md §10)
+// Rule 3f: LTV borrow bound enforced  (INVARIANTS.md Sec.10)
 // ---------------------------------------------------------------------------
 
 /// After any successful borrow, the account's total debt (USD WAD) must
@@ -212,7 +212,7 @@ fn ltv_borrow_bound_enforced(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3g: Supply index stays above floor across supply  (INVARIANTS.md §7)
+// Rule 3g: Supply index stays above floor across supply  (INVARIANTS.md Sec.7)
 // ---------------------------------------------------------------------------
 
 /// Bad-debt socialization clamps supply_index at `SUPPLY_INDEX_FLOOR_RAW`
@@ -227,7 +227,7 @@ fn supply_index_above_floor_after_supply(
     asset: Address,
     amount: i128,
 ) {
-    const SUPPLY_INDEX_FLOOR_RAW: i128 = 1_000_000_000_000_000_000; // 10^18
+    const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD; // 10^18
 
     cvlr_assume!(amount > 0);
 
@@ -244,7 +244,7 @@ fn supply_index_above_floor_after_supply(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3h: Supply index does not decrease across borrow  (INVARIANTS.md §7)
+// Rule 3h: Supply index does not decrease across borrow  (INVARIANTS.md Sec.7)
 // ---------------------------------------------------------------------------
 
 /// The only sanctioned path that decreases `supply_index` is
@@ -252,7 +252,7 @@ fn supply_index_above_floor_after_supply(
 /// `seize_position`. A borrow triggers interest accrual (`global_sync`)
 /// which can only grow the index. Combined with the existing
 /// `index_rules::supply_index_monotonic_after_accrual` (which covers
-/// supply), this rule extends §7 monotonicity to the borrow path.
+/// supply), this rule extends Sec.7 monotonicity to the borrow path.
 #[rule]
 fn supply_index_monotonic_across_borrow(
     e: Env,
@@ -284,7 +284,7 @@ fn supply_index_monotonic_across_borrow(
 /// Controller::supply with amount=0 must revert. The validation layer calls
 /// `require_amount_positive` which panics on amount <= 0.
 ///
-/// Pattern: call the function, then cvlr_satisfy!(false) — if the prover can
+/// Pattern: call the function, then cvlr_satisfy!(false) -- if the prover can
 /// reach the satisfy, the revert did not happen (violation).
 #[rule]
 fn supply_rejects_zero_amount(e: Env, caller: Address, account_id: u64, e_mode_category: u32) {
@@ -296,7 +296,7 @@ fn supply_rejects_zero_amount(e: Env, caller: Address, account_id: u64, e_mode_c
 
     crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
 
-    // If execution reaches here, zero-amount supply was accepted — violation.
+    // If execution reaches here, zero-amount supply was accepted -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -315,7 +315,7 @@ fn borrow_rejects_zero_amount(e: Env, caller: Address, account_id: u64) {
 
     crate::Controller::borrow(e.clone(), caller, account_id, borrows);
 
-    // If execution reaches here, zero-amount borrow was accepted — violation.
+    // If execution reaches here, zero-amount borrow was accepted -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -334,7 +334,7 @@ fn withdraw_rejects_zero_amount(e: Env, caller: Address, account_id: u64) {
 
     crate::Controller::withdraw(e.clone(), caller, account_id, withdrawals);
 
-    // If execution reaches here, zero-amount withdraw was accepted — violation.
+    // If execution reaches here, zero-amount withdraw was accepted -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -353,7 +353,7 @@ fn repay_rejects_zero_amount(e: Env, caller: Address, account_id: u64) {
 
     crate::Controller::repay(e.clone(), caller, account_id, payments);
 
-    // If execution reaches here, zero-amount repay was accepted — violation.
+    // If execution reaches here, zero-amount repay was accepted -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -399,7 +399,7 @@ fn supply_position_limit_enforced(
 
     crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
 
-    // If execution reaches here, position limit was not enforced — violation.
+    // If execution reaches here, position limit was not enforced -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -434,7 +434,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, account_id: u64, new_
 
     crate::Controller::borrow(e.clone(), caller, account_id, borrows);
 
-    // If execution reaches here, position limit was not enforced — violation.
+    // If execution reaches here, position limit was not enforced -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -659,7 +659,7 @@ fn supply_index_grows_slower(
 }
 
 // ===========================================================================
-// Sanity rules — verify rules are reachable
+// Sanity rules -- verify rules are reachable
 // ===========================================================================
 
 #[rule]
@@ -817,7 +817,7 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
 
 /// After `clean_prices_cache()`, the cache must be empty. A subsequent
 /// price lookup fetches fresh data rather than returning a stale value.
-/// This proves the cache invalidation mechanism works correctly — both
+/// This proves the cache invalidation mechanism works correctly -- both
 /// that the cache returns consistent prices during normal operation
 /// (covered by oracle_rules::price_cache_consistency) AND that the cache
 /// is properly cleared when needed (e.g., after a swap).
@@ -841,7 +841,7 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
 
     // A fresh lookup will re-fetch from the oracle (may differ if oracle
     // state changed between calls). The key property is that the cache
-    // was actually cleared — stale prices are not silently reused.
+    // was actually cleared -- stale prices are not silently reused.
     let _feed2 = cache.cached_price(&asset);
 
     // The fresh fetch repopulates the cache
@@ -901,7 +901,7 @@ fn mode_transition_blocked_with_positions(
         assets,
     );
 
-    // If execution reaches here, the mode transition was allowed — violation.
+    // If execution reaches here, the mode transition was allowed -- violation.
     cvlr_satisfy!(false);
 }
 
@@ -938,7 +938,7 @@ fn compound_interest_bounded_output(e: Env) {
 
     // Use a generous upper bound for the Taylor approximation at the largest
     // modeled rate and duration.
-    let upper_bound = 100_000 * RAY; // 10,000,000% — generous upper bound
+    let upper_bound = 100_000 * RAY; // 10,000,000% -- generous upper bound
     cvlr_assert!(factor.raw() < upper_bound);
 }
 
@@ -949,7 +949,7 @@ fn compound_interest_bounded_output(e: Env) {
 /// The compound interest factor must be >= RAY for any non-negative rate
 /// and non-negative time. The Taylor expansion is: RAY + x + x^2/2 + ...
 /// where all terms are non-negative. If an overflow caused unsigned wrapping,
-/// the result could be < RAY — this rule catches that.
+/// the result could be < RAY -- this rule catches that.
 ///
 /// This defends against silent overflow in the I256 -> i128 conversion path
 /// or in the final summation of Taylor terms.

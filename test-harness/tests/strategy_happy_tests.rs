@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use common::types::{DexDistribution, Protocol, SwapSteps};
 use soroban_sdk::vec;
 use test_harness::{
@@ -478,7 +480,7 @@ fn test_multiply_emode_stablecoin() {
 
     // HF must be healthy with e-mode parameters.
     let hf = ctrl.health_factor(&account_id);
-    let hf_f64 = hf as f64 / 1_000_000_000_000_000_000f64;
+    let hf_f64 = hf as f64 / (WAD as f64);
     assert!(hf_f64 >= 1.0, "e-mode HF should be >= 1.0, got {}", hf_f64);
 }
 

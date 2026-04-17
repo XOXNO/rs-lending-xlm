@@ -46,11 +46,11 @@ impl MockAggregator {
 // storage so tests can flip the behavior between runs:
 //
 //   1. Refund: after transferring `amount_out_min` to `to`, also transfer
-//      some token_in BACK to `to` — the controller must detect
+//      some token_in BACK to `to` -- the controller must detect
 //      `balance_in_after > balance_in_before` and panic with InternalError.
 //   2. OverPull: pull MORE than `amount_in` from the controller (relying on
 //      a lingering allowance or the controller having pre-approved extra).
-//   3. OutputShortfall: transfer less than `amount_out_min` — the ledger
+//   3. OutputShortfall: transfer less than `amount_out_min` -- the ledger
 //      delta still verifies, but since nothing is pushed the controller's
 //      downstream deposit/repay path surfaces the zero-output failure.
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ pub enum BadMode {
     /// After the swap, refund half of `amount_in` back to the caller,
     /// violating the "balance_in must monotonically decrease" invariant.
     Refund,
-    /// Pull MORE than `amount_in` from the caller — the controller's
+    /// Pull MORE than `amount_in` from the caller -- the controller's
     /// `actual_in_spent > amount_in` guard must fire.
     OverPull,
     /// Transfer ZERO tokens out even though `amount_out_min > 0`.
@@ -115,7 +115,7 @@ impl BadAggregator {
                 }
             }
             BadMode::OverPull => {
-                // Pull `amount_in * 2` — the controller's `actual_in_spent`
+                // Pull `amount_in * 2` -- the controller's `actual_in_spent`
                 // check must fire.
                 let overshoot = amount_in.saturating_mul(2);
                 in_client.transfer_from(

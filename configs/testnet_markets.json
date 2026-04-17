@@ -9,13 +9,14 @@
         "cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
         "cex_asset_kind": 1,
         "cex_symbol": "USDC",
-        "dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
+        "dex_oracle": null,
         "dex_asset_kind": 0,
+        "dex_symbol": "USDC",
         "twap_records": 3
       },
       "oracle": {
         "exchange_source": 1,
-        "max_price_stale_seconds": 900,
+        "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
         "last_tolerance_bps": 500
       },
@@ -55,13 +56,14 @@
         "cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
         "cex_asset_kind": 1,
         "cex_symbol": "XLM",
-        "dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
+        "dex_oracle": null,
         "dex_asset_kind": 0,
+        "dex_symbol": "XLM",
         "twap_records": 3
       },
       "oracle": {
         "exchange_source": 1,
-        "max_price_stale_seconds": 900,
+        "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
         "last_tolerance_bps": 500
       },
@@ -101,13 +103,14 @@
         "cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
         "cex_asset_kind": 1,
         "cex_symbol": "EURC",
-        "dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
+        "dex_oracle": null,
         "dex_asset_kind": 0,
+        "dex_symbol": "EURC",
         "twap_records": 3
       },
       "oracle": {
         "exchange_source": 1,
-        "max_price_stale_seconds": 900,
+        "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
         "last_tolerance_bps": 500
       },

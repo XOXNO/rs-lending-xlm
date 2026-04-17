@@ -5,7 +5,7 @@ mod interest;
 mod views;
 
 use cache::Cache;
-use common::constants::{RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::constants::{BPS, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::events::{
     emit_update_market_params, emit_update_market_state, UpdateMarketParamsEvent,
@@ -36,6 +36,16 @@ pub struct LiquidityPool;
 
 fn verify_admin(env: &Env) {
     ownable::enforce_owner_auth(env);
+}
+
+/// Reject negative amounts at every mutating pool ABI. The controller
+/// validates sign at user entrypoints; this guard prevents a controller
+/// upgrade that omits a `require_amount_positive` check from reaching the
+/// pool's phantom-collateral path.
+fn require_nonneg_amount(env: &Env, amount: i128) {
+    if amount < 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
 }
 
 /// Saturating subtraction for RAY-scaled totals; absorbs rounding drift.
@@ -75,19 +85,16 @@ impl LiquidityPool {
     // -----------------------------------------------------------------------
 
     pub fn __constructor(env: Env, admin: Address, params: MarketParams, accumulator: Address) {
-        // Store the pool owner.
         ownable::set_owner(&env, &admin);
 
-        // Store market parameters.
         env.storage().instance().set(&PoolKey::Params, &params);
 
-        // L-05: store the accumulator address once. claim_revenue reads
-        // from this slot rather than trusting a caller-supplied address.
+        // Accumulator is written once at construction; `claim_revenue` reads
+        // it from storage rather than trusting a caller-supplied address.
         env.storage()
             .instance()
             .set(&PoolKey::Accumulator, &accumulator);
 
-        // Initialize pool state.
         let state = common::types::PoolState {
             supplied_ray: 0,
             borrowed_ray: 0,
@@ -110,6 +117,7 @@ impl LiquidityPool {
         amount: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -139,6 +147,7 @@ impl LiquidityPool {
         price_wad: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -178,6 +187,10 @@ impl LiquidityPool {
         price_wad: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
+        // `amount == i128::MAX` is the "withdraw all" sentinel from the
+        // controller; any other negative value is rejected here.
+        require_nonneg_amount(&env, amount);
+        require_nonneg_amount(&env, protocol_fee);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -185,10 +198,8 @@ impl LiquidityPool {
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
         let current_supply_actual = cache.calculate_original_supply(pos_scaled);
         let (scaled_withdrawal, gross_amount) = if amount >= current_supply_actual {
-            // Full withdrawal.
             (pos_scaled, current_supply_actual)
         } else {
-            // Partial withdrawal.
             let scaled = cache.calculate_scaled_supply(amount);
             // Dust-lock guard: if the residual scaled amount would round to
             // zero asset tokens, treat the call as a full withdrawal so the
@@ -248,6 +259,7 @@ impl LiquidityPool {
         price_wad: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -255,11 +267,9 @@ impl LiquidityPool {
         let current_debt = cache.calculate_original_borrow(pos_scaled);
 
         let (scaled_repay, overpayment) = if amount >= current_debt {
-            // Full repayment.
             let over = amount - current_debt;
             (pos_scaled, over)
         } else {
-            // Partial repayment.
             let scaled = cache.calculate_scaled_borrow(amount);
             (scaled, 0i128)
         };
@@ -306,8 +316,15 @@ impl LiquidityPool {
 
     pub fn add_rewards(env: Env, price_wad: i128, amount: i128) {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
+        // Reject reward credits when no supply exists. `update_supply_index`
+        // short-circuits on `supplied == ZERO`, so rewards would otherwise
+        // land in the pool's token balance without being tracked.
+        if cache.supplied == Ray::ZERO {
+            panic_with_error!(&env, GenericError::NoSuppliersToReward);
+        }
 
         // amount is in asset decimals; upscale to RAY for consistency with
         // RAY-native supplied and supply_index.
@@ -322,6 +339,7 @@ impl LiquidityPool {
 
     pub fn flash_loan_begin(env: Env, amount: i128, receiver: Address) {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
 
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -330,10 +348,10 @@ impl LiquidityPool {
             panic_with_error!(&env, CollateralError::InsufficientLiquidity);
         }
 
-        // H-01: pool always uses its own asset; never trust a caller-supplied
-        // address. Snapshot the pool balance *before* paying out so
-        // `flash_loan_end` can verify the post-repay delta covers amount + fee
-        // (M-13).
+        // Pool always operates on its own asset; never trust a caller-
+        // supplied address. Snapshot the pool balance before paying out so
+        // `flash_loan_end` can verify the post-repay delta covers
+        // `amount + fee`.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&env.current_contract_address());
         env.storage()
@@ -347,6 +365,7 @@ impl LiquidityPool {
 
     pub fn flash_loan_end(env: Env, amount: i128, fee: i128, receiver: Address) {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
 
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -355,15 +374,14 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::NegativeFlashLoanFee);
         }
 
-        // H-01: pool's own asset; never trust a caller-supplied address.
-        // Pull repayment from the receiver.
+        // Pool always operates on its own asset; pull repayment from the receiver.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let total = amount + fee;
         let pool_addr = env.current_contract_address();
         tok.transfer(&receiver, &pool_addr, &total);
 
-        // M-13: verify the pool's balance delta matches expectation. Reject
-        // if the pre-balance snapshot is missing (begin was not called).
+        // Verify the balance delta matches expectation. Reject if the
+        // pre-balance snapshot is missing (indicates `begin` was not called).
         let pre_balance: i128 = env
             .storage()
             .instance()
@@ -393,6 +411,8 @@ impl LiquidityPool {
         price_wad: i128,
     ) -> PoolStrategyMutation {
         verify_admin(&env);
+        require_nonneg_amount(&env, amount);
+        require_nonneg_amount(&env, fee);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -445,10 +465,10 @@ impl LiquidityPool {
             let current_debt_ray =
                 cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
             interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-            // H-05: saturating sub. Repeated bad-debt cleanups can drift the
-            // position's scaled amount above tracked `cache.borrowed` (prior
-            // caps prevented full debt removal); plain subtraction would
-            // underflow and panic, blocking subsequent cleanups.
+            // Saturating subtraction: repeated bad-debt cleanups can leave
+            // the position's scaled amount above `cache.borrowed` (earlier
+            // caps prevented full debt removal). Plain subtraction would
+            // underflow and block subsequent cleanups.
             cache.borrowed =
                 saturating_sub_ray(cache.borrowed, Ray::from_raw(position.scaled_amount_ray));
             position.scaled_amount_ray = 0;
@@ -458,8 +478,8 @@ impl LiquidityPool {
             cache.revenue = cache.revenue + pos_scaled;
             position.scaled_amount_ray = 0;
         } else {
-            // L-10: defensive panic. Future enum variants must be handled
-            // explicitly; silent no-op would mask a regression.
+            // Defensive panic: future enum variants must be handled
+            // explicitly instead of silently no-oping.
             panic_with_error!(&env, common::errors::GenericError::InvalidPositionType);
         }
 
@@ -486,8 +506,8 @@ impl LiquidityPool {
         let amount_to_transfer = current_reserves.min(treasury_actual);
 
         if amount_to_transfer > 0 {
-            // L-05: revenue destination is the accumulator stored at
-            // construction; never trust a caller-supplied address.
+            // Revenue destination is the accumulator stored at construction;
+            // never trust a caller-supplied address.
             let accumulator: Address = env
                 .storage()
                 .instance()
@@ -511,10 +531,9 @@ impl LiquidityPool {
                 revenue_scaled.mul(&env, ratio)
             };
 
-            // M-04: clamp once against BOTH accumulators so the post-state
-            // preserves the `revenue ≤ supplied` invariant under any
-            // rounding path. The two-clamp pattern that lived here could
-            // burn different amounts from each side when the inputs diverged.
+            // Single clamp against both `revenue` and `supplied` so the
+            // post-state preserves `revenue <= supplied` under any rounding
+            // path.
             let actual_burn = {
                 let mut min = scaled_to_burn;
                 if cache.revenue.raw() < min.raw() {
@@ -555,8 +574,7 @@ impl LiquidityPool {
         interest::global_sync(&env, &mut cache);
         cache.save();
 
-        // Unified rate-model validation, matching
-        // `controller/src/validation.rs::validate_interest_rate_model`.
+        // Mirrors `validation::validate_interest_rate_model` in the controller.
         if base_borrow_rate < 0 || slope1 < 0 || slope2 < 0 || slope3 < 0 {
             panic_with_error!(&env, CollateralError::InvalidBorrowParams);
         }
@@ -569,7 +587,7 @@ impl LiquidityPool {
         if optimal_utilization >= RAY {
             panic_with_error!(&env, CollateralError::OptUtilTooHigh);
         }
-        if !(0..10_000).contains(&reserve_factor) {
+        if !(0..BPS).contains(&reserve_factor) {
             panic_with_error!(&env, CollateralError::InvalidReserveFactor);
         }
         // Monotone slope chain: base <= slope1 <= slope2 <= slope3 <= max.

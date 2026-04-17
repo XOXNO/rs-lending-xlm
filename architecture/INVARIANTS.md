@@ -1,215 +1,85 @@
 # Invariants
 
-For protocol engineers, auditors, and anyone who wants the algebra behind the Stellar lending
-system rather than only the API surface.
+Algebraic invariants the protocol must uphold. Each entry lists: the claim, where
+it is enforced, where it is verified, and any bounded-rounding tolerance.
 
-The emphasis is:
-- fixed-point domains
-- exact state meanings
-- why the formulas preserve solvency and accounting
-- worked examples using the current implementation
+Citations:
+- Enforced: `file:symbol` (source of truth at runtime).
+- Verified: Certora rule module (`controller/certora/spec/*_rules.rs`),
+  fuzz target (`fuzz/fuzz_targets/*.rs`), or integration test.
+
+The line between *enforced* (checked in code every call) and *aspirational*
+(documented property, not yet fully formalized) is preserved below.
 
 ## 1. Fixed-Point Domains
 
-The protocol uses four number systems:
+**Statement.** Cross-domain arithmetic must explicitly rescale into the target
+domain before comparison or persistence. Domains:
+- asset-native units (per-token decimals)
+- `BPS = 10^4` (percentages: LTV, liquidation threshold, reserve factor, fees)
+- `WAD = 10^18` (USD values, health factor)
+- `RAY = 10^27` (indexes, rates, scaled balances)
 
-- asset-native units
-  Raw token units using each asset's own decimals
-- `BPS = 10^4`
-  Basis points for percentages such as LTV, liquidation threshold, reserve factor, and fees
-- `WAD = 10^18`
-  USD values and health-factor arithmetic
-- `RAY = 10^27`
-  Index math, rates, and scaled balances
+**Enforced.** `common::fp::Wad::from_token`, `common::fp_core::rescale_half_up`.
 
-### Invariant
+**Verified.** `math_rules`, `fuzz_targets/fp_math.rs`.
 
-Every multiplication or division across domains must explicitly rescale into the target domain
-before comparison or persistence.
-
-### Why
-
-Without explicit rescaling, caps, prices, and health-factor logic compare incompatible units.
-
-### Example
-
-For an XLM token with `7` decimals:
-
-- `12_0000000` XLM in asset units
-- rescaled to WAD:
-  - `12_0000000 -> 12 * 10^18`
-
-This is handled by `common::fp::Wad::from_token` (or `common::fp_core::rescale_half_up`).
+**Example.** 7-decimal XLM `12_0000000` rescales to WAD as `12 * 10^18`.
 
 ## 2. Rounding Discipline
 
-The protocol uses half-up rounding in fixed-point multiplication and division:
+**Statement.** All fixed-point arithmetic uses half-up rounding unless the
+function explicitly states otherwise.
+- multiply: `(a * b + precision / 2) / precision`
+- divide:   `(a * precision + b / 2) / b`
 
-- multiply:
-  - `(a * b + precision / 2) / precision`
-- divide:
-  - `(a * precision + b / 2) / b`
+**Enforced.** `mul_half_up`, `div_half_up`, and signed variants in `common::fp_core`.
 
-### Invariant
+**Verified.** `math_rules`, `fuzz_targets/fp_math.rs`.
 
-All fixed-point arithmetic uses the same half-up convention unless a function explicitly states a
-different rule.
+**Tolerance.** Half-ULP at the target precision per operation.
 
-### Why
+## 3. Scaled Balance Reconstruction
 
-A single rounding policy avoids directional drift where one subsystem rounds down and another
-rounds up. The code centralizes this in:
-- `mul_half_up`
-- `div_half_up`
-- signed variants where needed
-
-### Example
-
-At WAD precision:
-
-- `2 / 3`
-- exact value: `0.666...`
-- stored value:
-  - `666_666_666_666_666_667`
-
-That is the half-up rounded representation used by the protocol.
-
-## 3. Scaled Balance Invariant
-
-Positions are stored as scaled balances, never as actual balances.
-
-Definitions:
-
-- `scaled_supply = actual_supply / supply_index`
-- `scaled_borrow = actual_borrow / borrow_index`
-
-Reconstruction:
-
-- `actual_supply = scaled_supply * supply_index / RAY`
-- `actual_borrow = scaled_borrow * borrow_index / RAY`
-
-### Invariant
-
-For any position:
-
+**Statement.** Positions store scaled amounts; actuals reconstruct as
+`scaled * index / RAY`.
 - `actual >= 0`
-- if the index increases while the scaled amount stays fixed:
-  - actual supply increases
-  - actual debt increases
+- with scaled fixed, `index` increasing implies actual increasing (interest accrues in O(1) per market).
 
-This is the entire mechanism by which interest accrues without rewriting every position each block.
+**Enforced.** Scaled storage in `pool/src/lib.rs` (supply/borrow paths); reconstruction
+in `pool/src/views.rs`.
 
-### Why
+**Verified.** `index_rules`, `position_rules`, `fuzz_targets/rates_and_index.rs`.
 
-Index updates stay O(1) at the market level instead of O(number of positions).
+**Tolerance.** Half-up rounding on each `scaled -> actual -> scaled` round-trip.
 
-### Example
+## 4. Pool State Identity: `revenue_ray <= supplied_ray`
 
-Suppose:
+**Statement.** `0 <= revenue_ray <= supplied_ray`. Protocol revenue is a supply
+claim that appreciates with `supply_index`.
 
-- user supplies `70 XLM`
-- later supplies `50 XLM`
-- `supply_index = 1.0 * RAY`
+**Enforced.**
+- `add_protocol_revenue` (pool): increments both `revenue_ray` and `supplied_ray`.
+- Revenue claim path: burns scaled revenue from both proportionally.
+- `seize_position` on a `Deposit` position (`pool/src/lib.rs:441-446`): moves
+  scaled from user into `revenue_ray` without changing `supplied_ray`, because
+  the scaled was already counted in `supplied_ray`.
 
-Stored scaled supply:
+**Verified.** `solvency_rules`, `fuzz_targets/flow_e2e.rs`.
 
-- first supply adds `70`
-- second supply adds `50`
-- stored scaled total = `120`
+## 5. Interest Split Identity
 
-Later, if:
-
-- `supply_index = 1.000000026916666650354166815 * RAY`
-
-Then the actual supply reconstructed from the same scaled amount is slightly above `120 XLM`.
-
-The recent testnet smoke showed exactly this:
-
-- after full repay and before final withdraw, the remaining XLM position reconstructed above the
-  originally supplied amount because the supply index had increased.
-
-## 4. Pool State Identity
-
-Each pool tracks:
-
-- `supplied_ray`
-- `borrowed_ray`
-- `revenue_ray`
-- `supply_index_ray`
-- `borrow_index_ray`
-
-Where:
-
-- `supplied_ray` is total scaled supply
-- `borrowed_ray` is total scaled debt
-- `revenue_ray` is scaled protocol-owned supply
-
-### Invariant
-
-`revenue_ray` is always a subset of `supplied_ray`.
-
-Formally:
-
-- `0 <= revenue_ray <= supplied_ray`
-
-### Why
-
-Protocol revenue is modeled as a supply claim owned by the treasury path. It appreciates with the
-same supply index as depositor balances.
-
-`add_protocol_revenue` preserves the invariant by incrementing both:
-
-- `revenue_ray`
-- `supplied_ray`
-
-Revenue claims burn scaled revenue from both in the same proportion.
-
-A third invariant-preserving path lives in `seize_position` on a `Deposit`
-position (`pool/src/lib.rs:441-446`): the seized scaled amount moves from
-the user's position into `revenue_ray` *without* a matching change to
-`supplied_ray`, because the position's scaled value was already counted
-in `supplied_ray`. The invariant `revenue_ray ≤ supplied_ray` still
-holds because the seized scaled remains part of `supplied_ray`.
-
-## 5. Interest Split Invariant
-
-When borrow interest accrues, the protocol splits it into:
-
-- supplier rewards
-- protocol fee
-
-Definitions:
-
-- `old_total_debt = borrowed_ray * old_borrow_index / RAY`
-- `new_total_debt = borrowed_ray * new_borrow_index / RAY`
+**Statement.** On borrow-index accrual:
 - `accrued_interest = new_total_debt - old_total_debt`
-- `protocol_fee = accrued_interest * reserve_factor_bps / BPS`
+- `protocol_fee     = accrued_interest * reserve_factor_bps / BPS`
 - `supplier_rewards = accrued_interest - protocol_fee`
+- Identity: `accrued_interest = supplier_rewards + protocol_fee`.
 
-### Invariant
+**Enforced.** `pool/src/interest.rs` accrual pipeline.
 
-`accrued_interest = supplier_rewards + protocol_fee`
+**Verified.** `interest_rules`, `fuzz_targets/rates_and_index.rs`.
 
-### Why
-
-This identity keeps the pool balanced when indexes move.
-
-### Example
-
-If accrued interest is `100` units and reserve factor is `10%`:
-
-- protocol fee = `10`
-- supplier rewards = `90`
-
-Then:
-
-- borrow side grows by `100`
-- supply side grows by `90`
-- revenue side grows by `10`
-
-No value disappears.
-
-### Accrual pipeline
+**Accrual pipeline.**
 
 ```mermaid
 flowchart LR
@@ -225,165 +95,65 @@ flowchart LR
     H --> K["revenue_ray += fee / new_sidx<br/>supplied_ray += fee / new_sidx"]
 ```
 
-Every arrow preserves one of the §3-§7 invariants. Rule coverage of each
-edge is mapped in `MATH_REVIEW.md` §3.7.
+Edge-to-rule mapping is in `MATH_REVIEW.md` §3.7.
 
 ## 6. Borrow Index Monotonicity
 
-Borrow index updates depend on:
+**Statement.** If utilization, borrow rate, and elapsed time are all
+non-negative, then `interest_factor >= RAY` and
+`new_borrow_index >= old_borrow_index`.
 
-- utilization
-- rate model
-- compound-interest factor
+**Enforced.** `common::rates::compound_interest` (8-term Taylor of
+`e^(rate*time)`); annual rate capped at `max_borrow_rate_ray` before per-ms
+conversion.
 
-The implementation uses:
+**Verified.** `index_rules`, `interest_rules`, `fuzz_targets/rates_and_index.rs`.
 
-- piecewise annual borrow rate (three regions around `mid_utilization` and
-  `optimal_utilization`)
-- conversion to per-millisecond rate
-- 8-term Taylor approximation of `e^(rate * time)` in
-  `common::rates::compound_interest`
+## 7. Supply Index Monotonicity (Single Sanctioned Exception)
 
-### Invariant
+**Statement.** Outside bad-debt socialization,
+`new_supply_index >= old_supply_index`. The only sanctioned decrease is
+`apply_bad_debt_to_supply_index`.
 
-If:
-- utilization is non-negative
-- borrow rate is non-negative
-- elapsed time is non-negative
+**Enforced.** `pool/src/interest.rs`.
 
-then:
-- `interest_factor >= RAY`
-- `new_borrow_index >= old_borrow_index`
+**Safety floor.** `SUPPLY_INDEX_FLOOR_RAW = 10^18` (raw Ray), declared at
+`pool/src/interest.rs:14`. That is `10^-9` below nominal `1.0 RAY = 10^27`.
+Hence `supply_index_ray >= 10^18` always holds, preventing
+divide-by-near-zero in `amount / supply_index`.
 
-### Why
-
-Debt should not shrink over time absent repayment.
-
-### Implementation note
-
-The code caps the annual rate at `max_borrow_rate_ray` before converting to a per-time-step rate.
-
-## 7. Supply Index Monotonicity And Its Single Exception
-
-Normal updates:
-
-- supplier rewards increase supply index
-- external rewards increase supply index
-
-Bad debt socialization:
-
-- may decrease supply index
-
-### Invariant
-
-Outside bad debt socialization:
-
-- `new_supply_index >= old_supply_index`
-
-The only sanctioned decrease is:
-- `apply_bad_debt_to_supply_index`
-
-which scales the supply index down proportionally to socialize uncollectable debt.
-
-### Why
-
-Supplier claims should only move in two ways:
-- up from earned interest or rewards
-- down from explicitly socialized loss
-
-No hidden third path is permitted.
-
-### Safety floor
-
-During bad debt application, the new supply index floors at
-`SUPPLY_INDEX_FLOOR_RAW = 10^18` in raw Ray units (declared at
-`pool/src/interest.rs:14`). In decimal terms that is `10^-9`, nine orders of
-magnitude below nominal `1.0 RAY = 10^27`.
-
-So:
-
-- `supply_index_ray >= 10^18` (raw)
-
-always holds. The floor is tight enough to prevent divide-by-near-zero
-overflow in `amount / supply_index` conversions, while leaving socialization
-headroom below a full `1.0 RAY` reset.
-
-Paired silent-drop rule: `add_protocol_revenue_ray` at
-`pool/src/interest.rs:63-75` skips fee accrual when
+**Paired silent-drop rule.** `add_protocol_revenue_ray`
+(`pool/src/interest.rs:63-75`) skips fee accrual when
 `supply_index < SUPPLY_INDEX_FLOOR_RAW`. The asset-decimal variant
-`add_protocol_revenue` (lines 49-59) does not currently mirror this guard;
-it is safe only because the floor clamp in
-`apply_bad_debt_to_supply_index` prevents the trigger condition from
-arising.
+`add_protocol_revenue` (lines 49-59) does not mirror this guard; it is safe only
+because the floor clamp in `apply_bad_debt_to_supply_index` prevents the
+trigger condition from arising.
 
-## 8. Utilization Invariant
+**Verified.** `index_rules`, `interest_rules`.
 
-Utilization is:
+## 8. Utilization Definition At Empty Market
 
-- `borrowed_actual / supplied_actual`
+**Statement.** `U = borrowed_actual / supplied_actual`, with
+`U := 0` when `supplied_actual = 0`.
 
-where both sides come from scaled values and current indexes.
+**Enforced.** `pool/src/interest.rs`, `pool/src/views.rs`.
 
-### Invariant
+**Verified.** `interest_rules`.
 
-If `supplied_actual = 0`, utilization is defined as `0`.
+## 9. Health Factor
 
-### Why
+**Statement.** `HF = weighted_collateral / total_borrow` in USD WAD, where
+`weighted_collateral = Σ(collateral_value * liquidation_threshold_bps / BPS)`
+and `total_borrow = Σ(borrow_value)`.
+- With debt: `HF >= 1e18` solvent; `HF < 1e18` liquidatable.
+- Without debt: `HF = i128::MAX`.
 
-This avoids division by zero and keeps empty markets from producing undefined rates.
+**Enforced.** `controller/src/positions/liquidation.rs`, `controller/src/helpers/mod.rs`.
 
-## 9. Health Factor Invariant
+**Verified.** `health_rules`, `solvency_rules`, `liquidation_rules`,
+`fuzz_targets/flow_e2e.rs`.
 
-Health factor is:
-
-- `HF = weighted_collateral / total_borrow`
-
-where:
-
-- `weighted_collateral = Σ(collateral_value * liquidation_threshold_bps / BPS)`
-- `total_borrow = Σ(borrow_value)`
-
-Both are computed in USD WAD.
-
-### Invariant
-
-For any account with debt:
-
-- `HF >= 1e18` means solvent with respect to liquidation threshold
-- `HF < 1e18` means liquidatable
-
-For any account without debt:
-
-- `HF = i128::MAX`
-
-### Worked Example
-
-From the recent live smoke:
-
-- supplied: `1200 XLM`
-- price: about `0.15014060408169 USD`
-- total collateral value:
-  - `1200 * 0.15014060408169 = 180.168724898028 USD`
-  - for 7-decimal tokens, represented in WAD as
-    `180168724898028000000`
-- XLM liquidation threshold: `7000 bps = 70%`
-- weighted collateral:
-  - `180.168724898028 * 0.70 = 126.1181074286196 USD`
-- borrowed: `600 XLM`
-- total borrow:
-  - `600 * 0.15014060408169 = 90.084362449014 USD`
-
-So:
-
-- `HF ≈ 126.1181 / 90.0843 ≈ 1.4`
-
-Observed on-chain:
-
-- `1399999996266666684`
-
-which is `~1.4 WAD`, exactly consistent with the formula.
-
-### Liquidation cascade
+**Liquidation cascade.**
 
 ```mermaid
 flowchart TD
@@ -402,156 +172,79 @@ flowchart TD
     SOCIAL --> OK
 ```
 
-## 10. LTV Borrow Bound Invariant
+## 10. LTV Borrow Bound
 
-Before a borrow batch, the controller computes:
+**Statement.** `post_borrow_total_debt <= Σ(collateral_value * loan_to_value_bps / BPS)`.
+LTV controls borrow admission; liquidation threshold (§9) controls liquidation.
 
-- `ltv_collateral_wad = Σ(collateral_value * loan_to_value_bps / BPS)`
+**Enforced.** `controller/src/positions/borrow.rs`.
 
-During borrow processing, the controller ensures the post-borrow debt does not exceed this bound.
+**Verified.** `boundary_rules`, `position_rules`.
 
-### Invariant
+## 11. Isolation Debt
 
-New borrows succeed only if:
-
-- `post_borrow_total_debt <= ltv_collateral_wad`
-
-### Why
-
-The liquidation threshold controls liquidation; LTV controls borrow allowance. Related, but not
-identical risk surfaces.
-
-## 11. Isolation Debt Invariant
-
-For isolated accounts, the controller tracks a global isolated-debt counter on the isolated asset.
-
-The counter is stored in USD WAD.
-
-Borrow path:
-
-- convert borrowed token amount to WAD
-- multiply by current price WAD
-- increment isolated debt
-
-Repay and liquidation path:
-
-- convert actual repaid amount to USD WAD
-- decrement isolated debt
-- clamp below zero to zero
-
-### Invariant
-
-For an isolated asset:
-
+**Statement.** For an isolated asset:
 - isolated debt is never negative
-- isolated debt is bounded by the configured debt ceiling for new borrows
+- for new borrows, isolated debt is bounded by the configured debt ceiling
+- debt tracked in USD WAD; incremented on borrow, decremented on repay/liquidation, clamped at zero
 
-### Dust rule
+**Enforced.**
+- Increment: `handle_isolated_debt` (`controller/src/positions/borrow.rs:204-242`).
+- Decrement and clamp: `adjust_isolated_debt_usd` (`controller/src/utils.rs:61-92`).
 
-If remaining isolated debt is:
+**Dust rule.** If remaining debt is `0 < debt < 1 USD WAD`, the tracker is
+zeroed in `adjust_isolated_debt_usd`.
 
-- `0 < debt < 1 USD WAD`
+**Asymmetry (aspirational fix).** Dust erasure runs only on decrement. The
+increment path does not apply a symmetric rule. Borrow + full-repay cycles
+therefore ratchet the tracker downward by up to the sub-$1 residual per cycle.
+See `MATH_REVIEW.md` §5.1 for the proposed symmetric rule.
 
-the tracker is zeroed in `adjust_isolated_debt_usd`
-(`controller/src/utils.rs:61-92`).
+**Verified.** `isolation_rules`.
 
-### Why
+## 12. Claim Revenue Cap And Proportional Burn
 
-This keeps stale sub-dollar residue from permanently blocking isolated-asset accounts.
-
-### Asymmetry note
-
-The dust-erasure rule runs only on the decrement path. The increment path
-in `handle_isolated_debt` (`controller/src/positions/borrow.rs:204-242`)
-does not apply a symmetric rule. Borrow + full-repay cycles therefore
-ratchet the tracker downward by up to the sub-$1 residual per cycle. See
-`MATH_REVIEW.md` §5.1 for the rule that should be added.
-
-## 12. Claim Revenue Invariant
-
-When claiming revenue:
-
-- pool computes actual claimable revenue from `revenue_ray`
-- transfer is capped by current token reserves
-- scaled revenue is burned proportionally
-
-### Invariant
-
-Claimed revenue can never exceed current reserves.
-
-Formally:
-
+**Statement.**
 - `claimed_amount <= current_reserves`
+- On partial claim (`reserves < treasury_actual`), pool transfers `reserves` and
+  burns a proportional slice of both totals (`pool/src/lib.rs:478-496`):
+  - `ratio = amount_to_transfer / treasury_actual`
+  - `scaled_to_burn = revenue_scaled * ratio`
+  - `revenue_ray  -= min(scaled_to_burn, revenue_ray)`
+  - `supplied_ray -= min(scaled_to_burn, supplied_ray)`
+- Preserves §4 (`revenue_ray <= supplied_ray`) and §13 (reserve cap).
 
-And after a full claim:
+**Enforced.** `pool/src/lib.rs` claim path.
 
-- corresponding `revenue_ray` share is removed
-- corresponding `supplied_ray` share is removed
+**Verified.** `solvency_rules`, `boundary_rules`.
 
-### Partial claim mechanics
+## 13. Reserve Availability
 
-When `reserves < treasury_actual` the pool transfers `reserves` and burns a
-**proportional** slice of both totals (`pool/src/lib.rs:478-496`):
+**Statement.** Any outgoing transfer requiring liquidity must satisfy
+`current_reserves >= requested_amount`. Applies to withdrawals, borrows, and
+flash-loan starts.
 
-- `ratio = amount_to_transfer / treasury_actual`
-- `scaled_to_burn = revenue_scaled * ratio`
-- `revenue_ray -= min(scaled_to_burn, revenue_ray)`
-- `supplied_ray -= min(scaled_to_burn, supplied_ray)`
+**Enforced.** `pool/src/lib.rs`; controller paths in
+`controller/src/positions/{withdraw,borrow}.rs` and
+`controller/src/flash_loan.rs`.
 
-This preserves both the reserve-cap invariant (`claimed ≤ reserves`) and
-the subset invariant (`revenue_ray ≤ supplied_ray`).
+**Verified.** `boundary_rules`, `flash_loan_rules`,
+`fuzz_targets/flow_e2e.rs`.
 
-### Why
+## 14. Market Oracle Configuration
 
-This keeps treasury extraction from creating synthetic liquidity.
-
-### Example
-
-From the recent testnet smoke:
-
-- XLM pool `protocol_revenue` before claim: `29`
-- first claim returned `43` after a later index sync because the revenue claim had appreciated with
-  the supply index
-- `protocol_revenue` then returned `0`
-
-Scaled revenue ownership behaves exactly that way.
-
-## 13. Reserve Availability Invariant
-
-Pool withdrawals, borrows, and flash-loan starts each check reserves against the pool's actual
-token balance.
-
-### Invariant
-
-Any outgoing token transfer requiring liquidity must satisfy:
-
-- `current_reserves >= requested_amount`
-
-### Why
-
-Scaled accounting alone does not guarantee inventory. The contract must hold the actual tokens.
-
-## 14. Market Oracle Invariants
-
-The market config stores:
-- generic oracle config
-- flat CEX/DEX oracle wiring
-- cached oracle decimals
-
-### Invariants
-
+**Statement.** For each `MarketConfig`:
 1. token decimals are read from the token contract during configuration
 2. CEX oracle decimals are read from the CEX oracle during configuration
-3. DEX oracle decimals are read from the DEX oracle during configuration if DEX is configured
+3. DEX oracle decimals are read from the DEX oracle during configuration when DEX is configured
 4. unreadable required decimals revert configuration
 5. oracle-feed decimals are never inferred from token decimals
 
-### Why
+**Enforced.** `controller/src/config.rs`, `controller/src/oracle/mod.rs`.
 
-Token precision and price-feed precision are different domains. Conflating them creates pricing
-bugs.
+**Verified.** `oracle_rules`, `fuzz_targets/flow_e2e.rs`.
 
-### Price resolution
+**Price resolution.**
 
 ```mermaid
 flowchart TD
@@ -571,105 +264,60 @@ flowchart TD
     RISKY -->|no| PANIC["panic: DeviationBreached"]
 ```
 
-Tolerance bands are in BPS on `MarketConfig`:
-`first_tolerance_bps < last_tolerance_bps ≤ MAX_LAST_TOLERANCE (5000 bps)`.
+Tolerance bands live on `MarketConfig` in BPS:
+`first_tolerance_bps < last_tolerance_bps <= MAX_LAST_TOLERANCE (5000 bps)`.
 
-## 15. Controller And Pool Separation Invariant
+## 15. Controller / Pool Separation
 
-The controller depends on `pool-interface`, not the full pool contract crate at runtime.
+**Statement.** Controller runtime code may only assume the pool ABI, not pool
+internals. Controller depends on `pool-interface`, not the full pool crate at
+runtime.
 
-### Invariant
+**Enforced.** Crate topology; `controller/Cargo.toml` uses `pool-interface`.
 
-Controller runtime code may only assume the pool ABI, not pool implementation internals.
+**Verified.** Build-time dependency graph.
 
-### Why
+## 16. Account Storage Canonical Index
 
-This keeps:
-- deploy size smaller
-- trust boundaries explicit
-- upgrades cleaner
+**Statement.** `AccountMeta` is the canonical index of position keys for the
+account. Reading starts from meta; removal removes all listed positions and then
+meta; TTL bumps iterate through meta's asset lists.
 
-## 16. Account Storage Invariant
+**Enforced.** `controller/src/storage/mod.rs`.
 
-Account storage is split:
+**Verified.** `position_rules`.
 
-- meta key
-- per-supply keys
-- per-borrow keys
+## 17. Intentional Design Decisions
 
-### Invariant
+These are design choices, not enforced invariants. They are documented so future
+changes do not accidentally reverse them.
 
-`AccountMeta` is the canonical index of which position keys must exist for the account.
+- **Half-up rounding** instead of truncation: less directional bias, consistent
+  across multiply/divide flows.
+- **Revenue as scaled supply**: protocol revenue appreciates with supplier
+  balances until claimed, rather than sitting in a non-interest-bearing bucket.
+- **Flat oracle fields in `MarketConfig`**: one record reads and audits more
+  easily than a split storage layout.
+- **On-chain decimal discovery**: decimals are read from contracts during
+  setup; operator-supplied decimals are rejected as error-prone.
 
-This means:
-- reading an account starts from meta
-- account removal removes all listed positions and then meta
-- TTL bumps iterate through the asset lists stored in meta
+## 18. Re-Verification Checklist After Math Changes
 
-### Why
+Touching the rate model, index updates, liquidation math, isolation debt,
+revenue claim, or precision/rescaling logic requires re-verifying:
 
-This prevents hidden orphan positions and keeps account assembly deterministic.
-
-## 17. Design Decisions That Are Intentional
-
-### Half-up rounding instead of truncation
-
-Decision:
-- use half-up rounding across fixed-point math
-
-Reason:
-- less systematic bias than truncation
-- consistent across multiply/divide flows
-
-### Revenue as scaled supply
-
-Decision:
-- protocol revenue is represented as scaled supply, not as a separate non-interest-bearing bucket
-
-Reason:
-- protocol revenue should appreciate like supplier balances until claimed
-
-### Flat oracle fields in `MarketConfig`
-
-Decision:
-- market config holds flat oracle wiring fields
-- no separate reflector storage key
-
-Reason:
-- one market record reads, caches, and audits more easily
-
-### On-chain decimal discovery
-
-Decision:
-- read decimals from contracts during setup
-
-Reason:
-- operator-supplied decimals are too error-prone
-
-## 18. What To Re-Verify After Any Math Change
-
-If you touch:
-- rate model
-- index updates
-- liquidation math
-- isolation debt
-- revenue claim
-- precision/rescaling logic
-
-re-verify:
-
-1. `scaled -> actual -> scaled` consistency
-2. `accrued_interest = supplier_rewards + protocol_fee`
-3. `revenue_ray <= supplied_ray`
-4. `HF` transitions around the `1.0 WAD` boundary
-5. reserve caps on borrow, withdraw, and claim revenue
-6. isolated debt clamping and dust erasure
-7. bad debt socialization cannot drive supply index below `1`
+1. `scaled -> actual -> scaled` consistency (§3)
+2. `accrued_interest = supplier_rewards + protocol_fee` (§5)
+3. `revenue_ray <= supplied_ray` (§4)
+4. `HF` transitions around `1.0 WAD` (§9)
+5. Reserve caps on borrow, withdraw, claim revenue (§12, §13)
+6. Isolated-debt clamping and dust erasure (§11)
+7. Bad-debt socialization cannot drive supply index below the raw `10^18` floor (§7)
 
 ## Related Documents
 
 - [README.md](./README.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [DEPLOYMENT.md](./DEPLOYMENT.md)
-- [MATH_REVIEW.md](./MATH_REVIEW.md) — rule-coverage audit and remediation
-  plan for the invariants on this page.
+- [MATH_REVIEW.md](./MATH_REVIEW.md) — rule-coverage audit and remediation plan
+  for the invariants on this page.

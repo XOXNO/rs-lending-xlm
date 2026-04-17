@@ -17,7 +17,7 @@ use common::constants::{RAY, WAD};
 use common::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
 
 // ---------------------------------------------------------------------------
-// Rule 1: mul_half_up is commutative — mul_half_up(a, b, p) == mul_half_up(b, a, p)
+// Rule 1: mul_half_up is commutative -- mul_half_up(a, b, p) == mul_half_up(b, a, p)
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -38,7 +38,7 @@ fn mul_half_up_commutative(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 2: mul_half_up with zero — mul_half_up(0, b, p) == 0 and mul_half_up(a, 0, p) == 0
+// Rule 2: mul_half_up with zero -- mul_half_up(0, b, p) == 0 and mul_half_up(a, 0, p) == 0
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -61,7 +61,7 @@ fn mul_half_up_zero(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3: mul_half_up identity — mul_half_up(a, RAY, RAY) == a (within +/-1)
+// Rule 3: mul_half_up identity -- mul_half_up(a, RAY, RAY) == a (within +/-1)
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -124,7 +124,7 @@ fn div_half_up_inverse_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 5: div_half_up with zero numerator — div_half_up(0, b, RAY) == 0
+// Rule 5: div_half_up with zero numerator -- div_half_up(0, b, RAY) == 0
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -142,7 +142,7 @@ fn div_half_up_zero_numerator(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 6: mul_half_up rounding direction — never rounds below floor(a*b/p)
+// Rule 6: mul_half_up rounding direction -- never rounds below floor(a*b/p)
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -179,7 +179,7 @@ fn mul_half_up_rounding_direction_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 7: div_half_up rounding direction — rounds up when remainder >= b/2
+// Rule 7: div_half_up rounding direction -- rounds up when remainder >= b/2
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -216,7 +216,7 @@ fn div_half_up_rounding_direction(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 8: rescale upscale is lossless — rescale_half_up(x, 7, 18) * 10^(18-7) preserves value
+// Rule 8: rescale upscale is lossless -- rescale_half_up(x, 7, 18) * 10^(18-7) preserves value
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -226,7 +226,7 @@ fn rescale_upscale_lossless() {
     let to: u32 = 18;
 
     // Realistic token amounts (up to 10^18 at 7 decimals)
-    cvlr_assume!(x >= 0 && x <= 1_000_000_000_000_000_000);
+    cvlr_assume!(x >= 0 && x <= WAD);
 
     let upscaled = rescale_half_up(x, from, to);
 
@@ -239,14 +239,14 @@ fn rescale_upscale_lossless() {
 #[rule]
 fn rescale_upscale_lossless_sanity() {
     let x: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(x >= 0 && x <= 1_000_000_000_000_000_000);
+    cvlr_assume!(x >= 0 && x <= WAD);
 
     let upscaled = rescale_half_up(x, 7, 18);
     cvlr_satisfy!(upscaled > 0);
 }
 
 // ---------------------------------------------------------------------------
-// Rule 9: rescale roundtrip — rescale_half_up(rescale_half_up(x, 7, 18), 18, 7) approx x (within +/-1)
+// Rule 9: rescale roundtrip -- rescale_half_up(rescale_half_up(x, 7, 18), 18, 7) approx x (within +/-1)
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -324,7 +324,7 @@ fn signed_mul_away_from_zero_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 11: I256 no overflow — mul_half_up with max realistic values (RAY * RAY)
+// Rule 11: I256 no overflow -- mul_half_up with max realistic values (RAY * RAY)
 // ---------------------------------------------------------------------------
 
 /// Verifies that mul_half_up with maximum realistic protocol values does not
@@ -341,7 +341,7 @@ fn i256_no_overflow(e: Env) {
     cvlr_assume!(a >= 0 && a <= 10 * RAY);
     cvlr_assume!(b >= 0 && b <= 10 * RAY);
 
-    // This must not panic — if I256 -> i128 conversion fails, the rule fails
+    // This must not panic -- if I256 -> i128 conversion fails, the rule fails
     let result = mul_div_half_up(&e, a, b, RAY);
 
     // Result should be at most a * b / RAY ~ 10 * RAY * 10 * RAY / RAY = 100 * RAY
@@ -362,7 +362,7 @@ fn i256_no_overflow_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 12: div_by_zero sanity — div_half_up(a, 0, RAY) should be unreachable
+// Rule 12: div_by_zero sanity -- div_half_up(a, 0, RAY) should be unreachable
 // ---------------------------------------------------------------------------
 
 /// Division by zero must cause a panic (Soroban I256 division by zero panics).
@@ -374,7 +374,7 @@ fn div_by_zero_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     cvlr_assume!(a >= 0 && a <= RAY);
 
-    // Division by zero — this line should always panic
+    // Division by zero -- this line should always panic
     let _result = mul_div_half_up(&e, a, RAY, 0);
 
     // Reaching this line would mean division by zero did not revert.

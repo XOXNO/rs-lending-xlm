@@ -250,15 +250,11 @@ pub struct UpdateMarketStateEvent {
 #[derive(Clone, Debug)]
 pub struct UpdatePositionEvent {
     /// Discriminator for the controller entrypoint that produced this event.
-    /// Soroban has no log-level `identifier` like MultiversX, so without this
-    /// field downstream indexers cannot tell a `supply` from a `withdraw`:
-    /// every balance-mutating entrypoint emits the same `["position","update"]`
-    /// topic. The off-chain activity pipeline maps this onto
-    /// `XoxnoLendingActivity` (see `xoxno-api-v2/.../stellar-lending-activity.mapper.ts`).
-    ///
-    /// Vocabulary (lowercase snake-case, fits ≤9 bytes inline):
-    /// `supply`, `borrow`, `withdraw`, `repay`, `liq_repay`, `liq_seize`,
-    /// `multiply`, `swap_debt`, `swap_col`, `param_upd`.
+    /// All balance-mutating entrypoints share the `["position","update"]`
+    /// topic; indexers use this field to distinguish actions. Values are
+    /// lowercase snake-case symbols (<=9 bytes inline): `supply`, `borrow`,
+    /// `withdraw`, `repay`, `liq_repay`, `liq_seize`, `multiply`,
+    /// `swap_debt`, `swap_col`, `param_upd`.
     pub action: Symbol,
     pub index: i128,
     pub amount: i128,

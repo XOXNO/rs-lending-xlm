@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, PositionType,
     ALICE, BOB,
@@ -246,7 +248,7 @@ fn test_repay_rejects_during_flash_loan() {
 
 #[test]
 fn test_repay_isolated_debt_decremented() {
-    let ceiling = 100_000 * 1_000_000_000_000_000_000i128; // $100k WAD
+    let ceiling = 100_000 * WAD; // $100k WAD
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market_config("USDC", |cfg| {

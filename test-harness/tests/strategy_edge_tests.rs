@@ -1292,7 +1292,7 @@ fn test_strategy_empty_swap_steps_multiply() {
     );
     // M-10: the controller rejects `amount_out_min <= 0` at the multiply
     // entry point with AmountMustBePositive. Before the M-10 fix, this test
-    // relied on a deeper chain: empty distribution → zero swap output →
+    // relied on a deeper chain: empty distribution -> zero swap output ->
     // AmountMustBePositive at the deposit path. The outcome is unchanged;
     // the check now fails fast.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);

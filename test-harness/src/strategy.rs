@@ -19,13 +19,12 @@ impl LendingTest {
         market.token_admin.mint(&self.aggregator, &amount);
     }
 
-    /// Build mock SwapSteps with empty hops.
-    /// Used for error-path tests that should fail before reaching the swap router.
-    /// For happy-path tests, use build_swap_steps() with a real min_amount_out.
+    /// Builds `SwapSteps` with no hops for error-path tests that panic
+    /// before reaching the swap router. Use `build_swap_steps` for happy
+    /// paths that need a real `amount_out_min`.
     ///
-    /// `amount_out_min = 1` passes the M-10 entry check (`> 0`) while still
-    /// being a trivially-low sentinel for error-path tests — the router is
-    /// never reached in these tests, so the actual value does not matter.
+    /// `amount_out_min = 1` satisfies the controller's `> 0` entry check
+    /// without constraining behavior, since the router is never reached.
     pub fn mock_swap_steps(
         &self,
         _token_in: &str,

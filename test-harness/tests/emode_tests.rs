@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{
     assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, usdt_stable_preset,
     EModeCategoryPreset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
@@ -147,7 +149,7 @@ fn test_emode_rejects_with_isolation() {
         .with_market(eth_preset())
         .with_market_config("ETH", |cfg| {
             cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * 1_000_000_000_000_000_000;
+            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * WAD;
         })
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)

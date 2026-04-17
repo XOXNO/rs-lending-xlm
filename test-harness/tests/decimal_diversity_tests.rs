@@ -382,7 +382,7 @@ fn test_liquidation_18dec_collateral_6dec_debt() {
 }
 
 // ---------------------------------------------------------------------------
-// 12. Multi-user mixed decimals — no cross-contamination
+// 12. Multi-user mixed decimals -- no cross-contamination
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -411,7 +411,7 @@ fn test_multi_user_mixed_decimals() {
 }
 
 // ---------------------------------------------------------------------------
-// 13. 7-decimal low-value token (XLM at $0.10) — many tokens, small USD value
+// 13. 7-decimal low-value token (XLM at $0.10) -- many tokens, small USD value
 // ---------------------------------------------------------------------------
 
 #[test]

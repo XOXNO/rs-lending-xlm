@@ -56,7 +56,7 @@ fn flatten<T>(
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// strategy.rs:91 — ConvertStepsRequired
+// strategy.rs:91 -- ConvertStepsRequired
 //
 // When multiply receives an initial_payment whose token is a third token
 // (neither collateral nor debt), `convert_steps` MUST be Some. The current
@@ -101,7 +101,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs:140 — AccountModeMismatch
+// strategy.rs:140 -- AccountModeMismatch
 //
 // Reusing an existing account with a different mode must be rejected. No
 // prior test exercised this path.
@@ -141,7 +141,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs:284 — DebtPositionNotFound in swap_debt
+// strategy.rs:284 -- DebtPositionNotFound in swap_debt
 // Alice tries to swap an ETH debt she does not owe. The test was missing.
 //
 // Call order in process_swap_debt:
@@ -170,13 +170,13 @@ fn test_swap_debt_existing_position_missing_rejects() {
     let steps = build_swap_steps(&t, "WBTC", "ETH", 5_000_000);
     // existing=ETH (Alice does not hold it). new=WBTC (Alice already holds
     // WBTC debt, but swap_debt requires only the existing debt to be
-    // present — not the new one).
+    // present -- not the new one).
     let result = t.try_swap_debt(ALICE, "ETH", 0.001, "WBTC", &steps);
     assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs:373 — CollateralPositionNotFound in swap_collateral
+// strategy.rs:373 -- CollateralPositionNotFound in swap_collateral
 // Alice tries to swap WBTC collateral she does not hold.
 // ---------------------------------------------------------------------------
 
@@ -197,7 +197,7 @@ fn test_swap_collateral_position_missing_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs:527 — CollateralPositionNotFound in repay_debt_with_collateral
+// strategy.rs:527 -- CollateralPositionNotFound in repay_debt_with_collateral
 // Alice tries to repay using WBTC collateral she does not hold.
 // ---------------------------------------------------------------------------
 
@@ -219,7 +219,7 @@ fn test_repay_debt_with_collateral_missing_collateral_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs — DebtPositionNotFound in repay_debt_with_collateral
+// strategy.rs -- DebtPositionNotFound in repay_debt_with_collateral
 // (regression)
 //
 // The audit surfaced two bugs here:
@@ -253,7 +253,7 @@ fn test_repay_debt_with_collateral_missing_debt_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs:600 — CannotCloseWithRemainingDebt
+// strategy.rs:600 -- CannotCloseWithRemainingDebt
 //
 // close_position=true must be rejected if the account still has debt.
 // Lines 599-601 guard this explicitly; no prior test exercised it.
@@ -284,7 +284,7 @@ fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
 
 // ---------------------------------------------------------------------------
 // Case 1: initial_payment == collateral_token (happy path).
-// strategy.rs:80-82 — the payment is added directly to collateral_amount.
+// strategy.rs:80-82 -- the payment is added directly to collateral_amount.
 // No prior directed test exercised this branch end-to-end.
 // ---------------------------------------------------------------------------
 #[test]
@@ -341,7 +341,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
 
 // ---------------------------------------------------------------------------
 // Case 3: initial_payment is a third token, with convert_steps supplied.
-// strategy.rs:87-100 — the payment is swapped to collateral via
+// strategy.rs:87-100 -- the payment is swapped to collateral via
 // convert_steps. No prior directed happy-path test.
 // ---------------------------------------------------------------------------
 #[test]
@@ -484,7 +484,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// strategy.rs:136 — AccountNotInMarket for a Multiply reuse by wrong owner.
+// strategy.rs:136 -- AccountNotInMarket for a Multiply reuse by wrong owner.
 //
 // swap_debt and swap_collateral already cover this path in edge_tests; the
 // multiply reuse path (lines 135-137) was untested.

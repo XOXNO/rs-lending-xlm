@@ -28,18 +28,15 @@ fn validate_market_creation(
     validation::validate_interest_rate_model(env, params);
 }
 
-// Deploys a new liquidity pool for `asset` using the stored WASM template.
-//
-// The controller (current contract) owns the pool, which is initialized with
-// the provided market parameters. Persisting the pool address lets later
-// supply and borrow calls find it.
+/// Deploys a liquidity pool for `asset` from the stored WASM template and
+/// persists the resulting market config. The controller owns the pool.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
     params: &MarketParams,
     config: &AssetConfig,
 ) -> Address {
-    // The asset must be a valid token contract (checks decimals and symbol).
+    // Asset must be a valid token contract (probes decimals and symbol).
     let token_client = token::Client::new(env, asset);
     let token_decimals = token_client
         .try_decimals()
@@ -49,15 +46,14 @@ pub fn create_liquidity_pool(
         panic_with_error!(env, GenericError::InvalidAsset);
     }
 
-    // The asset must not already have a pool. Fire BEFORE the allow-list so
-    // double-listing yields a specific error, not the generic "not approved".
+    // Reject double-listing before the allow-list check so the error is
+    // specific instead of the generic `TokenNotApproved`.
     if storage::has_market_config(env, asset) {
         panic_with_error!(env, GenericError::AssetAlreadySupported);
     }
 
-    // The token contract address must be on the admin allow-list. Soroban
-    // SDK 25 exposes no runtime lookup of a deployed contract's Wasm hash,
-    // so we gate by token address (see the `approve_token_wasm` admin endpoint).
+    // Token contract address must be on the admin allow-list; gate by
+    // address because the Soroban SDK exposes no runtime Wasm-hash lookup.
     if !storage::is_token_approved(env, asset) {
         panic_with_error!(env, GenericError::TokenNotApproved);
     }
@@ -69,29 +65,27 @@ pub fn create_liquidity_pool(
     }
     let wasm_hash = storage::get_pool_template(env);
 
-    // Deterministic salt from the asset address ensures exactly one pool per asset.
+    // Deterministic salt from the asset address enforces one pool per asset.
     let salt = env.crypto().keccak256(&asset.to_xdr(env));
 
-    // L-05: pass the accumulator to the pool at construction so
-    // claim_revenue can transfer to a pool-stored address rather than
-    // trusting a caller-supplied destination. Requires accumulator to be
-    // set first — see DEPLOYMENT.md for the post-deploy ordering.
+    // Accumulator address is passed at pool construction so `claim_revenue`
+    // transfers to a pool-stored destination rather than a caller-supplied
+    // one. Accumulator must be configured first.
     if !storage::has_accumulator(env) {
         panic_with_error!(env, GenericError::AccumulatorNotSet);
     }
     let accumulator = storage::get_accumulator(env);
 
-    // Deploy the pool contract with the controller as admin.
+    // Deploy the pool with the controller as admin.
     let pool_address = env.deployer().with_current_contract(salt).deploy_v2(
         wasm_hash,
         (env.current_contract_address(), params.clone(), accumulator),
     );
 
-    // Initialize the isolated debt tracker to zero explicitly.
     storage::set_isolated_debt(env, asset, 0);
 
-    // Oracle is optional at this stage; the market starts pending until a
-    // later configure_market_oracle call populates the flat oracle fields.
+    // Market starts in PendingOracle; `configure_market_oracle` populates
+    // the flat oracle fields and transitions to Active.
     let market = MarketConfig {
         status: MarketStatus::PendingOracle,
         asset_config: config.clone(),
@@ -113,7 +107,6 @@ pub fn create_liquidity_pool(
     storage::add_to_pools_list(env, asset, &pool_address);
     storage::bump_instance(env);
 
-    // Emit the creation event.
     emit_create_market(
         env,
         CreateMarketEvent {
@@ -138,9 +131,9 @@ pub fn create_liquidity_pool(
 // Pool upgrades
 // ---------------------------------------------------------------------------
 
-// Upgrades a pool's rate model without redeployment.
-//
-// Syncs pool indexes before updating the rate model to preserve accrued interest.
+/// Upgrades a pool's interest-rate model in place. Indexes are synced at
+/// the current oracle price before the new parameters are applied so
+/// accrued interest rolls into the stored indexes.
 #[allow(clippy::too_many_arguments)]
 pub fn upgrade_liquidity_pool_params(
     env: &Env,
@@ -176,8 +169,6 @@ pub fn upgrade_liquidity_pool_params(
 
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
 
-    // Sync indexes at the current price before changing the rate model so
-    // any accrued interest rolls into the stored indexes.
     let mut cache = ControllerCache::new(env, true);
     let feed = cache.cached_price(asset);
     pool_client.update_indexes(&feed.price_wad);
@@ -194,7 +185,7 @@ pub fn upgrade_liquidity_pool_params(
     );
 }
 
-// Upgrades the pool contract's WASM code.
+/// Upgrades the pool contract's WASM code.
 pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
     validation::require_asset_supported(env, asset);
 
@@ -207,9 +198,8 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
 // Revenue management
 // ---------------------------------------------------------------------------
 
-// Claims accrued protocol revenue from a pool. L-05: the pool transfers
-// directly to the accumulator address it stored at construction; the
-// controller no longer relays the tokens through itself.
+/// Claims accrued protocol revenue from a single pool. The pool transfers
+/// directly to the accumulator address it stored at construction.
 fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     validation::require_asset_supported(env, asset);
 
@@ -217,7 +207,8 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
         panic_with_error!(env, common::errors::OracleError::NoAccumulator);
     }
 
-    let mut cache = ControllerCache::new(env, true); // Revenue claim is safe.
+    // Safe-price cache: revenue claim cannot liquidate positions.
+    let mut cache = ControllerCache::new(env, true);
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
@@ -225,7 +216,7 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     pool_client.claim_revenue(&feed.price_wad)
 }
 
-// Claims accrued protocol revenue from multiple pools in a single call.
+/// Claims accrued protocol revenue from multiple pools in one call.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     for i in 0..assets.len() {
@@ -235,25 +226,23 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
     results
 }
 
-// Adds rewards to a pool's supply index. The caller must hold the reward
-// tokens; the function pulls them from the caller and credits the pool.
+/// Transfers reward tokens from the caller into the pool and bumps the
+/// pool's supply index to distribute the rewards to suppliers.
 pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     validation::require_asset_supported(env, asset);
     validation::require_amount_positive(env, amount);
 
-    let mut cache = ControllerCache::new(env, true); // Reward credit is safe.
+    // Safe-price cache: reward credit cannot liquidate positions.
+    let mut cache = ControllerCache::new(env, true);
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
 
-    // Transfer reward tokens from the caller to the pool, then tell the
-    // pool to bump its supply index.
     let tok = soroban_sdk::token::Client::new(env, asset);
     tok.transfer(caller, &pool_addr, &amount);
     pool_client.add_rewards(&feed.price_wad, &amount);
 }
 
-// Adds rewards to multiple pools in a single call.
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
     for i in 0..rewards.len() {
         let (asset, amount) = rewards.get(i).unwrap();

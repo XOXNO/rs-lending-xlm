@@ -1,20 +1,8 @@
 # Deployment
 
-## Purpose
+Operator runbook for the Stellar contracts. The interface is the Makefile plus `configs/script.sh`.
 
-The supported build and deployment process for the Stellar contracts in this repository.
-
-The operator interface is the Makefile plus `configs/script.sh`. One reproducible path covers:
-- build
-- deploy
-- controller setup
-- market creation
-- oracle configuration
-- asset-risk activation
-- e-mode configuration
-- smoke testing
-
-### Pipeline overview
+## Pipeline
 
 ```mermaid
 flowchart LR
@@ -27,195 +15,102 @@ flowchart LR
     EM --> SM[smoke: supply / borrow / update_indexes / claim_revenue / repay / withdraw]
 ```
 
-`make setup-<network>` wraps `deploy → configure-controller →
-_setup-markets` so the full chain runs end-to-end.
+`make setup-<network>` wraps `deploy-<network> → configure-controller → _setup-markets` end-to-end.
 
 ## Source Of Truth
 
-Configuration files:
-
-- `configs/networks.json`
-  Per-network RPC metadata plus the latest deployed controller id and uploaded pool wasm hash.
-- `configs/testnet_markets.json`
-  Testnet market definitions.
-- `configs/mainnet_markets.json`
-  Mainnet market definitions.
-- `configs/emodes.json`
-  E-mode categories and memberships.
-- `configs/script.sh`
-  Config-driven setup actions.
-- `Makefile`
-  Supported build, deploy, setup, and invoke commands.
+- `configs/networks.json` — per-network RPC metadata, latest controller id, uploaded pool wasm hash.
+- `configs/testnet_markets.json` — testnet market definitions.
+- `configs/mainnet_markets.json` — mainnet market definitions.
+- `configs/emodes.json` — e-mode categories and memberships.
+- `configs/script.sh` — config-driven setup actions.
+- `Makefile` — supported build, deploy, setup, and invoke commands.
 
 ## Prerequisites
 
-Required locally:
 - `stellar` CLI
 - `jq`
 - Rust toolchain compatible with the repo
+- A funded identity such as `deployer`, or `SIGNER=ledger` for ledger-backed signing.
 
-Recommended operator setup:
-- a funded identity such as `deployer`
-- or `SIGNER=ledger` for ledger-backed signing
+## Deploy Steps
 
-## Build Artifacts
+Run these in order. Testnet and mainnet share the same steps; substitute `testnet` or `mainnet` for `<network>`.
 
-Primary build commands:
+1. Build artifacts.
+   ```bash
+   make build
+   make optimize
+   make deploy-artifacts
+   ```
+2. Deploy controller and upload pool WASM. Updates `configs/networks.json` with `controller` and `pool_wasm_hash`.
+   ```bash
+   make deploy-<network>
+   ```
+3. Configure the controller (sets aggregator if configured, sets pool template hash). A blank `aggregator` logs a warning and continues.
+   ```bash
+   make configure-controller NETWORK=<network>
+   ```
+4. Create markets and e-modes from config. Runs `setupAllMarkets` then `setupAllEModes`.
+   ```bash
+   NETWORK=<network> SIGNER=<signer> ./configs/script.sh setupAll
+   ```
 
-```bash
-make build
-make optimize
-make deploy-artifacts
-```
+Shortcut: `make setup-<network>` runs steps 2, 3, and 4 together.
 
-Artifact directories:
-- `target/wasm32v1-none/release/`
-  Raw build outputs
-- `target/optimized/`
-  Optimized WASM for local tooling and inspection
-- `target/deploy/`
-  Deploy artifacts used by Makefile deployment targets
-
-## Supported Deployment Commands
-
-### Deploy Only
-
-```bash
-make deploy-testnet
-make deploy-mainnet
-```
-
-This flow:
-1. builds contracts
-2. optimizes them
-3. prepares deploy artifacts
-4. uploads pool WASM
-5. deploys controller
-6. updates `configs/networks.json` with:
-   - `controller`
-   - `pool_wasm_hash`
-
-### Configure Controller After Deploy
-
-```bash
-make configure-controller NETWORK=testnet
-```
-
-This flow:
-1. sets the aggregator if configured in `configs/networks.json`
-2. sets the pool template hash on the controller
-
-If `aggregator` is blank in `configs/networks.json`, setup logs a warning and continues.
-
-### Full Setup
-
-```bash
-make setup-testnet
-make setup-mainnet
-```
-
-The supported end-to-end operator path. It runs:
-
-1. `deploy-<network>`
-2. `configure-controller`
-3. `_setup-markets`
-
-`_setup-markets` delegates to:
-
-```bash
-NETWORK=<network> SIGNER=<signer> ./configs/script.sh setupAll
-```
-
-which runs:
-1. `setupAllMarkets`
-2. `setupAllEModes`
+Artifact directories produced by step 1:
+- `target/wasm32v1-none/release/` — raw build outputs.
+- `target/optimized/` — optimized WASM for local tooling.
+- `target/deploy/` — deploy artifacts consumed by Makefile targets.
 
 ## Market Setup Flow
 
-For each market in `configs/<network>_markets.json`, `setupAllMarkets` does:
+For each market in `configs/<network>_markets.json`, `setupAllMarkets` runs these actions in order. The order is load-bearing: the pool must exist before its oracle config, and the final risk config lands last.
 
 1. `createMarket`
+   - Reads `asset_address` from config.
+   - Reads asset decimals on-chain from the asset contract (config is not trusted for live decimals).
+   - Assembles `MarketParams`.
+   - Deploys the pool through `create_liquidity_pool`.
+   - Seeds the controller market in `PendingOracle`.
 2. `configureMarketOracle`
+   - Calls `configure_market_oracle` with operator-supplied fields: exchange source, stale threshold, tolerance bands, CEX oracle address, CEX asset kind, CEX symbol, optional DEX oracle address, DEX asset kind, TWAP record count.
+   - Controller discovers token decimals, CEX oracle decimals, and (when configured) DEX oracle decimals on-chain. A failed required read reverts the transaction.
 3. `editAssetConfig`
+   - Enables the final market risk flags and caps: borrowability, collateralizability, flashloanability, e-mode flag, liquidation parameters, caps.
 
-### 1. `createMarket`
-
-This action:
-- reads `asset_address` from config
-- reads asset decimals on-chain from the asset contract
-- assembles `MarketParams`
-- deploys the pool through `create_liquidity_pool`
-- seeds the controller market in `PendingOracle`
-
-The Make/script path reads decimals on-chain when building `MarketParams`; the config file is not
-trusted for live asset decimals.
-
-### 2. `configureMarketOracle`
-
-This action calls `configure_market_oracle` with a flat operator config object containing:
-- exchange source
-- stale threshold
-- tolerance bands
-- CEX oracle address
-- CEX asset kind
-- CEX symbol
-- optional DEX oracle address
-- DEX asset kind
-- TWAP record count
-
-The controller then discovers:
-- token decimals from the asset contract
-- CEX oracle decimals from the CEX oracle
-- DEX oracle decimals from the DEX oracle when configured
-
-A failed required read reverts the setup transaction.
-
-### 3. `editAssetConfig`
-
-This action enables the final market risk flags and caps:
-- borrowability
-- collateralizability
-- flashloanability
-- e-mode flag
-- liquidation parameters
-- caps
-
-The market becomes operational only after both oracle config and final asset config land.
+The market is operational only after both oracle config and final asset config land.
 
 ## E-Mode Setup Flow
 
-`setupAllEModes` reads `configs/emodes.json`.
+`setupAllEModes` reads `configs/emodes.json`. For each category:
 
-For each category:
 1. `addEModeCategory`
-2. `addAssetToEMode` for each configured asset
+2. `addAssetToEMode` for each configured asset.
 
-## Direct Invocation Commands
+## Direct Invocation
 
-The Makefile exposes generic helpers for controller and pool calls.
+Generic Makefile helpers for controller and pool calls.
 
 Controller invoke:
-
 ```bash
-make invoke NETWORK=testnet FN=supply ARGS="..."
-make view NETWORK=testnet FN=get_market_config ARGS="..."
+make invoke NETWORK=<network> FN=supply ARGS="..."
+make view NETWORK=<network> FN=get_market_config ARGS="..."
 ```
 
 Explicit contract id invoke:
-
 ```bash
-make invoke-id NETWORK=testnet CONTRACT_ID=<id> FN=claim_revenue ARGS="..."
-make view-id NETWORK=testnet CONTRACT_ID=<id> FN=protocol_revenue
+make invoke-id NETWORK=<network> CONTRACT_ID=<id> FN=claim_revenue ARGS="..."
+make view-id NETWORK=<network> CONTRACT_ID=<id> FN=protocol_revenue
 ```
 
-Use these helpers for smoke tests and one-off operations.
+Use these for smoke tests and one-off operations.
 
 ## Smoke-Test Runbook
 
-Validate these categories after deployment:
+Validate after deployment.
 
-### Required
-
+Required:
 1. market config reads
 2. detailed market views
 3. supply
@@ -225,150 +120,73 @@ Validate these categories after deployment:
 7. repay
 8. withdraw
 
-### Recommended
-
+Recommended:
 1. duplicate same-token entries in a batch supply
 2. post-update index reads
 3. pool-side `protocol_revenue`
 4. pool-side `reserves`
 
-## Recently Verified Testnet Flow
+Reference commands:
+```bash
+make view NETWORK=<network> FN=get_all_markets_detailed ARGS="--assets-file-path /tmp/assets.json"
+make view NETWORK=<network> FN=get_all_market_indexes_detailed ARGS="--assets-file-path /tmp/assets.json"
+make invoke NETWORK=<network> FN=supply ARGS="..."
+make invoke NETWORK=<network> FN=borrow ARGS="..."
+make invoke NETWORK=<network> FN=update_indexes ARGS="..."
+make invoke NETWORK=<network> FN=claim_revenue ARGS="..."
+make invoke NETWORK=<network> FN=repay ARGS="..."
+make invoke NETWORK=<network> FN=withdraw ARGS="..."
+```
 
-The current live testnet deployment was validated through:
-- `make setup-testnet`
-- `make invoke`
-- `make view`
-- `make invoke-id`
-- `make view-id`
+## Upgrade / Rollback
 
-Observed successes:
-- duplicate XLM entries in one `supply` batch were accepted and aggregated correctly
-- borrow, repay, and withdraw flows succeeded
-- `update_indexes([XLM, USDC])` succeeded
-- `claim_revenue([XLM, USDC])` succeeded twice
-- `get_market_config` returned the flattened oracle fields with discovered oracle decimals
+Upgrades that change storage layout (for example, adding a required field to `MarketConfig`) are breaking. Procedure:
 
-`configs/networks.json` persists the resulting:
-- controller id
-- pool wasm hash
+1. Deploy the new controller WASM.
+2. For every affected existing market, re-run `configure_market_oracle` with the required parameters so the stored `MarketConfig` repopulates with the new field.
+3. Run `make view NETWORK=<network> FN=get_market_config ARGS="..."` per market to verify deserialization.
+4. Until step 2 completes per market, oracle reads from that market will panic on the new mandatory probe.
+
+Rollback: redeploy the previous controller id recorded in `configs/networks.json` history and repeat steps 2 and 3 against the prior layout.
+
+## Failure Modes To Investigate Immediately
+
+- `configure_market_oracle` cannot read token decimals.
+- `configure_market_oracle` cannot read CEX or DEX oracle decimals.
+- `configure_market_oracle` cannot validate ticker availability.
+- Market stays `PendingOracle` after setup.
+- `configs/networks.json` did not update with controller or pool wasm hash.
+- `protocol_revenue` increases but `claim_revenue` returns zero unexpectedly.
 
 ## Operational Notes
 
-### Aggregator
+### Decimals
 
-`aggregator` is optional in `configs/networks.json`.
-
-If blank:
-- deployment still succeeds
-- `configure-controller` logs a warning and continues
+Two distinct decimal domains, neither supplied by the operator:
+- Token decimals — sourced from the asset contract.
+- Oracle-feed decimals — sourced from the oracle contracts.
 
 ### Active Deployment Scope
 
-The deployment and operator flow depends only on:
-- controller
-- pool
-- pool-interface
-- common
-- config files
-- Makefile
+The operator flow depends only on: controller, pool, pool-interface, common, config files, Makefile.
 
-### Decimals
+### Token Allowlist Policy
 
-Two distinct decimal domains exist:
+`approve_token_wasm` admits a token contract. Protocol accounting assumes 1:1 transfer semantics and a fixed per-address balance. Operators MUST NOT allowlist:
 
-- token decimals
-  - sourced from the asset contract
-- oracle-feed decimals
-  - sourced from the oracle contracts
+- **Fee-on-transfer tokens.** Borrow, withdraw, liquidation seizure, and `add_rewards` do not balance-delta on the egress side. Borrowers under-receive while debt is booked at the requested amount; liquidators get less bonus than the math books; bad debt cascades.
+- **Rebasing tokens (positive or negative).** Pool reserves are read live via `tok.balance(pool)`; rebases drift reserves from scaled supply. Positive rebases let `claim_revenue` extract the rebase delta; negative rebases stall withdrawals while debt accounting is unchanged.
 
-Operators supply neither during oracle setup.
+Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1 transfer semantics. On-chain validation cannot enforce this property.
 
-### Token allowlist policy (audit-prep)
+### SAC Issuer Upgrade
 
-`approve_token_wasm` admits a token contract. The protocol's accounting
-math assumes 1:1 transfer semantics and a fixed per-address balance.
-Operators MUST NOT allowlist:
-
-- **Fee-on-transfer tokens.** Borrow / withdraw / liquidation seizure /
-  add_rewards do not balance-delta on the egress side. A FoT token causes
-  borrowers to under-receive while debt is booked at the requested
-  amount; liquidators get less bonus than the math books; bad debt
-  cascades. Findings H-06.
-- **Rebasing tokens (positive or negative).** Pool reserves are read live
-  via `tok.balance(pool)`; rebases drift reserves from scaled supply.
-  Positive rebases let `claim_revenue` extract the rebase delta;
-  negative rebases stall withdrawals while debt accounting is unchanged.
-  Finding H-07.
-
-Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1
-transfer semantics. The on-chain validation cannot enforce this
-property.
-
-### SAC issuer upgrade
-
-A Stellar issuer can upgrade their issued-asset SAC. If the upgrade
-changes `decimals()` or transfer semantics, `MarketParams.asset_decimals`
-and `MarketConfig.cex_decimals`/`dex_decimals` go stale. The protocol
-has no on-chain endpoint to refresh these values. Operator runbook:
+A Stellar issuer can upgrade their issued-asset SAC. If the upgrade changes `decimals()` or transfer semantics, `MarketParams.asset_decimals` and `MarketConfig.cex_decimals`/`dex_decimals` go stale. There is no on-chain endpoint to refresh these values. Runbook:
 
 1. Monitor issuers for upgrade events.
 2. On any change, `pause()` and review.
 3. If the change is benign, document and unpause.
-4. If the change breaks accounting, migrate users to a new market backed
-   by a different token contract.
-
-Finding H-08.
-
-### M-09 migration: `dex_symbol` field
-
-The audit-prep upgrade adds a required `dex_symbol: Symbol` field to
-`MarketConfig`. This is a breaking storage layout change. After
-deploying the upgrade:
-
-1. For every existing market with `dex_oracle.is_some()`, call
-   `configure_market_oracle` with the same parameters plus the new
-   `dex_symbol` (use the same value as `cex_symbol` to preserve current
-   behavior).
-2. Run `make view NETWORK=<network> FN=get_market_config ARGS="..."`
-   to verify each market deserializes and reports the new field.
-3. Until step 1 completes per market, oracle reads from that market
-   panic on the new mandatory probe.
-
-## Suggested Operator Sequence
-
-Fresh environment:
-
-```bash
-make build
-make setup-testnet
-```
-
-Post-deploy checks:
-
-```bash
-make view NETWORK=testnet FN=get_all_markets_detailed ARGS="--assets-file-path /tmp/assets.json"
-make view NETWORK=testnet FN=get_all_market_indexes_detailed ARGS="--assets-file-path /tmp/assets.json"
-```
-
-Lifecycle smoke:
-
-```bash
-make invoke NETWORK=testnet FN=supply ARGS="..."
-make invoke NETWORK=testnet FN=borrow ARGS="..."
-make invoke NETWORK=testnet FN=update_indexes ARGS="..."
-make invoke NETWORK=testnet FN=claim_revenue ARGS="..."
-make invoke NETWORK=testnet FN=repay ARGS="..."
-make invoke NETWORK=testnet FN=withdraw ARGS="..."
-```
-
-## Failure Modes To Investigate Immediately
-
-- `configure_market_oracle` cannot read token decimals
-- `configure_market_oracle` cannot read CEX or DEX oracle decimals
-- `configure_market_oracle` cannot validate ticker availability
-- market stays `PendingOracle` after setup
-- `configs/networks.json` did not update with controller or pool wasm hash
-- `protocol_revenue` increases but `claim_revenue` returns zero unexpectedly
+4. If the change breaks accounting, migrate users to a new market backed by a different token contract.
 
 ## Related Documents
 

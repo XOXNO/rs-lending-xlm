@@ -1,113 +1,110 @@
 # Configuration Invariants
 
-Every operator-set field, its valid range, cross-field rules, and on-chain enforcement site. Gaps marked **MISSING** are self-defense holes the protocol should close.
+Quick-reference for reviewing a proposed market config or a `set_position_limits` / `edit_asset_config` call. Each row: valid range, enforcement site, one-line rationale, one-line failure mode if violated.
 
-## `MarketParams` (interest rate model)
+## Risk parameters (`AssetConfig`)
 
-Set at `create_liquidity_pool`; mutable via `upgrade_pool_params`. `validation::validate_interest_rate_model` (`controller/src/validation.rs:90`) validates.
+Set at `create_liquidity_pool`, mutable via `edit_asset_config`. Validated by `validation::validate_asset_config` (`controller/src/validation.rs:114`).
 
-| Field | Type | Valid range | Cross-field rule | Enforcement |
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
 |---|---|---|---|---|
-| `max_borrow_rate_ray` | i128 (RAY) | `>= slope3_ray` | top of monotone slope chain | `validate_interest_rate_model` |
-| `base_borrow_rate_ray` | i128 (RAY) | `>= 0` | `<= slope1_ray` | `validate_interest_rate_model` |
-| `slope1_ray` | i128 (RAY) | `>= base_borrow_rate_ray` | `<= slope2_ray` | `validate_interest_rate_model` |
-| `slope2_ray` | i128 (RAY) | `>= slope1_ray` | `<= slope3_ray` | `validate_interest_rate_model` |
-| `slope3_ray` | i128 (RAY) | `>= slope2_ray` | `<= max_borrow_rate_ray` | `validate_interest_rate_model` |
-| `mid_utilization_ray` | i128 (RAY) | `> 0` | `< optimal_utilization_ray` | `validate_interest_rate_model` |
-| `optimal_utilization_ray` | i128 (RAY) | `> mid_utilization_ray` | `< RAY` (i.e., < 100%) | `validate_interest_rate_model` |
-| `reserve_factor_bps` | i128 (BPS) | `[0, 10_000)` | — | `validate_interest_rate_model` uses `< BPS` not `< BPS+1`, rejecting 100% RF — intentional, prevents zero supplier rewards |
-| `asset_id` | Address | contract address | matches market key | implicit (router checks asset key on storage write) |
-| `asset_decimals` | u32 | matches token | **read on-chain at `create_liquidity_pool`**: Makefile/script reads decimals, but no on-chain check confirms operator-passed `params.asset_decimals` matches `token.decimals()` | **GAP**: an operator who builds `MarketParams` off-chain with a wrong `asset_decimals` causes the pool to store the wrong value. Suggested: `assert_eq!(params.asset_decimals, token::Client::new(env, &asset).decimals())` in `__constructor` or router. |
+| `loan_to_value_bps` | `[0, liquidation_threshold_bps)` | `validation.rs::validate_asset_config` | LT must exceed LTV so a fresh borrow is not instantly liquidatable | Borrower liquidated immediately on first borrow |
+| `liquidation_threshold_bps` | `> loan_to_value_bps`, `<= 10_000` | `validation.rs::validate_asset_config` | Upper bound keeps HF math well-defined | HF undefined, liquidation pathway breaks |
+| `liquidation_bonus_bps` | `<= MAX_LIQUIDATION_BONUS` (1_500 = 15%) | `validation.rs::validate_asset_config` | Caps liquidator premium | Liquidator extracts excessive bonus from borrower |
+| `liquidation_fees_bps` | `<= 10_000` | `validation.rs::validate_asset_config` | Fee cannot exceed 100% of seized collateral | Fee math overflows seized amount |
+| `is_collateralizable` | bool | — | Gates collateral usage | — |
+| `is_borrowable` | bool | — | Gates borrow path per asset | — |
 
-## `AssetConfig` (per-market risk parameters)
+## Isolation and siloed borrowing
 
-Set at `create_liquidity_pool` and mutable via `edit_asset_config`. `validation::validate_asset_config` (`controller/src/validation.rs:114`) validates, plus `config::edit_asset_config` bounds the flashloan_fee.
-
-| Field | Type | Valid range | Cross-field rule | Enforcement |
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
 |---|---|---|---|---|
-| `loan_to_value_bps` | i128 (BPS) | implicit `[0, liquidation_threshold_bps)` | LT > LTV (else liquidatable on first borrow) | `validate_asset_config` |
-| `liquidation_threshold_bps` | i128 (BPS) | `> loan_to_value_bps` | implicit `<= 10_000` (no explicit upper bound — **MINOR GAP**: LT > 10_000 leaves HF math undefined; should panic with `InvalidLiqThreshold`) | partial (`validate_asset_config`) |
-| `liquidation_bonus_bps` | i128 (BPS) | `<= MAX_LIQUIDATION_BONUS` (= 1_500 = 15%) | — | `validate_asset_config` |
-| `liquidation_fees_bps` | i128 (BPS) | `<= 10_000` | — | `validate_asset_config` |
-| `is_collateralizable` | bool | — | — | — |
-| `is_borrowable` | bool | — | — | — |
-| `e_mode_enabled` | bool | — | **preserved across edits** by `edit_asset_config`; operator cannot directly toggle — only `add_asset_to_e_mode_category` flips it | `config::edit_asset_config:75` |
-| `is_isolated_asset` | bool | — | When true, accounts holding this asset cannot supply other collateral. Mutual exclusivity with `e_mode_enabled` runs at borrow/supply time, not config time. | runtime in `borrow` / `supply` |
-| `is_siloed_borrowing` | bool | — | When true, the account can borrow only this asset. | runtime in `borrow` |
-| `is_flashloanable` | bool | — | gates `flash_loan` per asset | `flash_loan::process_flash_loan:32` |
-| `isolation_borrow_enabled` | bool | — | gates whether isolated-asset accounts can take new debt | runtime |
-| `isolation_debt_ceiling_usd_wad` | i128 (WAD) | should be `>= 0` | **MISSING**: `validate_asset_config` skips the `>= 0` check. A negative ceiling makes `current_isolated_debt > ceiling` impossible to fail, effectively unlimited. **Suggested**: add `if config.isolation_debt_ceiling_usd_wad < 0 panic!`. |
-| `flashloan_fee_bps` | i128 (BPS) | `<= MAX_FLASHLOAN_FEE_BPS` (= 500 = 5%) | **MISSING**: no `>= 0` check. A negative fee underflows the receiver-pays calculation, paying the receiver to flash-loan. **Suggested**: require `>= 0` explicitly. | upper-bound only at `config::edit_asset_config:69` |
-| `borrow_cap` | i128 (asset units) | `>= 0` | 0 = unlimited | `validate_asset_config` |
-| `supply_cap` | i128 (asset units) | `>= 0` | 0 = unlimited | `validate_asset_config` |
+| `is_isolated_asset` | bool | runtime in `borrow` / `supply` | Isolated collateral cannot mix with other collateral | Mixed collateral bypasses debt ceiling |
+| `is_siloed_borrowing` | bool | runtime in `borrow` | Account may borrow only this asset while the flag holds | Account accrues multi-asset debt against a siloed asset |
+| `isolation_borrow_enabled` | bool | runtime | Gates whether isolated-asset accounts can take new debt | Isolated accounts borrow when disallowed |
+| `isolation_debt_ceiling_usd_wad` | `>= 0` | `validation.rs::validate_asset_config` | Caps aggregate isolated debt in USD | Negative ceiling lets isolated debt grow unbounded |
 
-## `OracleProviderConfig` / `MarketOracleConfigInput`
+## Flash loans
 
-Set at `configure_market_oracle`; tolerances mutable via `edit_oracle_tolerance`. `controller/src/oracle/mod.rs` validates piecewise.
-
-| Field | Type | Valid range | Cross-field rule | Enforcement |
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
 |---|---|---|---|---|
-| `exchange_source` | enum | `SpotOnly` / `SpotVsTwap` / `DualOracle` | `DualOracle` requires `dex_oracle.is_some()` | runtime panic on missing dex |
-| `max_price_stale_seconds` | u64 | `> 0` (else every price is stale) | **MISSING**: no `> 0` check; a 0 staleness window rejects every price. (May be an intentional kill-switch — document if so.) | — |
-| `first_tolerance_bps` | i128 (BPS) | `[MIN_FIRST_TOLERANCE, MAX_FIRST_TOLERANCE]` = `[50, 5000]` | `< last_tolerance_bps` | `validate_oracle_bounds`, `validate_and_calculate_tolerances` |
-| `last_tolerance_bps` | i128 (BPS) | `[MIN_LAST_TOLERANCE, MAX_LAST_TOLERANCE]` = `[150, 5000]` | `> first_tolerance_bps` | same |
-| `cex_oracle` | Address | contract address | required (always non-`None`) | implicit |
-| `cex_asset_kind` | enum | `Stellar` / `Other` | matches what the Reflector contract expects for `cex_symbol` | **runtime trust**: operator must match these correctly; mismatch returns wrong price |
-| `cex_symbol` | Symbol | non-empty for `Other`; ignored for `Stellar` | **MISSING**: no on-chain check that the symbol resolves on the CEX oracle. Suggested: probe `oracle.lastprice(...)` during `configure_market_oracle` and reject `None`. |
-| `cex_decimals` | u32 | matches CEX oracle | **read on-chain** during `configure_market_oracle` | enforced |
-| `dex_oracle` | Option<Address> | required iff `DualOracle` | implicit | runtime |
-| `dex_asset_kind` | enum | as above | as above | trust |
-| `dex_decimals` | u32 | matches DEX oracle | **read on-chain** when DEX configured | enforced |
-| `twap_records` | u32 | `> 0` for any non-`SpotOnly` source | **MISSING**: no explicit lower-bound check; 0 records makes TWAP return `None` and panic with `TwapInsufficientObservations` at first price call. Reject at config time. |
+| `is_flashloanable` | bool | `flash_loan::process_flash_loan:32` | Per-asset flash-loan switch | Flash loans disabled at config reject unrelated calls |
+| `flashloan_fee_bps` | `[0, MAX_FLASHLOAN_FEE_BPS]` (500 = 5%) | `config.rs::edit_asset_config:69` (panics `FlashLoanError::NegativeFlashLoanFee` on negative) | Caps fee and blocks negative-fee underflow | Negative fee pays the receiver; over-cap extracts too much |
 
-## `EModeCategory`
+## Caps
 
-Set via `add_e_mode_category` / `edit_e_mode_category`. `config.rs:111-149` validates.
-
-| Field | Type | Valid range | Cross-field rule | Enforcement |
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
 |---|---|---|---|---|
-| `category_id` | u32 | auto-incremented | unique | `storage::increment_emode_category_id` |
-| `loan_to_value_bps` | i128 (BPS) | implicit | `< liquidation_threshold_bps` | `config.rs:112` |
-| `liquidation_threshold_bps` | i128 (BPS) | implicit | `> loan_to_value_bps`; **MISSING upper bound** (`<= 10_000`) | partial |
-| `liquidation_bonus_bps` | i128 (BPS) | `<= MAX_LIQUIDATION_BONUS` | — | `config.rs:115` |
-| `is_deprecated` | bool | initialized false | only `remove_e_mode_category` flips it | — |
+| `borrow_cap` | `>= 0` (0 = unlimited) | `validation.rs::validate_asset_config` | Throttles aggregate borrow | Unchecked borrow growth |
+| `supply_cap` | `>= 0` (0 = unlimited) | `validation.rs::validate_asset_config` | Throttles aggregate supply | Unchecked supply growth |
 
-## Operator gotchas
+Note: cap = 0 means UNLIMITED, not disabled. To disable borrowing entirely set `is_borrowable = false`.
 
-- **`borrow_cap = 0` and `supply_cap = 0` mean UNLIMITED, not "disabled".** A common operator-error class. To throttle a market, use a small positive value. To disable borrowing entirely, set `is_borrowable = false`. Finding L-04.
+## Interest-rate model (`MarketParams`)
 
-## `PositionLimits`
+Set at `create_liquidity_pool`; mutable via `upgrade_pool_params`. Validated by `validation::validate_interest_rate_model` (`controller/src/validation.rs:90`).
 
-Set via `set_position_limits`. `config::set_position_limits:97-103` validates.
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
+|---|---|---|---|---|
+| `base_borrow_rate_ray` | `[0, slope1_ray]` | `validate_interest_rate_model` | Floor of the rate curve | Curve non-monotone, rates decrease under load |
+| `slope1_ray` | `[base_borrow_rate_ray, slope2_ray]` | `validate_interest_rate_model` | Monotone chain segment | Curve non-monotone |
+| `slope2_ray` | `[slope1_ray, slope3_ray]` | `validate_interest_rate_model` | Monotone chain segment | Curve non-monotone |
+| `slope3_ray` | `[slope2_ray, max_borrow_rate_ray]` | `validate_interest_rate_model` | Monotone chain segment | Curve non-monotone |
+| `max_borrow_rate_ray` | `>= slope3_ray` | `validate_interest_rate_model` | Hard ceiling on borrow rate | Unbounded rate accrual |
+| `mid_utilization_ray` | `(0, optimal_utilization_ray)` | `validate_interest_rate_model` | First kink below optimal utilization | Kinks collapse, rate jumps become discontinuous |
+| `optimal_utilization_ray` | `(mid_utilization_ray, RAY)` | `validate_interest_rate_model` | Second kink strictly below 100% | Optimal at 100% removes the high-utilization slope |
+| `reserve_factor_bps` | `[0, 10_000)` | `validate_interest_rate_model` (strict `< BPS`) | Rejects 100% RF so suppliers keep a share | Suppliers earn zero rewards |
+| `asset_id` | market contract address | router checks asset key on storage write | Matches the market key | Config written under wrong key |
+| `asset_decimals` | `== token.decimals()` | `router::validate_market_creation:22-25` (`#[cfg(not(feature = "testing"))]`) | Decimal mismatch corrupts pricing | Wrong decimals silently misprice the market |
 
-| Field | Type | Valid range | Enforcement |
-|---|---|---|---|
-| `max_supply_positions` | u32 | `[1, 32]` | `config::set_position_limits` |
-| `max_borrow_positions` | u32 | `[1, 32]` | same |
+## Oracle (`OracleProviderConfig` / `MarketOracleConfigInput`)
+
+Set at `configure_market_oracle`; tolerances mutable via `edit_oracle_tolerance`. Validated in `controller/src/oracle/mod.rs` and `config.rs`.
+
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
+|---|---|---|---|---|
+| `exchange_source` | `SpotOnly` / `SpotVsTwap` / `DualOracle` | runtime panic on missing dex | `DualOracle` requires `dex_oracle.is_some()` | Panics when a DEX call is made without a configured DEX |
+| `max_price_stale_seconds` | `[60, 86_400]` | `config.rs::configure_market_oracle:371` (`OracleError::InvalidStalenessConfig`) | Bounded freshness window | Too-small rejects all prices; too-large accepts stale |
+| `first_tolerance_bps` | `[MIN_FIRST_TOLERANCE, MAX_FIRST_TOLERANCE]` = `[50, 5000]`, `< last_tolerance_bps` | `validate_oracle_bounds`, `validate_and_calculate_tolerances` | First deviation band | Wrong band triggers false fallbacks |
+| `last_tolerance_bps` | `[MIN_LAST_TOLERANCE, MAX_LAST_TOLERANCE]` = `[150, 5000]`, `> first_tolerance_bps` | same | Outer deviation band | Wrong band masks large deviations |
+| `cex_oracle` | contract address, required | implicit | Primary price source | Missing CEX oracle breaks pricing |
+| `cex_asset_kind` | `Stellar` / `Other` | runtime trust | Must match symbol the Reflector contract expects | Wrong kind returns wrong price |
+| `cex_symbol` | resolvable via `cex_client.lastprice(...)` | `config.rs::resolve_oracle_decimals:345` (`GenericError::InvalidTicker`) | Rejects unresolvable symbols at config time | Symbol returns `None` later and breaks pricing |
+| `cex_decimals` | `== cex oracle decimals` | read on-chain during `configure_market_oracle` | Matches oracle | Scaling error on price |
+| `dex_oracle` | required iff `DualOracle` | runtime | Secondary source for dual-oracle mode | Dual-oracle mode panics without DEX |
+| `dex_asset_kind` | `Stellar` / `Other` | runtime trust | Matches DEX oracle | Wrong kind returns wrong price |
+| `dex_decimals` | `== dex oracle decimals` | read on-chain when DEX configured | Matches oracle | Scaling error on price |
+| `twap_records` | `<= 12` (0 = spot fallback) | `resolve_oracle_decimals:326`; fallback at `oracle/mod.rs:225-226, 263-264` | Upper bound caps TWAP window; 0 is an intentional spot fallback | Over-cap reverts; misuse of `0` when caller expects TWAP |
+
+## E-mode (`EModeCategory`)
+
+Set via `add_e_mode_category` / `edit_e_mode_category`. Validated in `config.rs:111-149`.
+
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
+|---|---|---|---|---|
+| `category_id` | auto-incremented, unique | `storage::increment_emode_category_id` | Stable identifier | Collision would overwrite category config |
+| `loan_to_value_bps` | `< liquidation_threshold_bps`, non-negative | `config.rs:112` | LT must exceed LTV | Immediate liquidation on borrow |
+| `liquidation_threshold_bps` | `> loan_to_value_bps`, `<= 10_000`, non-negative | `config.rs` (`add_e_mode_category` / `edit_e_mode_category`) | Upper bound keeps HF math well-defined | HF undefined |
+| `liquidation_bonus_bps` | `<= MAX_LIQUIDATION_BONUS`, non-negative | `config.rs:115` | Caps liquidator premium | Excessive bonus extraction |
+| `is_deprecated` | initialized false; flipped only by `remove_e_mode_category` | — | Soft-delete toggle | Accidental deprecation blocks new positions |
+| `e_mode_enabled` on `AssetConfig` | preserved across `edit_asset_config`; only `add_asset_to_e_mode_category` flips it | `config::edit_asset_config:75` | Prevents operator from silently breaking e-mode assumptions | Toggling e-mode without running category registration |
+
+Mutual exclusivity of `is_isolated_asset` and `e_mode_enabled` is enforced at runtime in supply/borrow paths (not config time).
+
+## Position limits (`PositionLimits`)
+
+Set via `set_position_limits`. Validated in `config::set_position_limits:97-103`.
+
+| Parameter | Valid range | Enforced in | Rationale | Failure mode |
+|---|---|---|---|---|
+| `max_supply_positions` | `[1, 32]` | `config::set_position_limits` | Bounds per-account supply slots | 0 locks out supply; above 32 bloats storage and gas |
+| `max_borrow_positions` | `[1, 32]` | `config::set_position_limits` | Bounds per-account borrow slots | 0 locks out borrow; above 32 bloats storage and gas |
 
 ## Address allowlists
 
-| Setting | Validation |
-|---|---|
-| `set_aggregator(addr)` | `addr` exists and has a Wasm executable (`require_contract_address`) |
-| `set_accumulator(addr)` | same |
-| `set_liquidity_pool_template(hash)` | hash != all-zeros |
-| `approve_token_wasm(token)` | sets `TokenApproved(token) = true`; `create_liquidity_pool` checks (else `TokenNotApproved`) |
-
-## Summary of Self-Defense Gaps
-
-Status legend: ✅ already enforced  ·  🔧 fixed during audit prep  ·  📝 intentional/documented  ·  ⚠️ open
-
-| # | Field / Rule | Status | Notes |
-|---|---|---|---|
-| 1 | `MarketParams.asset_decimals` cross-checked against `token.decimals()` | ✅ | Enforced in `router::validate_market_creation:22-25` (`#[cfg(not(feature = "testing"))]`). The test-feature bypass is intentional for the SAC test harness. |
-| 2 | `AssetConfig.liquidation_threshold_bps <= 10_000` upper bound | 🔧 | **Fixed in audit prep** (`validation.rs::validate_asset_config`). Also rejects negative LTV, negative `liquidation_bonus_bps`, and negative `liquidation_fees_bps`. |
-| 3 | `AssetConfig.isolation_debt_ceiling_usd_wad >= 0` | 🔧 | **Fixed in audit prep** (`validation.rs::validate_asset_config`). |
-| 4 | `AssetConfig.flashloan_fee_bps >= 0` | 🔧 | **Fixed in audit prep** (`config.rs::edit_asset_config`); panics with `FlashLoanError::NegativeFlashLoanFee`. |
-| 5 | `MarketOracleConfigInput.max_price_stale_seconds` bounded | ✅ | Enforced in `config.rs::configure_market_oracle:371`: `[60, 86_400]` seconds, else `OracleError::InvalidStalenessConfig`. |
-| 6 | `MarketOracleConfigInput.cex_symbol` resolution probed at config time | ✅ | Enforced in `config.rs::resolve_oracle_decimals:345`: `cex_client.lastprice(...).is_none()` panics with `GenericError::InvalidTicker`. |
-| 7 | `MarketOracleConfigInput.twap_records` bounds | 📝 | Upper bound `<= 12` enforced (`resolve_oracle_decimals:326`). Lower bound 0 is an intentional fallback: the pricing path returns spot when `twap_records == 0` (see `oracle/mod.rs:225-226, 263-264`). Document as intentional. |
-| 8 | `EModeCategory.liquidation_threshold_bps <= 10_000` upper bound | 🔧 | **Fixed in audit prep** (`config.rs::add_e_mode_category` and `edit_e_mode_category`). Also rejects negative LTV / threshold / bonus. |
-| 9 | `is_isolated_asset` + `e_mode_enabled` mutual exclusivity at config time | ⚠️ | Open. Only the runtime supply/borrow paths enforce it. Pre-audit decision: leave as a runtime check (accommodates `add_asset_to_e_mode_category` toggling e-mode rather than `edit_asset_config`) or add a hard config-time reject. **Recommend leaving as-is**: `edit_asset_config` preserves `e_mode_enabled`, and only `add_asset_to_e_mode_category` flips it. |
-
-Commit (post-prep) enforces all ✅ and 🔧 items. Auditors should still confirm semantic correctness of each check.
+| Setting | Valid range | Enforced in | Rationale | Failure mode |
+|---|---|---|---|---|
+| `set_aggregator(addr)` | existing contract with Wasm executable | `require_contract_address` | Reject EOAs and empty addresses | Calls to non-contract revert later |
+| `set_accumulator(addr)` | existing contract with Wasm executable | `require_contract_address` | Same | Same |
+| `set_liquidity_pool_template(hash)` | non-zero hash | hash check | Template must exist | Pool deploy fails on zero template |
+| `approve_token_wasm(token)` | sets `TokenApproved(token) = true` | `create_liquidity_pool` (`TokenNotApproved`) | Gate on approved tokens only | Unapproved token pool creation |

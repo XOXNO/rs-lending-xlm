@@ -194,7 +194,7 @@ pub fn has_accumulator(env: &Env) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent storage — MarketConfig (consolidated)
+// Persistent storage -- MarketConfig (consolidated)
 // ---------------------------------------------------------------------------
 
 pub fn get_market_config(env: &Env, asset: &Address) -> MarketConfig {
@@ -228,7 +228,7 @@ pub fn remove_market_config(env: &Env, asset: &Address) {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent storage — Account (split meta + per-position keys)
+// Persistent storage -- Account (split meta + per-position keys)
 // ---------------------------------------------------------------------------
 
 fn account_meta_from_account(env: &Env, account: &Account) -> AccountMeta {
@@ -607,7 +607,7 @@ pub mod positions {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent storage — E-Mode
+// Persistent storage -- E-Mode
 // ---------------------------------------------------------------------------
 
 pub fn get_emode_category(env: &Env, id: u32) -> EModeCategory {
@@ -660,7 +660,7 @@ pub fn set_asset_emodes(env: &Env, asset: &Address, categories: &Vec<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// Persistent storage — Isolated debt
+// Persistent storage -- Isolated debt
 // ---------------------------------------------------------------------------
 
 pub fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {

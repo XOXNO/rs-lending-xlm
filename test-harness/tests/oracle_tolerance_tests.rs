@@ -125,7 +125,7 @@ fn test_unsafe_price_allows_repay() {
     t.set_safe_price("ETH", usd(2200), true, true); // 10% deviation
 
     // Repay still succeeds (allow_unsafe_price=true for repay). The previous
-    // version of this test had no assertion — it relied on the implicit
+    // version of this test had no assertion -- it relied on the implicit
     // "panic-if-repay-fails" behavior of `t.repay()`. A regression that
     // accepted the repay syntactically but left the position untouched would
     // have passed. Snapshot the debt before and after to verify the repay

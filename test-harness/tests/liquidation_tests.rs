@@ -1,5 +1,7 @@
 extern crate std;
 
+use common::constants::WAD;
+
 use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
     LIQUIDATOR,
@@ -77,7 +79,7 @@ fn test_liquidation_targeted_single_collateral() {
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    // Liquidate 1 ETH of debt — the Stellar controller uses proportional seizure only.
+    // Liquidate 1 ETH of debt -- the Stellar controller uses proportional seizure only.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
@@ -468,7 +470,7 @@ fn test_liquidation_isolated_debt_adjustment() {
         .with_market(usdc_preset())
         .with_market_config("ETH", |cfg| {
             cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * 1_000_000_000_000_000_000;
+            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * WAD;
             // $1M WAD
         })
         .with_market_config("USDC", |cfg| {

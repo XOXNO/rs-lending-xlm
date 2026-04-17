@@ -39,64 +39,29 @@ sha2 = { version = "0.10", optional = true }
 path = "src/lib.rs"
 
 [[bin]]
-name = "fp_mul_div"
-path = "fuzz_targets/fp_mul_div.rs"
+name = "fp_math"
+path = "fuzz_targets/fp_math.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "fp_rescale"
-path = "fuzz_targets/fp_rescale.rs"
+name = "rates_and_index"
+path = "fuzz_targets/rates_and_index.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "fp_div_by_int"
-path = "fuzz_targets/fp_div_by_int.rs"
+name = "flow_e2e"
+path = "fuzz_targets/flow_e2e.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "rates_borrow"
-path = "fuzz_targets/rates_borrow.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "compound_monotonic"
-path = "fuzz_targets/compound_monotonic.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "flow_supply_borrow_liquidate"
-path = "fuzz_targets/flow_supply_borrow_liquidate.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "flow_flash_loan"
-path = "fuzz_targets/flow_flash_loan.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "flow_oracle_tolerance"
-path = "fuzz_targets/flow_oracle_tolerance.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "flow_multi_op"
-path = "fuzz_targets/flow_multi_op.rs"
+name = "flow_strategy"
+path = "fuzz_targets/flow_strategy.rs"
 test = false
 doc = false
 bench = false
