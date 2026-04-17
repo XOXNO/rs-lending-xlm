@@ -30,6 +30,7 @@ jobs:
         with:
           toolchain: '1.93'
           targets: wasm32v1-none
+          components: clippy, rustfmt
 
       - name: Cache cargo registry & build
         uses: actions/cache@v5
