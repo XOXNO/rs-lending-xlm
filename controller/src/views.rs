@@ -1,10 +1,9 @@
+use common::constants::WAD;
+use common::fp::{Ray, Wad};
 use common::types::{
-    AccountAttributes, AccountMeta, AssetExtendedConfigView, EModeCategory, LiquidationEstimate,
-    MarketConfig, MarketIndexView, PaymentTuple, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
-};
-use common::{
-    constants::WAD,
-    fp::{Ray, Wad},
+    AccountAttributes, AccountMeta, AccountPosition, AssetExtendedConfigView, EModeCategory,
+    LiquidationEstimate, MarketConfig, MarketIndexView, PaymentTuple, POSITION_TYPE_BORROW,
+    POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{Address, Env, Vec};
 
@@ -126,10 +125,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
-) -> (
-    Vec<common::types::AccountPosition>,
-    Vec<common::types::AccountPosition>,
-) {
+) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
     let meta = match try_get_account_meta(env, account_id) {
         Some(meta) => meta,
         None => return (Vec::new(env), Vec::new(env)),
@@ -302,9 +298,9 @@ mod tests {
     use crate::ControllerClient;
     use common::constants::RAY;
     use common::types::{
-        Account, AccountPosition, AssetConfig, MarketConfig, MarketParams, MarketStatus,
-        OraclePriceFluctuation, OracleProviderConfig, PoolState, ReflectorAssetKind,
-        ReflectorConfig,
+        Account, AccountPosition, AccountPositionType, AssetConfig, ExchangeSource, MarketConfig,
+        MarketParams, MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType,
+        PoolKey, PoolState, PositionMode, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{contract, contractimpl, contracttype, Address, Map, Symbol, Vec};
@@ -424,7 +420,7 @@ mod tests {
             );
             self.env.as_contract(&pool, || {
                 self.env.storage().instance().set(
-                    &common::types::PoolKey::State,
+                    &PoolKey::State,
                     &PoolState {
                         supplied_ray: 0,
                         borrowed_ray: 0,
@@ -458,8 +454,8 @@ mod tests {
                 pool_address: pool,
                 oracle_config: OracleProviderConfig {
                     base_asset: asset.clone(),
-                    oracle_type: common::types::OracleType::None,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::None,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -470,11 +466,11 @@ mod tests {
                     max_price_stale_seconds: 900,
                 },
                 cex_oracle: None,
-                cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                cex_asset_kind: ReflectorAssetKind::Stellar,
                 cex_symbol: Symbol::new(&self.env, ""),
                 cex_decimals: 0,
                 dex_oracle: None,
-                dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_asset_kind: ReflectorAssetKind::Stellar,
                 dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
@@ -486,7 +482,7 @@ mod tests {
                 owner,
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions: Map::new(&self.env),
                 borrow_positions: Map::new(&self.env),
@@ -557,8 +553,8 @@ mod tests {
         t.as_controller(|| {
             for asset in [t.asset_a.clone(), t.asset_b.clone()] {
                 let mut market = storage::get_market_config(&t.env, &asset);
-                market.oracle_config.oracle_type = common::types::OracleType::Normal;
-                market.oracle_config.exchange_source = common::types::ExchangeSource::SpotOnly;
+                market.oracle_config.oracle_type = OracleType::Normal;
+                market.oracle_config.exchange_source = ExchangeSource::SpotOnly;
                 storage::set_market_config(&t.env, &asset, &market);
                 storage::set_reflector_config(
                     &t.env,
@@ -633,8 +629,8 @@ mod tests {
 
         t.as_controller(|| {
             let mut market = t.market_config(&t.asset_a);
-            market.oracle_config.oracle_type = common::types::OracleType::Normal;
-            market.oracle_config.exchange_source = common::types::ExchangeSource::SpotOnly;
+            market.oracle_config.oracle_type = OracleType::Normal;
+            market.oracle_config.exchange_source = ExchangeSource::SpotOnly;
             storage::set_market_config(&t.env, &t.asset_a, &market);
             storage::set_reflector_config(
                 &t.env,
@@ -655,7 +651,7 @@ mod tests {
             borrow_positions.set(
                 t.asset_a.clone(),
                 AccountPosition {
-                    position_type: common::types::AccountPositionType::Borrow,
+                    position_type: AccountPositionType::Borrow,
                     asset: t.asset_a.clone(),
                     scaled_amount_ray: 5 * RAY, // 5 tokens in RAY-native
                     account_id,
@@ -672,7 +668,7 @@ mod tests {
                     owner: Address::generate(&t.env),
                     is_isolated: false,
                     e_mode_category_id: 0,
-                    mode: common::types::PositionMode::Normal,
+                    mode: PositionMode::Normal,
                     isolated_asset: None,
                     supply_positions: Map::new(&t.env),
                     borrow_positions,

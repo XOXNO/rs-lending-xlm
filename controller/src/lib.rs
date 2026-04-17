@@ -19,7 +19,12 @@ mod views;
 pub mod spec;
 
 use common::errors::GenericError;
-use common::types::PositionLimits;
+use common::events::{emit_approve_token_wasm, ApproveTokenWasmEvent};
+use common::types::{
+    AccountAttributes, AccountPosition, AssetConfig, AssetExtendedConfigView, EModeCategory,
+    LiquidationEstimate, MarketConfig, MarketIndexView, MarketOracleConfigInput, MarketParams,
+    PositionLimits, PositionMode, SwapSteps,
+};
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
@@ -228,10 +233,10 @@ impl Controller {
         collateral_token: Address,
         debt_to_flash_loan: i128,
         debt_token: Address,
-        mode: common::types::PositionMode,
-        steps: common::types::SwapSteps,
+        mode: PositionMode,
+        steps: SwapSteps,
         initial_payment: Option<(Address, i128)>,
-        convert_steps: Option<common::types::SwapSteps>,
+        convert_steps: Option<SwapSteps>,
     ) -> u64 {
         strategy::process_multiply(
             &env,
@@ -255,7 +260,7 @@ impl Controller {
         existing_debt_token: Address,
         amount: i128,
         new_debt_token: Address,
-        steps: common::types::SwapSteps,
+        steps: SwapSteps,
     ) {
         strategy::process_swap_debt(
             &env,
@@ -275,7 +280,7 @@ impl Controller {
         current_collateral: Address,
         amount: i128,
         new_collateral: Address,
-        steps: common::types::SwapSteps,
+        steps: SwapSteps,
     ) {
         strategy::process_swap_collateral(
             &env,
@@ -295,7 +300,7 @@ impl Controller {
         collateral_token: Address,
         collateral_amount: i128,
         debt_token: Address,
-        steps: common::types::SwapSteps,
+        steps: SwapSteps,
         close_position: bool,
     ) {
         strategy::process_repay_debt_with_collateral(
@@ -467,12 +472,12 @@ impl Controller {
     }
 
     #[stellar_macros::only_owner]
-    pub fn edit_asset_config(env: Env, asset: Address, cfg: common::types::AssetConfig) {
+    pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfig) {
         config::edit_asset_config(&env, asset, cfg);
     }
 
     #[stellar_macros::only_owner]
-    pub fn set_position_limits(env: Env, limits: common::types::PositionLimits) {
+    pub fn set_position_limits(env: Env, limits: PositionLimits) {
         config::set_position_limits(&env, limits);
     }
 
@@ -531,9 +536,9 @@ impl Controller {
             .crypto()
             .keccak256(&soroban_sdk::xdr::ToXdr::to_xdr(&token, &env))
             .into();
-        common::events::emit_approve_token_wasm(
+        emit_approve_token_wasm(
             &env,
-            common::events::ApproveTokenWasmEvent {
+            ApproveTokenWasmEvent {
                 wasm_hash,
                 approved: true,
             },
@@ -547,9 +552,9 @@ impl Controller {
             .crypto()
             .keccak256(&soroban_sdk::xdr::ToXdr::to_xdr(&token, &env))
             .into();
-        common::events::emit_approve_token_wasm(
+        emit_approve_token_wasm(
             &env,
-            common::events::ApproveTokenWasmEvent {
+            ApproveTokenWasmEvent {
                 wasm_hash,
                 approved: false,
             },
@@ -561,7 +566,7 @@ impl Controller {
         env: Env,
         caller: Address,
         asset: Address,
-        cfg: common::types::MarketOracleConfigInput,
+        cfg: MarketOracleConfigInput,
     ) {
         let _ = caller;
         config::configure_market_oracle(&env, asset, cfg);
@@ -593,8 +598,8 @@ impl Controller {
     pub fn create_liquidity_pool(
         env: Env,
         asset: Address,
-        params: common::types::MarketParams,
-        config: common::types::AssetConfig,
+        params: MarketParams,
+        config: AssetConfig,
     ) -> Address {
         router::create_liquidity_pool(&env, &asset, &params, &config)
     }
@@ -675,22 +680,19 @@ impl Controller {
     pub fn get_account_positions(
         env: Env,
         account_id: u64,
-    ) -> (
-        Vec<common::types::AccountPosition>,
-        Vec<common::types::AccountPosition>,
-    ) {
+    ) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
         views::get_account_positions(&env, account_id)
     }
 
-    pub fn get_account_attributes(env: Env, account_id: u64) -> common::types::AccountAttributes {
+    pub fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes {
         views::get_account_attributes(&env, account_id)
     }
 
-    pub fn get_market_config(env: Env, asset: Address) -> common::types::MarketConfig {
+    pub fn get_market_config(env: Env, asset: Address) -> MarketConfig {
         views::get_market_config_view(&env, &asset)
     }
 
-    pub fn get_e_mode_category(env: Env, category_id: u32) -> common::types::EModeCategory {
+    pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategory {
         views::get_emode_category_view(&env, category_id)
     }
 
@@ -701,14 +703,11 @@ impl Controller {
     pub fn get_all_markets_detailed(
         env: Env,
         assets: Vec<Address>,
-    ) -> Vec<common::types::AssetExtendedConfigView> {
+    ) -> Vec<AssetExtendedConfigView> {
         views::get_all_markets_detailed(&env, &assets)
     }
 
-    pub fn get_all_market_indexes_detailed(
-        env: Env,
-        assets: Vec<Address>,
-    ) -> Vec<common::types::MarketIndexView> {
+    pub fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView> {
         views::get_all_market_indexes_detailed(&env, &assets)
     }
 
@@ -716,7 +715,7 @@ impl Controller {
         env: Env,
         account_id: u64,
         debt_payments: Vec<(Address, i128)>,
-    ) -> common::types::LiquidationEstimate {
+    ) -> LiquidationEstimate {
         views::liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }
 
@@ -739,8 +738,9 @@ mod tests {
 
     use super::*;
     use common::types::{
-        AccountPosition, AssetConfig, MarketConfig, MarketStatus, OraclePriceFluctuation,
-        OracleProviderConfig, PositionLimits,
+        AccountPosition, AccountPositionType, AssetConfig, ExchangeSource, MarketConfig,
+        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionLimits,
+        ReflectorAssetKind,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env};
@@ -812,8 +812,8 @@ mod tests {
             self.env.as_contract(&self.contract, || {
                 let default_oracle = OracleProviderConfig {
                     base_asset: asset.clone(),
-                    oracle_type: common::types::OracleType::None,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::None,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 0,
@@ -829,11 +829,11 @@ mod tests {
                     pool_address: Address::generate(&self.env),
                     oracle_config: default_oracle,
                     cex_oracle: None,
-                    cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    cex_asset_kind: ReflectorAssetKind::Stellar,
                     cex_symbol: Symbol::new(&self.env, ""),
                     cex_decimals: 0,
                     dex_oracle: None,
-                    dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    dex_asset_kind: ReflectorAssetKind::Stellar,
                     dex_symbol: Symbol::new(&self.env, ""),
                     dex_decimals: 0,
                     twap_records: 0,
@@ -898,24 +898,10 @@ mod tests {
         let owner = Address::generate(&t.env);
 
         t.env.as_contract(&t.contract, || {
-            let id1 = utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            );
+            let id1 = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
             assert_eq!(id1, 1);
 
-            let id2 = utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            );
+            let id2 = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
             assert_eq!(id2, 2);
 
             let account = storage::get_account(&t.env, id1);
@@ -926,7 +912,7 @@ mod tests {
             // Verify attrs.
             assert!(!account.is_isolated);
             assert_eq!(account.e_mode_category_id, 0);
-            assert_eq!(account.mode, common::types::PositionMode::Normal);
+            assert_eq!(account.mode, PositionMode::Normal);
 
             // Verify empty position maps.
             assert_eq!(account.supply_positions.len(), 0);
@@ -944,14 +930,7 @@ mod tests {
 
         // Verify storage is cleaned.
         t.env.as_contract(&t.contract, || {
-            let id = utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            );
+            let id = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
             assert_eq!(id, 1);
 
             utils::remove_account(&t.env, id);
@@ -971,16 +950,9 @@ mod tests {
         let asset = Address::generate(&t.env);
 
         t.env.as_contract(&t.contract, || {
-            let id = utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            );
+            let id = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
             let position = AccountPosition {
-                position_type: common::types::AccountPositionType::Deposit,
+                position_type: AccountPositionType::Deposit,
                 asset: asset.clone(),
                 scaled_amount_ray: 1_000_000,
                 account_id: id,
@@ -1019,17 +991,10 @@ mod tests {
         let asset = Address::generate(&t.env);
 
         t.env.as_contract(&t.contract, || {
-            let id = utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            );
+            let id = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
             // Store a position first.
             let position = AccountPosition {
-                position_type: common::types::AccountPositionType::Deposit,
+                position_type: AccountPositionType::Deposit,
                 asset: asset.clone(),
                 scaled_amount_ray: 1_000_000,
                 account_id: id,
@@ -1044,7 +1009,7 @@ mod tests {
 
             // Now update with zero amount.
             let zero_position = AccountPosition {
-                position_type: common::types::AccountPositionType::Deposit,
+                position_type: AccountPositionType::Deposit,
                 asset: asset.clone(),
                 scaled_amount_ray: 0,
                 account_id: id,
@@ -1237,7 +1202,7 @@ mod tests {
                 &t.env,
                 &owner,
                 0,
-                common::types::PositionMode::Normal,
+                PositionMode::Normal,
                 true,
                 Some(iso_asset.clone()),
             );
@@ -1259,14 +1224,7 @@ mod tests {
         let client = t.client();
         let owner = Address::generate(&t.env);
         let id = t.env.as_contract(&t.contract, || {
-            utils::create_account(
-                &t.env,
-                &owner,
-                0,
-                common::types::PositionMode::Normal,
-                false,
-                None,
-            )
+            utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None)
         });
 
         // Set tight limits.
@@ -1283,7 +1241,7 @@ mod tests {
             let mut account = storage::get_account(&t.env, id);
             for asset in [&asset1, &asset2] {
                 let pos = AccountPosition {
-                    position_type: common::types::AccountPositionType::Deposit,
+                    position_type: AccountPositionType::Deposit,
                     asset: asset.clone(),
                     scaled_amount_ray: 1000,
                     account_id: id,
@@ -1326,16 +1284,16 @@ mod tests {
 
         // Seed a default market so configure_market_oracle can read-modify-write.
         t.seed_market_config(&asset);
-        let oracle_config = common::types::MarketOracleConfigInput {
-            exchange_source: common::types::ExchangeSource::SpotVsTwap,
+        let oracle_config = MarketOracleConfigInput {
+            exchange_source: ExchangeSource::SpotVsTwap,
             max_price_stale_seconds: 900,
             first_tolerance_bps: 200,
             last_tolerance_bps: 500,
             cex_oracle: t.setup_reflector(&asset),
-            cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            cex_asset_kind: ReflectorAssetKind::Stellar,
             cex_symbol: Symbol::new(&t.env, "USDC"),
             dex_oracle: None,
-            dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            dex_asset_kind: ReflectorAssetKind::Stellar,
             dex_symbol: Symbol::new(&t.env, ""),
             twap_records: 3,
         };
@@ -1364,16 +1322,16 @@ mod tests {
 
         t.seed_market_config(&asset);
 
-        let oracle_config = common::types::MarketOracleConfigInput {
-            exchange_source: common::types::ExchangeSource::DualOracle,
+        let oracle_config = MarketOracleConfigInput {
+            exchange_source: ExchangeSource::DualOracle,
             max_price_stale_seconds: 900,
             first_tolerance_bps: 200,
             last_tolerance_bps: 500,
             cex_oracle: t.setup_reflector(&asset),
-            cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            cex_asset_kind: ReflectorAssetKind::Stellar,
             cex_symbol: Symbol::new(&t.env, "USDC"),
             dex_oracle: None,
-            dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            dex_asset_kind: ReflectorAssetKind::Stellar,
             dex_symbol: Symbol::new(&t.env, ""),
             twap_records: 3,
         };

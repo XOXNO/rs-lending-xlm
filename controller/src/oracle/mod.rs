@@ -3,6 +3,7 @@ pub mod reflector;
 use common::errors::{GenericError, OracleError};
 use common::fp::{Ray, Wad};
 use common::fp_core;
+use common::rates::simulate_update_indexes;
 use common::types::{
     ExchangeSource, MarketConfig, MarketIndex, MarketStatus, OracleProviderConfig, OracleType,
     PriceFeed, ReflectorAssetKind,
@@ -346,8 +347,8 @@ pub(crate) fn is_within_anchor(
         return false;
     }
     // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS.
-    let ratio_ray = common::fp::Ray::from_raw(safe)
-        .div(env, common::fp::Ray::from_raw(aggregator))
+    let ratio_ray = Ray::from_raw(safe)
+        .div(env, Ray::from_raw(aggregator))
         .raw();
     let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
 
@@ -459,7 +460,7 @@ pub fn update_asset_index(
         let pool_addr = cache.cached_pool_address(asset);
         let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
         let sync_data = pool_client.get_sync_data();
-        common::rates::simulate_update_indexes(
+        simulate_update_indexes(
             &env,
             cache.current_timestamp_ms,
             sync_data.state.last_timestamp,

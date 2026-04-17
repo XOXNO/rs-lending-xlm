@@ -103,7 +103,7 @@ pub fn calculate_health_factor(
     // collateral the numerator can exceed i128; treating overflow as infinite
     // HF keeps the account usable instead of locking it behind a panic.
     let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
-    let wad = soroban_sdk::I256::from_i128(env, common::constants::WAD);
+    let wad = soroban_sdk::I256::from_i128(env, WAD);
     let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
     let numerator = w.mul(&wad);
     let result = numerator.div(&tb);

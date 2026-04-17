@@ -528,6 +528,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use common::types::PositionMode;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map};
 
@@ -562,7 +563,7 @@ mod tests {
                 owner: self.owner.clone(),
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions: Map::new(&self.env),
                 borrow_positions: Map::new(&self.env),

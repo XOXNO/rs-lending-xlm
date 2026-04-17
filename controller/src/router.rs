@@ -1,4 +1,4 @@
-use common::errors::GenericError;
+use common::errors::{GenericError, OracleError};
 use common::events::{emit_create_market, CreateMarketEvent};
 use common::types::{
     AssetConfig, ControllerKey, MarketConfig, MarketParams, MarketStatus, OracleProviderConfig,
@@ -153,7 +153,7 @@ pub fn upgrade_liquidity_pool_params(
 
     validation::validate_interest_rate_model(
         env,
-        &common::types::MarketParams {
+        &MarketParams {
             max_borrow_rate_ray: max_borrow_rate,
             base_borrow_rate_ray: base_borrow_rate,
             slope1_ray: slope1,
@@ -204,7 +204,7 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     validation::require_asset_supported(env, asset);
 
     if !storage::has_accumulator(env) {
-        panic_with_error!(env, common::errors::OracleError::NoAccumulator);
+        panic_with_error!(env, OracleError::NoAccumulator);
     }
 
     // Safe-price cache: revenue claim cannot liquidate positions.

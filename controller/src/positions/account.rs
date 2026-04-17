@@ -49,7 +49,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, PositionMode};
+    use common::types::{AccountPosition, AccountPositionType, PositionMode};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map};
 
@@ -87,7 +87,7 @@ mod tests {
             supply_positions.set(
                 self.asset.clone(),
                 AccountPosition {
-                    position_type: common::types::AccountPositionType::Deposit,
+                    position_type: AccountPositionType::Deposit,
                     asset: self.asset.clone(),
                     scaled_amount_ray: 123,
                     account_id: 1,
@@ -102,7 +102,7 @@ mod tests {
                 owner: self.owner.clone(),
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions,
                 borrow_positions: Map::new(&self.env),
@@ -121,7 +121,7 @@ mod tests {
             assert_eq!(id, 1);
             assert_eq!(account.owner, t.owner);
             assert!(!account.is_isolated);
-            assert_eq!(account.mode, common::types::PositionMode::Long);
+            assert_eq!(account.mode, PositionMode::Long);
             assert_eq!(storage::get_account_nonce(&t.env), 1);
         });
     }

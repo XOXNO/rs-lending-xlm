@@ -135,7 +135,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, ControllerKey};
+    use common::types::{AccountPosition, AccountPositionType, ControllerKey, PositionMode};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map, Vec};
 
@@ -173,7 +173,7 @@ mod tests {
                 owner: Address::generate(&self.env),
                 is_isolated: isolated,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: isolated.then(|| self.asset_a.clone()),
                 supply_positions: Map::new(&self.env),
                 borrow_positions: Map::new(&self.env),
@@ -282,7 +282,7 @@ mod tests {
             account.supply_positions.set(
                 t.asset_a.clone(),
                 AccountPosition {
-                    position_type: common::types::AccountPositionType::Deposit,
+                    position_type: AccountPositionType::Deposit,
                     asset: t.asset_a.clone(),
                     scaled_amount_ray: 100,
                     account_id: 1,

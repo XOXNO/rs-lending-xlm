@@ -94,6 +94,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use common::types::{AccountPosition, AccountPositionType};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map};
 
@@ -146,8 +147,8 @@ mod tests {
 
         account.supply_positions.set(
             asset.clone(),
-            common::types::AccountPosition {
-                position_type: common::types::AccountPositionType::Deposit,
+            AccountPosition {
+                position_type: AccountPositionType::Deposit,
                 asset,
                 scaled_amount_ray: 1,
                 account_id: 1,

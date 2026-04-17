@@ -169,8 +169,9 @@ mod tests {
 
     use super::*;
     use common::types::{
-        AccountPosition, AssetConfig, MarketConfig, MarketStatus, OraclePriceFluctuation,
-        OracleProviderConfig,
+        AccountPosition, AccountPositionType, AssetConfig, ExchangeSource, MarketConfig,
+        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionMode,
+        ReflectorAssetKind,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Symbol};
@@ -209,7 +210,7 @@ mod tests {
             supply_positions.set(
                 self.asset_a.clone(),
                 AccountPosition {
-                    position_type: common::types::AccountPositionType::Deposit,
+                    position_type: AccountPositionType::Deposit,
                     asset: self.asset_a.clone(),
                     scaled_amount_ray: 100,
                     account_id: 1,
@@ -224,7 +225,7 @@ mod tests {
                 owner: Address::generate(&self.env),
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions,
                 borrow_positions: Map::new(&self.env),
@@ -254,8 +255,8 @@ mod tests {
                 pool_address: Address::generate(&self.env),
                 oracle_config: OracleProviderConfig {
                     base_asset: self.asset_a.clone(),
-                    oracle_type: common::types::OracleType::Normal,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::Normal,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -266,11 +267,11 @@ mod tests {
                     max_price_stale_seconds: 900,
                 },
                 cex_oracle: None,
-                cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                cex_asset_kind: ReflectorAssetKind::Stellar,
                 cex_symbol: Symbol::new(&self.env, ""),
                 cex_decimals: 0,
                 dex_oracle: None,
-                dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_asset_kind: ReflectorAssetKind::Stellar,
                 dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,

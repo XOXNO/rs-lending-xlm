@@ -14,7 +14,8 @@ use common::events::{
 use common::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
-    AccountPosition, MarketIndex, MarketParams, PoolKey, PoolPositionMutation, PoolStrategyMutation,
+    AccountPosition, AccountPositionType, MarketIndex, MarketParams, PoolKey, PoolPositionMutation,
+    PoolState, PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, symbol_short, token, Address, BytesN, Env, Symbol,
@@ -95,7 +96,7 @@ impl LiquidityPool {
             .instance()
             .set(&PoolKey::Accumulator, &accumulator);
 
-        let state = common::types::PoolState {
+        let state = PoolState {
             supplied_ray: 0,
             borrowed_ray: 0,
             revenue_ray: 0,
@@ -460,7 +461,7 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        if position.position_type == common::types::AccountPositionType::Borrow {
+        if position.position_type == AccountPositionType::Borrow {
             // Socialize bad debt; use RAY precision for index adjustment.
             let current_debt_ray =
                 cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
@@ -472,7 +473,7 @@ impl LiquidityPool {
             cache.borrowed =
                 saturating_sub_ray(cache.borrowed, Ray::from_raw(position.scaled_amount_ray));
             position.scaled_amount_ray = 0;
-        } else if position.position_type == common::types::AccountPositionType::Deposit {
+        } else if position.position_type == AccountPositionType::Deposit {
             // Absorb dust into revenue.
             let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
             cache.revenue = cache.revenue + pos_scaled;
@@ -480,7 +481,7 @@ impl LiquidityPool {
         } else {
             // Defensive panic: future enum variants must be handled
             // explicitly instead of silently no-oping.
-            panic_with_error!(&env, common::errors::GenericError::InvalidPositionType);
+            panic_with_error!(&env, GenericError::InvalidPositionType);
         }
 
         let reserves = cache.get_reserves_for(&cache.params.asset_id);
@@ -512,9 +513,7 @@ impl LiquidityPool {
                 .storage()
                 .instance()
                 .get(&PoolKey::Accumulator)
-                .unwrap_or_else(|| {
-                    panic_with_error!(&env, common::errors::GenericError::AccumulatorNotSet)
-                });
+                .unwrap_or_else(|| panic_with_error!(&env, GenericError::AccumulatorNotSet));
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(
                 &env.current_contract_address(),
@@ -683,19 +682,19 @@ impl LiquidityPool {
         views::delta_time(&env)
     }
 
-    pub fn get_sync_data(env: Env) -> common::types::PoolSyncData {
+    pub fn get_sync_data(env: Env) -> PoolSyncData {
         let params: MarketParams = env
             .storage()
             .instance()
             .get(&PoolKey::Params)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
-        let state: common::types::PoolState = env
+        let state: PoolState = env
             .storage()
             .instance()
             .get(&PoolKey::State)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
 
-        common::types::PoolSyncData { params, state }
+        PoolSyncData { params, state }
     }
 }
 
@@ -780,7 +779,7 @@ mod tests {
 
         fn deposit_position(&self) -> AccountPosition {
             AccountPosition {
-                position_type: common::types::AccountPositionType::Deposit,
+                position_type: AccountPositionType::Deposit,
                 asset: self.asset.clone(),
                 scaled_amount_ray: 0,
                 account_id: 1,
@@ -793,7 +792,7 @@ mod tests {
 
         fn borrow_position(&self) -> AccountPosition {
             AccountPosition {
-                position_type: common::types::AccountPositionType::Borrow,
+                position_type: AccountPositionType::Borrow,
                 asset: self.asset.clone(),
                 scaled_amount_ray: 0,
                 account_id: 1,

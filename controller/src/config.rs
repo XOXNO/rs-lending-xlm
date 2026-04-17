@@ -1,5 +1,6 @@
 use common::constants::{
-    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
+    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MAX_LIQUIDATION_BONUS, MIN_FIRST_TOLERANCE,
+    MIN_LAST_TOLERANCE,
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 use common::events::{
@@ -12,8 +13,9 @@ use common::fp_core;
 #[cfg(test)]
 use common::types::ReflectorConfig;
 use common::types::{
-    AssetConfig, EModeAssetConfig, EModeCategory, MarketOracleConfigInput, MarketStatus,
-    OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionLimits,
+    AssetConfig, EModeAssetConfig, EModeCategory, ExchangeSource, MarketOracleConfigInput,
+    MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionLimits,
+    ReflectorAssetKind,
 };
 use soroban_sdk::{panic_with_error, token, Address, BytesN, Env, Executable};
 
@@ -98,7 +100,7 @@ pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -
     if ltv < 0 || threshold <= ltv || threshold > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
+    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus) {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
@@ -121,7 +123,7 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: i128, threshold: i128, bonu
     if ltv < 0 || threshold <= ltv || threshold > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if !(0..=common::constants::MAX_LIQUIDATION_BONUS).contains(&bonus) {
+    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus) {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
     let mut cat = storage::try_get_emode_category(env, id)
@@ -312,18 +314,14 @@ fn resolve_oracle_decimals(
     if config.twap_records > 12 {
         panic_with_error!(env, OracleError::InvalidOracleTokenType);
     }
-    if config.exchange_source == common::types::ExchangeSource::DualOracle
-        && config.dex_oracle.is_none()
-    {
+    if config.exchange_source == ExchangeSource::DualOracle && config.dex_oracle.is_none() {
         panic_with_error!(env, GenericError::InvalidExchangeSrc);
     }
 
     let asset_decimals = validate_oracle_asset(env, asset);
     let reflector_asset = match config.cex_asset_kind {
-        common::types::ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
-        common::types::ReflectorAssetKind::Other => {
-            ReflectorAsset::Other(config.cex_symbol.clone())
-        }
+        ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
+        ReflectorAssetKind::Other => ReflectorAsset::Other(config.cex_symbol.clone()),
     };
 
     let cex_client = ReflectorClient::new(env, &config.cex_oracle);
@@ -337,10 +335,8 @@ fn resolve_oracle_decimals(
     let dex_decimals = if let Some(dex_addr) = config.dex_oracle.clone() {
         let dex_client = ReflectorClient::new(env, &dex_addr);
         let dex_asset = match config.dex_asset_kind {
-            common::types::ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
-            common::types::ReflectorAssetKind::Other => {
-                ReflectorAsset::Other(config.dex_symbol.clone())
-            }
+            ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
+            ReflectorAssetKind::Other => ReflectorAsset::Other(config.dex_symbol.clone()),
         };
         if dex_client.lastprice(&dex_asset).is_none() {
             panic_with_error!(env, GenericError::InvalidTicker);
@@ -371,10 +367,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
     // cannot weaken a live market to unprotected pricing. Test builds
     // retain SpotOnly for coverage.
     #[cfg(not(feature = "testing"))]
-    if matches!(
-        config.exchange_source,
-        common::types::ExchangeSource::SpotOnly
-    ) {
+    if matches!(config.exchange_source, ExchangeSource::SpotOnly) {
         panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
     }
 
@@ -463,7 +456,7 @@ pub fn set_reflector_config(env: &Env, asset: Address, config: ReflectorConfig) 
         env,
         &asset,
         &MarketOracleConfigInput {
-            exchange_source: common::types::ExchangeSource::SpotVsTwap,
+            exchange_source: ExchangeSource::SpotVsTwap,
             max_price_stale_seconds: 900,
             first_tolerance_bps: 200,
             last_tolerance_bps: 500,
@@ -572,7 +565,7 @@ mod tests {
                 crate::storage::set_market_config(
                     &setup.env,
                     &setup.asset,
-                    &setup.market_config(common::types::OracleType::None),
+                    &setup.market_config(OracleType::None),
                 );
                 crate::storage::set_reflector_config(
                     &setup.env,
@@ -608,9 +601,9 @@ mod tests {
             }
         }
 
-        fn market_config(&self, oracle_type: common::types::OracleType) -> MarketConfig {
+        fn market_config(&self, oracle_type: OracleType) -> MarketConfig {
             MarketConfig {
-                status: if oracle_type == common::types::OracleType::None {
+                status: if oracle_type == OracleType::None {
                     MarketStatus::PendingOracle
                 } else {
                     MarketStatus::Active
@@ -620,7 +613,7 @@ mod tests {
                 oracle_config: OracleProviderConfig {
                     base_asset: self.asset.clone(),
                     oracle_type,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -676,11 +669,7 @@ mod tests {
     fn test_set_reflector_config_rejects_excessive_twap_records() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             set_reflector_config(&t.env, t.asset.clone(), t.reflector_config(13));
         });
     }
@@ -690,11 +679,7 @@ mod tests {
     fn test_edit_asset_config_rejects_excessive_liquidation_fees() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let mut config = t.asset_config();
             config.liquidation_fees_bps = 10_001;
             edit_asset_config(&t.env, t.asset.clone(), config);
@@ -716,11 +701,7 @@ mod tests {
     fn test_add_asset_to_e_mode_category_rejects_duplicate_asset() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
@@ -731,11 +712,7 @@ mod tests {
     fn test_add_asset_to_e_mode_category_enables_market_flag() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
 
@@ -757,11 +734,7 @@ mod tests {
     fn test_remove_asset_from_e_mode_disables_market_flag_when_last_category_is_removed() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
             remove_asset_from_e_mode(&t.env, t.asset.clone(), id);
@@ -787,7 +760,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_controller(|| {
-            let mut market = t.market_config(common::types::OracleType::None);
+            let mut market = t.market_config(OracleType::None);
             market.asset_config.e_mode_enabled = true;
             storage::set_market_config(&t.env, &t.asset, &market);
 
@@ -807,11 +780,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
 
             let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
@@ -834,19 +803,13 @@ mod tests {
     fn test_set_token_oracle_allows_reconfiguring_active_market() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::Normal),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::Normal));
             let mut reflector = t.reflector_config(3);
             reflector.dex_oracle = Some(t.dex_oracle.clone());
             storage::set_reflector_config(&t.env, &t.asset, &reflector);
 
-            let mut cfg = t
-                .market_config(common::types::OracleType::Normal)
-                .oracle_config;
-            cfg.exchange_source = common::types::ExchangeSource::DualOracle;
+            let mut cfg = t.market_config(OracleType::Normal).oracle_config;
+            cfg.exchange_source = ExchangeSource::DualOracle;
 
             set_token_oracle(&t.env, t.asset.clone(), cfg.clone(), 200, 500);
 
@@ -854,7 +817,7 @@ mod tests {
             assert_eq!(market.status as u32, MarketStatus::Active as u32);
             assert_eq!(
                 market.oracle_config.exchange_source,
-                common::types::ExchangeSource::DualOracle
+                ExchangeSource::DualOracle
             );
         });
     }
@@ -863,7 +826,7 @@ mod tests {
     fn test_set_token_oracle_reenables_disabled_market() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            let mut market = t.market_config(common::types::OracleType::Normal);
+            let mut market = t.market_config(OracleType::Normal);
             market.status = MarketStatus::Disabled;
             market.oracle_config.exchange_source = ExchangeSource::SpotVsTwap;
             storage::set_market_config(&t.env, &t.asset, &market);
@@ -944,11 +907,7 @@ mod tests {
     fn test_create_liquidity_pool_already_supported() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             crate::router::create_liquidity_pool(
                 &t.env,
                 &t.asset,
@@ -986,11 +945,7 @@ mod tests {
     fn test_edit_asset_config_flash_fee_limit() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &t.market_config(common::types::OracleType::None),
-            );
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let mut config = t.asset_config();
             config.flashloan_fee_bps = 501;
             edit_asset_config(&t.env, t.asset.clone(), config);

@@ -1,8 +1,10 @@
 use common::constants::WAD;
-use common::errors::{CollateralError, FlashLoanError, GenericError, StrategyError};
+use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
 use common::fp::{Ray, Wad};
-use common::types::{Account, PositionMode, SwapSteps, POSITION_TYPE_BORROW};
+use common::types::{
+    Account, PositionMode, SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
+};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::cache::ControllerCache;
@@ -13,6 +15,7 @@ use crate::{
 };
 
 mod aggregator {
+    use common::types::DexDistribution;
     use soroban_sdk::{contractclient, Address, Vec};
 
     #[allow(dead_code)]
@@ -25,7 +28,7 @@ mod aggregator {
             token_out: Address,
             amount_in: i128,
             amount_out_min: i128,
-            distribution: Vec<common::types::DexDistribution>,
+            distribution: Vec<DexDistribution>,
             to: Address,
             deadline: u64,
         ) -> Vec<Vec<i128>>;
@@ -404,7 +407,7 @@ fn swap_tokens(
     token_in: &Address,
     amount_in: i128,
     token_out: &Address,
-    steps: &common::types::SwapSteps,
+    steps: &SwapSteps,
 ) -> i128 {
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
@@ -683,14 +686,14 @@ pub fn execute_withdraw_all(
 pub fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut ControllerCache,
-    account: &common::types::Account,
+    account: &Account,
     new_collateral: &Address,
 ) {
     let mut config = cache.cached_asset_config(new_collateral);
     if config.is_isolated_asset {
         // swap_collateral generally serves non-isolated positions only.
         // Isolated accounts use repayDebtWithCollateral to deleverage.
-        panic_with_error!(env, common::errors::EModeError::MixIsolatedCollateral);
+        panic_with_error!(env, EModeError::MixIsolatedCollateral);
     }
 
     // Apply the e-mode category.
@@ -701,7 +704,7 @@ pub fn validate_swap_new_collateral_preflight(
     emode::validate_e_mode_asset(env, account.e_mode_category_id, new_collateral, true);
 
     if !config.is_collateralizable {
-        panic_with_error!(env, common::errors::CollateralError::NotCollateral);
+        panic_with_error!(env, CollateralError::NotCollateral);
     }
 
     // Extra pre-flight: check DEPOSIT position limits when the destination is a new asset.
@@ -710,11 +713,6 @@ pub fn validate_swap_new_collateral_preflight(
         .contains_key(new_collateral.clone())
     {
         let new_assets = soroban_sdk::vec![env, (new_collateral.clone(), 0i128)];
-        validation::validate_bulk_position_limits(
-            env,
-            account,
-            common::types::POSITION_TYPE_DEPOSIT,
-            &new_assets,
-        );
+        validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, &new_assets);
     }
 }

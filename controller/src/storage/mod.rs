@@ -201,7 +201,7 @@ pub fn get_market_config(env: &Env, asset: &Address) -> MarketConfig {
     let key = ControllerKey::Market(asset.clone());
     match env.storage().persistent().get::<_, MarketConfig>(&key) {
         Some(config) => config,
-        None => panic_with_error!(env, common::errors::GenericError::AssetNotSupported),
+        None => panic_with_error!(env, GenericError::AssetNotSupported),
     }
 }
 
@@ -455,7 +455,7 @@ pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
         .unwrap_or(AccountAttributes {
             is_isolated: false,
             e_mode_category_id: 0,
-            mode: common::types::PositionMode::Normal,
+            mode: PositionMode::Normal,
         })
 }
 
@@ -747,8 +747,8 @@ mod tests {
     use super::*;
     use common::errors::{EModeError, GenericError};
     use common::types::{
-        Account, AssetConfig, MarketConfig, MarketStatus, OraclePriceFluctuation,
-        OracleProviderConfig, ReflectorAssetKind,
+        Account, AssetConfig, ExchangeSource, MarketConfig, MarketStatus, OraclePriceFluctuation,
+        OracleProviderConfig, OracleType, PositionMode, ReflectorAssetKind,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, BytesN, Env, Map, Symbol};
@@ -802,8 +802,8 @@ mod tests {
         fn sample_oracle_config(&self) -> OracleProviderConfig {
             OracleProviderConfig {
                 base_asset: self.asset.clone(),
-                oracle_type: common::types::OracleType::Normal,
-                exchange_source: common::types::ExchangeSource::SpotVsTwap,
+                oracle_type: OracleType::Normal,
+                exchange_source: ExchangeSource::SpotVsTwap,
                 asset_decimals: 7,
                 tolerance: OraclePriceFluctuation {
                     first_upper_ratio_bps: 10_200,
@@ -838,7 +838,7 @@ mod tests {
                 owner: Address::generate(&self.env),
                 is_isolated: false,
                 e_mode_category_id: 1,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions: Map::new(&self.env),
                 borrow_positions: Map::new(&self.env),
@@ -919,7 +919,7 @@ mod tests {
                     .unwrap()
                     .oracle_config
                     .oracle_type,
-                common::types::OracleType::Normal
+                OracleType::Normal
             );
 
             assert_eq!(get_account(&t.env, 9).owner, account.owner);

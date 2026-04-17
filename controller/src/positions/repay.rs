@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::Ray;
-use common::types::{Account, AccountPosition};
+use common::types::{Account, AccountPosition, PoolPositionMutation};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 
 use super::update;
@@ -110,7 +110,7 @@ pub fn execute_repayment(
     price_wad: i128,
     amount: i128,
     cache: &mut ControllerCache,
-) -> common::types::PoolPositionMutation {
+) -> PoolPositionMutation {
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
@@ -179,8 +179,9 @@ mod tests {
     use super::*;
     use common::constants::{RAY, WAD};
     use common::types::{
-        AssetConfig, MarketConfig, MarketParams, OraclePriceFluctuation, OracleProviderConfig,
-        PoolKey, PoolState, PriceFeed,
+        AccountPositionType, AssetConfig, ExchangeSource, MarketConfig, MarketParams, MarketStatus,
+        OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey, PoolState, PositionMode,
+        PriceFeed, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{Address, Env, Map, Symbol};
@@ -255,13 +256,13 @@ mod tests {
                 crate::storage::set_reflector_config(
                     &setup.env,
                     &setup.asset,
-                    &common::types::ReflectorConfig {
+                    &ReflectorConfig {
                         cex_oracle: setup.reflector.clone(),
-                        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                        cex_asset_kind: ReflectorAssetKind::Stellar,
                         cex_symbol: soroban_sdk::Symbol::new(&setup.env, "USDC"),
                         cex_decimals: 14,
                         dex_oracle: None,
-                        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                        dex_asset_kind: ReflectorAssetKind::Stellar,
                         dex_decimals: 0,
                         twap_records: 0,
                     },
@@ -277,7 +278,7 @@ mod tests {
 
         fn market_config(&self) -> MarketConfig {
             MarketConfig {
-                status: common::types::MarketStatus::Active,
+                status: MarketStatus::Active,
                 asset_config: AssetConfig {
                     loan_to_value_bps: 7_500,
                     liquidation_threshold_bps: 8_000,
@@ -298,8 +299,8 @@ mod tests {
                 pool_address: self.pool.clone(),
                 oracle_config: OracleProviderConfig {
                     base_asset: self.asset.clone(),
-                    oracle_type: common::types::OracleType::Normal,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::Normal,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -310,11 +311,11 @@ mod tests {
                     max_price_stale_seconds: 900,
                 },
                 cex_oracle: Some(self.reflector.clone()),
-                cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                cex_asset_kind: ReflectorAssetKind::Stellar,
                 cex_symbol: Symbol::new(&self.env, "USDC"),
                 cex_decimals: 14,
                 dex_oracle: None,
-                dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_asset_kind: ReflectorAssetKind::Stellar,
                 dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
@@ -323,7 +324,7 @@ mod tests {
 
         fn borrow_position(&self, account_id: u64, scaled_amount_ray: i128) -> AccountPosition {
             AccountPosition {
-                position_type: common::types::AccountPositionType::Borrow,
+                position_type: AccountPositionType::Borrow,
                 asset: self.asset.clone(),
                 scaled_amount_ray,
                 account_id,
@@ -345,7 +346,7 @@ mod tests {
                 owner: self.owner.clone(),
                 is_isolated,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: is_isolated.then(|| self.asset.clone()),
                 supply_positions: Map::new(&self.env),
                 borrow_positions,
@@ -409,13 +410,13 @@ mod tests {
             storage::set_reflector_config(
                 &t.env,
                 &t.asset,
-                &common::types::ReflectorConfig {
+                &ReflectorConfig {
                     cex_oracle: t.reflector.clone(),
-                    cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    cex_asset_kind: ReflectorAssetKind::Stellar,
                     cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
                     cex_decimals: 14,
                     dex_oracle: None,
-                    dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                    dex_asset_kind: ReflectorAssetKind::Stellar,
                     dex_decimals: 0,
                     twap_records: 0,
                 },

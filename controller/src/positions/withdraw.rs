@@ -1,7 +1,7 @@
 use common::constants::WAD;
-use common::errors::CollateralError;
+use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
-use common::types::{Account, AccountPosition};
+use common::types::{Account, AccountPosition, PoolPositionMutation};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 
 use super::update;
@@ -20,7 +20,7 @@ pub fn process_withdraw(
     let mut account = storage::get_account(env, account_id);
 
     if account.owner != *caller {
-        panic_with_error!(env, common::errors::GenericError::AccountNotInMarket);
+        panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 
     let mut cache = ControllerCache::new(env, false); // Withdraw is risk-increasing.
@@ -72,7 +72,7 @@ fn process_single_withdrawal(
     // any negative value would otherwise reach `pool.withdraw` and, via
     // saturating_sub_ray on signed i128, mint phantom collateral.
     if amount < 0 {
-        panic_with_error!(env, common::errors::GenericError::AmountMustBePositive);
+        panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 
     // Withdraw runs on the strict-price cache (allow_unsafe_price=false);
@@ -131,7 +131,7 @@ pub fn execute_withdrawal(
     protocol_fee: i128,
     price_wad: i128,
     cache: &mut ControllerCache,
-) -> common::types::PoolPositionMutation {
+) -> PoolPositionMutation {
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let result = pool_client.withdraw(

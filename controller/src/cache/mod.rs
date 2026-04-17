@@ -1,5 +1,5 @@
 use common::events::{emit_update_debt_ceiling, UpdateDebtCeilingEvent};
-use common::types::{EModeAssetConfig, MarketConfig, MarketIndex, PriceFeed};
+use common::types::{AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PriceFeed};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::storage;
@@ -101,7 +101,7 @@ impl ControllerCache {
     // that need only one field stay unchanged.
     // -------------------------------------------------------------------
 
-    pub fn cached_asset_config(&mut self, asset: &Address) -> common::types::AssetConfig {
+    pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
         self.cached_market_config(asset).asset_config
     }
 

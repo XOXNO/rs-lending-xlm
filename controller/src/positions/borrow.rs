@@ -3,7 +3,10 @@ use common::events::{
     emit_update_debt_ceiling, emit_update_position, UpdateDebtCeilingEvent, UpdatePositionEvent,
 };
 use common::fp::{Bps, Ray, Wad};
-use common::types::{Account, AccountPosition, AssetConfig, PriceFeed, POSITION_TYPE_BORROW};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, AssetConfig, PoolPositionMutation, PriceFeed,
+    POSITION_TYPE_BORROW,
+};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
 
 use super::{emode, update};
@@ -198,7 +201,7 @@ fn execute_borrow(
     amount: i128,
     position: &AccountPosition,
     price_wad: i128,
-) -> common::types::PoolPositionMutation {
+) -> PoolPositionMutation {
     let pool_client = pool_interface::LiquidityPoolClient::new(env, pool_address);
     pool_client.borrow(caller, &amount, position, &price_wad)
 }
@@ -261,7 +264,7 @@ fn get_or_create_borrow_position(
         .borrow_positions
         .get(asset.clone())
         .unwrap_or_else(|| AccountPosition {
-            position_type: common::types::AccountPositionType::Borrow,
+            position_type: AccountPositionType::Borrow,
             asset: asset.clone(),
             scaled_amount_ray: 0,
             account_id,
@@ -452,8 +455,8 @@ mod tests {
     use super::*;
     use common::constants::RAY;
     use common::types::{
-        MarketConfig, MarketParams, OraclePriceFluctuation, OracleProviderConfig, PoolKey,
-        PoolState,
+        ExchangeSource, MarketConfig, MarketParams, MarketStatus, OraclePriceFluctuation,
+        OracleProviderConfig, OracleType, PoolKey, PoolState, PositionMode, ReflectorAssetKind,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{Address, Map, Symbol};
@@ -540,13 +543,13 @@ mod tests {
 
         fn market_config(&self, asset_config: AssetConfig) -> MarketConfig {
             MarketConfig {
-                status: common::types::MarketStatus::Active,
+                status: MarketStatus::Active,
                 asset_config,
                 pool_address: self.pool.clone(),
                 oracle_config: OracleProviderConfig {
                     base_asset: self.asset.clone(),
-                    oracle_type: common::types::OracleType::Normal,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::Normal,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -557,11 +560,11 @@ mod tests {
                     max_price_stale_seconds: 900,
                 },
                 cex_oracle: None,
-                cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                cex_asset_kind: ReflectorAssetKind::Stellar,
                 cex_symbol: Symbol::new(&self.env, ""),
                 cex_decimals: 0,
                 dex_oracle: None,
-                dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_asset_kind: ReflectorAssetKind::Stellar,
                 dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
@@ -574,7 +577,7 @@ mod tests {
                 borrow_positions.set(
                     asset.clone(),
                     AccountPosition {
-                        position_type: common::types::AccountPositionType::Borrow,
+                        position_type: AccountPositionType::Borrow,
                         asset: asset.clone(),
                         scaled_amount_ray: 1_0000000,
                         account_id: 1,
@@ -590,7 +593,7 @@ mod tests {
                 owner: Address::generate(&self.env),
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions: Map::new(&self.env),
                 borrow_positions,

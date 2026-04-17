@@ -1,6 +1,9 @@
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
-use common::types::{Account, AccountPosition, AssetConfig, PriceFeed, POSITION_TYPE_DEPOSIT};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, AssetConfig, MarketIndex, PriceFeed,
+    POSITION_TYPE_DEPOSIT,
+};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 
 use super::{emode, update};
@@ -118,7 +121,7 @@ fn get_or_create_deposit_position(
         .supply_positions
         .get(asset.clone())
         .unwrap_or_else(|| AccountPosition {
-            position_type: common::types::AccountPositionType::Deposit,
+            position_type: AccountPositionType::Deposit,
             asset: asset.clone(),
             scaled_amount_ray: 0,
             account_id,
@@ -199,7 +202,7 @@ fn update_market_position(
     amount: i128,
     caller: &Address,
     feed: &PriceFeed,
-) -> common::types::MarketIndex {
+) -> MarketIndex {
     let pool_addr = cache.cached_pool_address(asset);
 
     // Transfer caller -> pool before calling supply, using balance-delta
@@ -344,7 +347,10 @@ mod tests {
 
     use super::*;
     use common::constants::{RAY, WAD};
-    use common::types::{MarketConfig, MarketParams, OraclePriceFluctuation, OracleProviderConfig};
+    use common::types::{
+        ExchangeSource, MarketConfig, MarketParams, MarketStatus, OraclePriceFluctuation,
+        OracleProviderConfig, OracleType, PositionMode, ReflectorAssetKind,
+    };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{token, Address, Map, Symbol, Vec};
 
@@ -427,13 +433,13 @@ mod tests {
 
         fn market_config(&self, asset_config: AssetConfig) -> MarketConfig {
             MarketConfig {
-                status: common::types::MarketStatus::Active,
+                status: MarketStatus::Active,
                 asset_config,
                 pool_address: self.pool.clone(),
                 oracle_config: OracleProviderConfig {
                     base_asset: self.asset.clone(),
-                    oracle_type: common::types::OracleType::Normal,
-                    exchange_source: common::types::ExchangeSource::SpotOnly,
+                    oracle_type: OracleType::Normal,
+                    exchange_source: ExchangeSource::SpotOnly,
                     asset_decimals: 7,
                     tolerance: OraclePriceFluctuation {
                         first_upper_ratio_bps: 10_200,
@@ -444,11 +450,11 @@ mod tests {
                     max_price_stale_seconds: 900,
                 },
                 cex_oracle: None,
-                cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                cex_asset_kind: ReflectorAssetKind::Stellar,
                 cex_symbol: Symbol::new(&self.env, ""),
                 cex_decimals: 0,
                 dex_oracle: None,
-                dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+                dex_asset_kind: ReflectorAssetKind::Stellar,
                 dex_symbol: Symbol::new(&self.env, ""),
                 dex_decimals: 0,
                 twap_records: 0,
@@ -474,7 +480,7 @@ mod tests {
             supply_positions.set(
                 self.asset.clone(),
                 AccountPosition {
-                    position_type: common::types::AccountPositionType::Deposit,
+                    position_type: AccountPositionType::Deposit,
                     asset: self.asset.clone(),
                     scaled_amount_ray: 1_0000000,
                     account_id: 1,
@@ -489,7 +495,7 @@ mod tests {
                 owner,
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions,
                 borrow_positions: Map::new(&self.env),
@@ -578,7 +584,7 @@ mod tests {
                 owner: Address::generate(&t.env),
                 is_isolated: false,
                 e_mode_category_id: 0,
-                mode: common::types::PositionMode::Normal,
+                mode: PositionMode::Normal,
                 isolated_asset: None,
                 supply_positions: Map::new(&t.env),
                 borrow_positions: Map::new(&t.env),
