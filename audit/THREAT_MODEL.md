@@ -66,7 +66,7 @@ Any user. The attacker chooses timing (block boundary), batch composition, and r
 - Half-up rounding stays consistent (`common::fp_core::mul_div_half_up`).
 - A supply-index floor at `10^18` raw prevents division-by-near-zero.
 - `clean_bad_debt` requires KEEPER, but `liquidate` exposes in-liquidation socialization to anyone.
-- `MATH_REVIEW.md §3.7` and §5 document open math gaps with specific remediation proposals.
+- `architecture/MATH_REVIEW.md §3.7` and §5 document open math gaps with specific remediation proposals.
 
 ### Residual risk
 - **MEDIUM-HIGH** — fuzzing covers single-op invariants but skips multi-op compositions that exploit rounding direction across paths.
@@ -91,7 +91,7 @@ Any user, with budget for transaction size.
 
 **3.1 Same-asset duplicate inflation.**
 - `supply([(XLM, 100), (XLM, 100), (XLM, 100), ...])` repeats the same asset N times. `validate_bulk_position_limits` dedupes correctly via `Map<Address, bool>`. **But** does the supply *amount* aggregate correctly, or does each tuple run its own `global_sync` between iterations? Between-iteration index sync that changes the scaled-amount denominator could let repeated tiny supplies drift.
-- Testnet smoke (per `DEPLOYMENT.md:246`) reports duplicates aggregate correctly. Confirm under adversarial parameters.
+- Testnet smoke (per `architecture/DEPLOYMENT.md:246`) reports duplicates aggregate correctly. Confirm under adversarial parameters.
 
 **3.2 Storage-write exhaustion.**
 - A user holds N supply assets and M borrow assets. Position limits cap N + M ≤ 64. Each asset costs 1 SupplyPosition / BorrowPosition write, 1 pool state write, 1 pool param read, and 1 oracle read. Worst case: `liquidate` of a 32-supply / 32-borrow account writes ~64 positions plus 64 pool states and reads 64 oracle prices. **Does this exceed 200 write entries?** Count per-op write footprint.
@@ -140,7 +140,7 @@ Any user, with budget for transaction size.
 - When `(spot, safe)` lie within last but not first tolerance, the protocol returns `(spot+safe)/2`. The adversary chooses operations that benefit from the average bias.
 
 **4.3 `allow_unsafe_price` paths.**
-- Per `INVARIANTS.md §14`, supply and repay use the safe price even when deviation is breached (`allow_unsafe_price = true`). During a price shock:
+- Per `architecture/INVARIANTS.md §14`, supply and repay use the safe price even when deviation is breached (`allow_unsafe_price = true`). During a price shock:
   - Suppliers can still deposit (good).
   - Liquidators cannot use the breached price to liquidate (intentional).
   - Repayers can still settle debt at the *safe* price, which may sit far from spot, letting distressed users repay cheaply.
@@ -184,7 +184,7 @@ Any user, with budget for transaction size.
 
 **5.2 Liquidation bonus > 15%.** `validate_asset_config:122` rejects. ✓
 
-**5.3 Negative isolation debt ceiling.** **NOT REJECTED.** Mathematically equivalent to unlimited isolated borrowing. See `CONFIG_INVARIANTS.md §3 gap #3`.
+**5.3 Negative isolation debt ceiling.** **NOT REJECTED.** Mathematically equivalent to unlimited isolated borrowing. See `architecture/CONFIG_INVARIANTS.md §3 gap #3`.
 
 **5.4 Negative flashloan fee.** **NOT REJECTED** (only the upper bound is checked). The pool would pay receivers to flash-loan. See gap #4.
 
@@ -200,7 +200,7 @@ Any user, with budget for transaction size.
 
 ### Current mitigation
 - The contract enforces 8 of the documented config rules.
-- 7+ documented gaps remain (see `CONFIG_INVARIANTS.md`).
+- 7+ documented gaps remain (see `architecture/CONFIG_INVARIANTS.md`).
 
 ### Residual risk
 - **MEDIUM** — none of the gaps directly enable fund theft, but several brick markets or invite operator footguns. Small validation additions fix them pre-audit.
@@ -223,7 +223,7 @@ Any user, with budget for transaction size.
 
 ### Token transfer panic semantics
 - Soroban SAC `transfer(from, to, amount)` panics on insufficient balance or on `from.require_auth()` failure. It returns no value. The pool treats "no panic" as success.
-- `flash_loan_end` (pool/lib.rs:353) uses `tok.transfer(receiver→pool, total)`, which **requires the receiver's pre-authorization** via `env.authorize_as_current_contract` inside the callback (Soroban-native auth, not ERC-20 `transfer_from`/`approve`). See `ACTORS.md`.
+- `flash_loan_end` (pool/lib.rs:353) uses `tok.transfer(receiver→pool, total)`, which **requires the receiver's pre-authorization** via `env.authorize_as_current_contract` inside the callback (Soroban-native auth, not ERC-20 `transfer_from`/`approve`). See `architecture/ACTORS.md`.
 - The controller-side supply transfer at supply.rs:210-212 verifies `received > 0` via balance delta — fee-on-transfer safe.
 - The repay transfer at repay.rs:62-71 follows the same pattern.
 - No transfer uses `try_invoke_contract`; all calls invoke directly and propagate panics.

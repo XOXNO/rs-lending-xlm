@@ -41,7 +41,6 @@ fn build_ctx_with_budget() -> LendingTest {
 // fails cleanly with a budget error. Never produces an opaque panic.
 // ---------------------------------------------------------------------------
 
-
 proptest! {
     // Expensive setup: keep case count modest.
     #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]

@@ -485,7 +485,7 @@ impl LendingTest {
                 user_state.accounts.retain(|a| a.account_id != account_id);
                 user_state.default_account_id = user_state.accounts.first().map(|a| a.account_id);
                 Ok(())
-            },
+            }
             Err(err) => Err(err),
         }
     }

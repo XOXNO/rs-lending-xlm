@@ -186,10 +186,7 @@ fn position_value_wad(
     actual_wad * price_wad / wad_scale()
 }
 
-fn compute_hf_wad(
-    supplies: &[RefCollateralPosition],
-    debts: &[RefDebtPosition],
-) -> BigRational {
+fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition]) -> BigRational {
     if debts.is_empty() {
         // Sentinel: return MAX rational (we pick a large number). Callers
         // should never liquidate here.
@@ -198,8 +195,7 @@ fn compute_hf_wad(
 
     let mut weighted = br_zero();
     for c in supplies {
-        let value =
-            position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
         // weighted = value * threshold_bps / BPS
         let w = &value * br_from_i128(c.liq_threshold_bps) / bps_scale();
         weighted += w;
@@ -222,8 +218,7 @@ fn compute_hf_wad(
 fn weighted_collateral_total(supplies: &[RefCollateralPosition]) -> BigRational {
     let mut w = br_zero();
     for c in supplies {
-        let value =
-            position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
         w += &value * br_from_i128(c.liq_threshold_bps) / bps_scale();
     }
     w
@@ -255,8 +250,7 @@ fn get_account_bonus_params(supplies: &[RefCollateralPosition]) -> (BigRational,
 
     let mut weighted_bonus = br_zero();
     for c in supplies {
-        let value =
-            position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
+        let value = position_value_wad(&c.supply_scaled_ray, &c.supply_index_ray, &c.price_wad);
         let share = &value / &total;
         weighted_bonus += share * br_from_i128(c.liq_bonus_bps);
     }
@@ -280,7 +274,11 @@ fn calculate_linear_bonus_with_target(
     let gap_numer = target_wad - hf_wad;
     let gap = &gap_numer / target_wad;
     let double_gap = &gap * BigRational::from_integer(BigInt::from(2));
-    let scale = if double_gap > br_one() { br_one() } else { double_gap };
+    let scale = if double_gap > br_one() {
+        br_one()
+    } else {
+        double_gap
+    };
     let bonus_range = max_bps - base_bps;
     let bonus = base_bps + &bonus_range * &scale;
     let cap = br_from_i128(MAX_LIQUIDATION_BONUS);
@@ -379,12 +377,8 @@ fn estimate_liquidation_amount(
     let target_primary = &wad_scale() * BigRational::from_integer(BigInt::from(102))
         / BigRational::from_integer(BigInt::from(100));
 
-    let bonus_primary = calculate_linear_bonus_with_target(
-        hf_wad,
-        base_bonus_bps,
-        max_bonus_bps,
-        &target_primary,
-    );
+    let bonus_primary =
+        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target_primary);
 
     if let Some(d) = try_liquidation_at_target(
         total_debt_wad,
@@ -408,12 +402,8 @@ fn estimate_liquidation_amount(
 
     let target_fallback = &wad_scale() * BigRational::from_integer(BigInt::from(101))
         / BigRational::from_integer(BigInt::from(100));
-    let bonus_fallback = calculate_linear_bonus_with_target(
-        hf_wad,
-        base_bonus_bps,
-        max_bonus_bps,
-        &target_fallback,
-    );
+    let bonus_fallback =
+        calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target_fallback);
     let fallback_result = try_liquidation_at_target(
         total_debt_wad,
         weighted_coll_wad,
@@ -668,10 +658,22 @@ mod tests {
 
     #[test]
     fn half_up_div_basic() {
-        assert_eq!(half_up_div(BigInt::from(7), BigInt::from(2)), BigInt::from(4));
-        assert_eq!(half_up_div(BigInt::from(-7), BigInt::from(2)), BigInt::from(-4));
-        assert_eq!(half_up_div(BigInt::from(5), BigInt::from(10)), BigInt::from(1));
-        assert_eq!(half_up_div(BigInt::from(4), BigInt::from(10)), BigInt::from(0));
+        assert_eq!(
+            half_up_div(BigInt::from(7), BigInt::from(2)),
+            BigInt::from(4)
+        );
+        assert_eq!(
+            half_up_div(BigInt::from(-7), BigInt::from(2)),
+            BigInt::from(-4)
+        );
+        assert_eq!(
+            half_up_div(BigInt::from(5), BigInt::from(10)),
+            BigInt::from(1)
+        );
+        assert_eq!(
+            half_up_div(BigInt::from(4), BigInt::from(10)),
+            BigInt::from(0)
+        );
     }
 
     #[test]
@@ -686,10 +688,7 @@ mod tests {
         // gap = (1.02 - 1.0) / 1.02 = 0.0196...; 2*gap = 0.0392
         // bonus = 500 + 1000 * 0.0392 = 539.21...
         let expected = br_from_i128(500)
-            + (br_from_i128(1000)
-                * (br_from_i128(2)
-                    * (&target - &br_from_i128(WAD))
-                    / &target));
+            + (br_from_i128(1000) * (br_from_i128(2) * (&target - &br_from_i128(WAD)) / &target));
         assert_eq!(bonus, expected);
     }
 }

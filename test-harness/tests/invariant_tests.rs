@@ -247,12 +247,12 @@ fn test_isolation_and_emode_mutually_exclusive() {
     // old `is_err()` check.
     let alice = t.get_or_create_user(ALICE);
     let usdc_addr = t.resolve_asset("USDC");
-    let assets = soroban_sdk::vec![&t.env, (usdc_addr, 1_000_0000000i128)];
+    let assets = soroban_sdk::vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
     let ctrl = t.ctrl_client();
     let result = ctrl.try_supply(&alice, &0u64, &1u32, &assets);
     let flat: Result<u64, soroban_sdk::Error> = match result {
         Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err.into()),
+        Ok(Err(err)) => Err(err),
         Err(invoke) => Err(invoke.expect("expected contract error, got InvokeError")),
     };
     assert_contract_error(flat, errors::EMODE_WITH_ISOLATED);

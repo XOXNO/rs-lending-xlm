@@ -3,7 +3,7 @@ extern crate std;
 use common::types::{DexDistribution, Protocol, SwapSteps};
 use soroban_sdk::vec;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE,
+    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE,
 };
 
 // ---------------------------------------------------------------------------
@@ -242,8 +242,9 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     let flat: Result<u64, soroban_sdk::Error> = match result {
         Ok(Ok(id)) => Ok(id),
         Ok(Err(err)) => Err(err),
-        Err(invoke_err) => Err(invoke_err
-            .expect("expected contract error, got host-level InvokeError")),
+        Err(invoke_err) => {
+            Err(invoke_err.expect("expected contract error, got host-level InvokeError"))
+        }
     };
     assert_contract_error(flat, errors::DEBT_CEILING_REACHED);
 

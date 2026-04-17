@@ -128,7 +128,7 @@ impl LendingTest {
                     user_state.default_account_id = Some(id);
                 }
                 Ok(id)
-            },
+            }
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }

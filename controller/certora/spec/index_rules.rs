@@ -116,11 +116,17 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     cvlr_assert!(factor == Ray::ONE);
 
     // Borrow index: old * RAY / RAY = old (identity)
-    let new_borrow = common::rates::update_borrow_index(&e, Ray::from_raw(old_borrow_index), factor);
+    let new_borrow =
+        common::rates::update_borrow_index(&e, Ray::from_raw(old_borrow_index), factor);
     cvlr_assert!(new_borrow.raw() == old_borrow_index);
 
     // Supply index: rewards_increase = 0 when no interest accrued => unchanged
-    let new_supply = common::rates::update_supply_index(&e, Ray::from_raw(supplied), Ray::from_raw(old_supply_index), Ray::ZERO);
+    let new_supply = common::rates::update_supply_index(
+        &e,
+        Ray::from_raw(supplied),
+        Ray::from_raw(old_supply_index),
+        Ray::ZERO,
+    );
     cvlr_assert!(new_supply.raw() == old_supply_index);
 }
 

@@ -108,12 +108,7 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     old_index.mul(env, interest_factor)
 }
 
-pub fn update_supply_index(
-    env: &Env,
-    supplied: Ray,
-    old_index: Ray,
-    rewards_increase: Ray,
-) -> Ray {
+pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
     }
@@ -136,8 +131,9 @@ pub fn calculate_supplier_rewards(
 
     let accrued_interest = new_total_debt - old_total_debt;
 
-    let protocol_fee =
-        Ray::from_raw(Bps::from_raw(params.reserve_factor_bps).apply_to(env, accrued_interest.raw()));
+    let protocol_fee = Ray::from_raw(
+        Bps::from_raw(params.reserve_factor_bps).apply_to(env, accrued_interest.raw()),
+    );
     let supplier_rewards = accrued_interest - protocol_fee;
 
     (supplier_rewards, protocol_fee)
@@ -355,7 +351,10 @@ mod tests {
     #[test]
     fn test_utilization_zero_supplied() {
         let env = Env::default();
-        assert_eq!(utilization(&env, Ray::from_raw(50 * RAY), Ray::ZERO), Ray::ZERO);
+        assert_eq!(
+            utilization(&env, Ray::from_raw(50 * RAY), Ray::ZERO),
+            Ray::ZERO
+        );
     }
 
     #[test]

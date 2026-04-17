@@ -37,9 +37,7 @@ use common::constants::WAD;
 use common::types::{DexDistribution, PositionMode, Protocol, SwapSteps};
 use proptest::prelude::*;
 use soroban_sdk::{contract, contractimpl, token, vec, Address, Env};
-use test_harness::{
-    auth, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB,
-};
+use test_harness::{auth, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,8 +113,7 @@ fn router_allowance(t: &LendingTest, asset_name: &str) -> i128 {
 // Helper: is the controller's flash-loan reentrancy guard cleared?
 fn flash_guard_cleared(t: &LendingTest) -> bool {
     t.env.as_contract(&t.controller, || {
-        !t
-            .env
+        !t.env
             .storage()
             .instance()
             .get::<_, bool>(&common::types::ControllerKey::FlashLoanOngoing)

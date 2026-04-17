@@ -203,10 +203,7 @@ mod tests {
         }
 
         fn fresh_cache(&self, state: PoolState) -> Cache {
-            self.env
-                .storage()
-                .instance()
-                .set(&PoolKey::State, &state);
+            self.env.storage().instance().set(&PoolKey::State, &state);
             Cache::load(&self.env)
         }
     }

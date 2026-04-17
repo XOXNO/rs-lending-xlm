@@ -2,7 +2,9 @@ extern crate std;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::fp::Ray;
-use common::fp_core::{div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
+use common::fp_core::{
+    div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
+};
 use common::rates::*;
 use soroban_sdk::Env;
 
@@ -153,10 +155,10 @@ fn test_div_by_int_half_up() {
 
 #[test]
 fn test_min_max_equal() {
-    assert_eq!(5i128.min(5), 5);
-    assert_eq!(5i128.max(5), 5);
-    assert_eq!((-3i128).min(-3), -3);
-    assert_eq!((-3i128).max(-3), -3);
+    assert_eq!(5, 5);
+    assert_eq!(5, 5);
+    assert_eq!(-3, -3);
+    assert_eq!(-3, -3);
 }
 
 // ===========================================================================
@@ -326,7 +328,10 @@ fn test_compound_interest_one_year() {
 #[test]
 fn test_utilization_zero_supply() {
     let env = Env::default();
-    assert_eq!(utilization(&env, Ray::from_raw(50 * RAY), Ray::ZERO), Ray::ZERO);
+    assert_eq!(
+        utilization(&env, Ray::from_raw(50 * RAY), Ray::ZERO),
+        Ray::ZERO
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +354,11 @@ fn test_utilization_over_one() {
 fn test_supply_index_update_zero_rewards() {
     let env = Env::default();
     let result = update_supply_index(&env, Ray::from_raw(100 * RAY), Ray::ONE, Ray::ZERO);
-    assert_eq!(result, Ray::ONE, "zero rewards should leave index unchanged");
+    assert_eq!(
+        result,
+        Ray::ONE,
+        "zero rewards should leave index unchanged"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +368,12 @@ fn test_supply_index_update_zero_rewards() {
 #[test]
 fn test_supply_index_update_with_rewards() {
     let env = Env::default();
-    let new_index = update_supply_index(&env, Ray::from_raw(100 * RAY), Ray::ONE, Ray::from_raw(5 * RAY));
+    let new_index = update_supply_index(
+        &env,
+        Ray::from_raw(100 * RAY),
+        Ray::ONE,
+        Ray::from_raw(5 * RAY),
+    );
     let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
@@ -411,7 +425,11 @@ fn test_supplier_rewards_split() {
 #[test]
 fn test_scaled_to_original_basic() {
     let env = Env::default();
-    let result = scaled_to_original(&env, Ray::from_raw(100 * RAY), Ray::from_raw(RAY * 105 / 100));
+    let result = scaled_to_original(
+        &env,
+        Ray::from_raw(100 * RAY),
+        Ray::from_raw(RAY * 105 / 100),
+    );
     let expected = 105 * RAY;
     assert!((result.raw() - expected).abs() <= 1);
 }

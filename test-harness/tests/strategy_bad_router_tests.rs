@@ -14,9 +14,7 @@ extern crate std;
 use common::types::{DexDistribution, Protocol, SwapSteps};
 use soroban_sdk::{vec, Address};
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE,
-};
+use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,12 +71,12 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
     let bad = install_bad_router(&t, BadMode::Refund);
     // Seed the bad router with USDC output so it can satisfy the swap's
     // `amount_out_min` transfer before the adversarial token_in refund.
-    mint_to(&t, "USDC", &bad, 3_000_00000000); // 3000 USDC
-    // Seed the bad router with ETH so it can perform the net-positive refund
-    // back to the controller (violating the balance_in_after invariant).
-    mint_to(&t, "ETH", &bad, 10_0000000); // 10 ETH (7 decimals)
+    mint_to(&t, "USDC", &bad, 300_000_000_000); // 3000 USDC
+                                               // Seed the bad router with ETH so it can perform the net-positive refund
+                                               // back to the controller (violating the balance_in_after invariant).
+    mint_to(&t, "ETH", &bad, 100_000_000); // 10 ETH (7 decimals)
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -107,9 +105,9 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         .build();
 
     let bad = install_bad_router(&t, BadMode::OverPull);
-    mint_to(&t, "USDC", &bad, 3_000_00000000);
+    mint_to(&t, "USDC", &bad, 300_000_000_000);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -146,7 +144,7 @@ fn test_swap_tokens_handles_zero_output_from_router() {
 
     install_bad_router(&t, BadMode::OutputShortfall);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let result = t.try_multiply(
         ALICE,
         "USDC",

@@ -17,7 +17,7 @@
 - [ ] Optional: `cargo +nightly udeps --workspace` for dead-dep detection
 
 ### Configuration self-defense gaps — resolved during prep
-Per `audit/CONFIG_INVARIANTS.md` summary table:
+Per `architecture/CONFIG_INVARIANTS.md` summary table:
 - [x] Gap #1: ✅ already enforced (`router::validate_market_creation`)
 - [x] Gap #2/#8: 🔧 fixed (LT ≤ 10_000 added to `validate_asset_config` and e-mode validation)
 - [x] Gap #3: 🔧 fixed (`isolation_debt_ceiling_usd_wad >= 0` added)
@@ -31,20 +31,21 @@ Per `audit/CONFIG_INVARIANTS.md` summary table:
 
 ### Existing docs (in repo root)
 - [x] `README.md` — system overview
-- [x] `ARCHITECTURE.md` — sequence diagrams + storage model
-- [x] `INVARIANTS.md` — 18 protocol invariants with examples
-- [x] `DEPLOYMENT.md` — operator runbook
-- [x] `MATH_REVIEW.md` — rule-coverage audit
+- [x] `architecture/ARCHITECTURE.md` — sequence diagrams + storage model
+- [x] `architecture/INVARIANTS.md` — 18 protocol invariants with examples
+- [x] `architecture/DEPLOYMENT.md` — operator runbook
+- [x] `architecture/MATH_REVIEW.md` — rule-coverage audit
+- [x] `architecture/ACTORS.md` — privilege model, trust boundaries
+- [x] `architecture/ENTRYPOINT_AUTH_MATRIX.md` — fn × auth × invariants × pool calls
+- [x] `architecture/CONFIG_INVARIANTS.md` — config field rules + gap analysis
+- [x] `architecture/STELLAR_NOTES.md` — Soroban-specific assumptions and confirmation asks
 - [x] `controller/certora/SPIKES.md` — Certora toolchain ground truth
 
 ### Audit prep package (in `audit/`)
 - [x] `audit/SCOPE.md` — frozen commit, file list with LOC, in/out scope
 - [x] `audit/AUDIT_PREP.md` — review goals, concerns, worst-case, questions for auditors
-- [x] `audit/ACTORS.md` — privilege model, trust boundaries
-- [x] `audit/ENTRYPOINT_AUTH_MATRIX.md` — fn × auth × invariants × pool calls
-- [x] `audit/CONFIG_INVARIANTS.md` — config field rules + gap analysis
 - [x] `audit/THREAT_MODEL.md` — adversary models with risk heat-map
-- [x] `audit/STELLAR_NOTES.md` — Soroban-specific assumptions and confirmation asks
+- [x] `audit/FINDINGS.md` — hunt findings + remediation status
 - [x] `audit/AUDIT_CHECKLIST.md` — this document
 
 ## Auditor Selection Status
@@ -59,7 +60,7 @@ Auditors who want to deploy locally need:
 - `stellar` CLI, `jq`, Rust toolchain per `rust-toolchain.toml`
 - a funded testnet identity (or `SIGNER=ledger`)
 - `make setup-testnet` — deploys controller + pools, configures markets and e-modes
-- smoke test per `DEPLOYMENT.md §Smoke-Test Runbook`
+- smoke test per `architecture/DEPLOYMENT.md §Smoke-Test Runbook`
 
 ## Hunt findings shipped (see `audit/FINDINGS.md`)
 
@@ -83,14 +84,14 @@ Auditors who want to deploy locally need:
 - H-02 `pool.repay` parameter order aligned with `borrow` (`(caller, amount, position, price)`)
 - M-04 `claim_revenue` partial-claim single `actual_burn = min(scaled_to_burn, revenue, supplied)`
 - M-06 `liquidation_threshold_bps` refreshed on supply top-up
-- M-09 `dex_symbol` required field added; forced re-config migration documented in `DEPLOYMENT.md`
+- M-09 `dex_symbol` required field added; forced re-config migration documented in `architecture/DEPLOYMENT.md`
 
 ### Group D — operator policy ✅ (docs only)
 - H-06/H-07 NO FoT / NO rebasing tokens (DEPLOYMENT, SCOPE)
 - H-08 SAC issuer upgrade runbook (DEPLOYMENT, STELLAR_NOTES)
 - M-12 allowlist is creation-time only (ACTORS)
 - L-04 `cap = 0` means unlimited (CONFIG_INVARIANTS)
-- L-12 INVARIANTS.md §4 seize-Deposit path documented
+- L-12 architecture/INVARIANTS.md §4 seize-Deposit path documented
 - I-03 OZ Stellar review note (SCOPE)
 
 ### Group E — centralization ✅
@@ -107,7 +108,7 @@ Auditors who want to deploy locally need:
 ## Still Outstanding
 
 - ⚠️ **Empirical 32+32 liquidate cost benchmark** (see `audit/THREAT_MODEL.md §3.3`). Needs a custom test-harness scenario. Not blocking pre-audit hand-off but valuable for the auditor's §3 threat-model review.
-- ⚠️ **Reflector behavior spec** (see `audit/STELLAR_NOTES.md §3 Q6–Q10`). External team contact.
+- ⚠️ **Reflector behavior spec** (see `architecture/STELLAR_NOTES.md §3 Q6–Q10`). External team contact.
 
 ## Final Hand-Off
 

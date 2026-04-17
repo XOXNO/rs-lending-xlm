@@ -106,11 +106,7 @@ fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
 
     let pre_reserves = pool_client.reserves();
 
-    let amounts = crate::Controller::claim_revenue(
-        e.clone(),
-        caller,
-        soroban_sdk::vec![&e, asset],
-    );
+    let amounts = crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, asset]);
     let claimed = amounts.get(0).unwrap();
 
     cvlr_assert!(claimed <= pre_reserves);
@@ -932,7 +928,8 @@ fn compound_interest_bounded_output(e: Env) {
 
     // Rate is bounded by max_borrow_rate / MILLISECONDS_PER_YEAR
     // Use 10 * RAY as a generous max_borrow_rate (1000% APY)
-    let max_rate_per_ms = common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+    let max_rate_per_ms =
+        common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
@@ -962,7 +959,8 @@ fn compound_interest_no_wrap(e: Env) {
     let time: u64 = cvlr::nondet::nondet();
 
     // Bound rate to max_borrow_rate / MILLISECONDS_PER_YEAR
-    let max_rate_per_ms = common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+    let max_rate_per_ms =
+        common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time <= MILLISECONDS_PER_YEAR);

@@ -17,7 +17,7 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     t.ctrl_client().edit_asset_config(
         &t.resolve_asset("USDC"),
         &AssetConfig {
-            supply_cap: 1_010_000_0000000,
+            supply_cap: 10_100_000_000_000,
             ..usdc_preset().config.to_asset_config()
         },
     );
@@ -56,7 +56,7 @@ fn test_strategy_multiply_supply_cap_reached() {
     t.ctrl_client().edit_asset_config(
         &t.resolve_asset("USDC"),
         &AssetConfig {
-            supply_cap: 1_010_000_0000000,
+            supply_cap: 10_100_000_000_000,
             ..usdc_preset().config.to_asset_config()
         },
     );

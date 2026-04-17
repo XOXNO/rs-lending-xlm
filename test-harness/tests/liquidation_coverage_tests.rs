@@ -1,7 +1,7 @@
 extern crate std;
 
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, LendingTest, LIQUIDATOR,
+    assert_contract_error, eth_preset, usd_cents, usdc_preset, LendingTest, LIQUIDATOR,
 };
 
 #[test]

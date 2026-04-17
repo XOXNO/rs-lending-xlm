@@ -159,7 +159,7 @@ Checks in execution order:
 
 ## Configuration Endpoints
 
-(All `#[only_owner]` per `lib.rs:451-627`. Field-level validation per `audit/CONFIG_INVARIANTS.md`.)
+(All `#[only_owner]` per `lib.rs:451-627`. Field-level validation per `CONFIG_INVARIANTS.md`.)
 
 ## Pool Public ABI (`pool/src/lib.rs`)
 

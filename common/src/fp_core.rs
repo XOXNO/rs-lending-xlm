@@ -168,10 +168,7 @@ mod tests {
     #[test]
     fn test_rescale_upscale() {
         // 1.0 at 6 decimals → 18 decimals.
-        assert_eq!(
-            rescale_half_up(1_000_000, 6, 18),
-            1_000_000_000_000_000_000
-        );
+        assert_eq!(rescale_half_up(1_000_000, 6, 18), 1_000_000_000_000_000_000);
     }
 
     #[test]

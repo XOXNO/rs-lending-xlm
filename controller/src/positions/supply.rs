@@ -394,7 +394,10 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params, controller.clone()));
+            let pool = env.register(
+                pool::LiquidityPool,
+                (controller.clone(), params, controller.clone()),
+            );
 
             Self {
                 env,

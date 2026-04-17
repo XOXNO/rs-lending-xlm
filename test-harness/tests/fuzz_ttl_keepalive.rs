@@ -42,15 +42,18 @@ const ASSETS: &[&str] = &["USDC", "ETH", "WBTC"];
 // ---------------------------------------------------------------------------
 
 fn persistent_ttl(t: &LendingTest, key: &ControllerKey) -> u32 {
-    t.env.as_contract(&t.controller, || t.env.storage().persistent().get_ttl(key))
+    t.env
+        .as_contract(&t.controller, || t.env.storage().persistent().get_ttl(key))
 }
 
 fn persistent_has(t: &LendingTest, key: &ControllerKey) -> bool {
-    t.env.as_contract(&t.controller, || t.env.storage().persistent().has(key))
+    t.env
+        .as_contract(&t.controller, || t.env.storage().persistent().has(key))
 }
 
 fn pool_instance_ttl(t: &LendingTest, pool: &Address) -> u32 {
-    t.env.as_contract(pool, || t.env.storage().instance().get_ttl())
+    t.env
+        .as_contract(pool, || t.env.storage().instance().get_ttl())
 }
 
 fn build_ctx() -> LendingTest {
@@ -78,8 +81,7 @@ proptest! {
         // Each account: supply a random non-empty subset of assets.
         let mut account_ids: std::vec::Vec<u64> = std::vec::Vec::new();
         let mut per_account_assets: std::vec::Vec<std::vec::Vec<&'static str>> = std::vec::Vec::new();
-        for i in 0..num_accounts {
-            let user = USERS[i];
+        for &user in USERS.iter().take(num_accounts) {
             let mut used: std::vec::Vec<&'static str> = std::vec::Vec::new();
             for &ai in &asset_mix {
                 let asset = ASSETS[ai];

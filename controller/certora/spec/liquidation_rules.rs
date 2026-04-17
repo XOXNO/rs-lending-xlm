@@ -84,7 +84,12 @@ fn bonus_bounded(e: Env, hf_wad: i128, base_bonus_bps: i128, max_bonus_bps: i128
     cvlr_assume!(hf_wad >= 0);
     cvlr_assume!(hf_wad < WAD); // Account is liquidatable
 
-    let bonus = crate::helpers::calculate_linear_bonus(&e, Wad::from_raw(hf_wad), Bps::from_raw(base_bonus_bps), Bps::from_raw(max_bonus_bps));
+    let bonus = crate::helpers::calculate_linear_bonus(
+        &e,
+        Wad::from_raw(hf_wad),
+        Bps::from_raw(base_bonus_bps),
+        Bps::from_raw(max_bonus_bps),
+    );
 
     cvlr_assert!(bonus.raw() <= MAX_LIQUIDATION_BONUS);
 }
@@ -114,7 +119,12 @@ fn bonus_max_at_deep_underwater(e: Env, base_bonus_bps: i128, max_bonus_bps: i12
     // scale = min(2 * 0.51, 1.0) = 1.0 → bonus = max_bonus_bps
     let hf_deep: i128 = WAD / 2;
 
-    let bonus = crate::helpers::calculate_linear_bonus(&e, Wad::from_raw(hf_deep), Bps::from_raw(base_bonus_bps), Bps::from_raw(max_bonus_bps));
+    let bonus = crate::helpers::calculate_linear_bonus(
+        &e,
+        Wad::from_raw(hf_deep),
+        Bps::from_raw(base_bonus_bps),
+        Bps::from_raw(max_bonus_bps),
+    );
 
     // At HF = 0.5, the scale factor saturates to 1.0, so bonus = max_bonus
     // (capped at MAX_LIQUIDATION_BONUS)
@@ -342,7 +352,12 @@ fn liquidation_bonus_sanity(e: Env) {
     cvlr_assume!(base > 0 && base <= 500);
     cvlr_assume!(max >= base && max <= MAX_LIQUIDATION_BONUS);
 
-    let bonus = crate::helpers::calculate_linear_bonus(&e, Wad::from_raw(hf), Bps::from_raw(base), Bps::from_raw(max));
+    let bonus = crate::helpers::calculate_linear_bonus(
+        &e,
+        Wad::from_raw(hf),
+        Bps::from_raw(base),
+        Bps::from_raw(max),
+    );
     cvlr_satisfy!(bonus.raw() > 0);
 }
 

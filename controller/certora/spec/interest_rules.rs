@@ -152,7 +152,8 @@ fn borrow_rate_continuity_at_mid(e: Env) {
     // Ensure mid >= 2 so mid-1 is still positive
     cvlr_assume!(params.mid_utilization_ray >= 2);
 
-    let rate_below = calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray - 1), &params);
+    let rate_below =
+        calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray - 1), &params);
     let rate_at = calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray), &params);
 
     // Both should evaluate to approximately base + slope1 at the boundary.
@@ -180,7 +181,11 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
     // Ensure optimal >= 2 so optimal-1 is still in-range
     cvlr_assume!(params.optimal_utilization_ray >= 2);
 
-    let rate_below = calculate_borrow_rate(&e, Ray::from_raw(params.optimal_utilization_ray - 1), &params);
+    let rate_below = calculate_borrow_rate(
+        &e,
+        Ray::from_raw(params.optimal_utilization_ray - 1),
+        &params,
+    );
     let rate_at = calculate_borrow_rate(&e, Ray::from_raw(params.optimal_utilization_ray), &params);
 
     let diff = if rate_at >= rate_below {
@@ -207,7 +212,12 @@ fn deposit_rate_zero_when_no_utilization(e: Env) {
     cvlr_assume!(borrow_rate >= 0);
     cvlr_assume!(reserve_factor_bps >= 0 && reserve_factor_bps < BPS);
 
-    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from_raw(borrow_rate), reserve_factor_bps);
+    let rate = calculate_deposit_rate(
+        &e,
+        Ray::ZERO,
+        Ray::from_raw(borrow_rate),
+        reserve_factor_bps,
+    );
 
     cvlr_assert!(rate == Ray::ZERO);
 }
@@ -229,7 +239,12 @@ fn deposit_rate_less_than_borrow(e: Env) {
     cvlr_assume!(borrow_rate >= 0 && borrow_rate <= RAY);
     cvlr_assume!(reserve_factor_bps >= 0 && reserve_factor_bps < BPS);
 
-    let deposit_rate = calculate_deposit_rate(&e, Ray::from_raw(utilization), Ray::from_raw(borrow_rate), reserve_factor_bps);
+    let deposit_rate = calculate_deposit_rate(
+        &e,
+        Ray::from_raw(utilization),
+        Ray::from_raw(borrow_rate),
+        reserve_factor_bps,
+    );
     let upper_bound = mul_div_half_up(&e, utilization, borrow_rate, RAY);
 
     // Allow +1 for half-up rounding tolerance
@@ -359,8 +374,13 @@ fn supplier_rewards_conservation(e: Env) {
     cvlr_assume!(borrowed <= RAY * 1_000_000); // up to 1M scaled tokens
     cvlr_assume!(new_borrow_index <= RAY * 10); // up to 10x index
 
-    let (supplier_rewards, protocol_fee) =
-        calculate_supplier_rewards(&e, &params, Ray::from_raw(borrowed), Ray::from_raw(new_borrow_index), Ray::from_raw(old_borrow_index));
+    let (supplier_rewards, protocol_fee) = calculate_supplier_rewards(
+        &e,
+        &params,
+        Ray::from_raw(borrowed),
+        Ray::from_raw(new_borrow_index),
+        Ray::from_raw(old_borrow_index),
+    );
 
     // Reconstruct accrued interest
     let old_debt = mul_div_half_up(&e, borrowed, old_borrow_index, RAY);
@@ -401,7 +421,8 @@ fn update_borrow_index_monotonic(e: Env) {
     cvlr_assume!(old_index >= RAY);
     cvlr_assume!(interest_factor >= RAY); // compound interest is always >= 1.0
 
-    let new_index = update_borrow_index(&e, Ray::from_raw(old_index), Ray::from_raw(interest_factor));
+    let new_index =
+        update_borrow_index(&e, Ray::from_raw(old_index), Ray::from_raw(interest_factor));
 
     cvlr_assert!(new_index.raw() >= old_index);
 }
@@ -425,7 +446,12 @@ fn update_supply_index_monotonic(e: Env) {
     cvlr_assume!(supplied <= RAY * 1_000_000);
     cvlr_assume!(old_index <= RAY * 10);
 
-    let new_index = update_supply_index(&e, Ray::from_raw(supplied), Ray::from_raw(old_index), Ray::from_raw(rewards_increase));
+    let new_index = update_supply_index(
+        &e,
+        Ray::from_raw(supplied),
+        Ray::from_raw(old_index),
+        Ray::from_raw(rewards_increase),
+    );
 
     cvlr_assert!(new_index.raw() >= old_index);
 }

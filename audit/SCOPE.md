@@ -81,14 +81,14 @@
 - `stellar-access`, `stellar-macros`, `stellar-contract-utils` — OpenZeppelin Stellar contracts (ownable/access-control/pausable/upgradeable). v0.7.0 — young (~79★, project started Dec 2024). Recommend a targeted manual review of the access-control + ownable + pausable + upgradeable code paths exercised by the controller.
 - Reflector oracle contracts (external, on-chain) — `configs/<network>_markets.json` sets addresses per network
 
-## Operator policy preconditions (referenced from `DEPLOYMENT.md`)
+## Operator policy preconditions (referenced from `architecture/DEPLOYMENT.md`)
 
 The protocol's accounting math assumes properties that on-chain validation cannot enforce. `approve_token_wasm` MUST NOT admit:
 
 - **Fee-on-transfer tokens** (finding H-06)
 - **Rebasing tokens** (finding H-07)
 
-Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1 transfer semantics. See `DEPLOYMENT.md` § "Token allowlist policy".
+Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1 transfer semantics. See `architecture/DEPLOYMENT.md` § "Token allowlist policy".
 
 ## Build Verification
 

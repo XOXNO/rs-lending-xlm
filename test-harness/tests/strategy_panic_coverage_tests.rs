@@ -81,7 +81,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     let wbtc = t.resolve_asset("WBTC");
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
 
     let ctrl = t.ctrl_client();
     // initial_payment = WBTC (third token), convert_steps = None: must panic.
@@ -118,7 +118,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -274,8 +274,7 @@ fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
     let steps = build_swap_steps(&t, "USDC", "ETH", 100_000);
 
     // close_position=true: must reject with CannotCloseWithRemainingDebt.
-    let result =
-        t.try_repay_debt_with_collateral(ALICE, "USDC", 20.0, "ETH", &steps, true);
+    let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 20.0, "ETH", &steps, true);
     assert_contract_error(result, errors::CANNOT_CLOSE_WITH_REMAINING_DEBT);
 }
 
@@ -302,12 +301,10 @@ fn test_multiply_with_collateral_token_initial_payment() {
 
     // Mint 500 USDC to Alice so she can pay in with the same token she will
     // use as collateral.
-    usdc_market
-        .token_admin
-        .mint(&alice, &500_0000000i128);
+    usdc_market.token_admin.mint(&alice, &500_0000000i128);
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
 
     let ctrl = t.ctrl_client();
     let account_id = ctrl.multiply(
@@ -368,7 +365,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     // USDC). The mock aggregator funds each side independently, so fund
     // both.
     t.fund_router("USDC", 3_500.0); // 3000 for main + 500 for convert
-    let main_steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let main_steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let convert_steps = build_swap_steps(&t, "WBTC", "USDC", 500_0000000);
 
     let ctrl = t.ctrl_client();
@@ -422,9 +419,9 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     // over-pull).
     t.resolve_market("USDC")
         .token_admin
-        .mint(&bad, &3_000_00000000i128);
+        .mint(&bad, &300_000_000_000_i128);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -462,7 +459,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
         .build();
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let _account_id = t.multiply(
         ALICE,
         "USDC",
@@ -501,7 +498,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
 
     // Alice creates a leveraged position first.
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let alice_account = t.multiply(
         ALICE,
         "USDC",
@@ -513,7 +510,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
 
     // Bob tries to reuse Alice's account.
     t.fund_router("USDC", 3_000.0);
-    let steps2 = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps2 = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");

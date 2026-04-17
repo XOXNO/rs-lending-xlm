@@ -66,7 +66,11 @@ impl Ray {
     /// Upscale a token amount from asset decimals to RAY precision.
     /// Use at the token-entry boundary, before any scaled arithmetic.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
-        Ray(fp_core::rescale_half_up(amount, asset_decimals, RAY_DECIMALS))
+        Ray(fp_core::rescale_half_up(
+            amount,
+            asset_decimals,
+            RAY_DECIMALS,
+        ))
     }
 }
 

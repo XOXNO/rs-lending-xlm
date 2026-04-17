@@ -87,7 +87,7 @@ pub fn assert_contract_error<T: std::fmt::Debug>(
                 "expected contract error {} but got {:?}",
                 expected_code, err
             );
-        },
+        }
     }
 }
 

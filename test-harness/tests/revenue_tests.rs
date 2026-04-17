@@ -162,7 +162,7 @@ fn test_add_rewards_rejects_zero() {
         ),
         Err(Err(invoke_err)) => {
             panic!("expected contract error, got InvokeError: {:?}", invoke_err)
-        },
+        }
         _ => panic!("add_rewards with 0 amount should fail"),
     }
 }

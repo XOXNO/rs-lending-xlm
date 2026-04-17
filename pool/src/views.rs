@@ -59,8 +59,8 @@ pub fn borrow_rate(env: &Env) -> i128 {
 pub fn protocol_revenue(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
-    let actual_ray = Ray::from_raw(state.revenue_ray)
-        .mul(env, Ray::from_raw(state.supply_index_ray));
+    let actual_ray =
+        Ray::from_raw(state.revenue_ray).mul(env, Ray::from_raw(state.supply_index_ray));
     actual_ray.to_asset(params.asset_decimals)
 }
 
@@ -68,8 +68,8 @@ pub fn protocol_revenue(env: &Env) -> i128 {
 pub fn supplied_amount(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
-    let actual_ray = Ray::from_raw(state.supplied_ray)
-        .mul(env, Ray::from_raw(state.supply_index_ray));
+    let actual_ray =
+        Ray::from_raw(state.supplied_ray).mul(env, Ray::from_raw(state.supply_index_ray));
     actual_ray.to_asset(params.asset_decimals)
 }
 
@@ -77,8 +77,8 @@ pub fn supplied_amount(env: &Env) -> i128 {
 pub fn borrowed_amount(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
-    let actual_ray = Ray::from_raw(state.borrowed_ray)
-        .mul(env, Ray::from_raw(state.borrow_index_ray));
+    let actual_ray =
+        Ray::from_raw(state.borrowed_ray).mul(env, Ray::from_raw(state.borrow_index_ray));
     actual_ray.to_asset(params.asset_decimals)
 }
 

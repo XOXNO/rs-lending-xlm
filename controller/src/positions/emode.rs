@@ -79,7 +79,7 @@ pub fn validate_e_mode_asset(env: &Env, e_mode_category_id: u32, asset: &Address
 
     let config = token_e_mode_config(env, e_mode_category_id, asset);
     match config {
-        None => {},
+        None => {}
         Some(cfg) => {
             if is_supply && !cfg.is_collateralizable {
                 panic_with_error!(env, CollateralError::NotCollateral);
@@ -87,7 +87,7 @@ pub fn validate_e_mode_asset(env: &Env, e_mode_category_id: u32, asset: &Address
             if !is_supply && !cfg.is_borrowable {
                 panic_with_error!(env, CollateralError::AssetNotBorrowable);
             }
-        },
+        }
     }
 }
 

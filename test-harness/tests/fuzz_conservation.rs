@@ -7,23 +7,23 @@
 //!
 //! Laws (per asset X):
 //!
-//!   1. Pool solvency identity (reserves ≥ supplied − borrowed):
-//!        pool_reserves(X) + total_borrowed(X) ≥ total_supplied(X)
-//!      The pool's token balance must cover every supplier's withdrawable
-//!      claim. Donations or seed liquidity can push reserves above, but
-//!      never below, supplied − borrowed.
+//! 1. Pool solvency identity (reserves ≥ supplied − borrowed):
+//!    `pool_reserves(X) + total_borrowed(X) ≥ total_supplied(X)`. The
+//!    pool's token balance must cover every supplier's withdrawable claim.
+//!    Donations or seed liquidity can push reserves above, but never below,
+//!    `supplied − borrowed`.
 //!
-//!   2. Borrow conservation (user-aggregate ≈ pool-total):
-//!        Σ user_borrow_balance(X) ≈ total_borrowed(X)
-//!      within a small per-user rounding tolerance (1 asset-decimal unit each).
+//! 2. Borrow conservation (user-aggregate ≈ pool-total):
+//!    `Σ user_borrow_balance(X) ≈ total_borrowed(X)` within a small
+//!    per-user rounding tolerance (1 asset-decimal unit each).
 //!
-//!   3. Supply conservation (user-aggregate ≤ pool-total minus revenue):
-//!        Σ user_supply_balance(X) ≈ total_supplied(X) − protocol_revenue(X)
-//!      Protocol revenue lives inside `supplied_ray` but belongs to no user.
-//!      (INVARIANTS.md §4: 0 ≤ revenue_ray ≤ supplied_ray.)
+//! 3. Supply conservation (user-aggregate ≤ pool-total minus revenue):
+//!    `Σ user_supply_balance(X) ≈ total_supplied(X) − protocol_revenue(X)`.
+//!    Protocol revenue lives inside `supplied_ray` but belongs to no user.
+//!    (architecture/INVARIANTS.md §4: `0 ≤ revenue_ray ≤ supplied_ray`.)
 //!
-//!   4. Reserves non-negative (strict):
-//!        pool_reserves(X) ≥ 0 (no −0.0001 slack).
+//! 4. Reserves non-negative (strict):
+//!    `pool_reserves(X) ≥ 0` (no −0.0001 slack).
 //!
 //! The op distribution deliberately tilts toward supply over borrow, to
 //! counter the bias Codex noted in `fuzz_multi_asset_solvency.rs`.
@@ -36,12 +36,32 @@ const USERS: [&str; 2] = [ALICE, BOB];
 
 #[derive(Clone, Debug)]
 enum Op {
-    Supply { user: &'static str, asset: &'static str, amt: u32 },
-    Borrow { user: &'static str, asset: &'static str, amt: u32 },
-    Repay { user: &'static str, asset: &'static str, frac_bps: u16 },
-    Withdraw { user: &'static str, asset: &'static str, frac_bps: u16 },
-    Advance { secs: u32 },
-    ClaimRevenue { asset: &'static str },
+    Supply {
+        user: &'static str,
+        asset: &'static str,
+        amt: u32,
+    },
+    Borrow {
+        user: &'static str,
+        asset: &'static str,
+        amt: u32,
+    },
+    Repay {
+        user: &'static str,
+        asset: &'static str,
+        frac_bps: u16,
+    },
+    Withdraw {
+        user: &'static str,
+        asset: &'static str,
+        frac_bps: u16,
+    },
+    Advance {
+        secs: u32,
+    },
+    ClaimRevenue {
+        asset: &'static str,
+    },
 }
 
 fn user_strat() -> impl Strategy<Value = &'static str> {
@@ -84,17 +104,11 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 const TOLERANCE_UNITS: i128 = 4;
 
 fn sum_supply(t: &LendingTest, asset: &str) -> i128 {
-    USERS
-        .iter()
-        .map(|u| t.supply_balance_raw(u, asset))
-        .sum()
+    USERS.iter().map(|u| t.supply_balance_raw(u, asset)).sum()
 }
 
 fn sum_borrow(t: &LendingTest, asset: &str) -> i128 {
-    USERS
-        .iter()
-        .map(|u| t.borrow_balance_raw(u, asset))
-        .sum()
+    USERS.iter().map(|u| t.borrow_balance_raw(u, asset)).sum()
 }
 
 struct PoolSnapshot {

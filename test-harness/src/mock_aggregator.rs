@@ -106,18 +106,14 @@ impl BadAggregator {
                 // and trigger the controller's InternalError guard. Any
                 // excess token_in on the aggregator (test-seeded) is used.
                 if amount_out_min > 0 {
-                    out_client.transfer(
-                        &env.current_contract_address(),
-                        &to,
-                        &amount_out_min,
-                    );
+                    out_client.transfer(&env.current_contract_address(), &to, &amount_out_min);
                 }
                 // Net-positive refund: send token_in to the caller.
                 let refund = amount_in;
                 if refund > 0 {
                     in_client.transfer(&env.current_contract_address(), &to, &refund);
                 }
-            },
+            }
             BadMode::OverPull => {
                 // Pull `amount_in * 2` — the controller's `actual_in_spent`
                 // check must fire.
@@ -129,13 +125,9 @@ impl BadAggregator {
                     &overshoot,
                 );
                 if amount_out_min > 0 {
-                    out_client.transfer(
-                        &env.current_contract_address(),
-                        &to,
-                        &amount_out_min,
-                    );
+                    out_client.transfer(&env.current_contract_address(), &to, &amount_out_min);
                 }
-            },
+            }
             BadMode::OutputShortfall => {
                 in_client.transfer_from(
                     &env.current_contract_address(),
@@ -144,7 +136,7 @@ impl BadAggregator {
                     &amount_in,
                 );
                 // Deliberately skip transferring token_out.
-            },
+            }
         }
 
         Vec::new(&env)

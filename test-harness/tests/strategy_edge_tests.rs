@@ -53,9 +53,7 @@ fn flatten<T>(
     match r {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(e),
-        Err(invoke) => {
-            Err(invoke.expect("expected contract error, got host-level InvokeError"))
-        },
+        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     }
 }
 
@@ -209,7 +207,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_0000000);
+    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -301,8 +299,8 @@ fn test_multiply_emode_wrong_category_collateral() {
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("ETH"); // not in e-mode category
     let debt_addr = t.resolve_asset("USDC"); // in e-mode category
-    // Fund the mock router so the swap itself succeeds; this lets the emode
-    // check on the deposit leg fire (otherwise the router fails first).
+                                             // Fund the mock router so the swap itself succeeds; this lets the emode
+                                             // check on the deposit leg fire (otherwise the router fails first).
     t.fund_router("ETH", 5.0);
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
 
@@ -691,7 +689,7 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
 
     t.fund_router("USDT", 1_000.0);
-    let steps = build_swap_steps(&t, "USDC", "USDT", 1_000_0000000);
+    let steps = build_swap_steps(&t, "USDC", "USDT", 10_000_000_000);
     t.swap_collateral(ALICE, "USDC", 1_000.0, "USDT", &steps);
 
     let (ltv, threshold) = supply_position_params(&t, account_id, "USDT");
@@ -1400,9 +1398,7 @@ fn test_swap_debt_wrong_account_owner() {
     let flat: Result<(), soroban_sdk::Error> = match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e.into()),
-        Err(invoke) => {
-            Err(invoke.expect("expected contract error, got host-level InvokeError"))
-        },
+        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
     assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
 }
@@ -1440,9 +1436,7 @@ fn test_swap_collateral_wrong_account_owner() {
     let flat: Result<(), soroban_sdk::Error> = match result {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e.into()),
-        Err(invoke) => {
-            Err(invoke.expect("expected contract error, got host-level InvokeError"))
-        },
+        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
     assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
 }

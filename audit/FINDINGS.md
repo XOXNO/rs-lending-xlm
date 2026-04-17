@@ -46,7 +46,7 @@ pool_client.repay(caller, position, &amount, &price_wad);
 
 ### H-03 — `add_protocol_revenue` (asset-decimal variant) lacks `SUPPLY_INDEX_FLOOR_RAW` guard
 **Files**: `pool/src/interest.rs:53-61`; callers `pool/src/lib.rs:206` (liquidation withdraw fee), `pool/src/lib.rs:371` (flash-loan fee)
-**Status**: ✅ verified — already documented in `MATH_REVIEW.md §5.5`, never fixed
+**Status**: ✅ verified — already documented in `architecture/MATH_REVIEW.md §5.5`, never fixed
 **Description**: `add_protocol_revenue_ray` skips fee accrual when `supply_index < SUPPLY_INDEX_FLOOR_RAW` (line 71). The asset-decimal sibling does NOT mirror this guard. Both call sites (liquidation withdraw fee, flash-loan fee) run AFTER `interest::global_sync`, which may have just clamped the index to the floor `10^18`. The next call to `add_protocol_revenue` divides `Ray::from_asset(fee, dec)` by the near-zero index, producing astronomical scaled amounts that overflow downstream additions to `supplied`/`revenue`.
 **Fix**: mirror `add_protocol_revenue_ray`'s floor check into `add_protocol_revenue`.
 🔧 (1-line fix)
@@ -80,7 +80,7 @@ pool_client.repay(caller, position, &amount, &price_wad);
 📝
 
 ### H-08 — SAC issuer upgrades silently invalidate cached `asset_decimals` / `cex_decimals`
-**Files**: `controller/src/router.rs:44-47`, `controller/src/config.rs:347, 353`; `STELLAR_NOTES.md` Q9
+**Files**: `controller/src/router.rs:44-47`, `controller/src/config.rs:347, 353`; `architecture/STELLAR_NOTES.md` Q9
 **Status**: ⚠️ verified — design tradeoff (Soroban exposes no `code_hash(addr)`)
 **Description**: `cex_decimals`/`asset_decimals` read once at `create_liquidity_pool` and `configure_market_oracle`, then cached in `MarketConfig`/`MarketParams` and never re-read. Stellar issuers can upgrade their issued-asset SAC. If the new version changes `decimals()`, all `from_token`/`to_token` math drifts silently. `update_params` only updates the rate model — no endpoint refreshes `asset_decimals`.
 **Fix**: add `refresh_market_decimals(asset)` admin endpoint that re-reads `token.decimals()` and refuses (with operator review) if it changed. Emit alert event for monitoring.
@@ -223,8 +223,8 @@ pool_client.repay(caller, position, &amount, &price_wad);
 **Status**: ⚠️ theoretical at >10^11 RAY supplied; verify `mul_div_half_up` widens to i256
 **Note**: `common/src/fp_core.rs` already uses I256 for `compound_interest`; verify the same for the bad-debt accumulator path.
 
-### L-12 — INVARIANTS.md §4 under-documents the `seize_position` Deposit revenue path
-**File**: `INVARIANTS.md §4`
+### L-12 — architecture/INVARIANTS.md §4 under-documents the `seize_position` Deposit revenue path
+**File**: `architecture/INVARIANTS.md §4`
 **Status**: 📝 doc-only; code is correct
 **Description**: §4 documents only `add_protocol_revenue` as the "increment both revenue and supplied" path. `pool/src/lib.rs:441-446` (`seize_position` Deposit branch) is a third path that increments revenue without re-incrementing supplied; the invariant `revenue ≤ supplied` still holds because the seized position was already counted in supplied. Add a sentence to §4.
 
@@ -297,7 +297,7 @@ pool_client.repay(caller, position, &amount, &price_wad);
 
 ## Spec-to-Code Compliance Summary
 
-16 of 18 INVARIANTS.md sections enforced cleanly with citable code. 1 partial (§4 spec under-documents the `seize_position` revenue path — see L-12). 1 not testable from a static pass (§18 process checklist). No exploitable drift beyond the two known items already in `MATH_REVIEW.md`.
+16 of 18 architecture/INVARIANTS.md sections enforced cleanly with citable code. 1 partial (§4 spec under-documents the `seize_position` revenue path — see L-12). 1 not testable from a static pass (§18 process checklist). No exploitable drift beyond the two known items already in `architecture/MATH_REVIEW.md`.
 
 ---
 

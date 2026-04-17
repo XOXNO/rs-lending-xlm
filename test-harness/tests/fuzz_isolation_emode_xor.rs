@@ -7,7 +7,7 @@
 
 use common::types::{AccountMeta, ControllerKey, PositionMode};
 use proptest::prelude::*;
-use test_harness::{usdc_preset, xlm_preset, LendingTest, STABLECOIN_EMODE, ALICE};
+use test_harness::{usdc_preset, xlm_preset, LendingTest, ALICE, STABLECOIN_EMODE};
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]

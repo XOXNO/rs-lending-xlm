@@ -74,12 +74,7 @@ impl LiquidityPool {
     // Constructor
     // -----------------------------------------------------------------------
 
-    pub fn __constructor(
-        env: Env,
-        admin: Address,
-        params: MarketParams,
-        accumulator: Address,
-    ) {
+    pub fn __constructor(env: Env, admin: Address, params: MarketParams, accumulator: Address) {
         // Store the pool owner.
         ownable::set_owner(&env, &admin);
 
@@ -88,7 +83,9 @@ impl LiquidityPool {
 
         // L-05: store the accumulator address once. claim_revenue reads
         // from this slot rather than trusting a caller-supplied address.
-        env.storage().instance().set(&PoolKey::Accumulator, &accumulator);
+        env.storage()
+            .instance()
+            .set(&PoolKey::Accumulator, &accumulator);
 
         // Initialize pool state.
         let state = common::types::PoolState {
@@ -745,8 +742,7 @@ mod tests {
 
             // L-05: pool now requires an accumulator at construction.
             // Test fixture uses `admin` as a stand-in destination.
-            let pool_address =
-                env.register(LiquidityPool, (admin.clone(), params, admin.clone()));
+            let pool_address = env.register(LiquidityPool, (admin.clone(), params, admin.clone()));
 
             // Mint tokens to the pool for reserves.
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
@@ -1386,14 +1382,7 @@ mod tests {
 
         let gross = 10_000_000_000_i128;
         let fee = 10_000_000_i128;
-        let final_pos = client.withdraw(
-            &user,
-            &gross,
-            &updated_pos.position,
-            &true,
-            &fee,
-            &0i128,
-        );
+        let final_pos = client.withdraw(&user, &gross, &updated_pos.position, &true, &fee, &0i128);
 
         let user_balance_after = tok.balance(&user);
         assert_eq!(
@@ -1532,19 +1521,41 @@ mod tests {
         let new_reserve = 2000i128;
 
         client.update_params(
-            &new_max, &new_base, &new_s1, &new_s2, &new_s3, &new_mid, &new_opt, &new_reserve,
+            &new_max,
+            &new_base,
+            &new_s1,
+            &new_s2,
+            &new_s3,
+            &new_mid,
+            &new_opt,
+            &new_reserve,
         );
 
         // Every field must round-trip exactly.
         let sync = client.get_sync_data();
-        assert_eq!(sync.params.max_borrow_rate_ray, new_max, "max_borrow_rate_ray");
-        assert_eq!(sync.params.base_borrow_rate_ray, new_base, "base_borrow_rate_ray");
+        assert_eq!(
+            sync.params.max_borrow_rate_ray, new_max,
+            "max_borrow_rate_ray"
+        );
+        assert_eq!(
+            sync.params.base_borrow_rate_ray, new_base,
+            "base_borrow_rate_ray"
+        );
         assert_eq!(sync.params.slope1_ray, new_s1, "slope1_ray");
         assert_eq!(sync.params.slope2_ray, new_s2, "slope2_ray");
         assert_eq!(sync.params.slope3_ray, new_s3, "slope3_ray");
-        assert_eq!(sync.params.mid_utilization_ray, new_mid, "mid_utilization_ray");
-        assert_eq!(sync.params.optimal_utilization_ray, new_opt, "optimal_utilization_ray");
-        assert_eq!(sync.params.reserve_factor_bps, new_reserve, "reserve_factor_bps");
+        assert_eq!(
+            sync.params.mid_utilization_ray, new_mid,
+            "mid_utilization_ray"
+        );
+        assert_eq!(
+            sync.params.optimal_utilization_ray, new_opt,
+            "optimal_utilization_ray"
+        );
+        assert_eq!(
+            sync.params.reserve_factor_bps, new_reserve,
+            "reserve_factor_bps"
+        );
 
         // Downstream sanity: with the base rate still 1% but higher slopes,
         // the borrow rate at 50% utilisation must reflect the *new* slope1

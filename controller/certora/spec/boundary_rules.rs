@@ -260,7 +260,12 @@ fn bonus_at_hf_exactly_102(e: Env) {
     let max_bonus_bps: i128 = 1000; // 10%
 
     // Call the actual helper used in liquidation (not a local reimplementation)
-    let bonus = crate::helpers::calculate_linear_bonus(&e, Wad::from_raw(hf_wad), Bps::from_raw(base_bonus_bps), Bps::from_raw(max_bonus_bps));
+    let bonus = crate::helpers::calculate_linear_bonus(
+        &e,
+        Wad::from_raw(hf_wad),
+        Bps::from_raw(base_bonus_bps),
+        Bps::from_raw(max_bonus_bps),
+    );
 
     // At HF == 1.02, gap = 0, so bonus must equal base_bonus (within +/-1 for rounding)
     cvlr_assert!((bonus.raw() - base_bonus_bps).abs() <= 1);
@@ -288,8 +293,7 @@ fn bonus_at_hf_exactly_102_sanity() {
 fn bad_debt_at_exactly_5_usd(e: Env, account_id: u64) {
     let bad_debt_threshold = Wad::from_raw(5 * WAD);
 
-    let total_collateral_usd =
-        crate::views::total_collateral_in_usd(&e, account_id);
+    let total_collateral_usd = crate::views::total_collateral_in_usd(&e, account_id);
     let total_debt_usd = crate::views::total_borrow_in_usd(&e, account_id);
 
     cvlr_assume!(total_collateral_usd == 5 * WAD);
@@ -317,8 +321,7 @@ fn bad_debt_at_exactly_5_usd_sanity() {
 fn bad_debt_at_6_usd(e: Env, account_id: u64) {
     let bad_debt_threshold = Wad::from_raw(5 * WAD);
 
-    let total_collateral_usd =
-        crate::views::total_collateral_in_usd(&e, account_id);
+    let total_collateral_usd = crate::views::total_collateral_in_usd(&e, account_id);
     let total_debt_usd = crate::views::total_borrow_in_usd(&e, account_id);
 
     cvlr_assume!(total_collateral_usd == 6 * WAD);

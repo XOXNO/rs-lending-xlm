@@ -494,7 +494,10 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params, controller.clone()));
+            let pool = env.register(
+                pool::LiquidityPool,
+                (controller.clone(), params, controller.clone()),
+            );
 
             Self {
                 env,
@@ -524,7 +527,7 @@ mod tests {
                 isolation_borrow_enabled: true,
                 isolation_debt_ceiling_usd_wad: 0,
                 flashloan_fee_bps: 9,
-                borrow_cap: borrow_cap,
+                borrow_cap,
                 supply_cap: i128::MAX,
             }
         }

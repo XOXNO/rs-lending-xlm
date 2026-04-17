@@ -26,11 +26,11 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
     match market.status {
         MarketStatus::PendingOracle => {
             panic_with_error!(cache.env(), GenericError::PairNotActive);
-        },
+        }
         MarketStatus::Disabled if !cache.allow_disabled_market_price => {
             panic_with_error!(cache.env(), GenericError::PairNotActive);
-        },
-        _ => {},
+        }
+        _ => {}
     }
 
     let config = market.oracle_config;
@@ -83,7 +83,7 @@ fn normal_price(
         ExchangeSource::SpotOnly => {
             // Dev/test mode: single spot price, no TWAP, no deviation check.
             cex_spot_price(cache, asset, &market, max_stale)
-        },
+        }
         ExchangeSource::DualOracle => {
             // Production Tier 1: CEX TWAP vs Stellar DEX spot cross-validation.
             // DEX unavailability degrades gracefully to TWAP-only and never
@@ -91,13 +91,13 @@ fn normal_price(
             let twap = cex_twap_price(cache, asset, &market, max_stale);
             let dex = dex_spot_price(cache, asset, &market, max_stale);
             calculate_final_price(cache, dex, Some(twap), configs)
-        },
+        }
         _ => {
             // EXCHANGE_SOURCE_SPOT_VS_TWAP (1) and any other value.
             // Standard mode: Pulse spot as aggregator, Pulse TWAP as safe price.
             let (spot, twap) = cex_spot_and_twap_price(cache, asset, &market, max_stale);
             calculate_final_price(cache, Some(spot), Some(twap), configs)
-        },
+        }
     }
 }
 
@@ -138,12 +138,12 @@ pub(crate) fn calculate_final_price(
                 }
                 safe_price
             }
-        },
+        }
         (Some(agg_price), None) => agg_price,
         (None, Some(safe_price)) => safe_price,
         (None, None) => {
             panic_with_error!(env, OracleError::NoLastPrice);
-        },
+        }
     }
 }
 
@@ -352,7 +352,9 @@ pub(crate) fn is_within_anchor(
         return false;
     }
     // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS.
-    let ratio_ray = common::fp::Ray::from_raw(safe).div(env, common::fp::Ray::from_raw(aggregator)).raw();
+    let ratio_ray = common::fp::Ray::from_raw(safe)
+        .div(env, common::fp::Ray::from_raw(aggregator))
+        .raw();
     let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
 
     ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
@@ -381,7 +383,7 @@ pub fn price_components(
         ExchangeSource::SpotOnly => {
             let spot = cex_spot_price(cache, asset, &market, max_stale);
             (Some(spot), None, spot, true, true)
-        },
+        }
         ExchangeSource::DualOracle => {
             let safe_price = cex_twap_price(cache, asset, &market, max_stale);
             let aggregator_price = dex_spot_price(cache, asset, &market, max_stale);
@@ -412,10 +414,10 @@ pub fn price_components(
                         within_first,
                         within_second,
                     )
-                },
+                }
                 None => (None, Some(safe_price), final_price, true, true),
             }
-        },
+        }
         _ => {
             let (aggregator_price, safe_price) =
                 cex_spot_and_twap_price(cache, asset, &market, max_stale);
@@ -444,7 +446,7 @@ pub fn price_components(
                 within_first,
                 within_second,
             )
-        },
+        }
     }
 }
 
@@ -1295,11 +1297,8 @@ mod tests {
             let mut cache = ControllerCache::new(&t.env, true);
             let mut rcfg = t.reflector_config(ReflectorAssetKind::Stellar, None);
             rcfg.twap_records = 6;
-            let market = t.market_with_reflector(
-                OracleType::Normal,
-                ExchangeSource::SpotVsTwap,
-                rcfg,
-            );
+            let market =
+                t.market_with_reflector(OracleType::Normal, ExchangeSource::SpotVsTwap, rcfg);
             let _ = cex_spot_and_twap_price(&mut cache, &t.asset, &market, 900);
         });
     }
@@ -1336,11 +1335,8 @@ mod tests {
             let mut cache = ControllerCache::new(&t.env, true);
             let mut rcfg = t.reflector_config(ReflectorAssetKind::Stellar, None);
             rcfg.twap_records = 6;
-            let market = t.market_with_reflector(
-                OracleType::Normal,
-                ExchangeSource::DualOracle,
-                rcfg,
-            );
+            let market =
+                t.market_with_reflector(OracleType::Normal, ExchangeSource::DualOracle, rcfg);
             let _ = cex_twap_price(&mut cache, &t.asset, &market, 900);
         });
     }
@@ -1371,10 +1367,7 @@ mod tests {
             price: 200_000_000_000_000,
             timestamp: 995,
         }));
-        cex_client.set_history(
-            &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &hist,
-        );
+        cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
         // Aggregator within first tier (1% deviation)
         dex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
@@ -1422,10 +1415,7 @@ mod tests {
             price: 200_000_000_000_000,
             timestamp: 995,
         }));
-        cex_client.set_history(
-            &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &hist,
-        );
+        cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
             let mut cache = ControllerCache::new(&t.env, true);
@@ -1464,10 +1454,7 @@ mod tests {
             price: 200_000_000_000_000,
             timestamp: 995,
         }));
-        cex_client.set_history(
-            &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &hist,
-        );
+        cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
             let mut cache = ControllerCache::new(&t.env, false);
@@ -1553,10 +1540,7 @@ mod tests {
             price: 200_000_000_000_000,
             timestamp: 995,
         }));
-        cex_client.set_history(
-            &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &hist,
-        );
+        cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
             let mut cache = ControllerCache::new(&t.env, true);
@@ -1597,10 +1581,7 @@ mod tests {
             price: 200_000_000_000_000,
             timestamp: 995,
         }));
-        cex_client.set_history(
-            &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &hist,
-        );
+        cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
         // DEX aggregator deviating ~4% from TWAP (outside first 2%, inside second 10%)
         dex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),

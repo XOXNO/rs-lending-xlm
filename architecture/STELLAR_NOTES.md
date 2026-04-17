@@ -51,7 +51,7 @@ Items this team understands **less firmly** after migrating from MultiversX. Eac
 - Stellar Asset Contract (SAC) implements an ERC-20-like ABI: `transfer`, `transfer_from`, `approve`, `balance`, `decimals`.
 - `transfer` panics on insufficient balance and returns nothing.
 - `transfer_from` requires a prior `approve`.
-- Fee repayment in `flash_loan_end` uses plain `tok.transfer(receiver→pool, amount+fee)` (verified pool/lib.rs:353), NOT ERC-20 `transfer_from`/`approve`. Soroban SAC `transfer(from, to, amount)` requires `from.require_auth()` internally — so the receiver must pre-authorize via `env.authorize_as_current_contract(...)` inside `execute_flash_loan`. See Q13b below and `audit/ACTORS.md` flash-loan section.
+- Fee repayment in `flash_loan_end` uses plain `tok.transfer(receiver→pool, amount+fee)` (verified pool/lib.rs:353), NOT ERC-20 `transfer_from`/`approve`. Soroban SAC `transfer(from, to, amount)` requires `from.require_auth()` internally — so the receiver must pre-authorize via `env.authorize_as_current_contract(...)` inside `execute_flash_loan`. See Q13b below and `ACTORS.md` flash-loan section.
 
 ### What's unclear
 - **Q11**: SAC `decimals()` — does every Stellar asset expose it? Do wrapped XLM and Circle-issued USDC both? (config.rs:311-318 panics with `GenericError::InvalidAsset` when `try_decimals()` fails.)

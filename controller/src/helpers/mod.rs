@@ -27,12 +27,7 @@ use crate::cache::ControllerCache;
 // Position value helpers (used by health factor, liquidation, views)
 // ---------------------------------------------------------------------------
 
-pub fn position_value(
-    env: &Env,
-    scaled: Ray,
-    index: Ray,
-    price: Wad,
-) -> Wad {
+pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)
@@ -91,8 +86,12 @@ pub fn calculate_health_factor(
             Wad::from_raw(feed.price_wad),
         );
 
-        weighted_collateral_total =
-            weighted_collateral_total + weighted_collateral(env, value, Bps::from_raw(position.liquidation_threshold_bps));
+        weighted_collateral_total = weighted_collateral_total
+            + weighted_collateral(
+                env,
+                value,
+                Bps::from_raw(position.liquidation_threshold_bps),
+            );
     }
 
     // Sum borrow values.
@@ -157,8 +156,12 @@ pub fn calculate_account_totals(
         );
 
         total_collateral = total_collateral + value;
-        weighted_coll =
-            weighted_coll + weighted_collateral(env, value, Bps::from_raw(position.liquidation_threshold_bps));
+        weighted_coll = weighted_coll
+            + weighted_collateral(
+                env,
+                value,
+                Bps::from_raw(position.liquidation_threshold_bps),
+            );
     }
 
     let mut total_debt = Wad::ZERO;
@@ -207,12 +210,7 @@ pub fn calculate_linear_bonus_with_target(
 }
 
 #[cfg(feature = "certora")]
-pub fn calculate_linear_bonus(
-    env: &Env,
-    hf: Wad,
-    base_bonus: Bps,
-    max_bonus: Bps,
-) -> Bps {
+pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
     let target_hf = Wad::from_raw(1_020_000_000_000_000_000);
     calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
 }
@@ -229,13 +227,8 @@ pub fn estimate_liquidation_amount(
     total_collateral: Wad,
 ) -> (Wad, Bps) {
     let target_primary = Wad::from_raw(1_020_000_000_000_000_000);
-    let bonus_primary = calculate_linear_bonus_with_target(
-        env,
-        hf,
-        base_bonus,
-        max_bonus,
-        target_primary,
-    );
+    let bonus_primary =
+        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_primary);
     if let Some(d) = try_liquidation_at_target(
         env,
         total_debt,
@@ -259,13 +252,8 @@ pub fn estimate_liquidation_amount(
     }
 
     let target_fallback = Wad::from_raw(1_010_000_000_000_000_000);
-    let bonus_fallback = calculate_linear_bonus_with_target(
-        env,
-        hf,
-        base_bonus,
-        max_bonus,
-        target_fallback,
-    );
+    let bonus_fallback =
+        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_fallback);
     let fallback_result = try_liquidation_at_target(
         env,
         total_debt,
@@ -395,7 +383,10 @@ pub fn get_account_bonus_params(
         weighted_bonus_sum += weight.mul(env, Wad::from_raw(bonus_bps)).raw();
     }
 
-    (Bps::from_raw(weighted_bonus_sum), Bps::from_raw(MAX_LIQUIDATION_BONUS))
+    (
+        Bps::from_raw(weighted_bonus_sum),
+        Bps::from_raw(MAX_LIQUIDATION_BONUS),
+    )
 }
 
 #[cfg(test)]
@@ -469,8 +460,7 @@ mod tests {
         let bonus = Bps::from_raw(500);
         let total_collateral = Wad::from_raw(150 * WAD);
         let one_plus_bonus = Wad::ONE + bonus.to_wad(&env);
-        let expected_d_max = total_collateral.div(&env, one_plus_bonus)
-            .min(total_debt);
+        let expected_d_max = total_collateral.div(&env, one_plus_bonus).min(total_debt);
 
         assert_eq!(
             try_liquidation_at_target(

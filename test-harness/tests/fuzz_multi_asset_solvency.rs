@@ -10,37 +10,77 @@
 use common::constants::WAD;
 use proptest::prelude::*;
 use soroban_sdk::Vec;
-use test_harness::{
-    eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
-};
+use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB};
 
 #[derive(Clone, Debug)]
 enum Op {
-    Supply { user: &'static str, asset: &'static str, amt: u32 },
-    Borrow { user: &'static str, asset: &'static str, amt: u32 },
-    Repay { user: &'static str, asset: &'static str, frac_bps: u16 },
-    Withdraw { user: &'static str, asset: &'static str, frac_bps: u16 },
-    Advance { secs: u32 },
+    Supply {
+        user: &'static str,
+        asset: &'static str,
+        amt: u32,
+    },
+    Borrow {
+        user: &'static str,
+        asset: &'static str,
+        amt: u32,
+    },
+    Repay {
+        user: &'static str,
+        asset: &'static str,
+        frac_bps: u16,
+    },
+    Withdraw {
+        user: &'static str,
+        asset: &'static str,
+        frac_bps: u16,
+    },
+    Advance {
+        secs: u32,
+    },
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
-        (prop_oneof![Just(ALICE), Just(BOB)],
-         prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
-         1u32..10_000u32)
-            .prop_map(|(u, a, amt)| Op::Supply { user: u, asset: a, amt }),
-        (prop_oneof![Just(ALICE), Just(BOB)],
-         prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
-         1u32..100u32)
-            .prop_map(|(u, a, amt)| Op::Borrow { user: u, asset: a, amt }),
-        (prop_oneof![Just(ALICE), Just(BOB)],
-         prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
-         1u16..10_000u16)
-            .prop_map(|(u, a, f)| Op::Repay { user: u, asset: a, frac_bps: f }),
-        (prop_oneof![Just(ALICE), Just(BOB)],
-         prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
-         1u16..10_000u16)
-            .prop_map(|(u, a, f)| Op::Withdraw { user: u, asset: a, frac_bps: f }),
+        (
+            prop_oneof![Just(ALICE), Just(BOB)],
+            prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
+            1u32..10_000u32
+        )
+            .prop_map(|(u, a, amt)| Op::Supply {
+                user: u,
+                asset: a,
+                amt
+            }),
+        (
+            prop_oneof![Just(ALICE), Just(BOB)],
+            prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
+            1u32..100u32
+        )
+            .prop_map(|(u, a, amt)| Op::Borrow {
+                user: u,
+                asset: a,
+                amt
+            }),
+        (
+            prop_oneof![Just(ALICE), Just(BOB)],
+            prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
+            1u16..10_000u16
+        )
+            .prop_map(|(u, a, f)| Op::Repay {
+                user: u,
+                asset: a,
+                frac_bps: f
+            }),
+        (
+            prop_oneof![Just(ALICE), Just(BOB)],
+            prop_oneof![Just("USDC"), Just("ETH"), Just("WBTC")],
+            1u16..10_000u16
+        )
+            .prop_map(|(u, a, f)| Op::Withdraw {
+                user: u,
+                asset: a,
+                frac_bps: f
+            }),
         (60u32..(7 * 24 * 3600)).prop_map(|s| Op::Advance { secs: s }),
     ]
 }
@@ -71,7 +111,11 @@ fn capture_all_indexes(t: &LendingTest) -> [(i128, i128); 3] {
     for (i, asset) in ["USDC", "ETH", "WBTC"].iter().enumerate() {
         let mut assets = Vec::new(&t.env);
         assets.push_back(t.resolve_asset(asset));
-        let v = t.ctrl_client().get_all_market_indexes_detailed(&assets).get(0).unwrap();
+        let v = t
+            .ctrl_client()
+            .get_all_market_indexes_detailed(&assets)
+            .get(0)
+            .unwrap();
         out[i] = (v.supply_index_ray, v.borrow_index_ray);
     }
     out

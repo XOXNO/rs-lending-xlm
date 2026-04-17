@@ -229,7 +229,10 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params, controller.clone()));
+            let pool = env.register(
+                pool::LiquidityPool,
+                (controller.clone(), params, controller.clone()),
+            );
 
             let reflector = env.register(crate::helpers::testutils::TestReflector, ());
             let r_client = crate::helpers::testutils::TestReflectorClient::new(&env, &reflector);

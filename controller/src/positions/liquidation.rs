@@ -163,22 +163,16 @@ pub(crate) fn execute_liquidation(
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
-    let (total_collateral, total_debt, weighted_coll) =
-        helpers::calculate_account_totals(
-            env,
-            cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        );
+    let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
+        env,
+        cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
 
     // 2. Portfolio seizure proportions (MVX: calculate_seizure_proportions).
-    let (proportion_seized, bonus_params) = calculate_seizure_proportions(
-        env,
-        account,
-        total_collateral,
-        weighted_coll,
-        cache,
-    );
+    let (proportion_seized, bonus_params) =
+        calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
 
     // 3. Solve the auction (MVX: calculate_liquidation_amounts).
     let (total_debt_payment_usd, repaid_tokens) =
@@ -209,12 +203,7 @@ pub(crate) fn execute_liquidation(
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
         let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
-        process_excess_payment(
-            env,
-            &mut final_repayment_tokens,
-            &mut refunds,
-            excess_usd,
-        );
+        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
     (
@@ -367,9 +356,12 @@ fn calculate_seized_collateral(
         // `protocol_fee >= bonus * fees_bps / BPS` rather than ≤, keeping the
         // protocol's take from being shaved by half-up rounding.
         let capped_amount = seizure_amount.min(actual_amount);
-        let base_amount = Wad::from_raw(capped_amount).div_floor(env, one_plus_bonus).raw();
+        let base_amount = Wad::from_raw(capped_amount)
+            .div_floor(env, one_plus_bonus)
+            .raw();
         let bonus_portion = capped_amount - base_amount;
-        let protocol_fee = Bps::from_raw(asset_config.liquidation_fees_bps).apply_to(env, bonus_portion);
+        let protocol_fee =
+            Bps::from_raw(asset_config.liquidation_fees_bps).apply_to(env, bonus_portion);
 
         seized.push_back((asset, capped_amount, protocol_fee, feed, market_index));
     }

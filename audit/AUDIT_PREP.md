@@ -20,21 +20,21 @@
 - **Flash loan re-entrancy semantics on Soroban.** **Every** mutating controller endpoint — `supply`/`borrow`/`repay`/`withdraw` included — checks the single-bool `FlashLoanOngoing` (Instance storage). The receiver callback can only reach external contracts (aggregator, tokens). Auditors should confirm Soroban's panic-rollback semantics clear the flag under sub-call failures. See `THREAT_MODEL.md §1` (revised).
 - **Stellar protocol limits** constrain bulk batches: 400M instructions per tx, 200 disk-read entries, 200 write-ledger entries, 132 KB tx size, 16 KB events. Bulk endpoints `supply`, `borrow`, `withdraw`, `repay` accept `Vec<(Address, i128)>`; `liquidate` accepts `Vec<(Address, i128)>` debt payments and seizes *all* of an account's collateral assets. **Worst-case footprint per asset count remains undocumented.** See `THREAT_MODEL.md §3`.
 - **Token transfer semantics on Soroban.** SAC `transfer` checks balance but returns no bool — failure panics the entire host call. Confirm: does any code path infer transfer success from "no panic"?
-- **Reflector oracle behavior.** Differs from MultiversX price aggregator: TWAP record availability, decimal handling per asset kind (`Stellar` vs `Other`), staleness vs not-yet-published. See `STELLAR_NOTES.md §3`.
+- **Reflector oracle behavior.** Differs from MultiversX price aggregator: TWAP record availability, decimal handling per asset kind (`Stellar` vs `Other`), staleness vs not-yet-published. See `architecture/STELLAR_NOTES.md §3`.
 - **Inner contract auth propagation.** When controller calls pool and pool transfers tokens, confirm the auth tree the host enforces matches our model (`pool/src/lib.rs:1596`).
 
 ### Auth and missing-check surface
 
-- Confirm every public fn carries `#[only_owner]`, `#[only_role(...)]`, `caller.require_auth()`, or is a pure view. See `ENTRYPOINT_AUTH_MATRIX.md`.
-- Confirm `verify_admin` covers every pool mutator and that construction sets the admin to exactly the controller. See `STELLAR_NOTES.md §4`.
+- Confirm every public fn carries `#[only_owner]`, `#[only_role(...)]`, `caller.require_auth()`, or is a pure view. See `architecture/ENTRYPOINT_AUTH_MATRIX.md`.
+- Confirm `verify_admin` covers every pool mutator and that construction sets the admin to exactly the controller. See `architecture/STELLAR_NOTES.md §4`.
 - Confirm role-gated functions that take a `caller: Address` param actually use it (some are `let _ = caller;` shims — watch for log/audit gaps).
 
 ### Liquidation complexity
 
 - Three-tier target HF cascade (`1.02` → `1.01` → fallback `d_max = total_coll / (1+base_bonus)`) guarded against `new_hf < old_hf` regression.
-- Bad-debt socialization with a $5 per-account threshold and supply-index floor `10^18` raw (see `INVARIANTS.md §7`).
+- Bad-debt socialization with a $5 per-account threshold and supply-index floor `10^18` raw (see `architecture/INVARIANTS.md §7`).
 - Per-asset seizure splits into `base + bonus + protocol_fee_on_bonus` — confirm the rounding direction across the three slices preserves `Σ slices ≤ collateral_seized`.
-- **Dust-erasure asymmetry on isolated debt** (decrement-only) — known issue per `INVARIANTS.md §11` and `MATH_REVIEW.md §5.1`.
+- **Dust-erasure asymmetry on isolated debt** (decrement-only) — known issue per `architecture/INVARIANTS.md §11` and `architecture/MATH_REVIEW.md §5.1`.
 
 ### Bulk / batch threat models
 
@@ -44,8 +44,8 @@
 
 ### Misconfiguration self-defense
 
-- `validate_interest_rate_model` enforces monotone slopes, util ordering, RF range. **Confirm completeness** — see `CONFIG_INVARIANTS.md` for gap analysis.
-- `validate_asset_config` checks LT > LTV, bonus ≤ MAX_LIQUIDATION_BONUS, fees ≤ 100%, non-negative caps, but skips `isolation_debt_ceiling_usd_wad >= 0` and `flashloan_fee_bps >= 0`. See `CONFIG_INVARIANTS.md §3`.
+- `validate_interest_rate_model` enforces monotone slopes, util ordering, RF range. **Confirm completeness** — see `architecture/CONFIG_INVARIANTS.md` for gap analysis.
+- `validate_asset_config` checks LT > LTV, bonus ≤ MAX_LIQUIDATION_BONUS, fees ≤ 100%, non-negative caps, but skips `isolation_debt_ceiling_usd_wad >= 0` and `flashloan_fee_bps >= 0`. See `architecture/CONFIG_INVARIANTS.md §3`.
 - Position limits clamp to `[1, 32]` (`config::set_position_limits`). Cross-check against worst-case liquidation gas.
 
 ## Worst-Case Scenarios
@@ -71,7 +71,7 @@
 
 ### For Certora (formal / spec)
 
-6. Confirm the rule-coverage gaps `MATH_REVIEW.md` documents, and produce a verdict for each.
+6. Confirm the rule-coverage gaps `architecture/MATH_REVIEW.md` documents, and produce a verdict for each.
 7. Spec-level: does `apply_bad_debt_to_supply_index` always preserve `revenue_ray ≤ supplied_ray` after the floor clamp?
 8. Spec-level: prove `accrued_interest = supplier_rewards + protocol_fee` under the actual half-up rounding implementation (not idealized math).
 9. Soroban toolchain blocker (CVLR build) — does the vendored fix at `vendor/cvlr/` suffice for end-to-end runs? See `controller/certora/SPIKES.md`.
@@ -94,8 +94,8 @@
 
 **Corrections applied to docs**:
 - `borrow` does NOT recompute HF after the batch — pre-borrow it checks only LTV. Removed the earlier ENTRYPOINT_AUTH_MATRIX claim; added an auditor ask about e-mode threshold overrides under that constraint.
-- `withdraw` HAS an `amount == 0` → `i128::MAX` sentinel (withdraw.rs:84). **DOC DRIFT FIXED**: updated `ARCHITECTURE.md:246` and the `MATH_REVIEW.md` drift table — both controller and pool sentinels now appear.
-- Pool's `flash_loan_end` calls plain `tok.transfer(receiver→pool, ...)` (pool/lib.rs:353), which requires Soroban-native `from.require_auth()` — NOT ERC-20 `transfer_from`/`approve`. The receiver must call `env.authorize_as_current_contract` in its callback. Corrected ACTORS.md.
+- `withdraw` HAS an `amount == 0` → `i128::MAX` sentinel (withdraw.rs:84). **DOC DRIFT FIXED**: updated `architecture/ARCHITECTURE.md:246` and the `architecture/MATH_REVIEW.md` drift table — both controller and pool sentinels now appear.
+- Pool's `flash_loan_end` calls plain `tok.transfer(receiver→pool, ...)` (pool/lib.rs:353), which requires Soroban-native `from.require_auth()` — NOT ERC-20 `transfer_from`/`approve`. The receiver must call `env.authorize_as_current_contract` in its callback. Corrected architecture/ACTORS.md.
 
 **Code hardening shipped during prep**:
 - `strategy.rs::swap_tokens` brackets the aggregator router call with `set_flash_loan_ongoing(true/false)` to block aggregator-callback re-entry into mutating controller endpoints.
@@ -114,16 +114,17 @@
 
 | Doc | Purpose | Status |
 |---|---|---|
-| `README.md` | System overview | up-to-date |
-| `ARCHITECTURE.md` | Component boundaries, sequence diagrams, storage model | up-to-date |
-| `INVARIANTS.md` | 18 protocol invariants with worked examples | up-to-date |
-| `DEPLOYMENT.md` | Build/deploy/configure runbook | up-to-date |
-| `MATH_REVIEW.md` | Rule-coverage audit, drift between docs and code | active |
+| `README.md` | Enterprise overview | up-to-date |
+| `architecture/ARCHITECTURE.md` | Component boundaries, sequence diagrams, storage model | up-to-date |
+| `architecture/INVARIANTS.md` | 18 protocol invariants with worked examples | up-to-date |
+| `architecture/DEPLOYMENT.md` | Build/deploy/configure runbook | up-to-date |
+| `architecture/MATH_REVIEW.md` | Rule-coverage audit, drift between docs and code | active |
+| `architecture/ACTORS.md` | Actor and privilege model | up-to-date |
+| `architecture/ENTRYPOINT_AUTH_MATRIX.md` | Per-fn auth × invariant × pool-call matrix | up-to-date |
+| `architecture/CONFIG_INVARIANTS.md` | All config fields × valid range × enforcement site | up-to-date |
+| `architecture/STELLAR_NOTES.md` | Soroban-specific assumptions and uncertainties | up-to-date |
 | `controller/certora/SPIKES.md` | Toolchain ground truth for Certora | active |
 | `audit/SCOPE.md` | This audit's frozen scope and file list | this prep |
-| `audit/ACTORS.md` | Actor and privilege model | this prep |
-| `audit/ENTRYPOINT_AUTH_MATRIX.md` | Per-fn auth × invariant × pool-call matrix | this prep |
-| `audit/CONFIG_INVARIANTS.md` | All config fields × valid range × enforcement site | this prep |
 | `audit/THREAT_MODEL.md` | Adversary models for each concern area | this prep |
-| `audit/STELLAR_NOTES.md` | Soroban-specific assumptions and uncertainties | this prep |
 | `audit/AUDIT_CHECKLIST.md` | Hand-off checklist | this prep |
+| `audit/FINDINGS.md` | Hunt findings + remediation status | this prep |
