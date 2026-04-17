@@ -67,8 +67,6 @@ jobs:
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted
     needs: build-and-test
-    # TODO: remove continue-on-error once soroban-scanner v0.0.2 UTF-8 panic is fixed upstream
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -78,8 +76,22 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install soroban-scanner
+        # Installs from XOXNO's fork of soroban-security-detectors-sdk, pinned
+        # by commit SHA for reproducibility. The fork carries three defensive
+        # patches on top of upstream `main` (commit f3888e0):
+        #   1. tolerate non-UTF-8 byte-string literals (upstream panics on
+        #      `b"a\xc3\x28d"` in soroban-sdk-25.x unit tests);
+        #   2. accept `extern "C" { ... }` foreign modules (upstream hits
+        #      `todo!("Should not appear")` on vendored FFI crates such as
+        #      `vendor/cvlr`);
+        #   3. warn-and-continue on unparseable files instead of aborting the
+        #      whole workspace scan.
+        # When upstream ships the fixes, switch the --git URL back to
+        # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
         run: |
-          cargo +nightly install --git https://github.com/OpenZeppelin/soroban-security-detectors-sdk soroban-security-detectors-runner
+          cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
+            --rev b518d8d478c830ebf32dbb39eeeaea5de1c48b71 \
+            soroban-security-detectors-runner
 
       - name: Run security detectors
         run: |
