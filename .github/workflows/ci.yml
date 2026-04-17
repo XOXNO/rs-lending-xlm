@@ -77,30 +77,43 @@ jobs:
 
       - name: Install soroban-scanner
         # Installs from XOXNO's fork of soroban-security-detectors-sdk, pinned
-        # by commit SHA for reproducibility. The fork carries three defensive
-        # patches on top of upstream `main` (commit f3888e0):
+        # by commit SHA for reproducibility. The fork carries six patches on
+        # top of upstream `main` (commit f3888e0):
         #   1. tolerate non-UTF-8 byte-string literals (upstream panics on
         #      `b"a\xc3\x28d"` in soroban-sdk-25.x unit tests);
         #   2. accept `extern "C" { ... }` foreign modules (upstream hits
         #      `todo!("Should not appear")` on vendored FFI crates such as
         #      `vendor/cvlr`);
         #   3. warn-and-continue on unparseable files instead of aborting the
-        #      whole workspace scan.
-        # When upstream ships the fixes, switch the --git URL back to
+        #      whole workspace scan;
+        #   4. `--exclude <substring>...` CLI flag that skips matching paths
+        #      during file discovery (see scan steps below);
+        #   5. run the scan on a 1 GiB-stack worker thread (upstream's
+        #      symbol resolver overflows the default 8 MiB main-thread stack
+        #      on real workspaces);
+        #   6. canonicalize corpus keys so the symbol resolver's internal
+        #      canonical-path lookups hit.
+        # When upstream ships these, switch the --git URL back to
         # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
         run: |
           cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
-            --rev b518d8d478c830ebf32dbb39eeeaea5de1c48b71 \
+            --rev 66bb918c570172f69ee288ceaf97d2d83c34ece1 \
             soroban-security-detectors-runner
 
       - name: Run security detectors
+        # --exclude drops vendored Certora sources, cargo build artifacts, and
+        # Certora Prover working snapshots. None of those are part of the
+        # deployable contract surface.
         run: |
-          soroban-scanner scan . --project-root .
+          soroban-scanner scan . --project-root . \
+            --exclude vendor/ target/ .certora_internal
 
       - name: Run security detectors (strict)
         if: github.event_name == 'pull_request'
         run: |
-          soroban-scanner scan . --project-root . 2>&1 | tee scan-results.txt
+          soroban-scanner scan . --project-root . \
+            --exclude vendor/ target/ .certora_internal \
+            2>&1 | tee scan-results.txt
           if grep -q "CRITICAL\|HIGH" scan-results.txt; then
             echo "::error::Security scan found CRITICAL or HIGH severity issues"
             exit 1
