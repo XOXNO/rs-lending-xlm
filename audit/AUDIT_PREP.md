@@ -127,4 +127,4 @@
 | `audit/SCOPE.md` | This audit's frozen scope and file list | this prep |
 | `audit/THREAT_MODEL.md` | Adversary models for each concern area | this prep |
 | `audit/AUDIT_CHECKLIST.md` | Hand-off checklist | this prep |
-| `audit/FINDINGS.md` | Hunt findings + remediation status | this prep |
+| `audit/CODE_MATURITY_ASSESSMENT.md` | Trail-of-Bits 9-category scorecard | this prep |

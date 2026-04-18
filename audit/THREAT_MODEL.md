@@ -180,34 +180,38 @@ Any user, with budget for transaction size.
 
 ### Attack sketches
 
-**5.1 LTV >= LT.** `validate_asset_config:117` rejects. ✓
+**5.1 LTV >= LT.** `validate_asset_config` rejects (`validation.rs:122-126`). ✓
 
-**5.2 Liquidation bonus > 15%.** `validate_asset_config:122` rejects. ✓
+**5.2 Liquidation bonus > 15%.** `validate_asset_config` rejects (`validation.rs:128-130`). ✓
 
-**5.3 Negative isolation debt ceiling.** **NOT REJECTED.** Mathematically equivalent to unlimited isolated borrowing. See `architecture/CONFIG_INVARIANTS.md §3 gap #3`.
+**5.3 Negative isolation debt ceiling.** Rejected at `validation.rs:143-145`. ✓
 
-**5.4 Negative flashloan fee.** **NOT REJECTED** (only the upper bound is checked). The pool would pay receivers to flash-loan. See gap #4.
+**5.4 Negative or over-cap flashloan fee.** `NegativeFlashLoanFee` rejected at `validation.rs:150-152`; `StrategyFeeExceeds` at `:153-155` (cap = `MAX_FLASHLOAN_FEE_BPS = 500`). ✓
 
-**5.5 LT > 100% (10_000 BPS).** **NOT REJECTED.** Possibly intended; document it. See gap #2/#8.
+**5.5 LT > 100%.** Rejected (`> BPS` at `validation.rs:122-124`). ✓
 
-**5.6 max_price_stale_seconds = 0.** **NOT REJECTED.** Bricks the market (every price is stale). Possibly an intentional kill-switch, but undocumented. See gap #5.
+**5.6 max_price_stale_seconds outside [60, 86400].** Rejected at `config.rs:374-376`. ✓
 
-**5.7 twap_records = 0 with non-SpotOnly source.** **NOT REJECTED at config time.** Bricks at the first price call. See gap #7.
+**5.7 twap_records > 12.** Rejected at `config.rs:314-316`. `twap_records == 0` is an intentional spot-fallback path.
 
-**5.8 Wrong asset_decimals in MarketParams.** **NOT REJECTED.** The off-chain Makefile reads on-chain decimals, but a hand-built params blob with the wrong value lands in the pool unchanged. See gap #1.
+**5.8 Wrong asset_decimals in MarketParams.** Rejected at `router.rs:22-25` under `#[cfg(not(feature = "testing"))]`. Prod code re-reads `token.decimals()` and compares. ✓
 
-**5.9 cex_symbol that doesn't resolve.** **NOT REJECTED at config time.** Bricks at the first price call. See gap #6.
+**5.9 cex_symbol that doesn't resolve.** Rejected at `config.rs:328-331` via `cex_client.lastprice(&ra).is_none()` probe.
+
+**5.10 `ExchangeSource::SpotOnly` on production Active markets.** Rejected at `config.rs:369-372` under `#[cfg(not(feature = "testing"))]` (`SpotOnlyNotProductionSafe`). ✓
+
+**5.11 No upper cap on `max_borrow_rate_ray`.** `validate_interest_rate_model` (`validation.rs:90-112`) enforces monotone slope chain + `max >= slope3`, but no absolute upper bound. `compound_interest`'s 8-term Taylor is documented accurate only for per-chunk `x ≤ 2 RAY`. Operator setting `max_borrow_rate_ray > 2 * RAY` combined with 100%-util accrual produces material under-accrual of interest (~6.8% at `x = 5`). **Not a direct attacker path** (owner-only config + all-internal accrual), but a config-hardening recommendation for the audit team.
 
 ### Current mitigation
-- The contract enforces 8 of the documented config rules.
-- 7+ documented gaps remain (see `architecture/CONFIG_INVARIANTS.md`).
+- Every documented config rule except §5.11 is enforced on-chain.
+- Runtime cap on compound interest chunk via `MAX_COMPOUND_DELTA_MS = MS_PER_YEAR` (`pool/src/interest.rs:22-23`) bounds per-chunk input but not per-chunk `x` magnitude when `max_borrow_rate_ray` is large.
 
 ### Residual risk
-- **MEDIUM** — none of the gaps directly enable fund theft, but several brick markets or invite operator footguns. Small validation additions fix them pre-audit.
+- **LOW** — the remaining gap is economic-accuracy under operator misconfiguration, not attacker-extractable. Addressable by either capping `max_borrow_rate_ray ≤ 2 * RAY` in validation OR making `MAX_COMPOUND_DELTA_MS` adaptive.
 
 ### Audit asks
-- Confirm the exploitability of each gap.
-- Recommend acceptable defaults for each kill-switch field (`max_price_stale_seconds = 0` and similar): reject or document.
+- Confirm the Taylor-truncation accuracy envelope for the intended operator rate range.
+- Recommend a canonical upper bound on `max_borrow_rate_ray` or an adaptive chunking scheme.
 
 ## §6. Cross-Cutting Concerns
 
@@ -245,5 +249,5 @@ Any user, with budget for transaction size.
 | §3.4 Bulk-repay refund destination | Low | Low (confirm intent) | P2 |
 | §4.1 Stale-but-tolerated price | Medium | High (mispriced borrow/liq) | **P0** |
 | §4.4 Reflector upgrade decimal staleness | Low | High (mispriced) | P1 |
-| §5 Misconfig gaps | High (operators err) | Low–Medium | P1 |
+| §5 Misconfig `max_borrow_rate_ray` upper bound | Medium (operator erm) | Low (accounting drift, not theft) | P2 |
 | §6 Account ID spam | Low | Low | P2 |

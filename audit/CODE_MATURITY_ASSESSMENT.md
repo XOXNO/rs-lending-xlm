@@ -47,9 +47,10 @@ launch-phase lending protocols (single Owner, no on-chain timelock).
    `configure_market_oracle`, and `upgrade_pool` each take effect immediately; compromise of a
    single key compromises the protocol. Pre-audit docs flag this explicitly
    (`ACTORS.md` §Owner, findings M-01/M-11/M-12) — but it is operator-policy-only.
-2. **Parameter-order and argument-redundancy traps in the pool ABI** (self-identified H-01, H-02):
-   `borrow` and `repay` take two `i128` args in different positions; `flash_loan_begin/end` take an
-   `asset` parameter unrelated to the pool's home asset. These are compile-clean typo vectors.
+2. **Certora rule coverage gaps, not verified empirically end-to-end.** 16 tautological, 9
+   weak, 4 vacuous rules plus 8 invariants without any rule per `architecture/MATH_REVIEW.md §3`.
+   Toolchain `cvlr` compile blocker is resolved via the vendored copy; empirical
+   `certoraSorobanProver` run against any conf is the remaining gate.
 3. **Inline code documentation density is moderate.** ~142 `///` doc-comment lines across ~13k
    production LOC; the architecture docs carry the narrative load. Files such as `controller/src/
    lib.rs` (1,572 LOC, 6 doc-comment blocks) and `pool/src/lib.rs` (1,737 LOC, 11 doc-comment
@@ -60,8 +61,8 @@ launch-phase lending protocols (single Owner, no on-chain timelock).
 | # | Action | Category | Effort |
 |---|---|---|---|
 | 1 | Introduce on-chain timelock for `edit_asset_config`, `disable_token_oracle`, `upgrade`, `upgrade_pool` (or a two-step pattern as already used for ownership transfer). | Decentralization | L |
-| 2 | Fix H-01 / H-02 (drop pool `asset` parameter or `assert_eq`; align `borrow`/`repay` i128 argument order or move to named-field structs). | Arithmetic, Access Controls | S |
-| 3 | Mirror `SUPPLY_INDEX_FLOOR_RAW` guard into the asset-decimal variant of `add_protocol_revenue` (H-03). | Arithmetic | S |
+| 2 | Run `certoraSorobanProver` end-to-end against every conf under the vendored cvlr stack. Close the remaining Pending items in `architecture/MATH_REVIEW.md §0`. | Testing & Verification | M |
+| 3 | Decide the `max_borrow_rate_ray` upper-bound policy: either cap at `2 * RAY` in `validate_interest_rate_model` (and `pool.update_params`) OR make `MAX_COMPOUND_DELTA_MS` adaptive. Close the Taylor-accuracy envelope concern. | Arithmetic | S |
 | 4 | Raise inline doc-comment density on `controller/src/lib.rs`, `pool/src/lib.rs`, and `oracle/mod.rs` — each public function gets ≥1 `///` block that states invariants the architecture docs cover. | Documentation | M |
 | 5 | Run `certoraSorobanProver` end-to-end on the vendored cvlr-spec stack to close the Pending item in `MATH_REVIEW.md §0`. | Testing & Verification | S |
 
@@ -71,7 +72,7 @@ launch-phase lending protocols (single Owner, no on-chain timelock).
 
 | # | Category | Rating | Score | Notes |
 |---|---|---|---|---|
-| 1 | Arithmetic | Satisfactory | 3 / 4 | Centralized fp_core with I256 intermediates; overflow-checks in release; one known unfixed floor guard (H-03). |
+| 1 | Arithmetic | Satisfactory | 3 / 4 | Centralized fp_core with I256 intermediates; overflow-checks in release; all previously-open floor-guard findings shipped (H-03 mirrored into the asset-decimal variant at `pool/src/interest.rs:79-81`). Latent concern: no upper cap on `max_borrow_rate_ray` vs 8-term Taylor accuracy envelope. |
 | 2 | Auditing | Satisfactory | 3 / 4 | 32 `#[contractevent]` types covering every mutation; `UpdatePositionEvent.action` discriminator explicitly added for indexers; `PoolInsolventEvent`, `CleanBadDebtEvent` surface liveness-critical state. No runtime incident-response runbook yet. |
 | 3 | Access Controls | Satisfactory | 3 / 4 | Owner / KEEPER / REVENUE / ORACLE roles via `stellar-access`; two-step ownership transfer; every mutating entrypoint has `#[only_owner]` / `#[only_role]` / `caller.require_auth()` + account-owner check; documented in `ENTRYPOINT_AUTH_MATRIX.md` per-function. |
 | 4 | Complexity Management | Moderate | 2 / 4 | `pool/src/lib.rs` = 1,737 LOC, `controller/src/lib.rs` = 1,572 LOC, `oracle/mod.rs` = 1,610 LOC. Single-file density is high; `#![allow(clippy::too_many_arguments)]` is enabled workspace-wide on controller. Factored helper modules exist (`positions/`, `cache/`, `oracle/`) but top-level files remain large. |
@@ -107,17 +108,20 @@ the Strong categories' exceptional depth is weighted for signal).
 
 **Gaps**
 
-- H-03 (`audit/FINDINGS.md:47-52`): the asset-decimal `add_protocol_revenue` sibling lacks the
-  `SUPPLY_INDEX_FLOOR_RAW` guard its `_ray` counterpart has. Unfixed. 1-line fix.
-- H-05: `seize_position` borrow branch uses non-saturating subtraction (`pool/src/lib.rs:439`).
-  Unfixed. 1-line fix.
-- H-02: `borrow` / `repay` pool ABI i128 parameter order is inconsistent — compile-clean
-  transposition vector.
-- `MATH_REVIEW.md §1` lists 6 weak rules, 5 vacuous rules, and 8 documented invariants with no
-  Certora rule coverage. Remediation partially complete (§0 table shows 7 "Done", 4 "Pending").
+- `MATH_REVIEW.md §3` lists 9 weak rules, 4 vacuous rules, 16 tautological rules, and 8
+  documented invariants without Certora rule coverage. Remediation is partially complete;
+  empirical `certoraSorobanProver` run against the vendored cvlr stack is still pending
+  (§3.1.2).
+- Latent concern: no upper cap on `max_borrow_rate_ray` vs the `compound_interest` 8-term
+  Taylor accuracy envelope (documented `error < 0.01 %` only holds for per-chunk
+  `x ≤ 2 RAY`). At operator-set `max_borrow_rate_ray = 5 * RAY` combined with 100 % utilization
+  and a full 1-year `MAX_COMPOUND_DELTA_MS` chunk, under-accrual reaches ~6.8 %. Fix options:
+  cap `max_borrow_rate_ray ≤ 2 * RAY` in `validate_interest_rate_model` OR make
+  `MAX_COMPOUND_DELTA_MS` adaptive.
 
-**Action to reach Strong**: land H-03 / H-05 one-liners; close the 4 "Pending" items in
-`MATH_REVIEW.md §0`; empirically verify Certora rules execute end-to-end.
+**Action to reach Strong**: close the remaining `MATH_REVIEW.md §0` Pending items;
+empirically verify Certora rules execute end-to-end; decide the `max_borrow_rate_ray`
+upper bound policy.
 
 ---
 
@@ -217,8 +221,7 @@ document off-chain monitor subscriptions.
 - `ACTORS.md §Owner Trust assumption`: "**the single Owner anchors protocol trust. Compromising
   the Owner key compromises everything. The contract enforces no timelock and no multisig —
   operator key custody must enforce both off-chain.**" (explicit self-documentation)
-- M-01 `disable_token_oracle` — **single-call kill switch**, no two-step (`audit/FINDINGS.md` /
-  `ACTORS.md §Operator policy notes`).
+- `disable_token_oracle` — **single-call kill switch**, no two-step (`ACTORS.md §Operator policy notes`).
 - M-11 `set_position_limits` — immediate effect, no rate-limit.
 - M-12 `approve_token_wasm` — creation-time gate; cannot be revoked from existing pools at
   runtime.
@@ -246,8 +249,8 @@ between `set_position_limits` changes. Moving to Strong requires either trust-mi
 - Architecture package (2,161 LOC across 6 files): `ARCHITECTURE.md` (430 LOC),
   `INVARIANTS.md` (675), `MATH_REVIEW.md` (581), `ACTORS.md` (154),
   `ENTRYPOINT_AUTH_MATRIX.md` (184), `DEPLOYMENT.md`, `CONFIG_INVARIANTS.md`, `STELLAR_NOTES.md`.
-- Audit prep package: `AUDIT_PREP.md`, `THREAT_MODEL.md` (249), `FINDINGS.md` (318),
-  `SCOPE.md`, `AUDIT_CHECKLIST.md`.
+- Audit prep package: `AUDIT_PREP.md`, `THREAT_MODEL.md`, `SCOPE.md`,
+  `AUDIT_CHECKLIST.md`, `CODE_MATURITY_ASSESSMENT.md`.
 - Sequence diagrams (Mermaid) for supply / borrow / repay / withdraw / revenue flows in
   `ARCHITECTURE.md`.
 - Each invariant carries algebra + worked example (`INVARIANTS.md §1-§18`).
@@ -353,10 +356,9 @@ withdraw, repay) sequence within N ULPs", per THREAT_MODEL.md §2 audit ask.
 
 | # | Action | Category | Effort |
 |---|---|---|---|
-| C-1 | Land H-03 (`add_protocol_revenue` floor guard parity). | Arithmetic | XS (1 line) |
-| C-2 | Land H-05 (`seize_position` borrow-branch `saturating_sub_ray`). | Arithmetic | XS (1 line) |
-| C-3 | Resolve H-01 (pool `asset` parameter) and H-02 (ABI parameter order). | Arithmetic / Access | S |
-| C-4 | Run `certoraSorobanProver controller/confs/math.conf` end-to-end and record the verdict in `MATH_REVIEW.md`. | Testing & Verification | S |
+| C-1 | Run `certoraSorobanProver controller/confs/math.conf` end-to-end and record the verdict in `MATH_REVIEW.md`. | Testing & Verification | S |
+| C-2 | Cap `max_borrow_rate_ray ≤ 2 * RAY` in `validate_interest_rate_model` and `pool.update_params`, OR make `MAX_COMPOUND_DELTA_MS` adaptive. Resolves the Taylor-accuracy envelope gap. | Arithmetic | XS |
+| C-3 | Decide operator policy for `add_rewards` vs fee-on-transfer SACs: either restrict `approve_token_wasm` to vanilla-SAC only, OR mirror the balance-delta pattern used by `supply` / `repay` into `router::add_reward`. | Access Controls / Arithmetic | S |
 
 ### HIGH (1-2 months, ship in next minor)
 
@@ -386,9 +388,11 @@ withdraw, repay) sequence within N ULPs", per THREAT_MODEL.md §2 audit ask.
 - Frozen commit `5ee115c` is the intended review basis; `audit-2026-q2` tag is pending.
 - Enter via `architecture/ENTRYPOINT_AUTH_MATRIX.md` — every public fn with auth, reentry, and
   file:line invariant citations.
-- Known pre-audit findings (H-01..H-07, M-01..M-12, L-07..L-13) are enumerated with status in
-  `audit/FINDINGS.md`. "✅ verified" = replicated by internal hunt; "🔧 fix candidate" = accepted
-  for fix but unfixed at freeze; "📝 documentation/process" = policy-only mitigation.
+- All pre-audit hunt findings and adversarial-loop findings have shipped. Regression gates live
+  in `test-harness/tests/fuzz_*.rs` (C-01, M-03, M-08, H-03, H-04, L-05, M-09, M-10, M-11, M-14,
+  N-02, NEW-01). The historical finding-log files have been removed from `audit/` to avoid
+  confusion with the fresh engagement findings log an auditor will open.
 - Certora harness ground truth: `controller/certora/SPIKES.md`.
-- Off-chain operator policy gaps (M-01 kill-switch, M-11 position-limits, M-12 token-wasm
-  revocation) are the primary decentralization concerns and the primary Owner-key-custody risk.
+- Open concerns for external review: `architecture/MATH_REVIEW.md §3.7` (unaddressed
+  invariants), `max_borrow_rate_ray` upper-bound policy, operator-key custody /
+  decentralization (no on-chain timelock for risk-level changes).

@@ -1,11 +1,13 @@
 # Audit Scope
 
-**Frozen commit**: `5ee115cfa5097670add106c348b189f01bf3d62b` (`5ee115c`)
-**Branch**: `main`
-**Date frozen**: 2026-04-16
-**Tag (to create)**: `audit-2026-q2`
+**Frozen commit**: pin to the engagement-kickoff HEAD.
+**Branch**: `main` (a dedicated `audit/<tag>` branch is cut at engagement start).
+**Tag**: `audit-<YYYY>-<quarter>` (created at the same moment as the branch).
 
-## In Scope (4 crates, ~16,585 LOC Rust)
+> The specific SHA below (`5ee115c`) was the pre-audit freeze from the internal
+> remediation pass; update this section when an external engagement starts.
+
+## In Scope (4 crates, ~16,585 LOC Rust — numbers current as of `5ee115c`; refresh on new freeze)
 
 ### `controller/src/` — protocol entrypoint (~9,386 LOC)
 

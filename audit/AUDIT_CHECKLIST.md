@@ -45,8 +45,12 @@ Per `architecture/CONFIG_INVARIANTS.md` summary table:
 - [x] `audit/SCOPE.md` — frozen commit, file list with LOC, in/out scope
 - [x] `audit/AUDIT_PREP.md` — review goals, concerns, worst-case, questions for auditors
 - [x] `audit/THREAT_MODEL.md` — adversary models with risk heat-map
-- [x] `audit/FINDINGS.md` — hunt findings + remediation status
+- [x] `audit/CODE_MATURITY_ASSESSMENT.md` — Trail-of-Bits 9-category maturity scorecard
 - [x] `audit/AUDIT_CHECKLIST.md` — this document
+
+Historical pre-remediation findings and adversarial-loop notes were removed from
+this directory; every item is either shipped in code (regression-gated in
+`test-harness/tests/fuzz_*.rs`) or tracked in `architecture/MATH_REVIEW.md`.
 
 ## Auditor Selection Status
 
@@ -62,53 +66,25 @@ Auditors who want to deploy locally need:
 - `make setup-testnet` — deploys controller + pools, configures markets and e-modes
 - smoke test per `architecture/DEPLOYMENT.md §Smoke-Test Runbook`
 
-## Hunt findings shipped (see `audit/FINDINGS.md`)
+## Pre-audit remediation status
 
-### Group A — one-liners ✅
-- H-03 `add_protocol_revenue` floor guard (`pool/src/interest.rs`)
-- H-05 `seize_position` borrow branch `saturating_sub_ray` (`pool/src/lib.rs:439`)
-- L-09 `BAD_DEBT_USD_THRESHOLD` extracted to `common/src/constants.rs`
-- L-10 `seize_position` defensive `else` arm
+All pre-audit hunt findings (H-01–H-08, M-01–M-12, L-01–L-13, I-01–I-03) and all
+adversarial-loop findings (N-01–N-13) that warranted code changes have shipped
+and are verified present in current prod code. Regression gates exist in
+`test-harness/tests/fuzz_auth_matrix.rs`, `fuzz_strategy_flashloan.rs`,
+`fuzz_ttl_keepalive.rs`, and `fuzz_conservation.rs` for the specific classes
+(C-01, M-03, M-08, H-03, H-04, L-05, M-09, M-10, M-11, M-14, N-02, NEW-01).
 
-### Group B — small fixes ✅
-- H-04 `flashloan_fee_bps` bounds in `validate_asset_config` (single source of truth); constant moved to `common`
-- M-05 `mul_div_floor` + `Wad::div_floor`; liquidation seizure now floors `base_amount` so protocol fee ≥ spec
-- M-07 TWAP staleness uses oldest sample, not newest
-- M-08 `validate_bulk_position_limits` panics on unknown position type
-- M-10 excess-payment record recomputes `new_usd = new_amount * price`
-- L-07 strategy `.expect(...)` → `panic_with_error!(GenericError::InternalError)`
-- L-13 liquidation events re-derive `EventAccountAttributes` from post-mutation account
-
-### Group C — ABI/structural ✅
-- H-01 pool flash-loan drops `asset` arg; uses `cache.params.asset_id`
-- H-02 `pool.repay` parameter order aligned with `borrow` (`(caller, amount, position, price)`)
-- M-04 `claim_revenue` partial-claim single `actual_burn = min(scaled_to_burn, revenue, supplied)`
-- M-06 `liquidation_threshold_bps` refreshed on supply top-up
-- M-09 `dex_symbol` required field added; forced re-config migration documented in `architecture/DEPLOYMENT.md`
-
-### Group D — operator policy ✅ (docs only)
-- H-06/H-07 NO FoT / NO rebasing tokens (DEPLOYMENT, SCOPE)
-- H-08 SAC issuer upgrade runbook (DEPLOYMENT, STELLAR_NOTES)
-- M-12 allowlist is creation-time only (ACTORS)
-- L-04 `cap = 0` means unlimited (CONFIG_INVARIANTS)
-- L-12 architecture/INVARIANTS.md §4 seize-Deposit path documented
-- I-03 OZ Stellar review note (SCOPE)
-
-### Group E — centralization ✅
-- M-01 document `disable_token_oracle` as single-call kill-switch (ACTORS)
-- M-02 constructor grants ONLY `KEEPER`; REVENUE/ORACLE require explicit grant
-- M-03 constructor pauses; operator must `unpause` post-wiring
-- M-11 document `set_position_limits` immediate-effect (ACTORS)
-- L-05 pool `claim_revenue` drops `caller`; pool stores accumulator at construct (ABI change)
-
-### Group F — build/config hygiene ✅
-- I-01 CVLR git revs pinned in workspace `Cargo.toml`
-- I-02 `soroban-sdk` + OZ Stellar caret pins tightened to `=`
+Operator-policy items (FoT / rebasing token bans, SAC issuer upgrade runbook,
+`cap = 0` semantics, allowlist creation-time scope) are documented in
+`architecture/DEPLOYMENT.md`, `architecture/ACTORS.md`, and
+`architecture/CONFIG_INVARIANTS.md`.
 
 ## Still Outstanding
 
-- ⚠️ **Empirical 32+32 liquidate cost benchmark** (see `audit/THREAT_MODEL.md §3.3`). Needs a custom test-harness scenario. Not blocking pre-audit hand-off but valuable for the auditor's §3 threat-model review.
+- ⚠️ **Empirical max-position liquidate cost benchmark** (see `audit/THREAT_MODEL.md §3.3`). Needs a custom test-harness scenario under the default `PositionLimits = 10/10`. Worst-case budget measurement is blocking-if-limits-raised.
 - ⚠️ **Reflector behavior spec** (see `architecture/STELLAR_NOTES.md §3 Q6–Q10`). External team contact.
+- ⚠️ **`max_borrow_rate_ray` upper cap** (MATH_REVIEW.md latent-concern). `validate_interest_rate_model` and `pool.update_params` reject `max_borrow_rate_ray < slope3` but not a high upper bound; 8-term Taylor in `compound_interest` has documented accuracy only for per-chunk `x ≤ 2 RAY`. Either cap `max_borrow_rate_ray ≤ 2 * RAY` in validation OR make `MAX_COMPOUND_DELTA_MS` adaptive.
 
 ## Final Hand-Off
 
@@ -121,6 +97,6 @@ After resolving the items above:
 
 ## During Audit
 
-- Log findings in `audit/FINDINGS.md` as they arrive (severity, status, fix PR).
+- Create a fresh `audit/ENGAGEMENT_FINDINGS.md` at engagement start; log findings as they arrive (severity, status, fix PR). Do not re-introduce pre-remediation history here.
 - Daily standup async; weekly sync call.
 - Out-of-scope changes to the frozen branch require auditor sign-off.
