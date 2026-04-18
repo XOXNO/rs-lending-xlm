@@ -19,8 +19,8 @@ through a single controller contract.
 
 ## Status
 
-Pre-audit. The internal review is documented under [`audit/`](./audit/) and
-remediation is complete; external audit by Runtime Verification and Certora
+Pre-audit. Internal review and remediation are complete — see
+[`audit/`](./audit/). External audit by Runtime Verification and Certora
 is the next milestone.
 
 | Signal | Value |
@@ -39,7 +39,7 @@ Technical reference lives in [`architecture/`](./architecture/):
 - [`INVARIANTS.md`](./architecture/INVARIANTS.md) — protocol algebra,
   fixed-point conventions, solvency math.
 - [`DEPLOYMENT.md`](./architecture/DEPLOYMENT.md) — operator runbook for
-  build, deploy, and configure.
+  building, deploying, and configuring.
 - [`ACTORS.md`](./architecture/ACTORS.md) — privileges, trust boundaries,
   off-chain operator policy.
 - [`ENTRYPOINT_AUTH_MATRIX.md`](./architecture/ENTRYPOINT_AUTH_MATRIX.md) —
@@ -62,14 +62,14 @@ make test            # cargo test --workspace
 make coverage-merged # combined controller + pool coverage report
 ```
 
-Detailed tooling and deployment in
-[`architecture/DEPLOYMENT.md`](./architecture/DEPLOYMENT.md).
+See [`architecture/DEPLOYMENT.md`](./architecture/DEPLOYMENT.md) for
+detailed tooling and deployment.
 
 ## License
 
 [PolyForm Noncommercial 1.0.0](./LICENSE). Research, testing, security
 review, and contributions are permitted. Commercial use requires a
-written agreement with XOXNO; contact `security@xoxno.com`.
+written agreement with XOXNO; contact `license@xoxno.com`.
 
 ## Security
 

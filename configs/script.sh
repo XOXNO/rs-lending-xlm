@@ -65,21 +65,32 @@ get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
-get_oracle() {
-    # Reflector contracts are fixed per network, no need for alias
-    if [ "$NETWORK" = "mainnet" ]; then
-        echo "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LFTK6JLN34DLN"
-    else
-        echo "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63"
-    fi
-}
+# Reflector oracle addresses sourced from networks.json per network.
+# Three classes per Reflector's V3 deployment:
+#   - CEX: External CEX/FX aggregator, keyed by Other(symbol) e.g. "USDC"
+#   - DEX: Stellar Pubnet DEX, keyed by Stellar(SAC) e.g. XLM native SAC
+#   - FX:  Fiat exchange rates (forex pairs)
+get_cex_oracle() { get_network_value "reflector_cex_oracle"; }
+get_dex_oracle() { get_network_value "reflector_dex_oracle"; }
+get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
+
+# Backward-compat alias for existing call sites — defaults to CEX oracle.
+get_oracle() { get_cex_oracle; }
 
 get_signer_address() {
     echo "$SIGNER_ADDRESS"
 }
 
 invoke_view() {
-    stellar contract invoke --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}"
+    # Capture raw stellar output, then pretty-print JSON via jq when available.
+    # `local` is declared separately so set -e still propagates stellar failures.
+    local output
+    output=$(stellar contract invoke --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
+    if command -v jq >/dev/null 2>&1 && printf '%s' "$output" | jq . >/dev/null 2>&1; then
+        printf '%s' "$output" | jq .
+    else
+        printf '%s\n' "$output"
+    fi
 }
 
 get_contract_decimals() {
@@ -367,7 +378,12 @@ configure_market_oracle() {
             cex_symbol: .reflector.cex_symbol,
             dex_oracle: (.reflector.dex_oracle // null),
             dex_asset_kind: .reflector.dex_asset_kind,
-            dex_symbol: (.reflector.dex_symbol // .reflector.cex_symbol),
+            # Dead metadata when dex_oracle is null — send empty string so
+            # storage doesn't carry a misleading ticker for an unused leg.
+            dex_symbol: (if .reflector.dex_oracle == null
+                         then ""
+                         else (.reflector.dex_symbol // .reflector.cex_symbol)
+                         end),
             twap_records: .reflector.twap_records
         }
     " "$MARKET_CONFIG_FILE" > "$cfg_file"
@@ -396,6 +412,339 @@ setup_all_markets() {
         edit_asset_config "$market_name"
     done
     echo "=== All markets configured ==="
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+require_market_address() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
+    if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
+        echo "ERROR: Unknown market '${market_name}' in ${MARKET_CONFIG_FILE}" >&2
+        list_markets >&2
+        exit 1
+    fi
+    echo "$asset_address"
+}
+
+all_configured_asset_addresses() {
+    jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | .asset_address]' "$MARKET_CONFIG_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Pause / unpause
+# ---------------------------------------------------------------------------
+
+pause_protocol() {
+    local ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" -- pause
+    echo "Protocol paused on ${NETWORK}."
+}
+
+unpause_protocol() {
+    local ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" -- unpause
+    echo "Protocol unpaused on ${NETWORK}."
+}
+
+# ---------------------------------------------------------------------------
+# Role management
+# ---------------------------------------------------------------------------
+
+grant_role_cmd() {
+    local account=$1
+    local role=$2
+    local ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- grant_role --account "$account" --role "$role"
+    echo "Role ${role} granted to ${account}."
+}
+
+revoke_role_cmd() {
+    local account=$1
+    local role=$2
+    local ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- revoke_role --account "$account" --role "$role"
+    echo "Role ${role} revoked from ${account}."
+}
+
+has_role_cmd() {
+    local account=$1
+    local role=$2
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" has_role --account "$account" --role "$role"
+}
+
+# ---------------------------------------------------------------------------
+# Info
+# ---------------------------------------------------------------------------
+
+show_info() {
+    echo "=== Deployment info (${NETWORK}) ==="
+    local ctrl_alias
+    ctrl_alias=$(stellar contract alias show controller --network "$NETWORK" 2>/dev/null || echo "not deployed")
+    local agg_alias
+    agg_alias=$(stellar contract alias show aggregator --network "$NETWORK" 2>/dev/null || echo "not set")
+    echo "Signer:     $(get_signer_address)"
+    echo "Controller: ${ctrl_alias}"
+    echo "Aggregator: ${agg_alias}"
+    echo "Reflector CEX: $(get_cex_oracle)"
+    echo "Reflector DEX: $(get_dex_oracle)"
+    echo "Reflector FX:  $(get_fx_oracle)"
+}
+
+# ---------------------------------------------------------------------------
+# Market-level views
+# ---------------------------------------------------------------------------
+
+get_price() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    echo "=== Price for ${market_name} (${asset_address}) ===" >&2
+    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
+}
+
+get_market_config_view_cmd() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    echo "=== Market config for ${market_name} (${asset_address}) ===" >&2
+    invoke_view "$ctrl" get_market_config --asset "$asset_address"
+}
+
+get_index_cmd() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    echo "=== Index for ${market_name} (${asset_address}) ===" >&2
+    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
+}
+
+get_isolated_debt_cmd() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" get_isolated_debt --asset "$asset_address"
+}
+
+get_emode_cmd() {
+    local cat_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" get_e_mode_category --category_id "$cat_id"
+}
+
+get_all_markets_cmd() {
+    local assets_json
+    assets_json=$(all_configured_asset_addresses)
+    local ctrl=$(get_controller)
+    echo "=== All markets (${NETWORK}) ===" >&2
+    invoke_view "$ctrl" get_all_markets_detailed --assets "$assets_json"
+}
+
+get_all_indexes_cmd() {
+    local assets_json
+    assets_json=$(all_configured_asset_addresses)
+    local ctrl=$(get_controller)
+    echo "=== All market indexes (${NETWORK}) ===" >&2
+    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "$assets_json"
+}
+
+# ---------------------------------------------------------------------------
+# Account-level views
+# ---------------------------------------------------------------------------
+
+get_health_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" health_factor --account_id "$account_id"
+}
+
+get_account_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    echo "=== Positions for account ${account_id} ===" >&2
+    invoke_view "$ctrl" get_account_positions --account_id "$account_id"
+    echo "=== Attributes for account ${account_id} ===" >&2
+    invoke_view "$ctrl" get_account_attributes --account_id "$account_id"
+}
+
+get_collateral_usd_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" total_collateral_in_usd --account_id "$account_id"
+}
+
+get_borrow_usd_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" total_borrow_in_usd --account_id "$account_id"
+}
+
+get_ltv_usd_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" ltv_collateral_in_usd --account_id "$account_id"
+}
+
+get_liq_available_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" liquidation_collateral_available --account_id "$account_id"
+}
+
+can_liquidate_cmd() {
+    local account_id=$1
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" can_be_liquidated --account_id "$account_id"
+}
+
+get_collateral_cmd() {
+    local account_id=$1
+    local market_name=$2
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" collateral_amount_for_token --account_id "$account_id" --asset "$asset_address"
+}
+
+get_borrow_cmd() {
+    local account_id=$1
+    local market_name=$2
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+    invoke_view "$ctrl" borrow_amount_for_token --account_id "$account_id" --asset "$asset_address"
+}
+
+# ---------------------------------------------------------------------------
+# Raw Reflector oracle probes (SEP-40 ABI)
+#
+# Reflector exposes three independent oracle contracts per network:
+#   - External CEX/FX (API-sourced)   → pass kind=other + symbol (e.g. "USDC")
+#   - Stellar Pubnet DEX (on-chain)   → pass kind=stellar + SAC address
+#   - Foreign Exchange                → pass kind=other + symbol (e.g. "EUR")
+#
+# Use these probes when hunting for the correct DEX oracle address before
+# wiring it into a market's `reflector.dex_oracle`.
+# ---------------------------------------------------------------------------
+
+build_reflector_asset_json() {
+    local kind=$1      # "stellar" (0) or "other" (1)
+    local value=$2     # SAC address or ticker
+    case "$kind" in
+        stellar|Stellar|0)
+            # Stellar CLI accepts enum variants via the short form {"Variant":payload}.
+            # The tagged-union long form {"tag":...,"values":[...]} trips a panic
+            # inside soroban-spec-tools on newer CLI releases.
+            printf '{"Stellar":"%s"}' "$value"
+            ;;
+        other|Other|1)
+            printf '{"Other":"%s"}' "$value"
+            ;;
+        *)
+            echo "ERROR: kind must be 'stellar' or 'other' (got '$kind')" >&2
+            exit 1
+            ;;
+    esac
+}
+
+query_reflector_cmd() {
+    local oracle=$1
+    if [ -z "$oracle" ]; then
+        echo "Usage: $0 queryReflector <oracle_address>" >&2
+        exit 1
+    fi
+    echo "=== Reflector metadata (${oracle}) ===" >&2
+    echo "decimals:" >&2
+    invoke_view "$oracle" decimals
+    echo "resolution (seconds per bucket):" >&2
+    invoke_view "$oracle" resolution
+}
+
+query_reflector_price_cmd() {
+    local oracle=$1
+    local kind=$2
+    local value=$3
+    if [ -z "$oracle" ] || [ -z "$kind" ] || [ -z "$value" ]; then
+        echo "Usage: $0 queryReflectorPrice <oracle> stellar|other <symbol_or_sac>" >&2
+        exit 1
+    fi
+    local asset_json
+    asset_json=$(build_reflector_asset_json "$kind" "$value")
+    echo "=== lastprice on ${oracle} for ${kind}(${value}) ===" >&2
+    invoke_view "$oracle" lastprice --asset "$asset_json"
+}
+
+query_reflector_twap_cmd() {
+    local oracle=$1
+    local kind=$2
+    local value=$3
+    local records=${4:-3}
+    if [ -z "$oracle" ] || [ -z "$kind" ] || [ -z "$value" ]; then
+        echo "Usage: $0 queryReflectorTwap <oracle> stellar|other <symbol_or_sac> [records=3]" >&2
+        exit 1
+    fi
+    local asset_json
+    asset_json=$(build_reflector_asset_json "$kind" "$value")
+    echo "=== prices on ${oracle} for ${kind}(${value}), ${records} records ===" >&2
+    invoke_view "$oracle" prices --asset "$asset_json" --records "$records"
+}
+
+# Compound view: reads a market's stored CEX (and DEX if set) oracle addresses
+# and dumps live data from each. This is what you want to verify DualOracle
+# wiring end-to-end without trusting your own JSON config.
+get_reflector_cmd() {
+    local market_name=$1
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local ctrl=$(get_controller)
+
+    # Pull the raw MarketConfig once and cache.
+    local mc_json
+    mc_json=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- get_market_config --asset "$asset_address")
+
+    local cex_oracle cex_kind cex_symbol dex_oracle dex_kind dex_symbol twap_records
+    cex_oracle=$(echo "$mc_json" | jq -r '.cex_oracle // empty')
+    cex_kind=$(echo "$mc_json"   | jq -r '.cex_asset_kind')
+    cex_symbol=$(echo "$mc_json" | jq -r '.cex_symbol')
+    dex_oracle=$(echo "$mc_json" | jq -r '.dex_oracle // empty')
+    dex_kind=$(echo "$mc_json"   | jq -r '.dex_asset_kind')
+    dex_symbol=$(echo "$mc_json" | jq -r '.dex_symbol')
+    twap_records=$(echo "$mc_json" | jq -r '.twap_records')
+
+    local cex_value="$cex_symbol"
+    [ "$cex_kind" = "0" ] && cex_value="$asset_address"
+    local dex_value="$dex_symbol"
+    [ "$dex_kind" = "0" ] && dex_value="$asset_address"
+    local cex_kind_str="other"
+    [ "$cex_kind" = "0" ] && cex_kind_str="stellar"
+    local dex_kind_str="other"
+    [ "$dex_kind" = "0" ] && dex_kind_str="stellar"
+
+    echo "=== Live Reflector view for ${market_name} (${asset_address}) ===" >&2
+    echo "[CEX leg]  ${cex_oracle} kind=${cex_kind_str} value=${cex_value}" >&2
+    if [ -n "$cex_oracle" ]; then
+        query_reflector_price_cmd "$cex_oracle" "$cex_kind_str" "$cex_value"
+        query_reflector_twap_cmd "$cex_oracle" "$cex_kind_str" "$cex_value" "$twap_records"
+    fi
+
+    if [ -n "$dex_oracle" ]; then
+        echo "[DEX leg]  ${dex_oracle} kind=${dex_kind_str} value=${dex_value}" >&2
+        query_reflector_price_cmd "$dex_oracle" "$dex_kind_str" "$dex_value"
+        query_reflector_twap_cmd "$dex_oracle" "$dex_kind_str" "$dex_value" "$twap_records"
+    else
+        echo "[DEX leg]  not configured (dex_oracle=null) — market is SpotVsTwap-only" >&2
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -472,12 +821,126 @@ case "$1" in
     "setAggregator")
         set_aggregator
         ;;
+    "pause")
+        pause_protocol
+        ;;
+    "unpause")
+        unpause_protocol
+        ;;
+    "grantRole")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 grantRole <account> <role>" >&2
+            echo "Roles: KEEPER | REVENUE | ORACLE" >&2
+            exit 1
+        fi
+        grant_role_cmd "$2" "$3"
+        ;;
+    "revokeRole")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 revokeRole <account> <role>" >&2
+            exit 1
+        fi
+        revoke_role_cmd "$2" "$3"
+        ;;
+    "hasRole")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 hasRole <account> <role>" >&2
+            exit 1
+        fi
+        has_role_cmd "$2" "$3"
+        ;;
+    "info")
+        show_info
+        ;;
+    "getPrice")
+        if [ -z "$2" ]; then echo "Usage: $0 getPrice <market>" >&2; list_markets >&2; exit 1; fi
+        get_price "$2"
+        ;;
+    "getMarket")
+        if [ -z "$2" ]; then echo "Usage: $0 getMarket <market>" >&2; list_markets >&2; exit 1; fi
+        get_market_config_view_cmd "$2"
+        ;;
+    "getIndex")
+        if [ -z "$2" ]; then echo "Usage: $0 getIndex <market>" >&2; list_markets >&2; exit 1; fi
+        get_index_cmd "$2"
+        ;;
+    "getIsolatedDebt")
+        if [ -z "$2" ]; then echo "Usage: $0 getIsolatedDebt <market>" >&2; list_markets >&2; exit 1; fi
+        get_isolated_debt_cmd "$2"
+        ;;
+    "getAllMarkets")
+        get_all_markets_cmd
+        ;;
+    "getAllIndexes")
+        get_all_indexes_cmd
+        ;;
+    "getEMode")
+        if [ -z "$2" ]; then echo "Usage: $0 getEMode <category_id>" >&2; list_emode_categories >&2; exit 1; fi
+        get_emode_cmd "$2"
+        ;;
+    "getHealth")
+        if [ -z "$2" ]; then echo "Usage: $0 getHealth <account_id>" >&2; exit 1; fi
+        get_health_cmd "$2"
+        ;;
+    "getAccount")
+        if [ -z "$2" ]; then echo "Usage: $0 getAccount <account_id>" >&2; exit 1; fi
+        get_account_cmd "$2"
+        ;;
+    "getCollateralUsd")
+        if [ -z "$2" ]; then echo "Usage: $0 getCollateralUsd <account_id>" >&2; exit 1; fi
+        get_collateral_usd_cmd "$2"
+        ;;
+    "getBorrowUsd")
+        if [ -z "$2" ]; then echo "Usage: $0 getBorrowUsd <account_id>" >&2; exit 1; fi
+        get_borrow_usd_cmd "$2"
+        ;;
+    "getLtvUsd")
+        if [ -z "$2" ]; then echo "Usage: $0 getLtvUsd <account_id>" >&2; exit 1; fi
+        get_ltv_usd_cmd "$2"
+        ;;
+    "getLiqAvailable")
+        if [ -z "$2" ]; then echo "Usage: $0 getLiqAvailable <account_id>" >&2; exit 1; fi
+        get_liq_available_cmd "$2"
+        ;;
+    "canLiquidate")
+        if [ -z "$2" ]; then echo "Usage: $0 canLiquidate <account_id>" >&2; exit 1; fi
+        can_liquidate_cmd "$2"
+        ;;
+    "getCollateral")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 getCollateral <account_id> <market>" >&2; exit 1
+        fi
+        get_collateral_cmd "$2" "$3"
+        ;;
+    "getBorrow")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 getBorrow <account_id> <market>" >&2; exit 1
+        fi
+        get_borrow_cmd "$2" "$3"
+        ;;
+    "queryReflector")
+        query_reflector_cmd "$2"
+        ;;
+    "queryReflectorPrice")
+        query_reflector_price_cmd "$2" "$3" "$4"
+        ;;
+    "queryReflectorTwap")
+        query_reflector_twap_cmd "$2" "$3" "$4" "$5"
+        ;;
+    "getReflector")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 getReflector <market>" >&2
+            list_markets >&2
+            exit 1
+        fi
+        get_reflector_cmd "$2"
+        ;;
     *)
         echo "Stellar Lending Protocol — Configuration Script"
         echo ""
         echo "Usage: NETWORK=$NETWORK $0 <command> [args...]"
         echo ""
-        echo "Markets:"
+        echo "Markets (writes):"
         echo "  listMarkets                     List configured markets"
         echo "  createMarket <name>             Deploy market from config"
         echo "  editAssetConfig <name>          Update asset risk params from config"
@@ -485,23 +948,50 @@ case "$1" in
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Create, configure oracle, then enable all markets"
         echo ""
-        echo "E-Mode:"
+        echo "E-Mode (writes):"
         echo "  listEModeCategories             List configured e-mode categories"
         echo "  addEModeCategory <id>           Create e-mode category from config"
         echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
         echo "  setupAllEModes                  Create all e-modes from config"
         echo ""
-        echo "Full Setup:"
+        echo "Protocol control (writes):"
+        echo "  pause | unpause                 Pause/unpause protocol"
+        echo "  grantRole <account> <role>      Grant KEEPER | REVENUE | ORACLE"
+        echo "  revokeRole <account> <role>     Revoke role"
+        echo "  setAggregator                   Set aggregator from networks.json"
         echo "  setupAll                        Markets + E-Modes from config"
         echo ""
-        echo "System:"
-        echo "  setAggregator                   Set aggregator address from networks.json"
+        echo "Quick views (reads):"
+        echo "  info                            Deployment addresses & signer"
+        echo "  hasRole <account> <role>        Check role membership"
+        echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
+        echo "  getMarket <market>              Market config (LTV, liq, caps, flags)"
+        echo "  getIndex <market>               Supply/borrow index (RAY)"
+        echo "  getIsolatedDebt <market>        Isolated-mode borrow usage"
+        echo "  getAllMarkets                   All markets detailed"
+        echo "  getAllIndexes                   All market indexes"
+        echo "  getEMode <id>                   E-Mode category params"
+        echo "  getHealth <id>                  Health factor (RAY)"
+        echo "  getAccount <id>                 Positions + attributes"
+        echo "  getCollateralUsd <id>           Aggregate collateral in USD"
+        echo "  getBorrowUsd <id>               Aggregate borrow in USD"
+        echo "  getLtvUsd <id>                  LTV-weighted collateral in USD"
+        echo "  getLiqAvailable <id>            Liquidation collateral available"
+        echo "  canLiquidate <id>               bool"
+        echo "  getCollateral <id> <market>     Per-asset collateral amount"
+        echo "  getBorrow <id> <market>         Per-asset borrow amount"
+        echo ""
+        echo "Reflector probes (debug DualOracle wiring):"
+        echo "  getReflector <market>                                Live CEX + DEX data for a market"
+        echo "  queryReflector <oracle>                              decimals + resolution"
+        echo "  queryReflectorPrice <oracle> stellar|other <sym|sac> lastprice"
+        echo "  queryReflectorTwap  <oracle> stellar|other <sym|sac> [records] prices history"
         echo ""
         echo "Examples:"
-        echo "  NETWORK=testnet $0 addEModeCategory 1"
-        echo "  NETWORK=testnet $0 addAssetToEMode 1 USDC"
-        echo "  NETWORK=testnet $0 updateIndexes USDC XLM"
-        echo "  NETWORK=mainnet $0 setupAll"
-        echo "  SIGNER=ledger NETWORK=mainnet $0 createMarket USDC"
+        echo "  NETWORK=testnet $0 getPrice USDC"
+        echo "  NETWORK=testnet $0 getHealth 1"
+        echo "  NETWORK=testnet $0 getCollateral 1 XLM"
+        echo "  NETWORK=testnet $0 grantRole GAB... KEEPER"
+        echo "  SIGNER=ledger NETWORK=mainnet $0 pause"
         ;;
 esac

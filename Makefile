@@ -10,13 +10,14 @@
 #   make clean              Clean build artifacts
 #
 # Deployment (requires stellar CLI + funded account):
-#   make deploy-testnet     Deploy all contracts to testnet
-#   make deploy-mainnet     Deploy all contracts to mainnet
-#   make setup-testnet      Deploy + configure markets on testnet
-#   make setup-mainnet      Deploy + configure markets on mainnet
+#   make testnet deploy             Deploy all contracts to testnet
+#   make mainnet deploy             Deploy all contracts to mainnet
+#   make testnet upgradeController  Upgrade controller in-place on testnet
+#   make testnet setup              Deploy + configure markets on testnet
+#   make mainnet setup              Deploy + configure markets on mainnet
 #
 # Ledger signing:
-#   SIGNER=ledger make deploy-testnet
+#   SIGNER=ledger make testnet deploy
 # ===========================================================================
 
 SHELL := /bin/bash
@@ -33,8 +34,8 @@ SHELL := /bin/bash
         keygen deploy-testnet deploy-mainnet upgrade-controller _deploy \
         configure-controller setup-testnet setup-mainnet _setup-markets create-market \
         update-indexes \
-        pause unpause grant-role revoke-role \
         info invoke invoke-id view view-id \
+        testnet mainnet \
         help
 
 # ---------------------------------------------------------------------------
@@ -493,8 +494,9 @@ create-market:
 # ---------------------------------------------------------------------------
 # Config-driven operations (via configs/script.sh)
 #
-# All values are read from JSON configs, not CLI args.
-# Pattern: make <network> <action> [id] [asset]
+# Single unified dispatcher: `make <network> <action> [positional args]`
+# All values are read from JSON configs by name; positional args reference
+# markets / categories / accounts by their config name or id.
 #
 # Examples:
 #   make testnet addEModeCategory 1
@@ -502,65 +504,85 @@ create-market:
 #   make testnet createMarket USDC
 #   make testnet updateIndexes USDC XLM
 #   make testnet setupAll
+#   make testnet pause
+#   make testnet unpause
+#   make testnet grantRole GAB...XYZ KEEPER
+#   make testnet getPrice USDC
+#   make testnet getHealth 1
+#   make testnet getCollateral 1 XLM
 #   SIGNER=ledger make mainnet setupAll
 # ---------------------------------------------------------------------------
 
-# Network targets (set NETWORK and delegate to action)
-testnet:
-	@if [ -z "$(word 2,$(MAKECMDGOALS))" ]; then \
-		echo "Please specify an action for network $@"; \
+# Action classification — the dispatcher routes each action to script.sh
+# passing positional args verbatim. Adding a new verb = add here + script.sh.
+SIMPLE_ACTIONS := listMarkets listEModeCategories \
+                  setupAll setupAllMarkets setupAllEModes \
+                  setAggregator pause unpause info \
+                  getAllMarkets getAllIndexes
+POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig configureMarketOracle \
+                             getPrice getMarket getIndex getIsolatedDebt \
+                             getReflector
+POSITIONAL_ID_ACTIONS := addEModeCategory getEMode
+POSITIONAL_ID_ASSET_ACTIONS := addAssetToEMode
+POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
+                              getLtvUsd getLiqAvailable canLiquidate
+POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
+POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole
+REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
+VARARG_ACTIONS := updateIndexes
+
+# Makefile-internal actions — handled directly by make targets, not forwarded
+# to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
+MAKEFILE_ACTIONS := deploy upgradeController setup
+
+ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
+               $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
+               $(POSITIONAL_ACCOUNT_MARKET_ACTIONS) $(POSITIONAL_ACCOUNT_ROLE_ACTIONS) \
+               $(REFLECTOR_PROBE_ACTIONS) $(VARARG_ACTIONS) $(MAKEFILE_ACTIONS)
+
+.PHONY: $(ALL_ACTIONS)
+
+# Network dispatcher — routes each action either to an internal Makefile
+# target (MAKEFILE_ACTIONS) or forwards it verbatim to configs/script.sh.
+# All action targets below are no-ops so Make accepts the remaining words
+# on the command line.
+define NETWORK_DISPATCH
+	@action="$(word 2,$(MAKECMDGOALS))"; \
+	if [ -z "$$action" ]; then \
+		echo "Error: please specify an action for $(1)"; \
 		echo "Run 'make help' for available commands"; \
 		exit 1; \
-	fi
-	@NETWORK=testnet SIGNER=$(SIGNER) ./configs/script.sh $(filter-out $@,$(MAKECMDGOALS))
+	fi; \
+	case " $(ALL_ACTIONS) " in \
+		*" $$action "*) ;; \
+		*) echo "Error: unknown action '$$action'"; echo "Run 'make help'"; exit 1;; \
+	esac; \
+	case " $(MAKEFILE_ACTIONS) " in \
+		*" $$action "*) \
+			case "$$action" in \
+				deploy)             $(MAKE) --no-print-directory _deploy NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				setup)              $(MAKE) --no-print-directory _deploy configure-controller _setup-markets NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+			esac; \
+			exit 0 ;; \
+	esac; \
+	args="$(wordlist 3,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))"; \
+	NETWORK=$(1) SIGNER=$(SIGNER) ./configs/script.sh $$action $$args
+endef
+
+testnet:
+	$(call NETWORK_DISPATCH,testnet)
 
 mainnet:
-	@if [ -z "$(word 2,$(MAKECMDGOALS))" ]; then \
-		echo "Please specify an action for network $@"; \
-		echo "Run 'make help' for available commands"; \
-		exit 1; \
-	fi
-	@NETWORK=mainnet SIGNER=$(SIGNER) ./configs/script.sh $(filter-out $@,$(MAKECMDGOALS))
+	$(call NETWORK_DISPATCH,mainnet)
 
-# Config-driven actions.
-# When invoked through `make testnet <action> ...`, the network target above
-# already ran the script and these action targets must stay silent. When
-# invoked directly (for example `make NETWORK=testnet listMarkets`), they
-# still work as standalone entrypoints.
-listMarkets listEModeCategories setupAll setupAllMarkets setupAllEModes:
-	@if [ "$(firstword $(MAKECMDGOALS))" = "testnet" ] || [ "$(firstword $(MAKECMDGOALS))" = "mainnet" ]; then \
-		:; \
-	elif [ -z "$(NETWORK)" ]; then \
-		echo "Error: NETWORK is required. Usage: make NETWORK=testnet $@ or make testnet $@"; \
-		exit 1; \
-	else \
-		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ./configs/script.sh $@; \
-	fi
+# All action verbs are no-op targets so Make accepts them as positional words
+# after `testnet` / `mainnet`. Invoking them directly (e.g. `make getPrice`)
+# is intentionally unsupported — always go through a network target.
+$(ALL_ACTIONS):
+	@:
 
-addEModeCategory addAssetToEMode createMarket editAssetConfig configureMarketOracle:
-	@if [ "$(firstword $(MAKECMDGOALS))" = "testnet" ] || [ "$(firstword $(MAKECMDGOALS))" = "mainnet" ]; then \
-		:; \
-	elif [ -z "$(NETWORK)" ]; then \
-		echo "Error: NETWORK is required. Usage: make NETWORK=testnet $@ ... or make testnet $@ ..."; \
-		exit 1; \
-	else \
-		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ./configs/script.sh $@ $(ID) $(ASSET); \
-	fi
-
-updateIndexes:
-	@if [ "$(firstword $(MAKECMDGOALS))" = "testnet" ] || [ "$(firstword $(MAKECMDGOALS))" = "mainnet" ]; then \
-		:; \
-	elif [ -z "$(NETWORK)" ]; then \
-		echo "Error: NETWORK is required. Usage: make NETWORK=testnet $@ MARKETS=\"USDC XLM\" or make testnet $@ USDC XLM"; \
-		exit 1; \
-	elif [ -z "$(MARKETS)" ]; then \
-		echo "Error: MARKETS is required. Usage: make NETWORK=testnet $@ MARKETS=\"USDC XLM\""; \
-		exit 1; \
-	else \
-		NETWORK=$(NETWORK) SIGNER=$(SIGNER) ./configs/script.sh $@ $(MARKETS); \
-	fi
-
-# Catch-all for positional args after testnet/mainnet
+# Catch-all for any remaining positional args (market names, ids, addresses).
 %:
 	@:
 
@@ -576,40 +598,8 @@ update-indexes:
 		-- update_indexes --caller $$CALLER --assets '$(ASSETS)'
 
 # ---------------------------------------------------------------------------
-# Direct CLI operations (for one-off changes not in config)
+# Contract inspection (named-parameter escape hatches for ad-hoc calls)
 # ---------------------------------------------------------------------------
-
-## Pause the protocol
-pause:
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) -- pause
-
-## Unpause the protocol
-unpause:
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) -- unpause
-
-## Grant a role: make grant-role ACCOUNT=G... ROLE=KEEPER|REVENUE|ORACLE NETWORK=testnet
-grant-role:
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- grant_role --account $(ACCOUNT) --role $(ROLE)
-
-## Revoke a role: make revoke-role ACCOUNT=G... ROLE=KEEPER|REVENUE|ORACLE NETWORK=testnet
-revoke-role:
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- revoke_role --account $(ACCOUNT) --role $(ROLE)
-
-# ---------------------------------------------------------------------------
-# Contract inspection
-# ---------------------------------------------------------------------------
-
-## Show contract info
-info:
-	@echo "=== Contract Aliases on $(NETWORK) ==="
-	@stellar contract alias show controller --network $(NETWORK) 2>/dev/null && echo "  controller: found" || echo "  controller: not deployed"
-	@stellar contract alias show aggregator --network $(NETWORK) 2>/dev/null && echo "  aggregator: found" || echo "  aggregator: not deployed"
 
 ## Invoke a controller function: make invoke FN=health_factor ARGS="--account_id 1"
 invoke:
@@ -654,34 +644,70 @@ help:
 	@echo "  make clippy             Lint all targets with warnings denied"
 	@echo "  make clean              Clean artifacts"
 	@echo ""
-	@echo "Deployment:"
-	@echo "  make keygen             Generate deployer key"
-	@echo "  make deploy-testnet     Deploy all contracts to testnet"
-	@echo "  make deploy-mainnet     Deploy all contracts to mainnet"
-	@echo "  make upgrade-controller NETWORK=testnet"
-	@echo "  make setup-testnet      Full setup (deploy + config + markets)"
-	@echo "  make info               Show deployed contract IDs"
-	@echo "  make view FN=x          Call a view function"
+	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
+	@echo "  make keygen                         Generate deployer key"
+	@echo "  make testnet deploy                 Deploy all contracts"
+	@echo "  make testnet upgradeController      Upgrade controller WASM in-place"
+	@echo "  make testnet setup                  Full setup (deploy + config + markets)"
+	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
-	@echo "Config-driven operations (reads from JSON):"
-	@echo "  make testnet addEModeCategory 1"
-	@echo "  make testnet addAssetToEMode 1 USDC"
-	@echo "  make testnet createMarket USDC"
-	@echo "  make testnet editAssetConfig USDC"
-	@echo "  make testnet configureMarketOracle USDC"
-	@echo "  make testnet updateIndexes USDC XLM"
-	@echo "  make testnet setupAllMarkets   (create -> configureOracle -> enable)"
-	@echo "  make testnet setupAllEModes"
-	@echo "  make testnet setupAll             (markets + emodes)"
-	@echo "  make testnet listMarkets"
-	@echo "  make testnet listEModeCategories"
+	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
 	@echo ""
-	@echo "Direct operations:"
-	@echo "  make grant-role ACCOUNT=G... ROLE=KEEPER|REVENUE|ORACLE NETWORK=testnet"
-	@echo "  make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"
-	@echo "  make pause NETWORK=testnet"
-	@echo "  make view FN=get_all_markets_detailed NETWORK=testnet"
+	@echo "  Markets (writes):"
+	@echo "    make testnet createMarket USDC"
+	@echo "    make testnet editAssetConfig USDC"
+	@echo "    make testnet configureMarketOracle USDC"
+	@echo "    make testnet updateIndexes USDC XLM"
+	@echo "    make testnet setupAllMarkets"
+	@echo "    make testnet listMarkets"
 	@echo ""
-	@echo "  SIGNER=ledger make mainnet setupAll    (Ledger signing)"
+	@echo "  E-Mode (writes):"
+	@echo "    make testnet addEModeCategory 1"
+	@echo "    make testnet addAssetToEMode 1 USDC"
+	@echo "    make testnet setupAllEModes"
+	@echo "    make testnet setupAll"
+	@echo "    make testnet listEModeCategories"
+	@echo ""
+	@echo "  Protocol control (writes):"
+	@echo "    make testnet pause"
+	@echo "    make testnet unpause"
+	@echo "    make testnet setAggregator"
+	@echo "    make testnet grantRole GAB...XYZ KEEPER     (roles: KEEPER|REVENUE|ORACLE)"
+	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
+	@echo ""
+	@echo "  Quick views (reads, no signing cost):"
+	@echo "    make testnet info                      Deployment addresses"
+	@echo "    make testnet hasRole GAB... KEEPER"
+	@echo "    make testnet getPrice USDC             Spot / safe / aggregator prices"
+	@echo "    make testnet getMarket USDC            Full MarketConfig"
+	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
+	@echo "    make testnet getIsolatedDebt USDC"
+	@echo "    make testnet getAllMarkets"
+	@echo "    make testnet getAllIndexes"
+	@echo "    make testnet getEMode 1"
+	@echo "    make testnet getHealth 1"
+	@echo "    make testnet getAccount 1"
+	@echo "    make testnet getCollateralUsd 1"
+	@echo "    make testnet getBorrowUsd 1"
+	@echo "    make testnet getLtvUsd 1"
+	@echo "    make testnet getLiqAvailable 1"
+	@echo "    make testnet canLiquidate 1"
+	@echo "    make testnet getCollateral 1 XLM"
+	@echo "    make testnet getBorrow 1 USDC"
+	@echo ""
+	@echo "  Reflector probes (debug DualOracle wiring):"
+	@echo "    make testnet getReflector USDC                                 Live CEX + DEX for a market"
+	@echo "    make testnet queryReflector CCYOZJ...MJRN63                    decimals + resolution"
+	@echo "    make testnet queryReflectorPrice CCYOZJ... other USDC          lastprice"
+	@echo "    make testnet queryReflectorTwap  CCYOZJ... other USDC 3        prices history"
+	@echo "    make testnet queryReflectorPrice C...DEX... stellar CBIELTK... lastprice on Stellar DEX"
+	@echo ""
+	@echo "Escape hatches for ad-hoc calls:"
+	@echo "    make view FN=get_market_config ARGS='--asset C...' NETWORK=testnet"
+	@echo "    make invoke FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
+	@echo "    make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"
+	@echo ""
+	@echo "Ledger signing (any command):"
+	@echo "    SIGNER=ledger make mainnet setupAll"
 
 .DEFAULT_GOAL := help

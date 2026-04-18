@@ -1,0 +1,240 @@
+{
+  "network": "mainnet",
+  "markets": [
+    {
+      "name": "USDC",
+      "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      "decimals": 7,
+      "reflector": {
+        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+        "cex_asset_kind": 1,
+        "cex_symbol": "USDC",
+        "dex_oracle": null,
+        "dex_asset_kind": 0,
+        "dex_symbol": "",
+        "twap_records": 3
+      },
+      "oracle": {
+        "exchange_source": 1,
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 200,
+        "last_tolerance_bps": 500
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "1000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "3000000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": "1000"
+      },
+      "asset_config": {
+        "loan_to_value_bps": "8500",
+        "liquidation_threshold_bps": "9000",
+        "liquidation_bonus_bps": "500",
+        "liquidation_fees_bps": "100",
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "e_mode_enabled": true,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": "9",
+        "borrow_cap": "30000000000000",
+        "supply_cap": "50000000000000"
+      }
+    },
+    {
+      "name": "XLM",
+      "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+      "decimals": 7,
+      "reflector": {
+        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+        "cex_asset_kind": 1,
+        "cex_symbol": "XLM",
+        "dex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+        "dex_asset_kind": 0,
+        "dex_symbol": "",
+        "twap_records": 3
+      },
+      "oracle": {
+        "exchange_source": 3,
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 200,
+        "last_tolerance_bps": 500
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "1000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "3000000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": "1500"
+      },
+      "asset_config": {
+        "loan_to_value_bps": "7000",
+        "liquidation_threshold_bps": "7800",
+        "liquidation_bonus_bps": "750",
+        "liquidation_fees_bps": "100",
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "e_mode_enabled": false,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": "9",
+        "borrow_cap": "100000000000000",
+        "supply_cap": "250000000000000"
+      }
+    },
+    {
+      "name": "EURC",
+      "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+      "decimals": 7,
+      "reflector": {
+        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+        "cex_asset_kind": 1,
+        "cex_symbol": "EURC",
+        "dex_oracle": null,
+        "dex_asset_kind": 0,
+        "dex_symbol": "",
+        "twap_records": 3
+      },
+      "oracle": {
+        "exchange_source": 1,
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 200,
+        "last_tolerance_bps": 500
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "1000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "3000000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": "1000"
+      },
+      "asset_config": {
+        "loan_to_value_bps": "8500",
+        "liquidation_threshold_bps": "9000",
+        "liquidation_bonus_bps": "500",
+        "liquidation_fees_bps": "100",
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "e_mode_enabled": true,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": "9",
+        "borrow_cap": "10000000000000",
+        "supply_cap": "20000000000000"
+      }
+    },
+    {
+      "name": "USTRY",
+      "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+      "decimals": 7,
+      "reflector": {
+        "cex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+        "cex_asset_kind": 0,
+        "cex_symbol": "",
+        "dex_oracle": null,
+        "dex_asset_kind": 0,
+        "dex_symbol": "",
+        "twap_records": 3
+      },
+      "oracle": {
+        "exchange_source": 1,
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 300,
+        "last_tolerance_bps": 800
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "1000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "3000000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": "2000"
+      },
+      "asset_config": {
+        "loan_to_value_bps": "7500",
+        "liquidation_threshold_bps": "8200",
+        "liquidation_bonus_bps": "800",
+        "liquidation_fees_bps": "100",
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": false,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "e_mode_enabled": true,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": "0",
+        "borrow_cap": "500000000000",
+        "supply_cap": "1000000000000"
+      }
+    },
+    {
+      "name": "CETES",
+      "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
+      "decimals": 7,
+      "reflector": {
+        "cex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+        "cex_asset_kind": 0,
+        "cex_symbol": "",
+        "dex_oracle": null,
+        "dex_asset_kind": 0,
+        "dex_symbol": "",
+        "twap_records": 3
+      },
+      "oracle": {
+        "exchange_source": 1,
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 400,
+        "last_tolerance_bps": 1000
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "1000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "3000000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": "2000"
+      },
+      "asset_config": {
+        "loan_to_value_bps": "7000",
+        "liquidation_threshold_bps": "7800",
+        "liquidation_bonus_bps": "1000",
+        "liquidation_fees_bps": "100",
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": false,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "e_mode_enabled": true,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": "0",
+        "borrow_cap": "750000000000",
+        "supply_cap": "1500000000000"
+      }
+    }
+  ]
+}
