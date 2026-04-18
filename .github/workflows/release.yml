@@ -91,7 +91,7 @@ jobs:
           cat ${{ matrix.package }}.wasm.sha256
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/${{ matrix.package }}.wasm
 
@@ -124,7 +124,7 @@ jobs:
             --clobber
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package }}-wasm
           path: |
