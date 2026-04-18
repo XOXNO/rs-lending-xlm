@@ -21,7 +21,7 @@ jobs:
     with:
       release_name: ${{ github.event.inputs.tag || github.ref_name }}
       package: 'controller'
-      relative_path: '["."]'
+      relative_path: '.'
     secrets:
       release_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -31,6 +31,6 @@ jobs:
     with:
       release_name: ${{ github.event.inputs.tag || github.ref_name }}
       package: 'pool'
-      relative_path: '["."]'
+      relative_path: '.'
     secrets:
       release_token: ${{ secrets.GITHUB_TOKEN }}
