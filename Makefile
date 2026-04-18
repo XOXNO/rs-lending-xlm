@@ -28,6 +28,7 @@ SHELL := /bin/bash
         coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
         fmt fmt-check clippy clippy-contracts clean \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
+        fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-controller _deploy \
         configure-controller setup-testnet setup-mainnet _setup-markets create-market \
@@ -258,8 +259,8 @@ clean:
 # Fuzzing (function-level math primitives)
 # ---------------------------------------------------------------------------
 
-FUZZ_TARGETS := fp_math rates_and_index
-FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy
+FUZZ_TARGETS := fp_math rates_and_index fp_ops
+FUZZ_CONTRACT_TARGETS := flow_e2e flow_strategy pool_native
 FUZZ_TIME ?= 60
 
 # macOS requires `--sanitizer=thread -Zbuild-std` to link the contract-level
@@ -298,6 +299,49 @@ fuzz-build:
 ## a campaign to give libFuzzer realistic numeric entropy from the start.
 fuzz-seed-corpus:
 	@cd fuzz && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
+
+# ---------------------------------------------------------------------------
+# Fuzz coverage (fast: corpus replay only, no active fuzzing)
+# ---------------------------------------------------------------------------
+# `cargo fuzz coverage` builds with profile instrumentation and replays the
+# existing corpus once — inherently fast once the build is warm. HTML reports
+# land in $(COV_DIR)/fuzz/<target>/. Set FUZZ_COV_TIME=<seconds> to do a short
+# fuzz run first (grows the corpus before measuring).
+#
+# macOS: all targets need --sanitizer=thread -Zbuild-std because the default
+# sancov+ASAN build fails to link the stellar-access cdylib (same workaround
+# used by `make fuzz`). First build is slow (~2–5 min); subsequent runs reuse
+# the cache so replay + report complete in seconds.
+
+FUZZ_COV_TIME ?= 0
+ifeq ($(UNAME_S),Darwin)
+  FUZZ_COV_ENV := SANITIZER=thread BUILD_STD=1
+else
+  FUZZ_COV_ENV :=
+endif
+
+## Fast: coverage for function-level targets (fp_math, rates_and_index)
+fuzz-coverage:
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+		./fuzz/coverage.sh $(FUZZ_TARGETS)
+
+## All: adds contract-level targets — same flags, same cache, just more targets
+fuzz-coverage-all:
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+		./fuzz/coverage.sh $(FUZZ_TARGETS) $(FUZZ_CONTRACT_TARGETS)
+
+## Single target: make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]
+fuzz-coverage-one:
+	@if [ -z "$(TARGET)" ]; then \
+		echo "Usage: make fuzz-coverage-one TARGET=<name> [FUZZ_COV_TIME=30]"; \
+		exit 1; \
+	fi
+	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
+		./fuzz/coverage.sh $(TARGET)
+
+## Remove fuzz coverage artifacts (keeps the corpus)
+fuzz-coverage-clean:
+	@rm -rf $(COV_DIR)/fuzz fuzz/coverage
 
 # ---------------------------------------------------------------------------
 # Contract-level property tests (proptest inside test-harness)
@@ -599,6 +643,9 @@ help:
 	@echo "  make test               Run all test-harness tests"
 	@echo "  make test-one FILE=x    Run specific test file"
 	@echo "  make coverage           Run merged coverage with CLI summary"
+	@echo "  make fuzz-coverage      Fast fuzz coverage (fp_math, rates_and_index) — corpus replay only"
+	@echo "  make fuzz-coverage-all  Include contract-level targets (slower on macOS: TSAN build)"
+	@echo "  make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]"
 	@echo "  make coverage-controller  Coverage for controller/common via unit+harness"
 	@echo "  make coverage-pool        Coverage for pool via direct unit tests"
 	@echo "  make coverage-merged      Coverage merged across pool + controller + harness"

@@ -28,7 +28,10 @@
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
 use common::fp::Ray;
-use common::rates::{calculate_borrow_rate, calculate_supplier_rewards, compound_interest};
+use common::rates::{
+    calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
+    simulate_update_indexes,
+};
 use common::types::MarketParams;
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{Address, Env};
@@ -54,6 +57,10 @@ struct In {
     reserve_pct: u8,
     delta_ms: u64,
     borrowed_units: u64,
+    // --- pipeline wrapper (simulate_update_indexes) ---
+    // Appended at tail so existing corpus seeds remain byte-compatible:
+    // missing bytes deserialize to 0 and gracefully hit the skip paths.
+    supplied_units: u64,
 }
 
 fn make_params(env: &Env, i: &In) -> MarketParams {
@@ -238,4 +245,100 @@ fuzz_target!(|i: In| {
         return;
     }
     assert_interest_split(&env, &params, Ray::from_raw(borrowed_raw), factor, Ray::ONE);
+
+    // ---- calculate_deposit_rate (not reachable via simulate_update_indexes) ----
+    // `util` and `rate` are already clamped into the validated domain above.
+    let deposit_rate = calculate_deposit_rate(&env, util, rate, params.reserve_factor_bps);
+    assert!(
+        deposit_rate.raw() >= 0,
+        "negative deposit rate: {}",
+        deposit_rate.raw()
+    );
+    // Supplier share is (1 - reserve_factor) × utilization × borrow_rate ≤ borrow_rate.
+    // 1-ulp slack for Bps::apply_to's half-up rounding.
+    assert!(
+        deposit_rate.raw() <= rate.raw() + 1,
+        "deposit rate > borrow rate: dep={} bor={}",
+        deposit_rate.raw(),
+        rate.raw()
+    );
+    // reserve_factor == BPS-1 clamp edge: denominator (BPS - rf) = 1, so the
+    // deposit rate can approach rate; still must not exceed it.
+    if params.reserve_factor_bps == 0 && util.raw() > 0 {
+        // Zero reserve factor ⇒ suppliers get the full util × rate (± 1 ulp).
+        let expected = rate.mul(&env, util);
+        let diff = (deposit_rate.raw() - expected.raw()).abs();
+        assert!(
+            diff <= 1,
+            "deposit rate mismatch with rf=0: dep={} expected={} diff={}",
+            deposit_rate.raw(),
+            expected.raw(),
+            diff
+        );
+    }
+
+    // ---- simulate_update_indexes (pipeline wrapper) ----
+    // Exercises `utilization`, `scaled_to_original`, `update_borrow_index`,
+    // `update_supply_index` — functions otherwise unreached.
+    //
+    // Domain: `simulate_update_indexes` recomputes utilization internally
+    // from `borrowed/supplied`. Derive `supplied` so the internal util
+    // matches the already-validated `util_bps`, keeping us inside the
+    // `rate * delta_ms ≤ 2 RAY` bound we enforced above. Otherwise an
+    // adversarial supplied/borrowed ratio can produce a region-3 rate that
+    // overflows compound_interest.
+    // util_bps == 0 can't be faithfully reproduced via borrowed/supplied
+    // (would need supplied → ∞). Skip rather than assert-with-caveats.
+    if util_bps == 0 {
+        return;
+    }
+
+    // supplied = borrowed * 10_000 / util_bps — reproduces the same util so
+    // simulate_update_indexes' internal rate falls inside the clamped domain.
+    const SUPPLY_CAP_RAW: i128 = 200_000_000_000_000_000;
+    let supplied_raw = match borrowed_raw.checked_mul(10_000) {
+        Some(scaled) => (scaled / util_bps).min(SUPPLY_CAP_RAW),
+        None => return,
+    };
+    if supplied_raw <= borrowed_raw {
+        // util ≥ 1 would land in region 3 with rates outside our clamp.
+        return;
+    }
+
+    // Pin old indices at RAY so the assertions below compare against a known
+    // floor. simulate_update_indexes uses `current_timestamp - last_timestamp`
+    // for accrual, so feeding (delta_ms, 0) mirrors the clamp above exactly.
+    let old_index_raw = Ray::ONE.raw();
+    let new_idx = simulate_update_indexes(
+        &env,
+        delta_ms,
+        0,
+        Ray::from_raw(borrowed_raw),
+        Ray::ONE,
+        Ray::from_raw(supplied_raw),
+        Ray::ONE,
+        &params,
+    );
+
+    // Monotonic non-decrease: indices only grow across a positive time step.
+    assert!(
+        new_idx.borrow_index_ray >= old_index_raw,
+        "borrow index regressed: new={} old={} dt={}",
+        new_idx.borrow_index_ray,
+        old_index_raw,
+        delta_ms
+    );
+    assert!(
+        new_idx.supply_index_ray >= old_index_raw,
+        "supply index regressed: new={} old={} dt={}",
+        new_idx.supply_index_ray,
+        old_index_raw,
+        delta_ms
+    );
+
+    // delta_ms == 0 ⇒ indices are passed through unchanged.
+    if delta_ms == 0 {
+        assert_eq!(new_idx.borrow_index_ray, old_index_raw);
+        assert_eq!(new_idx.supply_index_ray, old_index_raw);
+    }
 });

@@ -66,6 +66,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "fp_ops"
+path = "fuzz_targets/fp_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pool_native"
+path = "fuzz_targets/pool_native.rs"
+test = false
+doc = false
+bench = false
+
 ## Host-side binary: seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
 ## NOT a fuzz target. Build with: `cargo run --bin seed_corpus --features seed-corpus`.
 [[bin]]

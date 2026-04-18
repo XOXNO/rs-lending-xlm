@@ -1,5 +1,15 @@
 name: Release Build
 
+# The external stellar-expert/soroban-build-workflow action we previously
+# used ships its own stellar-cli, which does not currently set
+# `SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2` — required by the
+# `experimental_spec_shaking_v2` feature that `stellar-access` and
+# `stellar-contract-utils` 0.7.0 pin on in `soroban-sdk` 25.3.1. Without
+# that env var, the soroban-sdk build script panics before compile.
+#
+# This workflow installs the same stellar-cli (v26.0.0) used by ci.yml and
+# fuzz.yml, which sets the env var correctly, and runs the build inline.
+
 on:
   release:
     types: [published]
@@ -14,23 +24,103 @@ permissions:
   contents: write
   attestations: write
 
-jobs:
-  release-controller:
-    name: Build Controller
-    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
-    with:
-      release_name: ${{ github.event.inputs.tag || github.ref_name }}
-      package: 'controller'
-      relative_path: '.'
-    secrets:
-      release_token: ${{ secrets.GITHUB_TOKEN }}
+env:
+  STELLAR_VERSION: '26.0.0'
 
-  release-pool:
-    name: Build Pool
-    uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
-    with:
-      release_name: ${{ github.event.inputs.tag || github.ref_name }}
-      package: 'pool'
-      relative_path: '.'
-    secrets:
-      release_token: ${{ secrets.GITHUB_TOKEN }}
+jobs:
+  build:
+    name: Build ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [controller, pool]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Install stellar-cli
+        run: |
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | tar -xz -C "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/stellar"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      # `stellar contract build --optimize` replaces the deprecated
+      # `stellar contract optimize` step: it builds the WASM and optimizes
+      # it with a single pass, preserving the meta section that the
+      # deprecated optimize pass would strip after the fact.
+      - name: Build and optimize ${{ matrix.package }}
+        run: |
+          mkdir -p dist
+          stellar contract build --package "${{ matrix.package }}"
+          stellar contract optimize \
+            --wasm target/wasm32v1-none/release/${{ matrix.package }}.wasm \
+            --wasm-out dist/${{ matrix.package }}.wasm
+          ls -lh dist/${{ matrix.package }}.wasm
+
+      - name: SHA256 checksum
+        run: |
+          cd dist
+          sha256sum ${{ matrix.package }}.wasm > ${{ matrix.package }}.wasm.sha256
+          cat ${{ matrix.package }}.wasm.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/${{ matrix.package }}.wasm
+
+      # Untrusted inputs (release tag_name, workflow_dispatch tag input) are
+      # moved into env to avoid shell-injection via ${{ }} interpolation in
+      # `run:` blocks. See
+      # https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+      - name: Upload to release (on published release)
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PKG: ${{ matrix.package }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "dist/${PKG}.wasm" \
+            "dist/${PKG}.wasm.sha256" \
+            --clobber
+
+      - name: Upload to release (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          PKG: ${{ matrix.package }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "dist/${PKG}.wasm" \
+            "dist/${PKG}.wasm.sha256" \
+            --clobber
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-wasm
+          path: |
+            dist/${{ matrix.package }}.wasm
+            dist/${{ matrix.package }}.wasm.sha256
+          if-no-files-found: error

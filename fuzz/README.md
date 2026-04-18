@@ -237,6 +237,48 @@ permanent regression tests that re-run on every property-test invocation.
 
 ---
 
+## Coverage (fast: corpus replay only)
+
+`cargo fuzz coverage` builds each target with profile instrumentation and
+replays the existing corpus once — it does **not** run active fuzzing, so
+wall-clock time is dominated by the build, not the replay. HTML reports land
+in `target/coverage/fuzz/<target>/index.html`.
+
+Prereqs (one-time):
+
+```bash
+rustup component add llvm-tools-preview --toolchain nightly
+# optional, prettier function names:
+cargo install rustfilt
+```
+
+Run:
+
+```bash
+# Fast: function-level only (fp_math, rates_and_index)
+make fuzz-coverage
+
+# Grow the corpus first with a short fuzz run (30s per target), then measure
+make fuzz-coverage FUZZ_COV_TIME=30
+
+# Include contract-level targets (macOS: TSAN build on first run)
+make fuzz-coverage-all
+
+# Single target
+make fuzz-coverage-one TARGET=flow_e2e FUZZ_COV_TIME=60
+```
+
+Filter: harness code (`fuzz/fuzz_targets`, `fuzz/src`), test-harness tests,
+stdlib, and `.cargo/registry` deps are excluded from reports — what's left is
+the protocol surface (`controller/`, `pool/`, `common/`, `test-harness/src/`).
+
+Use the coverage output to identify underexercised op paths (e.g. whether
+`flow_e2e`'s `CleanBadDebt` or `OracleJitter` branches are hit), then either
+expand the corpus via `make fuzz-seed-corpus` + a longer campaign, or add
+dictionary entries for magic values that block the mutator.
+
+---
+
 ## Static UB checking via Miri
 
 Miri is the MIR interpreter for Rust. It detects undefined behavior
