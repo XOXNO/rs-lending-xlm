@@ -252,9 +252,32 @@ pub struct UpdatePositionEvent {
     /// Discriminator for the controller entrypoint that produced this event.
     /// All balance-mutating entrypoints share the `["position","update"]`
     /// topic; indexers use this field to distinguish actions. Values are
-    /// lowercase snake-case symbols (<=9 bytes inline): `supply`, `borrow`,
-    /// `withdraw`, `repay`, `liq_repay`, `liq_seize`, `multiply`,
-    /// `swap_debt`, `swap_col`, `param_upd`.
+    /// lowercase snake-case symbols (≤ 9 bytes so they fit in
+    /// `Symbol::short`). Authoritative list — any new strategy flow MUST
+    /// register its tag here AND in the indexer (api-v2
+    /// `stellar-lending-activity.mapper.ts` switch, az-functions
+    /// `stellar-position-update.event.ts` docstring):
+    ///
+    ///   Plain flows (processed through `positions/*`):
+    ///     - `supply`     — `process_deposit`
+    ///     - `borrow`     — `process_borrow`
+    ///     - `withdraw`   — `process_withdraw`
+    ///     - `repay`      — `process_repay`
+    ///
+    ///   Admin / aggregated:
+    ///     - `param_upd`  — `update_account_threshold`
+    ///     - `multiply`   — `process_multiply` (borrow leg)
+    ///
+    ///   Liquidation (shared helpers re-used by `liquidation::liquidate_batch`):
+    ///     - `liq_repay`  — liquidator repays debtor's debt
+    ///     - `liq_seize`  — liquidator seizes debtor's collateral
+    ///
+    ///   Strategy flows (shared helpers re-used by `strategy::*`):
+    ///     - `sw_debt_r`  — `process_swap_debt`   (repay leg, old debt)
+    ///     - `sw_col_wd`  — `process_swap_collateral` (withdraw leg)
+    ///     - `rp_col_wd`  — `process_repay_debt_with_collateral` (withdraw leg)
+    ///     - `rp_col_r`   — `process_repay_debt_with_collateral` (repay leg)
+    ///     - `close_wd`   — `execute_withdraw_all` (close-position leg)
     pub action: Symbol,
     pub index: i128,
     pub amount: i128,
