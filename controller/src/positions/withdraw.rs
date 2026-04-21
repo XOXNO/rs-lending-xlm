@@ -2,7 +2,7 @@ use common::constants::WAD;
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
 use common::types::{Account, AccountPosition, PoolPositionMutation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Symbol, Vec};
 
 use super::update;
 use crate::cache::ControllerCache;
@@ -87,12 +87,17 @@ fn process_single_withdrawal(
     // `amount == 0` sentinel: withdraw all.
     let withdraw_amount = if amount == 0 { i128::MAX } else { amount };
 
-    // Shared withdrawal execution (also used by liquidation).
-    let result = execute_withdrawal(
+    // Shared withdrawal execution (also used by liquidation and strategy flows).
+    // The helper emits `UpdatePositionEvent` itself with the caller-provided
+    // `action` tag, guaranteeing every position mutation produces an event
+    // (plain / liquidation / strategy paths all covered).
+    let _ = execute_withdrawal(
         env,
         account_id,
         account,
         caller,
+        caller,
+        symbol_short!("withdraw"),
         withdraw_amount,
         &position,
         false, // not liquidation
@@ -100,31 +105,31 @@ fn process_single_withdrawal(
         feed.price_wad,
         cache,
     );
-
-    // Withdraw uses supply_index_ray.
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action: symbol_short!("withdraw"),
-            index: result.market_index.supply_index_ray,
-            amount: result.actual_amount,
-            position: result.position.clone().into(),
-            asset_price: Some(feed.price_wad),
-            caller: Some(caller.clone()),
-            account_attributes: Some((&*account).into()),
-        },
-    );
 }
 
 // ---------------------------------------------------------------------------
 // Shared withdrawal execution (also used by liquidation)
 // ---------------------------------------------------------------------------
 
+/// Execute the withdrawal through the pool, update the position, and emit
+/// an `UpdatePositionEvent`.
+///
+/// - `caller` is the pool-call authority (the address that receives tokens).
+/// - `event_caller` is the originator logged in the event. For plain
+///   withdraw and liquidation these are the same; for strategy flows (where
+///   `caller = env.current_contract_address()` because the controller is
+///   the intermediate recipient) pass the real user.
+/// - `action` is the event tag the caller wants indexers to see
+///   (e.g. `"withdraw"`, `"liq_seize"`, `"rp_col_wd"`, `"sw_col_wd"`,
+///   `"close_wd"`).
+#[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,
     _account_id: u64,
     account: &mut Account,
     caller: &Address,
+    event_caller: &Address,
+    action: Symbol,
     amount: i128,
     position: &AccountPosition,
     is_liquidation: bool,
@@ -143,5 +148,20 @@ pub fn execute_withdrawal(
         &price_wad,
     );
     update::update_or_remove_position(account, &result.position);
+
+    // Withdraw uses supply_index_ray.
+    emit_update_position(
+        env,
+        UpdatePositionEvent {
+            action,
+            index: result.market_index.supply_index_ray,
+            amount: result.actual_amount,
+            position: result.position.clone().into(),
+            asset_price: Some(price_wad),
+            caller: Some(event_caller.clone()),
+            account_attributes: Some((&*account).into()),
+        },
+    );
+
     result
 }

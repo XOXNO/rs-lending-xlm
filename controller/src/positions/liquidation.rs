@@ -1,10 +1,7 @@
 use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
 use common::errors::CollateralError;
 use common::errors::GenericError;
-use common::events::{
-    emit_clean_bad_debt, emit_update_position, CleanBadDebtEvent, EventAccountAttributes,
-    UpdatePositionEvent,
-};
+use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{Account, MarketIndex, PriceFeed};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
@@ -58,30 +55,18 @@ pub fn process_liquidation(
 
         let position = account.borrow_positions.get(asset.clone()).unwrap();
 
-        let result = repay::execute_repayment(
+        // execute_repayment emits `liq_repay` UpdatePositionEvent internally
+        // with the post-mutation account attributes.
+        let _result = repay::execute_repayment(
             env,
             &mut account,
             liquidator,
+            liquidator,
+            symbol_short!("liq_repay"),
             &position,
             feed.price_wad,
             amount,
             &mut cache,
-        );
-
-        // Re-derive attributes from the post-mutation account so the emitted
-        // event is consistent with the recorded position state.
-        let post_attrs: EventAccountAttributes = (&account).into();
-        emit_update_position(
-            env,
-            UpdatePositionEvent {
-                action: symbol_short!("liq_repay"),
-                index: result.market_index.borrow_index_ray,
-                amount: result.actual_amount,
-                position: result.position.clone().into(),
-                asset_price: Some(feed.price_wad),
-                caller: Some(liquidator.clone()),
-                account_attributes: Some(post_attrs),
-            },
         );
     }
 
@@ -90,31 +75,20 @@ pub fn process_liquidation(
 
         let position = account.supply_positions.get(asset.clone()).unwrap();
 
-        let result = withdraw::execute_withdrawal(
+        // execute_withdrawal emits `liq_seize` UpdatePositionEvent internally.
+        let _result = withdraw::execute_withdrawal(
             env,
             account_id,
             &mut account,
             liquidator,
+            liquidator,
+            symbol_short!("liq_seize"),
             amount,
             &position,
             true, // is_liquidation
             protocol_fee,
             feed.price_wad,
             &mut cache,
-        );
-
-        let post_attrs: EventAccountAttributes = (&account).into();
-        emit_update_position(
-            env,
-            UpdatePositionEvent {
-                action: symbol_short!("liq_seize"),
-                index: result.market_index.supply_index_ray,
-                amount: result.actual_amount,
-                position: result.position.clone().into(),
-                asset_price: Some(feed.price_wad),
-                caller: Some(liquidator.clone()),
-                account_attributes: Some(post_attrs),
-            },
         );
     }
 

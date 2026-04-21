@@ -5,7 +5,7 @@ use common::fp::{Ray, Wad};
 use common::types::{
     Account, PositionMode, SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 
 use crate::cache::ControllerCache;
 use crate::{
@@ -281,11 +281,16 @@ pub fn process_swap_debt(
 
     let controller_balance_before_repay = existing_tok.balance(&env.current_contract_address());
 
-    // Shared repay path: pool.repay + position update + isolated-debt adjustment.
+    // Shared repay path: pool.repay + position update + isolated-debt
+    // adjustment + UpdatePositionEvent with `sw_debt_r` action tag.
+    // `event_caller = caller` (original user) so indexers see the real
+    // initiator, not the controller's own address.
     repay::execute_repayment(
         env,
         &mut account,
         &env.current_contract_address(),
+        caller,
+        symbol_short!("sw_debt_r"),
         &existing_pos,
         existing_feed.price_wad,
         swapped_amount,
@@ -356,11 +361,14 @@ pub fn process_swap_collateral(
     let controller_balance_before_withdraw =
         current_tok_client.balance(&env.current_contract_address());
 
+    // Emits UpdatePositionEvent with `sw_col_wd` action tag + real user as caller.
     let _updated_current = withdraw::execute_withdrawal(
         env,
         account_id,
         &mut account,
         &env.current_contract_address(),
+        caller,
+        symbol_short!("sw_col_wd"),
         from_amount,
         &current_pos,
         false, // is_liquidation
@@ -531,11 +539,14 @@ pub fn process_repay_debt_with_collateral(
     let controller_balance_before_withdraw =
         collateral_tok_client.balance(&env.current_contract_address());
 
+    // Emits UpdatePositionEvent with `rp_col_wd` action tag.
     let _updated_collateral = withdraw::execute_withdrawal(
         env,
         account_id,
         &mut account,
         &env.current_contract_address(),
+        caller,
+        symbol_short!("rp_col_wd"),
         collateral_amount,
         &collateral_pos,
         false, // not liquidation
@@ -569,10 +580,13 @@ pub fn process_repay_debt_with_collateral(
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
     // Route through the shared repay path for isolated debt handling.
+    // Emits UpdatePositionEvent with `rp_col_r` action tag.
     repay::execute_repayment(
         env,
         &mut account,
         &env.current_contract_address(),
+        caller,
+        symbol_short!("rp_col_r"),
         &debt_pos,
         debt_feed.price_wad,
         swapped_debt,
@@ -667,11 +681,16 @@ pub fn execute_withdraw_all(
             let full_amount = Ray::from_raw(pos.scaled_amount_ray)
                 .mul(env, Ray::from_raw(market_index.supply_index_ray))
                 .to_asset(feed.asset_decimals);
+            // Emits UpdatePositionEvent with `close_wd` action tag. `destination`
+            // is the user here (strategy close-position withdraws to them), so
+            // it doubles as the event caller.
             let _updated = withdraw::execute_withdrawal(
                 env,
                 account_id,
                 account,
                 destination,
+                destination,
+                symbol_short!("close_wd"),
                 full_amount,
                 &pos,
                 false, // is_liquidation
