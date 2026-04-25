@@ -8,7 +8,7 @@ use common::types::{
     MarketConfig, PositionLimits, POSITION_TYPE_DEPOSIT,
 };
 #[cfg(feature = "certora")]
-use common::types::{AccountAttributes, AssetConfig, MarketIndex, MarketParams};
+use common::types::{AccountAttributes, AssetConfig, MarketIndex, MarketParams, PositionMode};
 #[cfg(test)]
 use common::types::{OracleProviderConfig, ReflectorConfig};
 #[cfg(feature = "certora")]

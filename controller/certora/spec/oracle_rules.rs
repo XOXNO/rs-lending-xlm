@@ -12,9 +12,8 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{
-    MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, RAY, WAD,
+    MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
 };
-use common::fp_core::{mul_div_half_up, rescale_half_up};
 // ---------------------------------------------------------------------------
 // Rule 1: Price staleness enforced
 // ---------------------------------------------------------------------------
