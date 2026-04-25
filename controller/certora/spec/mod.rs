@@ -3,7 +3,6 @@ pub mod compat;
 /// Compiled only under the `certora` feature.
 ///
 /// Modules:
-///   - `model`             ghost state, skolem variables, helpers
 ///   - `health_rules`      health factor invariants
 ///   - `index_rules`       index monotonicity and safety
 ///   - `interest_rules`    rate model and compound-interest invariants
@@ -15,8 +14,6 @@ pub mod compat;
 ///   - `boundary_rules`    boundary conditions and overflow safety
 ///   - `solvency_rules`    pool solvency and scaled-amount conservation
 ///   - `summaries/`        function abstractions for prover feasibility
-pub mod model;
-
 pub mod boundary_rules;
 pub mod emode_rules;
 pub mod flash_loan_rules;

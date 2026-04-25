@@ -48,6 +48,7 @@ pub fn calculate_ltv_collateral_wad(
 // Health factor calculation
 // ---------------------------------------------------------------------------
 
+crate::summarized!(crate::spec::summaries::calculate_health_factor_summary,
 pub fn calculate_health_factor(
     env: &Env,
     cache: &mut ControllerCache,
@@ -109,8 +110,10 @@ pub fn calculate_health_factor(
     let result = numerator.div(&tb);
     result.to_i128().unwrap_or(i128::MAX)
 }
+);
 
 #[cfg(feature = "certora")]
+crate::summarized!(crate::spec::summaries::calculate_health_factor_for_summary,
 pub fn calculate_health_factor_for(
     env: &Env,
     cache: &mut ControllerCache,
@@ -124,11 +127,13 @@ pub fn calculate_health_factor_for(
         &account.borrow_positions,
     )
 }
+);
 
 // ---------------------------------------------------------------------------
 // Account totals (extracted from liquidation -- shared with views)
 // ---------------------------------------------------------------------------
 
+crate::summarized!(crate::spec::summaries::calculate_account_totals_summary,
 pub fn calculate_account_totals(
     env: &Env,
     cache: &mut ControllerCache,
@@ -175,6 +180,7 @@ pub fn calculate_account_totals(
 
     (total_collateral, total_debt, weighted_coll)
 }
+);
 
 // ---------------------------------------------------------------------------
 // Liquidation math helpers
@@ -204,10 +210,12 @@ pub fn calculate_linear_bonus_with_target(
 }
 
 #[cfg(feature = "certora")]
+crate::summarized!(crate::spec::summaries::calculate_linear_bonus_summary,
 pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
     let target_hf = Wad::from_raw(1_020_000_000_000_000_000);
     calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
 }
+);
 
 #[allow(clippy::too_many_arguments)]
 pub fn estimate_liquidation_amount(

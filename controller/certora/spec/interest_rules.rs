@@ -322,31 +322,31 @@ fn compound_interest_monotonic_in_rate(e: Env) {
 /// The Taylor expansion of e^x always exceeds the linear approximation
 /// `1 + x` for non-negative x, so compound interest never underestimates
 /// simple interest.
+///
+/// `rate` is per-millisecond in RAY; `t` is plain milliseconds. The product
+/// `rate * t` is the cumulative `x` in RAY. We bound `rate <= 1 RAY/year` so
+/// the product stays inside i128 (`<= RAY = 10^27`, well below i128 max
+/// 1.7e38) -- this lets us drop the I256/`to_i128().unwrap()` path the
+/// previous version relied on.
 #[rule]
 fn compound_interest_ge_simple(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
     let t: u64 = cvlr::nondet::nondet();
 
-    cvlr_assume!(rate >= 0);
-    cvlr_assume!(rate <= div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128));
+    let max_rate = div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
+    cvlr_assume!(rate >= 0 && rate <= max_rate);
     cvlr_assume!(t > 0 && t <= MILLISECONDS_PER_YEAR);
 
     let factor = compound_interest(&e, Ray::from_raw(rate), t);
 
-    // Simple interest: 1.0 + rate * time (both in RAY)
-    // x = rate * t is already in RAY since rate is per-ms in RAY and t is plain ms.
-    let x = {
-        let r = soroban_sdk::I256::from_i128(&e, rate);
-        let d = soroban_sdk::I256::from_i128(&e, t as i128);
-        let result = r.mul(&d);
-        result
-            .to_i128()
-            .unwrap_or_else(|| panic!("rate * t overflow"))
-    };
+    // `rate * t <= max_rate * MILLISECONDS_PER_YEAR <= RAY` by construction;
+    // safe in i128.
+    let x = rate * (t as i128);
     let simple = RAY + x;
 
-    // Allow -2 tolerance: Taylor truncation and rounding can cause the 5-term
-    // approximation to fall slightly below the linear approximation for tiny x.
+    // Allow -2 tolerance: Taylor truncation and rounding can cause the
+    // 8-term approximation to fall slightly below the linear approximation
+    // for tiny x.
     cvlr_assert!(factor.raw() >= simple - 2);
 }
 

@@ -17,6 +17,12 @@ use crate::cache::ControllerCache;
 // Core dispatcher
 // ---------------------------------------------------------------------------
 
+// Under `certora`, public callers receive a redirect to the spec summary in
+// `controller/certora/spec/summaries/mod.rs`. The real body remains reachable
+// from rules that want to verify the full implementation via the nested
+// module `crate::oracle::token_price::token_price` (synthesised by
+// `apply_summary!`). Outside `certora`, the body compiles unchanged.
+crate::summarized!(crate::spec::summaries::token_price_summary,
 pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
     // Transaction-level cache hit.
     if let Some(feed) = cache.try_get_price(asset) {
@@ -55,6 +61,7 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
     cache.set_price(asset, &feed);
     feed
 }
+);
 
 fn find_price_feed(
     cache: &mut ControllerCache,
@@ -336,6 +343,13 @@ fn dex_spot_price(
 // Tolerance validation
 // ---------------------------------------------------------------------------
 
+// Summarised under `certora`. The full I256 ratio computation is
+// prover-expensive (Ray::div invokes mul_div_half_up which crosses I256);
+// callers only ever care about which tolerance branch fires, so a nondet
+// boolean is sound. Real implementation remains accessible at
+// `crate::oracle::is_within_anchor::is_within_anchor` for direct
+// invocation by `oracle_rules`.
+crate::summarized!(crate::spec::summaries::is_within_anchor_summary,
 pub(crate) fn is_within_anchor(
     env: &Env,
     aggregator: i128,
@@ -354,6 +368,7 @@ pub(crate) fn is_within_anchor(
 
     ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
 }
+);
 
 // ---------------------------------------------------------------------------
 // Price components (for views / monitoring)
@@ -449,6 +464,11 @@ pub fn price_components(
 // Index update
 // ---------------------------------------------------------------------------
 
+// Summarised under `certora`. Production crosses two pool sub-calls
+// (`get_sync_data` and the rate-model `simulate_update_indexes`) which the
+// prover would otherwise inline; the summary returns a fresh `MarketIndex`
+// that satisfies the index-monotonicity post-conditions.
+crate::summarized!(crate::spec::summaries::update_asset_index_summary,
 pub fn update_asset_index(
     cache: &mut ControllerCache,
     asset: &Address,
@@ -477,6 +497,7 @@ pub fn update_asset_index(
         pool_client.update_indexes(&0)
     }
 }
+);
 
 #[cfg(test)]
 mod tests {

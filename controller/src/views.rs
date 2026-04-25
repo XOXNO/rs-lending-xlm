@@ -31,6 +31,7 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
     health_factor(env, account_id) < WAD
 }
 
+crate::summarized!(crate::spec::summaries::total_collateral_in_usd_summary,
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let meta = match try_get_account_meta(env, account_id) {
         Some(meta) => meta,
@@ -60,7 +61,9 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
 
     total_collateral.raw()
 }
+);
 
+crate::summarized!(crate::spec::summaries::total_borrow_in_usd_summary,
 pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let meta = match try_get_account_meta(env, account_id) {
         Some(meta) => meta,
@@ -89,6 +92,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
 
     total_borrow.raw()
 }
+);
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let position =
@@ -184,6 +188,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     weighted_coll.raw()
 }
 
+crate::summarized!(crate::spec::summaries::ltv_collateral_in_usd_summary,
 pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let account = match storage::try_get_account(env, account_id) {
         Some(account) => account,
@@ -192,6 +197,7 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = ControllerCache::new_view(env);
     helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }
+);
 
 // ---------------------------------------------------------------------------
 // Market index views

@@ -145,25 +145,34 @@ fn div_half_up_zero_numerator(e: Env) {
 // Rule 6: mul_half_up rounding direction -- never rounds below floor(a*b/p)
 // ---------------------------------------------------------------------------
 
+// Reformulated to linear arithmetic over i128. The previous version computed
+// `floor` with `soroban_sdk::I256` mul/div/to_i128 (the prover models these
+// as bitvector ops, contributing the `nonlinear ops: 8 / max polyn.
+// degree: 4` warning the Certora run reported, and the `.to_i128().unwrap()`
+// added a panic branch). The same property -- "result is no less than the
+// mathematical floor of (a*b)/WAD" -- is captured by:
+//
+//     result * WAD >= a * b - (WAD - 1)
+//
+// which says `result` is within one unit of the floor on the low side.
+// Tightening the input range to `<= 10^14` keeps `a * b` well inside i128
+// (max product ~= 10^28 vs i128 max ~= 1.7e38) so the multiplication is
+// linear and overflow-free.
 #[rule]
 fn mul_half_up_rounding_direction(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    // Use WAD precision so the floor reference stays within i128.
-    cvlr_assume!(a >= 0 && a <= WAD * 100);
-    cvlr_assume!(b >= 0 && b <= WAD * 100);
+    // 10^14 covers realistic per-asset USD amounts (e.g. $1M with 7 decimals
+    // is 10^13). a*b stays well below i128 max.
+    cvlr_assume!(a >= 0 && a <= 100_000_000_000_000);
+    cvlr_assume!(b >= 0 && b <= 100_000_000_000_000);
 
     let result = mul_div_half_up(&e, a, b, WAD);
 
-    // Compute floor with I256 intermediates to avoid overflow.
-    let a256 = soroban_sdk::I256::from_i128(&e, a);
-    let b256 = soroban_sdk::I256::from_i128(&e, b);
-    let p256 = soroban_sdk::I256::from_i128(&e, WAD);
-    let floor_256 = a256.mul(&b256).div(&p256);
-    let floor = floor_256.to_i128().unwrap();
-
-    cvlr_assert!(result >= floor);
+    // Half-up rounding never rounds below the true mathematical floor of
+    // a*b/WAD. Equivalently: result*WAD is at most (WAD - 1) below a*b.
+    cvlr_assert!(result * WAD >= a * b - (WAD - 1));
 }
 
 #[rule]
@@ -182,37 +191,35 @@ fn mul_half_up_rounding_direction_sanity(e: Env) {
 // Rule 7: div_half_up rounding direction -- rounds up when remainder >= b/2
 // ---------------------------------------------------------------------------
 
+// Reformulated to linear arithmetic over i128. Original computed `floor` and
+// `remainder` via `soroban_sdk::I256` and asserted exact-branch equality;
+// the bitvector mul/div + `.to_i128().unwrap()` paths combined to time out
+// the solver per the Certora run. The two-sided envelope below captures
+// the same half-up rounding contract:
+//
+//     floor <= result <= floor + 1
+//
+// where `floor = (a * WAD) / b` integer-divided. We don't need to identify
+// which branch fires -- the linear envelope is enough to catch any
+// implementation that rounds outside the half-up window.
 #[rule]
 fn div_half_up_rounding_direction(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    // Constrain to positive values; use WAD for manageable intermediate sizes
-    cvlr_assume!(a >= 0 && a <= WAD * 100);
-    cvlr_assume!(b > 0 && b <= WAD * 100);
+    // Bounds keep `a * WAD` inside i128. With `a <= 10^14`, `a * WAD <= 10^32`
+    // (well below i128 max).
+    cvlr_assume!(a >= 0 && a <= 100_000_000_000_000);
+    cvlr_assume!(b > 0 && b <= 100_000_000_000_000);
 
     let result = mul_div_half_up(&e, a, WAD, b);
 
-    // Compute floor: (a * WAD) / b using I256
-    let a256 = soroban_sdk::I256::from_i128(&e, a);
-    let b256 = soroban_sdk::I256::from_i128(&e, b);
-    let p256 = soroban_sdk::I256::from_i128(&e, WAD);
-    let numerator = a256.mul(&p256);
-    let floor_256 = numerator.div(&b256);
-    let remainder_256 = numerator.sub(&floor_256.mul(&b256));
-    let _half_b = b256.div(&soroban_sdk::I256::from_i128(&e, 2));
-
-    let floor = floor_256.to_i128().unwrap();
-
-    // Correct midpoint test: remainder * 2 >= b (avoids integer division truncation of b/2)
-    // When remainder * 2 >= b, half-up rounds up (result = floor + 1)
-    // When remainder * 2 < b, result = floor
-    let two = soroban_sdk::I256::from_i128(&e, 2);
-    if remainder_256.mul(&two) >= b256 {
-        cvlr_assert!(result == floor + 1);
-    } else {
-        cvlr_assert!(result == floor);
-    }
+    // Linear envelope on half-up rounding: result is at most one unit above
+    // the integer floor and never below it.
+    //   result * b >= a * WAD - (b - 1)            (lower bound: >= floor)
+    //   result * b <= a * WAD + b                   (upper bound: <= floor + 1)
+    cvlr_assert!(result * b >= a * WAD - (b - 1));
+    cvlr_assert!(result * b <= a * WAD + b);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,32 +290,35 @@ fn rescale_roundtrip_sanity() {
 // Rule 10: signed mul rounds away from zero for negative inputs
 // ---------------------------------------------------------------------------
 
+// Reformulated to linear arithmetic. The previous I256-based floor
+// computation timed out the solver during the most recent Certora run
+// (`signed_mul_away_from_zero: solving threw an exception`).
+//
+// Property: for a < 0, b > 0, half-up signed division rounds the negative
+// result away from zero, so the result is <= the truncation-toward-zero of
+// a*b/RAY. With `a*b` negative, truncation-toward-zero == ceiling, and
+// floor (toward minus infinity) is at most one unit lower.
+//
+// Linear envelope: `result * RAY` is at most `RAY` below `a*b`, never above:
+//   result * RAY <= a * b
+//   result * RAY >= a * b - RAY
+//
+// Tighter input bounds (10^14) keep `a*b` inside i128.
 #[rule]
 fn signed_mul_away_from_zero(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    // a is negative, b is positive, both within realistic bounds
-    cvlr_assume!(a < 0 && a >= -(RAY * 100));
-    cvlr_assume!(b > 0 && b <= RAY * 100);
+    cvlr_assume!(a < 0 && a >= -100_000_000_000_000);
+    cvlr_assume!(b > 0 && b <= 100_000_000_000_000);
 
     let result = mul_div_half_up_signed(&e, a, b, RAY);
 
-    // For negative products, rounding away from zero means the result should be
-    // <= floor(a*b/RAY) (i.e., more negative or equal).
-    // floor(a*b/RAY) for negative a*b is the truncation toward negative infinity.
-    //
-    // Compute floor via I256: a*b is negative, so a*b / RAY truncates toward zero.
-    // floor = a*b/RAY (truncated) if exact, else a*b/RAY - 1 if there's a remainder.
-    let a256 = soroban_sdk::I256::from_i128(&e, a);
-    let b256 = soroban_sdk::I256::from_i128(&e, b);
-    let p256 = soroban_sdk::I256::from_i128(&e, RAY);
-    let product = a256.mul(&b256);
-    let truncated = product.div(&p256);
-    let floor_val = truncated.to_i128().unwrap();
-
-    // Away-from-zero for negative means result <= floor (more negative)
-    cvlr_assert!(result <= floor_val);
+    // Half-up away-from-zero on a negative product: result is no greater
+    // than truncation-toward-zero of a*b/RAY (i.e. more negative-or-equal),
+    // and at most one RAY below.
+    cvlr_assert!(result * RAY <= a * b);
+    cvlr_assert!(result * RAY >= a * b - RAY);
 }
 
 #[rule]

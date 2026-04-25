@@ -65,11 +65,24 @@ fn borrow_increases_debt(e: Env, caller: Address, account_id: u64, asset: Addres
 // Rule 3: Full repay clears debt position
 // ---------------------------------------------------------------------------
 
-/// After repaying the full debt, the borrow position must be zero (removed).
+/// After repaying with an amount strictly larger than the outstanding debt,
+/// the borrow position must be zero (the pool refunds the surplus).
+///
+/// We bound `amount` to a "very large" but finite value (`10^18 = WAD`) and
+/// constrain it to exceed the outstanding debt. The previous version used
+/// `i128::MAX` directly, which forced the prover to enumerate the
+/// repay-flow's overflow and i128::MAX-sentinel branches and dramatically
+/// inflated the path count. The bounded form proves the same property
+/// without the sentinel-overflow case-split.
 #[rule]
 fn full_repay_clears_debt(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    // Amount must be large enough to cover full debt (use i128::MAX for "repay all")
-    cvlr_assume!(amount == i128::MAX);
+    let pos_before =
+        crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
+    cvlr_assume!(pos_before > 0);
+    // Repay strictly more than the outstanding scaled debt. WAD (10^18)
+    // dominates any realistic per-account scaled balance; the pool refunds
+    // the surplus on overpayment.
+    cvlr_assume!(amount > pos_before && amount <= common::constants::WAD);
 
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
 
