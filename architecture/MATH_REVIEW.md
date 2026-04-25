@@ -12,7 +12,7 @@ remediation. Citations are `path:line`.
 ## 0. Remediation Progress
 
 A first remediation pass followed this review. See
-[`controller/certora/SPIKES.md`](./controller/certora/SPIKES.md) for the
+[`controller/certora/HANDOFF.md`](../controller/certora/HANDOFF.md) for the
 harness investigation that informed several corrections.
 
 Toolchain: the `cvlr-spec` compile blocker is resolved by vendoring CVLR
@@ -38,6 +38,7 @@ certora` passes. End-to-end prover verification (running
 | Add `apply_summary!` wrappers at pool/oracle/SAC call sites | Pending | §3.1.1 |
 | Delete dead `model.rs` ghost vars | Pending | `controller/certora/spec/model.rs` |
 | Rewrite 13 tautological rules to call prod | Pending | §3.2 |
+| Cap `max_borrow_rate_ray ≤ 2 * RAY` in validation | Done | `common/src/constants.rs::MAX_BORROW_RATE_RAY`; `controller/src/validation.rs::validate_interest_rate_model`; `pool/src/lib.rs::update_params` |
 
 Drift risk: `supply_index_above_floor_after_supply` hard-codes
 `SUPPLY_INDEX_FLOOR_RAW = 10^18`. If `pool/src/interest.rs:14` changes,

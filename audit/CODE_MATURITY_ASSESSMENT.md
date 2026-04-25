@@ -392,7 +392,7 @@ withdraw, repay) sequence within N ULPs", per THREAT_MODEL.md §2 audit ask.
   in `test-harness/tests/fuzz_*.rs` (C-01, M-03, M-08, H-03, H-04, L-05, M-09, M-10, M-11, M-14,
   N-02, NEW-01). The historical finding-log files have been removed from `audit/` to avoid
   confusion with the fresh engagement findings log an auditor will open.
-- Certora harness ground truth: `controller/certora/SPIKES.md`.
+- Certora harness ground truth: `controller/certora/HANDOFF.md`.
 - Open concerns for external review: `architecture/MATH_REVIEW.md §3.7` (unaddressed
   invariants), `max_borrow_rate_ray` upper-bound policy, operator-key custody /
   decentralization (no on-chain timelock for risk-level changes).

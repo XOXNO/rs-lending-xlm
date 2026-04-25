@@ -39,7 +39,7 @@ Per `architecture/CONFIG_INVARIANTS.md` summary table:
 - [x] `architecture/ENTRYPOINT_AUTH_MATRIX.md` — fn × auth × invariants × pool calls
 - [x] `architecture/CONFIG_INVARIANTS.md` — config field rules + gap analysis
 - [x] `architecture/STELLAR_NOTES.md` — Soroban-specific assumptions and confirmation asks
-- [x] `controller/certora/SPIKES.md` — Certora toolchain ground truth
+- [x] `controller/certora/HANDOFF.md` — Certora toolchain ground truth
 
 ### Audit prep package (in `audit/`)
 - [x] `audit/SCOPE.md` — frozen commit, file list with LOC, in/out scope
@@ -56,7 +56,7 @@ this directory; every item is either shipped in code (regression-gated in
 
 - **Runtime Verification**: targets full implementation review (semantic + impl).
 - **Certora**: targets the formal verification track in parallel.
-- See `controller/certora/SPIKES.md` for Certora toolchain status — **resolve the spike-A blocker (cvlr build) on a fresh clone before Certora hand-off**.
+- See `controller/certora/HANDOFF.md` for Certora toolchain status — **resolve the spike-A blocker (cvlr build) on a fresh clone before Certora hand-off**.
 
 ## Off-chain Operator Setup
 
@@ -82,16 +82,26 @@ Operator-policy items (FoT / rebasing token bans, SAC issuer upgrade runbook,
 
 ## Still Outstanding
 
-- ⚠️ **Empirical max-position liquidate cost benchmark** (see `audit/THREAT_MODEL.md §3.3`). Needs a custom test-harness scenario under the default `PositionLimits = 10/10`. Worst-case budget measurement is blocking-if-limits-raised.
+- ⚠️ **Production-tx budget benchmark for `liquidate`** at the contract cap `PositionLimits = 32/32`. The harness-only bench in `test-harness/tests/bench_liquidate_max_positions.rs` validates that Soroban's cost model surfaces budget exhaustion cleanly at 5/5 × 5 markets (no opaque panic) — see `audit/THREAT_MODEL.md §3.3 Empirical bench`. The remaining gate is testnet measurement under real signed-tx auth (mock-auth in the harness inflates the auth-tree budget). Operator-policy: keep `PositionLimits = 10/10` until measured.
 - ⚠️ **Reflector behavior spec** (see `architecture/STELLAR_NOTES.md §3 Q6–Q10`). External team contact.
-- ⚠️ **`max_borrow_rate_ray` upper cap** (MATH_REVIEW.md latent-concern). `validate_interest_rate_model` and `pool.update_params` reject `max_borrow_rate_ray < slope3` but not a high upper bound; 8-term Taylor in `compound_interest` has documented accuracy only for per-chunk `x ≤ 2 RAY`. Either cap `max_borrow_rate_ray ≤ 2 * RAY` in validation OR make `MAX_COMPOUND_DELTA_MS` adaptive.
+
+## Resolved during 2026-Q2 audit prep
+
+- ✅ **`max_borrow_rate_ray` upper cap**. `validate_interest_rate_model`
+  (`controller/src/validation.rs:90-118`) and `pool::update_params`
+  (`pool/src/lib.rs:597-606`) now reject `max_borrow_rate_ray > 2 * RAY`.
+  Constant `MAX_BORROW_RATE_RAY = 2 * RAY` lives in
+  `common/src/constants.rs`. Regression tests:
+  `test_upgrade_pool_params_rejects_max_borrow_rate_above_cap` and
+  `test_upgrade_pool_params_accepts_max_borrow_rate_at_cap` in
+  `test-harness/tests/admin_config_tests.rs`.
 
 ## Final Hand-Off
 
 After resolving the items above:
 - [ ] Push tag `audit-2026-q2`
 - [ ] Send Runtime Verification: repo URL + tag + `audit/` directory link
-- [ ] Send Certora: the same, plus a Certora-specific note pointing at `controller/certora/SPIKES.md` and the resolved cvlr build
+- [ ] Send Certora: the same, plus a Certora-specific note pointing at `controller/certora/HANDOFF.md` and the resolved cvlr build
 - [ ] Schedule kickoff calls
 - [ ] Open a Slack/Discord channel for async Q&A during the engagement
 

@@ -74,7 +74,7 @@
 6. Confirm the rule-coverage gaps `architecture/MATH_REVIEW.md` documents, and produce a verdict for each.
 7. Spec-level: does `apply_bad_debt_to_supply_index` always preserve `revenue_ray ≤ supplied_ray` after the floor clamp?
 8. Spec-level: prove `accrued_interest = supplier_rewards + protocol_fee` under the actual half-up rounding implementation (not idealized math).
-9. Soroban toolchain blocker (CVLR build) — does the vendored fix at `vendor/cvlr/` suffice for end-to-end runs? See `controller/certora/SPIKES.md`.
+9. Soroban toolchain blocker (CVLR build) — does the vendored fix at `vendor/cvlr/` suffice for end-to-end runs? See `controller/certora/HANDOFF.md`.
 
 ### For both
 
@@ -123,7 +123,7 @@
 | `architecture/ENTRYPOINT_AUTH_MATRIX.md` | Per-fn auth × invariant × pool-call matrix | up-to-date |
 | `architecture/CONFIG_INVARIANTS.md` | All config fields × valid range × enforcement site | up-to-date |
 | `architecture/STELLAR_NOTES.md` | Soroban-specific assumptions and uncertainties | up-to-date |
-| `controller/certora/SPIKES.md` | Toolchain ground truth for Certora | active |
+| `controller/certora/HANDOFF.md` | Toolchain ground truth for Certora | active |
 | `audit/SCOPE.md` | This audit's frozen scope and file list | this prep |
 | `audit/THREAT_MODEL.md` | Adversary models for each concern area | this prep |
 | `audit/AUDIT_CHECKLIST.md` | Hand-off checklist | this prep |

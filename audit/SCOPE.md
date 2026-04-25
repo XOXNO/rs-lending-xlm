@@ -72,7 +72,7 @@
 | `fuzz/` | Property tests; results consumable, harness out of scope |
 | `test-harness/` | Integration test infrastructure |
 | `vendor/` | Vendored CVLR (formal-verification toolchain only) |
-| `controller/certora/` | Formal-verification rules; Certora workstream runs separately (see `controller/certora/SPIKES.md`) |
+| `controller/certora/` | Formal-verification rules; Certora workstream runs separately (see `controller/certora/HANDOFF.md`) |
 | `configs/` | Operator deployment files; on-chain validation enforces correctness, not file content |
 | `target/`, `Cargo.lock` | Build artifacts |
 | `Makefile`, `configs/script.sh` | Operator tooling, not on-chain code |
