@@ -21,11 +21,11 @@
         "last_tolerance_bps": 500
       },
       "market_params": {
-        "max_borrow_rate_ray": "3000000000000000000000000000",
+        "max_borrow_rate_ray": "2000000000000000000000000000",
         "base_borrow_rate_ray": "10000000000000000000000000",
         "slope1_ray": "40000000000000000000000000",
         "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "3000000000000000000000000000",
+        "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "reserve_factor_bps": "1000"
@@ -68,11 +68,11 @@
         "last_tolerance_bps": 500
       },
       "market_params": {
-        "max_borrow_rate_ray": "3000000000000000000000000000",
+        "max_borrow_rate_ray": "2000000000000000000000000000",
         "base_borrow_rate_ray": "10000000000000000000000000",
         "slope1_ray": "40000000000000000000000000",
         "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "3000000000000000000000000000",
+        "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "reserve_factor_bps": "1500"
@@ -115,11 +115,11 @@
         "last_tolerance_bps": 500
       },
       "market_params": {
-        "max_borrow_rate_ray": "3000000000000000000000000000",
+        "max_borrow_rate_ray": "2000000000000000000000000000",
         "base_borrow_rate_ray": "10000000000000000000000000",
         "slope1_ray": "40000000000000000000000000",
         "slope2_ray": "100000000000000000000000000",
-        "slope3_ray": "3000000000000000000000000000",
+        "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "reserve_factor_bps": "1000"

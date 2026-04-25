@@ -136,11 +136,11 @@ fn test_upgrade_pool_params() {
 
     t.upgrade_pool_params(
         "USDC",
-        RAY * 5,         // max_borrow_rate (500% > slope3)
+        RAY * 2,         // max_borrow_rate (200%, at the Taylor-envelope cap)
         new_base_rate,   // base_borrow_rate
         new_slope1,      // slope1
         RAY * 10 / 100,  // slope2
-        RAY * 300 / 100, // slope3
+        RAY * 150 / 100, // slope3 (150%, must be <= max_borrow_rate)
         RAY * 50 / 100,  // mid_utilization
         RAY * 80 / 100,  // optimal_utilization
         1000,            // reserve_factor
@@ -156,6 +156,59 @@ fn test_upgrade_pool_params() {
         rate_before,
         rate_after
     );
+}
+
+// ---------------------------------------------------------------------------
+// 6b. Regression: `max_borrow_rate_ray` cap (Taylor envelope)
+//
+// `validate_interest_rate_model` and `pool::update_params` reject any
+// `max_borrow_rate_ray > 2 * RAY` to keep `compound_interest`'s 8-term Taylor
+// approximation inside its documented `< 0.01 %` accuracy envelope. See
+// `architecture/MATH_REVIEW.md §0` and `audit/REMEDIATION_PLAN.md §7`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let ctrl = t.ctrl_client();
+
+    // Just over the cap (`2 * RAY + 1`). Validator must panic with
+    // `InvalidBorrowParams`.
+    let result = ctrl.try_upgrade_pool_params(
+        &asset,
+        &(2 * RAY + 1),     // max_borrow_rate (above cap)
+        &(RAY / 100),       // base_borrow_rate (1%)
+        &(RAY * 4 / 100),   // slope1 (4%)
+        &(RAY * 10 / 100),  // slope2 (10%)
+        &(RAY * 150 / 100), // slope3 (150%)
+        &(RAY * 50 / 100),  // mid_utilization (50%)
+        &(RAY * 80 / 100),  // optimal_utilization (80%)
+        &1000i128,          // reserve_factor (10%)
+    );
+    assert!(
+        result.is_err(),
+        "upgrade_pool_params must reject max_borrow_rate_ray > 2 * RAY"
+    );
+}
+
+#[test]
+fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+
+    // At the exact cap (`2 * RAY`); slope3 must remain <= max.
+    t.upgrade_pool_params(
+        "USDC",
+        2 * RAY,            // max_borrow_rate (200%, at cap)
+        RAY / 100,          // base_borrow_rate
+        RAY * 4 / 100,      // slope1
+        RAY * 10 / 100,     // slope2
+        RAY * 150 / 100,    // slope3 (150%)
+        RAY * 50 / 100,     // mid_utilization
+        RAY * 80 / 100,     // optimal_utilization
+        1000,               // reserve_factor
+    );
+    // Did not panic — cap allows the boundary value.
 }
 
 // ---------------------------------------------------------------------------

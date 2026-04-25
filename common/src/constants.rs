@@ -24,6 +24,16 @@ pub const BAD_DEBT_USD_THRESHOLD: i128 = 5 * WAD;
 /// `create_liquidity_pool` (via `validate_asset_config`) and `edit_asset_config`.
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
+/// Upper cap on `max_borrow_rate_ray`. The compound-interest 8-term Taylor
+/// series in `pool/src/interest.rs` has documented `< 0.01 %` accuracy only
+/// for per-chunk `x = rate * delta_time / RAY <= 2 RAY`. Capping
+/// `max_borrow_rate_ray` at `2 * RAY` keeps interest accrual inside the
+/// proven envelope even at 100 % utilization across a full
+/// `MAX_COMPOUND_DELTA_MS` chunk. Validated by both
+/// `controller/src/validation::validate_interest_rate_model` and
+/// `pool::Pool::update_params`.
+pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
+
 pub const K_SCALING_FACTOR: i128 = 20_000;
 
 pub const MIN_FIRST_TOLERANCE: i128 = 50;

@@ -1,4 +1,6 @@
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY};
+use common::constants::{
+    BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY,
+};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
     Account, AssetConfig, MarketParams, MarketStatus, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
@@ -94,6 +96,14 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
         || params.slope3_ray < params.slope2_ray
         || params.max_borrow_rate_ray < params.slope3_ray
     {
+        panic_with_error!(env, CollateralError::InvalidBorrowParams);
+    }
+
+    // Keep `max_borrow_rate_ray` inside the compound-interest Taylor envelope
+    // (per-chunk `x <= 2 RAY`). At 100 % utilization across a full
+    // `MAX_COMPOUND_DELTA_MS` chunk, a higher cap drifts above the documented
+    // `< 0.01 %` accuracy bound.
+    if params.max_borrow_rate_ray > MAX_BORROW_RATE_RAY {
         panic_with_error!(env, CollateralError::InvalidBorrowParams);
     }
 

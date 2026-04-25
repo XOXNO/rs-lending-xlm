@@ -97,11 +97,13 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
-    max_borrow_rate_ray: 5 * RAY,
+    // `max_borrow_rate_ray` capped at `MAX_BORROW_RATE_RAY = 2 * RAY` (the
+    // compound-interest Taylor envelope). `slope3_ray` must stay <= max.
+    max_borrow_rate_ray: 2 * RAY,
     base_borrow_rate_ray: RAY / 100,
     slope1_ray: RAY * 4 / 100,
     slope2_ray: RAY * 10 / 100,
-    slope3_ray: RAY * 300 / 100,
+    slope3_ray: RAY * 150 / 100,
     mid_utilization_ray: RAY * 50 / 100,
     optimal_utilization_ray: RAY * 80 / 100,
     reserve_factor_bps: 1000,

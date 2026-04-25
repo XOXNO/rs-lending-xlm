@@ -5,7 +5,9 @@ mod interest;
 mod views;
 
 use cache::Cache;
-use common::constants::{BPS, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::constants::{
+    BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE,
+};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::events::{
     emit_update_market_params, emit_update_market_state, UpdateMarketParamsEvent,
@@ -598,6 +600,12 @@ impl LiquidityPool {
             panic_with_error!(&env, CollateralError::InvalidBorrowParams);
         }
         if max_borrow_rate <= base_borrow_rate {
+            panic_with_error!(&env, CollateralError::InvalidBorrowParams);
+        }
+        // Mirror the controller-side `validate_interest_rate_model` cap:
+        // `max_borrow_rate_ray` must stay inside the compound-interest Taylor
+        // envelope (per-chunk `x <= 2 RAY`).
+        if max_borrow_rate > MAX_BORROW_RATE_RAY {
             panic_with_error!(&env, CollateralError::InvalidBorrowParams);
         }
 
