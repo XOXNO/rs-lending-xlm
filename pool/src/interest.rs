@@ -1,4 +1,4 @@
-use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY, WAD};
+use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::events::{emit_pool_insolvent, PoolInsolventEvent};
 use common::fp::Ray;
 use common::rates::{
@@ -8,12 +8,6 @@ use common::rates::{
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
-
-/// Minimum supply_index that keeps scaled-amount math well-conditioned:
-/// 10^18 in RAY (= 10^-9 decimal, numerically equal to `WAD`). Below this,
-/// division in `calculate_scaled_supply` produces astronomical scaled
-/// values that can overflow i128.
-const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
 
 /// Cap on compound interval per `global_sync` call. The 8-term Taylor
 /// expansion in `compound_interest` holds only for

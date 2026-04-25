@@ -12,7 +12,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use common::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
 use common::fp::Ray;
 
 // ===========================================================================
@@ -227,8 +227,6 @@ fn supply_index_above_floor_after_supply(
     asset: Address,
     amount: i128,
 ) {
-    const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD; // 10^18
-
     cvlr_assume!(amount > 0);
 
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);

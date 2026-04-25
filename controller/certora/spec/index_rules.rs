@@ -9,18 +9,21 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::RAY;
+use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::fp::Ray;
 
 // ---------------------------------------------------------------------------
-// Rule 1: Supply index never drops below RAY (1.0)
+// Rule 1: Supply index never drops below the bad-debt floor
 // ---------------------------------------------------------------------------
 
-/// The supply index must always be >= RAY (10^27).
-/// A supply index below 1.0 means suppliers have lost principal --
-/// this should only happen during explicit bad debt socialization.
+/// The supply index must always be >= `SUPPLY_INDEX_FLOOR_RAW`. The pool
+/// initialises the index at `RAY` and only ever decreases it via bad-debt
+/// socialisation (`pool/src/interest::apply_bad_debt_to_supply_index`),
+/// which clamps at `SUPPLY_INDEX_FLOOR_RAW`. The earlier `>= RAY` form was
+/// too strict: any pool that had absorbed bad debt would falsify the rule
+/// even though the production guard is intact.
 #[rule]
-fn supply_index_gte_ray(e: Env, asset: Address) {
+fn supply_index_above_floor(e: Env, asset: Address) {
     // Assume the asset is initialized (has a config with non-zero threshold)
     let config = crate::storage::asset_config::get_asset_config(&e, &asset);
     cvlr_assume!(config.liquidation_threshold_bps > 0);
@@ -28,7 +31,7 @@ fn supply_index_gte_ray(e: Env, asset: Address) {
     // Load the current market index for the asset
     let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
 
-    cvlr_assert!(cache_entry.supply_index_ray >= RAY);
+    cvlr_assert!(cache_entry.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
 // ---------------------------------------------------------------------------
