@@ -534,7 +534,7 @@ sequenceDiagram
     Note over P: snapshot pool_balance_before<br/>set FlashLoanOngoing = true
     P->>T: transfer(pool → receiver, amount)
     C->>U: invoke callback (execute_flash_loan)
-    Note over U: arbitrary logic; cannot re-enter<br/>controller (require_not_flash_loaning)
+    Note over U: arbitrary logic; cannot re-enter<br/>controller via require_not_flash_loaning
     U->>T: transfer(receiver → pool, amount + fee)
     C->>P: flash_loan_end
     Note over P: pool_balance_after ≥<br/>pool_balance_before + fee or revert
