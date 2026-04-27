@@ -1,5 +1,6 @@
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
+use common::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, MarketIndex, PriceFeed,
     POSITION_TYPE_DEPOSIT,
@@ -27,6 +28,13 @@ pub fn process_supply(
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
 
+    // Reject empty batch up-front: prevents a free TTL-bump no-op write on the
+    // existing-account path and avoids reaching `assets.get(0).unwrap()` panics
+    // on the create path. Parity with MX `lib.rs:113-116`.
+    if assets.is_empty() {
+        panic_with_error!(env, GenericError::InvalidPayments);
+    }
+
     // Resolve or create the account.
     let acct_id = if account_id == 0 {
         utils::create_account_for_first_asset(env, caller, e_mode_category, assets)
@@ -37,10 +45,11 @@ pub fn process_supply(
     // Load the account once: single storage read.
     let mut account = storage::get_account(env, acct_id);
 
-    // Owner check; skip for newly created accounts since the caller is the owner.
-    if account_id != 0 && account.owner != *caller {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
-    }
+    // Note: third-party deposits are intentionally permitted (parity with MX
+    // permissive integrator path). Supplying to someone else's account can only
+    // increase their collateral / health factor — never decrease either. The
+    // isolation/e-mode invariants are still enforced per asset via
+    // `validate_isolated_collateral` and `validate_e_mode_asset` below.
 
     let mut cache = ControllerCache::new(env, true); // Supply is risk-decreasing.
 
@@ -71,6 +80,9 @@ pub fn process_deposit(
 
     // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
+
+    // Pre-flight bulk-isolation guard (parity with MX `lib.rs:124-127`).
+    validation::validate_bulk_isolation(env, account, assets, cache);
 
     for (asset, amount) in assets {
         // validate_payment equivalent: asset must be supported, amount must be positive.
@@ -242,9 +254,17 @@ fn validate_supply_cap(
     if asset_config.supply_cap <= 0 {
         return;
     }
+    // Use the synced supply index from the cache rather than the pool's stored
+    // (potentially stale) value. `cached_market_index` simulates global_sync
+    // forward to the current timestamp so cap enforcement is exact across
+    // accrual gaps and same-tx multi-payment loops.
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let current_total = pool_client.supplied_amount(); // Returns asset decimals.
+    let sync_data = pool_client.get_sync_data();
+    let market_index = cache.cached_market_index(asset);
+    let supplied_actual_ray = Ray::from_raw(sync_data.state.supplied_ray)
+        .mul(env, Ray::from_raw(market_index.supply_index_ray));
+    let current_total = supplied_actual_ray.to_asset(sync_data.params.asset_decimals);
     let total = current_total.saturating_add(amount); // Both in asset decimals.
     if total > asset_config.supply_cap {
         panic_with_error!(env, CollateralError::SupplyCapReached);

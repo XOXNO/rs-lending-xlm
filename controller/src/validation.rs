@@ -45,6 +45,33 @@ pub fn require_amount_positive(env: &Env, amount: i128) {
     }
 }
 
+/// Pre-flight bulk-isolation guard for supply batches.
+///
+/// An isolated account, or a batch whose first asset is isolated, must carry
+/// exactly one collateral. Catching this up-front avoids running any
+/// `token.transfer` or pool call before reverting on iteration 2 (Soroban
+/// would still revert atomically, but the work is wasted).
+///
+/// Symmetric with [`validate_bulk_position_limits`] in placement and naming;
+/// the cache is threaded in because the first asset's `AssetConfig` is
+/// fetched here AND reused inside the per-asset loop, so reading once and
+/// memoizing is cheaper than two storage reads.
+pub fn validate_bulk_isolation(
+    env: &Env,
+    account: &Account,
+    assets: &Vec<(Address, i128)>,
+    cache: &mut crate::cache::ControllerCache,
+) {
+    if assets.len() <= 1 {
+        return;
+    }
+    let (first_asset, _) = assets.get(0).unwrap();
+    let first_config = cache.cached_asset_config(&first_asset);
+    if account.is_isolated || first_config.is_isolated_asset {
+        panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
+    }
+}
+
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
