@@ -126,7 +126,7 @@ impl LiquidityPool {
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
         position.scaled_amount_ray += scaled_amount.raw();
-        cache.supplied = cache.supplied + scaled_amount;
+        cache.supplied += scaled_amount;
 
         let market_index = MarketIndex {
             borrow_index_ray: cache.borrow_index.raw(),
@@ -160,7 +160,7 @@ impl LiquidityPool {
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
         position.scaled_amount_ray += scaled_debt.raw();
-        cache.borrowed = cache.borrowed + scaled_debt;
+        cache.borrowed += scaled_debt;
 
         // Transfer tokens to the borrower.
         let tok = token::Client::new(&env, &cache.params.asset_id);
@@ -428,7 +428,7 @@ impl LiquidityPool {
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
         position.scaled_amount_ray += scaled_debt.raw();
-        cache.borrowed = cache.borrowed + scaled_debt;
+        cache.borrowed += scaled_debt;
 
         // Fee goes to protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
@@ -478,7 +478,7 @@ impl LiquidityPool {
         } else if position.position_type == AccountPositionType::Deposit {
             // Absorb dust into revenue.
             let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-            cache.revenue = cache.revenue + pos_scaled;
+            cache.revenue += pos_scaled;
             position.scaled_amount_ray = 0;
         } else {
             // Defensive panic: future enum variants must be handled

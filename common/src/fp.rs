@@ -8,7 +8,7 @@
 //! At serialization boundaries, use `from_raw()` / `.raw()` to convert
 //! to and from the `i128` fields required by `#[contracttype]` structs.
 
-use core::ops::{Add, Sub};
+use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::Env;
 
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
@@ -81,10 +81,22 @@ impl Add for Ray {
     }
 }
 
+impl AddAssign for Ray {
+    fn add_assign(&mut self, rhs: Ray) {
+        self.0 += rhs.0;
+    }
+}
+
 impl Sub for Ray {
     type Output = Ray;
     fn sub(self, rhs: Ray) -> Ray {
         Ray(self.0 - rhs.0)
+    }
+}
+
+impl SubAssign for Ray {
+    fn sub_assign(&mut self, rhs: Ray) {
+        self.0 -= rhs.0;
     }
 }
 
@@ -162,10 +174,22 @@ impl Add for Wad {
     }
 }
 
+impl AddAssign for Wad {
+    fn add_assign(&mut self, rhs: Wad) {
+        self.0 += rhs.0;
+    }
+}
+
 impl Sub for Wad {
     type Output = Wad;
     fn sub(self, rhs: Wad) -> Wad {
         Wad(self.0 - rhs.0)
+    }
+}
+
+impl SubAssign for Wad {
+    fn sub_assign(&mut self, rhs: Wad) {
+        self.0 -= rhs.0;
     }
 }
 
@@ -214,10 +238,22 @@ impl Add for Bps {
     }
 }
 
+impl AddAssign for Bps {
+    fn add_assign(&mut self, rhs: Bps) {
+        self.0 += rhs.0;
+    }
+}
+
 impl Sub for Bps {
     type Output = Bps;
     fn sub(self, rhs: Bps) -> Bps {
         Bps(self.0 - rhs.0)
+    }
+}
+
+impl SubAssign for Bps {
+    fn sub_assign(&mut self, rhs: Bps) {
+        self.0 -= rhs.0;
     }
 }
 

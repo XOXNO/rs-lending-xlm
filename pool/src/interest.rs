@@ -75,8 +75,8 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee_amount: i128) {
     }
     let fee_scaled = Ray::from_asset(fee_amount, cache.params.asset_decimals)
         .div(&cache.env, cache.supply_index);
-    cache.revenue = cache.revenue + fee_scaled;
-    cache.supplied = cache.supplied + fee_scaled;
+    cache.revenue += fee_scaled;
+    cache.supplied += fee_scaled;
 }
 
 /// Converts a fee already in **RAY** to scaled supply tokens.
@@ -91,8 +91,8 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
         return;
     }
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
-    cache.revenue = cache.revenue + fee_scaled;
-    cache.supplied = cache.supplied + fee_scaled;
+    cache.revenue += fee_scaled;
+    cache.supplied += fee_scaled;
 }
 
 /// Reduces the supply index to socialize uncollectable debt.

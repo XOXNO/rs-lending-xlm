@@ -232,7 +232,7 @@ fn calculate_repayment_amounts(
         let payment_wad = Wad::from_token(payment_amount, feed.asset_decimals);
         let payment_usd = payment_wad.mul(env, Wad::from_raw(feed.price_wad));
 
-        total_repaid_usd = total_repaid_usd + payment_usd;
+        total_repaid_usd += payment_usd;
         repaid_tokens.push_back((asset, payment_amount, payment_usd.raw(), feed, market_index));
     }
 
@@ -365,7 +365,7 @@ fn process_excess_payment(
         } else {
             refunds.push_back((asset, amount));
             repaid_tokens.remove(current_index);
-            remaining_excess_usd = remaining_excess_usd - usd;
+            remaining_excess_usd -= usd;
         }
     }
 }
