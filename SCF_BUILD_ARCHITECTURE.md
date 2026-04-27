@@ -529,7 +529,7 @@ sequenceDiagram
     participant T as Token
 
     U->>C: flash_loan(asset, amount, callback)
-    Note over C: validate same-shard + endpoint not built-in
+    Note over C: require_not_paused, require_not_flash_loaning,<br/>amount &gt; 0, market active, is_flashloanable
     C->>P: flash_loan_begin(asset, amount)
     Note over P: snapshot pool_balance_before<br/>set FlashLoanOngoing = true
     P->>T: transfer(pool → receiver, amount)
@@ -543,7 +543,7 @@ sequenceDiagram
     C-->>U: ok
 ```
 
-The `FlashLoanOngoing` instance flag is a single-flight guard. While set, every state-changing controller endpoint short-circuits on `require_not_flash_loaning`, eliminating reentrancy from the callback. Same-shard validation and a built-in-function denylist further constrain the callback surface. Balance-delta on the pool verifies repayment, not the receiver.
+The `FlashLoanOngoing` instance flag is a single-flight guard. While set, every state-changing controller endpoint short-circuits on `require_not_flash_loaning`, eliminating reentrancy from the callback. Pre-flight checks (`require_not_paused`, `require_amount_positive`, `require_market_active`, `is_flashloanable`) and the pool's `verify_admin` gate further constrain the callback surface. Balance-delta on the pool verifies repayment, not the receiver.
 
 **Receiver-contract requirement.** Soroban's SAC `transfer(from, to, amount)` invokes `from.require_auth()` internally. For the receiver to repay the pool from its own balance, its `execute_flash_loan` callback must call `env.authorize_as_current_contract(...)` before the repayment transfer. Receivers that skip this revert with an auth error; the pool's balance-delta check fails the loan.
 
@@ -837,7 +837,7 @@ Every flow fits inside Soroban's per-tx envelope with margin. `bench_liquidate_m
 |------|------------|
 | Oracle manipulation | Multi-source resolution (CEX TWAP + DEX spot); tier-based tolerance gating; staleness decoupled from tolerance; future-date reject; per-tx price cache. `oracle_tolerance_tests` covers every tier transition. |
 | Soroswap slippage / sandwich | `min_amount_out` enforced router-side; controller verifies received amount via balance-delta; user-supplied slippage tolerance bounds loss. `strategy_bad_router_tests` and `fuzz_strategy_flashloan` exercise adversarial router responses. |
-| Reentrancy via flash loans | `FlashLoanOngoing` instance flag globally serializes every state-changing controller endpoint during the flash-loan window. Same-shard validation; built-in-function denylist. `flash_loan_tests` and `fuzz_strategy_flashloan` cover nested calls and callback panics. |
+| Reentrancy via flash loans | `FlashLoanOngoing` instance flag globally serializes every state-changing controller endpoint during the flash-loan window. Pool admin gate (`verify_admin`) and balance-delta check on `flash_loan_end` enforce repayment. `flash_loan_tests` and `fuzz_strategy_flashloan` cover nested calls and callback panics. |
 | Bad-debt cascade | Dutch-auction liquidation with dynamic bonus; bad-debt socialization with hard supply-index floor; at-floor early-return guards on revenue accrual; `PoolInsolventEvent` surfaces on >90% drops. `bad_debt_index_tests` and `fuzz_liquidation_differential` lock the math. |
 | Tx-budget exhaustion at max liquidation | Position cap (10 supply + 10 borrow) sized so a worst-case liquidation fits inside `tx_max_instructions = 400 M` with margin. `bench_liquidate_max_positions` locks the envelope per release. |
 | Storage TTL expiry | Persistent positions bumped on every write; instance state auto-bumped per call; three keeper endpoints extend TTLs explicitly. `fuzz_ttl_keepalive` covers every storage family. |
