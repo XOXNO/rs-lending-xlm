@@ -165,9 +165,9 @@ classDiagram
         +bool is_isolated
         +u32 e_mode_category_id
         +PositionMode mode
-        +Option~Asset~ isolated_asset
-        +Vec~Asset~ supply_assets
-        +Vec~Asset~ borrow_assets
+        +Option~Address~ isolated_asset
+        +Vec~Address~ supply_assets
+        +Vec~Address~ borrow_assets
     }
 
     class AccountPosition {
@@ -551,7 +551,7 @@ The `FlashLoanOngoing` instance flag is a single-flight guard. While set, every 
 
 ## 10. Risk Frameworks
 
-E-mode and isolation are the two risk-segmentation modes. They optimize for opposite ends of the risk spectrum and are mutually exclusive at account creation.
+E-mode and isolation are the two risk-segmentation modes. They optimize for opposite ends of the risk spectrum, are mutually exclusive, and are fixed at account creation — switching modes requires a new account.
 
 | Property | E-Mode | Isolation Mode |
 |----------|--------|----------------|
@@ -560,8 +560,6 @@ E-mode and isolation are the two risk-segmentation modes. They optimize for oppo
 | LTV / threshold / bonus | Enhanced (e.g. 97% / 98% / 2%) | Standard or stricter |
 | Debt scope | Any borrowable asset | Only assets flagged `isolation_borrow_enabled` |
 | Global cap | None — bounded by collateral value | `isolation_debt_ceiling_usd_wad` per asset |
-| Set at | Account creation; immutable thereafter (switch modes ⇒ create a new account) | Account creation; immutable thereafter (switch modes ⇒ create a new account) |
-| Mutually exclusive with | Isolation | E-mode |
 
 ### 10.1 E-Mode
 
