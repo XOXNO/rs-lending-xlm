@@ -9,12 +9,14 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::storage;
 
+/// Panics with `AssetNotSupported` when `asset` has no market config.
 pub fn require_asset_supported(env: &Env, asset: &Address) {
     if !storage::has_market_config(env, asset) {
         panic_with_error!(env, GenericError::AssetNotSupported);
     }
 }
 
+/// Panics with `PairNotActive` when the market status is not `Active`.
 pub fn require_market_active(env: &Env, asset: &Address) {
     let market = storage::get_market_config(env, asset);
     if market.status != MarketStatus::Active {
@@ -22,6 +24,7 @@ pub fn require_market_active(env: &Env, asset: &Address) {
     }
 }
 
+/// Panics with `AccountNotInMarket` when `caller` is not the account owner, then requires auth.
 pub fn require_account_owner(env: &Env, account: &Account, caller: &Address) {
     if account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
@@ -29,16 +32,19 @@ pub fn require_account_owner(env: &Env, account: &Account, caller: &Address) {
     caller.require_auth();
 }
 
+/// Panics with error code 1000 when the contract is paused.
 pub fn require_not_paused(env: &Env) {
     stellar_contract_utils::pausable::when_not_paused(env);
 }
 
+/// Panics with `FlashLoanOngoing` when a flash loan is already in progress.
 pub fn require_not_flash_loaning(env: &Env) {
     if storage::is_flash_loan_ongoing(env) {
         panic_with_error!(env, FlashLoanError::FlashLoanOngoing);
     }
 }
 
+/// Panics with `AmountMustBePositive` when `amount ≤ 0`.
 pub fn require_amount_positive(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
@@ -72,6 +78,8 @@ pub fn validate_bulk_isolation(
     }
 }
 
+/// Panics with `PositionLimitExceeded` when the batch would push the account over its
+/// supply or borrow position cap. Deduplicates assets before comparing against the limit.
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
@@ -116,6 +124,8 @@ pub fn validate_bulk_position_limits(
     }
 }
 
+/// Validates interest-rate model parameters: monotone slopes, utilization ordering,
+/// reserve factor bounds, and the Taylor-envelope cap on `max_borrow_rate`.
 pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     if params.base_borrow_rate_ray < 0
         || params.slope1_ray < params.base_borrow_rate_ray
@@ -148,6 +158,8 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     }
 }
 
+/// Validates asset risk parameters: LTV ordering, liquidation bounds, cap sentinels,
+/// isolation ceiling sign, and flash-loan fee bounds.
 pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     if config.loan_to_value_bps < 0 {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
@@ -192,6 +204,7 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     }
 }
 
+/// Panics with `BadAnchorTolerances` when `last ≤ first`.
 pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
     if last <= first {
         panic_with_error!(env, OracleError::BadAnchorTolerances);
@@ -325,9 +338,8 @@ mod tests {
         });
     }
 
-    // M-08: previously this fn silently no-op'd for unknown position_type.
-    // Audit fix made it panic with InvalidPositionType (= 23) so a buggy
-    // caller cannot bypass the position-limit check.
+    // Unknown position_type panics with InvalidPositionType; a buggy caller
+    // cannot bypass the position-limit check.
     #[test]
     #[should_panic(expected = "Error(Contract, #23)")]
     fn test_validate_bulk_position_limits_panics_for_unknown_position_type() {
@@ -359,9 +371,8 @@ mod tests {
         });
     }
 
-    // H-04: validate_asset_config now also enforces flashloan_fee_bps bounds.
-    // Previously these checks lived only in `edit_asset_config`, leaving
-    // `create_liquidity_pool` (which calls validate_asset_config) wide open.
+    // validate_asset_config enforces flashloan_fee_bps bounds for both
+    // create_liquidity_pool and edit_asset_config call sites.
     #[test]
     #[should_panic(expected = "Error(Contract, #411)")]
     fn test_validate_asset_config_rejects_negative_flashloan_fee() {

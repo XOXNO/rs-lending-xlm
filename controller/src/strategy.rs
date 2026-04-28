@@ -39,6 +39,9 @@ mod aggregator {
 // Multiply (Leverage)
 // ---------------------------------------------------------------------------
 
+/// Opens a leveraged position: borrows `debt_to_flash_loan` via the pool flash strategy,
+/// swaps to `collateral_token`, and deposits the proceeds. Accepts an optional initial payment
+/// to increase collateral or reduce the required flash-loan amount.
 pub fn process_multiply(
     env: &Env,
     caller: &Address,
@@ -60,7 +63,12 @@ pub fn process_multiply(
         panic_with_error!(env, GenericError::AssetsAreTheSame);
     }
 
-    if mode == PositionMode::Normal {
+    // Allow-list rather than `!= Normal` so a future `PositionMode` variant
+    // cannot silently slip through multiply.
+    if !matches!(
+        mode,
+        PositionMode::Multiply | PositionMode::Long | PositionMode::Short
+    ) {
         panic_with_error!(env, CollateralError::InvalidPositionMode);
     }
 
@@ -96,6 +104,7 @@ pub fn process_multiply(
                 *payment_amount,
                 collateral_token,
                 &convert,
+                caller,
             );
         }
     }
@@ -139,6 +148,17 @@ pub fn process_multiply(
         (account_id, existing)
     };
 
+    // Borrow-position cap: enforce upfront before opening, mirroring
+    // `borrow_batch`. The strategy passes a single-asset vec so the dedup
+    // logic in validate_bulk_position_limits short-circuits cleanly.
+    let new_borrow_assets = soroban_sdk::vec![env, (debt_token.clone(), debt_to_flash_loan)];
+    validation::validate_bulk_position_limits(
+        env,
+        &account,
+        POSITION_TYPE_BORROW,
+        &new_borrow_assets,
+    );
+
     // Validates e-mode, borrowability, siloed rules, borrow cap, and
     // isolated-debt ceiling, flashes the debt via `pool.create_strategy`,
     // and returns the net amount received.
@@ -161,6 +181,7 @@ pub fn process_multiply(
         amount_received + debt_extra,
         collateral_token,
         steps,
+        caller,
     );
 
     let total_collateral = collateral_amount + swapped_collateral;
@@ -201,6 +222,8 @@ pub fn process_multiply(
 // Swap Debt
 // ---------------------------------------------------------------------------
 
+/// Swaps an existing debt position to a new token: borrows the new token via the pool flash
+/// strategy, swaps through the aggregator, and repays the old debt.
 pub fn process_swap_debt(
     env: &Env,
     caller: &Address,
@@ -241,6 +264,16 @@ pub fn process_swap_debt(
         panic_with_error!(env, CollateralError::NotBorrowableSiloed);
     }
 
+    // Borrow-position cap: enforce upfront before opening the new debt,
+    // mirroring `borrow_batch`.
+    let new_borrow_assets = soroban_sdk::vec![env, (new_debt_token.clone(), new_debt_amount)];
+    validation::validate_bulk_position_limits(
+        env,
+        &account,
+        POSITION_TYPE_BORROW,
+        &new_borrow_assets,
+    );
+
     // Flashes the new debt via `pool.create_strategy` after the standard
     // e-mode, borrowability, siloed, borrow-cap, and isolated-debt-ceiling
     // checks; returns the net amount received.
@@ -262,6 +295,7 @@ pub fn process_swap_debt(
         amount_received,
         existing_debt_token,
         steps,
+        caller,
     );
 
     let existing_pool_addr = cache.cached_pool_address(existing_debt_token);
@@ -312,6 +346,8 @@ pub fn process_swap_debt(
 // Swap Collateral
 // ---------------------------------------------------------------------------
 
+/// Swaps existing collateral to a different token: withdraws `from_amount`, swaps through
+/// the aggregator, and re-deposits the proceeds as the new collateral.
 pub fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -389,6 +425,7 @@ pub fn process_swap_collateral(
         actual_withdrawn,
         new_collateral,
         steps,
+        caller,
     );
 
     // Deposit pipeline applies e-mode, supply caps, and risk parameters.
@@ -416,6 +453,7 @@ fn swap_tokens(
     amount_in: i128,
     token_out: &Address,
     steps: &SwapSteps,
+    refund_to: &Address,
 ) -> i128 {
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
@@ -469,6 +507,16 @@ fn swap_tokens(
     // pull additional funds after the swap returns.
     token_in_client.approve(&env.current_contract_address(), &router_addr, &0, &0);
 
+    // Refund any unspent `token_in` to `refund_to` (= original user). A
+    // router that partial-fills (route exhaustion, integer rounding, or a
+    // bug) leaves residual `token_in` on the controller; the SEP-41
+    // approve+pull model provides no callback-returned transfer bundle, so
+    // unspent input requires manual reconciliation.
+    let unspent = amount_in - actual_in_spent;
+    if unspent > 0 {
+        token_in_client.transfer(&env.current_contract_address(), refund_to, &unspent);
+    }
+
     // Received must be non-negative. A decrease is impossible from a sane
     // token contract and indicates aggregator or token misbehavior.
     let balance_out_after = token_out_client.balance(&env.current_contract_address());
@@ -483,6 +531,15 @@ fn swap_tokens(
         panic_with_error!(env, GenericError::InternalError);
     }
 
+    // Note: any third-party token the router happens to deposit into the
+    // controller (LP rebate, governance reward, malformed output) is NOT
+    // swept here. With SEP-41 push-on-transfer semantics only the
+    // configured router can land tokens, and only `token_in` and
+    // `token_out` are part of this swap's contract. Adding a generic sweep
+    // would require an oracle of "expected output tokens" which the
+    // strategy callsites already supply via `token_out`. If a future
+    // aggregator integration emits multi-token output, expand the
+    // signature with a `&Vec<Address>` of expected-zero-delta tokens.
     received
 }
 
@@ -490,6 +547,8 @@ fn swap_tokens(
 // Repay Debt With Collateral
 // ---------------------------------------------------------------------------
 
+/// Withdraws collateral, swaps it to the debt token via the aggregator, and repays debt.
+/// When `close_position` is true, withdraws all remaining collateral to the caller after repayment.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -565,17 +624,40 @@ pub fn process_repay_debt_with_collateral(
     let swapped_debt = if collateral_token == debt_token {
         actual_withdrawn
     } else {
-        swap_tokens(env, collateral_token, actual_withdrawn, debt_token, steps)
+        swap_tokens(
+            env,
+            collateral_token,
+            actual_withdrawn,
+            debt_token,
+            steps,
+            caller,
+        )
     };
 
     let debt_pool_addr = cache.cached_pool_address(debt_token);
     let debt_feed = cache.cached_price(debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, debt_token);
+
+    // Pool-balance delta accounting around the transfer mirrors plain
+    // `process_single_repay`: pass the amount that actually arrived to
+    // `pool::repay`, not the requested `swapped_debt`. Defends against any
+    // future onboarding of a fee-on-transfer or rebasing debt token where
+    // `swapped_debt - fee` reaches the pool. Without the delta, the user's
+    // debt position would be credited for the requested amount while the
+    // pool's reserve diverges from its scaled-borrow accounting by the fee.
+    let pool_balance_before_repay = debt_tok.balance(&debt_pool_addr);
     debt_tok.transfer(
         &env.current_contract_address(),
         &debt_pool_addr,
         &swapped_debt,
     );
+    let pool_balance_after_repay = debt_tok.balance(&debt_pool_addr);
+    let actual_arrived_at_pool = pool_balance_after_repay
+        .checked_sub(pool_balance_before_repay)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    if actual_arrived_at_pool <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
 
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
@@ -589,7 +671,7 @@ pub fn process_repay_debt_with_collateral(
         symbol_short!("rp_col_r"),
         &debt_pos,
         debt_feed.price_wad,
-        swapped_debt,
+        actual_arrived_at_pool,
         &mut cache,
     );
 
@@ -601,23 +683,12 @@ pub fn process_repay_debt_with_collateral(
         debt_tok.transfer(&env.current_contract_address(), caller, &repay_excess);
     }
 
-    let has_borrows = !account.borrow_positions.is_empty();
-    if has_borrows {
-        cache.clean_prices_cache();
-        let hf = helpers::calculate_health_factor(
-            env,
-            &mut cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        );
-        if hf < WAD {
-            panic_with_error!(env, CollateralError::InsufficientCollateral);
-        }
-    }
-
     // Close-position flag withdraws all remaining collateral to the caller.
+    // The HF gate runs in `strategy_finalize` (single source of truth);
+    // having a second check here was dead defense-in-depth that read the
+    // same prices and traversed the same maps.
     if close_position {
-        if has_borrows {
+        if !account.borrow_positions.is_empty() {
             panic_with_error!(env, CollateralError::CannotCloseWithRemainingDebt);
         }
 
@@ -631,6 +702,8 @@ pub fn process_repay_debt_with_collateral(
 // Strategy Helpers
 // ---------------------------------------------------------------------------
 
+/// Persists account state, re-checks HF with a fresh price cache, and flushes isolated-debt.
+/// Deletes the account when all positions close on an owner-initiated full exit.
 pub fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -638,6 +711,18 @@ pub fn strategy_finalize(
     cache: &mut ControllerCache,
 ) {
     // Remove accounts that closed out entirely; otherwise persist.
+    //
+    // Intentional asymmetry with plain `process_repay`: the plain repay path
+    // never deletes an account on full debt close, even when both maps go
+    // empty (anti-grief — a third-party repaying your last debt cannot make
+    // your `account_id` disappear mid-block). Strategy paths are different:
+    // `repay_debt_with_collateral` with `close_position=true` is an
+    // owner-initiated full close where the same caller withdraws all
+    // collateral within the same atomic call, so the account is genuinely
+    // empty by the user's own request. `multiply` / `swap_debt` /
+    // `swap_collateral` reach the empty-empty state only on revert paths,
+    // which Soroban rolls back atomically. Deleting here avoids leaving empty
+    // account storage after successful close flows.
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {
@@ -658,12 +743,16 @@ pub fn strategy_finalize(
         }
     }
 
-    // Enforce the borrow-position cap after any new legs opened by the strategy.
-    validation::validate_bulk_position_limits(env, account, POSITION_TYPE_BORROW, &Vec::new(env));
+    // Borrow-position-cap enforcement lives at each strategy entrypoint
+    // that actually opens debt (multiply, swap_debt) — mirrors `borrow_batch`'s
+    // upfront check. Strategies that don't open debt (swap_collateral,
+    // repay_debt_with_collateral) skip the cap check.
 
     cache.flush_isolated_debts();
 }
 
+/// Withdraws the full balance of every supply position to `destination`.
+/// Used by `process_repay_debt_with_collateral` for the close-position leg.
 pub fn execute_withdraw_all(
     env: &Env,
     account_id: u64,
@@ -702,6 +791,8 @@ pub fn execute_withdraw_all(
     }
 }
 
+/// Pre-flight guard for swap_collateral: rejects isolated assets, deprecated e-mode,
+/// non-collateralizable targets, and position limit violations before any token moves.
 pub fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut ControllerCache,
@@ -715,8 +806,13 @@ pub fn validate_swap_new_collateral_preflight(
         panic_with_error!(env, EModeError::MixIsolatedCollateral);
     }
 
-    // Apply the e-mode category.
+    // Apply the e-mode category. Reject deprecated categories explicitly so
+    // a user whose stored `loan_to_value_bps` reflects a now-retired e-mode
+    // cap cannot ride the boosted parameters through the swap-collateral
+    // path. `process_deposit` would also catch this later, but failing here
+    // avoids running pool::withdraw + swap_tokens for a doomed transaction.
     let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
+    emode::ensure_e_mode_not_deprecated(env, &e_mode);
     let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, new_collateral);
     emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
     emode::apply_e_mode_to_asset_config(env, &mut config, &e_mode, asset_emode_config);

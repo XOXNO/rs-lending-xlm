@@ -16,6 +16,8 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Loads pool params and state from instance storage.
+    /// Initializes all indexes to 1 and balances to zero when no state entry exists yet.
     pub fn load(env: &Env) -> Self {
         let params: MarketParams = env
             .storage()
@@ -51,6 +53,7 @@ impl Cache {
         }
     }
 
+    /// Persists the current cache values to instance storage.
     pub fn save(&self) {
         let state = PoolState {
             supplied_ray: self.supplied.raw(),
@@ -68,6 +71,8 @@ impl Cache {
     // Helper methods
     // -----------------------------------------------------------------------
 
+    /// Returns utilization as `(borrowed × borrow_index) / (supplied × supply_index)` in RAY.
+    /// Returns 0 when total supply or the product is zero.
     pub fn calculate_utilization(&self) -> i128 {
         if self.supplied == Ray::ZERO {
             return 0;
@@ -80,41 +85,43 @@ impl Cache {
         total_borrowed.div(&self.env, total_supplied).raw()
     }
 
+    /// Returns `true` when the pool's on-chain token balance covers `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
         let reserves = self.get_reserves_for(&self.params.asset_id);
         reserves >= amount
     }
 
+    /// Queries the pool contract's current on-chain balance of `asset`.
     pub fn get_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
         let token = soroban_sdk::token::Client::new(&self.env, asset);
         token.balance(&self.env.current_contract_address())
     }
 
-    /// Convert an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Converts an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.supply_index)
     }
 
-    /// Convert an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Converts an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    /// Recover the actual amount in RAY precision: `scaled * index` (stays in RAY).
+    /// Recovers the actual amount in RAY precision: `scaled * index` (stays in RAY).
     pub fn calculate_original_borrow_ray(&self, scaled: Ray) -> Ray {
         scaled.mul(&self.env, self.borrow_index)
     }
 
-    /// Recover the actual amount in asset decimals for token transfers.
+    /// Recovers the actual amount in asset decimals for token transfers.
     pub fn calculate_original_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Recover the actual amount in asset decimals for token transfers.
+    /// Recovers the actual amount in asset decimals for token transfers.
     pub fn calculate_original_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)

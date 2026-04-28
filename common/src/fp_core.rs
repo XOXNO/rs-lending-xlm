@@ -48,7 +48,7 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &rounded.div(&d256))
 }
 
-/// Rescale a value between decimal precisions.
+/// Rescales a value between decimal precisions.
 /// - Upscale (to > from): checked multiplication. Panics with an explicit
 ///   "rescale_half_up upscale overflow" message rather than wrap silently.
 /// - Downscale (to < from): half-up rounding (away from zero for negatives).
@@ -74,9 +74,8 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
-/// Integer division with half-up rounding (away from zero for negatives):
-/// `(a + sign(a)*b/2) / b`. Panics if `b == 0`. Operates purely on i128;
-/// requires no `Env`.
+/// Computes integer division `(a + sign(a)*b/2) / b` with half-up rounding,
+/// rounding away from zero for negatives. Panics if `b == 0`. Requires no `Env`.
 pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
     let half_b = b / 2;

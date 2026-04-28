@@ -1,5 +1,7 @@
 use common::types::{Account, AccountPosition, AccountPositionType};
 
+/// Upserts or removes the position from the appropriate map on `account`.
+/// Removes the entry when `scaled_amount_ray == 0`; returns `true` when removed.
 pub fn update_or_remove_position(account: &mut Account, position: &AccountPosition) -> bool {
     let map = if position.position_type == AccountPositionType::Deposit {
         &mut account.supply_positions
@@ -18,6 +20,7 @@ pub fn update_or_remove_position(account: &mut Account, position: &AccountPositi
     }
 }
 
+/// Unconditionally sets the position entry in the appropriate map on `account`.
 pub fn store_position(account: &mut Account, position: &AccountPosition) {
     let map = if position.position_type == AccountPositionType::Deposit {
         &mut account.supply_positions

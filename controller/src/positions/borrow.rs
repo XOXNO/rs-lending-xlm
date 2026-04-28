@@ -1,11 +1,9 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::events::{
-    emit_update_debt_ceiling, emit_update_position, UpdateDebtCeilingEvent, UpdatePositionEvent,
-};
+use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, PoolPositionMutation, PriceFeed,
-    POSITION_TYPE_BORROW,
+    Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory,
+    PoolPositionMutation, PriceFeed, POSITION_TYPE_BORROW,
 };
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
 
@@ -18,6 +16,9 @@ use crate::{helpers, storage, validation};
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
+/// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
+/// isolated-debt ceiling, flashes the debt via `pool::create_strategy`, and emits the event.
+/// Returns the net amount received after the pool deducts the strategy flash fee.
 pub fn handle_create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
@@ -97,6 +98,8 @@ pub fn handle_create_borrow_strategy(
 // Batch entry point
 // ---------------------------------------------------------------------------
 
+/// Processes a batch of borrows: validates LTV collateral, enforces position limits,
+/// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<(Address, i128)>) {
     caller.require_auth();
     validation::require_not_paused(env);
@@ -134,12 +137,29 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
             &asset,
             amount,
             ltv_collateral,
+            &e_mode,
         );
     }
 
     // Single storage write at the end of the batch.
     storage::set_account(env, account_id, &account);
     cache.flush_isolated_debts();
+
+    // Defense-in-depth post-loop HF gate. Per-iteration `validate_ltv_collateral`
+    // already enforces `ltv_collateral >= total_borrowed + new_amount`, which
+    // implies HF >= 1 because liquidation_threshold > LTV by construction. This
+    // call adds the explicit liq-threshold check the way `withdraw` does, so a
+    // future change to LTV math (rounding, e-mode timing) cannot silently open
+    // a position below the liquidation line.
+    let hf = helpers::calculate_health_factor(
+        env,
+        &mut cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+    if hf < common::constants::WAD {
+        panic_with_error!(env, CollateralError::InsufficientCollateral);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +230,9 @@ fn execute_borrow(
 // handle_isolated_debt
 // ---------------------------------------------------------------------------
 
+/// Increments the isolated-debt USD tracker by the USD value of `amount`.
+/// Panics with `DebtCeilingReached` when the new total would exceed the isolation debt ceiling.
+/// No-ops for non-isolated accounts.
 pub fn handle_isolated_debt(
     env: &Env,
     cache: &mut ControllerCache,
@@ -238,16 +261,11 @@ pub fn handle_isolated_debt(
         panic_with_error!(env, EModeError::DebtCeilingReached);
     }
 
-    // Write back through the cache; flush defers the storage write and event.
+    // Write back through the cache; flush defers the storage write and emits
+    // a single `UpdateDebtCeilingEvent` per asset at end-of-batch
+    // (`ControllerCache::flush_isolated_debts`). Emitting here too would
+    // produce one event per in-batch borrow against the same isolated asset.
     cache.set_isolated_debt(&isolated_token, new_debt);
-
-    emit_update_debt_ceiling(
-        env,
-        UpdateDebtCeilingEvent {
-            asset: isolated_token,
-            total_debt_usd_wad: new_debt,
-        },
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -290,10 +308,18 @@ fn validate_borrow_cap(
     if asset_config.borrow_cap == 0 {
         return; // Zero means no cap.
     }
+    // Use the synced borrow index from the cache rather than the pool's stored
+    // (potentially stale) value. `cached_market_index` simulates global_sync
+    // forward to the current timestamp so cap enforcement is exact across
+    // accrual gaps and same-tx multi-payment loops.
     let pool_addr = cache.cached_pool_address(asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let current_borrowed = pool_client.borrowed_amount(); // Returns asset decimals.
-    if current_borrowed.saturating_add(amount) > asset_config.borrow_cap {
+    let sync_data = pool_client.get_sync_data();
+    let market_index = cache.cached_market_index(asset);
+    let current_total = Ray::from_raw(sync_data.state.borrowed_ray)
+        .mul(env, Ray::from_raw(market_index.borrow_index_ray))
+        .to_asset(sync_data.params.asset_decimals);
+    if current_total.saturating_add(amount) > asset_config.borrow_cap {
         panic_with_error!(env, CollateralError::BorrowCapReached);
     }
 }
@@ -391,6 +417,7 @@ fn process_borrow(
     asset: &Address,
     amount: i128,
     ltv_collateral: i128,
+    e_mode: &Option<EModeCategory>,
 ) {
     // validate_payment equivalent: asset must be supported, amount must be positive.
     validation::require_asset_supported(env, asset);
@@ -403,8 +430,7 @@ fn process_borrow(
 
     let asset_emode_config = emode::token_e_mode_config(env, account.e_mode_category_id, asset);
     emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
-    let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
-    emode::apply_e_mode_to_asset_config(env, &mut asset_config, &e_mode, asset_emode_config);
+    emode::apply_e_mode_to_asset_config(env, &mut asset_config, e_mode, asset_emode_config);
 
     if !asset_config.is_borrowable {
         panic_with_error!(env, CollateralError::AssetNotBorrowable);

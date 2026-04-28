@@ -15,6 +15,9 @@ use crate::{helpers, storage, validation};
 // Orchestration
 // ---------------------------------------------------------------------------
 
+/// Executes a liquidation: verifies HF < 1, computes seizure amounts with the dynamic bonus,
+/// repays debt from the liquidator, and seizes proportional collateral.
+/// Triggers automatic bad-debt cleanup when residual collateral falls below `BAD_DEBT_USD_THRESHOLD`.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -39,6 +42,13 @@ pub fn process_liquidation(
     let mut cache = ControllerCache::new(env, false);
 
     // Math phase: decide seizure and repayment amounts.
+    //
+    // `_refunds` is intentionally discarded here. The pull-model only
+    // transfers the post-cap `amount` from `repaid_tokens` below. The cap
+    // is enforced at the transfer step itself, so over-collection is
+    // impossible. The vector is still produced because the public
+    // `liquidation_estimations_detailed` view exposes it as informational
+    // metadata for off-chain simulators.
     let (seized_collaterals, repaid_tokens, _refunds, _max_debt_usd, _bonus) =
         execute_liquidation(env, &account, debt_payments, &mut cache);
 
@@ -403,6 +413,9 @@ fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, acco
     }
 }
 
+/// Socializes the entire position as bad debt: seizes all collateral into protocol revenue
+/// and writes off all debt against the supply index. Callable by the KEEPER role.
+/// Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     storage::bump_account(env, account_id);
     let mut cache = ControllerCache::new(env, false);

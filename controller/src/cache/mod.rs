@@ -19,29 +19,34 @@ pub struct ControllerCache {
     isolated_debts: Map<Address, i128>,
 
     pub current_timestamp_ms: u64,
+    /// When `true`, the oracle bypasses both the deviation-tolerance gate and
+    /// the staleness gate (`oracle::check_staleness`). The clock-skew gate
+    /// (`check_not_future`) stays unconditional. Liquidation flips this off
+    /// before its health-factor pass.
     pub allow_unsafe_price: bool,
     pub allow_disabled_market_price: bool,
-    pub simulate: bool,
 }
 
 impl ControllerCache {
     pub fn new(env: &Env, allow_unsafe_price: bool) -> Self {
-        Self::build(env, allow_unsafe_price, false, true)
+        Self::build(env, allow_unsafe_price, false)
     }
 
+    /// Permissive constructor used by repay (risk-decreasing) so a user with
+    /// funds in hand can save their position even during a Reflector outage
+    /// or while a market is `Disabled`.
     pub fn new_with_disabled_market_price(env: &Env, allow_unsafe_price: bool) -> Self {
-        Self::build(env, allow_unsafe_price, true, true)
+        Self::build(env, allow_unsafe_price, true)
     }
 
     pub fn new_view(env: &Env) -> Self {
-        Self::build(env, true, true, false)
+        Self::build(env, true, true)
     }
 
     pub(crate) fn build(
         env: &Env,
         allow_unsafe_price: bool,
         allow_disabled_market_price: bool,
-        bump_ttl: bool,
     ) -> Self {
         let current_timestamp_ms = env.ledger().timestamp() * 1000;
 
@@ -55,7 +60,6 @@ impl ControllerCache {
             current_timestamp_ms,
             allow_unsafe_price,
             allow_disabled_market_price,
-            simulate: !bump_ttl,
         }
     }
 
@@ -117,8 +121,16 @@ impl ControllerCache {
         if let Some(index) = self.market_indexes.get(asset.clone()) {
             return index;
         }
-        let simulate = self.simulate;
-        let index = crate::oracle::update_asset_index(self, asset, simulate);
+        // The controller-side index is always a simulation (pure read of
+        // `get_sync_data` + local accrual). The actual pool-state
+        // mutation happens inside the pool's own `global_sync` at the next
+        // mutating entry (`pool::supply/borrow/withdraw/repay/...`). Skipping
+        // the redundant `update_indexes(&0)` cross-contract write avoids one
+        // pool TX per asset per controller op without changing on-chain state
+        // — every mutating pool op already calls `cache.save()` which bumps
+        // instance TTL for that pool. Read-only / unrelated assets fetched
+        // here for HF/LTV math receive no side-effect TTL bump.
+        let index = crate::oracle::update_asset_index(self, asset, true);
         self.market_indexes.set(asset.clone(), index.clone());
         index
     }

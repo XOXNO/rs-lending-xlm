@@ -17,6 +17,8 @@ const THRESHOLD_UPDATE_MIN_HF: i128 = 1_050_000_000_000_000_000;
 // Endpoint entry
 // ---------------------------------------------------------------------------
 
+/// Entry point for supply: validates, creates the account when `account_id == 0`,
+/// and processes the deposit batch. Returns the resolved `account_id`.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -30,7 +32,7 @@ pub fn process_supply(
 
     // Reject empty batch up-front: prevents a free TTL-bump no-op write on the
     // existing-account path and avoids reaching `assets.get(0).unwrap()` panics
-    // on the create path. Parity with MX `lib.rs:113-116`.
+    // on the create path.
     if assets.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
@@ -45,8 +47,8 @@ pub fn process_supply(
     // Load the account once: single storage read.
     let mut account = storage::get_account(env, acct_id);
 
-    // Note: third-party deposits are intentionally permitted (parity with MX
-    // permissive integrator path). Supplying to someone else's account can only
+    // Note: third-party deposits are intentionally permitted. Supplying to
+    // someone else's account can only
     // increase their collateral / health factor — never decrease either. The
     // isolation/e-mode invariants are still enforced per asset via
     // `validate_isolated_collateral` and `validate_e_mode_asset` below.
@@ -66,6 +68,8 @@ pub fn process_supply(
 // process_deposit -- batch loop + per-asset validation
 // ---------------------------------------------------------------------------
 
+/// Processes a deposit batch on `account`: validates e-mode, isolation, supply caps,
+/// and calls the pool for each asset using balance-delta accounting.
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -81,7 +85,7 @@ pub fn process_deposit(
     // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
 
-    // Pre-flight bulk-isolation guard (parity with MX `lib.rs:124-127`).
+    // Pre-flight bulk-isolation guard.
     validation::validate_bulk_isolation(env, account, assets, cache);
 
     for (asset, amount) in assets {
@@ -149,6 +153,8 @@ fn get_or_create_deposit_position(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
+/// Updates the deposit position with the latest risk parameters and calls the pool to record the supply.
+/// Refreshes LTV, bonus, and fees from `asset_config`; the liquidation threshold is keeper-only.
 pub fn update_deposit_position(
     env: &Env,
     account_id: u64,
@@ -276,6 +282,9 @@ fn validate_supply_cap(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
+/// Keeper-driven propagation of updated risk parameters to a specific account's supply position.
+/// When `has_risks` is true (threshold tightening), enforces a 5% HF buffer to prevent
+/// immediate liquidation after the update.
 pub fn update_position_threshold(
     env: &Env,
     account_id: u64,

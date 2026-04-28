@@ -22,45 +22,46 @@ use crate::cache::ControllerCache;
 // from rules that want to verify the full implementation via the nested
 // module `crate::oracle::token_price::token_price` (synthesised by
 // `apply_summary!`). Outside `certora`, the body compiles unchanged.
-crate::summarized!(crate::spec::summaries::token_price_summary,
-pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
-    // Transaction-level cache hit.
-    if let Some(feed) = cache.try_get_price(asset) {
-        return feed;
-    }
+crate::summarized!(
+    crate::spec::summaries::token_price_summary,
+    pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
+        // Transaction-level cache hit.
+        if let Some(feed) = cache.try_get_price(asset) {
+            return feed;
+        }
 
-    let market = cache.cached_market_config(asset);
-    match market.status {
-        MarketStatus::PendingOracle => {
+        let market = cache.cached_market_config(asset);
+        match market.status {
+            MarketStatus::PendingOracle => {
+                panic_with_error!(cache.env(), GenericError::PairNotActive);
+            }
+            MarketStatus::Disabled if !cache.allow_disabled_market_price => {
+                panic_with_error!(cache.env(), GenericError::PairNotActive);
+            }
+            _ => {}
+        }
+
+        let config = market.oracle_config;
+        if config.oracle_type == OracleType::None {
             panic_with_error!(cache.env(), GenericError::PairNotActive);
         }
-        MarketStatus::Disabled if !cache.allow_disabled_market_price => {
-            panic_with_error!(cache.env(), GenericError::PairNotActive);
+
+        let price = find_price_feed(cache, &config, asset);
+        if price <= 0 {
+            panic_with_error!(cache.env(), OracleError::InvalidPrice);
         }
-        _ => {}
-    }
+        let feed = PriceFeed {
+            price_wad: price,
+            asset_decimals: config.asset_decimals,
+            timestamp: cache.current_timestamp_ms / 1000,
+        };
+        // Redundant guard: fetch helpers already call `check_not_future` on the
+        // source feed; the cache-clock timestamp built here satisfies it trivially.
+        check_not_future(cache, feed.timestamp);
 
-    let config = market.oracle_config;
-    if config.oracle_type == OracleType::None {
-        panic_with_error!(cache.env(), GenericError::PairNotActive);
+        cache.set_price(asset, &feed);
+        feed
     }
-
-    let price = find_price_feed(cache, &config, asset);
-    if price <= 0 {
-        panic_with_error!(cache.env(), OracleError::InvalidPrice);
-    }
-    let feed = PriceFeed {
-        price_wad: price,
-        asset_decimals: config.asset_decimals,
-        timestamp: cache.current_timestamp_ms / 1000,
-    };
-    // Redundant guard: fetch helpers already call `check_not_future` on the
-    // source feed; the cache-clock timestamp built here satisfies it trivially.
-    check_not_future(cache, feed.timestamp);
-
-    cache.set_price(asset, &feed);
-    feed
-}
 );
 
 fn find_price_feed(
@@ -170,9 +171,18 @@ fn to_reflector_asset(
 
 fn check_staleness(cache: &ControllerCache, feed_ts: u64, max_stale: u64) {
     let now_secs = cache.current_timestamp_ms / 1000;
-    if now_secs > feed_ts && (now_secs - feed_ts) > max_stale {
+    let is_stale = now_secs > feed_ts && (now_secs - feed_ts) > max_stale;
+    // Staleness is bypassed when the caller opted into the unsafe-price flag.
+    // Repay and views run with
+    // `allow_unsafe_price = true` and therefore stay live during a Reflector
+    // outage; risk-increasing ops (default cache, liquidation health pass)
+    // run with the flag off and panic.
+    if is_stale && !cache.allow_unsafe_price {
         panic_with_error!(cache.env(), OracleError::PriceFeedStale);
     }
+    // The clock-skew gate is intentionally unconditional: a future-dated
+    // oracle is always malicious or malfunctioning, regardless of the risk
+    // direction of the calling op.
     check_not_future(cache, feed_ts);
 }
 
@@ -349,25 +359,26 @@ fn dex_spot_price(
 // boolean is sound. Real implementation remains accessible at
 // `crate::oracle::is_within_anchor::is_within_anchor` for direct
 // invocation by `oracle_rules`.
-crate::summarized!(crate::spec::summaries::is_within_anchor_summary,
-pub(crate) fn is_within_anchor(
-    env: &Env,
-    aggregator: i128,
-    safe: i128,
-    upper_bound_ratio: i128,
-    lower_bound_ratio: i128,
-) -> bool {
-    if aggregator == 0 {
-        return false;
-    }
-    // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS.
-    let ratio_ray = Ray::from_raw(safe)
-        .div(env, Ray::from_raw(aggregator))
-        .raw();
-    let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
+crate::summarized!(
+    crate::spec::summaries::is_within_anchor_summary,
+    pub(crate) fn is_within_anchor(
+        env: &Env,
+        aggregator: i128,
+        safe: i128,
+        upper_bound_ratio: i128,
+        lower_bound_ratio: i128,
+    ) -> bool {
+        if aggregator == 0 {
+            return false;
+        }
+        // Compute ratio: safe / aggregator in RAY precision, then rescale to BPS.
+        let ratio_ray = Ray::from_raw(safe)
+            .div(env, Ray::from_raw(aggregator))
+            .raw();
+        let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
 
-    ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
-}
+        ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
+    }
 );
 
 // ---------------------------------------------------------------------------
@@ -468,35 +479,36 @@ pub fn price_components(
 // (`get_sync_data` and the rate-model `simulate_update_indexes`) which the
 // prover would otherwise inline; the summary returns a fresh `MarketIndex`
 // that satisfies the index-monotonicity post-conditions.
-crate::summarized!(crate::spec::summaries::update_asset_index_summary,
-pub fn update_asset_index(
-    cache: &mut ControllerCache,
-    asset: &Address,
-    simulate: bool,
-) -> MarketIndex {
-    let env = cache.env().clone();
+crate::summarized!(
+    crate::spec::summaries::update_asset_index_summary,
+    pub fn update_asset_index(
+        cache: &mut ControllerCache,
+        asset: &Address,
+        simulate: bool,
+    ) -> MarketIndex {
+        let env = cache.env().clone();
 
-    if simulate {
-        let pool_addr = cache.cached_pool_address(asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
-        let sync_data = pool_client.get_sync_data();
-        simulate_update_indexes(
-            &env,
-            cache.current_timestamp_ms,
-            sync_data.state.last_timestamp,
-            Ray::from_raw(sync_data.state.borrowed_ray),
-            Ray::from_raw(sync_data.state.borrow_index_ray),
-            Ray::from_raw(sync_data.state.supplied_ray),
-            Ray::from_raw(sync_data.state.supply_index_ray),
-            &sync_data.params,
-        )
-    } else {
-        let _feed = token_price(cache, asset); // Mutating path: refresh price and sync state.
-        let pool_addr = cache.cached_pool_address(asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
-        pool_client.update_indexes(&0)
+        if simulate {
+            let pool_addr = cache.cached_pool_address(asset);
+            let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
+            let sync_data = pool_client.get_sync_data();
+            simulate_update_indexes(
+                &env,
+                cache.current_timestamp_ms,
+                sync_data.state.last_timestamp,
+                Ray::from_raw(sync_data.state.borrowed_ray),
+                Ray::from_raw(sync_data.state.borrow_index_ray),
+                Ray::from_raw(sync_data.state.supplied_ray),
+                Ray::from_raw(sync_data.state.supply_index_ray),
+                &sync_data.params,
+            )
+        } else {
+            let _feed = token_price(cache, asset); // Mutating path: refresh price and sync state.
+            let pool_addr = cache.cached_pool_address(asset);
+            let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
+            pool_client.update_indexes(&0)
+        }
     }
-}
 );
 
 #[cfg(test)]
@@ -764,7 +776,7 @@ mod tests {
         cex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &123_000_000,
-            &1_000, // match ledger timestamp -- stale prices are no longer accepted
+            &1_000, // matches ledger timestamp; future-dated prices are rejected
         );
 
         t.as_controller(|| {
@@ -858,8 +870,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #206)")]
-    fn test_check_staleness_panics_even_when_unsafe_price_allowed() {
+    fn test_check_staleness_bypassed_when_unsafe_price_allowed() {
+        // `allow_unsafe_price = true` bypasses both deviation tolerance and
+        // staleness in a single flag. Repay/views opt in.
         let t = TestSetup::new();
 
         t.as_controller(|| {
@@ -871,11 +884,26 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error(Contract, #206)")]
     fn test_check_staleness_blocks_risk_increasing_ops() {
+        // Default cache (`allow_unsafe_price = false`) keeps the strict gate.
         let t = TestSetup::new();
 
         t.as_controller(|| {
             let cache = ControllerCache::new(&t.env, false);
             check_staleness(&cache, 1, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #206)")]
+    fn test_check_staleness_future_timestamp_panics_even_when_unsafe_allowed() {
+        // Clock-skew gate is unconditional. A future-dated oracle is always
+        // malicious or malfunctioning, regardless of `allow_unsafe_price`.
+        let t = TestSetup::new();
+
+        t.as_controller(|| {
+            let cache = ControllerCache::new(&t.env, true);
+            // Ledger ts is 1000; set feed_ts to 1_121 (>60s skew tolerance).
+            check_staleness(&cache, 1_121, 60);
         });
     }
 
@@ -1152,7 +1180,7 @@ mod tests {
             ExchangeSource::SpotOnly,
             Some(t.reflector_config(ReflectorAssetKind::Stellar, None)),
         );
-        // Zero spot price -> InvalidPrice panic (line 43)
+        // Zero spot price panics with InvalidPrice.
         cex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &0,
@@ -1176,7 +1204,7 @@ mod tests {
             ExchangeSource::SpotOnly,
             Some(t.reflector_config(ReflectorAssetKind::Stellar, None)),
         );
-        // timestamp more than 60s in the future (ledger is 1000) -> PriceFeedStale (line 177)
+        // A timestamp more than 60s in the future panics with PriceFeedStale.
         cex_client.set_spot(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &100_000_000_000_000,
@@ -1192,7 +1220,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error(Contract, #204)")]
     fn test_find_price_feed_panics_for_oracle_type_none() {
-        // Covers line 66: OracleType::None branch inside find_price_feed
+        // OracleType::None inside find_price_feed panics with InvalidOracleTokenType.
         let t = TestSetup::new();
 
         t.as_controller(|| {
@@ -1208,10 +1236,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error(Contract, #12)")]
     fn test_token_price_pending_oracle_with_oracle_type_none_branch() {
-        // Also hits line 38 transitively by configuring OracleType::None and Active status,
-        // bypassing the PendingOracle status check. We directly set market config to
-        // Active status, with oracle_type None, to drive the `oracle_type == None` check
-        // at line 37 inside token_price.
+        // Active status with OracleType::None bypasses the PendingOracle check and
+        // reaches the oracle_type == None guard inside token_price, which panics with PairNotActive.
         let t = TestSetup::new();
 
         t.as_controller(|| {
@@ -1228,7 +1254,7 @@ mod tests {
 
     #[test]
     fn test_cex_spot_and_twap_twap_records_zero_returns_spot() {
-        // Covers line 226: early return when twap_records == 0
+        // When twap_records == 0, cex_spot_and_twap returns the spot price for both outputs.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1252,7 +1278,7 @@ mod tests {
 
     #[test]
     fn test_cex_spot_and_twap_count_zero_falls_back_to_spot() {
-        // Covers line 243: count == 0 -> return (spot, spot)
+        // All-None TWAP history falls back to spot price for both outputs.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1284,7 +1310,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error(Contract, #219)")]
     fn test_cex_spot_and_twap_insufficient_observations() {
-        // Covers line 248: TwapInsufficientObservations in cex_spot_and_twap_price.
+        // Fewer than half the twap_records being valid panics with TwapInsufficientObservations in cex_spot_and_twap.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1322,7 +1348,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error(Contract, #219)")]
     fn test_cex_twap_only_insufficient_observations() {
-        // Covers line 301: TwapInsufficientObservations in cex_twap_price.
+        // Fewer than half the twap_records being valid panics with TwapInsufficientObservations in cex_twap.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1359,7 +1385,7 @@ mod tests {
 
     #[test]
     fn test_price_components_for_dual_oracle_within_first_tier() {
-        // Covers lines 378-410 (DualOracle branch of price_components, agg=Some).
+        // DualOracle with aggregator within first tier returns the safe price.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
         let dex_client = MockReflectorClient::new(&t.env, &t.dex_oracle);
@@ -1407,7 +1433,7 @@ mod tests {
 
     #[test]
     fn test_price_components_for_dual_oracle_aggregator_missing() {
-        // Covers line 409: None aggregator branch returning (None, Some, final, true, true).
+        // DualOracle without a DEX oracle falls back to safe-only and marks both tolerance flags true.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1481,9 +1507,8 @@ mod tests {
 
     #[test]
     fn test_price_components_non_normal_oracle_type() {
-        // Covers lines 366-367: early-return for oracle_type != Normal.
-        // We can't easily reach token_price inside this branch (OracleType::None panics),
-        // so assert the panic propagates, which still exercises line 366's check.
+        // When oracle_type != Normal, price_components delegates to token_price,
+        // which panics for OracleType::None.
         let t = TestSetup::new();
 
         t.as_controller(|| {
@@ -1502,7 +1527,7 @@ mod tests {
 
     #[test]
     fn test_price_components_for_spot_only() {
-        // Covers lines 374-376: SpotOnly branch of price_components.
+        // SpotOnly sets aggregator to the spot price and leaves safe as None.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1531,7 +1556,7 @@ mod tests {
 
     #[test]
     fn test_price_components_for_spot_vs_twap() {
-        // Covers lines 412-440 (SpotVsTwap/_ branch with within_second).
+        // SpotVsTwap with 4% deviation falls outside first tier but within second tier.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1572,8 +1597,8 @@ mod tests {
 
     #[test]
     fn test_price_components_dual_oracle_within_second_tier() {
-        // Covers lines 394-399: DualOracle branch where aggregator exists but
-        // falls outside first tier -- forces within_second recomputation.
+        // DualOracle with aggregator outside first tier but inside second tier:
+        // within_first=false, within_second=true.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
         let dex_client = MockReflectorClient::new(&t.env, &t.dex_oracle);
@@ -1618,7 +1643,7 @@ mod tests {
 
     #[test]
     fn test_mock_reflector_decimals_helper() {
-        // Covers lines 518-520: MockReflector::decimals helper.
+        // MockReflector::decimals returns 14.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
         assert_eq!(cex_client.decimals(), 14);

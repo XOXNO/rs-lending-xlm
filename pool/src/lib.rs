@@ -5,9 +5,7 @@ mod interest;
 mod views;
 
 use cache::Cache;
-use common::constants::{
-    BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE,
-};
+use common::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::events::{
     emit_update_market_params, emit_update_market_state, UpdateMarketParamsEvent,
@@ -48,6 +46,18 @@ fn verify_admin(env: &Env) {
 fn require_nonneg_amount(env: &Env, amount: i128) {
     if amount < 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+}
+
+/// Defense-in-depth: every mutating pool ABI must reject positions whose
+/// `asset` field doesn't match the pool's own `asset_id`. The controller
+/// resolves `cached_pool_address(asset)` correctly today, but a misconfigured
+/// asset→pool registry (upgrade bug, governance error) could otherwise route
+/// a position into the wrong pool and corrupt its scaled-balance accounting.
+/// Enforced on supply/borrow/withdraw/repay/seize/strategy/flash-loan.
+fn require_same_asset(env: &Env, cache: &Cache, asset: &Address) {
+    if cache.params.asset_id != *asset {
+        panic_with_error!(env, GenericError::InvalidAsset);
     }
 }
 
@@ -122,6 +132,7 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
@@ -152,6 +163,7 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         if !cache.has_reserves(amount) {
@@ -195,6 +207,7 @@ impl LiquidityPool {
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         // Gross withdrawal: cap at the position's current value.
@@ -206,11 +219,14 @@ impl LiquidityPool {
             let scaled = cache.calculate_scaled_supply(amount);
             // Dust-lock guard: if the residual scaled amount would round to
             // zero asset tokens, treat the call as a full withdrawal so the
-            // user leaves no permanently-stuck dust behind.
+            // user leaves no permanently-stuck dust behind. Credit the user
+            // the FULL `current_supply_actual` (not the smaller requested
+            // `amount`) — the entire scaled position is being burned, so the
+            // sub-unit residual otherwise vanishes into the protocol.
             let remaining_scaled = saturating_sub_ray(pos_scaled, scaled);
             let remaining_actual = cache.calculate_original_supply(remaining_scaled);
             if remaining_actual == 0 {
-                (pos_scaled, amount)
+                (pos_scaled, current_supply_actual)
             } else {
                 (scaled, amount)
             }
@@ -231,6 +247,13 @@ impl LiquidityPool {
             panic_with_error!(&env, CollateralError::InsufficientLiquidity);
         }
 
+        // Saturating on the pool aggregate (soft) but checked on the per-account
+        // scaled amount (hard). The aggregate absorbs cumulative rounding drift
+        // across many withdrawals; per-account integrity must always hold. The
+        // The `repay` path uses checked subtraction on `cache.borrowed`
+        // because debt-side phantom liquidity is a different
+        // failure mode (it indicates accounting corruption that must surface
+        // immediately, not silently round to zero).
         cache.supplied = saturating_sub_ray(cache.supplied, scaled_withdrawal);
         position.scaled_amount_ray -= scaled_withdrawal.raw();
 
@@ -264,6 +287,7 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
@@ -277,8 +301,28 @@ impl LiquidityPool {
             (scaled, 0i128)
         };
 
+        // Checked subtraction on the per-account scaled balance. The partial
+        // branch above derives `scaled_repay = calculate_scaled_borrow(amount)`
+        // with half-up rounding; round-trip monotonicity normally bounds it
+        // by `pos_scaled`, but an adversarial combination of `borrow_index`
+        // and asset decimals could push it 1 ulp over. Without this guard the
+        // signed `i128 -= i128` would yield a negative scaled balance that
+        // bypasses `update_or_remove_position`'s `== 0` gate and surface as
+        // huge positive debt on the next read.
+        if scaled_repay.raw() > position.scaled_amount_ray {
+            panic_with_error!(&env, GenericError::MathOverflow);
+        }
         position.scaled_amount_ray -= scaled_repay.raw();
-        cache.borrowed = saturating_sub_ray(cache.borrowed, scaled_repay);
+        // Checked subtraction: a `scaled_repay > cache.borrowed` underflow
+        // signals phantom-liquidity (per-account scaled debt exceeds the
+        // pool's tracked total). Surface immediately rather than silently
+        // floor at zero. The bad-debt path in `seize_position` keeps the
+        // saturating variant because repeated cleanups can legitimately
+        // leave residual scaled-debt above `cache.borrowed`.
+        if scaled_repay.raw() > cache.borrowed.raw() {
+            panic_with_error!(&env, GenericError::MathOverflow);
+        }
+        cache.borrowed -= scaled_repay;
 
         // Refund any overpayment.
         if overpayment > 0 {
@@ -417,6 +461,7 @@ impl LiquidityPool {
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         if fee > amount {
@@ -461,6 +506,7 @@ impl LiquidityPool {
     ) -> AccountPosition {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
+        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         if position.position_type == AccountPositionType::Borrow {
@@ -765,8 +811,7 @@ mod tests {
                 asset_decimals,
             };
 
-            // L-05: pool now requires an accumulator at construction.
-            // Test fixture uses `admin` as a stand-in destination.
+            // Pool requires an accumulator at construction; test fixture uses admin as stand-in.
             let pool_address = env.register(LiquidityPool, (admin.clone(), params, admin.clone()));
 
             // Mint tokens to the pool for reserves.
@@ -1070,7 +1115,7 @@ mod tests {
         let token_admin_client = token::StellarAssetClient::new(&t.env, &t.asset);
         token_admin_client.mint(&receiver, &(flash_amount + flash_fee));
 
-        // Begin: tokens sent to the receiver. H-01: pool ABI no longer takes asset.
+        // Begin: pool sends tokens to the receiver using its own asset_id.
         client.flash_loan_begin(&flash_amount, &receiver);
 
         let tok = token::Client::new(&t.env, &t.asset);
@@ -1389,7 +1434,7 @@ mod tests {
     // Extra targeted coverage tests.
     // -----------------------------------------------------------------------
 
-    // Covers the withdraw liquidation-fee success branch (lines 205-206).
+    // Liquidation fee on withdraw accrues to protocol revenue; user receives gross minus fee.
     #[test]
     fn test_withdraw_liquidation_fee_accrues_to_revenue() {
         let t = TestSetup::new();
@@ -1423,7 +1468,7 @@ mod tests {
         assert_eq!(final_pos.actual_amount, gross);
     }
 
-    // Covers the repay partial branch (lines 257-258).
+    // Partial repay reduces scaled debt without closing the position.
     #[test]
     fn test_repay_partial_amount() {
         let t = TestSetup::new();
@@ -1456,7 +1501,7 @@ mod tests {
         );
     }
 
-    // Covers the full add_rewards body (lines 301-315).
+    // Covers the full add_rewards body.
     #[test]
     fn test_add_rewards_increases_supply_index() {
         let t = TestSetup::new();
@@ -1476,7 +1521,7 @@ mod tests {
         );
     }
 
-    // Covers the create_strategy happy path (lines 394-422).
+    // create_strategy records debt, transfers net amount, and accrues fee to protocol revenue.
     #[test]
     fn test_create_strategy_emits_position_and_transfers_net() {
         let t = TestSetup::new();
@@ -1513,7 +1558,7 @@ mod tests {
         );
     }
 
-    // Covers the claim_revenue zero-revenue early-return branch (lines 460-463).
+    // claim_revenue returns 0 when no revenue has accrued.
     #[test]
     fn test_claim_revenue_zero_revenue_early_returns() {
         let t = TestSetup::new();
@@ -1524,13 +1569,8 @@ mod tests {
         assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
     }
 
-    // Covers the update_params full successful path (lines 556-587).
-    //
-    // Regression target: if `update_params` silently dropped a field (e.g.
-    // used the wrong source variable when rewriting the struct), the happy
-    // path would still return Ok. This test reads every updated field back
-    // through `get_sync_data()` and asserts exact equality, so a dropped
-    // write must surface.
+    // Verifies every update_params field round-trips through get_sync_data()
+    // so a silently dropped write surfaces as an assertion failure.
     #[test]
     fn test_update_params_happy_path() {
         let t = TestSetup::new();
@@ -1593,7 +1633,7 @@ mod tests {
         let _ = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
     }
 
-    // Covers update_params validation: slope-ordering rejection (lines 545-550).
+    // Slope ordering violation (slope3 < slope2) panics with InvalidBorrowParams.
     #[test]
     #[should_panic(expected = "Error(Contract, #116)")]
     fn test_update_params_rejects_invalid_slope_ordering() {
@@ -1613,7 +1653,7 @@ mod tests {
         );
     }
 
-    // Covers the update_params mid_utilization == 0 rejection (lines 532-534).
+    // mid_utilization == 0 panics with InvalidUtilRange.
     #[test]
     #[should_panic(expected = "Error(Contract, #117)")]
     fn test_update_params_rejects_mid_utilization_zero() {
@@ -1632,7 +1672,7 @@ mod tests {
         );
     }
 
-    // Covers the update_params negative reserve_factor rejection (lines 541-543).
+    // Negative reserve_factor panics with InvalidReserveFactor.
     #[test]
     #[should_panic(expected = "Error(Contract, #119)")]
     fn test_update_params_rejects_negative_reserve_factor() {
@@ -1651,15 +1691,7 @@ mod tests {
         );
     }
 
-    // Covers the keepalive endpoint (lines 594-599).
-    //
-    // The previous version of this test only called `keepalive()` with no
-    // assertions; a silent regression that skipped the TTL extension would
-    // have passed. We now:
-    //   1. Assert that a non-admin caller cannot invoke keepalive (auth gate).
-    //   2. Assert that, after admin-authorized keepalive, the instance entry's
-    //      live_until_ledger is at least `current + TTL_THRESHOLD_INSTANCE`.
-    //      A silent no-op would leave the ledger at its original (minimal) TTL.
+    // Verifies keepalive bumps the instance TTL by at least TTL_THRESHOLD_INSTANCE.
     #[test]
     fn test_keepalive_bumps_ttl() {
         let t = TestSetup::new();
@@ -1685,12 +1717,7 @@ mod tests {
         );
     }
 
-    // Covers the keepalive auth gate (line 595, `verify_admin`).
-    //
-    // A regression that dropped the `verify_admin` call would still let the
-    // test above pass (mock_all_auths covers any address). This variant
-    // opts out of blanket auth and asserts that a fresh non-admin cannot
-    // invoke it.
+    // Without mock_all_auths, a non-admin call must panic (auth gate enforced).
     #[test]
     #[should_panic]
     fn test_keepalive_rejects_non_admin() {

@@ -16,6 +16,9 @@ use crate::cache::Cache;
 /// and avoids i128 overflow in `x_pow8`.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
+/// Accrues interest on the pool state from `last_timestamp` to `current_timestamp`.
+/// Iterates in `MAX_COMPOUND_DELTA_MS` chunks to keep the Taylor series within its
+/// documented accuracy envelope. No-ops when `delta_ms` is zero.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
     let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
@@ -70,7 +73,7 @@ pub fn add_protocol_revenue(cache: &mut Cache, fee_amount: i128) {
     }
     // Skip accrual when the supply index is at or near the safety floor:
     // dividing by a near-zero index produces astronomical scaled amounts.
-    if cache.supply_index.raw() < SUPPLY_INDEX_FLOOR_RAW {
+    if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
     let fee_scaled = Ray::from_asset(fee_amount, cache.params.asset_decimals)
@@ -87,7 +90,7 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     }
     // Skip revenue accrual when supply_index is at or near the safety floor:
     // dividing by a near-zero index produces astronomical scaled amounts.
-    if cache.supply_index.raw() < SUPPLY_INDEX_FLOOR_RAW {
+    if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
@@ -98,11 +101,14 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
 /// Reduces the supply index to socialize uncollectable debt.
 ///
 /// Safety:
-/// - The resulting index is floored at `SUPPLY_INDEX_FLOOR_RAW` (10^18 raw,
-///   = 10^-9 decimal). Dropping below this risks i128 overflow in downstream
-///   `amount / supply_index` conversions.
+/// - The resulting index is floored at `SUPPLY_INDEX_FLOOR_RAW` (1 raw atom,
+///   = 10^-27 decimal). Dropping to zero would make
+///   `cache.supply_index.raw() == 0`, which divides-by-zero in downstream
+///   `amount / supply_index` conversions; the revenue-accrual paths
+///   additionally short-circuit when `index < floor` so a near-zero index
+///   cannot blow up `fee / supply_index`.
 /// - If the proposed reduction would drop the index by more than 90% in a
-///   single call, we emit `PoolInsolventEvent` so the controller can
+///   single call, emits `PoolInsolventEvent` so the controller can
 ///   subscribe and disable the market (e.g. via `disable_token_oracle`).
 ///   The reduction still applies (clamped to the floor) so existing math
 ///   stays consistent.
@@ -157,9 +163,7 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests: regression coverage for the T2-7 safety paths (supply-index floor,
-// revenue-near-floor early return, zero-supply short-circuit, insolvency
-// event emission, and non-positive fee guards).
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -220,7 +224,7 @@ mod tests {
         }
     }
 
-    // add_protocol_revenue: non-positive fees are no-ops (line 53).
+    // Non-positive fees are no-ops.
     #[test]
     fn test_add_protocol_revenue_zero_fee_is_noop() {
         let t = TestSetup::new();
@@ -245,7 +249,7 @@ mod tests {
         });
     }
 
-    // add_protocol_revenue_ray: zero fee is a no-op (line 65).
+    // Zero RAY fee is a no-op.
     #[test]
     fn test_add_protocol_revenue_ray_zero_is_noop() {
         let t = TestSetup::new();
@@ -265,9 +269,8 @@ mod tests {
         });
     }
 
-    // add_protocol_revenue_ray: skip accrual when supply_index is at or
-    // below the safety floor; dividing by a near-zero index produces
-    // astronomical scaled amounts that can overflow i128 (line 70).
+    // Skips RAY-fee accrual when supply_index is at or below the safety floor;
+    // dividing by a near-zero index produces astronomical scaled amounts.
     #[test]
     fn test_add_protocol_revenue_ray_skips_when_supply_index_below_floor() {
         let t = TestSetup::new();
@@ -290,10 +293,9 @@ mod tests {
         });
     }
 
-    // H-03: same floor guard now applies to the asset-decimal variant.
-    // Closes audit finding H-03 (also in MATH_REVIEW.md Sec.5.5). The asset
-    // path is reached from liquidation withdraw fee, flash-loan fee, and
-    // strategy fee -- all run after global_sync, which can clamp the index.
+    // The floor guard applies to the asset-decimal fee path (liquidation,
+    // flash-loan, and strategy fees) -- all run after global_sync, which
+    // can clamp the supply index.
     #[test]
     fn test_add_protocol_revenue_skips_when_supply_index_below_floor() {
         let t = TestSetup::new();
@@ -316,8 +318,7 @@ mod tests {
         });
     }
 
-    // apply_bad_debt_to_supply_index: zero total supply short-circuits
-    // (line 92). Occurs when the pool has nothing to socialize against.
+    // Zero total supply short-circuits; nothing to socialize against.
     #[test]
     fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
         let t = TestSetup::new();
@@ -336,9 +337,8 @@ mod tests {
         });
     }
 
-    // apply_bad_debt_to_supply_index: bad_debt > total_supplied path
-    // (line 96). The cap clamps the debt and also triggers the insolvency
-    // branch and floor clamp (lines 113-132).
+    // When bad_debt > total_supplied, the cap clamps the debt and triggers
+    // the insolvency branch and floor clamp.
     #[test]
     fn test_apply_bad_debt_caps_at_total_supply_and_triggers_insolvency() {
         let t = TestSetup::new();
@@ -364,16 +364,14 @@ mod tests {
         });
     }
 
-    // apply_bad_debt_to_supply_index: the >90% reduction path emits
-    // PoolInsolventEvent (lines 113-128) without requiring the debt to
-    // exceed total supply; a 91% bad-debt event suffices.
+    // A >90% reduction emits PoolInsolventEvent without requiring the debt
+    // to exceed total supply; a 91% bad-debt event suffices.
     #[test]
     fn test_apply_bad_debt_emits_insolvent_event_on_severe_reduction() {
         let t = TestSetup::new();
         t.as_contract(|| {
             // supply_index high enough that a 91% drop still leaves the new
-            // index above the floor. Exercises the non-clamping branch at
-            // line 134 while still triggering the event at 112-128.
+            // index above the floor, exercising the non-clamping branch.
             let mut cache = t.fresh_cache(PoolState {
                 supplied_ray: 1_000 * RAY,
                 borrowed_ray: 0,
@@ -395,9 +393,7 @@ mod tests {
         });
     }
 
-    // apply_bad_debt_to_supply_index: mild (<90%) reduction emits no event
-    // and skips the floor clamp (exercises the "new_index >= floor" branch
-    // at line 134).
+    // A mild (<90%) reduction emits no event and skips the floor clamp.
     #[test]
     fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
         let t = TestSetup::new();

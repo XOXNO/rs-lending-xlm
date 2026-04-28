@@ -480,47 +480,47 @@ impl Controller {
     // Admin & Oracle Config
     // -----------------------------------------------------------------------
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn set_aggregator(env: Env, addr: Address) {
         config::set_aggregator(&env, addr);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn set_accumulator(env: Env, addr: Address) {
         config::set_accumulator(&env, addr);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn set_liquidity_pool_template(env: Env, hash: BytesN<32>) {
         config::set_liquidity_pool_template(&env, hash);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfig) {
         config::edit_asset_config(&env, asset, cfg);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn set_position_limits(env: Env, limits: PositionLimits) {
         config::set_position_limits(&env, limits);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn add_e_mode_category(env: Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
         config::add_e_mode_category(&env, ltv, threshold, bonus)
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn edit_e_mode_category(env: Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
         config::edit_e_mode_category(&env, id, ltv, threshold, bonus);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn remove_e_mode_category(env: Env, id: u32) {
         config::remove_e_mode_category(&env, id);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn add_asset_to_e_mode_category(
         env: Env,
         asset: Address,
@@ -531,7 +531,7 @@ impl Controller {
         config::add_asset_to_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn edit_asset_in_e_mode_category(
         env: Env,
         asset: Address,
@@ -542,8 +542,13 @@ impl Controller {
         config::edit_asset_in_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32) {
+        config::remove_asset_from_e_mode(&env, asset, category_id);
+    }
+
+    #[only_owner]
+    pub fn remove_asset_e_mode_category(env: Env, asset: Address, category_id: u32) {
         config::remove_asset_from_e_mode(&env, asset, category_id);
     }
 
@@ -553,7 +558,7 @@ impl Controller {
     /// Wasm hash, so the allow-list keys by token contract address rather
     /// than by Wasm hash. The emitted event still carries a `BytesN<32>` for
     /// schema compatibility, derived deterministically from the address.
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn approve_token_wasm(env: Env, token: Address) {
         crate::storage::set_token_approved(&env, &token, true);
         let wasm_hash = env
@@ -569,7 +574,7 @@ impl Controller {
         );
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn revoke_token_wasm(env: Env, token: Address) {
         crate::storage::set_token_approved(&env, &token, false);
         let wasm_hash = env
@@ -585,7 +590,7 @@ impl Controller {
         );
     }
 
-    #[stellar_macros::only_role(caller, "ORACLE")]
+    #[only_role(caller, "ORACLE")]
     pub fn configure_market_oracle(
         env: Env,
         caller: Address,
@@ -596,7 +601,7 @@ impl Controller {
         config::configure_market_oracle(&env, asset, cfg);
     }
 
-    #[stellar_macros::only_role(caller, "ORACLE")]
+    #[only_role(caller, "ORACLE")]
     pub fn edit_oracle_tolerance(
         env: Env,
         caller: Address,
@@ -608,7 +613,7 @@ impl Controller {
         config::edit_oracle_tolerance(&env, asset, first_tolerance, last_tolerance);
     }
 
-    #[stellar_macros::only_role(caller, "ORACLE")]
+    #[only_role(caller, "ORACLE")]
     pub fn disable_token_oracle(env: Env, caller: Address, asset: Address) {
         let _ = caller;
         config::disable_token_oracle(&env, asset);
@@ -618,7 +623,7 @@ impl Controller {
     // Market admin and revenue operations
     // -----------------------------------------------------------------------
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn create_liquidity_pool(
         env: Env,
         asset: Address,
@@ -628,7 +633,7 @@ impl Controller {
         router::create_liquidity_pool(&env, &asset, &params, &config)
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
     pub fn upgrade_pool_params(
         env: Env,
         asset: Address,
@@ -655,19 +660,51 @@ impl Controller {
         );
     }
 
-    #[stellar_macros::only_owner]
+    #[only_owner]
+    pub fn upgrade_liquidity_pool_params(
+        env: Env,
+        asset: Address,
+        max_borrow_rate: i128,
+        base_borrow_rate: i128,
+        slope1: i128,
+        slope2: i128,
+        slope3: i128,
+        mid_utilization: i128,
+        optimal_utilization: i128,
+        reserve_factor: i128,
+    ) {
+        router::upgrade_liquidity_pool_params(
+            &env,
+            &asset,
+            max_borrow_rate,
+            base_borrow_rate,
+            slope1,
+            slope2,
+            slope3,
+            mid_utilization,
+            optimal_utilization,
+            reserve_factor,
+        );
+    }
+
+    #[only_owner]
     pub fn upgrade_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
         router::upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
     }
 
-    #[stellar_macros::only_role(caller, "REVENUE")]
+    #[only_owner]
+    pub fn upgrade_liquidity_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
+        router::upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
+    }
+
+    #[only_role(caller, "REVENUE")]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
         let _ = caller;
         validation::require_not_flash_loaning(&env);
         router::claim_revenue(&env, assets)
     }
 
-    #[stellar_macros::only_role(caller, "REVENUE")]
+    #[only_role(caller, "REVENUE")]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
         validation::require_not_flash_loaning(&env);
         router::add_rewards_batch(&env, &caller, rewards);
@@ -883,8 +920,7 @@ mod tests {
             let stored_ac_admin = access_control::get_admin(&t.env);
             assert_eq!(stored_ac_admin, Some(t.admin.clone()));
 
-            // M-02: only KEEPER is granted at construct. REVENUE and ORACLE
-            // require explicit `grant_role` after deploy.
+            // Only KEEPER is granted at construct; REVENUE and ORACLE require explicit grant post-deploy.
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, KEEPER_ROLE))
                     .is_some()
@@ -892,18 +928,18 @@ mod tests {
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, REVENUE_ROLE))
                     .is_none(),
-                "M-02: REVENUE must NOT be granted at construct"
+                "REVENUE must NOT be granted at construct"
             );
             assert!(
                 access_control::has_role(&t.env, &t.admin, &Symbol::new(&t.env, ORACLE_ROLE))
                     .is_none(),
-                "M-02: ORACLE must NOT be granted at construct"
+                "ORACLE must NOT be granted at construct"
             );
 
-            // M-03: contract is paused after construct.
+            // Contract is paused at construct.
             assert!(
                 stellar_contract_utils::pausable::paused(&t.env),
-                "M-03: contract must be paused at construct"
+                "contract must be paused at construct"
             );
 
             // Verify default position limits.
@@ -1371,8 +1407,7 @@ mod tests {
         let t = TestSetup::new();
         let client = t.client();
 
-        // M-03: paused at construct. Operator must unpause before any
-        // user-facing flow runs.
+        // Paused at construct; operator must unpause before user-facing flows run.
         t.env.as_contract(&t.contract, || {
             assert!(stellar_contract_utils::pausable::paused(&t.env));
         });
@@ -1415,8 +1450,7 @@ mod tests {
     fn test_require_not_paused_passes_when_unpaused() {
         let t = TestSetup::new();
 
-        // M-03: constructor pauses. Unpause first, then verify the guard
-        // passes.
+        // Constructor pauses the contract; unpause first to verify the guard passes.
         t.client().unpause();
         t.env.as_contract(&t.contract, || {
             validation::require_not_paused(&t.env);
@@ -1447,8 +1481,7 @@ mod tests {
         let t = TestSetup::new();
         let client = t.client();
 
-        // M-02: only KEEPER granted at construct. Operator must explicitly
-        // grant REVENUE and ORACLE post-deploy.
+        // Only KEEPER is granted at construct; REVENUE and ORACLE require explicit grant post-deploy.
         assert!(client.has_role(&t.admin, &Symbol::new(&t.env, KEEPER_ROLE)));
         assert!(!client.has_role(&t.admin, &Symbol::new(&t.env, REVENUE_ROLE)));
         assert!(!client.has_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE)));

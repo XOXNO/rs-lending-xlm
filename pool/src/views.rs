@@ -4,6 +4,7 @@ use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParams, PoolKey, PoolState};
 use soroban_sdk::{panic_with_error, Env};
 
+/// Loads the current pool state; panics with `PoolNotInitialized` when absent.
 pub fn load_state(env: &Env) -> PoolState {
     env.storage()
         .instance()
@@ -11,6 +12,7 @@ pub fn load_state(env: &Env) -> PoolState {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
+/// Loads the pool's market parameters; panics with `PoolNotInitialized` when absent.
 pub fn load_params(env: &Env) -> MarketParams {
     env.storage()
         .instance()
@@ -18,6 +20,7 @@ pub fn load_params(env: &Env) -> MarketParams {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
+/// Returns the current capital utilization ratio in RAY precision.
 pub fn capital_utilisation(env: &Env) -> i128 {
     let state = load_state(env);
 
@@ -37,12 +40,14 @@ pub fn capital_utilisation(env: &Env) -> i128 {
     }
 }
 
+/// Returns the pool's on-chain token reserve balance in asset decimals.
 pub fn reserves(env: &Env) -> i128 {
     let params = load_params(env);
     let token = soroban_sdk::token::Client::new(env, &params.asset_id);
     token.balance(&env.current_contract_address())
 }
 
+/// Returns the current deposit APR in RAY precision.
 pub fn deposit_rate(env: &Env) -> i128 {
     let params = load_params(env);
     let util = Ray::from_raw(capital_utilisation(env));
@@ -50,12 +55,14 @@ pub fn deposit_rate(env: &Env) -> i128 {
     calculate_deposit_rate(env, util, borrow_rate_val, params.reserve_factor_bps).raw()
 }
 
+/// Returns the current borrow APR in RAY precision.
 pub fn borrow_rate(env: &Env) -> i128 {
     let params = load_params(env);
     let util = Ray::from_raw(capital_utilisation(env));
     calculate_borrow_rate(env, util, &params).raw()
 }
 
+/// Returns the total accrued protocol revenue in asset decimals.
 pub fn protocol_revenue(env: &Env) -> i128 {
     let state = load_state(env);
     let params = load_params(env);
@@ -82,6 +89,7 @@ pub fn borrowed_amount(env: &Env) -> i128 {
     actual_ray.to_asset(params.asset_decimals)
 }
 
+/// Returns elapsed milliseconds since the last interest accrual.
 pub fn delta_time(env: &Env) -> u64 {
     let state = load_state(env);
     let current_ms = env.ledger().timestamp() * 1000;

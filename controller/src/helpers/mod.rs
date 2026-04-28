@@ -12,16 +12,19 @@ use crate::cache::ControllerCache;
 // Position value helpers (used by health factor, liquidation, views)
 // ---------------------------------------------------------------------------
 
+/// Computes the USD value of a position: `(scaled × index).to_wad() × price`.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)
 }
 
+/// Returns `value × threshold_bps / BPS` — the liquidation-threshold-weighted collateral value.
 pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad(env, value)
 }
 
+/// Sums the LTV-weighted USD value of all supply positions. Used as the borrow capacity ceiling.
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut ControllerCache,
@@ -48,144 +51,149 @@ pub fn calculate_ltv_collateral_wad(
 // Health factor calculation
 // ---------------------------------------------------------------------------
 
-crate::summarized!(crate::spec::summaries::calculate_health_factor_summary,
-pub fn calculate_health_factor(
-    env: &Env,
-    cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
-    borrow_positions: &Map<Address, AccountPosition>,
-) -> i128 {
-    if borrow_positions.is_empty() {
-        return i128::MAX; // No debt means infinite HF.
-    }
+crate::summarized!(
+    crate::spec::summaries::calculate_health_factor_summary,
+    pub fn calculate_health_factor(
+        env: &Env,
+        cache: &mut ControllerCache,
+        supply_positions: &Map<Address, AccountPosition>,
+        borrow_positions: &Map<Address, AccountPosition>,
+    ) -> i128 {
+        if borrow_positions.is_empty() {
+            return i128::MAX; // No debt means infinite HF.
+        }
 
-    let mut weighted_collateral_total = Wad::ZERO;
+        let mut weighted_collateral_total = Wad::ZERO;
 
-    // Sum weighted collateral.
-    for position in supply_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
-        let value = position_value(
-            env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
-        );
-
-        weighted_collateral_total = weighted_collateral_total
-            + weighted_collateral(
+        // Sum weighted collateral.
+        for position in supply_positions.values() {
+            let feed = cache.cached_price(&position.asset);
+            let market_index = cache.cached_market_index(&position.asset);
+            let value = position_value(
                 env,
-                value,
-                Bps::from_raw(position.liquidation_threshold_bps),
+                Ray::from_raw(position.scaled_amount_ray),
+                Ray::from_raw(market_index.supply_index_ray),
+                Wad::from_raw(feed.price_wad),
             );
+
+            weighted_collateral_total = weighted_collateral_total
+                + weighted_collateral(
+                    env,
+                    value,
+                    Bps::from_raw(position.liquidation_threshold_bps),
+                );
+        }
+
+        // Sum borrow values.
+        let mut total_borrow = Wad::ZERO;
+        for position in borrow_positions.values() {
+            let feed = cache.cached_price(&position.asset);
+            let market_index = cache.cached_market_index(&position.asset);
+            let value = position_value(
+                env,
+                Ray::from_raw(position.scaled_amount_ray),
+                Ray::from_raw(market_index.borrow_index_ray),
+                Wad::from_raw(feed.price_wad),
+            );
+
+            total_borrow = total_borrow + value;
+        }
+
+        if total_borrow == Wad::ZERO {
+            return i128::MAX;
+        }
+
+        // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
+        // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
+        // collateral the numerator can exceed i128; treating overflow as infinite
+        // HF keeps the account usable instead of locking it behind a panic.
+        let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
+        let wad = soroban_sdk::I256::from_i128(env, WAD);
+        let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
+        let numerator = w.mul(&wad);
+        let result = numerator.div(&tb);
+        result.to_i128().unwrap_or(i128::MAX)
     }
-
-    // Sum borrow values.
-    let mut total_borrow = Wad::ZERO;
-    for position in borrow_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
-        let value = position_value(
-            env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
-        );
-
-        total_borrow = total_borrow + value;
-    }
-
-    if total_borrow == Wad::ZERO {
-        return i128::MAX;
-    }
-
-    // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
-    // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
-    // collateral the numerator can exceed i128; treating overflow as infinite
-    // HF keeps the account usable instead of locking it behind a panic.
-    let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
-    let wad = soroban_sdk::I256::from_i128(env, WAD);
-    let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
-    let numerator = w.mul(&wad);
-    let result = numerator.div(&tb);
-    result.to_i128().unwrap_or(i128::MAX)
-}
 );
 
 #[cfg(feature = "certora")]
-crate::summarized!(crate::spec::summaries::calculate_health_factor_for_summary,
-pub fn calculate_health_factor_for(
-    env: &Env,
-    cache: &mut ControllerCache,
-    account_id: u64,
-) -> i128 {
-    let account = crate::storage::get_account(env, account_id);
-    calculate_health_factor(
-        env,
-        cache,
-        &account.supply_positions,
-        &account.borrow_positions,
-    )
-}
+crate::summarized!(
+    crate::spec::summaries::calculate_health_factor_for_summary,
+    pub fn calculate_health_factor_for(
+        env: &Env,
+        cache: &mut ControllerCache,
+        account_id: u64,
+    ) -> i128 {
+        let account = crate::storage::get_account(env, account_id);
+        calculate_health_factor(
+            env,
+            cache,
+            &account.supply_positions,
+            &account.borrow_positions,
+        )
+    }
 );
 
 // ---------------------------------------------------------------------------
 // Account totals (extracted from liquidation -- shared with views)
 // ---------------------------------------------------------------------------
 
-crate::summarized!(crate::spec::summaries::calculate_account_totals_summary,
-pub fn calculate_account_totals(
-    env: &Env,
-    cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
-    borrow_positions: &Map<Address, AccountPosition>,
-) -> (Wad, Wad, Wad) {
-    let mut total_collateral = Wad::ZERO;
-    let mut weighted_coll = Wad::ZERO;
+crate::summarized!(
+    crate::spec::summaries::calculate_account_totals_summary,
+    pub fn calculate_account_totals(
+        env: &Env,
+        cache: &mut ControllerCache,
+        supply_positions: &Map<Address, AccountPosition>,
+        borrow_positions: &Map<Address, AccountPosition>,
+    ) -> (Wad, Wad, Wad) {
+        let mut total_collateral = Wad::ZERO;
+        let mut weighted_coll = Wad::ZERO;
 
-    for position in supply_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
+        for position in supply_positions.values() {
+            let feed = cache.cached_price(&position.asset);
+            let market_index = cache.cached_market_index(&position.asset);
 
-        let value = position_value(
-            env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
-        );
-
-        total_collateral = total_collateral + value;
-        weighted_coll = weighted_coll
-            + weighted_collateral(
+            let value = position_value(
                 env,
-                value,
-                Bps::from_raw(position.liquidation_threshold_bps),
+                Ray::from_raw(position.scaled_amount_ray),
+                Ray::from_raw(market_index.supply_index_ray),
+                Wad::from_raw(feed.price_wad),
             );
+
+            total_collateral = total_collateral + value;
+            weighted_coll = weighted_coll
+                + weighted_collateral(
+                    env,
+                    value,
+                    Bps::from_raw(position.liquidation_threshold_bps),
+                );
+        }
+
+        let mut total_debt = Wad::ZERO;
+        for position in borrow_positions.values() {
+            let feed = cache.cached_price(&position.asset);
+            let market_index = cache.cached_market_index(&position.asset);
+
+            let value = position_value(
+                env,
+                Ray::from_raw(position.scaled_amount_ray),
+                Ray::from_raw(market_index.borrow_index_ray),
+                Wad::from_raw(feed.price_wad),
+            );
+
+            total_debt = total_debt + value;
+        }
+
+        (total_collateral, total_debt, weighted_coll)
     }
-
-    let mut total_debt = Wad::ZERO;
-    for position in borrow_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
-
-        let value = position_value(
-            env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
-        );
-
-        total_debt = total_debt + value;
-    }
-
-    (total_collateral, total_debt, weighted_coll)
-}
 );
 
 // ---------------------------------------------------------------------------
 // Liquidation math helpers
 // ---------------------------------------------------------------------------
 
+/// Interpolates the liquidation bonus linearly from `base` to `max` based on how far
+/// `hf` is below `target`. Returns `base` when `hf ≥ target`.
 pub fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -210,14 +218,18 @@ pub fn calculate_linear_bonus_with_target(
 }
 
 #[cfg(feature = "certora")]
-crate::summarized!(crate::spec::summaries::calculate_linear_bonus_summary,
-pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
-    let target_hf = Wad::from_raw(1_020_000_000_000_000_000);
-    calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
-}
+crate::summarized!(
+    crate::spec::summaries::calculate_linear_bonus_summary,
+    pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
+        let target_hf = Wad::from_raw(1_020_000_000_000_000_000);
+        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
+    }
 );
 
 #[allow(clippy::too_many_arguments)]
+/// Estimates the optimal debt repayment amount and bonus that restores HF toward the target.
+/// Tries the 1.02 target first; falls back to 1.01, then the base-bonus maximum-collateral path.
+/// Returns `(debt_to_repay_usd, bonus_bps)`.
 pub fn estimate_liquidation_amount(
     env: &Env,
     total_debt: Wad,
@@ -352,6 +364,8 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(total_debt))
 }
 
+/// Returns the collateral-value-weighted average liquidation bonus and the protocol maximum bonus.
+/// Returns `(0, MAX_LIQUIDATION_BONUS)` when there are no supply positions.
 pub fn get_account_bonus_params(
     env: &Env,
     cache: &mut ControllerCache,

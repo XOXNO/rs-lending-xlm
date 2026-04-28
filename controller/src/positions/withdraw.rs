@@ -8,6 +8,8 @@ use super::update;
 use crate::cache::ControllerCache;
 use crate::{helpers, storage, utils, validation};
 
+/// Processes a batch of withdrawals. Validates ownership, applies a post-batch HF check
+/// when borrows are open, and removes the account from storage when all positions close.
 pub fn process_withdraw(
     env: &Env,
     caller: &Address,
@@ -23,7 +25,12 @@ pub fn process_withdraw(
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 
-    let mut cache = ControllerCache::new(env, false); // Withdraw is risk-increasing.
+    // Allow unsafe price only when the account has no debt: the post-loop
+    // `validate_is_healthy` short-circuits when no borrows exist, so allowing
+    // the unsafe price unlocks no risk-increasing operation. Supply-only
+    // users can therefore exit during oracle deviation > 5%.
+    let allow_unsafe = account.borrow_positions.is_empty();
+    let mut cache = ControllerCache::new(env, allow_unsafe);
 
     for (asset, amount) in withdrawals {
         process_single_withdrawal(
@@ -75,7 +82,8 @@ fn process_single_withdrawal(
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 
-    // Withdraw runs on the strict-price cache (allow_unsafe_price=false);
+    // Cache uses strict pricing whenever the account has any borrows,
+    // matching the gate set in `process_withdraw`. With borrows present,
     // `oracle::token_price` blocks when deviation exceeds second tolerance.
     let feed = cache.cached_price(asset);
 

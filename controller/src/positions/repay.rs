@@ -8,6 +8,9 @@ use super::update;
 use crate::cache::ControllerCache;
 use crate::{storage, utils, validation};
 
+/// Processes a batch of debt repayments. Any caller may repay any account.
+/// Uses a permissive oracle cache so repayment succeeds during oracle outages.
+/// Never deletes the account, even after full debt clearance.
 pub fn process_repay(
     env: &Env,
     caller: &Address,
@@ -20,19 +23,23 @@ pub fn process_repay(
     // Single storage read; no owner check because anyone can repay.
     let mut account = storage::get_account(env, account_id);
 
+    // Repay is risk-decreasing: tolerate disabled-market pricing, high oracle
+    // deviation, and stale Reflector feeds. Users with
+    // funds in hand must be able to save their position during a Reflector
+    // outage; otherwise they get force-liquidated.
     let mut cache = ControllerCache::new_with_disabled_market_price(env, true);
 
     for (asset, amount) in payments {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    // When the account closes out, remove it entirely instead of rewriting an empty account.
-    if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
-        utils::validate_account_is_empty(env, &account);
-        utils::remove_account(env, account_id);
-    } else {
-        storage::set_account(env, account_id, &account);
-    }
+    // Never burn the account on full repay. Only `withdraw` is allowed to
+    // delete an account. Leaving an empty account
+    // in place preserves e-mode/isolation context, prevents griefing where a
+    // third party fully repays your last debt and your account vanishes
+    // mid-block, and lets pending same-block txs that depend on `account_id`
+    // continue to resolve.
+    storage::set_account(env, account_id, &account);
 
     // Flush the isolated-debt accumulator: one storage write and one event per
     // modified asset, regardless of how many repayments this batch made.
@@ -72,8 +79,8 @@ fn process_single_repay(
 
     // Shared repayment execution (also used by liquidation and strategy flows).
     // The helper emits `UpdatePositionEvent` itself with the caller-provided
-    // `action` tag, so every flow that mutates positions is guaranteed to log
-    // one event (no more silent strategy repays — see NEW-02 in audit notes).
+    // `action` tag, guaranteeing every position mutation produces an event
+    // regardless of which outer flow (plain / liquidation / strategy) triggered it.
     let feed = cache.cached_price(asset);
     let _ = execute_repayment(
         env,
@@ -135,7 +142,10 @@ pub fn execute_repayment(
 
     update::update_or_remove_position(account, &result.position);
 
-    // Adjust isolated debt using the applied amount, not the requested amount.
+    // Adjust isolated debt using the applied amount, not the requested
+    // amount. The decrement is unconditional even under a permissive oracle
+    // cache; a slightly off USD value is preferable to letting the global
+    // ceiling drift further from reality.
     if account.is_isolated && result.actual_amount > 0 {
         utils::adjust_isolated_debt_usd(
             env,
@@ -164,6 +174,8 @@ pub fn execute_repayment(
     result
 }
 
+/// Decrements the isolated-debt ceiling by the full current value of `position`.
+/// No-ops for non-isolated accounts.
 pub fn clear_position_isolated_debt(
     env: &Env,
     position: &AccountPosition,
@@ -376,7 +388,8 @@ mod tests {
     }
 
     #[test]
-    fn test_process_repay_removes_account_when_last_borrow_is_closed() {
+    fn test_repay_does_not_delete_account_when_empty() {
+        // Full repay must not remove the account; only withdraw is permitted to delete.
         let t = TestSetup::new();
         let account_id = 1;
         let repay_amount = 1_0000000i128;
@@ -384,9 +397,6 @@ mod tests {
         soroban_sdk::token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.owner, &repay_amount);
 
         t.as_controller(|| {
-            // M-03: constructor pauses the contract. Unpause for this test
-            // since it bypasses the client and calls process_repay directly,
-            // which checks `require_not_paused`.
             stellar_contract_utils::pausable::unpause(&t.env);
             storage::set_market_config(&t.env, &t.asset, &t.market_config());
             storage::set_account(
@@ -412,9 +422,81 @@ mod tests {
             let payments = soroban_sdk::vec![&t.env, (t.asset.clone(), repay_amount)];
             process_repay(&t.env, &t.owner, account_id, &payments);
 
+            let account = storage::try_get_account(&t.env, account_id)
+                .expect("account must remain after full repay (only withdraw burns)");
             assert!(
-                storage::try_get_account(&t.env, account_id).is_none(),
-                "fully repaid debt-only accounts should be removed"
+                account.borrow_positions.is_empty(),
+                "borrow position should be cleared after full repay"
+            );
+            assert!(
+                account.supply_positions.is_empty(),
+                "supply map remains empty as before"
+            );
+            // Owner/mode metadata preserved.
+            assert_eq!(account.owner, t.owner);
+        });
+    }
+
+    #[test]
+    fn test_repay_works_when_oracle_is_stale() {
+        // Repay must succeed when the price feed exceeds `max_price_stale_seconds`.
+        // `allow_unsafe_price = true` bypasses deviation and staleness gates;
+        // risk-increasing flows keep the flag off and still panic on stale.
+        let t = TestSetup::new();
+        let account_id = 2;
+        let repay_amount = 1_0000000i128;
+
+        soroban_sdk::token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.owner, &repay_amount);
+
+        t.as_controller(|| {
+            stellar_contract_utils::pausable::unpause(&t.env);
+            storage::set_market_config(&t.env, &t.asset, &t.market_config());
+            storage::set_account(
+                &t.env,
+                account_id,
+                &t.account_with_borrow_only(account_id, false),
+            );
+
+            // Advance past `max_price_stale_seconds` (900) without
+            // re-publishing the spot price. Any non-repay path would panic
+            // with `PriceFeedStale` here.
+            let now = t.env.ledger().timestamp();
+            t.env.ledger().set(LedgerInfo {
+                timestamp: now + 1_500,
+                protocol_version: 25,
+                sequence_number: 100,
+                network_id: Default::default(),
+                base_reserve: 10,
+                min_temp_entry_ttl: 10,
+                min_persistent_entry_ttl: 10,
+                max_entry_ttl: 3_110_400,
+            });
+
+            // Initialise the pool AFTER the time advance so this test focuses
+            // on the staleness-bypass path: no interest accrues on top of the
+            // outstanding debt and `repay_amount` exactly closes it.
+            t.env.as_contract(&t.pool, || {
+                t.env.storage().instance().set(
+                    &PoolKey::State,
+                    &PoolState {
+                        supplied_ray: 0,
+                        borrowed_ray: RAY,
+                        revenue_ray: 0,
+                        borrow_index_ray: RAY,
+                        supply_index_ray: RAY,
+                        last_timestamp: t.env.ledger().timestamp() * 1000,
+                    },
+                );
+            });
+
+            let payments = soroban_sdk::vec![&t.env, (t.asset.clone(), repay_amount)];
+            process_repay(&t.env, &t.owner, account_id, &payments);
+
+            let account = storage::try_get_account(&t.env, account_id)
+                .expect("account must persist after stale-oracle repay");
+            assert!(
+                account.borrow_positions.is_empty(),
+                "stale-oracle repay must still clear the debt"
             );
         });
     }

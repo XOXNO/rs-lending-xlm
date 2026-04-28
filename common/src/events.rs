@@ -578,7 +578,7 @@ mod tests {
         );
     }
 
-    // ---------- AccountMeta conversion (lines 143-151) ----------
+    // ---------- AccountMeta conversion ----------
 
     #[test]
     fn event_account_attributes_from_account_meta_isolated() {

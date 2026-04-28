@@ -8,6 +8,8 @@ use crate::storage;
 // Core e-mode functions
 // ---------------------------------------------------------------------------
 
+/// Overrides `asset_config` risk parameters with the e-mode category's boosted LTV and thresholds.
+/// No-ops when either `category` or `asset_emode_config` is `None`, or when the category is deprecated.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
@@ -26,12 +28,15 @@ pub fn apply_e_mode_to_asset_config(
     }
 }
 
+/// Panics with `EModeWithIsolated` when an isolated asset is assigned to a non-zero e-mode category.
 pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_id: u32) {
     if asset_config.is_isolated_asset && e_mode_id > 0 {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
 }
 
+/// Returns the e-mode membership config for `asset` in category `e_mode_id`.
+/// Panics with `EModeCategoryNotFound` when the asset is not a member of the category.
 pub fn token_e_mode_config(env: &Env, e_mode_id: u32, asset: &Address) -> Option<EModeAssetConfig> {
     if e_mode_id == 0 {
         return None;
@@ -49,6 +54,7 @@ pub fn token_e_mode_config(env: &Env, e_mode_id: u32, asset: &Address) -> Option
     config
 }
 
+/// Returns the `EModeCategory` for `e_mode_id`, or `None` when `e_mode_id` is zero (no e-mode).
 pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     if e_mode_id == 0 {
         return None;
@@ -60,6 +66,7 @@ pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
 // Deprecation check
 // ---------------------------------------------------------------------------
 
+/// Panics with `EModeCategoryDeprecated` when `category` is `Some` and marked deprecated.
 pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
     if let Some(cat) = category {
         if cat.is_deprecated {
@@ -72,6 +79,8 @@ pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>)
 // Convenience helpers (used by strategy.rs and other callers)
 // ---------------------------------------------------------------------------
 
+/// Panics with `NotCollateral` or `AssetNotBorrowable` when the asset's e-mode membership
+/// disallows the requested operation. `is_supply = true` checks collateralizability; `false` checks borrowability.
 pub fn validate_e_mode_asset(env: &Env, e_mode_category_id: u32, asset: &Address, is_supply: bool) {
     if e_mode_category_id == 0 {
         return;
@@ -95,6 +104,8 @@ pub fn validate_e_mode_asset(env: &Env, e_mode_category_id: u32, asset: &Address
 // Isolation mode enforcement (accepts pre-loaded data from caller)
 // ---------------------------------------------------------------------------
 
+/// Panics with `MixIsolatedCollateral` when an isolated account supplies a different
+/// asset than its existing collateral, or when a non-isolated account supplies an isolated asset.
 pub fn validate_isolated_collateral(
     env: &Env,
     account: &Account,
@@ -124,6 +135,7 @@ pub fn validate_isolated_collateral(
     }
 }
 
+/// Panics with `EModeWithIsolated` when both `e_mode_category > 0` and `is_isolated` are true.
 pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category: u32, is_isolated: bool) {
     if e_mode_category > 0 && is_isolated {
         panic_with_error!(env, EModeError::EModeWithIsolated);

@@ -35,35 +35,35 @@ impl Ray {
         self.0
     }
 
-    /// Multiply two Ray values: `(a * b + RAY/2) / RAY`.
+    /// Multiplies two Ray values: `(a * b + RAY/2) / RAY`.
     pub fn mul(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, other.0, RAY))
     }
 
-    /// Divide two Ray values: `(a * RAY + b/2) / b`.
+    /// Divides two Ray values: `(a * RAY + b/2) / b`.
     pub fn div(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
-    /// Divide by a plain integer with half-up rounding (for Taylor series).
+    /// Divides by a plain integer with half-up rounding (for Taylor series).
     pub fn div_by_int(self, n: i128) -> Ray {
         Ray(fp_core::div_by_int_half_up(self.0, n))
     }
 
-    /// Convert a RAY-precision value to WAD (27 -> 18 decimals).
+    /// Converts a RAY-precision value to WAD (27 -> 18 decimals).
     /// Use only when the value is truly in RAY precision (e.g., after
     /// `scaled * index` where both are RAY-native).
     pub fn to_wad(self) -> Wad {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
-    /// Convert a RAY-precision value to asset decimals for token transfers.
+    /// Converts a RAY-precision value to asset decimals for token transfers.
     /// The only place precision is lost; use at the transfer boundary.
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
     }
 
-    /// Upscale a token amount from asset decimals to RAY precision.
+    /// Upscales a token amount from asset decimals to RAY precision.
     /// Use at the token-entry boundary, before any scaled arithmetic.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
@@ -121,30 +121,30 @@ impl Wad {
         self.0
     }
 
-    /// Multiply two Wad values: `(a * b + WAD/2) / WAD`.
+    /// Multiplies two Wad values: `(a * b + WAD/2) / WAD`.
     pub fn mul(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, other.0, WAD))
     }
 
-    /// Divide two Wad values: `(a * WAD + b/2) / b`.
+    /// Divides two Wad values: `(a * WAD + b/2) / b`.
     pub fn div(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, other.0))
     }
 
-    /// Divide two Wad values, rounding the result DOWN toward zero.
+    /// Divides two Wad values, rounding the result DOWN toward zero.
     /// Use when a guaranteed lower bound matters (e.g., the base side of
     /// the liquidation seizure split, so the bonus side is never understated).
     pub fn div_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
-    /// Create a Wad from a token amount at the given decimal precision.
+    /// Creates a Wad from a token amount at the given decimal precision.
     /// Upscales losslessly to 18 decimals.
     pub fn from_token(amount: i128, decimals: u32) -> Self {
         Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
     }
 
-    /// Convert a Wad back to a token amount at the given decimal precision.
+    /// Converts a Wad back to a token amount at the given decimal precision.
     /// Downscales with half-up rounding.
     pub fn to_token(self, decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
@@ -214,17 +214,17 @@ impl Bps {
         self.0
     }
 
-    /// Convert basis points to a WAD ratio: `8000 BPS -> 0.8 WAD`.
+    /// Converts basis points to a WAD ratio: `8000 BPS -> 0.8 WAD`.
     pub fn to_wad(self, env: &Env) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
     }
 
-    /// Apply a basis-point rate to a raw amount: `amount * bps / 10_000`.
+    /// Applies a basis-point rate to a raw amount: `amount * bps / 10_000`.
     pub fn apply_to(self, env: &Env, amount: i128) -> i128 {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
     }
 
-    /// Apply a basis-point rate to a Wad value: `value * (bps / 10_000)`.
+    /// Applies a basis-point rate to a Wad value: `value * (bps / 10_000)`.
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)

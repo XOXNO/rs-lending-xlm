@@ -57,11 +57,10 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
 // Asset configuration
 // ---------------------------------------------------------------------------
 
-pub fn edit_asset_config(env: &Env, asset: Address, config: AssetConfig) {
-    validation::validate_asset_config(env, &config);
+pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig) {
+    validation::validate_asset_config(env, &next_config);
 
     let mut market = storage::get_market_config(env, &asset);
-    let mut next_config = config;
     next_config.e_mode_enabled = market.asset_config.e_mode_enabled;
     market.asset_config = next_config.clone();
     storage::set_market_config(env, &asset, &market);
@@ -142,7 +141,7 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     cat.is_deprecated = true;
     storage::set_emode_category(env, id, &cat);
 
-    // Soroban storage is not iterable, so per-asset membership entries
+    // TODO: Soroban storage is not iterable, so per-asset membership entries
     // survive deprecation. The `is_deprecated` flag blocks new positions
     // from entering this category; runtime checks reject existing entries.
 
@@ -192,11 +191,10 @@ pub fn add_asset_to_e_mode_category(
         storage::set_asset_emodes(env, &asset, &asset_cats);
     }
     if is_first_category {
-        if let Some(mut market) = storage::try_get_market_config(env, &asset) {
-            if !market.asset_config.e_mode_enabled {
-                market.asset_config.e_mode_enabled = true;
-                storage::set_market_config(env, &asset, &market);
-            }
+        let mut market = storage::get_market_config(env, &asset);
+        if !market.asset_config.e_mode_enabled {
+            market.asset_config.e_mode_enabled = true;
+            storage::set_market_config(env, &asset, &market);
         }
     }
 

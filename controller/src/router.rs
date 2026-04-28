@@ -239,8 +239,17 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     let feed = cache.cached_price(asset);
 
     let tok = soroban_sdk::token::Client::new(env, asset);
+    let pool_balance_before = tok.balance(&pool_addr);
     tok.transfer(caller, &pool_addr, &amount);
-    pool_client.add_rewards(&feed.price_wad, &amount);
+    let pool_balance_after = tok.balance(&pool_addr);
+    let actual_received = pool_balance_after
+        .checked_sub(pool_balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive));
+    if actual_received <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+
+    pool_client.add_rewards(&feed.price_wad, &actual_received);
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {

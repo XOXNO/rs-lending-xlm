@@ -13,6 +13,8 @@ pub use crate::positions::account::{create_account, remove_account};
 // Account Helpers
 // ---------------------------------------------------------------------------
 
+/// Creates a new account for the supply entry point, deriving the isolation flag from
+/// the first asset in the batch.
 pub fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
@@ -37,6 +39,7 @@ pub fn create_account_for_first_asset(
     )
 }
 
+/// Panics with `PositionNotFound` when either position map is non-empty.
 pub fn validate_account_is_empty(env: &Env, account: &Account) {
     if !account.supply_positions.is_empty() || !account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::PositionNotFound);
@@ -47,9 +50,17 @@ pub fn validate_account_is_empty(env: &Env, account: &Account) {
 // Market Helpers
 // ---------------------------------------------------------------------------
 
-pub fn sync_market_indexes(_env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
+/// Advances each pool's stored `last_timestamp` and persists accrued indices
+/// by invoking `pool::update_indexes` directly. Updates the in-memory cache
+/// so subsequent reads in the same transaction see the persisted index.
+pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
-        cache.cached_market_index(&asset);
+        let pool_addr = cache.cached_pool_address(&asset);
+        let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
+        let index = pool_client.update_indexes(&0);
+        // Refresh the in-memory cache so any subsequent reads in this tx see
+        // the now-persisted index instead of recomputing.
+        cache.market_indexes.set(asset.clone(), index);
     }
 }
 
@@ -59,7 +70,9 @@ pub fn sync_market_indexes(_env: &Env, cache: &mut ControllerCache, assets: &Vec
 
 /// Decrements the isolated-debt tracker by the USD value of `token_amount`:
 /// `new_debt = max(0, current - token_amount × price_wad)`. Zeros residuals
-/// below `WAD` ($1). No-op for non-isolated accounts.
+/// below `WAD` ($1). No-op for non-isolated accounts. The decrement is
+/// unconditional; under a permissive oracle cache (repay) accepts a
+/// slightly off USD value rather than letting the global ceiling drift.
 pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,
