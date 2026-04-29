@@ -62,7 +62,7 @@ Threat surface: cannot steal funds directly, but can time bad-debt socialization
 
 ## REVENUE role
 
-`claim_revenue` refuses during flash loan, sequences per-asset claims, and forwards tokens to `Accumulator`. `add_rewards` is caller-paid; the pool's supply index rises by the reward amount.
+`claim_revenue` refuses during flash loan, sequences per-asset claims, and forwards tokens to `Accumulator`. `add_rewards` is caller-paid; the pool's supply index rises by the amount actually received by the pool.
 
 Threat surface: can starve the accumulator by never claiming, but cannot redirect funds since Owner fixes the accumulator address.
 

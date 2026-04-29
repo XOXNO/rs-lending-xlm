@@ -4,7 +4,7 @@ use soroban_sdk::{panic_with_error, Env, I256};
 /// intermediate to prevent overflow. Half-up rounding (0.5 rounds away from
 /// zero for positive results).
 ///
-/// This function backs every typed operation on [`super::fp::Ray`],
+/// Backs every typed operation on [`super::fp::Ray`],
 /// [`super::fp::Wad`], and [`super::fp::Bps`].
 ///
 /// # Usage patterns

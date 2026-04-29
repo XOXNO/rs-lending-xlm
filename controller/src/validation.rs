@@ -3,7 +3,8 @@ use common::constants::{
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
-    Account, AssetConfig, MarketParams, MarketStatus, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
+    Account, AssetConfig, MarketParams, MarketStatus, Payment, POSITION_TYPE_BORROW,
+    POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
@@ -65,7 +66,7 @@ pub fn require_amount_positive(env: &Env, amount: i128) {
 pub fn validate_bulk_isolation(
     env: &Env,
     account: &Account,
-    assets: &Vec<(Address, i128)>,
+    assets: &Vec<Payment>,
     cache: &mut crate::cache::ControllerCache,
 ) {
     if assets.len() <= 1 {
@@ -84,7 +85,7 @@ pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
     position_type: u32,
-    assets: &Vec<(Address, i128)>,
+    assets: &Vec<Payment>,
 ) {
     let limits = storage::get_position_limits(env);
 

@@ -1,4 +1,3 @@
-pub mod compat;
 /// Certora Sunbeam formal verification specs for the controller.
 /// Compiled only under the `certora` feature.
 ///
@@ -15,6 +14,7 @@ pub mod compat;
 ///   - `solvency_rules`    pool solvency and scaled-amount conservation
 ///   - `summaries/`        function abstractions for prover feasibility
 pub mod boundary_rules;
+pub mod compat;
 pub mod emode_rules;
 pub mod flash_loan_rules;
 pub mod health_rules;

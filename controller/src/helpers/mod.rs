@@ -65,7 +65,6 @@ crate::summarized!(
 
         let mut weighted_collateral_total = Wad::ZERO;
 
-        // Sum weighted collateral.
         for position in supply_positions.values() {
             let feed = cache.cached_price(&position.asset);
             let market_index = cache.cached_market_index(&position.asset);
@@ -84,7 +83,6 @@ crate::summarized!(
                 );
         }
 
-        // Sum borrow values.
         let mut total_borrow = Wad::ZERO;
         for position in borrow_positions.values() {
             let feed = cache.cached_price(&position.asset);

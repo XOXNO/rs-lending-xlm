@@ -1,7 +1,7 @@
 use common::constants::WAD;
 use common::errors::CollateralError;
 use common::fp::Wad;
-use common::types::{Account, PositionMode};
+use common::types::{Account, Payment, PositionMode};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::cache::ControllerCache;
@@ -19,7 +19,7 @@ pub fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
     e_mode_category: u32,
-    assets: &Vec<(Address, i128)>,
+    assets: &Vec<Payment>,
 ) -> u64 {
     let (first_asset, _) = assets.get(0).unwrap();
     let first_config = storage::get_market_config(env, &first_asset).asset_config;

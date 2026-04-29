@@ -19,8 +19,11 @@ def parse_lcov(path: Path) -> dict[str, dict[str, int]]:
     return files
 
 
+REPO_MARKER = "/rs-lending-xlm/"
+
+
 def keep(path: str, mode: str) -> bool:
-    if "/rs-lending/stellar/" not in path or "/test-harness/" in path:
+    if REPO_MARKER not in path or "/test-harness/" in path:
         return False
     if mode == "controller":
         return "/controller/" in path or "/common/" in path
@@ -50,7 +53,7 @@ def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, in
         total = data.get("total", 0)
         miss = total - hit
         pct = (hit / total * 100) if total else 0
-        short = path.split("/rs-lending/stellar/")[-1]
+        short = path.split(REPO_MARKER)[-1]
         lines.append(f"| {short} | {total} | {hit} | {miss} | {pct:.1f}% |")
         hit_total += hit
         total_total += total

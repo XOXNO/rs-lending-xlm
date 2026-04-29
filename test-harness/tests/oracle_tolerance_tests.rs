@@ -213,6 +213,68 @@ fn test_unsafe_price_blocks_withdraw_with_borrows() {
     );
 }
 
+// Withdraw under oracle deviation > 5%:
+// - succeeds when the account has no debt (post-loop HF gate short-circuits)
+// - fails when borrows exist (risk-increasing, must run on strict price)
+
+#[test]
+fn withdraw_succeeds_under_oracle_deviation_when_no_debt() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // Establish positions with matching prices first (safe band).
+    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+
+    // Supply-only account, no borrow.
+    t.supply(ALICE, "USDC", 100_000.0);
+
+    // Push USDC safe price 10% above aggregator (beyond second tolerance of 5%).
+    t.set_safe_price("USDC", usd_cents(110), true, true);
+
+    // With no debt, the withdraw cache runs with allow_unsafe_price=true,
+    // and the post-loop health-factor gate short-circuits when no borrows
+    // exist. Supply-only users must keep liveness during oracle deviation.
+    let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
+    assert!(
+        result.is_ok(),
+        "withdraw should succeed under oracle deviation when account has no debt: {:?}",
+        result
+    );
+}
+
+#[test]
+fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // Set matching safe prices first to allow setup.
+    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+
+    // Deviate USDC safe price beyond the second tolerance (10% > 5%).
+    t.set_safe_price("USDC", usd_cents(110), true, true);
+
+    // With borrows present the cache runs with allow_unsafe_price=false;
+    // resolving the collateral price must trip OracleError::UnsafePriceNotAllowed.
+    let err = t
+        .try_withdraw(ALICE, "USDC", 1_000.0)
+        .expect_err("withdraw with borrows must fail under oracle deviation");
+
+    // OracleError::UnsafePriceNotAllowed = 205 (see common/src/errors.rs).
+    let expected = soroban_sdk::Error::from_contract_error(205);
+    assert_eq!(
+        err, expected,
+        "expected UnsafePriceNotAllowed (205), got {:?}",
+        err
+    );
+}
+
 #[test]
 fn test_unsafe_price_blocks_liquidation() {
     let mut t = setup();

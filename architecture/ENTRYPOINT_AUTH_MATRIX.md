@@ -139,9 +139,7 @@ Soroban auth: pool/lib.rs:353 `tok.transfer(&receiver, &env.current_contract_add
 | `swap_collateral` | Caller | strategy.rs:345 | rejects isolated accounts at :359 (`FlashLoanError::SwapCollateralNoIso`) |
 | `repay_debt_with_collateral` | Caller | strategy.rs:518 | `close_position == true` requires zero remaining borrows; panics `CannotCloseWithRemainingDebt` at :638-641 |
 
-Aggregator interaction (`swap_tokens`, strategy.rs:456-499): snapshots `balance_in_before`/`balance_out_before` (:456-457), calls aggregator with `steps.amount_out_min` (:472), re-reads after (:481, 496), verifies spend ≤ `amount_in` (:482-488), records received (:497-499). Aggregator enforces `amount_out_min` (DEX-level); controller does not re-verify. Trusts operator-set aggregator.
-
-Guard gap (THREAT_MODEL §1): strategy fns go directly through `pool.flash_loan_begin`/`_end` and never set `set_flash_loan_ongoing(true)`. Controller-level boolean stays false during the pool-flash-loan window. Only sub-calls are operator-trusted aggregator callbacks.
+Aggregator interaction (`swap_tokens`): snapshots `balance_in_before`/`balance_out_before`, brackets the aggregator call with `set_flash_loan_ongoing(true/false)`, verifies spend ≤ `amount_in`, zeros residual allowance, refunds unspent input, and rejects `received < amount_out_min`. A callback into any mutating controller endpoint trips the shared reentry guard.
 
 ## Keeper / Revenue / Oracle Roles
 

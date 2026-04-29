@@ -288,6 +288,26 @@ fn test_emode_remove_asset_from_category() {
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
 
+#[test]
+fn test_remove_asset_e_mode_category_alias() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    let asset = t.resolve_asset("USDT");
+    t.ctrl_client().remove_asset_e_mode_category(&asset, &1u32);
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    let result = t.try_borrow(ALICE, "USDT", 5_000.0);
+    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+}
+
 // ---------------------------------------------------------------------------
 // 13. test_emode_liquidation_uses_emode_bonus
 // ---------------------------------------------------------------------------

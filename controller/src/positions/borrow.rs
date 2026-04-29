@@ -3,17 +3,13 @@ use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory,
-    PoolPositionMutation, PriceFeed, POSITION_TYPE_BORROW,
+    Payment, PoolPositionMutation, PriceFeed, POSITION_TYPE_BORROW,
 };
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
 
 use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::{helpers, storage, validation};
-
-// ---------------------------------------------------------------------------
-// handle_create_borrow_strategy
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 /// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
@@ -31,7 +27,6 @@ pub fn handle_create_borrow_strategy(
 ) -> i128 {
     validation::require_asset_supported(env, debt_token);
 
-    // Validate and override e-mode.
     let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
     emode::ensure_e_mode_not_deprecated(env, &e_mode);
     let debt_emode_config = emode::token_e_mode_config(env, account.e_mode_category_id, debt_token);
@@ -100,7 +95,7 @@ pub fn handle_create_borrow_strategy(
 
 /// Processes a batch of borrows: validates LTV collateral, enforces position limits,
 /// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
-pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<(Address, i128)>) {
+pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
@@ -162,10 +157,6 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     }
 }
 
-// ---------------------------------------------------------------------------
-// handle_borrow_position
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 fn handle_borrow_position(
     env: &Env,
@@ -210,10 +201,6 @@ fn handle_borrow_position(
     updated_position
 }
 
-// ---------------------------------------------------------------------------
-// execute_borrow
-// ---------------------------------------------------------------------------
-
 fn execute_borrow(
     env: &Env,
     pool_address: &Address,
@@ -225,10 +212,6 @@ fn execute_borrow(
     let pool_client = pool_interface::LiquidityPoolClient::new(env, pool_address);
     pool_client.borrow(caller, &amount, position, &price_wad)
 }
-
-// ---------------------------------------------------------------------------
-// handle_isolated_debt
-// ---------------------------------------------------------------------------
 
 /// Increments the isolated-debt USD tracker by the USD value of `amount`.
 /// Panics with `DebtCeilingReached` when the new total would exceed the isolation debt ceiling.
@@ -268,10 +251,6 @@ pub fn handle_isolated_debt(
     cache.set_isolated_debt(&isolated_token, new_debt);
 }
 
-// ---------------------------------------------------------------------------
-// get_or_create_borrow_position
-// ---------------------------------------------------------------------------
-
 fn get_or_create_borrow_position(
     account: &Account,
     account_id: u64,
@@ -292,10 +271,6 @@ fn get_or_create_borrow_position(
             loan_to_value_bps: borrow_asset_config.loan_to_value_bps,
         })
 }
-
-// ---------------------------------------------------------------------------
-// validate_borrow_cap
-// ---------------------------------------------------------------------------
 
 fn validate_borrow_cap(
     env: &Env,
@@ -324,10 +299,6 @@ fn validate_borrow_cap(
     }
 }
 
-// ---------------------------------------------------------------------------
-// validate_borrow_collateral
-// ---------------------------------------------------------------------------
-
 fn validate_borrow_collateral(
     env: &Env,
     ltv_base_amount_wad: i128,
@@ -338,10 +309,6 @@ fn validate_borrow_collateral(
         panic_with_error!(env, CollateralError::InsufficientCollateral);
     }
 }
-
-// ---------------------------------------------------------------------------
-// validate_ltv_collateral
-// ---------------------------------------------------------------------------
 
 fn validate_ltv_collateral(
     env: &Env,
@@ -372,10 +339,6 @@ fn validate_ltv_collateral(
     validate_borrow_collateral(env, ltv_base_amount_wad, total_borrowed_wad, new_borrow_wad);
 }
 
-// ---------------------------------------------------------------------------
-// validate_borrow_asset
-// ---------------------------------------------------------------------------
-
 fn validate_borrow_asset(
     env: &Env,
     cache: &mut ControllerCache,
@@ -403,10 +366,6 @@ fn validate_borrow_asset(
     }
 }
 
-// ---------------------------------------------------------------------------
-// process_borrow exactly
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 fn process_borrow(
     env: &Env,
@@ -419,7 +378,6 @@ fn process_borrow(
     ltv_collateral: i128,
     e_mode: &Option<EModeCategory>,
 ) {
-    // validate_payment equivalent: asset must be supported, amount must be positive.
     validation::require_asset_supported(env, asset);
     validation::require_amount_positive(env, amount);
 

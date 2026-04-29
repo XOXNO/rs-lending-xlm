@@ -174,7 +174,7 @@ The operator flow depends only on: controller, pool, pool-interface, common, con
 
 `approve_token_wasm` admits a token contract. Protocol accounting assumes 1:1 transfer semantics and a fixed per-address balance. Operators MUST NOT allowlist:
 
-- **Fee-on-transfer tokens.** Borrow, withdraw, liquidation seizure, and `add_rewards` do not balance-delta on the egress side. Borrowers under-receive while debt is booked at the requested amount; liquidators get less bonus than the math books; bad debt cascades.
+- **Fee-on-transfer tokens.** Borrow, withdraw, and liquidation seizure do not balance-delta on the egress side. Borrowers under-receive while debt is booked at the requested amount; liquidators get less bonus than the math books; bad debt cascades.
 - **Rebasing tokens (positive or negative).** Pool reserves are read live via `tok.balance(pool)`; rebases drift reserves from scaled supply. Positive rebases let `claim_revenue` extract the rebase delta; negative rebases stall withdrawals while debt accounting is unchanged.
 
 Approved tokens MUST be standard SAC or audited SEP-41 with strict 1:1 transfer semantics. On-chain validation cannot enforce this property.

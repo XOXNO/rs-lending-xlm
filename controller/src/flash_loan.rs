@@ -28,14 +28,12 @@ pub fn process_flash_loan(
         panic_with_error!(env, FlashLoanError::FlashloanNotEnabled);
     }
 
-    // fee = amount * flashloan_fee_bps / BPS
     let fee = Bps::from_raw(asset_config.flashloan_fee_bps).apply_to(env, amount);
     let pool_addr = cache.cached_pool_address(asset);
 
     // Engage reentrancy guard for the duration of the callback.
     storage::set_flash_loan_ongoing(env, true);
 
-    // Pool transfers `amount` to `receiver`.
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     pool_client.flash_loan_begin(&amount, receiver);
 
@@ -46,7 +44,6 @@ pub fn process_flash_loan(
         (caller.clone(), asset.clone(), amount, fee, data.clone()).into_val(env),
     );
 
-    // Pool pulls `amount + fee` back from `receiver`.
     pool_client.flash_loan_end(&amount, &fee, receiver);
 
     storage::set_flash_loan_ongoing(env, false);

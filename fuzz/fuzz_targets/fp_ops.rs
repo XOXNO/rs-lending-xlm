@@ -180,14 +180,19 @@ fuzz_target!(|i: In| {
 
     // ---- Wad::min / Wad::max ordering ----
     let mn = wad_a.min(wad_b);
-    let mx = wad_a.max(wad_b);
-    assert!(mn.raw() <= mx.raw(), "min > max: {} > {}", mn.raw(), mx.raw());
+    let max_wad = wad_a.max(wad_b);
+    assert!(
+        mn.raw() <= max_wad.raw(),
+        "min > max: {} > {}",
+        mn.raw(),
+        max_wad.raw()
+    );
     assert!(
         mn.raw() == wad_a.raw() || mn.raw() == wad_b.raw(),
         "min not in {{a, b}}"
     );
     assert!(
-        mx.raw() == wad_a.raw() || mx.raw() == wad_b.raw(),
+        max_wad.raw() == wad_a.raw() || max_wad.raw() == wad_b.raw(),
         "max not in {{a, b}}"
     );
 

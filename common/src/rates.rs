@@ -33,7 +33,6 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
         base_rate + contribution
     };
 
-    // Cap at max borrow rate and convert annual to per-millisecond.
     let capped = if annual_rate > max_rate {
         max_rate
     } else {
@@ -105,7 +104,6 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     Ray::ONE + x + term2 + term3 + term4 + term5 + term6 + term7 + term8
 }
 
-/// Applies the compound interest factor to the borrow index: `old_index × factor`.
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
     old_index.mul(env, interest_factor)
 }

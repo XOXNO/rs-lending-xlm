@@ -153,7 +153,7 @@ flowchart TB
 | **TB-5** | Controller ↔ Reflector | `controller/src/oracle/mod.rs` enforces non-positive rejection (error 217 `InvalidPrice`), hard-staleness vs `max_price_stale_seconds` (error 206 `PriceFeedStale`), 60-s future-timestamp clamp, ≥50% TWAP coverage (error 219 `TwapInsufficientObservations`), two-tier tolerance bands, fail-closed on risk-increasing ops (error `UnsafePriceNotAllowed`). Reflector contract upgrades are an open ask in `architecture/STELLAR_NOTES.md §Reflector`. |
 | **TB-6** | Controller ↔ Aggregator | `strategy::swap_tokens` snapshots `balance(controller)` for in/out tokens before the call (`strategy.rs:456-457`), re-reads after (`:481, :496`), enforces spend ≤ `amount_in` (`:482-488`), and panics if `received < steps.amount_out_min` (`:517`). The aggregator call is bracketed by `set_flash_loan_ongoing(true/false)` (`:467, :487`) — re-entry into any controller mutating endpoint panics. |
 | **TB-6** | Controller ↔ Accumulator | Address-only trust; tokens forwarded blindly. The accumulator address is Owner-set. |
-| **TB-7** | Pool / Controller ↔ Token SAC | Allowlist gate at market creation via `LocalKey::ApprovedToken(addr)`. Operator-policy: allowlist must exclude fee-on-transfer and rebasing tokens (documented in `architecture/DEPLOYMENT.md "Token allowlist policy"`). `supply` and `repay` verify balance delta as defence-in-depth (`supply.rs:210-212`, `repay.rs:62-71`). `add_rewards` does NOT mirror this pattern today (Maturity C-3). |
+| **TB-7** | Pool / Controller ↔ Token SAC | Allowlist gate at market creation via `LocalKey::ApprovedToken(addr)`. Operator-policy: allowlist must exclude fee-on-transfer and rebasing tokens (documented in `architecture/DEPLOYMENT.md "Token allowlist policy"`). `supply`, `repay`, and `add_rewards` verify balance delta as defence-in-depth before crediting accounting state. |
 
 ## Data flows (numbered)
 
@@ -325,7 +325,7 @@ sequence diagrams in `architecture/ARCHITECTURE.md`.
 | User → Controller | `caller`, `account_id`, asset list, amount list, e-mode category, receiver address, callback data | Spoofing of identity (mitigated by `require_auth`); repudiation of action (mitigated by events); tampering of bulk amounts (mitigated by `validate_bulk_position_limits`) |
 | Reflector → Controller | `(price, timestamp)`, `decimals`, `resolution` | Tampering with prices (mitigated by tolerance bands + staleness + non-positive rejection); decimal-upgrade tampering (open ask, operator runbook mitigation) |
 | Aggregator → Controller | Token balance delta after swap | Tampering with `received` (mitigated by `received >= amount_out_min`); re-entry (mitigated by FlashLoanOngoing bracket) |
-| Token SAC → Pool | `transfer` panic-or-success; `balance` query result | Tampering by fee-on-transfer / rebasing (mitigated by allowlist policy + balance-delta verification on supply / repay) |
+| Token SAC → Pool | `transfer` panic-or-success; `balance` query result | Tampering by fee-on-transfer / rebasing (mitigated by allowlist policy + balance-delta verification on supply / repay / add_rewards) |
 | Receiver callback → External world | Whatever the receiver chooses | Information disclosure / tampering blocked at the controller boundary by FlashLoanOngoing |
 | Owner → Controller | New WASM hash, new aggregator, new accumulator, new asset config, new e-mode definitions, new oracle wiring, new position limits, role grants, pause / unpause | Elevation of privilege via single-key compromise (residual: no on-chain timelock — Maturity H-1) |
 

@@ -141,9 +141,9 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     cat.is_deprecated = true;
     storage::set_emode_category(env, id, &cat);
 
-    // TODO: Soroban storage is not iterable, so per-asset membership entries
-    // survive deprecation. The `is_deprecated` flag blocks new positions
-    // from entering this category; runtime checks reject existing entries.
+    // Soroban persistent storage is not iterable; per-asset membership entries
+    // survive deprecation. The `is_deprecated` flag gates all new entries;
+    // runtime checks reject attempts to use deprecated categories.
 
     emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
 }
@@ -159,19 +159,16 @@ pub fn add_asset_to_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    // Validate that the category exists and is not deprecated (single read).
     let cat = storage::try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     if cat.is_deprecated {
         panic_with_error!(env, EModeError::EModeCategoryDeprecated);
     }
 
-    // Guard: asset must be supported in the primary market.
     if !storage::has_market_config(env, &asset) {
         panic_with_error!(env, GenericError::AssetNotSupported);
     }
 
-    // Guard: asset must not already belong to this category.
     if storage::get_emode_asset(env, category_id, &asset).is_some() {
         panic_with_error!(env, EModeError::AssetAlreadyInEmode);
     }
@@ -182,8 +179,7 @@ pub fn add_asset_to_e_mode_category(
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
-    // Maintain the asset -> category index. Enable `e_mode_enabled` on the
-    // market config when the asset enters its first e-mode category.
+    // Enable `e_mode_enabled` on the market config when the asset joins its first e-mode category.
     let mut asset_cats = storage::get_asset_emodes(env, &asset);
     let is_first_category = asset_cats.is_empty();
     if !asset_cats.contains(category_id) {
@@ -215,7 +211,6 @@ pub fn edit_asset_in_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    // Guard: asset must exist in this category.
     if storage::get_emode_asset(env, category_id, &asset).is_none() {
         panic_with_error!(env, EModeError::AssetNotInEmode);
     }
@@ -239,8 +234,7 @@ pub fn edit_asset_in_e_mode_category(
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     storage::remove_emode_asset(env, category_id, &asset);
 
-    // Remove the asset -> category index entry. Disable `e_mode_enabled`
-    // once the asset belongs to no e-mode category.
+    // Disable `e_mode_enabled` once the asset belongs to no e-mode category.
     let mut asset_cats = storage::get_asset_emodes(env, &asset);
     if let Some(idx) = asset_cats.iter().position(|id| id == category_id) {
         asset_cats.remove(idx as u32);

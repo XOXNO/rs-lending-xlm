@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Certora Sunbeam build script for the rs-lending Stellar controller.
+Certora Sunbeam build script for the Stellar lending controller.
 
 This script is invoked by the Certora Prover to compile the controller
 contract to WASM. The prover provides the `cvlr` crate in its build

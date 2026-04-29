@@ -25,7 +25,6 @@ use crate::cache::ControllerCache;
 crate::summarized!(
     crate::spec::summaries::token_price_summary,
     pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
-        // Transaction-level cache hit.
         if let Some(feed) = cache.try_get_price(asset) {
             return feed;
         }

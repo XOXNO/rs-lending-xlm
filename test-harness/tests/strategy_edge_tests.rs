@@ -1004,7 +1004,7 @@ fn test_swap_collateral_rejects_supply_cap_after_deposit() {
 // test_repay_debt_with_collateral_same_token
 // The same-asset flow is intentionally supported (self-collateralized
 // unwinds): withdrawn collateral repays same-asset debt directly and skips
-// the router. Mirrors the MultiversX `convert_token_from_to` short-circuit.
+// the router. This exercises the direct-payment short-circuit.
 // ---------------------------------------------------------------------------
 
 #[test]

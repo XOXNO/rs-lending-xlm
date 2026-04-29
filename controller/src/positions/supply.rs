@@ -3,7 +3,7 @@ use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, MarketIndex, PriceFeed,
-    POSITION_TYPE_DEPOSIT,
+    Payment, POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 
@@ -24,7 +24,7 @@ pub fn process_supply(
     caller: &Address,
     account_id: u64,
     e_mode_category: u32,
-    assets: &Vec<(Address, i128)>,
+    assets: &Vec<Payment>,
 ) -> u64 {
     caller.require_auth();
     validation::require_not_paused(env);
@@ -37,14 +37,12 @@ pub fn process_supply(
         panic_with_error!(env, GenericError::InvalidPayments);
     }
 
-    // Resolve or create the account.
     let acct_id = if account_id == 0 {
         utils::create_account_for_first_asset(env, caller, e_mode_category, assets)
     } else {
         account_id
     };
 
-    // Load the account once: single storage read.
     let mut account = storage::get_account(env, acct_id);
 
     // Note: third-party deposits are intentionally permitted. Supplying to
@@ -55,7 +53,6 @@ pub fn process_supply(
 
     let mut cache = ControllerCache::new(env, true); // Supply is risk-decreasing.
 
-    // Process deposits for every asset in the batch.
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
 
     // Single write at the end of the batch.
@@ -75,7 +72,7 @@ pub fn process_deposit(
     caller: &Address,
     account_id: u64,
     account: &mut Account,
-    assets: &Vec<(Address, i128)>,
+    assets: &Vec<Payment>,
     cache: &mut ControllerCache,
 ) {
     // Fetch the e-mode category once and reuse across every iteration.
@@ -85,11 +82,9 @@ pub fn process_deposit(
     // Pre-flight position limit check rejects the full batch atomically.
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
 
-    // Pre-flight bulk-isolation guard.
     validation::validate_bulk_isolation(env, account, assets, cache);
 
     for (asset, amount) in assets {
-        // validate_payment equivalent: asset must be supported, amount must be positive.
         validation::require_asset_supported(env, &asset);
         validation::require_amount_positive(env, amount);
 
@@ -123,10 +118,6 @@ pub fn process_deposit(
     }
 }
 
-// ---------------------------------------------------------------------------
-// get_or_create_deposit_position
-// ---------------------------------------------------------------------------
-
 fn get_or_create_deposit_position(
     account: &Account,
     account_id: u64,
@@ -147,10 +138,6 @@ fn get_or_create_deposit_position(
             loan_to_value_bps: asset_config.loan_to_value_bps,
         })
 }
-
-// ---------------------------------------------------------------------------
-// update_deposit_position
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 /// Updates the deposit position with the latest risk parameters and calls the pool to record the supply.
@@ -208,10 +195,6 @@ pub fn update_deposit_position(
     position
 }
 
-// ---------------------------------------------------------------------------
-// update_market_position
-// ---------------------------------------------------------------------------
-
 fn update_market_position(
     env: &Env,
     cache: &mut ControllerCache,
@@ -245,10 +228,6 @@ fn update_market_position(
     result.market_index
 }
 
-// ---------------------------------------------------------------------------
-// validate_supply_cap
-// ---------------------------------------------------------------------------
-
 fn validate_supply_cap(
     env: &Env,
     cache: &mut ControllerCache,
@@ -276,10 +255,6 @@ fn validate_supply_cap(
         panic_with_error!(env, CollateralError::SupplyCapReached);
     }
 }
-
-// ---------------------------------------------------------------------------
-// update_position_threshold
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 /// Keeper-driven propagation of updated risk parameters to a specific account's supply position.

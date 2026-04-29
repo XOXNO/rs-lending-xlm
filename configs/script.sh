@@ -2,7 +2,7 @@
 # ===========================================================================
 # Stellar Lending Protocol — Deployment & Configuration Script
 #
-# Mirrors the MultiversX configs/script.sh pattern:
+# Shared deployment helper layout:
 #   - All values pre-configured in JSON files
 #   - CLI references by name/ID, not raw values
 #   - Ledger signing via SIGNER=ledger
@@ -748,7 +748,7 @@ get_reflector_cmd() {
 }
 
 # ---------------------------------------------------------------------------
-# Command dispatch (matches MultiversX script.sh pattern)
+# Command dispatch
 # ---------------------------------------------------------------------------
 
 case "$1" in

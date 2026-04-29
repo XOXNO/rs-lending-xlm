@@ -72,7 +72,6 @@ fn saturating_sub_ray(a: Ray, b: Ray) -> Ray {
     }
 }
 
-// Emit a market-state snapshot event.
 fn emit_market_update(env: &Env, cache: &Cache, price_wad: i128, reserves: i128) {
     let asset = cache.params.asset_id.clone();
     emit_update_market_state(
@@ -174,7 +173,6 @@ impl LiquidityPool {
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
 
-        // Transfer tokens to the borrower.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount);
 
@@ -232,7 +230,6 @@ impl LiquidityPool {
             }
         };
 
-        // Apply the liquidation fee if applicable.
         let mut net_transfer = gross_amount;
         if is_liquidation && protocol_fee > 0 {
             if net_transfer < protocol_fee {
@@ -257,7 +254,6 @@ impl LiquidityPool {
         cache.supplied = saturating_sub_ray(cache.supplied, scaled_withdrawal);
         position.scaled_amount_ray -= scaled_withdrawal.raw();
 
-        // Transfer tokens to the caller.
         if net_transfer > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &net_transfer);
@@ -324,7 +320,6 @@ impl LiquidityPool {
         }
         cache.borrowed -= scaled_repay;
 
-        // Refund any overpayment.
         if overpayment > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &overpayment);
@@ -441,7 +436,6 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
 
-        // Record the fee as protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
         let reserves = cache.get_reserves_for(&cache.params.asset_id);
@@ -475,12 +469,9 @@ impl LiquidityPool {
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
 
-        // Fee goes to protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
         let amount_to_send = amount - fee;
-
-        // Send the net amount to the controller.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount_to_send);
 
@@ -569,7 +560,6 @@ impl LiquidityPool {
                 &amount_to_transfer,
             );
 
-            // Burn the proportional scaled revenue share.
             let scaled_to_burn = if amount_to_transfer >= treasury_actual {
                 revenue_scaled
             } else {
