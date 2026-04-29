@@ -1,6 +1,8 @@
 use soroban_sdk::{contracttype, Address, BytesN, Map, Symbol, Vec};
 
-/// Asset + amount pair used as input across supply, borrow, withdraw, repay, and liquidate endpoints.
+/// Internal asset + amount pair used by controller operation helpers.
+/// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
+/// spec generator emits a tuple type instead of an undefined Rust alias.
 pub type Payment = (Address, i128);
 
 // ---------------------------------------------------------------------------

@@ -3,11 +3,9 @@
 Authoritative dataflow with explicit trust boundaries for the Stellar /
 Soroban contracts in `controller/`, `pool/`, `pool-interface/`, `common/`.
 
-This document is the data-flow visual referenced by
-[`audit/STRIDE.md`](../audit/STRIDE.md) (Stellar SDF audit-bank submission)
-and [`audit/THREAT_MODEL.md`](../audit/THREAT_MODEL.md). For sequence diagrams
-of individual flows (supply, borrow, repay, withdraw, liquidate, flash-loan,
-revenue), see
+This document is the data-flow visual and trust-boundary reference for the
+system. For sequence diagrams of individual flows (supply, borrow, repay,
+withdraw, liquidate, flash-loan, revenue), see
 [`architecture/ARCHITECTURE.md §Controller-to-Pool Communication`](./ARCHITECTURE.md#controller-to-pool-communication).
 
 ## Entities
@@ -66,8 +64,8 @@ revenue), see
 
 ## Trust boundaries
 
-The boundaries below are also reproduced in
-[`audit/STRIDE.md §1.4`](../audit/STRIDE.md#14-trust-boundaries).
+The boundaries below are the source of truth for architecture-level trust
+analysis.
 
 ```mermaid
 flowchart TB
@@ -147,7 +145,7 @@ flowchart TB
 | ID | Boundary | Validation responsibility |
 |---|---|---|
 | **TB-1** | User ↔ Controller | Soroban host auth + per-fn `caller.require_auth()` + `validation::require_account_owner` (account-owner check); `validate_bulk_position_limits`; per-asset cap / silo / e-mode / isolation checks. Receiver-callback re-entry blocked by `FlashLoanOngoing` Instance flag (`flash_loan.rs:43, 61`). |
-| **TB-2** | Operator ↔ Controller | Role gating via `stellar-access` macros (`#[only_owner]`, `#[only_role]`). Pre-validation in `validate_asset_config`, `validate_interest_rate_model`, `set_position_limits` clamp `[1,32]`, oracle tolerance min/max bounds. Audit findings on this boundary are tracked in `architecture/ACTORS.md` and `audit/CODE_MATURITY_ASSESSMENT.md §5 Decentralization`. |
+| **TB-2** | Operator ↔ Controller | Role gating via `stellar-access` macros (`#[only_owner]`, `#[only_role]`). Pre-validation in `validate_asset_config`, `validate_interest_rate_model`, `set_position_limits` clamp `[1,32]`, oracle tolerance min/max bounds. Operator trust and decentralization assumptions are tracked in `architecture/ACTORS.md` and `architecture/CONFIG_INVARIANTS.md`. |
 | **TB-3** | Controller ↔ Pool | `verify_admin(&env)` on every pool mutator; the pool's `Admin` is set to the controller at `pool::__constructor`. Pool returns `MarketIndex` to the controller after each mutation; controller writes user-facing position state. |
 | **TB-4** | Pool ↔ Pool | None — pools never call each other. The controller is the only mediator. |
 | **TB-5** | Controller ↔ Reflector | `controller/src/oracle/mod.rs` enforces non-positive rejection (error 217 `InvalidPrice`), hard-staleness vs `max_price_stale_seconds` (error 206 `PriceFeedStale`), 60-s future-timestamp clamp, ≥50% TWAP coverage (error 219 `TwapInsufficientObservations`), two-tier tolerance bands, fail-closed on risk-increasing ops (error `UnsafePriceNotAllowed`). Reflector contract upgrades are an open ask in `architecture/STELLAR_NOTES.md §Reflector`. |
@@ -349,5 +347,5 @@ re-read on every architecture-affecting change:
 - change to the oracle pipeline (additional sources, fallbacks, decimals);
 - change to storage durability tier of any key.
 
-The owning maintainer updates `audit/STRIDE.md`,
-`audit/THREAT_MODEL.md`, and this file in the same change.
+The owning maintainer updates this file and the affected companion documents
+in `architecture/` in the same change.

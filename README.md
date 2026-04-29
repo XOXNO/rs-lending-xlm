@@ -19,9 +19,9 @@ through a single controller contract.
 
 ## Status
 
-Pre-audit. Internal review and remediation are complete — see
-[`audit/`](./audit/). External audit by Runtime Verification and Certora
-is the next milestone.
+Pre-audit. Internal review and remediation are complete; the architecture
+docs below are the current review package. External audit by Runtime
+Verification and Certora is the next milestone.
 
 | Signal | Value |
 |---|---|
@@ -50,8 +50,6 @@ Technical reference lives in [`architecture/`](./architecture/):
   assumptions and unresolved questions.
 - [`MATH_REVIEW.md`](./architecture/MATH_REVIEW.md) — Certora rule
   coverage and remediation status.
-
-Audit artifacts live in [`audit/`](./audit/).
 
 ## Build
 

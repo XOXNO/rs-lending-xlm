@@ -1,7 +1,6 @@
 //! Empirical max-position liquidate cost benchmark.
 //!
-//! Audit prep deliverable referenced by `audit/THREAT_MODEL.md §3.3` and
-//! `audit/AUDIT_CHECKLIST.md "Still Outstanding"`. Validates that
+//! Budget regression test for the max-position liquidation path. Validates that
 //! `liquidate` against an account holding the maximum supported number of
 //! supply + borrow positions either:
 //!
@@ -25,8 +24,8 @@
 //! adding new market presets.
 //!
 //! For 32/32 (the contract-level cap from `set_position_limits`), the
-//! harness needs additional preset assets; tracked as a follow-up in
-//! `audit/AUDIT_CHECKLIST.md "Still Outstanding"`.
+//! harness needs additional preset assets before this benchmark can cover
+//! the absolute cap.
 
 extern crate std;
 

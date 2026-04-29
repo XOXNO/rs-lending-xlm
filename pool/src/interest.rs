@@ -101,11 +101,11 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
 /// Reduces the supply index to socialize uncollectable debt.
 ///
 /// Safety:
-/// - The resulting index is floored at `SUPPLY_INDEX_FLOOR_RAW` (1 raw atom,
-///   = 10^-27 decimal). Dropping to zero would make
+/// - The resulting index is floored at `SUPPLY_INDEX_FLOOR_RAW` (10^18 raw Ray,
+///   = 10^-9 decimal). Dropping to zero would make
 ///   `cache.supply_index.raw() == 0`, which divides-by-zero in downstream
 ///   `amount / supply_index` conversions; the revenue-accrual paths
-///   additionally short-circuit when `index < floor` so a near-zero index
+///   additionally short-circuit when `index <= floor` so a near-zero index
 ///   cannot blow up `fee / supply_index`.
 /// - If the proposed reduction would drop the index by more than 90% in a
 ///   single call, emits `PoolInsolventEvent` so the controller can

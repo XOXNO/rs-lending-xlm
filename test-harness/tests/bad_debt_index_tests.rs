@@ -137,11 +137,11 @@ fn test_bad_debt_loss_distributed_proportionally() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Supply index never goes below 1 (floor)
+// 3. Supply index never goes below the configured safety floor
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_bad_debt_index_floored_at_one() {
+fn test_bad_debt_index_floored_at_safety_floor() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -162,10 +162,11 @@ fn test_bad_debt_index_floored_at_one() {
 
     let (si_after, _) = get_indexes(&t, "ETH");
 
-    // Supply index must remain >= 1 (floored).
+    // Supply index must remain at or above the configured floor.
     assert!(
-        si_after >= 1,
-        "supply index should be floored at 1, got {}",
+        si_after >= common::constants::SUPPLY_INDEX_FLOOR_RAW,
+        "supply index should be floored at {}, got {}",
+        common::constants::SUPPLY_INDEX_FLOOR_RAW,
         si_after
     );
 }

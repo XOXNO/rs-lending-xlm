@@ -42,7 +42,7 @@ requirements, see
 | [`UpdateMarketParamsEvent`](#updatemarketparamsevent) | SEV-2 (manual change) | Owner ran `upgrade_pool_params`. | Confirm the change matches the operator-runbook ticket. If unplanned, **assume operator-key compromise**: invoke `pause()`, rotate Owner key, follow `architecture/ACTORS.md §Owner`. | Owner |
 | [`UpdateAssetConfigEvent`](#updateassetconfigevent) | SEV-2 (manual change) | Owner ran `edit_asset_config`. | Same as above. | Owner |
 | [`ApproveTokenWasmEvent`](#approvetokenwasmevent) | SEV-2 | Owner mutated the token allowlist. | Confirm against ticket; verify the WASM hash matches a vetted SAC / SEP-41 build. Allowlist semantics are creation-time only — see [`architecture/ACTORS.md §Operator policy notes`](./ACTORS.md). | Owner |
-| Soroban host: `Error(Budget, ExceededLimit)` | SEV-2 | A user tx hit Soroban's tx-budget cap. | Identify which endpoint; if `liquidate` at maxed positions: page Owner; consider lowering `PositionLimits` per [`audit/THREAT_MODEL.md §3.3`](../audit/THREAT_MODEL.md). | Owner |
+| Soroban host: `Error(Budget, ExceededLimit)` | SEV-2 | A user tx hit Soroban's tx-budget cap. | Identify which endpoint; if `liquidate` at maxed positions: page Owner; consider lowering `PositionLimits` and rerun `test-harness/tests/bench_liquidate_max_positions.rs`. | Owner |
 
 ## Per-event detail
 
@@ -208,11 +208,10 @@ intentionally does not pin specific names or pager IDs.)
 
 ## What this file is NOT
 
-- A replacement for `audit/STRIDE.md` or `audit/THREAT_MODEL.md`.
-  Those frame what *can* go wrong; this file frames what to do when
-  one of those scenarios materialises.
+- A replacement for `architecture/DATAFLOW.md` or `architecture/INVARIANTS.md`.
+  Those frame what *can* go wrong; this file frames what to do when one of
+  those scenarios materialises.
 - A replacement for the audit-engagement `ENGAGEMENT_FINDINGS.md`
-  (the auditor opens that fresh at engagement start per
-  `audit/AUDIT_CHECKLIST.md`).
+  (the auditor opens that fresh at engagement start).
 - A user-facing security policy. That is `SECURITY.md` at the repo
   root; this file is operator-internal.

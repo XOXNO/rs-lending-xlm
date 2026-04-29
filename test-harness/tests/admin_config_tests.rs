@@ -198,7 +198,7 @@ fn test_upgrade_liquidity_pool_params_alias() {
 // `validate_interest_rate_model` and `pool::update_params` reject any
 // `max_borrow_rate_ray > 2 * RAY` to keep `compound_interest`'s 8-term Taylor
 // approximation inside its documented `< 0.01 %` accuracy envelope. See
-// `architecture/MATH_REVIEW.md §0` and `audit/REMEDIATION_PLAN.md §7`.
+// `architecture/MATH_REVIEW.md §0`.
 // ---------------------------------------------------------------------------
 
 #[test]

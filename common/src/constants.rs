@@ -16,10 +16,10 @@ pub const MAX_LIQUIDATION_BONUS: i128 = 1_500;
 
 /// Lower clamp on the post-bad-debt supply index, in raw RAY units. The pool
 /// floors `supply_index_ray` at this value during bad-debt socialization
-/// (`pool/src/interest.rs::apply_bad_debt_to_supply_index`). Set to one raw
-/// RAY atom (10^-27 decimal); revenue-accrual paths additionally guard against `index <
-/// floor` so a near-zero index cannot blow up `fee / supply_index`.
-pub const SUPPLY_INDEX_FLOOR_RAW: i128 = 1;
+/// (`pool/src/interest.rs::apply_bad_debt_to_supply_index`). Set to 10^-9 in
+/// raw Ray units; revenue-accrual paths additionally guard against
+/// `index <= floor` so a near-zero index cannot blow up `fee / supply_index`.
+pub const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
 
 /// Bad-debt socialization threshold: an account with collateral at or
 /// below $5 USD AND debt > collateral triggers `apply_bad_debt_to_supply_index`.

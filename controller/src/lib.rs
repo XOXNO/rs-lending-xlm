@@ -47,7 +47,7 @@ use common::events::{emit_approve_token_wasm, ApproveTokenWasmEvent};
 use common::types::{
     AccountAttributes, AccountPosition, AssetConfig, AssetExtendedConfigView, EModeCategory,
     InterestRateModel, LiquidationEstimate, MarketConfig, MarketIndexView, MarketOracleConfigInput,
-    MarketParams, Payment, PositionLimits, PositionMode, SwapSteps,
+    MarketParams, PositionLimits, PositionMode, SwapSteps,
 };
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Symbol, Vec,
@@ -188,7 +188,7 @@ impl Controller {
         caller: Address,
         account_id: u64,
         e_mode_category: u32,
-        assets: Vec<Payment>,
+        assets: Vec<(Address, i128)>,
     ) -> u64 {
         positions::supply::process_supply(&env, &caller, account_id, e_mode_category, &assets)
     }
@@ -197,7 +197,7 @@ impl Controller {
     // Borrow
     // -----------------------------------------------------------------------
 
-    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<Payment>) {
+    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>) {
         positions::borrow::borrow_batch(&env, &caller, account_id, &borrows);
     }
 
@@ -205,7 +205,7 @@ impl Controller {
     // Withdraw
     // -----------------------------------------------------------------------
 
-    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<Payment>) {
+    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>) {
         positions::withdraw::process_withdraw(&env, &caller, account_id, &withdrawals);
     }
 
@@ -213,7 +213,7 @@ impl Controller {
     // Repay
     // -----------------------------------------------------------------------
 
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
         positions::repay::process_repay(&env, &caller, account_id, &payments);
     }
 
@@ -225,7 +225,7 @@ impl Controller {
         env: Env,
         liquidator: Address,
         account_id: u64,
-        debt_payments: Vec<Payment>,
+        debt_payments: Vec<(Address, i128)>,
     ) {
         positions::liquidation::process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
@@ -661,7 +661,7 @@ impl Controller {
     }
 
     #[only_role(caller, "REVENUE")]
-    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<Payment>) {
+    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
         validation::require_not_flash_loaning(&env);
         router::add_rewards_batch(&env, &caller, rewards);
     }
@@ -731,7 +731,7 @@ impl Controller {
     pub fn liquidation_estimations_detailed(
         env: Env,
         account_id: u64,
-        debt_payments: Vec<Payment>,
+        debt_payments: Vec<(Address, i128)>,
     ) -> LiquidationEstimate {
         views::liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }

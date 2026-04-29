@@ -52,7 +52,7 @@ Out of scope (please do NOT report):
 - Issues that require already-compromised operator (Owner / KEEPER / REVENUE /
   ORACLE) keys.
 - Theoretical attacks without a reproducible proof of concept.
-- Findings already documented in `audit/FINDINGS.md` or `MATH_REVIEW.md`.
+- Findings already documented in `architecture/MATH_REVIEW.md`.
 
 ## Supported Versions
 
@@ -74,6 +74,6 @@ pursue legal action against researchers who:
 
 ## Audit Status
 
-`audit/AUDIT_PREP.md` and `audit/FINDINGS.md` document the known findings the
-internal team has identified ahead of formal review. External audits in
-progress are tracked in the same directory.
+Known internal math and verification notes are documented in
+`architecture/MATH_REVIEW.md`. External audit artifacts will be published with
+the corresponding release once available.
