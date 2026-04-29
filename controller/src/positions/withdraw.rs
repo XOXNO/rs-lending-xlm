@@ -1,8 +1,10 @@
 use common::constants::WAD;
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
-use common::types::{Account, AccountPosition, PoolPositionMutation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Symbol, Vec};
+use common::types::{Account, AccountPosition, Payment, PoolPositionMutation};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
+
+use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
@@ -14,7 +16,7 @@ pub fn process_withdraw(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    withdrawals: &Vec<(Address, i128)>,
+    withdrawals: &Vec<Payment>,
 ) {
     caller.require_auth();
     validation::require_not_paused(env);
@@ -33,18 +35,9 @@ pub fn process_withdraw(
     let mut cache = ControllerCache::new(env, allow_unsafe);
 
     for (asset, amount) in withdrawals {
-        process_single_withdrawal(
-            env,
-            caller,
-            account_id,
-            &mut account,
-            &asset,
-            amount,
-            &mut cache,
-        );
+        process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    // Post-batch health factor check; skip when no borrows exist.
     if !account.borrow_positions.is_empty() {
         let hf = helpers::calculate_health_factor(
             env,
@@ -69,7 +62,6 @@ pub fn process_withdraw(
 fn process_single_withdrawal(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     asset: &Address,
     amount: i128,
@@ -101,15 +93,16 @@ fn process_single_withdrawal(
     // (plain / liquidation / strategy paths all covered).
     let _ = execute_withdrawal(
         env,
-        account_id,
         account,
-        caller,
-        caller,
-        symbol_short!("withdraw"),
+        EventContext {
+            caller: caller.clone(),
+            event_caller: caller.clone(),
+            action: symbol_short!("withdraw"),
+        },
         withdraw_amount,
         &position,
-        false, // not liquidation
-        0,     // no protocol fee
+        false,
+        0,
         feed.price_wad,
         cache,
     );
@@ -133,11 +126,8 @@ fn process_single_withdrawal(
 #[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,
-    _account_id: u64,
     account: &mut Account,
-    caller: &Address,
-    event_caller: &Address,
-    action: Symbol,
+    ctx: EventContext,
     amount: i128,
     position: &AccountPosition,
     is_liquidation: bool,
@@ -145,10 +135,11 @@ pub fn execute_withdrawal(
     price_wad: i128,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
+    let EventContext { caller, event_caller, action } = ctx;
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let result = pool_client.withdraw(
-        caller,
+        &caller,
         &amount,
         position,
         &is_liquidation,
@@ -166,7 +157,7 @@ pub fn execute_withdrawal(
             amount: result.actual_amount,
             position: result.position.clone().into(),
             asset_price: Some(price_wad),
-            caller: Some(event_caller.clone()),
+            caller: Some(event_caller),
             account_attributes: Some((&*account).into()),
         },
     );

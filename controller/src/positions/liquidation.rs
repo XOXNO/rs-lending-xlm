@@ -3,10 +3,10 @@ use common::errors::CollateralError;
 use common::errors::GenericError;
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::fp::{Bps, Ray, Wad};
-use common::types::{Account, MarketIndex, PriceFeed};
+use common::types::{Account, LiquidationResult, Payment, RepayEntry, SeizeEntry};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
 
-use super::{repay, withdraw};
+use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
 use crate::positions;
 use crate::{helpers, storage, validation};
@@ -22,7 +22,7 @@ pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
-    debt_payments: &Vec<(Address, i128)>,
+    debt_payments: &Vec<Payment>,
 ) {
     liquidator.require_auth();
     validation::require_not_paused(env);
@@ -49,55 +49,54 @@ pub fn process_liquidation(
     // impossible. The vector is still produced because the public
     // `liquidation_estimations_detailed` view exposes it as informational
     // metadata for off-chain simulators.
-    let (seized_collaterals, repaid_tokens, _refunds, _max_debt_usd, _bonus) =
-        execute_liquidation(env, &account, debt_payments, &mut cache);
+    let result = execute_liquidation(env, &account, debt_payments, &mut cache);
 
-    if repaid_tokens.is_empty() {
+    if result.repaid.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
 
-    for i in 0..repaid_tokens.len() {
-        let (asset, amount, _repaid_usd, feed, _market_index) = repaid_tokens.get(i).unwrap();
+    for i in 0..result.repaid.len() {
+        let entry = result.repaid.get(i).unwrap();
 
-        let pool_addr = cache.cached_pool_address(&asset);
-        let token = soroban_sdk::token::Client::new(env, &asset);
-        token.transfer(liquidator, &pool_addr, &amount);
+        let pool_addr = cache.cached_pool_address(&entry.asset);
+        let token = soroban_sdk::token::Client::new(env, &entry.asset);
+        token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position = account.borrow_positions.get(asset.clone()).unwrap();
+        let position = account.borrow_positions.get(entry.asset.clone()).unwrap();
 
-        // execute_repayment emits `liq_repay` UpdatePositionEvent internally
-        // with the post-mutation account attributes.
-        let _result = repay::execute_repayment(
+        let _r = repay::execute_repayment(
             env,
             &mut account,
-            liquidator,
-            liquidator,
-            symbol_short!("liq_repay"),
+            EventContext {
+                caller: liquidator.clone(),
+                event_caller: liquidator.clone(),
+                action: symbol_short!("liq_repay"),
+            },
             &position,
-            feed.price_wad,
-            amount,
+            entry.feed.price_wad,
+            entry.amount,
             &mut cache,
         );
     }
 
-    for i in 0..seized_collaterals.len() {
-        let (asset, amount, protocol_fee, feed, _market_index) = seized_collaterals.get(i).unwrap();
+    for i in 0..result.seized.len() {
+        let entry = result.seized.get(i).unwrap();
 
-        let position = account.supply_positions.get(asset.clone()).unwrap();
+        let position = account.supply_positions.get(entry.asset.clone()).unwrap();
 
-        // execute_withdrawal emits `liq_seize` UpdatePositionEvent internally.
-        let _result = withdraw::execute_withdrawal(
+        let _r = withdraw::execute_withdrawal(
             env,
-            account_id,
             &mut account,
-            liquidator,
-            liquidator,
-            symbol_short!("liq_seize"),
-            amount,
+            EventContext {
+                caller: liquidator.clone(),
+                event_caller: liquidator.clone(),
+                action: symbol_short!("liq_seize"),
+            },
+            entry.amount,
             &position,
-            true, // is_liquidation
-            protocol_fee,
-            feed.price_wad,
+            true,
+            entry.protocol_fee,
+            entry.feed.price_wad,
             &mut cache,
         );
     }
@@ -113,19 +112,12 @@ pub fn process_liquidation(
 // Execution Engine (Math)
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::type_complexity)]
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
-    debt_payments: &Vec<(Address, i128)>,
+    debt_payments: &Vec<Payment>,
     cache: &mut ControllerCache,
-) -> (
-    Vec<(Address, i128, i128, PriceFeed, MarketIndex)>, // Seized: (asset, amount, fee, price, index)
-    Vec<(Address, i128, i128, PriceFeed, MarketIndex)>, // Repaid: (asset, amount, usd_wad, price, index)
-    Vec<(Address, i128)>,                               // Refunds: (asset, amount)
-    i128,                                               // final_repayment_usd_wad
-    i128,                                               // bonus_bps
-) {
+) -> LiquidationResult {
     let mut refunds = Vec::new(env);
 
     let hf = helpers::calculate_health_factor(
@@ -177,13 +169,13 @@ pub(crate) fn execute_liquidation(
         process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
-    (
-        seized_collaterals,
-        final_repayment_tokens,
+    LiquidationResult {
+        seized: seized_collaterals,
+        repaid: final_repayment_tokens,
         refunds,
-        max_debt_to_repay_usd.raw(),
-        bonus.raw(),
-    )
+        max_debt_usd: max_debt_to_repay_usd.raw(),
+        bonus_bps: bonus.raw(),
+    }
 }
 
 fn calculate_seizure_proportions(
@@ -204,18 +196,16 @@ fn calculate_seizure_proportions(
     (proportion_seized, bonus_params)
 }
 
-#[allow(clippy::type_complexity)]
 fn calculate_repayment_amounts(
     env: &Env,
-    raw_payments: &Vec<(Address, i128)>,
+    raw_payments: &Vec<Payment>,
     account: &Account,
-    refunds: &mut Vec<(Address, i128)>,
+    refunds: &mut Vec<Payment>,
     cache: &mut ControllerCache,
-) -> (Wad, Vec<(Address, i128, i128, PriceFeed, MarketIndex)>) {
+) -> (Wad, Vec<RepayEntry>) {
     let mut total_repaid_usd = Wad::ZERO;
-    let mut repaid_tokens = Vec::new(env);
+    let mut repaid_tokens: Vec<RepayEntry> = Vec::new(env);
 
-    // Merge duplicates.
     let merged = merge_debt_payments(env, raw_payments);
 
     for i in 0..merged.len() {
@@ -243,7 +233,13 @@ fn calculate_repayment_amounts(
         let payment_usd = payment_wad.mul(env, Wad::from_raw(feed.price_wad));
 
         total_repaid_usd += payment_usd;
-        repaid_tokens.push_back((asset, payment_amount, payment_usd.raw(), feed, market_index));
+        repaid_tokens.push_back(RepayEntry {
+            asset,
+            amount: payment_amount,
+            usd_wad: payment_usd.raw(),
+            feed,
+            market_index,
+        });
     }
 
     (total_repaid_usd, repaid_tokens)
@@ -278,7 +274,6 @@ fn calculate_liquidation_amounts(
     (final_repayment_usd, total_seizure_usd, bonus)
 }
 
-#[allow(clippy::type_complexity)]
 fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -286,8 +281,8 @@ fn calculate_seized_collateral(
     repayment_usd: Wad,
     bonus: Bps,
     cache: &mut ControllerCache,
-) -> Vec<(Address, i128, i128, PriceFeed, MarketIndex)> {
-    let mut seized = Vec::new(env);
+) -> Vec<SeizeEntry> {
+    let mut seized: Vec<SeizeEntry> = Vec::new(env);
     if total_collateral <= Wad::ZERO {
         return seized;
     }
@@ -310,7 +305,6 @@ fn calculate_seized_collateral(
         let actual_amount_wad = actual_ray.to_wad();
         let asset_value = actual_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
 
-        // share = (asset_value / total_collateral) * total_seizure
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
@@ -333,47 +327,57 @@ fn calculate_seized_collateral(
         let protocol_fee =
             Bps::from_raw(asset_config.liquidation_fees_bps).apply_to(env, bonus_portion);
 
-        seized.push_back((asset, capped_amount, protocol_fee, feed, market_index));
+        seized.push_back(SeizeEntry {
+            asset,
+            amount: capped_amount,
+            protocol_fee,
+            feed,
+            market_index,
+        });
     }
 
     seized
 }
 
-#[allow(clippy::type_complexity)]
 fn process_excess_payment(
     env: &Env,
-    repaid_tokens: &mut Vec<(Address, i128, i128, PriceFeed, MarketIndex)>,
-    refunds: &mut Vec<(Address, i128)>,
+    repaid_tokens: &mut Vec<RepayEntry>,
+    refunds: &mut Vec<Payment>,
     excess_usd: Wad,
 ) {
     let mut remaining_excess_usd = excess_usd;
 
     while remaining_excess_usd > Wad::ZERO && !repaid_tokens.is_empty() {
         let current_index = repaid_tokens.len() - 1;
-        let (asset, amount, usd_wad_raw, feed, market_index) =
-            repaid_tokens.get(current_index).unwrap();
+        let entry = repaid_tokens.get(current_index).unwrap();
 
-        let usd = Wad::from_raw(usd_wad_raw);
+        let usd = Wad::from_raw(entry.usd_wad);
 
         if usd > remaining_excess_usd {
             let ratio = remaining_excess_usd.div(env, usd);
-            let refund_amount = Wad::from_raw(amount).mul(env, ratio).raw();
+            let refund_amount = Wad::from_raw(entry.amount).mul(env, ratio).raw();
 
-            let new_amount = amount - refund_amount;
+            let new_amount = entry.amount - refund_amount;
             // Recompute `new_usd` from `new_amount * price`. Subtracting the
             // excess directly lets the two precision paths drift and leaves
-            // the (amount, usd_wad) pair inconsistent for downstream consumers.
-            let new_amount_wad = Wad::from_token(new_amount, feed.asset_decimals);
-            let new_usd = new_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
+            // the RepayEntry pair inconsistent for downstream consumers.
+            let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
+            let new_usd = new_amount_wad.mul(env, Wad::from_raw(entry.feed.price_wad));
 
-            refunds.push_back((asset.clone(), refund_amount));
+            refunds.push_back((entry.asset.clone(), refund_amount));
             repaid_tokens.set(
                 current_index,
-                (asset, new_amount, new_usd.raw(), feed, market_index),
+                RepayEntry {
+                    asset: entry.asset,
+                    amount: new_amount,
+                    usd_wad: new_usd.raw(),
+                    feed: entry.feed,
+                    market_index: entry.market_index,
+                },
             );
             remaining_excess_usd = Wad::ZERO;
         } else {
-            refunds.push_back((asset, amount));
+            refunds.push_back((entry.asset, entry.amount));
             repaid_tokens.remove(current_index);
             remaining_excess_usd -= usd;
         }
@@ -488,7 +492,7 @@ fn execute_bad_debt_cleanup(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn merge_debt_payments(env: &Env, payments: &Vec<(Address, i128)>) -> Vec<(Address, i128)> {
+fn merge_debt_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     let mut map: Map<Address, i128> = Map::new(env);
     let mut order: Vec<Address> = Vec::new(env);
 
@@ -501,7 +505,7 @@ fn merge_debt_payments(env: &Env, payments: &Vec<(Address, i128)>) -> Vec<(Addre
         map.set(asset.clone(), prev + amount);
     }
 
-    let mut result: Vec<(Address, i128)> = Vec::new(env);
+    let mut result: Vec<Payment> = Vec::new(env);
     for i in 0..order.len() {
         let asset = order.get(i).unwrap();
         let amount = map.get(asset.clone()).unwrap();

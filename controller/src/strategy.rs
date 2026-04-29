@@ -10,7 +10,7 @@ use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
 use crate::cache::ControllerCache;
 use crate::{
     helpers,
-    positions::{borrow, emode, repay, supply, withdraw},
+    positions::{borrow, emode, repay, supply, withdraw, EventContext},
     storage, utils, validation,
 };
 
@@ -86,14 +86,12 @@ pub fn process_multiply(
         payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
 
         if *payment_token == *collateral_token {
-            // Payment is the collateral token; credit it directly.
             collateral_amount = *payment_amount;
         } else if *payment_token == *debt_token {
             // Payment is the debt token; add to the flash-loan swap input
             // to increase the leveraged collateral output.
             debt_extra = *payment_amount;
         } else {
-            // Third token; route through convert_steps to the collateral.
             let convert = match convert_steps {
                 Some(steps) => steps,
                 None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
@@ -159,9 +157,6 @@ pub fn process_multiply(
         &new_borrow_assets,
     );
 
-    // Validates e-mode, borrowability, siloed rules, borrow cap, and
-    // isolated-debt ceiling, flashes the debt via `pool.create_strategy`,
-    // and returns the net amount received.
     let mut debt_config = cache.cached_asset_config(debt_token);
     let amount_received = borrow::handle_create_borrow_strategy(
         env,
@@ -174,7 +169,6 @@ pub fn process_multiply(
         caller,
     );
 
-    // Include any debt-token initial payment in the swap input.
     let swapped_collateral = swap_tokens(
         env,
         debt_token,
@@ -186,7 +180,6 @@ pub fn process_multiply(
 
     let total_collateral = collateral_amount + swapped_collateral;
 
-    // Deposit pipeline applies e-mode, supply caps, risk parameters.
     let mut deposit_assets = Vec::new(env);
     deposit_assets.push_back((collateral_token.clone(), total_collateral));
     supply::process_deposit(
@@ -274,9 +267,6 @@ pub fn process_swap_debt(
         &new_borrow_assets,
     );
 
-    // Flashes the new debt via `pool.create_strategy` after the standard
-    // e-mode, borrowability, siloed, borrow-cap, and isolated-debt-ceiling
-    // checks; returns the net amount received.
     let amount_received = borrow::handle_create_borrow_strategy(
         env,
         &mut cache,
@@ -288,7 +278,6 @@ pub fn process_swap_debt(
         caller,
     );
 
-    // Use the net amount after flash-loan fee as swap input.
     let swapped_amount = swap_tokens(
         env,
         new_debt_token,
@@ -315,16 +304,15 @@ pub fn process_swap_debt(
 
     let controller_balance_before_repay = existing_tok.balance(&env.current_contract_address());
 
-    // Shared repay path: pool.repay + position update + isolated-debt
-    // adjustment + UpdatePositionEvent with `sw_debt_r` action tag.
-    // `event_caller = caller` (original user) so indexers see the real
-    // initiator, not the controller's own address.
+    // `event_caller = caller` so indexers see the real initiator, not the controller address.
     repay::execute_repayment(
         env,
         &mut account,
-        &env.current_contract_address(),
-        caller,
-        symbol_short!("sw_debt_r"),
+        EventContext {
+            caller: env.current_contract_address(),
+            event_caller: caller.clone(),
+            action: symbol_short!("sw_debt_r"),
+        },
         &existing_pos,
         existing_feed.price_wad,
         swapped_amount,
@@ -397,18 +385,18 @@ pub fn process_swap_collateral(
     let controller_balance_before_withdraw =
         current_tok_client.balance(&env.current_contract_address());
 
-    // Emits UpdatePositionEvent with `sw_col_wd` action tag + real user as caller.
     let _updated_current = withdraw::execute_withdrawal(
         env,
-        account_id,
         &mut account,
-        &env.current_contract_address(),
-        caller,
-        symbol_short!("sw_col_wd"),
+        EventContext {
+            caller: env.current_contract_address(),
+            event_caller: caller.clone(),
+            action: symbol_short!("sw_col_wd"),
+        },
         from_amount,
         &current_pos,
-        false, // is_liquidation
-        0,     // protocol_fee
+        false,
+        0,
         current_feed.price_wad,
         &mut cache,
     );
@@ -428,7 +416,6 @@ pub fn process_swap_collateral(
         caller,
     );
 
-    // Deposit pipeline applies e-mode, supply caps, and risk parameters.
     let mut deposit_assets = Vec::new(env);
     deposit_assets.push_back((new_collateral.clone(), swapped_amount));
     supply::process_deposit(
@@ -465,7 +452,6 @@ fn swap_tokens(
     let balance_in_before = token_in_client.balance(&env.current_contract_address());
     let balance_out_before = token_out_client.balance(&env.current_contract_address());
 
-    // Approve the router to pull token_in from the controller.
     token_in_client.approve(
         &env.current_contract_address(),
         &router_addr,
@@ -598,18 +584,18 @@ pub fn process_repay_debt_with_collateral(
     let controller_balance_before_withdraw =
         collateral_tok_client.balance(&env.current_contract_address());
 
-    // Emits UpdatePositionEvent with `rp_col_wd` action tag.
     let _updated_collateral = withdraw::execute_withdrawal(
         env,
-        account_id,
         &mut account,
-        &env.current_contract_address(),
-        caller,
-        symbol_short!("rp_col_wd"),
+        EventContext {
+            caller: env.current_contract_address(),
+            event_caller: caller.clone(),
+            action: symbol_short!("rp_col_wd"),
+        },
         collateral_amount,
         &collateral_pos,
-        false, // not liquidation
-        0,     // no protocol fee
+        false,
+        0,
         collateral_feed.price_wad,
         &mut cache,
     );
@@ -661,14 +647,15 @@ pub fn process_repay_debt_with_collateral(
 
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
-    // Route through the shared repay path for isolated debt handling.
-    // Emits UpdatePositionEvent with `rp_col_r` action tag.
+    // Routes through the shared repay path for isolated-debt handling.
     repay::execute_repayment(
         env,
         &mut account,
-        &env.current_contract_address(),
-        caller,
-        symbol_short!("rp_col_r"),
+        EventContext {
+            caller: env.current_contract_address(),
+            event_caller: caller.clone(),
+            action: symbol_short!("rp_col_r"),
+        },
         &debt_pos,
         debt_feed.price_wad,
         actual_arrived_at_pool,
@@ -692,7 +679,7 @@ pub fn process_repay_debt_with_collateral(
             panic_with_error!(env, CollateralError::CannotCloseWithRemainingDebt);
         }
 
-        execute_withdraw_all(env, account_id, &mut account, caller, &mut cache);
+        execute_withdraw_all(env, &mut account, caller, &mut cache);
     }
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
@@ -755,7 +742,6 @@ pub fn strategy_finalize(
 /// Used by `process_repay_debt_with_collateral` for the close-position leg.
 pub fn execute_withdraw_all(
     env: &Env,
-    account_id: u64,
     account: &mut Account,
     destination: &Address,
     cache: &mut ControllerCache,
@@ -770,20 +756,19 @@ pub fn execute_withdraw_all(
             let full_amount = Ray::from_raw(pos.scaled_amount_ray)
                 .mul(env, Ray::from_raw(market_index.supply_index_ray))
                 .to_asset(feed.asset_decimals);
-            // Emits UpdatePositionEvent with `close_wd` action tag. `destination`
-            // is the user here (strategy close-position withdraws to them), so
-            // it doubles as the event caller.
+            // `destination` doubles as `event_caller` — the user initiated this close.
             let _updated = withdraw::execute_withdrawal(
                 env,
-                account_id,
                 account,
-                destination,
-                destination,
-                symbol_short!("close_wd"),
+                EventContext {
+                    caller: destination.clone(),
+                    event_caller: destination.clone(),
+                    action: symbol_short!("close_wd"),
+                },
                 full_amount,
                 &pos,
-                false, // is_liquidation
-                0,     // protocol_fee
+                false,
+                0,
                 feed.price_wad,
                 cache,
             );

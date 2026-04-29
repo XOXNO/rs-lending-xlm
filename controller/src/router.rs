@@ -1,8 +1,8 @@
 use common::errors::{GenericError, OracleError};
 use common::events::{emit_create_market, CreateMarketEvent};
 use common::types::{
-    AssetConfig, ControllerKey, MarketConfig, MarketParams, MarketStatus, OracleProviderConfig,
-    ReflectorAssetKind,
+    AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketParams, MarketStatus,
+    OracleProviderConfig, Payment, ReflectorAssetKind,
 };
 use soroban_sdk::{panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Symbol};
 
@@ -76,7 +76,6 @@ pub fn create_liquidity_pool(
     }
     let accumulator = storage::get_accumulator(env);
 
-    // Deploy the pool with the controller as admin.
     let pool_address = env.deployer().with_current_contract(salt).deploy_v2(
         wasm_hash,
         (env.current_contract_address(), params.clone(), accumulator),
@@ -134,19 +133,7 @@ pub fn create_liquidity_pool(
 /// Upgrades a pool's interest-rate model in place. Indexes are synced at
 /// the current oracle price before the new parameters are applied so
 /// accrued interest rolls into the stored indexes.
-#[allow(clippy::too_many_arguments)]
-pub fn upgrade_liquidity_pool_params(
-    env: &Env,
-    asset: &Address,
-    max_borrow_rate: i128,
-    base_borrow_rate: i128,
-    slope1: i128,
-    slope2: i128,
-    slope3: i128,
-    mid_utilization: i128,
-    optimal_utilization: i128,
-    reserve_factor: i128,
-) {
+pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     validation::require_asset_supported(env, asset);
 
     let market = storage::get_market_config(env, asset);
@@ -154,14 +141,14 @@ pub fn upgrade_liquidity_pool_params(
     validation::validate_interest_rate_model(
         env,
         &MarketParams {
-            max_borrow_rate_ray: max_borrow_rate,
-            base_borrow_rate_ray: base_borrow_rate,
-            slope1_ray: slope1,
-            slope2_ray: slope2,
-            slope3_ray: slope3,
-            mid_utilization_ray: mid_utilization,
-            optimal_utilization_ray: optimal_utilization,
-            reserve_factor_bps: reserve_factor,
+            max_borrow_rate_ray: params.max_borrow_rate_ray,
+            base_borrow_rate_ray: params.base_borrow_rate_ray,
+            slope1_ray: params.slope1_ray,
+            slope2_ray: params.slope2_ray,
+            slope3_ray: params.slope3_ray,
+            mid_utilization_ray: params.mid_utilization_ray,
+            optimal_utilization_ray: params.optimal_utilization_ray,
+            reserve_factor_bps: params.reserve_factor_bps,
             asset_id: asset.clone(),
             asset_decimals: market.oracle_config.asset_decimals,
         },
@@ -174,14 +161,14 @@ pub fn upgrade_liquidity_pool_params(
     pool_client.update_indexes(&feed.price_wad);
 
     pool_client.update_params(
-        &max_borrow_rate,
-        &base_borrow_rate,
-        &slope1,
-        &slope2,
-        &slope3,
-        &mid_utilization,
-        &optimal_utilization,
-        &reserve_factor,
+        &params.max_borrow_rate_ray,
+        &params.base_borrow_rate_ray,
+        &params.slope1_ray,
+        &params.slope2_ray,
+        &params.slope3_ray,
+        &params.mid_utilization_ray,
+        &params.optimal_utilization_ray,
+        &params.reserve_factor_bps,
     );
 }
 
@@ -252,7 +239,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     pool_client.add_rewards(&feed.price_wad, &actual_received);
 }
 
-pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
+pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<Payment>) {
     for i in 0..rewards.len() {
         let (asset, amount) = rewards.get(i).unwrap();
         add_reward(env, caller, &asset, amount);

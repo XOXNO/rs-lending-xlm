@@ -1,3 +1,4 @@
+use common::types::InterestRateModel;
 use soroban_sdk::{Address, Symbol};
 
 use crate::context::LendingTest;
@@ -92,31 +93,9 @@ impl LendingTest {
     // Pool params upgrade
     // -----------------------------------------------------------------------
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn upgrade_pool_params(
-        &self,
-        asset_name: &str,
-        max_borrow_rate: i128,
-        base_borrow_rate: i128,
-        slope1: i128,
-        slope2: i128,
-        slope3: i128,
-        mid_utilization: i128,
-        optimal_utilization: i128,
-        reserve_factor: i128,
-    ) {
+    pub fn upgrade_pool_params(&self, asset_name: &str, params: InterestRateModel) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().upgrade_pool_params(
-            &asset,
-            &max_borrow_rate,
-            &base_borrow_rate,
-            &slope1,
-            &slope2,
-            &slope3,
-            &mid_utilization,
-            &optimal_utilization,
-            &reserve_factor,
-        );
+        self.ctrl_client().upgrade_pool_params(&asset, &params);
     }
 
     // -----------------------------------------------------------------------

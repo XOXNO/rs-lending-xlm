@@ -2,8 +2,8 @@ use common::constants::WAD;
 use common::fp::{Ray, Wad};
 use common::types::{
     AccountAttributes, AccountMeta, AccountPosition, AssetExtendedConfigView, EModeCategory,
-    LiquidationEstimate, MarketConfig, MarketIndexView, PaymentTuple, POSITION_TYPE_BORROW,
-    POSITION_TYPE_DEPOSIT,
+    LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
+    POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{Address, Env, Vec};
 
@@ -259,35 +259,34 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
 pub fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
-    debt_payments: &Vec<(Address, i128)>,
+    debt_payments: &Vec<Payment>,
 ) -> LiquidationEstimate {
     let mut cache = ControllerCache::new_view(env);
     let account = storage::get_account(env, account_id);
-    let (seized, _repaid, refunds, max_payment_wad, bonus_rate_bps) =
-        crate::positions::liquidation::execute_liquidation(
-            env,
-            &account,
-            debt_payments,
-            &mut cache,
-        );
+    let result = crate::positions::liquidation::execute_liquidation(
+        env,
+        &account,
+        debt_payments,
+        &mut cache,
+    );
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
-    for i in 0..seized.len() {
-        let (asset, amount, protocol_fee, _feed, _index) = seized.get(i).unwrap();
+    for i in 0..result.seized.len() {
+        let entry = result.seized.get(i).unwrap();
         seized_collaterals.push_back(PaymentTuple {
-            asset: asset.clone(),
-            amount,
+            asset: entry.asset.clone(),
+            amount: entry.amount,
         });
         protocol_fees.push_back(PaymentTuple {
-            asset,
-            amount: protocol_fee,
+            asset: entry.asset,
+            amount: entry.protocol_fee,
         });
     }
 
     let mut refunds_view = Vec::new(env);
-    for i in 0..refunds.len() {
-        let (asset, amount) = refunds.get(i).unwrap();
+    for i in 0..result.refunds.len() {
+        let (asset, amount) = result.refunds.get(i).unwrap();
         refunds_view.push_back(PaymentTuple { asset, amount });
     }
 
@@ -295,8 +294,8 @@ pub fn liquidation_estimations_detailed(
         seized_collaterals,
         protocol_fees,
         refunds: refunds_view,
-        max_payment_wad,
-        bonus_rate_bps,
+        max_payment_wad: result.max_debt_usd,
+        bonus_rate_bps: result.bonus_bps,
     }
 }
 

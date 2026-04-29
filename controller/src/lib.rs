@@ -46,8 +46,8 @@ use common::errors::GenericError;
 use common::events::{emit_approve_token_wasm, ApproveTokenWasmEvent};
 use common::types::{
     AccountAttributes, AccountPosition, AssetConfig, AssetExtendedConfigView, EModeCategory,
-    LiquidationEstimate, MarketConfig, MarketIndexView, MarketOracleConfigInput, MarketParams,
-    PositionLimits, PositionMode, SwapSteps,
+    InterestRateModel, LiquidationEstimate, MarketConfig, MarketIndexView, MarketOracleConfigInput,
+    MarketParams, Payment, PositionLimits, PositionMode, SwapSteps,
 };
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Symbol, Vec,
@@ -188,7 +188,7 @@ impl Controller {
         caller: Address,
         account_id: u64,
         e_mode_category: u32,
-        assets: Vec<(Address, i128)>,
+        assets: Vec<Payment>,
     ) -> u64 {
         positions::supply::process_supply(&env, &caller, account_id, e_mode_category, &assets)
     }
@@ -197,7 +197,7 @@ impl Controller {
     // Borrow
     // -----------------------------------------------------------------------
 
-    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>) {
+    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<Payment>) {
         positions::borrow::borrow_batch(&env, &caller, account_id, &borrows);
     }
 
@@ -205,7 +205,7 @@ impl Controller {
     // Withdraw
     // -----------------------------------------------------------------------
 
-    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>) {
+    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<Payment>) {
         positions::withdraw::process_withdraw(&env, &caller, account_id, &withdrawals);
     }
 
@@ -213,7 +213,7 @@ impl Controller {
     // Repay
     // -----------------------------------------------------------------------
 
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
         positions::repay::process_repay(&env, &caller, account_id, &payments);
     }
 
@@ -225,7 +225,7 @@ impl Controller {
         env: Env,
         liquidator: Address,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<Payment>,
     ) {
         positions::liquidation::process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
@@ -634,57 +634,13 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn upgrade_pool_params(
-        env: Env,
-        asset: Address,
-        max_borrow_rate: i128,
-        base_borrow_rate: i128,
-        slope1: i128,
-        slope2: i128,
-        slope3: i128,
-        mid_utilization: i128,
-        optimal_utilization: i128,
-        reserve_factor: i128,
-    ) {
-        router::upgrade_liquidity_pool_params(
-            &env,
-            &asset,
-            max_borrow_rate,
-            base_borrow_rate,
-            slope1,
-            slope2,
-            slope3,
-            mid_utilization,
-            optimal_utilization,
-            reserve_factor,
-        );
+    pub fn upgrade_pool_params(env: Env, asset: Address, params: InterestRateModel) {
+        router::upgrade_liquidity_pool_params(&env, &asset, &params);
     }
 
     #[only_owner]
-    pub fn upgrade_liquidity_pool_params(
-        env: Env,
-        asset: Address,
-        max_borrow_rate: i128,
-        base_borrow_rate: i128,
-        slope1: i128,
-        slope2: i128,
-        slope3: i128,
-        mid_utilization: i128,
-        optimal_utilization: i128,
-        reserve_factor: i128,
-    ) {
-        router::upgrade_liquidity_pool_params(
-            &env,
-            &asset,
-            max_borrow_rate,
-            base_borrow_rate,
-            slope1,
-            slope2,
-            slope3,
-            mid_utilization,
-            optimal_utilization,
-            reserve_factor,
-        );
+    pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
+        router::upgrade_liquidity_pool_params(&env, &asset, &params);
     }
 
     #[only_owner]
@@ -705,7 +661,7 @@ impl Controller {
     }
 
     #[only_role(caller, "REVENUE")]
-    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
+    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<Payment>) {
         validation::require_not_flash_loaning(&env);
         router::add_rewards_batch(&env, &caller, rewards);
     }
@@ -775,7 +731,7 @@ impl Controller {
     pub fn liquidation_estimations_detailed(
         env: Env,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<Payment>,
     ) -> LiquidationEstimate {
         views::liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }

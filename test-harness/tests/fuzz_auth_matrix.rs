@@ -20,6 +20,7 @@
 //! paired with a random caller address that holds no role and does not own
 //! the contract.
 
+use common::types::InterestRateModel;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Symbol, Vec as SVec};
@@ -211,6 +212,10 @@ proptest! {
         expect_rejected("remove_asset_from_e_mode", || {
             ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
         }).unwrap();
+        expect_rejected("remove_asset_e_mode_category", || {
+            ctrl.set_auths(&no_auths)
+                .try_remove_asset_e_mode_category(&usdc, &category_id)
+        }).unwrap();
 
         // approve_token_wasm / revoke_token_wasm (only_owner)
         expect_rejected("approve_token_wasm", || {
@@ -227,10 +232,27 @@ proptest! {
         expect_rejected("upgrade_pool", || {
             ctrl.set_auths(&no_auths).try_upgrade_pool(&usdc, &dummy_bytes_n(&env, seed))
         }).unwrap();
-        expect_rejected("upgrade_pool_params", || {
-            ctrl.set_auths(&no_auths).try_upgrade_pool_params(
-                &usdc, &0i128, &0i128, &0i128, &0i128, &0i128, &0i128, &0i128, &0i128,
+        expect_rejected("upgrade_liquidity_pool", || {
+            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool(
+                &usdc,
+                &dummy_bytes_n(&env, seed),
             )
+        }).unwrap();
+        let zero_model = InterestRateModel {
+            max_borrow_rate_ray: 0,
+            base_borrow_rate_ray: 0,
+            slope1_ray: 0,
+            slope2_ray: 0,
+            slope3_ray: 0,
+            mid_utilization_ray: 0,
+            optimal_utilization_ray: 0,
+            reserve_factor_bps: 0,
+        };
+        expect_rejected("upgrade_pool_params", || {
+            ctrl.set_auths(&no_auths).try_upgrade_pool_params(&usdc, &zero_model)
+        }).unwrap();
+        expect_rejected("upgrade_liquidity_pool_params", || {
+            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
         }).unwrap();
 
         // create_liquidity_pool (only_owner)

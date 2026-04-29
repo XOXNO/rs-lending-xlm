@@ -1,6 +1,7 @@
 extern crate std;
 
 use common::constants::RAY;
+use common::types::InterestRateModel;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
 use test_harness::{
@@ -136,14 +137,16 @@ fn test_upgrade_pool_params() {
 
     t.upgrade_pool_params(
         "USDC",
-        RAY * 2,         // max_borrow_rate (200%, at the Taylor-envelope cap)
-        new_base_rate,   // base_borrow_rate
-        new_slope1,      // slope1
-        RAY * 10 / 100,  // slope2
-        RAY * 150 / 100, // slope3 (150%, must be <= max_borrow_rate)
-        RAY * 50 / 100,  // mid_utilization
-        RAY * 80 / 100,  // optimal_utilization
-        1000,            // reserve_factor
+        InterestRateModel {
+            max_borrow_rate_ray: RAY * 2,
+            base_borrow_rate_ray: new_base_rate,
+            slope1_ray: new_slope1,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 150 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            reserve_factor_bps: 1000,
+        },
     );
 
     // Compare before/after to confirm the pool rate changed. At zero
@@ -153,6 +156,37 @@ fn test_upgrade_pool_params() {
     assert!(
         rate_after > rate_before,
         "borrow rate should increase after doubling base_borrow_rate: before={}, after={}",
+        rate_before,
+        rate_after
+    );
+}
+
+#[test]
+fn test_upgrade_liquidity_pool_params_alias() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let ctrl = t.ctrl_client();
+    let asset = t.resolve_market("USDC").asset.clone();
+
+    let rate_before = t.pool_borrow_rate("USDC");
+
+    ctrl.upgrade_liquidity_pool_params(
+        &asset,
+        &InterestRateModel {
+            max_borrow_rate_ray: RAY * 2,
+            base_borrow_rate_ray: RAY * 2 / 100,
+            slope1_ray: RAY * 8 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 150 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            reserve_factor_bps: 1000,
+        },
+    );
+
+    let rate_after = t.pool_borrow_rate("USDC");
+    assert!(
+        rate_after > rate_before,
+        "alias should update the pool params: before={}, after={}",
         rate_before,
         rate_after
     );
@@ -177,14 +211,16 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     // `InvalidBorrowParams`.
     let result = ctrl.try_upgrade_pool_params(
         &asset,
-        &(2 * RAY + 1),     // max_borrow_rate (above cap)
-        &(RAY / 100),       // base_borrow_rate (1%)
-        &(RAY * 4 / 100),   // slope1 (4%)
-        &(RAY * 10 / 100),  // slope2 (10%)
-        &(RAY * 150 / 100), // slope3 (150%)
-        &(RAY * 50 / 100),  // mid_utilization (50%)
-        &(RAY * 80 / 100),  // optimal_utilization (80%)
-        &1000i128,          // reserve_factor (10%)
+        &InterestRateModel {
+            max_borrow_rate_ray: 2 * RAY + 1,
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY * 4 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 150 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            reserve_factor_bps: 1000,
+        },
     );
     assert!(
         result.is_err(),
@@ -199,14 +235,16 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     // At the exact cap (`2 * RAY`); slope3 must remain <= max.
     t.upgrade_pool_params(
         "USDC",
-        2 * RAY,            // max_borrow_rate (200%, at cap)
-        RAY / 100,          // base_borrow_rate
-        RAY * 4 / 100,      // slope1
-        RAY * 10 / 100,     // slope2
-        RAY * 150 / 100,    // slope3 (150%)
-        RAY * 50 / 100,     // mid_utilization
-        RAY * 80 / 100,     // optimal_utilization
-        1000,               // reserve_factor
+        InterestRateModel {
+            max_borrow_rate_ray: 2 * RAY,
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY * 4 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 150 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            reserve_factor_bps: 1000,
+        },
     );
     // Did not panic — cap allows the boundary value.
 }

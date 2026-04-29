@@ -1,8 +1,10 @@
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::Ray;
-use common::types::{Account, AccountPosition, PoolPositionMutation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Symbol, Vec};
+use common::types::{Account, AccountPosition, Payment, PoolPositionMutation};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
+
+use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
@@ -15,7 +17,7 @@ pub fn process_repay(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    payments: &Vec<(Address, i128)>,
+    payments: &Vec<Payment>,
 ) {
     caller.require_auth();
     validation::require_not_paused(env);
@@ -56,7 +58,6 @@ fn process_single_repay(
 ) {
     validation::require_amount_positive(env, amount);
 
-    // The position must exist.
     let position = match account.borrow_positions.get(asset.clone()) {
         Some(pos) => pos,
         None => panic_with_error!(env, CollateralError::PositionNotFound),
@@ -85,9 +86,11 @@ fn process_single_repay(
     let _ = execute_repayment(
         env,
         account,
-        caller,
-        caller,
-        symbol_short!("repay"),
+        EventContext {
+            caller: caller.clone(),
+            event_caller: caller.clone(),
+            action: symbol_short!("repay"),
+        },
         &position,
         feed.price_wad,
         actual_received,
@@ -102,34 +105,23 @@ fn process_single_repay(
 /// Execute the repayment through the pool, update the position, optionally
 /// adjust isolated debt, and emit an `UpdatePositionEvent`.
 ///
-/// - `caller` is the pool-call authority (the address whose tokens were
-///   transferred in).
-/// - `event_caller` is the originator logged in the event. For plain repay
-///   and liquidation these are the same; for strategy flows (where
-///   `caller = env.current_contract_address()`) pass the real user so the
-///   event log identifies them correctly.
-/// - `action` is the event tag the caller wants indexers to see
-///   (e.g. `"repay"`, `"liq_repay"`, `"rp_col_r"`, `"sw_debt_r"`).
-///
 /// Every mutating path routes through here, so an indexer that subscribes to
 /// `UpdatePositionEvent` sees *all* position changes regardless of which
 /// outer flow (plain / liquidation / strategy) triggered them.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
-    caller: &Address,
-    event_caller: &Address,
-    action: Symbol,
+    ctx: EventContext,
     position: &AccountPosition,
     price_wad: i128,
     amount: i128,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
+    let EventContext { caller, event_caller, action } = ctx;
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
-    let mut result = pool_client.repay(caller, &amount, position, &price_wad);
+    let mut result = pool_client.repay(&caller, &amount, position, &price_wad);
 
     // Derive the applied repayment from the pre-repay scaled debt and the
     // pool-returned synced borrow index. Prevents accounting drift when the
@@ -166,7 +158,7 @@ pub fn execute_repayment(
             amount: result.actual_amount,
             position: result.position.clone().into(),
             asset_price: Some(price_wad),
-            caller: Some(event_caller.clone()),
+            caller: Some(event_caller),
             account_attributes: Some((&*account).into()),
         },
     );

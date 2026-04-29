@@ -1,5 +1,8 @@
 use soroban_sdk::{contracttype, Address, BytesN, Map, Symbol, Vec};
 
+/// Asset + amount pair used as input across supply, borrow, withdraw, repay, and liquidate endpoints.
+pub type Payment = (Address, i128);
+
 // ---------------------------------------------------------------------------
 // Position types
 // ---------------------------------------------------------------------------
@@ -61,6 +64,22 @@ pub struct MarketParams {
     pub reserve_factor_bps: i128,
     pub asset_id: Address,
     pub asset_decimals: u32,
+}
+
+/// Interest-rate model update payload. Separates the 8 mutable rate params
+/// from `asset_id`/`asset_decimals`, which the controller resolves from
+/// storage and never accepts from the caller.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct InterestRateModel {
+    pub max_borrow_rate_ray: i128,
+    pub base_borrow_rate_ray: i128,
+    pub slope1_ray: i128,
+    pub slope2_ray: i128,
+    pub slope3_ray: i128,
+    pub mid_utilization_ray: i128,
+    pub optimal_utilization_ray: i128,
+    pub reserve_factor_bps: i128,
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +394,38 @@ pub struct LiquidationEstimate {
     pub refunds: Vec<PaymentTuple>,
     pub max_payment_wad: i128,
     pub bonus_rate_bps: i128,
+}
+
+/// Named entry for a seized collateral asset produced by `execute_liquidation`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SeizeEntry {
+    pub asset: Address,
+    pub amount: i128,
+    pub protocol_fee: i128,
+    pub feed: PriceFeed,
+    pub market_index: MarketIndex,
+}
+
+/// Named entry for a repaid debt asset produced by `execute_liquidation`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RepayEntry {
+    pub asset: Address,
+    pub amount: i128,
+    pub usd_wad: i128,
+    pub feed: PriceFeed,
+    pub market_index: MarketIndex,
+}
+
+/// Aggregate result of `execute_liquidation`.
+#[derive(Clone)]
+pub struct LiquidationResult {
+    pub seized: Vec<SeizeEntry>,
+    pub repaid: Vec<RepayEntry>,
+    pub refunds: Vec<Payment>,
+    pub max_debt_usd: i128,
+    pub bonus_bps: i128,
 }
 
 // ---------------------------------------------------------------------------
