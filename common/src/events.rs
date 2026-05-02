@@ -591,8 +591,6 @@ mod tests {
             e_mode_category_id: 0,
             mode: PositionMode::Normal,
             isolated_asset: Some(iso.clone()),
-            supply_assets: Vec::new(&env),
-            borrow_assets: Vec::new(&env),
         };
         let attrs = EventAccountAttributes::from(&meta);
         assert!(attrs.is_isolated_position);
@@ -611,8 +609,6 @@ mod tests {
             e_mode_category_id: 3,
             mode: PositionMode::Long,
             isolated_asset: None,
-            supply_assets: Vec::new(&env),
-            borrow_assets: Vec::new(&env),
         };
         let attrs = EventAccountAttributes::from(&meta);
         assert!(!attrs.is_isolated_position);

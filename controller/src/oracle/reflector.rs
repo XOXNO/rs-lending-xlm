@@ -36,5 +36,5 @@ pub trait ReflectorOracle {
 
     fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData>;
 
-    fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Vec<Option<ReflectorPriceData>>;
+    fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }

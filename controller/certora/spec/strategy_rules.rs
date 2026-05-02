@@ -41,7 +41,7 @@ fn multiply_creates_both_positions(
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(collateral_token != debt_token);
-    cvlr_assume!(mode >= 1 && mode <= 3);
+    cvlr_assume!((1..=3).contains(&mode));
 
     let account_id = crate::spec::compat::multiply(
         e.clone(),
@@ -87,7 +87,7 @@ fn multiply_rejects_same_tokens(
     steps: SwapSteps,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
-    cvlr_assume!(mode >= 1 && mode <= 3);
+    cvlr_assume!((1..=3).contains(&mode));
 
     // Call multiply with same token for both collateral and debt
     crate::spec::compat::multiply(
@@ -125,7 +125,7 @@ fn multiply_requires_collateralizable(
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(collateral_token != debt_token);
-    cvlr_assume!(mode >= 1 && mode <= 3);
+    cvlr_assume!((1..=3).contains(&mode));
 
     // Assume collateral asset is NOT collateralizable
     let mut cache = crate::cache::ControllerCache::new(&e, false);

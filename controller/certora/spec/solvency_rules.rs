@@ -880,7 +880,7 @@ fn mode_transition_blocked_with_positions(
     // Account must have at least one borrow position (active positions)
     let borrow_list =
         crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_BORROW);
-    cvlr_assume!(borrow_list.len() > 0);
+    cvlr_assume!(!borrow_list.is_empty());
 
     // The asset is an isolated asset (would require switching to isolation)
     let config = crate::storage::get_asset_config(&e, &asset);
@@ -986,7 +986,7 @@ fn roundtrip_supply_sanity(e: Env) {
     let amount: i128 = cvlr::nondet::nondet();
     let index: i128 = cvlr::nondet::nondet();
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-    cvlr_assume!(index >= RAY && index <= 10 * RAY);
+    cvlr_assume!((RAY..=10 * RAY).contains(&index));
 
     let scaled = common::fp_core::mul_div_half_up(&e, amount, RAY, index);
     let recovered = common::fp_core::mul_div_half_up(&e, scaled, index, RAY);

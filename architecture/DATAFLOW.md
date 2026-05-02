@@ -59,8 +59,7 @@ withdraw, liquidate, flash-loan, revenue), see
 | `OwnableStorageKey::Owner` etc. | Instance | `stellar-access` | access-control storage |
 | `PoolKey::Params` | Instance | Pool | per-pool bump 180d |
 | `PoolKey::State` | Instance | Pool | per-pool bump 180d via `keepalive_pools` |
-| `PoolKey::Accumulator` | Instance | Pool | per-pool bump 180d |
-| `FL_PREBAL` (pool/cache.rs) | Temporary | Pool | single-tx scratch; cleared in `flash_loan_end` |
+| `FL_PREBAL` (pool/lib.rs) | Instance | Pool | single-tx scratch; written in `flash_loan_begin`, cleared in `flash_loan_end` |
 
 ## Trust boundaries
 
@@ -250,8 +249,8 @@ sequence diagrams in `architecture/ARCHITECTURE.md`.
 2. Controller: `set_flash_loan_ongoing(true)` (Instance write,
    `flash_loan.rs:43`).
 3. Controller → Pool: `pool.flash_loan_begin(asset, amount, receiver)` under
-   `verify_admin` (TB-3). Pool snapshots reserves to `FL_PREBAL` (Temporary
-   storage).
+   `verify_admin` (TB-3). Pool snapshots reserves to `FL_PREBAL` (Instance
+   storage; cleared in `flash_loan_end`).
 4. Pool → Token SAC: `transfer(pool → receiver, amount)` (TB-7).
 5. Controller → Receiver: `env.invoke_contract::<()>(receiver,
    "execute_flash_loan", (initiator, asset, amount, fee, data))`

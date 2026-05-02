@@ -34,15 +34,16 @@ fn test_validate_bulk_isolation_rejects_isolated_first_asset_bulk() {
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_market("USDC");
     let usdc_addr = usdc.asset.clone();
-    usdc.token_admin.mint(&alice, &10_000_0000000i128);
+    // 10_000 USDC at 7 decimals, 1 ETH at 7 decimals (Stellar-native).
+    usdc.token_admin.mint(&alice, &100_000_000_000_i128);
     let eth = t.resolve_market("ETH");
     let eth_addr = eth.asset.clone();
-    eth.token_admin.mint(&alice, &1_0000000i128);
+    eth.token_admin.mint(&alice, &10_000_000_i128);
 
     let assets = vec![
         &t.env,
-        (usdc_addr, 10_000_0000000i128),
-        (eth_addr, 1_0000000i128),
+        (usdc_addr, 100_000_000_000_i128),
+        (eth_addr, 10_000_000_i128),
     ];
     t.ctrl_client().supply(&alice, &0u64, &0u32, &assets);
 }
@@ -286,8 +287,9 @@ fn test_emode_user_supply_rejects_deprecated_category() {
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_market("USDC");
     let usdc_addr = usdc.asset.clone();
-    usdc.token_admin.mint(&alice, &1_000_0000000i128);
+    // 1_000 USDC at 7 decimals.
+    usdc.token_admin.mint(&alice, &10_000_000_000_i128);
     let assets: soroban_sdk::Vec<(Address, i128)> =
-        vec![&t.env, (usdc_addr, 1_000_0000000i128)];
+        vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
     t.ctrl_client().supply(&alice, &0u64, &1u32, &assets);
 }

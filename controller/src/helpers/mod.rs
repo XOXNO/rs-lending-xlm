@@ -1,7 +1,8 @@
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
+use common::errors::GenericError;
 use common::fp::{Bps, Ray, Wad};
 use common::types::AccountPosition;
-use soroban_sdk::{Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 #[cfg(test)]
 pub mod testutils;
@@ -42,7 +43,7 @@ pub fn calculate_ltv_collateral_wad(
             Wad::from_raw(feed.price_wad),
         );
 
-        ltv = ltv + Bps::from_raw(position.loan_to_value_bps).apply_to_wad(env, value);
+        ltv += Bps::from_raw(position.loan_to_value_bps).apply_to_wad(env, value);
     }
     ltv
 }
@@ -75,12 +76,11 @@ crate::summarized!(
                 Wad::from_raw(feed.price_wad),
             );
 
-            weighted_collateral_total = weighted_collateral_total
-                + weighted_collateral(
-                    env,
-                    value,
-                    Bps::from_raw(position.liquidation_threshold_bps),
-                );
+            weighted_collateral_total += weighted_collateral(
+                env,
+                value,
+                Bps::from_raw(position.liquidation_threshold_bps),
+            );
         }
 
         let mut total_borrow = Wad::ZERO;
@@ -94,7 +94,7 @@ crate::summarized!(
                 Wad::from_raw(feed.price_wad),
             );
 
-            total_borrow = total_borrow + value;
+            total_borrow += value;
         }
 
         if total_borrow == Wad::ZERO {
@@ -158,13 +158,12 @@ crate::summarized!(
                 Wad::from_raw(feed.price_wad),
             );
 
-            total_collateral = total_collateral + value;
-            weighted_coll = weighted_coll
-                + weighted_collateral(
-                    env,
-                    value,
-                    Bps::from_raw(position.liquidation_threshold_bps),
-                );
+            total_collateral += value;
+            weighted_coll += weighted_collateral(
+                env,
+                value,
+                Bps::from_raw(position.liquidation_threshold_bps),
+            );
         }
 
         let mut total_debt = Wad::ZERO;
@@ -179,7 +178,7 @@ crate::summarized!(
                 Wad::from_raw(feed.price_wad),
             );
 
-            total_debt = total_debt + value;
+            total_debt += value;
         }
 
         (total_collateral, total_debt, weighted_coll)
@@ -210,7 +209,11 @@ pub fn calculate_linear_bonus_with_target(
 
     let bonus_range = max - base;
     let bonus_increment = Wad::from_raw(bonus_range.raw()).mul(env, scale).raw();
-    let bonus = Bps::from_raw(base.raw() + bonus_increment);
+    let bonus = Bps::from_raw(
+        base.raw()
+            .checked_add(bonus_increment)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
+    );
 
     Bps::from_raw(bonus.raw().min(MAX_LIQUIDATION_BONUS))
 }
@@ -384,7 +387,7 @@ pub fn get_account_bonus_params(
             Wad::from_raw(feed.price_wad),
         );
 
-        total_collateral = total_collateral + value;
+        total_collateral += value;
         asset_values.push_back((value.raw(), position.liquidation_bonus_bps));
     }
 
@@ -396,7 +399,9 @@ pub fn get_account_bonus_params(
     for i in 0..asset_values.len() {
         let (value_raw, bonus_bps) = asset_values.get(i).unwrap();
         let weight = Wad::from_raw(value_raw).div(env, total_collateral);
-        weighted_bonus_sum += weight.mul(env, Wad::from_raw(bonus_bps)).raw();
+        weighted_bonus_sum = weighted_bonus_sum
+            .checked_add(weight.mul(env, Wad::from_raw(bonus_bps)).raw())
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
 
     (

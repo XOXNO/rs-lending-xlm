@@ -169,7 +169,9 @@ impl AccountAttributes {
     }
 }
 
-/// Account metadata stored separately from per-position entries.
+/// Slim account context. The supply and borrow position maps live under
+/// `ControllerKey::SupplyPositions` / `ControllerKey::BorrowPositions` and
+/// serve as their own asset index — no Vec is maintained here.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -178,8 +180,6 @@ pub struct AccountMeta {
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
     pub isolated_asset: Option<Address>,
-    pub supply_assets: Vec<Address>,
-    pub borrow_assets: Vec<Address>,
 }
 
 // ---------------------------------------------------------------------------
@@ -562,10 +562,10 @@ pub enum ControllerKey {
     // Persistent-scoped
     Market(Address),
     AccountMeta(u64),
-    SupplyPosition(u64, Address),
-    BorrowPosition(u64, Address),
+    SupplyPositions(u64),
+    BorrowPositions(u64),
     EModeCategory(u32),
-    EModeAsset(u32, Address),
+    EModeAssets(u32),
     AssetEModes(Address),
     IsolatedDebt(Address),
     PoolsList(u32),
@@ -578,10 +578,6 @@ pub enum ControllerKey {
 pub enum PoolKey {
     Params,
     State,
-    /// Revenue destination. Set once at pool construction by the controller
-    /// (`router::create_liquidity_pool`); `claim_revenue` reads it from
-    /// storage rather than trusting a caller-supplied address.
-    Accumulator,
 }
 
 /// Mutable pool state held in a single Instance entry.

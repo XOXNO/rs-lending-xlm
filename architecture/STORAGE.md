@@ -46,7 +46,7 @@ Contract-lifetime singletons at `controller/src/lib.rs` and
 |---|---|---|
 | `PoolTemplate` | `BytesN<32>` | WASM hash of the pool contract; pools are deployed from this template at market-create time. Set once at controller `__constructor`. |
 | `Aggregator` | `Address` | Swap aggregator used by the strategy ops (`multiply`, `swap_*`). |
-| `Accumulator` | `Address` | Revenue destination. Pools read this via controller and forward protocol fees. |
+| `Accumulator` | `Address` | Revenue destination. The controller forwards revenue here after pulling each pool's `claim_revenue`. Pools never store or see this address. |
 | `AccountNonce` | `u64` | Monotonic counter for new account IDs. |
 | `PositionLimits` | `PositionLimits` | Global cap on positions per account (`max_supply`, `max_borrow`). |
 | `LastEModeCategoryId` | `u32` | High-water mark, auto-incremented on `add_e_mode_category`. |
@@ -88,20 +88,23 @@ Pools are per-asset child contracts deployed from the controller's
 
 ### `PoolKey` (Instance)
 
-From `common/src/types.rs:522-544`. Three keys, all instance-scoped.
+From `common/src/types.rs`. Two keys, all instance-scoped.
 
 | Variant | Value | Mutability |
 |---|---|---|
 | `Params` | `MarketParams` | Immutable after initialization (rate curve, reserve factor, asset decimals, borrow caps). |
 | `State` | `PoolState` | Mutable: `supplied_ray`, `borrowed_ray`, `revenue_ray`, `borrow_index_ray`, `supply_index_ray`, `last_timestamp`. |
-| `Accumulator` | `Address` | Revenue destination inherited from controller at init. |
 
-### Temporary scratch keys
+### Flash-loan scratch key
 
-- `FL_PREBAL` (`symbol_short!`, in `pool/src/cache.rs:26`) — pre-flash-loan
-  token balance snapshot, written in `flash_loan_begin` and cleared in
-  `flash_loan_end`. Temporary durability because it MUST NOT survive the
-  transaction; any post-transaction residue would be a reentrancy vector.
+`FL_PREBAL` (`symbol_short!`, in `pool/src/lib.rs`) holds the pre-flash-loan
+token balance snapshot, written in `flash_loan_begin` and cleared in
+`flash_loan_end`. It lives in **instance** storage (not Temporary): the
+controller-level `FlashLoanOngoing` reentrancy guard already prevents nested
+flash loans on the same pool inside a tx, and instance storage TTL bumps
+keep the key alive for normal pool operation. A panic between begin and end
+rolls back the entire transaction, so the key never leaks across
+transactions.
 
 ## Cache layer
 
@@ -145,7 +148,7 @@ through `controller/src/storage/mod.rs`.
 |---|---|
 | `keepalive_shared_state(assets)` | Instance singletons (`PoolTemplate`, `Aggregator`, `Accumulator`, `PositionLimits`, `PoolsCount`, all `PoolsList(i)`); per-asset: `Market(asset)`, `IsolatedDebt(asset)`, `AssetEModes(asset)`; per e-mode: `EModeCategory(id)` and every `EModeAsset(id, asset)`. |
 | `keepalive_accounts(ids)` | `AccountMeta(id)` plus every `SupplyPosition(id, *)` and `BorrowPosition(id, *)` referenced by that account's asset lists. Implemented via `storage::bump_account`. |
-| `keepalive_pools(assets)` | Delegates to each pool's own `keepalive` ABI, which bumps the pool's instance keys (`Params`, `State`, `Accumulator`). |
+| `keepalive_pools(assets)` | Delegates to each pool's own `keepalive` ABI, which bumps the pool's instance keys (`Params`, `State`). |
 
 Keeping the three routines separate lets an operator bump a narrow slice —
 one account being liquidated, say — without paying the protocol-wide cost.
@@ -162,7 +165,7 @@ Asset ↔ pool lookup goes through the controller's `MarketConfig`:
 controller.Market(USDC) → MarketConfig { pool_address: Pool_USDC, ... }
                                           │
                                           ▼
-                         Pool_USDC.instance: { Params, State, Accumulator }
+                         Pool_USDC.instance: { Params, State }
 ```
 
 There is no separate `AssetPools` map — the pool address is a field on
@@ -170,9 +173,13 @@ There is no separate `AssetPools` map — the pool address is a field on
 both the asset's config and its pool address. `PoolsList` exists only for
 enumeration (e.g., iterating every market during `keepalive_shared_state`).
 
-The pool reads `Accumulator` from its own instance storage (written once at
-pool init from the controller's value). Revenue forwarding never crosses
-contracts on the hot path.
+Revenue routing is anchored on pool ownership: `claim_revenue` transfers
+the claimed asset to the pool's owner, which is always this controller.
+The controller then forwards to `ControllerKey::Accumulator` in the same
+transaction. The pool itself does not store an accumulator address — the
+controller is the single source of truth, so rotating the accumulator is
+a one-line operator call (`set_accumulator`) that needs no per-pool
+migration.
 
 ## What's not here
 

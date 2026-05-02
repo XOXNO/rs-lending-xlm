@@ -2,16 +2,24 @@ use common::errors::{CollateralError, EModeError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory,
-    Payment, PoolPositionMutation, PriceFeed, POSITION_TYPE_BORROW,
+    Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
+    POSITION_TYPE_BORROW,
 };
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec};
+use stellar_macros::when_not_paused;
 
 use super::{emode, update};
 use crate::cache::ControllerCache;
-use crate::{helpers, storage, validation};
+use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-#[allow(clippy::too_many_arguments)]
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<Payment>) {
+        borrow_batch(&env, &caller, account_id, &borrows);
+    }
+}
+
 /// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
 /// isolated-debt ceiling, flashes the debt via `pool::create_strategy`, and emits the event.
 /// Returns the net amount received after the pool deducts the strategy flash fee.
@@ -22,41 +30,27 @@ pub fn handle_create_borrow_strategy(
     account_id: u64,
     debt_token: &Address,
     amount: i128,
-    debt_config: &mut AssetConfig,
     caller: &Address,
 ) -> i128 {
     validation::require_asset_supported(env, debt_token);
+    validation::require_market_active(env, debt_token);
 
-    let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
-    emode::ensure_e_mode_not_deprecated(env, &e_mode);
-    let debt_emode_config = emode::token_e_mode_config(env, account.e_mode_category_id, debt_token);
-    emode::ensure_e_mode_compatible_with_asset(env, debt_config, account.e_mode_category_id);
-    emode::apply_e_mode_to_asset_config(env, debt_config, &e_mode, debt_emode_config);
+    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+    let debt_config = emode::effective_asset_config(env, account, debt_token, cache, &e_mode);
+    let mut new_borrows = Vec::new(env);
+    new_borrows.push_back((debt_token.clone(), amount));
+    validate_siloed_borrow_set(env, cache, account, &new_borrows);
+    validate_borrow_asset_preflight(env, &debt_config, debt_token, account);
 
-    if !debt_config.is_borrowable {
-        panic_with_error!(env, CollateralError::AssetNotBorrowable);
-    }
-
-    let borrow_position =
-        get_or_create_borrow_position(account, account_id, debt_config, debt_token);
     let price_feed = cache.cached_price(debt_token);
 
-    validate_borrow_cap(
-        env,
-        cache,
-        debt_config,
-        amount,
-        price_feed.asset_decimals,
-        debt_token,
-    );
-
+    validate_borrow_cap(env, cache, &debt_config, amount, debt_token);
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = Bps::from_raw(debt_config.flashloan_fee_bps).apply_to(env, amount);
-
     let pool_address = cache.cached_pool_address(debt_token);
-
-    validate_borrow_asset(env, cache, debt_config, debt_token, account);
+    let borrow_position =
+        get_or_create_borrow_position(account, account_id, &debt_config, debt_token);
 
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_address);
     let result = pool_client.create_strategy(
@@ -66,25 +60,16 @@ pub fn handle_create_borrow_strategy(
         &flash_fee,
         &price_feed.price_wad,
     );
-    let mut updated_borrow_position = result.position;
-    updated_borrow_position.account_id = account_id;
-
-    emit_update_position(
+    record_borrow_update(
         env,
-        UpdatePositionEvent {
-            action: symbol_short!("multiply"),
-            index: result.market_index.borrow_index_ray,
-            amount: result.actual_amount,
-            position: updated_borrow_position.clone().into(),
-            asset_price: Some(price_feed.price_wad),
-            caller: Some(caller.clone()),
-            account_attributes: Some((&*account).into()),
-        },
+        account,
+        symbol_short!("multiply"),
+        result.market_index.borrow_index_ray,
+        result.actual_amount,
+        result.position,
+        price_feed.price_wad,
+        caller,
     );
-
-    // Persist the updated position on the in-memory account. The strategy
-    // caller writes once via storage::set_account.
-    update::update_or_remove_position(account, &updated_borrow_position);
 
     result.amount_received
 }
@@ -95,122 +80,224 @@ pub fn handle_create_borrow_strategy(
 
 /// Processes a batch of borrows: validates LTV collateral, enforces position limits,
 /// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
+///
+/// Storage I/O: 1 meta read + 1 supply-side read (LTV) + 1 borrow-side
+/// read + 1 borrow-side write. The supply side and meta are not mutated.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
-    validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    let mut account = storage::get_account(env, account_id);
 
-    if account.owner != *caller {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
-    }
+    let meta = storage::get_account_meta(env, account_id);
+    let supply_positions = storage::get_supply_positions(env, account_id);
+    let borrow_positions = storage::get_borrow_positions(env, account_id);
+    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
 
-    // Block new borrows in a deprecated e-mode category. Otherwise a user
-    // whose stored `loan_to_value_bps` still reflects the boosted e-mode
-    // cap could borrow against that inflated value after deprecation,
-    // draining the `(e_mode_ltv - base_ltv) * collateral` slack as bad debt.
-    let e_mode = emode::e_mode_category(env, account.e_mode_category_id);
-    emode::ensure_e_mode_not_deprecated(env, &e_mode);
-
-    // Pre-flight position limit check rejects the full batch atomically.
-    validation::validate_bulk_position_limits(env, &account, POSITION_TYPE_BORROW, borrows);
+    validation::require_account_owner_match(env, &account, caller);
 
     let mut cache = ControllerCache::new(env, false);
+    process_borrow_plan(env, caller, account_id, &mut account, borrows, &mut cache);
+    validation::require_healthy_account(env, &mut cache, &account);
 
-    // Pre-compute LTV-weighted collateral ONCE and reuse across iterations.
-    let ltv_collateral =
-        helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw();
+    // Borrow only mutates the borrow side; supply and meta stay untouched.
+    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
+    cache.flush_isolated_debts();
+}
 
-    for i in 0..borrows.len() {
-        let (asset, amount) = borrows.get(i).unwrap();
-        process_borrow(
-            env,
-            &mut cache,
-            account_id,
-            caller,
-            &mut account,
-            &asset,
-            amount,
-            ltv_collateral,
-            &e_mode,
-        );
+// ---------------------------------------------------------------------------
+// process_borrow_plan -- reusable borrow flow
+// ---------------------------------------------------------------------------
+
+/// Processes a borrow batch on `account`: aggregates duplicate assets,
+/// preflights the batch before pool mutation, then calls the pool once per
+/// unique asset.
+pub fn process_borrow_plan(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    account: &mut Account,
+    borrows: &Vec<Payment>,
+    cache: &mut ControllerCache,
+) {
+    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+    let borrow_plan = utils::aggregate_positive_payments(env, borrows);
+
+    // Resolve the e-mode-overlaid asset config once per unique asset; both
+    // the preflight and the execute phase consume it without recomputing.
+    let mut effective_configs: Map<Address, AssetConfig> = Map::new(env);
+    for (asset, _) in borrow_plan.iter() {
+        if !effective_configs.contains_key(asset.clone()) {
+            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
+            effective_configs.set(asset, cfg);
+        }
     }
 
-    // Single storage write at the end of the batch.
-    storage::set_account(env, account_id, &account);
-    cache.flush_isolated_debts();
+    prepare_borrow_plan(env, account, &borrow_plan, cache, &effective_configs);
+    execute_borrow_plan(env, caller, account_id, account, &borrow_plan, cache, &effective_configs);
+}
 
-    // Defense-in-depth post-loop HF gate. Per-iteration `validate_ltv_collateral`
-    // already enforces `ltv_collateral >= total_borrowed + new_amount`, which
-    // implies HF >= 1 because liquidation_threshold > LTV by construction. This
-    // call adds the explicit liq-threshold check the way `withdraw` does, so a
-    // future change to LTV math (rounding, e-mode timing) cannot silently open
-    // a position below the liquidation line.
-    let hf = helpers::calculate_health_factor(
-        env,
-        &mut cache,
-        &account.supply_positions,
-        &account.borrow_positions,
-    );
-    if hf < common::constants::WAD {
-        panic_with_error!(env, CollateralError::InsufficientCollateral);
+fn validate_borrow_asset_preflight(
+    env: &Env,
+    asset_config: &AssetConfig,
+    asset: &Address,
+    account: &Account,
+) {
+    if account.is_isolated && !asset_config.isolation_borrow_enabled {
+        panic_with_error!(env, EModeError::NotBorrowableIsolation);
+    }
+
+    emode::validate_e_mode_asset(env, account.e_mode_category_id, asset, false);
+    emode::ensure_e_mode_compatible_with_asset(env, asset_config, account.e_mode_category_id);
+
+    if !asset_config.is_borrowable {
+        panic_with_error!(env, CollateralError::AssetNotBorrowable);
+    }
+}
+
+fn prepare_borrow_plan(
+    env: &Env,
+    account: &Account,
+    assets: &Vec<Payment>,
+    cache: &mut ControllerCache,
+    effective_configs: &Map<Address, AssetConfig>,
+) {
+    validation::require_non_empty_payments(env, assets);
+
+    validation::validate_bulk_position_limits(env, account, POSITION_TYPE_BORROW, assets);
+    for (asset, _) in assets {
+        validation::require_asset_supported(env, &asset);
+        validation::require_market_active(env, &asset);
+    }
+    validate_siloed_borrow_set(env, cache, account, assets);
+
+    let ltv_collateral =
+        helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
+    let mut total_borrowed_wad = current_borrowed_wad(env, cache, &account.borrow_positions);
+
+    for (asset, amount) in assets {
+        let asset_config = effective_configs.get(asset.clone()).unwrap();
+        validate_borrow_asset_preflight(env, &asset_config, &asset, account);
+
+        let feed = cache.cached_price(&asset);
+        total_borrowed_wad =
+            validate_ltv_capacity(env, ltv_collateral, total_borrowed_wad, amount, &feed);
+        validate_borrow_cap(env, cache, &asset_config, amount, &asset);
+        handle_isolated_debt(env, cache, account, amount, &feed);
+    }
+}
+
+fn validate_siloed_borrow_set(
+    env: &Env,
+    cache: &mut ControllerCache,
+    account: &Account,
+    new_borrows: &Vec<Payment>,
+) {
+    let mut final_assets: Vec<Address> = Vec::new(env);
+    for asset in account.borrow_positions.keys() {
+        push_unique_asset(&mut final_assets, asset);
+    }
+    for (asset, _) in new_borrows {
+        push_unique_asset(&mut final_assets, asset);
+    }
+
+    if final_assets.len() <= 1 {
+        return;
+    }
+
+    for asset in final_assets {
+        let config = cache.cached_asset_config(&asset);
+        if config.is_siloed_borrowing {
+            panic_with_error!(env, CollateralError::NotBorrowableSiloed);
+        }
+    }
+}
+
+fn push_unique_asset(assets: &mut Vec<Address>, asset: Address) {
+    if !assets.contains(asset.clone()) {
+        assets.push_back(asset);
+    }
+}
+
+fn execute_borrow_plan(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    account: &mut Account,
+    assets: &Vec<Payment>,
+    cache: &mut ControllerCache,
+    effective_configs: &Map<Address, AssetConfig>,
+) {
+    for (asset, amount) in assets {
+        let asset_config = effective_configs.get(asset.clone()).unwrap();
+        let feed = cache.cached_price(&asset);
+
+        update_borrow_position(
+            env,
+            account_id,
+            account,
+            &asset,
+            amount,
+            &asset_config,
+            caller,
+            &feed,
+            cache,
+        );
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_borrow_position(
+fn update_borrow_position(
     env: &Env,
-    cache: &mut ControllerCache,
     account_id: u64,
+    account: &mut Account,
     asset: &Address,
     amount: i128,
+    asset_config: &AssetConfig,
     caller: &Address,
-    account: &Account,
-    borrow_position: AccountPosition,
     feed: &PriceFeed,
-) -> AccountPosition {
-    let mut borrow_position = borrow_position;
-    borrow_position.account_id = account_id;
+    cache: &mut ControllerCache,
+) {
+    let borrow_position = get_or_create_borrow_position(account, account_id, asset_config, asset);
 
     let pool_address = cache.cached_pool_address(asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_address);
+    let result = pool_client.borrow(caller, &amount, &borrow_position, &feed.price_wad);
 
-    let result = execute_borrow(
+    record_borrow_update(
         env,
-        &pool_address,
-        caller,
-        amount,
-        &borrow_position,
+        account,
+        symbol_short!("borrow"),
+        result.market_index.borrow_index_ray,
+        result.actual_amount,
+        result.position,
         feed.price_wad,
+        caller,
     );
+}
 
-    let updated_position = result.position;
-
+#[allow(clippy::too_many_arguments)]
+fn record_borrow_update(
+    env: &Env,
+    account: &mut Account,
+    action: Symbol,
+    index: i128,
+    amount: i128,
+    position: AccountPosition,
+    price_wad: i128,
+    caller: &Address,
+) {
     emit_update_position(
         env,
         UpdatePositionEvent {
-            action: symbol_short!("borrow"),
-            index: result.market_index.borrow_index_ray,
-            amount: result.actual_amount,
-            position: updated_position.clone().into(),
-            asset_price: Some(feed.price_wad),
+            action,
+            index,
+            amount,
+            position: position.clone().into(),
+            asset_price: Some(price_wad),
             caller: Some(caller.clone()),
-            account_attributes: Some(account.into()),
+            account_attributes: Some((&*account).into()),
         },
     );
-
-    updated_position
-}
-
-fn execute_borrow(
-    env: &Env,
-    pool_address: &Address,
-    caller: &Address,
-    amount: i128,
-    position: &AccountPosition,
-    price_wad: i128,
-) -> PoolPositionMutation {
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, pool_address);
-    pool_client.borrow(caller, &amount, position, &price_wad)
+    update::update_or_remove_position(account, &position);
 }
 
 /// Increments the isolated-debt USD tracker by the USD value of `amount`.
@@ -238,7 +325,9 @@ pub fn handle_isolated_debt(
     // Read current debt from the cache to stay consistent with pending
     // in-batch deltas and with repay.rs's adjust_isolated_debt_usd path.
     let current_debt = cache.get_isolated_debt(&isolated_token);
-    let new_debt = current_debt + amount_in_usd_wad;
+    let new_debt = current_debt
+        .checked_add(amount_in_usd_wad)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
     if new_debt > collateral_config.isolation_debt_ceiling_usd_wad {
         panic_with_error!(env, EModeError::DebtCeilingReached);
@@ -277,7 +366,6 @@ fn validate_borrow_cap(
     cache: &mut ControllerCache,
     asset_config: &AssetConfig,
     amount: i128,
-    _asset_decimals: u32,
     asset: &Address,
 ) {
     if asset_config.borrow_cap == 0 {
@@ -287,38 +375,24 @@ fn validate_borrow_cap(
     // (potentially stale) value. `cached_market_index` simulates global_sync
     // forward to the current timestamp so cap enforcement is exact across
     // accrual gaps and same-tx multi-payment loops.
-    let pool_addr = cache.cached_pool_address(asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let sync_data = pool_client.get_sync_data();
+    let sync_data = cache.cached_pool_sync_data(asset);
     let market_index = cache.cached_market_index(asset);
     let current_total = Ray::from_raw(sync_data.state.borrowed_ray)
         .mul(env, Ray::from_raw(market_index.borrow_index_ray))
         .to_asset(sync_data.params.asset_decimals);
-    if current_total.saturating_add(amount) > asset_config.borrow_cap {
+    let total = current_total
+        .checked_add(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    if total > asset_config.borrow_cap {
         panic_with_error!(env, CollateralError::BorrowCapReached);
     }
 }
 
-fn validate_borrow_collateral(
-    env: &Env,
-    ltv_base_amount_wad: i128,
-    borrowed_amount_wad: i128,
-    amount_to_borrow_wad: i128,
-) {
-    if ltv_base_amount_wad < borrowed_amount_wad + amount_to_borrow_wad {
-        panic_with_error!(env, CollateralError::InsufficientCollateral);
-    }
-}
-
-fn validate_ltv_collateral(
+fn current_borrowed_wad(
     env: &Env,
     cache: &mut ControllerCache,
-    ltv_base_amount_wad: i128,
     borrow_positions: &Map<Address, AccountPosition>,
-    amount: i128,
-    feed: &PriceFeed,
-) {
-    // Total existing borrows in WAD USD. Iterated each call because borrows mutate.
+) -> i128 {
     let mut total_borrowed_wad: i128 = 0;
     for asset in borrow_positions.keys() {
         let position = borrow_positions.get(asset.clone()).unwrap();
@@ -328,108 +402,33 @@ fn validate_ltv_collateral(
         let actual = Ray::from_raw(position.scaled_amount_ray)
             .mul(env, Ray::from_raw(market_index.borrow_index_ray));
         let actual_wad = actual.to_wad();
-        total_borrowed_wad += actual_wad
+        let value = actual_wad
             .mul(env, Wad::from_raw(position_feed.price_wad))
             .raw();
+        total_borrowed_wad = total_borrowed_wad
+            .checked_add(value)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
+    total_borrowed_wad
+}
 
+fn validate_ltv_capacity(
+    env: &Env,
+    ltv_base_amount_wad: i128,
+    borrowed_amount_wad: i128,
+    amount: i128,
+    feed: &PriceFeed,
+) -> i128 {
     let amount_wad = Wad::from_token(amount, feed.asset_decimals);
     let new_borrow_wad = amount_wad.mul(env, Wad::from_raw(feed.price_wad)).raw();
+    let total_borrow_wad = borrowed_amount_wad
+        .checked_add(new_borrow_wad)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    validate_borrow_collateral(env, ltv_base_amount_wad, total_borrowed_wad, new_borrow_wad);
-}
-
-fn validate_borrow_asset(
-    env: &Env,
-    cache: &mut ControllerCache,
-    asset_config: &AssetConfig,
-    asset: &Address,
-    account: &Account,
-) {
-    if account.is_isolated && !asset_config.isolation_borrow_enabled {
-        panic_with_error!(env, EModeError::NotBorrowableIsolation);
+    if ltv_base_amount_wad < total_borrow_wad {
+        panic_with_error!(env, CollateralError::InsufficientCollateral);
     }
-
-    if asset_config.is_siloed_borrowing && account.borrow_positions.len() > 1 {
-        panic_with_error!(env, CollateralError::NotBorrowableSiloed);
-    }
-
-    // When any existing borrow or the new asset is siloed, every other
-    // existing borrow must match the new asset.
-    for existing in account.borrow_positions.keys() {
-        if existing != *asset {
-            let existing_config = cache.cached_asset_config(&existing);
-            if existing_config.is_siloed_borrowing || asset_config.is_siloed_borrowing {
-                panic_with_error!(env, CollateralError::NotBorrowableSiloed);
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn process_borrow(
-    env: &Env,
-    cache: &mut ControllerCache,
-    account_id: u64,
-    caller: &Address,
-    account: &mut Account,
-    asset: &Address,
-    amount: i128,
-    ltv_collateral: i128,
-    e_mode: &Option<EModeCategory>,
-) {
-    validation::require_asset_supported(env, asset);
-    validation::require_amount_positive(env, amount);
-
-    let mut asset_config = cache.cached_asset_config(asset);
-    let price_feed = cache.cached_price(asset);
-
-    validate_borrow_asset(env, cache, &asset_config, asset, account);
-
-    let asset_emode_config = emode::token_e_mode_config(env, account.e_mode_category_id, asset);
-    emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
-    emode::apply_e_mode_to_asset_config(env, &mut asset_config, e_mode, asset_emode_config);
-
-    if !asset_config.is_borrowable {
-        panic_with_error!(env, CollateralError::AssetNotBorrowable);
-    }
-
-    validate_ltv_collateral(
-        env,
-        cache,
-        ltv_collateral,
-        &account.borrow_positions,
-        amount,
-        &price_feed,
-    );
-    validate_borrow_cap(
-        env,
-        cache,
-        &asset_config,
-        amount,
-        price_feed.asset_decimals,
-        asset,
-    );
-
-    handle_isolated_debt(env, cache, account, amount, &price_feed);
-
-    let borrow_position = get_or_create_borrow_position(account, account_id, &asset_config, asset);
-
-    let updated_position = handle_borrow_position(
-        env,
-        cache,
-        account_id,
-        asset,
-        amount,
-        caller,
-        &*account,
-        borrow_position,
-        &price_feed,
-    );
-
-    // Mutate the in-memory account so subsequent iterations of
-    // `process_borrow` see the updated `borrow_positions` map.
-    update::update_or_remove_position(account, &updated_position);
+    total_borrow_wad
 }
 
 #[cfg(test)]
@@ -437,13 +436,11 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::helpers::testutils::test_market_config;
     use common::constants::RAY;
-    use common::types::{
-        ExchangeSource, MarketConfig, MarketParams, MarketStatus, OraclePriceFluctuation,
-        OracleProviderConfig, OracleType, PoolKey, PoolState, PositionMode, ReflectorAssetKind,
-    };
+    use common::types::{MarketParams, PoolKey, PoolState, PositionMode};
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{Address, Map, Symbol};
+    use soroban_sdk::{Address, Map};
 
     struct TestSetup {
         env: Env,
@@ -459,7 +456,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -487,10 +484,7 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(
-                pool::LiquidityPool,
-                (controller.clone(), params, controller.clone()),
-            );
+            let pool = env.register(pool::LiquidityPool, (controller.clone(), params));
 
             Self {
                 env,
@@ -522,36 +516,6 @@ mod tests {
                 flashloan_fee_bps: 9,
                 borrow_cap,
                 supply_cap: i128::MAX,
-            }
-        }
-
-        fn market_config(&self, asset_config: AssetConfig) -> MarketConfig {
-            MarketConfig {
-                status: MarketStatus::Active,
-                asset_config,
-                pool_address: self.pool.clone(),
-                oracle_config: OracleProviderConfig {
-                    base_asset: self.asset.clone(),
-                    oracle_type: OracleType::Normal,
-                    exchange_source: ExchangeSource::SpotOnly,
-                    asset_decimals: 7,
-                    tolerance: OraclePriceFluctuation {
-                        first_upper_ratio_bps: 10_200,
-                        first_lower_ratio_bps: 9_800,
-                        last_upper_ratio_bps: 11_000,
-                        last_lower_ratio_bps: 9_000,
-                    },
-                    max_price_stale_seconds: 900,
-                },
-                cex_oracle: None,
-                cex_asset_kind: ReflectorAssetKind::Stellar,
-                cex_symbol: Symbol::new(&self.env, ""),
-                cex_decimals: 0,
-                dex_oracle: None,
-                dex_asset_kind: ReflectorAssetKind::Stellar,
-                dex_symbol: Symbol::new(&self.env, ""),
-                dex_decimals: 0,
-                twap_records: 0,
             }
         }
 
@@ -607,7 +571,7 @@ mod tests {
             storage::set_market_config(
                 &t.env,
                 &t.asset,
-                &t.market_config(t.asset_config(5_0000000, false)),
+                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(5_0000000, false)),
             );
 
             let mut cache = ControllerCache::new(&t.env, true);
@@ -616,28 +580,33 @@ mod tests {
                 &mut cache,
                 &t.asset_config(5_0000000, false),
                 1_0000000,
-                7,
                 &t.asset,
             );
         });
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Error(Contract, #108)")]
     fn test_validate_borrow_asset_rejects_siloed_asset_on_multi_borrow_account() {
         let t = TestSetup::new();
 
         t.as_controller(|| {
+            storage::set_market_config(
+                &t.env,
+                &t.other_asset,
+                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(0, false)),
+            );
+            storage::set_market_config(
+                &t.env,
+                &t.asset,
+                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(0, true)),
+            );
+
             let mut cache = ControllerCache::new(&t.env, true);
             let account = t.account_with_two_borrows();
+            let new_borrows = soroban_sdk::vec![&t.env, (t.asset.clone(), 1_0000000)];
 
-            validate_borrow_asset(
-                &t.env,
-                &mut cache,
-                &t.asset_config(0, true),
-                &t.asset,
-                &account,
-            );
+            validate_siloed_borrow_set(&t.env, &mut cache, &account, &new_borrows);
         });
     }
 }

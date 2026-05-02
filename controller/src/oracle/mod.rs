@@ -136,7 +136,10 @@ pub(crate) fn calculate_final_price(
                 tol.last_upper_ratio_bps,
                 tol.last_lower_ratio_bps,
             ) {
-                (agg_price + safe_price) / 2
+                agg_price
+                    .checked_add(safe_price)
+                    .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+                    / 2
             } else {
                 // Block risk-increasing ops; allow supply and repay.
                 if !cache.allow_unsafe_price {
@@ -189,9 +192,16 @@ fn check_staleness(cache: &ControllerCache, feed_ts: u64, max_stale: u64) {
 /// Future-dated prices indicate a malicious or malfunctioning oracle feed.
 fn check_not_future(cache: &ControllerCache, feed_ts: u64) {
     let now_secs = cache.current_timestamp_ms / 1000;
-    if feed_ts > now_secs.saturating_add(60) {
+    let max_future_ts = now_secs
+        .checked_add(60)
+        .unwrap_or_else(|| panic_with_error!(cache.env(), GenericError::MathOverflow));
+    if feed_ts > max_future_ts {
         panic_with_error!(cache.env(), OracleError::PriceFeedStale);
     }
+}
+
+fn min_twap_observations(records: u32) -> u32 {
+    core::cmp::max(1, records.div_ceil(2))
 }
 
 fn cex_spot_price(
@@ -243,13 +253,20 @@ fn cex_spot_and_twap_price(
     }
 
     let history = client.prices(&ra, &market.twap_records);
+    let Some(history) = history else {
+        return (spot_wad, spot_wad);
+    };
+    if history.is_empty() {
+        return (spot_wad, spot_wad);
+    }
+
     let mut sum: i128 = 0;
-    let mut count: i128 = 0;
     let mut oldest_ts: u64 = u64::MAX;
 
-    for pd in history.iter().flatten() {
-        sum += pd.price;
-        count += 1;
+    for pd in history.iter() {
+        sum = sum
+            .checked_add(pd.price)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         // Track the oldest sample timestamp so the freshness gate reflects
         // the worst input rather than the best.
         if pd.timestamp < oldest_ts {
@@ -257,17 +274,12 @@ fn cex_spot_and_twap_price(
         }
     }
 
-    if count == 0 {
-        return (spot_wad, spot_wad);
-    }
-
-    let min_required = core::cmp::max(1, (market.twap_records as i128) / 2);
-    if count < min_required {
+    if history.len() < min_twap_observations(market.twap_records) {
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
 
     check_staleness(cache, oldest_ts, max_stale);
-    let twap_wad = Wad::from_token(sum / count, decimals).raw();
+    let twap_wad = Wad::from_token(sum / history.len() as i128, decimals).raw();
 
     (spot_wad, twap_wad)
 }
@@ -293,36 +305,35 @@ fn cex_twap_price(
     let decimals = market.cex_decimals;
 
     let history = client.prices(&ra, &market.twap_records);
+    let Some(history) = history else {
+        // No history available. Fall back to spot rather than blocking the
+        // entire protocol, preserving the previous all-empty-window behavior.
+        return cex_spot_price(cache, asset, market, max_stale);
+    };
+    if history.is_empty() {
+        return cex_spot_price(cache, asset, market, max_stale);
+    }
 
     let mut sum: i128 = 0;
-    let mut count: i128 = 0;
     let mut oldest_ts: u64 = u64::MAX;
 
-    for pd in history.iter().flatten() {
-        sum += pd.price;
-        count += 1;
+    for pd in history.iter() {
+        sum = sum
+            .checked_add(pd.price)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         // Track the oldest sample so the freshness gate uses the worst input.
         if pd.timestamp < oldest_ts {
             oldest_ts = pd.timestamp;
         }
-        // `None` slots mark oracle gaps in the window; accept partial TWAP
-        // rather than panic.
     }
 
-    if count == 0 {
-        // All N slots were None, indicating a major oracle outage. Fall
-        // back to the spot price rather than blocking the entire protocol.
-        return cex_spot_price(cache, asset, market, max_stale);
-    }
-
-    let min_required = core::cmp::max(1, (market.twap_records as i128) / 2);
-    if count < min_required {
+    if history.len() < min_twap_observations(market.twap_records) {
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
 
     check_staleness(cache, oldest_ts, max_stale);
 
-    Wad::from_token(sum / count, decimals).raw()
+    Wad::from_token(sum / history.len() as i128, decimals).raw()
 }
 
 fn dex_spot_price(
@@ -480,33 +491,19 @@ pub fn price_components(
 // that satisfies the index-monotonicity post-conditions.
 crate::summarized!(
     crate::spec::summaries::update_asset_index_summary,
-    pub fn update_asset_index(
-        cache: &mut ControllerCache,
-        asset: &Address,
-        simulate: bool,
-    ) -> MarketIndex {
+    pub fn update_asset_index(cache: &mut ControllerCache, asset: &Address) -> MarketIndex {
         let env = cache.env().clone();
-
-        if simulate {
-            let pool_addr = cache.cached_pool_address(asset);
-            let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
-            let sync_data = pool_client.get_sync_data();
-            simulate_update_indexes(
-                &env,
-                cache.current_timestamp_ms,
-                sync_data.state.last_timestamp,
-                Ray::from_raw(sync_data.state.borrowed_ray),
-                Ray::from_raw(sync_data.state.borrow_index_ray),
-                Ray::from_raw(sync_data.state.supplied_ray),
-                Ray::from_raw(sync_data.state.supply_index_ray),
-                &sync_data.params,
-            )
-        } else {
-            let _feed = token_price(cache, asset); // Mutating path: refresh price and sync state.
-            let pool_addr = cache.cached_pool_address(asset);
-            let pool_client = pool_interface::LiquidityPoolClient::new(&env, &pool_addr);
-            pool_client.update_indexes(&0)
-        }
+        let sync_data = cache.cached_pool_sync_data(asset);
+        simulate_update_indexes(
+            &env,
+            cache.current_timestamp_ms,
+            sync_data.state.last_timestamp,
+            Ray::from_raw(sync_data.state.borrowed_ray),
+            Ray::from_raw(sync_data.state.borrow_index_ray),
+            Ray::from_raw(sync_data.state.supplied_ray),
+            Ray::from_raw(sync_data.state.supply_index_ray),
+            &sync_data.params,
+        )
     }
 );
 
@@ -544,7 +541,7 @@ mod tests {
         pub fn set_history(
             env: Env,
             asset: reflector::ReflectorAsset,
-            history: Vec<Option<reflector::ReflectorPriceData>>,
+            history: Vec<reflector::ReflectorPriceData>,
         ) {
             env.storage()
                 .temporary()
@@ -570,21 +567,25 @@ mod tests {
             env: Env,
             asset: reflector::ReflectorAsset,
             records: u32,
-        ) -> Vec<Option<reflector::ReflectorPriceData>> {
+        ) -> Option<Vec<reflector::ReflectorPriceData>> {
             if let Some(history) = env
                 .storage()
                 .temporary()
-                .get(&MockKey::History(asset.clone()))
+                .get::<_, Vec<reflector::ReflectorPriceData>>(&MockKey::History(asset.clone()))
             {
-                return history;
+                return if history.is_empty() {
+                    None
+                } else {
+                    Some(history)
+                };
             }
 
             let mut out = Vec::new(&env);
-            let spot = Self::lastprice(env.clone(), asset);
+            let spot = Self::lastprice(env.clone(), asset)?;
             for _ in 0..records {
                 out.push_back(spot.clone());
             }
-            out
+            Some(out)
         }
     }
 
@@ -603,7 +604,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -925,15 +926,14 @@ mod tests {
         );
 
         let mut partial_history = Vec::new(&t.env);
-        partial_history.push_back(Some(reflector::ReflectorPriceData {
+        partial_history.push_back(reflector::ReflectorPriceData {
             price: 100_000_000_000_000,
             timestamp: 980,
-        }));
-        partial_history.push_back(None);
-        partial_history.push_back(Some(reflector::ReflectorPriceData {
+        });
+        partial_history.push_back(reflector::ReflectorPriceData {
             price: 300_000_000_000_000,
             timestamp: 1_000,
-        }));
+        });
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &partial_history,
@@ -979,7 +979,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cex_twap_falls_back_to_spot_when_history_is_all_none() {
+    fn test_cex_twap_falls_back_to_spot_when_history_is_empty() {
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -994,9 +994,7 @@ mod tests {
             &400_000_000_000_000,
             &1_000,
         );
-        let mut empty_history = Vec::new(&t.env);
-        empty_history.push_back(None);
-        empty_history.push_back(None);
+        let empty_history = Vec::new(&t.env);
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &empty_history,
@@ -1026,12 +1024,14 @@ mod tests {
             &1_000,
         );
 
-        let history = cex_client.prices(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &2);
+        let history = cex_client
+            .prices(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &2)
+            .unwrap();
 
         assert_eq!(cex_client.resolution(), 300);
         assert_eq!(history.len(), 2);
-        assert_eq!(history.get(0).unwrap().unwrap().price, 500_000_000_000_000);
-        assert_eq!(history.get(1).unwrap().unwrap().timestamp, 1_000);
+        assert_eq!(history.get(0).unwrap().price, 500_000_000_000_000);
+        assert_eq!(history.get(1).unwrap().timestamp, 1_000);
     }
 
     #[test]
@@ -1131,14 +1131,14 @@ mod tests {
         });
 
         let mut history = Vec::new(&t.env);
-        history.push_back(Some(reflector::ReflectorPriceData {
+        history.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        history.push_back(Some(reflector::ReflectorPriceData {
+        });
+        history.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &history,
@@ -1277,7 +1277,7 @@ mod tests {
 
     #[test]
     fn test_cex_spot_and_twap_count_zero_falls_back_to_spot() {
-        // All-None TWAP history falls back to spot price for both outputs.
+        // Empty TWAP history falls back to spot price for both outputs.
         let t = TestSetup::new();
         let cex_client = MockReflectorClient::new(&t.env, &t.cex_oracle);
 
@@ -1286,13 +1286,10 @@ mod tests {
             &150_000_000_000_000,
             &1_000,
         );
-        let mut all_none = Vec::new(&t.env);
-        all_none.push_back(None);
-        all_none.push_back(None);
-        all_none.push_back(None);
+        let empty_history = Vec::new(&t.env);
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
-            &all_none,
+            &empty_history,
         );
 
         t.as_controller(|| {
@@ -1320,15 +1317,10 @@ mod tests {
         );
         // twap_records = 6, only 1 valid observation (< 3 required)
         let mut history = Vec::new(&t.env);
-        history.push_back(Some(reflector::ReflectorPriceData {
+        history.push_back(reflector::ReflectorPriceData {
             price: 150_000_000_000_000,
             timestamp: 1_000,
-        }));
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
+        });
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &history,
@@ -1358,15 +1350,10 @@ mod tests {
         );
         // twap_records = 6, only 1 valid observation (< 3 required)
         let mut history = Vec::new(&t.env);
-        history.push_back(Some(reflector::ReflectorPriceData {
+        history.push_back(reflector::ReflectorPriceData {
             price: 150_000_000_000_000,
             timestamp: 1_000,
-        }));
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
-        history.push_back(None);
+        });
         cex_client.set_history(
             &reflector::ReflectorAsset::Stellar(t.asset.clone()),
             &history,
@@ -1400,14 +1387,14 @@ mod tests {
             &1_000,
         );
         let mut hist = Vec::new(&t.env);
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        });
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
         // Aggregator within first tier (1% deviation)
         dex_client.set_spot(
@@ -1448,14 +1435,14 @@ mod tests {
             &1_000,
         );
         let mut hist = Vec::new(&t.env);
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        });
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
@@ -1487,14 +1474,14 @@ mod tests {
             &1_000,
         );
         let mut hist = Vec::new(&t.env);
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        });
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
@@ -1572,14 +1559,14 @@ mod tests {
             &1_000,
         );
         let mut hist = Vec::new(&t.env);
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        });
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
 
         t.as_controller(|| {
@@ -1613,14 +1600,14 @@ mod tests {
             &1_000,
         );
         let mut hist = Vec::new(&t.env);
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 1_000,
-        }));
-        hist.push_back(Some(reflector::ReflectorPriceData {
+        });
+        hist.push_back(reflector::ReflectorPriceData {
             price: 200_000_000_000_000,
             timestamp: 995,
-        }));
+        });
         cex_client.set_history(&reflector::ReflectorAsset::Stellar(t.asset.clone()), &hist);
         // DEX aggregator deviating ~4% from TWAP (outside first 2%, inside second 10%)
         dex_client.set_spot(

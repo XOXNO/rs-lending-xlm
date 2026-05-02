@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
+
+[workspace.package]
+version = "0.4.0"
+authors = [
+    "Arie Gurfinkel <arie@certora.com>",
+    "Jorge A. Navas <jorge@certora.com>",
+    "Francesco Parolini <francesco@certora.com>",
+    "Chandrakana Nandi <chandra@certora.com>",
+    "Alexander Bakst <abakst@certora.com>",
+]
+edition = "2021"
+description = "CVLR support for Stellar Soroban smart contracts"
+documentation = "https://docs.rs/cvlr-soroban/latest"
+license = "MIT"
+keywords = [
+    "certora", 
+    "assert", 
+    "soroban", 
+    "verification", 
+    "formal-methods",
+]
+categories = [
+    "development-tools::debugging", 
+    "development-tools::testing", 
+    "no-std"
+]
+readme = "README.md"
+homepage = "https://www.certora.com"
+repository = "https://github.com/Certora/cvlr-soroban"
+
+
+[workspace.dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "2"
+macrotest = "1"
+trybuild = "1"
+soroban-sdk = "=26.0.0-rc.1"
+
+
+
+cvlr-asserts = { version = ">= 0.4.0, < 1" }
+cvlr-nondet = { version = ">= 0.4.0, <1", default-features = false }
+cvlr-log = { version = ">= 0.4.0, <1", default-features = false }

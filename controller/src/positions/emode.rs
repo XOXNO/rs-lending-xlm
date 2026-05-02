@@ -2,6 +2,7 @@ use common::errors::{CollateralError, EModeError};
 use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{panic_with_error, Address, Env};
 
+use crate::cache::ControllerCache;
 use crate::storage;
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,20 @@ pub fn apply_e_mode_to_asset_config(
         asset_config.liquidation_threshold_bps = cat.liquidation_threshold_bps;
         asset_config.liquidation_bonus_bps = cat.liquidation_bonus_bps;
     }
+}
+
+/// Returns the asset config after applying the account's active e-mode overrides.
+pub fn effective_asset_config(
+    env: &Env,
+    account: &Account,
+    asset: &Address,
+    cache: &mut ControllerCache,
+    category: &Option<EModeCategory>,
+) -> AssetConfig {
+    let mut asset_config = cache.cached_asset_config(asset);
+    let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, asset);
+    apply_e_mode_to_asset_config(env, &mut asset_config, category, asset_emode_config);
+    asset_config
 }
 
 /// Panics with `EModeWithIsolated` when an isolated asset is assigned to a non-zero e-mode category.
@@ -60,6 +75,13 @@ pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
         return None;
     }
     Some(storage::get_emode_category(env, e_mode_id))
+}
+
+/// Returns the account's e-mode category and rejects deprecated categories.
+pub fn active_e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
+    let category = e_mode_category(env, e_mode_id);
+    ensure_e_mode_not_deprecated(env, &category);
+    category
 }
 
 // ---------------------------------------------------------------------------

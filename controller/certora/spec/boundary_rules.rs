@@ -453,7 +453,7 @@ fn tolerance_at_exact_first_bound(_e: Env) {
     let deviation: i128 = cvlr::nondet::nondet();
 
     // Valid oracle tolerance configuration
-    cvlr_assume!(first_tolerance >= 50 && first_tolerance <= 5000); // MIN/MAX_FIRST_TOLERANCE
+    cvlr_assume!((50..=5000).contains(&first_tolerance)); // MIN/MAX_FIRST_TOLERANCE
     cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
     // Deviation exactly at first tolerance
     cvlr_assume!(deviation == first_tolerance);
@@ -485,7 +485,7 @@ fn tolerance_at_exact_second_bound(_e: Env) {
     let second_tolerance: i128 = cvlr::nondet::nondet();
     let deviation: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(first_tolerance >= 50 && first_tolerance <= 5000);
+    cvlr_assume!((50..=5000).contains(&first_tolerance));
     cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
     cvlr_assume!(deviation == second_tolerance);
 
@@ -517,7 +517,7 @@ fn tolerance_just_beyond_second(_e: Env) {
     let second_tolerance: i128 = cvlr::nondet::nondet();
     let deviation: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(first_tolerance >= 50 && first_tolerance <= 5000);
+    cvlr_assume!((50..=5000).contains(&first_tolerance));
     cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
     cvlr_assume!(deviation == second_tolerance + 1);
 

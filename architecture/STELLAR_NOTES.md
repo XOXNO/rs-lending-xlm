@@ -25,12 +25,12 @@ Reference notes on Soroban platform behaviors the protocol depends on. Each item
 
 ## Reflector Oracle
 
-- `lastprice(asset)` returns `(price, timestamp)`. `prices(asset, records)` returns a vector of `(price, timestamp)` records.
+- `lastprice(asset)` returns `(price, timestamp)`. `prices(asset, records)` returns `Option<Vec<PriceData>>`; the vector is dense when present.
 - `cex_asset_kind` (`Stellar` / `Other`) tells Reflector how to interpret the asset key: a Stellar SAC contract address vs. an external symbol.
 - `ReflectorClient` is wired minimally in `controller/src/oracle/reflector.rs` (~40 LOC).
 - `configure_market_oracle` reads decimals on-chain.
 - Open: `lastprice(...)` behavior for a fresh asset with no published price (returns `None`, reverts, or `(0, 0)`). `OracleError::NoLastPrice = 210` expects `None`-like.
-- Open: whether `prices(asset, twap_records)` returns a shorter vector or reverts when fewer records are available. `OracleError::TwapInsufficientObservations = 219` handles short-vector.
+- `prices(asset, twap_records)` can return `None` or a shorter vector when history is unavailable. `OracleError::TwapInsufficientObservations = 219` handles short-vector history after the spot fallback case.
 - Open: Reflector publish cadence, which bounds a meaningful range for `max_price_stale_seconds`. Tests default to 900s.
 - Open: Reflector operator upgrades. Cached `cex_decimals` / `dex_decimals` go stale if decimals change. No on-chain signal currently forces re-config.
 - Open: internal dispatch difference between `Stellar` and `Other` asset kinds.

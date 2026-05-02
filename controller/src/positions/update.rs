@@ -20,18 +20,6 @@ pub fn update_or_remove_position(account: &mut Account, position: &AccountPositi
     }
 }
 
-/// Unconditionally sets the position entry in the appropriate map on `account`.
-pub fn store_position(account: &mut Account, position: &AccountPosition) {
-    let map = if position.position_type == AccountPositionType::Deposit {
-        &mut account.supply_positions
-    } else if position.position_type == AccountPositionType::Borrow {
-        &mut account.borrow_positions
-    } else {
-        unreachable!()
-    };
-    map.set(position.asset.clone(), position.clone());
-}
-
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -112,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_position_overwrites_existing_entries() {
+    fn test_update_or_remove_position_overwrites_existing_entries() {
         let env = Env::default();
         let deposit_asset = Address::generate(&env);
         let borrow_asset = Address::generate(&env);
@@ -132,9 +120,9 @@ mod tests {
         );
         let borrow = position(&env, borrow_asset.clone(), AccountPositionType::Borrow, 333);
 
-        store_position(&mut account, &first_deposit);
-        store_position(&mut account, &second_deposit);
-        store_position(&mut account, &borrow);
+        assert!(!update_or_remove_position(&mut account, &first_deposit));
+        assert!(!update_or_remove_position(&mut account, &second_deposit));
+        assert!(!update_or_remove_position(&mut account, &borrow));
 
         assert_eq!(
             account

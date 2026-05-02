@@ -122,7 +122,7 @@ mod tests {
 
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -156,8 +156,7 @@ mod tests {
                 supply_index_ray: 2 * RAY,
                 last_timestamp: 950_000,
             };
-            let contract =
-                env.register(crate::LiquidityPool, (admin.clone(), params.clone(), admin));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(), params.clone()));
 
             env.as_contract(&contract, || {
                 env.storage().instance().set(&PoolKey::State, &state);

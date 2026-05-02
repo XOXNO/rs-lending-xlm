@@ -4,8 +4,10 @@ use soroban_sdk::{Address, Env, Map};
 use super::emode;
 use crate::storage;
 
-/// Creates a new account, increments the nonce, and persists it to storage.
-/// Validates that e-mode and isolation are not simultaneously requested.
+/// Creates a new account, increments the nonce, persists it, and returns
+/// the in-memory snapshot alongside the new id. Returning the snapshot
+/// lets callers skip a redundant re-read for the entry that was just
+/// written.
 pub fn create_account(
     env: &Env,
     owner: &Address,
@@ -13,12 +15,16 @@ pub fn create_account(
     mode: PositionMode,
     is_isolated: bool,
     isolated_asset: Option<Address>,
-) -> u64 {
+) -> (u64, Account) {
     emode::validate_e_mode_isolation_exclusion(env, e_mode_category, is_isolated);
-    let emode_cat = emode::e_mode_category(env, e_mode_category);
-    emode::ensure_e_mode_not_deprecated(env, &emode_cat);
+    emode::active_e_mode_category(env, e_mode_category);
 
     let account_id = storage::increment_account_nonce(env);
+    // The account nonce lives in instance storage; bump instance TTL on
+    // every account creation so a long quiet period between governance
+    // keepalives cannot let the nonce entry archive (which would reset
+    // the next id back to 1 and collide with existing accounts).
+    storage::bump_instance(env);
     let account = Account {
         owner: owner.clone(),
         is_isolated,
@@ -30,7 +36,7 @@ pub fn create_account(
     };
     storage::set_account(env, account_id, &account);
 
-    account_id
+    (account_id, account)
 }
 
 /// Removes all persistent storage entries for `account_id` (meta entry and all positions).
@@ -116,8 +122,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let id = create_account(&t.env, &t.owner, 0, PositionMode::Long, false, None);
-            let account = storage::get_account(&t.env, id);
+            let (id, account) = create_account(&t.env, &t.owner, 0, PositionMode::Long, false, None);
 
             assert_eq!(id, 1);
             assert_eq!(account.owner, t.owner);
@@ -132,7 +137,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let id = create_account(&t.env, &t.owner, 0, PositionMode::Normal, false, None);
+            let (id, _) = create_account(&t.env, &t.owner, 0, PositionMode::Normal, false, None);
             assert!(storage::try_get_account(&t.env, id).is_some());
 
             remove_account(&t.env, id);
@@ -146,12 +151,12 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let empty_id = create_account(&t.env, &t.owner, 0, PositionMode::Normal, false, None);
-            let empty_account = storage::get_account(&t.env, empty_id);
+            let (empty_id, empty_account) =
+                create_account(&t.env, &t.owner, 0, PositionMode::Normal, false, None);
             cleanup_account_if_empty(&t.env, &empty_account, empty_id);
             assert!(storage::try_get_account(&t.env, empty_id).is_none());
 
-            let non_empty_id =
+            let (non_empty_id, _) =
                 create_account(&t.env, &t.owner, 0, PositionMode::Normal, false, None);
             let non_empty_account = t.non_empty_account();
             storage::set_account(&t.env, non_empty_id, &non_empty_account);

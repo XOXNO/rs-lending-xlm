@@ -4,10 +4,10 @@ use common::constants::{
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 use common::events::{
-    emit_remove_emode_asset, emit_update_asset_config, emit_update_asset_oracle,
-    emit_update_emode_asset, emit_update_emode_category, EventOracleProvider,
-    RemoveEModeAssetEvent, UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
-    UpdateEModeCategoryEvent,
+    emit_approve_token_wasm, emit_remove_emode_asset, emit_update_asset_config,
+    emit_update_asset_oracle, emit_update_emode_asset, emit_update_emode_category,
+    ApproveTokenWasmEvent, EventOracleProvider, RemoveEModeAssetEvent, UpdateAssetConfigEvent,
+    UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
 };
 use common::fp_core;
 #[cfg(test)]
@@ -17,10 +17,143 @@ use common::types::{
     MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionLimits,
     ReflectorAssetKind,
 };
-use soroban_sdk::{panic_with_error, token, Address, BytesN, Env, Executable};
+use soroban_sdk::{
+    contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Executable,
+};
+use stellar_macros::{only_owner, only_role};
 
 use crate::oracle::reflector::{ReflectorAsset, ReflectorClient};
-use crate::{storage, validation};
+use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+
+#[contractimpl]
+impl Controller {
+    #[only_owner]
+    pub fn set_aggregator(env: Env, addr: Address) {
+        set_aggregator(&env, addr);
+    }
+
+    #[only_owner]
+    pub fn set_accumulator(env: Env, addr: Address) {
+        set_accumulator(&env, addr);
+    }
+
+    #[only_owner]
+    pub fn set_liquidity_pool_template(env: Env, hash: BytesN<32>) {
+        set_liquidity_pool_template(&env, hash);
+    }
+
+    #[only_owner]
+    pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfig) {
+        edit_asset_config(&env, asset, cfg);
+    }
+
+    #[only_owner]
+    pub fn set_position_limits(env: Env, limits: PositionLimits) {
+        set_position_limits(&env, limits);
+    }
+
+    #[only_owner]
+    pub fn add_e_mode_category(env: Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
+        add_e_mode_category(&env, ltv, threshold, bonus)
+    }
+
+    #[only_owner]
+    pub fn edit_e_mode_category(env: Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
+        edit_e_mode_category(&env, id, ltv, threshold, bonus);
+    }
+
+    #[only_owner]
+    pub fn remove_e_mode_category(env: Env, id: u32) {
+        remove_e_mode_category(&env, id);
+    }
+
+    #[only_owner]
+    pub fn add_asset_to_e_mode_category(
+        env: Env,
+        asset: Address,
+        category_id: u32,
+        can_collateral: bool,
+        can_borrow: bool,
+    ) {
+        add_asset_to_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
+    }
+
+    #[only_owner]
+    pub fn edit_asset_in_e_mode_category(
+        env: Env,
+        asset: Address,
+        category_id: u32,
+        can_collateral: bool,
+        can_borrow: bool,
+    ) {
+        edit_asset_in_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
+    }
+
+    #[only_owner]
+    pub fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32) {
+        remove_asset_from_e_mode(&env, asset, category_id);
+    }
+
+    #[only_owner]
+    pub fn remove_asset_e_mode_category(env: Env, asset: Address, category_id: u32) {
+        remove_asset_from_e_mode(&env, asset, category_id);
+    }
+
+    #[only_owner]
+    pub fn approve_token_wasm(env: Env, token: Address) {
+        storage::set_token_approved(&env, &token, true);
+        let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
+        emit_approve_token_wasm(
+            &env,
+            ApproveTokenWasmEvent {
+                wasm_hash,
+                approved: true,
+            },
+        );
+    }
+
+    #[only_owner]
+    pub fn revoke_token_wasm(env: Env, token: Address) {
+        storage::set_token_approved(&env, &token, false);
+        let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
+        emit_approve_token_wasm(
+            &env,
+            ApproveTokenWasmEvent {
+                wasm_hash,
+                approved: false,
+            },
+        );
+    }
+
+    #[only_role(caller, "ORACLE")]
+    pub fn configure_market_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        cfg: MarketOracleConfigInput,
+    ) {
+        let _ = caller;
+        configure_market_oracle(&env, asset, cfg);
+    }
+
+    #[only_role(caller, "ORACLE")]
+    pub fn edit_oracle_tolerance(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        first_tolerance: i128,
+        last_tolerance: i128,
+    ) {
+        let _ = caller;
+        edit_oracle_tolerance(&env, asset, first_tolerance, last_tolerance);
+    }
+
+    #[only_role(caller, "ORACLE")]
+    pub fn disable_token_oracle(env: Env, caller: Address, asset: Address) {
+        let _ = caller;
+        disable_token_oracle(&env, asset);
+    }
+}
 
 fn require_contract_address(env: &Env, addr: &Address, error: impl Into<soroban_sdk::Error>) {
     if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
@@ -141,9 +274,31 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     cat.is_deprecated = true;
     storage::set_emode_category(env, id, &cat);
 
-    // Soroban persistent storage is not iterable; per-asset membership entries
-    // survive deprecation. The `is_deprecated` flag gates all new entries;
-    // runtime checks reject attempts to use deprecated categories.
+    // Walk the side map (one storage read) to clean every asset's reverse
+    // index, then drop the whole map in one storage op. The `is_deprecated`
+    // flag stays set: accounts already pointing at this category wind down
+    // through the keeper path, where `effective_asset_config` now returns
+    // base (non-e-mode) values because the per-asset overrides are gone.
+    let members = storage::get_emode_assets(env, id);
+    for asset in members.keys() {
+        let mut cats = storage::get_asset_emodes(env, &asset);
+        if let Some(idx) = cats.iter().position(|cid| cid == id) {
+            cats.remove(idx as u32);
+            storage::set_asset_emodes(env, &asset, &cats);
+        }
+        // If the asset now belongs to no e-mode category, mirror the
+        // single-asset removal path and clear the `e_mode_enabled` flag on
+        // its market config.
+        if cats.is_empty() {
+            if let Some(mut market) = storage::try_get_market_config(env, &asset) {
+                if market.asset_config.e_mode_enabled {
+                    market.asset_config.e_mode_enabled = false;
+                    storage::set_market_config(env, &asset, &market);
+                }
+            }
+        }
+    }
+    storage::remove_emode_assets(env, id);
 
     emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
 }
@@ -257,7 +412,9 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
 // ---------------------------------------------------------------------------
 
 fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
-    let upper_bound = BPS + tolerance;
+    let upper_bound = BPS
+        .checked_add(tolerance)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     let lower_bound = fp_core::mul_div_half_up(env, BPS, BPS, upper_bound);
     (upper_bound, lower_bound)
 }

@@ -77,13 +77,13 @@ impl Ray {
 impl Add for Ray {
     type Output = Ray;
     fn add(self, rhs: Ray) -> Ray {
-        Ray(self.0 + rhs.0)
+        Ray(self.0.checked_add(rhs.0).expect("Ray addition overflow"))
     }
 }
 
 impl AddAssign for Ray {
     fn add_assign(&mut self, rhs: Ray) {
-        self.0 += rhs.0;
+        self.0 = self.0.checked_add(rhs.0).expect("Ray addition overflow");
     }
 }
 
@@ -170,13 +170,13 @@ impl Wad {
 impl Add for Wad {
     type Output = Wad;
     fn add(self, rhs: Wad) -> Wad {
-        Wad(self.0 + rhs.0)
+        Wad(self.0.checked_add(rhs.0).expect("Wad addition overflow"))
     }
 }
 
 impl AddAssign for Wad {
     fn add_assign(&mut self, rhs: Wad) {
-        self.0 += rhs.0;
+        self.0 = self.0.checked_add(rhs.0).expect("Wad addition overflow");
     }
 }
 
@@ -234,13 +234,13 @@ impl Bps {
 impl Add for Bps {
     type Output = Bps;
     fn add(self, rhs: Bps) -> Bps {
-        Bps(self.0 + rhs.0)
+        Bps(self.0.checked_add(rhs.0).expect("Bps addition overflow"))
     }
 }
 
 impl AddAssign for Bps {
     fn add_assign(&mut self, rhs: Bps) {
-        self.0 += rhs.0;
+        self.0 = self.0.checked_add(rhs.0).expect("Bps addition overflow");
     }
 }
 
@@ -284,6 +284,12 @@ mod tests {
         let b = Ray::from_raw(RAY / 2);
         assert_eq!((a + b).raw(), RAY + RAY / 2);
         assert_eq!((a - b).raw(), RAY / 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Ray addition overflow")]
+    fn test_ray_add_overflow_panics() {
+        let _ = Ray::from_raw(i128::MAX) + Ray::from_raw(1);
     }
 
     #[test]
@@ -357,6 +363,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Wad addition overflow")]
+    fn test_wad_add_assign_overflow_panics() {
+        let mut total = Wad::from_raw(i128::MAX);
+        total += Wad::from_raw(1);
+    }
+
+    #[test]
     fn test_bps_to_wad() {
         let env = Env::default();
         let ltv = Bps::from_raw(8000); // 80%
@@ -381,6 +394,12 @@ mod tests {
         let value = Wad::from_raw(100 * WAD);
         let weighted = threshold.apply_to_wad(&env, value);
         assert_eq!(weighted.raw(), 80 * WAD);
+    }
+
+    #[test]
+    #[should_panic(expected = "Bps addition overflow")]
+    fn test_bps_add_overflow_panics() {
+        let _ = Bps::from_raw(i128::MAX) + Bps::from_raw(1);
     }
 
     #[test]

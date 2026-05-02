@@ -5,13 +5,13 @@ resolver = "2"
 
 [workspace.dependencies]
 # F.2: pinned exactly during the audit window. Revert to caret post-audit.
-soroban-sdk = "=25.3.1"
-stellar-access = "=0.7.0"
-stellar-contract-utils = "=0.7.0"
-stellar-macros = "=0.7.0"
+soroban-sdk = "=26.0.0-rc.1"
+stellar-access = "=0.7.1"
+stellar-contract-utils = "=0.7.1"
+stellar-macros = "=0.7.1"
 
-# Certora formal verification (only compiled with `certora` feature)
-# F.1: pinned by rev so `cargo update` cannot float the verification stack.
+# Certora formal verification (only compiled with `certora` feature).
+# F.1: upstream is still pinned, with local patches below for audit fixes.
 cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
 cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
 cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
@@ -20,7 +20,7 @@ cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev
 
 # Vendored cvlr with #![no_std] patched onto cvlr-spec. Upstream cvlr-spec
 # is missing this attribute, which prevents compilation against the
-# wasm32v1-none target used by soroban-sdk 25+. Track upstream fix and
+# wasm32v1-none target used by recent soroban-sdk releases. Track upstream fix and
 # remove this patch once it lands.
 [patch."https://github.com/Certora/cvlr.git"]
 cvlr = { path = "vendor/cvlr/cvlr" }
@@ -33,6 +33,15 @@ cvlr-derive = { path = "vendor/cvlr/cvlr-derive" }
 cvlr-fixed = { path = "vendor/cvlr/cvlr-fixed" }
 cvlr-macros = { path = "vendor/cvlr/cvlr-macros" }
 cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
+
+[patch."https://github.com/Certora/cvlr-soroban.git"]
+cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
+cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }
+cvlr-soroban-derive = { path = "vendor/cvlr-soroban/cvlr-soroban-derive" }
+
+[patch.crates-io]
+stellar-access = { path = "vendor/openzeppelin/stellar-access" }
+stellar-contract-utils = { path = "vendor/openzeppelin/stellar-contract-utils" }
 
 [profile.release]
 opt-level = "z"

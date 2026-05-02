@@ -41,7 +41,7 @@ fn emode_only_registered_assets(
 
     // Asset must NOT be registered in the account's e-mode category
     let asset_cats = crate::storage::get_asset_emodes(&e, &asset);
-    cvlr_assume!(!asset_cats.contains(&attrs.e_mode_category_id));
+    cvlr_assume!(!asset_cats.contains(attrs.e_mode_category_id));
 
     // Attempt supply -- must revert because asset is not in the category
     let mut assets: Vec<(Address, i128)> = Vec::new(&e);
@@ -81,7 +81,7 @@ fn emode_borrow_only_registered_assets(
 
     // Asset must NOT be registered in the account's e-mode category
     let asset_cats = crate::storage::get_asset_emodes(&e, &asset);
-    cvlr_assume!(!asset_cats.contains(&attrs.e_mode_category_id));
+    cvlr_assume!(!asset_cats.contains(attrs.e_mode_category_id));
 
     // Attempt borrow -- must revert because asset is not in the category
     let mut borrows: Vec<(Address, i128)> = Vec::new(&e);
@@ -271,7 +271,7 @@ fn deprecated_emode_allows_withdraw(
     // Account must have a deposit position for this specific asset
     let deposit_list =
         crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_DEPOSIT);
-    cvlr_assume!(deposit_list.len() > 0);
+    cvlr_assume!(!deposit_list.is_empty());
 
     // Asset must be in the deposit list (isolate deprecated-category behavior)
     let mut asset_in_list = false;
@@ -321,7 +321,7 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(emode_asset.is_some());
 
     let asset_cats = crate::storage::get_asset_emodes(&e, &asset);
-    cvlr_assume!(asset_cats.contains(&category_id));
+    cvlr_assume!(asset_cats.contains(category_id));
 
     // Get base config and apply e-mode override
     let mut asset_config = crate::storage::get_market_config(&e, &asset).asset_config;

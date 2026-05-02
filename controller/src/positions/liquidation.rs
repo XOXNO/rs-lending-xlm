@@ -1,15 +1,31 @@
 use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
 use common::errors::CollateralError;
-use common::errors::GenericError;
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::fp::{Bps, Ray, Wad};
-use common::types::{Account, LiquidationResult, Payment, RepayEntry, SeizeEntry};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Map, Vec};
+use common::types::{Account, AccountPosition, LiquidationResult, Payment, RepayEntry, SeizeEntry};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
+use stellar_macros::{only_role, when_not_paused};
 
 use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
 use crate::positions;
-use crate::{helpers, storage, validation};
+use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
+        process_liquidation(&env, &liquidator, account_id, &debt_payments);
+    }
+
+    #[when_not_paused]
+    #[only_role(caller, "KEEPER")]
+    pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
+        validation::require_not_flash_loaning(&env);
+
+        clean_bad_debt_standalone(&env, account_id);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Orchestration
@@ -25,19 +41,17 @@ pub fn process_liquidation(
     debt_payments: &Vec<Payment>,
 ) {
     liquidator.require_auth();
-    validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
+    validation::require_non_empty_payments(env, debt_payments);
 
-    if debt_payments.is_empty() {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
-    for i in 0..debt_payments.len() {
-        let (asset, amount) = debt_payments.get(i).unwrap();
+    let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
+
+    for (asset, _) in debt_payment_plan.iter() {
         validation::require_asset_supported(env, &asset);
-        validation::require_amount_positive(env, amount);
     }
 
-    storage::bump_account(env, account_id);
+    // The trailing `set_account` bumps meta + both side TTLs, so an
+    // explicit `bump_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
     let mut cache = ControllerCache::new(env, false);
 
@@ -49,61 +63,22 @@ pub fn process_liquidation(
     // impossible. The vector is still produced because the public
     // `liquidation_estimations_detailed` view exposes it as informational
     // metadata for off-chain simulators.
-    let result = execute_liquidation(env, &account, debt_payments, &mut cache);
+    let result = execute_liquidation(env, &account, &debt_payment_plan, &mut cache);
 
-    if result.repaid.is_empty() {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
+    validation::require_non_empty_payments(env, &result.repaid);
 
-    for i in 0..result.repaid.len() {
-        let entry = result.repaid.get(i).unwrap();
+    apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
+    apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
-        let pool_addr = cache.cached_pool_address(&entry.asset);
-        let token = soroban_sdk::token::Client::new(env, &entry.asset);
-        token.transfer(liquidator, &pool_addr, &entry.amount);
+    // Liquidation never mutates meta fields (owner, is_isolated, e_mode,
+    // mode, isolated_asset). Flush only the two sides; each side write
+    // also TTL-bumps meta via `write_side_map`.
+    storage::set_supply_positions(env, account_id, &account.supply_positions);
+    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
 
-        let position = account.borrow_positions.get(entry.asset.clone()).unwrap();
-
-        let _r = repay::execute_repayment(
-            env,
-            &mut account,
-            EventContext {
-                caller: liquidator.clone(),
-                event_caller: liquidator.clone(),
-                action: symbol_short!("liq_repay"),
-            },
-            &position,
-            entry.feed.price_wad,
-            entry.amount,
-            &mut cache,
-        );
-    }
-
-    for i in 0..result.seized.len() {
-        let entry = result.seized.get(i).unwrap();
-
-        let position = account.supply_positions.get(entry.asset.clone()).unwrap();
-
-        let _r = withdraw::execute_withdrawal(
-            env,
-            &mut account,
-            EventContext {
-                caller: liquidator.clone(),
-                event_caller: liquidator.clone(),
-                action: symbol_short!("liq_seize"),
-            },
-            entry.amount,
-            &position,
-            true,
-            entry.protocol_fee,
-            entry.feed.price_wad,
-            &mut cache,
-        );
-    }
-
-    storage::set_account(env, account_id, &account);
-
-    check_bad_debt_after_liquidation(env, &mut cache, account_id);
+    // Same in-memory snapshot the cleanup needs; avoids a re-read of all 3
+    // account keys we just wrote.
+    check_bad_debt_after_liquidation(env, &mut cache, account_id, &account);
 
     cache.flush_isolated_debts();
 }
@@ -111,6 +86,66 @@ pub fn process_liquidation(
 // ---------------------------------------------------------------------------
 // Execution Engine (Math)
 // ---------------------------------------------------------------------------
+
+fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {
+    EventContext {
+        caller: liquidator.clone(),
+        event_caller: liquidator.clone(),
+        action,
+    }
+}
+
+fn apply_liquidation_repayments(
+    env: &Env,
+    liquidator: &Address,
+    account: &mut Account,
+    repaid: &Vec<RepayEntry>,
+    cache: &mut ControllerCache,
+) {
+    for i in 0..repaid.len() {
+        let entry = repaid.get(i).unwrap();
+
+        let pool_addr = cache.cached_pool_address(&entry.asset);
+        let token = soroban_sdk::token::Client::new(env, &entry.asset);
+        token.transfer(liquidator, &pool_addr, &entry.amount);
+
+        let position = account.borrow_positions.get(entry.asset.clone()).unwrap();
+        repay::execute_repayment(
+            env,
+            account,
+            liquidation_event_context(liquidator, symbol_short!("liq_repay")),
+            &position,
+            entry.feed.price_wad,
+            entry.amount,
+            cache,
+        );
+    }
+}
+
+fn apply_liquidation_seizures(
+    env: &Env,
+    liquidator: &Address,
+    account: &mut Account,
+    seized: &Vec<SeizeEntry>,
+    cache: &mut ControllerCache,
+) {
+    for i in 0..seized.len() {
+        let entry = seized.get(i).unwrap();
+
+        let position = account.supply_positions.get(entry.asset.clone()).unwrap();
+        withdraw::execute_withdrawal(
+            env,
+            account,
+            liquidation_event_context(liquidator, symbol_short!("liq_seize")),
+            entry.amount,
+            &position,
+            true,
+            entry.protocol_fee,
+            entry.feed.price_wad,
+            cache,
+        );
+    }
+}
 
 pub(crate) fn execute_liquidation(
     env: &Env,
@@ -206,12 +241,12 @@ fn calculate_repayment_amounts(
     let mut total_repaid_usd = Wad::ZERO;
     let mut repaid_tokens: Vec<RepayEntry> = Vec::new(env);
 
-    let merged = merge_debt_payments(env, raw_payments);
+    let merged = utils::aggregate_positive_payments(env, raw_payments);
 
     for i in 0..merged.len() {
         let (asset, amount) = merged.get(i).unwrap();
         let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index_readonly(&asset);
+        let market_index = cache.cached_market_index(&asset);
 
         let position = account
             .borrow_positions
@@ -297,7 +332,7 @@ fn calculate_seized_collateral(
         }
 
         let asset_config = cache.cached_asset_config(&asset);
-        let market_index = cache.cached_market_index_readonly(&asset);
+        let market_index = cache.cached_market_index(&asset);
 
         let actual_ray = Ray::from_raw(position.scaled_amount_ray)
             .mul(env, Ray::from_raw(market_index.supply_index_ray));
@@ -388,12 +423,14 @@ fn process_excess_payment(
 // Bad debt check and cleanup
 // ---------------------------------------------------------------------------
 
-fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, account_id: u64) {
-    // Re-load the account to pick up mutated snapshots from storage.
-    let account = storage::get_account(env, account_id);
-
+fn check_bad_debt_after_liquidation(
+    env: &Env,
+    cache: &mut ControllerCache,
+    account_id: u64,
+    account: &Account,
+) {
     if account.borrow_positions.is_empty() {
-        positions::account::cleanup_account_if_empty(env, &account, account_id);
+        positions::account::cleanup_account_if_empty(env, account, account_id);
         return;
     }
 
@@ -410,7 +447,7 @@ fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, acco
             env,
             cache,
             account_id,
-            &account,
+            account,
             total_debt_usd.raw(),
             total_collateral_usd.raw(),
         );
@@ -421,7 +458,8 @@ fn check_bad_debt_after_liquidation(env: &Env, cache: &mut ControllerCache, acco
 /// and writes off all debt against the supply index. Callable by the KEEPER role.
 /// Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
-    storage::bump_account(env, account_id);
+    // The success path removes the account entirely and the failure path
+    // reverts atomically, so no upfront `bump_account` keep-alive is needed.
     let mut cache = ControllerCache::new(env, false);
     let account = storage::get_account(env, account_id);
 
@@ -461,19 +499,13 @@ fn execute_bad_debt_cleanup(
 ) {
     for asset in account.supply_positions.keys() {
         let position = account.supply_positions.get(asset.clone()).unwrap();
-        let pool_addr = cache.cached_pool_address(&position.asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-        let feed = cache.cached_price(&position.asset);
-        pool_client.seize_position(&position, &feed.price_wad);
+        seize_pool_position(env, cache, &position);
     }
 
     for asset in account.borrow_positions.keys() {
         let position = account.borrow_positions.get(asset.clone()).unwrap();
         repay::clear_position_isolated_debt(env, &position, account, cache);
-        let pool_addr = cache.cached_pool_address(&position.asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-        let feed = cache.cached_price(&position.asset);
-        pool_client.seize_position(&position, &feed.price_wad);
+        seize_pool_position(env, cache, &position);
     }
 
     emit_clean_bad_debt(
@@ -488,30 +520,11 @@ fn execute_bad_debt_cleanup(
     positions::account::remove_account(env, account_id);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn merge_debt_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
-    let mut map: Map<Address, i128> = Map::new(env);
-    let mut order: Vec<Address> = Vec::new(env);
-
-    for i in 0..payments.len() {
-        let (asset, amount) = payments.get(i).unwrap();
-        let prev = map.get(asset.clone()).unwrap_or(0);
-        if prev == 0 {
-            order.push_back(asset.clone());
-        }
-        map.set(asset.clone(), prev + amount);
-    }
-
-    let mut result: Vec<Payment> = Vec::new(env);
-    for i in 0..order.len() {
-        let asset = order.get(i).unwrap();
-        let amount = map.get(asset.clone()).unwrap();
-        result.push_back((asset, amount));
-    }
-    result
+fn seize_pool_position(env: &Env, cache: &mut ControllerCache, position: &AccountPosition) {
+    let pool_addr = cache.cached_pool_address(&position.asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
+    let feed = cache.cached_price(&position.asset);
+    pool_client.seize_position(position, &feed.price_wad);
 }
 
 #[cfg(test)]
@@ -568,9 +581,10 @@ mod tests {
         let account_id = 1;
 
         t.as_controller(|| {
-            storage::set_account(&t.env, account_id, &t.empty_account());
+            let empty = t.empty_account();
+            storage::set_account(&t.env, account_id, &empty);
             let mut cache = ControllerCache::new(&t.env, false);
-            check_bad_debt_after_liquidation(&t.env, &mut cache, account_id);
+            check_bad_debt_after_liquidation(&t.env, &mut cache, account_id, &empty);
             assert!(storage::try_get_account(&t.env, account_id).is_none());
         });
     }

@@ -1,4 +1,4 @@
-# XOXNO Lending — Technical Architecture
+# XOXNO Lending. Technical Architecture
 
 *Stellar Soroban lending and borrowing protocol with capital-strategy primitives.*
 
@@ -13,9 +13,9 @@
 5. [Account and Position Model](#5-account-and-position-model)
 6. [Market Configuration](#6-market-configuration)
 7. [Market Lifecycle](#7-market-lifecycle)
-8. [Core User Flows](#8-core-user-flows) — supply, borrow, repay, withdraw, liquidation
-9. [Capital Strategy Flows](#9-capital-strategy-flows) — multiply, swap_collateral, swap_debt, repay_debt_with_collateral, flash_loan
-10. [Risk Frameworks](#10-risk-frameworks) — e-mode, isolation, threshold snapshots
+8. [Core User Flows](#8-core-user-flows): supply, borrow, repay, withdraw, liquidation
+9. [Capital Strategy Flows](#9-capital-strategy-flows): multiply, swap_collateral, swap_debt, repay_debt_with_collateral, flash_loan
+10. [Risk Frameworks](#10-risk-frameworks): e-mode, isolation, threshold snapshots
 11. [Oracle and Price Safety](#11-oracle-and-price-safety)
 12. [Fixed-Point Math and Invariants](#12-fixed-point-math-and-invariants)
 13. [Soroban Storage and TTL Model](#13-soroban-storage-and-ttl-model)
@@ -26,17 +26,17 @@
 18. [Risks and Mitigations](#18-risks-and-mitigations)
 19. [Verification](#19-verification)
 
-[Appendix — Diagram Index](#appendix--diagram-index) · [References](#references)
+[Appendix: Diagram Index](#appendix-diagram-index) · [References](#references)
 
 ---
 
 ## 1. Overview
 
-XOXNO Lending is a Stellar-native lending protocol written in Rust on Soroban. Capital-strategy primitives — leverage, deleverage, debt swaps, collateral swaps, flash loans — are first-class controller endpoints, not modules layered on a passive core. Every flow honors the same solvency invariants, oracle gates, and isolation rules.
+XOXNO Lending is a Stellar-native lending protocol written in Rust on Soroban. Capital-strategy primitives (leverage, deleverage, debt swaps, collateral swaps, flash loans) are first-class controller endpoints, not modules layered on a passive core. Every flow honors the same solvency invariants, oracle gates, and isolation rules.
 
 A two-tier Soroban deployment: a single **controller** owns user-facing endpoints, account lifecycle, risk validation, and orchestration; per-asset **pool** child contracts own token custody, interest accrual, and bad-debt socialization. A thin `pool-interface` crate separates them, so the controller depends on the ABI, not the implementation.
 
-The controller validates Reflector, Soroswap, and SAC / SEP-41 surfaces before state mutation.
+The controller validates Reflector responses on every read, brackets every Soroswap call with balance-delta + `min_amount_out` checks, and gates SAC / SEP-41 token contracts behind an admin allow-list at market creation. Runtime token flows then rely on auth and balance-delta verification rather than per-call SAC validation.
 
 **Repository.** `https://github.com/XOXNO/rs-lending-xlm`. Source-of-truth docs live under `architecture/` (ARCHITECTURE, INVARIANTS, MATH_REVIEW, ORACLE, DATAFLOW, STORAGE, STELLAR_NOTES, ACTORS, CONFIG_INVARIANTS, ENTRYPOINT_AUTH_MATRIX, INCIDENT_RESPONSE, DEPLOYMENT, GLOSSARY). §References annotates each.
 
@@ -44,9 +44,9 @@ The controller validates Reflector, Soroswap, and SAC / SEP-41 surfaces before s
 
 ## 2. Design Thesis
 
-Stellar lending today stops at supply, borrow, repay, withdraw. Users wanting leveraged exposure, pair rotation, or atomic deleveraging must orchestrate flash loans, swaps, and rebalances across multiple contracts and signatures — fragile against MEV, slippage, and partial failure, and hostile to non-expert users.
+Stellar lending today stops at supply, borrow, repay, withdraw. Users wanting leveraged exposure, pair rotation, or atomic deleveraging must orchestrate flash loans, swaps, and rebalances across multiple contracts and signatures. That stack is fragile against MEV, slippage, and partial failure, and hostile to non-expert users.
 
-XOXNO Lending fills the gap. Strategy primitives live inside the protocol, so the same isolation guarantees, oracle gates, and liquidation logic apply uniformly across simple deposits and complex multi-leg flows. The protocol is built to be **consumed by other Stellar applications** — wallets, vault aggregators, structured products, RWA frontends — not to be a destination dApp.
+XOXNO Lending fills the gap. Strategy primitives live inside the protocol, so the same isolation guarantees, oracle gates, and liquidation logic apply uniformly across simple deposits and complex multi-leg flows. The protocol is built to be **consumed by other Stellar applications** (wallets, vault aggregators, structured products, RWA frontends), not to be a destination dApp.
 
 The core architectural choice: **separate protocol-wide risk and account orchestration from per-asset liquidity accounting**. The controller coordinates account-level risk and multi-asset actions; each pool stays narrow and asset-local. Pools execute accounting; the controller decides whether to allow it.
 
@@ -63,7 +63,7 @@ flowchart TB
 
     subgraph core["Protocol core"]
         Controller["Controller<br/>(single user entrypoint)"]
-        subgraph pools["Pools — one per listed asset"]
+        subgraph pools["Pools, one per listed asset"]
             direction LR
             PoolXLM["Pool XLM"]
             PoolUSDC["Pool USDC"]
@@ -108,7 +108,7 @@ flowchart TB
 
 **Trust boundaries.**
 
-- The controller is the only contract users call. Every pool mutation is owner-gated via `verify_admin`, and the controller owns each pool — only the controller can mutate pool state.
+- The controller is the only contract users call. Every pool mutation is owner-gated via `verify_admin`, and the controller owns each pool, so only the controller can mutate pool state.
 - The controller validates every oracle response before use.
 - Soroswap calls run inside the controller, which verifies input and output balances around each call and enforces caller-supplied `min_amount_out`.
 - The controller depends on `pool-interface`, not the pool runtime crate. This pins the cross-contract surface, shrinks controller WASM, and makes the trust boundary explicit.
@@ -122,7 +122,7 @@ flowchart TB
 The controller owns protocol logic and is the only user-facing entrypoint. Responsibilities span five domains:
 
 - **Account lifecycle.** Creation, ownership checks, multi-position bookkeeping, position-limit enforcement.
-- **User flows.** Supply, borrow, repay, withdraw, liquidation — all with risk validation for LTV, health factor (HF), liquidation threshold and bonus, isolation debt ceilings. Supply, borrow, repay, withdraw accept bulk multi-asset payloads atomically; liquidation is intrinsically multi-asset (one call may repay several debts and seize several collaterals).
+- **User flows.** Supply, borrow, repay, withdraw, liquidation, all with risk validation for LTV, health factor (HF), liquidation threshold and bonus, isolation debt ceilings. Supply, borrow, repay, withdraw accept bulk multi-asset payloads atomically; liquidation is intrinsically multi-asset (one call may repay several debts and seize several collaterals).
 - **Strategy orchestration.** `multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`, and flash-loan flow with reentrancy guard.
 - **Market and oracle config.** Asset registry, e-mode categories, isolation rules, oracle wiring, price-safety tier resolution.
 - **Operational housekeeping.** Pool deployment from the stored WASM template, pool upgrades, revenue claiming and forwarding to the accumulator, TTL keepalives.
@@ -133,7 +133,7 @@ One pool per listed asset. Each owns asset-local state only:
 
 - **Custody.** Token balance for its single asset.
 - **Aggregate accounting.** Scaled supply, scaled borrow debt, supply and borrow indexes, accrued protocol revenue.
-- **Interest model.** Per-block accrual, reserve-availability checks, bad-debt socialization into the supply index.
+- **Interest model.** Per-ledger accrual driven by ledger-timestamp deltas in milliseconds, reserve-availability checks, bad-debt socialization into the supply index.
 - **Flash-loan accounting.** `flash_loan_begin` snapshots the pre-loan balance; `flash_loan_end` verifies repayment via balance-delta.
 
 Pools make no protocol-level solvency decisions. They execute accounting the controller requests.
@@ -148,13 +148,13 @@ Pools make no protocol-level solvency decisions. They execute accounting the con
 
 **Soroswap.** DEX router for the four account-bound strategies (`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`). Set at deployment; the Owner updates it via `set_aggregator`. The controller passes user-supplied `min_amount_out` and verifies received amount via balance-delta before settling. The user bounds slippage; the controller never trusts the router unconditionally.
 
-**Accumulator.** Protocol revenue sink, set at deployment; the Owner updates it via `set_accumulator`. Revenue accrues as scaled supply tokens (appreciating with the supply index) and forwards on `claim_revenue`. Revenue earns yield until claimed. Trust model: address-only — tokens forward without per-call validation, since the accumulator is a passive governance-configured collector.
+**Accumulator.** Protocol revenue sink, configured on the controller; the Owner updates it via `set_accumulator`. Revenue accrues inside each pool as scaled supply tokens (appreciating with the supply index) and is realized on `claim_revenue`: the pool transfers the realized amount to its owner (this controller), which then forwards to the accumulator in the same transaction. Revenue earns yield until claimed. Trust model: address-only. Tokens forward without per-call validation, since the accumulator is a passive governance-configured collector.
 
 ---
 
 ## 5. Account and Position Model
 
-One account holds many positions — standard, isolated, e-mode, strategy-driven, plus future permissioned or RWA-compatible markets — all under one owner address with split per-asset storage.
+One account holds many positions (standard, isolated, e-mode, strategy-driven, plus future permissioned or RWA-compatible markets), all under one owner address with split per-asset storage.
 
 ```mermaid
 classDiagram
@@ -199,9 +199,9 @@ The same `AccountPosition` type backs supply and borrow entries. Two storage key
 
 **Why split storage.** Withdraw never reads borrow positions; repay never reads supply positions; viewing one position never deserializes the whole account. Storage I/O is linear in the *touched* set, not the total; TTL bumps target each account and position instead of rewriting nested maps.
 
-**Authorization.** Each account carries an `owner: Address`. Risk-increasing mutations (borrow, withdraw, account-bound strategies) require `caller.require_auth()` plus `account.owner == caller`. Risk-decreasing mutations (supply, repay) and liquidation are permissionless — supply and repay only improve account health; liquidation requires `liquidator.require_auth()` for the token spend, but no relationship to the victim, since the protocol incentivizes third parties to clean up unhealthy positions. This preserves liveness during oracle outages and lets keepers, integrators, and liquidators interact without privileged keys.
+**Authorization.** Each account carries an `owner: Address`. Risk-increasing mutations (borrow, withdraw, account-bound strategies) require `caller.require_auth()` plus `account.owner == caller`. Risk-decreasing mutations (supply, repay) and liquidation are permissionless. Supply and repay only improve account health; liquidation requires `liquidator.require_auth()` for the token spend, but no relationship to the victim, since the protocol incentivizes third parties to clean up unhealthy positions. This preserves liveness during oracle outages and lets keepers, integrators, and liquidators interact without privileged keys.
 
-**Position limits.** Up to 10 supply and 10 borrow positions per account. The cap bounds liquidation gas, since liquidation iterates every position on the account.
+**Position limits.** Default 10 supply and 10 borrow positions per account, raisable up to 32/32 via owner-set `set_position_limits`. The cap bounds liquidation gas, since liquidation iterates every position on the account.
 
 **Scaled-amount accounting.** Positions store `scaled = actual × RAY / index`. Reconstruction is `scaled × index / RAY`. Interest auto-compounds in O(1) per market: the index moves, every position's actual balance moves with it.
 
@@ -286,18 +286,18 @@ classDiagram
 
 `MarketConfig`, `AssetConfig`, `OracleProviderConfig`, and `OraclePriceFluctuation` live in controller storage; edits go through `edit_asset_config` and `configure_market_oracle`. `MarketParams` (rate-model parameters and reserve factor) lives on the pool side; edits go through the controller's `upgrade_pool_params`.
 
-**Tolerance bands.** Each tier stores four ratio bounds; operators configure only two BPS values per market (`first_tolerance`, `last_tolerance`). The contract derives the four ratios via `upper = BPS + tolerance` and `lower = BPS² / upper` — a multiplicative band: at 2% tolerance, the upper ratio is 1.02× and the lower 1/1.02× ≈ 0.98×.
+**Tolerance bands.** Each tier stores four ratio bounds; operators configure only two BPS values per market (`first_tolerance`, `last_tolerance`). The contract derives the four ratios via `upper = BPS + tolerance` and `lower = BPS² / upper`, a multiplicative band: at 2% tolerance, the upper ratio is 1.02× and the lower 1/1.02× ≈ 0.98×.
 
 **Inter-parameter invariants.** Edit endpoints validate the following at write time:
 
-- `liquidation_threshold > LTV` — fresh borrows cannot land in liquidatable territory.
-- `liquidation_bonus ≤ MAX_LIQUIDATION_BONUS = 15%` — caps liquidator premium.
-- `flashloan_fee_bps ∈ [0, MAX_FLASHLOAN_FEE_BPS = 5%]` — bounds protocol take; negative values rejected so the pool never pays the receiver.
-- `reserve_factor_bps < 100%` (on `MarketParams`) — the protocol cannot consume all interest accrual.
-- `liquidation_fees_bps ≤ 100%` — fee on bonus cannot exceed the bonus.
+- `liquidation_threshold > LTV`, so fresh borrows cannot land in liquidatable territory.
+- `liquidation_bonus ≤ MAX_LIQUIDATION_BONUS = 15%`, capping liquidator premium.
+- `flashloan_fee_bps ∈ [0, MAX_FLASHLOAN_FEE_BPS = 5%]`, bounding protocol take; negative values rejected so the pool never pays the receiver.
+- `reserve_factor_bps < 100%` (on `MarketParams`), so the protocol cannot consume all interest accrual.
+- `liquidation_fees_bps ≤ 100%`, so the fee on bonus cannot exceed the bonus.
 - `borrow_cap`, `supply_cap`, `isolation_debt_ceiling_usd_wad` all `≥ 0`; `0` denotes unlimited.
-- Rate-curve monotonicity (on `MarketParams`): `0 ≤ base_borrow_rate ≤ slope1 ≤ slope2 ≤ slope3 ≤ max_borrow_rate ≤ MAX_BORROW_RATE_RAY (= 2 × RAY)` — keeps the curve non-decreasing and the Taylor input inside its convergence envelope.
-- Utilization breakpoints (on `MarketParams`): `0 < mid_utilization < optimal_utilization < RAY` — guarantees the three-region curve is well-defined.
+- Rate-curve monotonicity (on `MarketParams`): `0 ≤ base_borrow_rate ≤ slope1 ≤ slope2 ≤ slope3 ≤ max_borrow_rate ≤ MAX_BORROW_RATE_RAY (= 2 × RAY)`, keeping the curve non-decreasing and the Taylor input inside its convergence envelope.
+- Utilization breakpoints (on `MarketParams`): `0 < mid_utilization < optimal_utilization < RAY`, so the three-region curve is well-defined.
 - Tolerance-band ordering: `MIN_FIRST_TOLERANCE ≤ first_tolerance ≤ MAX_FIRST_TOLERANCE`, `MIN_LAST_TOLERANCE ≤ last_tolerance ≤ MAX_LAST_TOLERANCE`, plus `first_tolerance < last_tolerance`, enforced in `validate_oracle_bounds`.
 
 Per-position threshold snapshots protect existing accounts from sudden config tightening.
@@ -319,7 +319,7 @@ stateDiagram-v2
     Disabled --> Active : configure_market_oracle
 ```
 
-Staging prevents partial configuration from going live: a pool must exist before oracle configuration, and the final asset config lands last. `Disabled` is a soft kill switch — `disable_token_oracle` blocks new oracle-dependent operations while keeping pool reserves and positions intact, so existing positions can still repay or withdraw using cached state. A single `configure_market_oracle` call re-arms the market.
+Staging prevents partial configuration from going live: a pool must exist before oracle configuration, and the final asset config lands last. `Disabled` is a soft kill switch. `disable_token_oracle` blocks new oracle-dependent operations while keeping pool reserves and positions intact. Repay still works under the permissive oracle posture (graceful staleness), but withdraw and other risk-increasing flows reject disabled markets. A single `configure_market_oracle` call re-arms the market.
 
 ---
 
@@ -353,7 +353,7 @@ sequenceDiagram
     C-->>U: emit Supply event
 ```
 
-Supply is risk-decreasing and permissionless — any caller can deposit into any existing account, raising its HF. Calling with `account_id == 0` mints a new account owned by the caller. The cache uses `allow_unsafe_price = true`: tier-3 deviation falls back to the safe price rather than panicking, so legitimate deposits keep flowing during oracle stress. The raw-asset supply cap checks the **synced** total, not stale state, preventing same-tx multi-payment cap leaks. Balance-delta accounting (`balance_before` / `balance_after`) defends fee-on-transfer and rebasing tokens.
+Supply is risk-decreasing and permissionless: any caller can deposit into any existing account, raising its HF. Calling with `account_id == 0` mints a new account owned by the caller. The cache uses `allow_unsafe_price = true`: tier-3 deviation falls back to the safe price rather than panicking, so legitimate deposits keep flowing during oracle stress. The raw-asset supply cap checks the **synced** total, not stale state, preventing same-tx multi-payment cap leaks. Balance-delta accounting (`balance_before` / `balance_after`) defends fee-on-transfer and rebasing tokens.
 
 ### 8.2 Borrow
 
@@ -392,7 +392,7 @@ sequenceDiagram
     participant P as Pool
 
     R->>C: repay(account_id, asset, amount)
-    Note over C: any caller — permissionless
+    Note over C: any caller, permissionless
     C->>O: token_price(asset)
     Note over O: stale price tolerated (graceful staleness)
     O-->>C: price_wad (or stale-flag set)
@@ -408,9 +408,9 @@ sequenceDiagram
     Note over C: decrement IsolatedDebt by actual_applied<br/>(skipped if oracle was stale)
 ```
 
-Repay is permissionless — anyone can repay anyone's debt. Index sync runs before scaled-amount reduction so partial repays burn the correct number of scaled tokens. The pool refunds overpayment via balance-delta.
+Repay is permissionless. Anyone can repay anyone's debt. Index sync runs before scaled-amount reduction so partial repays burn the correct number of scaled tokens. The pool refunds overpayment via balance-delta.
 
-The repay path uses **graceful staleness**: a stale oracle still permits repayment. The isolated-debt USD decrement skips on stale prices (under-decrementing is conservative — the next non-stale op reconciles), but position reduction is exact, operating on scaled amounts independent of price. Users can self-rescue during oracle outages.
+The repay path uses **graceful staleness**: a stale oracle still permits repayment. Position reduction operates on scaled amounts independent of price, so it is exact. The isolated-debt USD decrement runs whenever any debt is repaid, regardless of staleness; the next non-stale op refreshes the USD valuation. Users can self-rescue during oracle outages.
 
 ### 8.4 Withdraw
 
@@ -439,11 +439,11 @@ sequenceDiagram
     Note over C: HF re-check if borrows remain (≥ 1.0 WAD)
 ```
 
-Withdraw is risk-increasing, owner-gated; the controller verifies `account.owner == caller` after `caller.require_auth()`. Oracle posture is conditional: with no borrows, `allow_unsafe_price = true` — no debt, no solvency risk. With borrows, strict pricing applies. The post-flow HF check uses fresh prices to defeat intra-tx price caching. The controller treats `amount == 0` as "withdraw all", mapping it to `i128::MAX` and clamping pool-side.
+Withdraw is risk-increasing, owner-gated; the controller verifies `account.owner == caller` after `caller.require_auth()`. Oracle posture is conditional: with no borrows, `allow_unsafe_price = true` (no debt, no solvency risk). With borrows, strict pricing applies. Withdraw runs the post-flow HF check against the same controller cache that priced the entry validation, so prices are stable across the call. Strategy flows that compose multiple legs explicitly clear the price cache before the final HF re-check (see §9.5). The controller treats `amount == 0` as "withdraw all", mapping it to `i128::MAX` and clamping pool-side.
 
 ### 8.5 Liquidation
 
-Liquidation is permissionless — any liquidator who can repay part of an unhealthy account's debt may invoke it. The endpoint requires `liquidator.require_auth()` (token spend) but no relationship to the liquidated account. It triggers when `HF < 1.0 WAD`; the liquidator repays part of the debt and seizes a matching portion of collateral plus a bonus. The cache enforces strict pricing (`allow_unsafe_price = false`) since collateral leaves at a price-derived ratio.
+Liquidation is permissionless. Any liquidator who can repay part of an unhealthy account's debt may invoke it. The endpoint requires `liquidator.require_auth()` (token spend) but no relationship to the liquidated account. It triggers when `HF < 1.0 WAD`; the liquidator repays part of the debt and seizes a matching portion of collateral plus a bonus. The cache enforces strict pricing (`allow_unsafe_price = false`) since collateral leaves at a price-derived ratio.
 
 ```mermaid
 flowchart TD
@@ -470,9 +470,9 @@ flowchart TD
 
 ## 9. Capital Strategy Flows
 
-Strategy endpoints atomically compose two or more §8 core flows plus a Soroswap leg. Five sit on the controller — `multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`, `flash_loan`. Each respects the same e-mode, isolation, position-limit, and HF invariants as the core flows. The controller validates inputs, executes legs under a strategy guard, brackets the swap with balance-delta checks, and re-validates the post-state with fresh prices before persisting.
+Strategy endpoints atomically compose two or more §8 core flows plus a Soroswap leg. Five sit on the controller: `multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`, `flash_loan`. Each respects the same e-mode, isolation, position-limit, and HF invariants as the core flows. The controller validates inputs, executes legs under a strategy guard, brackets the swap with balance-delta checks, and re-validates the post-state with fresh prices before persisting.
 
-**Auth.** The four account-bound strategies (`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`) gate to the account owner — they alter a specific account's risk surface. `flash_loan` is permissionless — any caller may originate one, since it must repay in the same tx or revert.
+**Auth.** The four account-bound strategies (`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`) gate to the account owner, since they alter a specific account's risk surface. `flash_loan` is permissionless: any caller may originate one, since it must repay in the same tx or revert.
 
 §9.5 captures the shared execution pattern; subsections describe each composition and where safety invariants attach.
 
@@ -530,28 +530,30 @@ sequenceDiagram
 
     U->>C: flash_loan(asset, amount, callback)
     Note over C: require_not_paused, require_not_flash_loaning,<br/>amount &gt; 0, market active, is_flashloanable
+    Note over C: set FlashLoanOngoing = true (controller storage)
     C->>P: flash_loan_begin(asset, amount)
-    Note over P: snapshot pool_balance_before<br/>set FlashLoanOngoing = true
+    Note over P: snapshot pool_balance_before into FL_PREBAL
     P->>T: transfer(pool → receiver, amount)
     C->>U: invoke callback (execute_flash_loan)
     Note over U: arbitrary logic, cannot re-enter<br/>controller via require_not_flash_loaning
-    U->>T: transfer(receiver → pool, amount + fee)
-    C->>P: flash_loan_end
+    Note over U: receiver pre-authorizes the pool to pull repayment<br/>(env.authorize_as_current_contract)
+    C->>P: flash_loan_end(asset, amount, fee, receiver)
+    P->>T: transfer(receiver → pool, amount + fee)
     Note over P: pool_balance_after ≥<br/>pool_balance_before + fee or revert
-    Note over P: clear FlashLoanOngoing
     P-->>C: ok
+    Note over C: clear FlashLoanOngoing (controller storage)
     C-->>U: ok
 ```
 
-The `FlashLoanOngoing` instance flag is a single-flight guard. While set, every state-changing controller endpoint short-circuits on `require_not_flash_loaning`, eliminating reentrancy from the callback. Pre-flight checks (`require_not_paused`, `require_amount_positive`, `require_market_active`, `is_flashloanable`) and the pool's `verify_admin` gate further constrain the callback surface. Balance-delta on the pool verifies repayment, not the receiver.
+The `FlashLoanOngoing` instance flag on the **controller** is a single-flight guard. While set, every user/position/revenue mutation entrypoint short-circuits on `require_not_flash_loaning`, eliminating reentrancy from the callback into the lending surface. Owner-only config endpoints and KEEPER keepalives are not pause-gated, since they are separately role-gated and out of reach of the receiver. Pre-flight checks (`require_not_paused`, `require_amount_positive`, `require_market_active`, `is_flashloanable`) plus the pool's `verify_admin` gate further constrain the callback. Balance-delta on the pool verifies repayment, not the receiver.
 
-**Receiver-contract requirement.** Soroban's SAC `transfer(from, to, amount)` invokes `from.require_auth()` internally. For the receiver to repay the pool from its own balance, its `execute_flash_loan` callback must call `env.authorize_as_current_contract(...)` before the repayment transfer. Receivers that skip this revert with an auth error; the pool's balance-delta check fails the loan.
+**Receiver-contract requirement.** Soroban's SAC `transfer(from, to, amount)` invokes `from.require_auth()` internally. The pool pulls the `amount + fee` repayment from the receiver inside `flash_loan_end`, so the receiver's `execute_flash_loan` callback must call `env.authorize_as_current_contract(...)` to pre-authorize that pull. Receivers that skip this revert during the pool-initiated transfer, before the balance-delta check.
 
 ---
 
 ## 10. Risk Frameworks
 
-E-mode and isolation are the two risk-segmentation modes. They optimize for opposite ends of the risk spectrum, are mutually exclusive, and are fixed at account creation — switching modes requires a new account.
+E-mode and isolation are the two risk-segmentation modes. They optimize for opposite ends of the risk spectrum, are mutually exclusive, and are fixed at account creation. Switching modes requires a new account.
 
 | Property | E-Mode | Isolation Mode |
 |----------|--------|----------------|
@@ -559,7 +561,7 @@ E-mode and isolation are the two risk-segmentation modes. They optimize for oppo
 | Per-account collateral | Multiple assets within the category | Exactly one (`isolated_asset`) |
 | LTV / threshold / bonus | Enhanced (e.g. 97% / 98% / 2%) | Standard or stricter |
 | Debt scope | Any borrowable asset | Only assets flagged `isolation_borrow_enabled` |
-| Global cap | None — bounded by collateral value | `isolation_debt_ceiling_usd_wad` per asset |
+| Global cap | None (bounded by collateral value) | `isolation_debt_ceiling_usd_wad` per asset |
 
 ### 10.1 E-Mode
 
@@ -567,11 +569,11 @@ Correlated assets receive enhanced parameters when grouped into a category. A st
 
 ### 10.2 Isolation Mode
 
-High-risk assets carry a global USD debt ceiling (`isolation_debt_ceiling_usd_wad`). An isolated account holds exactly one collateral type; every borrow consumes the global ceiling. The tracker is denominated in WAD; repay decrements it (sub-$1 dust erasure prevents ratchet bias) and borrow clamps at the ceiling. A representative configuration: `LTV = 30%`, `liquidation_threshold = 50%`, `liquidation_bonus = 10%`, `isolation_debt_ceiling = $10M USD` — conservative LTV, wide liquidation buffer, larger bonus to attract liquidators on thinner liquidity. Isolation lets higher-risk and future RWA-compatible markets coexist with conservative core markets without risking protocol solvency.
+High-risk assets carry a global USD debt ceiling (`isolation_debt_ceiling_usd_wad`). An isolated account holds exactly one collateral type; every borrow consumes the global ceiling. The tracker is denominated in WAD; repay decrements it (sub-$1 dust erasure prevents ratchet bias) and borrow clamps at the ceiling. A representative configuration: `LTV = 30%`, `liquidation_threshold = 50%`, `liquidation_bonus = 10%`, `isolation_debt_ceiling = $10M USD`. Conservative LTV, wide liquidation buffer, larger bonus to attract liquidators on thinner liquidity. Isolation lets higher-risk and future RWA-compatible markets coexist with conservative core markets without risking protocol solvency.
 
 ### 10.3 Per-position threshold snapshots
 
-`liquidation_threshold_bps`, `liquidation_bonus_bps`, `liquidation_fees_bps`, and `loan_to_value_bps` snapshot at first deposit. Existing positions keep their snapshots when governance later changes the asset config — e.g., if `liquidation_threshold_bps` drops from 80% to 75%, existing positions retain 80% until refreshed. The KEEPER-gated `update_account_threshold` endpoint propagates new admin-set values to a chosen account (helper: `supply::update_position_threshold`). Updates require `HF ≥ 1.05` (5% buffer) so the keeper cannot push borderline accounts into liquidation; values stay bounded by the admin-only `asset_config` storage.
+`liquidation_threshold_bps`, `liquidation_bonus_bps`, `liquidation_fees_bps`, and `loan_to_value_bps` snapshot at first deposit. Existing positions keep their snapshots when governance later changes the asset config. For example, if `liquidation_threshold_bps` drops from 80% to 75%, existing positions retain 80% until refreshed. The KEEPER-gated `update_account_threshold` endpoint propagates new admin-set values to a chosen account (helper: `supply::update_position_threshold`). Updates require `HF ≥ 1.05` (5% buffer) so the keeper cannot push borderline accounts into liquidation; values stay bounded by the admin-only `asset_config` storage.
 
 ---
 
@@ -601,7 +603,7 @@ flowchart TD
     RISKY -->|no| FAIL["panic: UnsafePriceNotAllowed"]
 ```
 
-**Tolerance bands.** Operators set two BPS values per market at `configure_market_oracle` time — `first_tolerance ∈ [50, 5000]`, `last_tolerance ∈ [150, 5000]`, `first < last`. The contract stores the derived multiplicative ratios on `MarketConfig` (see §6) and classifies each reading into one of three tiers. Tier 1: safe price. Tier 2: midpoint of aggregator and safe. Tier 3: panic for risk-increasing ops, fallback to safe price for risk-decreasing ones.
+**Tolerance bands.** Operators set two BPS values per market at `configure_market_oracle` time: `first_tolerance ∈ [50, 5000]`, `last_tolerance ∈ [150, 5000]`, `first < last`. The contract stores the derived multiplicative ratios on `MarketConfig` (see §6) and classifies each reading into one of three tiers. Tier 1: safe price. Tier 2: midpoint of aggregator and safe. Tier 3: panic for risk-increasing ops, fallback to safe price for risk-decreasing ones.
 
 **Reflector surface.** Four SEP-40 methods: `decimals()` for feed precision, `resolution()` for sample period, `lastprice(asset)` for spot, `prices(asset, records)` for TWAP windows. `ReflectorAsset::Stellar(Address)` names native assets; `ReflectorAsset::Other(Symbol)` names bridged tickers (`BTC`, `ETH`).
 
@@ -609,17 +611,17 @@ flowchart TD
 
 | Property | Behavior |
 |----------|----------|
-| Decoupled staleness | Staleness and tolerance are independent: `allow_unsafe_price` bypasses tolerance but never staleness. `max_price_stale_seconds` clamped to `[60, 86_400]` at config time. |
+| Permissive vs strict cache | `allow_unsafe_price = true` bypasses both deviation tolerance and stale-feed gates so risk-decreasing flows (supply, repay) keep working during oracle stress. Future-dated timestamps still hard-fail. `max_price_stale_seconds` clamped to `[60, 86_400]` at config time. |
 | Future-dated rejection | A feed timestamp >60 seconds ahead of the ledger always reverts. |
 | Soft DEX-staleness | In `DualOracle` mode, a stale DEX feed degrades to CEX TWAP as final price. CEX-side staleness still hard-fails risk-increasing ops. |
-| Per-tx price cache | Within one tx, every price read for an asset returns the same value — eliminating intra-tx arbitrage. |
+| Per-cache price stability | Within a single `ControllerCache` instance, every price read for an asset returns the same value, eliminating mid-flow arbitrage on a single oracle bounce. Strategy flows that need a post-swap re-price clear the cache explicitly before the final HF check. |
 | On-chain decimal discovery | Token, CEX, and DEX oracle decimals all read from contracts at config time. Operators supply no decimals. |
 
 ---
 
 ## 12. Fixed-Point Math and Invariants
 
-Four precision domains make cross-domain mistakes impossible at compile time. Rust newtypes (`Bps`, `Wad`, `Ray`) make accidental cross-precision arithmetic fail to compile; the asset-native domain is raw `i128`, converted explicitly at the token boundary.
+Four precision domains keep cross-domain mistakes out of the math layer. Rust newtypes (`Bps`, `Wad`, `Ray`) live in `common::fp` and make accidental cross-precision arithmetic fail to compile inside the protocol's helper math. ABI fields, storage values, and many config knobs stay raw `i128` for Soroban serialization, with conversion at the boundary; the discipline is enforced by code review and by the helper APIs, not by the type system on every i128 in the repo.
 
 | Domain | Base | Use | Rust type |
 |--------|------|-----|-----------|
@@ -630,7 +632,7 @@ Four precision domains make cross-domain mistakes impossible at compile time. Ru
 
 Cross-domain conversions use `common::fp_core::mul_div_half_up` with `I256` intermediates; 256-bit headroom prevents multiply-then-divide overflow even when both inputs sit near `i128::MAX`.
 
-All arithmetic uses **half-up rounding**: `mul: (a × b + p/2) / p`; `div: (a × p + b/2) / b`. Half-up eliminates the floor-division bias that would compound into directional drift across millions of accruals.
+Fixed-point conversions and accrual math use **half-up rounding** via `common::fp_core::mul_div_half_up`: `mul: (a × b + p/2) / p`; `div: (a × p + b/2) / b`. Half-up eliminates the floor-division bias that would compound into directional drift across millions of accruals. A handful of call sites that compute risk averages or strict floors still use plain integer division when half-up rounding would weaken the safety invariant (e.g. averaging two oracle readings, flooring a liquidation seizure).
 
 **Compound interest.** 8-term Taylor expansion of `e^(rate × time)`, with `delta_ms` capped at one year per chunk so `x = rate × delta_ms / MS_PER_YEAR ≤ 2` bounds the truncated series. Annual borrow rate is capped at `MAX_BORROW_RATE_RAY = 2 × RAY` (200% APR), enforced at config time and re-clamped per chunk so the Taylor input stays in its safe envelope.
 
@@ -647,7 +649,7 @@ All arithmetic uses **half-up rounding**: `mul: (a × b + p/2) / p`; `div: (a ×
 *Accounting integrity*
 
 6. Positions store scaled amounts; actuals reconstruct as `scaled × index / RAY`.
-7. `0 ≤ revenue_ray ≤ supplied_ray` — protocol revenue is a supply claim that appreciates with the supply index.
+7. `0 ≤ revenue_ray ≤ supplied_ray`. Protocol revenue is a supply claim that appreciates with the supply index.
 8. Accrued interest splits exactly as `supplier_rewards + protocol_fee`.
 
 *Math mechanics*
@@ -678,11 +680,11 @@ flowchart LR
         PL["Persistent PoolsList(idx) / PoolsCount"]
     end
 
-    subgraph Pool["Pool storage — per asset"]
+    subgraph Pool["Pool storage, per asset"]
         direction TB
         P1["Instance Params<br/>MarketParams: rate model + reserve_factor"]
         P2["Instance State<br/>PoolState: supplied_ray / borrowed_ray<br/>indexes / revenue / last_timestamp"]
-        P3["Temporary FL_PREBAL"]
+        P3["Instance FL_PREBAL<br/>(set in flash_loan_begin, cleared in flash_loan_end)"]
     end
 
     M -->|"pool_address"| Pool
@@ -691,15 +693,15 @@ flowchart LR
     I -->|"pool template hash"| Pool
 ```
 
-The Instance `Aggregator` key holds the swap router address — currently Soroswap. The key name reflects the abstract role, not the provider.
+The Instance `Aggregator` key holds the swap router address (currently Soroswap). The key name reflects the abstract role, not the provider.
 
-**Tiering rules.** Instance storage carries protocol-wide config (auto-bumped on every call, TTL ~180 days, the Soroban max). Persistent storage holds per-account positions and per-market config (explicit TTL bumps to ~120 days on writes and via keepalives). Temporary storage holds single-tx scratch state — flash-loan pre-balance is the canonical example.
+**Tiering rules.** Instance storage carries protocol-wide config and pool-local hot state (auto-bumped on every call, TTL ~180 days, the Soroban max). Persistent storage holds per-account positions and per-market config (explicit TTL bumps to ~120 days on writes and via keepalives). Temporary storage is reserved for true single-tx scratch (none in use today).
 
 **Active TTL management.** Soroban state expires; the protocol relies on explicit keepalives, not incidental writes. Three endpoints extend persistent TTLs without rewriting state:
 
-- `keepalive_shared_state(assets)` — extends shared market, e-mode, and registry keys.
-- `keepalive_accounts(ids)` — extends account metadata and per-position keys.
-- `keepalive_pools(assets)` — delegates to each pool to extend instance state.
+- `keepalive_shared_state(assets)` extends shared market, e-mode, and registry keys.
+- `keepalive_accounts(ids)` extends account metadata and per-position keys.
+- `keepalive_pools(assets)` delegates to each pool to extend instance state.
 
 ---
 
@@ -707,11 +709,11 @@ The Instance `Aggregator` key holds the swap router address — currently Sorosw
 
 ```mermaid
 flowchart TB
-    subgraph TB1["User boundary — untrusted"]
+    subgraph TB1["User boundary, untrusted"]
         UserBox["Users / Liquidators / FL receivers"]
     end
 
-    subgraph TB2["Operator boundary — role-gated"]
+    subgraph TB2["Operator boundary, role-gated"]
         Owner["Owner"]
         Keeper["KEEPER role"]
         Revenue["REVENUE role"]
@@ -753,7 +755,7 @@ flowchart TB
 | **REVENUE** | `claim_revenue`, `add_rewards`. Routes accrued revenue to the accumulator; accepts external reward injections. |
 | **ORACLE** | `configure_market_oracle`, `edit_oracle_tolerance`, `disable_token_oracle`. Manages oracle wiring on existing markets without exposing risk-parameter mutation. |
 
-`grant_role` grants roles; all are revocable. KEEPER is granted at construction; REVENUE and ORACLE require explicit post-deploy `grant_role` so a compromised owner key in the bootstrap window cannot immediately route revenue or reconfigure oracles. `architecture/ENTRYPOINT_AUTH_MATRIX.md` carries the full matrix — every public function with its auth gate, runtime checks, and downstream pool calls.
+`grant_role` grants roles; all are revocable. KEEPER is granted at construction; REVENUE and ORACLE require an explicit post-deploy `grant_role` step. The split removes the bootstrap window where a compromised owner key would inherit those roles automatically; a sustained owner-key compromise can still grant them. `architecture/ENTRYPOINT_AUTH_MATRIX.md` carries the full matrix, every public function with its auth gate, runtime checks, and downstream pool calls.
 
 **External surfaces are validated, never trusted.** The controller checks oracle data for non-positive values, staleness, future timestamps, TWAP coverage, and deviation bands. Token balance deltas and minimum-output checks bracket Soroswap calls. Tokens are limited to approved SAC or audited SEP-41 contracts with 1:1 transfer.
 
@@ -775,9 +777,9 @@ flowchart LR
     EM --> SM["smoke tests<br/>supply / borrow / repay / withdraw<br/>update_indexes / claim_revenue"]
 ```
 
-Setup order is load-bearing: pool first, oracle config second, `edit_asset_config` last — so user operations cannot fire against a partial market. Token, CEX, and DEX decimals all read from contracts during `configure_market_oracle` — never operator-supplied. A failed required decimal read reverts the tx.
+Setup order is load-bearing: pool first, oracle config second, `edit_asset_config` last, so user operations cannot fire against a partial market. Token, CEX, and DEX decimals all read from contracts during `configure_market_oracle`, never operator-supplied. A failed required decimal read reverts the tx.
 
-`make setup-<network>` wraps deploy + configure + market setup end-to-end. The Soroswap-router config is optional during bootstrap (a blank value logs a warning and continues, deferring strategy operations). Role grants split across two phases: KEEPER at `__constructor`; REVENUE and ORACLE require explicit post-deploy `grant_role` calls. The split is deliberate — a compromised owner key in the bootstrap window cannot immediately route revenue or reconfigure oracles. The ORACLE grant must land between `configure-controller` and `setupAllMarkets`, since `setupAllMarkets` invokes the ORACLE-gated `configure_market_oracle`; `make setup-<network>` does not insert it, so the operator runs it separately.
+`make setup-<network>` wraps deploy + configure + market setup end-to-end. The Soroswap-router config is optional during bootstrap (a blank value logs a warning and continues, deferring strategy operations). Role grants split across two phases: KEEPER at `__constructor`; REVENUE and ORACLE require explicit post-deploy `grant_role` calls. The split is deliberate. A compromised owner key in the bootstrap window cannot inherit revenue or oracle authority automatically. The ORACLE grant must land between `configure-controller` and `setupAllMarkets`, since `setupAllMarkets` invokes the ORACLE-gated `configure_market_oracle`; `make setup-<network>` does not insert it, so the operator runs it separately.
 
 Source-of-truth files: `configs/networks.json` (per-network metadata, controller ID, pool WASM hash), `configs/testnet_markets.json`, `configs/mainnet_markets.json`, `configs/emodes.json`, `configs/script.sh`, `Makefile`. `architecture/DEPLOYMENT.md` carries the full operator runbook.
 
@@ -805,13 +807,13 @@ These capabilities serve the §2 thesis: a foundational lending layer for other 
 | Concern | Implementation |
 |---------|----------------|
 | Authorization | `caller.require_auth()` on every entrypoint; cross-contract auth propagates through Soroban's auth tree; pool admin gate via `enforce_owner_auth`. |
-| Storage tiers | Instance (180-day TTL, auto-bumped) for protocol globals — `FlashLoanOngoing` flag, swap-router address, pool template hash; persistent (120-day TTL) for accounts and markets, bumped via `bump_user` and `bump_shared`. |
+| Storage tiers | Instance (180-day TTL, auto-bumped) for protocol globals (`FlashLoanOngoing` flag, swap-router address, pool template hash) and pool-local hot state (`Params`, `State`, `FL_PREBAL`); persistent (120-day TTL) for accounts and markets, bumped via `bump_user` and `bump_shared`. |
 | Token integration | SAC for XLM and issued assets; balance-delta accounting defends fee-on-transfer and rebasing tokens. |
 | Reflector integration | Minimal `ReflectorClient`; on-chain decimal discovery; per-tx price cache. |
 | Soroswap integration | DEX router for the four account-bound strategies (`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`); on-chain `min_amount_out` plus controller-side balance-delta verification. |
 | Cross-contract pattern | Typed `LiquidityPoolClient` from `pool-interface`; the controller never imports the pool runtime crate. |
 | Upgrade path | Owner-only `upgrade(new_wasm_hash)` on controller and per-pool; pre-upgrade auto-pause prevents in-flight state corruption. |
-| Pause | `pausable::when_not_paused` on every state-changing entrypoint; freezes the protocol within ~5 seconds. |
+| Pause | `pausable::when_not_paused` on the user-facing flows (supply, borrow, repay, withdraw, liquidation, strategies, flash-loan, claim_revenue). Owner config endpoints, role mutation, and KEEPER keepalives stay reachable so operators can still respond during a pause. Freezes user surface within ~5 seconds. |
 
 ### Transaction limits
 
@@ -827,7 +829,7 @@ The worst-case transaction is a multi-asset liquidation at the position cap (10 
 | `tx_max_contract_events_size_bytes` | 16,384 | one event per position mutation, ~200 B each → ~4 KB at max load |
 | `tx_max_footprint_entries` | 400 | combined R/W footprint <100 entries |
 
-Every flow fits inside Soroban's per-tx envelope with margin. `bench_liquidate_max_positions` (§19) regression-tests the worst-case envelope on each release.
+Every flow fits inside Soroban's per-tx envelope with margin. `bench_liquidate_max_positions` (§19) currently exercises a 5 supply + 5 borrow liquidation as a regression harness; production measurement at the 10/10 default cap (and at the 32/32 raised cap) is tracked as an open audit item in `audit/AUDIT_CHECKLIST.md`.
 
 ---
 
@@ -854,7 +856,7 @@ Every flow fits inside Soroban's per-tx envelope with margin. `bench_liquidate_m
 
 A four-layer verification stack.
 
-**Formal verification (Certora).** Active office-hour reviews; full audit planned via the Stellar Audit Bank. Specs live under `controller/certora/spec/`, organized into 13 rule modules — one per architectural concern:
+**Formal verification (Certora).** Active office-hour reviews; full audit planned via the Stellar Audit Bank. Specs live under `controller/certora/spec/`, organized into 13 rule modules, one per architectural concern:
 
 | Module | Coverage |
 |---|---|
@@ -874,13 +876,13 @@ A four-layer verification stack.
 
 Source code lives one path away (e.g., `solvency_rules` ↔ `controller/src/positions/borrow.rs` admission and `pool/src/lib.rs` reserve checks).
 
-**Coverage-guided fuzz (cargo-fuzz).** Six harnesses in `fuzz/fuzz_targets/` cover math, rates, and stateful execution; CI runs them on every PR.
+**Coverage-guided fuzz (cargo-fuzz).** Six harnesses in `fuzz/fuzz_targets/` cover math, rates, and stateful execution. CI runs them on PRs that touch protocol, fuzz, or test paths.
 
 | Target | What it locks down |
 |---|---|
 | `flow_e2e` | End-to-end op sequences across supply / borrow / withdraw / repay / liquidate / flash-loan plus keeper and revenue paths; HF floor, reserve availability, cache atomicity on `Err`. |
 | `flow_strategy` | Strategy entrypoints (`multiply`, `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`) under randomized router responses; flash-loan → swap → position-mutation chain. |
-| `fp_math` | `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up` — half-up rounding identities, sign preservation, `I256` no-overflow bounds. |
+| `fp_math` | `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`. Half-up rounding identities, sign preservation, `I256` no-overflow bounds. |
 | `fp_ops` | Ray ↔ Wad ↔ asset conversions, Wad arithmetic, Bps scaling, round-trip identities (`a + b − b ≡ a`) within documented ulp bounds. |
 | `pool_native` | `pool::LiquidityPool` paths reachable without token transfers; registered as a native contract so coverage instrumentation sees pool code directly. |
 | `rates_and_index` | Three-region piecewise rate curve, compound-interest Taylor series, the §5 interest-split identity `accrued = supplier_rewards + protocol_fee`. |
@@ -897,7 +899,7 @@ Source code lives one path away (e.g., `solvency_rules` ↔ `controller/src/posi
 | `fuzz_strategy_flashloan` | Strategy + flash-loan composition under random slippage and reentrancy attempts |
 | `fuzz_ttl_keepalive` | Persistent storage liveness across random keepalive schedules |
 
-**Integration suites.** ~40 test files in `test-harness/tests/`, grouped by concern:
+**Integration suites.** 46 test files in `test-harness/tests/`, grouped by concern:
 
 - **Core flows**: `supply_tests`, `borrow_tests`, `repay_tests`, `withdraw_tests`, `liquidation_tests`, `flash_loan_tests`.
 - **Strategy variants**: `strategy_tests`, `strategy_happy_tests`, `strategy_edge_tests`, `strategy_coverage_tests`, `strategy_panic_coverage_tests`, `strategy_bad_router_tests`.
@@ -910,7 +912,7 @@ Source code lives one path away (e.g., `solvency_rules` ↔ `controller/src/posi
 
 ---
 
-## Appendix — Diagram Index
+## Appendix: Diagram Index
 
 All diagrams use Mermaid syntax inline.
 
@@ -936,16 +938,16 @@ All diagrams use Mermaid syntax inline.
 
 - Repository: `https://github.com/XOXNO/rs-lending-xlm`
 - Architecture documents (full set): `architecture/`
-  - `ARCHITECTURE.md` — system topology and component boundaries
-  - `INVARIANTS.md` — algebraic invariants and verification map
-  - `MATH_REVIEW.md` — fixed-point math audit
-  - `ORACLE.md` — Reflector integration details
-  - `DATAFLOW.md` — flow-by-flow data movement with trust-boundary annotations
-  - `STORAGE.md` — storage tier and key family layout
-  - `STELLAR_NOTES.md` — Soroban platform behaviors the protocol depends on
-  - `ACTORS.md` — privilege model and key actors
-  - `CONFIG_INVARIANTS.md` — config-time inter-parameter rules
-  - `ENTRYPOINT_AUTH_MATRIX.md` — every public function with its auth gate, runtime checks, and downstream pool calls
-  - `INCIDENT_RESPONSE.md` — operator runbook keyed to emitted events
-  - `DEPLOYMENT.md` — end-to-end deployment runbook (build → deploy → role grants → market setup → smoke tests)
-  - `GLOSSARY.md` — protocol-specific terms and abbreviations
+  - `ARCHITECTURE.md`: system topology and component boundaries
+  - `INVARIANTS.md`: algebraic invariants and verification map
+  - `MATH_REVIEW.md`: fixed-point math audit
+  - `ORACLE.md`: Reflector integration details
+  - `DATAFLOW.md`: flow-by-flow data movement with trust-boundary annotations
+  - `STORAGE.md`: storage tier and key family layout
+  - `STELLAR_NOTES.md`: Soroban platform behaviors the protocol depends on
+  - `ACTORS.md`: privilege model and key actors
+  - `CONFIG_INVARIANTS.md`: config-time inter-parameter rules
+  - `ENTRYPOINT_AUTH_MATRIX.md`: every public function with its auth gate, runtime checks, and downstream pool calls
+  - `INCIDENT_RESPONSE.md`: operator runbook keyed to emitted events
+  - `DEPLOYMENT.md`: end-to-end deployment runbook (build → deploy → role grants → market setup → smoke tests)
+  - `GLOSSARY.md`: protocol-specific terms and abbreviations

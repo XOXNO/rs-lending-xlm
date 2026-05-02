@@ -1,10 +1,26 @@
 use common::errors::FlashLoanError;
 use common::events::{emit_flash_loan, FlashLoanEvent};
 use common::fp::Bps;
-use soroban_sdk::{panic_with_error, Address, Bytes, Env, IntoVal, Symbol};
+use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, IntoVal, Symbol};
+use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
-use crate::{storage, validation};
+use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    pub fn flash_loan(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        amount: i128,
+        receiver: Address,
+        data: Bytes,
+    ) {
+        process_flash_loan(&env, &caller, &asset, amount, &receiver, &data);
+    }
+}
 
 pub fn process_flash_loan(
     env: &Env,
@@ -16,7 +32,6 @@ pub fn process_flash_loan(
 ) {
     caller.require_auth();
 
-    validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
     validation::require_amount_positive(env, amount);
     validation::require_market_active(env, asset);

@@ -61,23 +61,36 @@ fn require_same_asset(env: &Env, cache: &Cache, asset: &Address) {
     }
 }
 
-/// Saturating subtraction for RAY-scaled totals; absorbs rounding drift.
-/// Without this, sequences of scaled debits can underflow and panic even
-/// though the protocol remains fundamentally solvent.
-fn saturating_sub_ray(a: Ray, b: Ray) -> Ray {
-    if b.raw() >= a.raw() {
-        Ray::ZERO
-    } else {
-        a - b
+fn checked_add_ray(env: &Env, a: Ray, b: Ray) -> Ray {
+    if a.raw() < 0 || b.raw() < 0 {
+        panic_with_error!(env, GenericError::MathOverflow);
     }
+    Ray::from_raw(
+        a.raw()
+            .checked_add(b.raw())
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
+    )
 }
 
-fn emit_market_update(env: &Env, cache: &Cache, price_wad: i128, reserves: i128) {
-    let asset = cache.params.asset_id.clone();
+fn checked_sub_ray(env: &Env, a: Ray, b: Ray) -> Ray {
+    if a.raw() < 0 || b.raw() < 0 || b.raw() > a.raw() {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+    Ray::from_raw(
+        a.raw()
+            .checked_sub(b.raw())
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
+    )
+}
+
+// Emit a market-state snapshot event.
+fn emit_market_update(env: &Env, cache: &Cache, price_wad: i128) {
+    let reserves = cache.get_reserves_for(&cache.params.asset_id);
+
     emit_update_market_state(
         env,
         UpdateMarketStateEvent {
-            asset,
+            asset: cache.params.asset_id.clone(),
             timestamp: cache.current_timestamp,
             supply_index_ray: cache.supply_index.raw(),
             borrow_index_ray: cache.borrow_index.raw(),
@@ -96,16 +109,10 @@ impl LiquidityPool {
     // Constructor
     // -----------------------------------------------------------------------
 
-    pub fn __constructor(env: Env, admin: Address, params: MarketParams, accumulator: Address) {
+    pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
         ownable::set_owner(&env, &admin);
 
         env.storage().instance().set(&PoolKey::Params, &params);
-
-        // Accumulator is written once at construction; `claim_revenue` reads
-        // it from storage rather than trusting a caller-supplied address.
-        env.storage()
-            .instance()
-            .set(&PoolKey::Accumulator, &accumulator);
 
         let state = PoolState {
             supplied_ray: 0,
@@ -135,15 +142,17 @@ impl LiquidityPool {
         interest::global_sync(&env, &mut cache);
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
-        position.scaled_amount_ray += scaled_amount.raw();
-        cache.supplied += scaled_amount;
+        position.scaled_amount_ray = position
+            .scaled_amount_ray
+            .checked_add(scaled_amount.raw())
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.supplied = checked_add_ray(&env, cache.supplied, scaled_amount);
 
         let market_index = MarketIndex {
             borrow_index_ray: cache.borrow_index.raw(),
             supply_index_ray: cache.supply_index.raw(),
         };
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         PoolPositionMutation {
             position,
@@ -170,9 +179,13 @@ impl LiquidityPool {
         }
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
-        position.scaled_amount_ray += scaled_debt.raw();
-        cache.borrowed += scaled_debt;
+        position.scaled_amount_ray = position
+            .scaled_amount_ray
+            .checked_add(scaled_debt.raw())
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
 
+        // Transfer tokens to the borrower.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount);
 
@@ -180,8 +193,7 @@ impl LiquidityPool {
             borrow_index_ray: cache.borrow_index.raw(),
             supply_index_ray: cache.supply_index.raw(),
         };
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         PoolPositionMutation {
             position,
@@ -221,7 +233,7 @@ impl LiquidityPool {
             // the FULL `current_supply_actual` (not the smaller requested
             // `amount`) — the entire scaled position is being burned, so the
             // sub-unit residual otherwise vanishes into the protocol.
-            let remaining_scaled = saturating_sub_ray(pos_scaled, scaled);
+            let remaining_scaled = checked_sub_ray(&env, pos_scaled, scaled);
             let remaining_actual = cache.calculate_original_supply(remaining_scaled);
             if remaining_actual == 0 {
                 (pos_scaled, current_supply_actual)
@@ -230,6 +242,7 @@ impl LiquidityPool {
             }
         };
 
+        // Apply the liquidation fee if applicable.
         let mut net_transfer = gross_amount;
         if is_liquidation && protocol_fee > 0 {
             if net_transfer < protocol_fee {
@@ -244,16 +257,15 @@ impl LiquidityPool {
             panic_with_error!(&env, CollateralError::InsufficientLiquidity);
         }
 
-        // Saturating on the pool aggregate (soft) but checked on the per-account
-        // scaled amount (hard). The aggregate absorbs cumulative rounding drift
-        // across many withdrawals; per-account integrity must always hold. The
-        // The `repay` path uses checked subtraction on `cache.borrowed`
-        // because debt-side phantom liquidity is a different
-        // failure mode (it indicates accounting corruption that must surface
-        // immediately, not silently round to zero).
-        cache.supplied = saturating_sub_ray(cache.supplied, scaled_withdrawal);
-        position.scaled_amount_ray -= scaled_withdrawal.raw();
+        cache.supplied = checked_sub_ray(&env, cache.supplied, scaled_withdrawal);
+        position.scaled_amount_ray = checked_sub_ray(
+            &env,
+            Ray::from_raw(position.scaled_amount_ray),
+            scaled_withdrawal,
+        )
+        .raw();
 
+        // Transfer tokens to the caller.
         if net_transfer > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &net_transfer);
@@ -263,8 +275,7 @@ impl LiquidityPool {
             borrow_index_ray: cache.borrow_index.raw(),
             supply_index_ray: cache.supply_index.raw(),
         };
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         PoolPositionMutation {
             position,
@@ -312,14 +323,13 @@ impl LiquidityPool {
         // Checked subtraction: a `scaled_repay > cache.borrowed` underflow
         // signals phantom-liquidity (per-account scaled debt exceeds the
         // pool's tracked total). Surface immediately rather than silently
-        // floor at zero. The bad-debt path in `seize_position` keeps the
-        // saturating variant because repeated cleanups can legitimately
-        // leave residual scaled-debt above `cache.borrowed`.
+        // floor at zero.
         if scaled_repay.raw() > cache.borrowed.raw() {
             panic_with_error!(&env, GenericError::MathOverflow);
         }
-        cache.borrowed -= scaled_repay;
+        cache.borrowed = checked_sub_ray(&env, cache.borrowed, scaled_repay);
 
+        // Refund any overpayment.
         if overpayment > 0 {
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &caller, &overpayment);
@@ -330,8 +340,7 @@ impl LiquidityPool {
             borrow_index_ray: cache.borrow_index.raw(),
             supply_index_ray: cache.supply_index.raw(),
         };
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         PoolPositionMutation {
             position,
@@ -350,8 +359,7 @@ impl LiquidityPool {
             supply_index_ray: cache.supply_index.raw(),
         };
 
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         result
     }
@@ -374,8 +382,7 @@ impl LiquidityPool {
         cache.supply_index =
             update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
 
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
     }
 
@@ -418,7 +425,9 @@ impl LiquidityPool {
 
         // Pool always operates on its own asset; pull repayment from the receiver.
         let tok = token::Client::new(&env, &cache.params.asset_id);
-        let total = amount + fee;
+        let total = amount
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
         let pool_addr = env.current_contract_address();
         tok.transfer(&receiver, &pool_addr, &total);
 
@@ -432,14 +441,17 @@ impl LiquidityPool {
         env.storage().instance().remove(&FLASH_LOAN_PRE_BALANCE);
 
         let balance_after = tok.balance(&env.current_contract_address());
-        if balance_after < pre_balance + fee {
+        let expected_balance = pre_balance
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        if balance_after < expected_balance {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
 
+        // Record the fee as protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, 0, reserves);
+        emit_market_update(&env, &cache, 0);
         cache.save();
     }
 
@@ -466,12 +478,18 @@ impl LiquidityPool {
         }
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
-        position.scaled_amount_ray += scaled_debt.raw();
-        cache.borrowed += scaled_debt;
+        position.scaled_amount_ray = position
+            .scaled_amount_ray
+            .checked_add(scaled_debt.raw())
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
 
+        // Fee goes to protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
         let amount_to_send = amount - fee;
+
+        // Send the net amount to the controller.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount_to_send);
 
@@ -479,8 +497,7 @@ impl LiquidityPool {
             borrow_index_ray: cache.borrow_index.raw(),
             supply_index_ray: cache.supply_index.raw(),
         };
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         PoolStrategyMutation {
             position,
@@ -505,17 +522,16 @@ impl LiquidityPool {
             let current_debt_ray =
                 cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
             interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-            // Saturating subtraction: repeated bad-debt cleanups can leave
-            // the position's scaled amount above `cache.borrowed` (earlier
-            // caps prevented full debt removal). Plain subtraction would
-            // underflow and block subsequent cleanups.
-            cache.borrowed =
-                saturating_sub_ray(cache.borrowed, Ray::from_raw(position.scaled_amount_ray));
+            cache.borrowed = checked_sub_ray(
+                &env,
+                cache.borrowed,
+                Ray::from_raw(position.scaled_amount_ray),
+            );
             position.scaled_amount_ray = 0;
         } else if position.position_type == AccountPositionType::Deposit {
             // Absorb dust into revenue.
             let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-            cache.revenue += pos_scaled;
+            cache.revenue = checked_add_ray(&env, cache.revenue, pos_scaled);
             position.scaled_amount_ray = 0;
         } else {
             // Defensive panic: future enum variants must be handled
@@ -523,8 +539,7 @@ impl LiquidityPool {
             panic_with_error!(&env, GenericError::InvalidPositionType);
         }
 
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
+        emit_market_update(&env, &cache, price_wad);
         cache.save();
         position
     }
@@ -533,62 +548,54 @@ impl LiquidityPool {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
-        let current_reserves = cache.get_reserves_for(&cache.params.asset_id);
 
-        let revenue_scaled = cache.revenue;
-        if revenue_scaled == Ray::ZERO {
-            emit_market_update(&env, &cache, price_wad, current_reserves);
+        if cache.revenue == Ray::ZERO {
+            emit_market_update(&env, &cache, price_wad);
             cache.save();
             return 0;
         }
+        if cache.revenue.raw() < 0
+            || cache.supplied.raw() < 0
+            || cache.revenue.raw() > cache.supplied.raw()
+        {
+            panic_with_error!(&env, GenericError::MathOverflow);
+        }
 
-        let treasury_actual = cache.calculate_original_supply(revenue_scaled);
+        let current_reserves = cache.get_reserves_for(&cache.params.asset_id);
+        let treasury_actual = cache.calculate_original_supply(cache.revenue);
         let amount_to_transfer = current_reserves.min(treasury_actual);
 
         if amount_to_transfer > 0 {
-            // Revenue destination is the accumulator stored at construction;
-            // never trust a caller-supplied address.
-            let accumulator: Address = env
-                .storage()
-                .instance()
-                .get(&PoolKey::Accumulator)
-                .unwrap_or_else(|| panic_with_error!(&env, GenericError::AccumulatorNotSet));
-            let tok = token::Client::new(&env, &cache.params.asset_id);
-            tok.transfer(
-                &env.current_contract_address(),
-                &accumulator,
-                &amount_to_transfer,
-            );
-
+            // Burn the proportional scaled revenue share.
             let scaled_to_burn = if amount_to_transfer >= treasury_actual {
-                revenue_scaled
+                cache.revenue
             } else {
                 let ratio =
                     Ray::from_raw(amount_to_transfer).div(&env, Ray::from_raw(treasury_actual));
-                revenue_scaled.mul(&env, ratio)
+                cache.revenue.mul(&env, ratio)
             };
 
-            // Single clamp against both `revenue` and `supplied` so the
-            // post-state preserves `revenue <= supplied` under any rounding
-            // path.
-            let actual_burn = {
-                let mut min = scaled_to_burn;
-                if cache.revenue.raw() < min.raw() {
-                    min = cache.revenue;
-                }
-                if cache.supplied.raw() < min.raw() {
-                    min = cache.supplied;
-                }
-                min
-            };
+            cache.revenue = checked_sub_ray(&env, cache.revenue, scaled_to_burn);
+            cache.supplied = checked_sub_ray(&env, cache.supplied, scaled_to_burn);
 
-            cache.revenue = saturating_sub_ray(cache.revenue, actual_burn);
-            cache.supplied = saturating_sub_ray(cache.supplied, actual_burn);
+            // Checks-effects-interactions: commit state before the external
+            // token call so a malicious token contract that re-enters cannot
+            // observe stale `revenue` and recurse a second claim.
+            emit_market_update(&env, &cache, price_wad);
+            cache.save();
+
+            // Revenue routes to the pool owner (the controller), which then
+            // forwards to the protocol accumulator. Pool never trusts a
+            // caller-supplied destination and never stores one.
+            let owner = ownable::get_owner(&env)
+                .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+            let tok = token::Client::new(&env, &cache.params.asset_id);
+            tok.transfer(&env.current_contract_address(), &owner, &amount_to_transfer);
+        } else {
+            emit_market_update(&env, &cache, price_wad);
+            cache.save();
         }
 
-        let reserves = cache.get_reserves_for(&cache.params.asset_id);
-        emit_market_update(&env, &cache, price_wad, reserves);
-        cache.save();
         amount_to_transfer
     }
 
@@ -779,7 +786,7 @@ mod tests {
             // Set initial ledger timestamp (seconds).
             env.ledger().set(LedgerInfo {
                 timestamp: 1000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -801,8 +808,9 @@ mod tests {
                 asset_decimals,
             };
 
-            // Pool requires an accumulator at construction; test fixture uses admin as stand-in.
-            let pool_address = env.register(LiquidityPool, (admin.clone(), params, admin.clone()));
+            // Pool's owner (admin) receives revenue on claim_revenue; the
+            // controller forwards from there to the protocol accumulator.
+            let pool_address = env.register(LiquidityPool, (admin.clone(), params));
 
             // Mint tokens to the pool for reserves.
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
@@ -849,13 +857,22 @@ mod tests {
         fn advance_time(&self, seconds: u64) {
             self.env.ledger().set(LedgerInfo {
                 timestamp: 1000 + seconds,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 200,
                 network_id: Default::default(),
                 base_reserve: 10,
                 min_temp_entry_ttl: 10,
                 min_persistent_entry_ttl: 10,
                 max_entry_ttl: 3110400,
+            });
+        }
+
+        fn edit_state(&self, edit: impl FnOnce(&mut PoolState)) {
+            self.env.as_contract(&self.pool, || {
+                let mut state: PoolState =
+                    self.env.storage().instance().get(&PoolKey::State).unwrap();
+                edit(&mut state);
+                self.env.storage().instance().set(&PoolKey::State, &state);
             });
         }
     }
@@ -999,6 +1016,29 @@ mod tests {
         let _ = client.withdraw(
             &user,
             &10_000_000_000i128,
+            &updated_pos.position,
+            &false,
+            &0i128,
+            &0i128,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #33)")]
+    fn test_withdraw_rejects_supplied_accounting_underflow() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let pos = t.deposit_position();
+        let updated_pos = client.supply(&pos, &0i128, &10_000_000_000i128);
+        t.edit_state(|state| {
+            state.supplied_ray = 1;
+        });
+
+        let user = Address::generate(&t.env);
+        let _ = client.withdraw(
+            &user,
+            &i128::MAX,
             &updated_pos.position,
             &false,
             &0i128,
@@ -1196,6 +1236,25 @@ mod tests {
         );
     }
 
+    #[test]
+    #[should_panic(expected = "Error(Contract, #33)")]
+    fn test_seize_position_rejects_borrowed_accounting_underflow() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supply_pos = t.deposit_position();
+        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+
+        let borrower = Address::generate(&t.env);
+        let borrow_pos = t.borrow_position();
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        t.edit_state(|state| {
+            state.borrowed_ray = 0;
+        });
+
+        let _ = client.seize_position(&updated_borrow.position, &0i128);
+    }
+
     // -----------------------------------------------------------------------
     // Test: seize_position absorbs deposit dust.
     // -----------------------------------------------------------------------
@@ -1276,6 +1335,22 @@ mod tests {
             remaining_revenue > 0,
             "partial claim should leave residual revenue when treasury exceeds reserves"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #33)")]
+    fn test_claim_revenue_rejects_revenue_above_supplied() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supply_pos = t.deposit_position();
+        let supplied = client.supply(&supply_pos, &0i128, &10_000_000_000i128);
+        let _ = client.seize_position(&supplied.position, &0i128);
+        t.edit_state(|state| {
+            state.supplied_ray = 1;
+        });
+
+        let _ = client.claim_revenue(&0i128);
     }
 
     #[test]
@@ -1714,7 +1789,7 @@ mod tests {
         let env = Env::default();
         env.ledger().set(LedgerInfo {
             timestamp: 1000,
-            protocol_version: 25,
+            protocol_version: 26,
             sequence_number: 100,
             network_id: Default::default(),
             base_reserve: 10,

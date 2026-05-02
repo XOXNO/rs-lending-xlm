@@ -67,7 +67,9 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
         let factor = 10i128.pow(diff);
         let half = factor / 2;
         if a >= 0 {
-            (a + half) / factor
+            a.checked_add(half)
+                .expect("rescale_half_up rounding overflow")
+                / factor
         } else {
             (a - half) / factor
         }
@@ -80,7 +82,9 @@ pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
     let half_b = b / 2;
     if a >= 0 {
-        (a + half_b) / b
+        a.checked_add(half_b)
+            .expect("div_by_int_half_up rounding overflow")
+            / b
     } else {
         (a - half_b) / b
     }

@@ -187,7 +187,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -209,7 +209,7 @@ mod tests {
                 asset_id: Address::generate(&env),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(), params, admin));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(), params));
 
             Self { env, contract }
         }

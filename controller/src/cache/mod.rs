@@ -1,5 +1,5 @@
 use common::events::{emit_update_debt_ceiling, UpdateDebtCeilingEvent};
-use common::types::{AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PriceFeed};
+use common::types::{AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PoolSyncData, PriceFeed};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::storage;
@@ -11,6 +11,9 @@ pub struct ControllerCache {
     pub prices_cache: Map<Address, PriceFeed>,
     pub market_configs: Map<Address, MarketConfig>,
     pub market_indexes: Map<Address, MarketIndex>,
+
+    // --- Pool snapshot read cache (cross-contract `get_sync_data`) ---
+    pool_sync_data: Map<Address, PoolSyncData>,
 
     // --- E-mode asset membership read cache ---
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
@@ -55,6 +58,7 @@ impl ControllerCache {
             prices_cache: Map::new(env),
             market_configs: Map::new(env),
             market_indexes: Map::new(env),
+            pool_sync_data: Map::new(env),
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
             current_timestamp_ms,
@@ -130,18 +134,25 @@ impl ControllerCache {
         // — every mutating pool op already calls `cache.save()` which bumps
         // instance TTL for that pool. Read-only / unrelated assets fetched
         // here for HF/LTV math receive no side-effect TTL bump.
-        let index = crate::oracle::update_asset_index(self, asset, true);
+        let index = crate::oracle::update_asset_index(self, asset);
         self.market_indexes.set(asset.clone(), index.clone());
         index
     }
 
-    pub fn cached_market_index_readonly(&mut self, asset: &Address) -> MarketIndex {
-        if let Some(index) = self.market_indexes.get(asset.clone()) {
-            return index;
+    // -------------------------------------------------------------------
+    // Pool sync data (cross-contract `get_sync_data`) — memoized to keep
+    // multi-step controller flows from re-fetching the same snapshot.
+    // -------------------------------------------------------------------
+
+    pub fn cached_pool_sync_data(&mut self, asset: &Address) -> PoolSyncData {
+        if let Some(data) = self.pool_sync_data.get(asset.clone()) {
+            return data;
         }
-        let index = crate::oracle::update_asset_index(self, asset, true);
-        self.market_indexes.set(asset.clone(), index.clone());
-        index
+        let pool_addr = self.cached_pool_address(asset);
+        let pool_client = pool_interface::LiquidityPoolClient::new(&self.env, &pool_addr);
+        let data = pool_client.get_sync_data();
+        self.pool_sync_data.set(asset.clone(), data.clone());
+        data
     }
 
     // -------------------------------------------------------------------

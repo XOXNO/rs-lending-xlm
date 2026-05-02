@@ -27,8 +27,8 @@ fn mul_half_up_commutative(e: Env) {
     let p: i128 = cvlr::nondet::nondet();
 
     // Constrain to positive, realistic ranges
-    cvlr_assume!(a >= 0 && a <= RAY);
-    cvlr_assume!(b >= 0 && b <= RAY);
+    cvlr_assume!((0..=RAY).contains(&a));
+    cvlr_assume!((0..=RAY).contains(&b));
     cvlr_assume!(p > 0 && p <= RAY);
 
     let ab = mul_div_half_up(&e, a, b, p);
@@ -47,8 +47,8 @@ fn mul_half_up_zero(e: Env) {
     let b: i128 = cvlr::nondet::nondet();
     let p: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a >= 0 && a <= RAY);
-    cvlr_assume!(b >= 0 && b <= RAY);
+    cvlr_assume!((0..=RAY).contains(&a));
+    cvlr_assume!((0..=RAY).contains(&b));
     cvlr_assume!(p > 0 && p <= RAY);
 
     // (0 * b + p/2) / p = p/2 / p = 0 for any p >= 2
@@ -70,7 +70,7 @@ fn mul_half_up_identity(e: Env) {
 
     // Constrain to realistic protocol values (up to 10^27 * 10^27 = 10^54 is extreme;
     // actual index products are at most ~10^30)
-    cvlr_assume!(a >= 0 && a <= RAY * 1000); // up to 1000 RAY
+    cvlr_assume!((0..=RAY * 1000).contains(&a)); // up to 1000 RAY
 
     // a * RAY / RAY should give back a exactly:
     // (a * RAY + RAY/2) / RAY = a + (RAY/2) / RAY = a + 0 = a
@@ -84,7 +84,7 @@ fn mul_half_up_identity(e: Env) {
 #[rule]
 fn mul_half_up_identity_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(a >= 0 && a <= RAY * 1000);
+    cvlr_assume!((0..=RAY * 1000).contains(&a));
 
     let result = mul_div_half_up(&e, a, RAY, RAY);
     cvlr_satisfy!(result == a);
@@ -100,7 +100,7 @@ fn div_half_up_inverse(e: Env) {
     let b: i128 = cvlr::nondet::nondet();
 
     // Positive, non-zero divisor, realistic ranges
-    cvlr_assume!(a >= 0 && a <= RAY * 100);
+    cvlr_assume!((0..=RAY * 100).contains(&a));
     cvlr_assume!(b > 0 && b <= RAY * 100);
 
     let product = mul_div_half_up(&e, a, b, RAY);
@@ -115,7 +115,7 @@ fn div_half_up_inverse_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a >= 0 && a <= RAY * 100);
+    cvlr_assume!((0..=RAY * 100).contains(&a));
     cvlr_assume!(b > 0 && b <= RAY * 100);
 
     let product = mul_div_half_up(&e, a, b, RAY);
@@ -165,8 +165,8 @@ fn mul_half_up_rounding_direction(e: Env) {
 
     // 10^14 covers realistic per-asset USD amounts (e.g. $1M with 7 decimals
     // is 10^13). a*b stays well below i128 max.
-    cvlr_assume!(a >= 0 && a <= 100_000_000_000_000);
-    cvlr_assume!(b >= 0 && b <= 100_000_000_000_000);
+    cvlr_assume!((0..=100_000_000_000_000).contains(&a));
+    cvlr_assume!((0..=100_000_000_000_000).contains(&b));
 
     let result = mul_div_half_up(&e, a, b, WAD);
 
@@ -180,8 +180,8 @@ fn mul_half_up_rounding_direction_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a >= 0 && a <= WAD * 100);
-    cvlr_assume!(b >= 0 && b <= WAD * 100);
+    cvlr_assume!((0..=WAD * 100).contains(&a));
+    cvlr_assume!((0..=WAD * 100).contains(&b));
 
     let result = mul_div_half_up(&e, a, b, WAD);
     cvlr_satisfy!(result >= 0);
@@ -209,7 +209,7 @@ fn div_half_up_rounding_direction(e: Env) {
 
     // Bounds keep `a * WAD` inside i128. With `a <= 10^14`, `a * WAD <= 10^32`
     // (well below i128 max).
-    cvlr_assume!(a >= 0 && a <= 100_000_000_000_000);
+    cvlr_assume!((0..=100_000_000_000_000).contains(&a));
     cvlr_assume!(b > 0 && b <= 100_000_000_000_000);
 
     let result = mul_div_half_up(&e, a, WAD, b);
@@ -233,7 +233,7 @@ fn rescale_upscale_lossless() {
     let to: u32 = 18;
 
     // Realistic token amounts (up to 10^18 at 7 decimals)
-    cvlr_assume!(x >= 0 && x <= WAD);
+    cvlr_assume!((0..=WAD).contains(&x));
 
     let upscaled = rescale_half_up(x, from, to);
 
@@ -246,7 +246,7 @@ fn rescale_upscale_lossless() {
 #[rule]
 fn rescale_upscale_lossless_sanity() {
     let x: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(x >= 0 && x <= WAD);
+    cvlr_assume!((0..=WAD).contains(&x));
 
     let upscaled = rescale_half_up(x, 7, 18);
     cvlr_satisfy!(upscaled > 0);
@@ -263,7 +263,7 @@ fn rescale_roundtrip() {
     let high: u32 = 18;
 
     // Positive values, realistic range for 7-decimal tokens
-    cvlr_assume!(x >= 0 && x <= 1_000_000_000_000_000);
+    cvlr_assume!((0..=1_000_000_000_000_000).contains(&x));
 
     // Upscale then downscale
     let upscaled = rescale_half_up(x, low, high);
@@ -279,7 +279,7 @@ fn rescale_roundtrip() {
 #[rule]
 fn rescale_roundtrip_sanity() {
     let x: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(x >= 0 && x <= 1_000_000_000_000_000);
+    cvlr_assume!((0..=1_000_000_000_000_000).contains(&x));
 
     let upscaled = rescale_half_up(x, 7, 18);
     let recovered = rescale_half_up(upscaled, 18, 7);
@@ -309,7 +309,7 @@ fn signed_mul_away_from_zero(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a < 0 && a >= -100_000_000_000_000);
+    cvlr_assume!((-100_000_000_000_000..0).contains(&a));
     cvlr_assume!(b > 0 && b <= 100_000_000_000_000);
 
     let result = mul_div_half_up_signed(&e, a, b, RAY);
@@ -326,7 +326,7 @@ fn signed_mul_away_from_zero_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a < 0 && a >= -(RAY * 100));
+    cvlr_assume!((-(RAY * 100)..0).contains(&a));
     cvlr_assume!(b > 0 && b <= RAY * 100);
 
     let result = mul_div_half_up_signed(&e, a, b, RAY);
@@ -348,8 +348,8 @@ fn i256_no_overflow(e: Env) {
     // Indexes can grow but realistically stay within 10 * RAY (~10^28).
     // Test the extreme: RAY * RAY intermediate = 10^54, well within I256.
     // The result should fit i128 (max ~1.7 * 10^38).
-    cvlr_assume!(a >= 0 && a <= 10 * RAY);
-    cvlr_assume!(b >= 0 && b <= 10 * RAY);
+    cvlr_assume!((0..=10 * RAY).contains(&a));
+    cvlr_assume!((0..=10 * RAY).contains(&b));
 
     // This must not panic -- if I256 -> i128 conversion fails, the rule fails
     let result = mul_div_half_up(&e, a, b, RAY);
@@ -364,8 +364,8 @@ fn i256_no_overflow_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(a >= 0 && a <= 10 * RAY);
-    cvlr_assume!(b >= 0 && b <= 10 * RAY);
+    cvlr_assume!((0..=10 * RAY).contains(&a));
+    cvlr_assume!((0..=10 * RAY).contains(&b));
 
     let result = mul_div_half_up(&e, a, b, RAY);
     cvlr_satisfy!(result > 0);
@@ -382,7 +382,7 @@ fn i256_no_overflow_sanity(e: Env) {
 #[rule]
 fn div_by_zero_sanity(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(a >= 0 && a <= RAY);
+    cvlr_assume!((0..=RAY).contains(&a));
 
     // Division by zero -- this line should always panic
     let _result = mul_div_half_up(&e, a, RAY, 0);

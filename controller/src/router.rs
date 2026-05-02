@@ -2,12 +2,91 @@ use common::errors::{GenericError, OracleError};
 use common::events::{emit_create_market, CreateMarketEvent};
 use common::types::{
     AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketParams, MarketStatus,
-    OracleProviderConfig, Payment, ReflectorAssetKind,
+    OracleProviderConfig, ReflectorAssetKind,
 };
-use soroban_sdk::{panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Symbol};
+use soroban_sdk::{
+    contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Symbol, Vec,
+};
+use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
-use crate::{storage, validation};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    #[only_role(caller, "KEEPER")]
+    pub fn update_indexes(env: Env, caller: Address, assets: Vec<Address>) {
+        validation::require_not_flash_loaning(&env);
+
+        let mut cache = ControllerCache::new(&env, true);
+        utils::sync_market_indexes(&env, &mut cache, &assets);
+
+        storage::bump_pools_list(&env);
+    }
+
+    #[only_role(caller, "KEEPER")]
+    pub fn keepalive_shared_state(env: Env, caller: Address, assets: Vec<Address>) {
+        let _ = caller;
+        keepalive_shared_state(&env, &assets);
+    }
+
+    #[only_role(caller, "KEEPER")]
+    pub fn keepalive_accounts(env: Env, caller: Address, account_ids: Vec<u64>) {
+        let _ = caller;
+        keepalive_accounts(&env, &account_ids);
+    }
+
+    #[only_role(caller, "KEEPER")]
+    pub fn keepalive_pools(env: Env, caller: Address, assets: Vec<Address>) {
+        let _ = caller;
+        keepalive_pools(&env, &assets);
+    }
+
+    #[only_owner]
+    pub fn create_liquidity_pool(
+        env: Env,
+        asset: Address,
+        params: MarketParams,
+        config: AssetConfig,
+    ) -> Address {
+        create_liquidity_pool(&env, &asset, &params, &config)
+    }
+
+    #[only_owner]
+    pub fn upgrade_pool_params(env: Env, asset: Address, params: InterestRateModel) {
+        upgrade_liquidity_pool_params(&env, &asset, &params);
+    }
+
+    #[only_owner]
+    pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
+        upgrade_liquidity_pool_params(&env, &asset, &params);
+    }
+
+    #[only_owner]
+    pub fn upgrade_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
+        upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
+    }
+
+    #[only_owner]
+    pub fn upgrade_liquidity_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
+        upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
+    }
+
+    #[when_not_paused]
+    #[only_role(caller, "REVENUE")]
+    pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
+        let _ = caller;
+        validation::require_not_flash_loaning(&env);
+        claim_revenue(&env, assets)
+    }
+
+    #[only_role(caller, "REVENUE")]
+    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
+        validation::require_not_flash_loaning(&env);
+        add_rewards_batch(&env, &caller, rewards);
+    }
+}
 
 fn validate_market_creation(
     env: &Env,
@@ -68,18 +147,15 @@ pub fn create_liquidity_pool(
     // Deterministic salt from the asset address enforces one pool per asset.
     let salt = env.crypto().keccak256(&asset.to_xdr(env));
 
-    // Accumulator address is passed at pool construction so `claim_revenue`
-    // transfers to a pool-stored destination rather than a caller-supplied
-    // one. Accumulator must be configured first.
-    if !storage::has_accumulator(env) {
-        panic_with_error!(env, GenericError::AccumulatorNotSet);
-    }
-    let accumulator = storage::get_accumulator(env);
-
-    let pool_address = env.deployer().with_current_contract(salt).deploy_v2(
-        wasm_hash,
-        (env.current_contract_address(), params.clone(), accumulator),
-    );
+    // Deploy the pool with the controller as owner. Revenue routing is
+    // anchored to that ownership: `claim_revenue` transfers to the pool
+    // owner (controller), which then forwards to the accumulator. The
+    // accumulator address itself is NOT passed in here; the controller is
+    // the single source of truth and resolves it at claim time.
+    let pool_address = env
+        .deployer()
+        .with_current_contract(salt)
+        .deploy_v2(wasm_hash, (env.current_contract_address(), params.clone()));
 
     storage::set_isolated_debt(env, asset, 0);
 
@@ -186,7 +262,10 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
 // ---------------------------------------------------------------------------
 
 /// Claims accrued protocol revenue from a single pool. The pool transfers
-/// directly to the accumulator address it stored at construction.
+/// the claimed amount to its owner (this controller); the controller then
+/// forwards to the configured accumulator. Both transfers must succeed in
+/// the same transaction or the whole claim reverts (no try/catch on either
+/// hop), so partial state is impossible.
 fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     validation::require_asset_supported(env, asset);
 
@@ -200,7 +279,15 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
 
-    pool_client.claim_revenue(&feed.price_wad)
+    let amount = pool_client.claim_revenue(&feed.price_wad);
+
+    if amount > 0 {
+        let accumulator = storage::get_accumulator(env);
+        let tok = token::Client::new(env, asset);
+        tok.transfer(&env.current_contract_address(), &accumulator, &amount);
+    }
+
+    amount
 }
 
 /// Claims accrued protocol revenue from multiple pools in one call.
@@ -225,21 +312,19 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
 
-    let tok = soroban_sdk::token::Client::new(env, asset);
-    let pool_balance_before = tok.balance(&pool_addr);
-    tok.transfer(caller, &pool_addr, &amount);
-    let pool_balance_after = tok.balance(&pool_addr);
-    let actual_received = pool_balance_after
-        .checked_sub(pool_balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive));
-    if actual_received <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    let actual_received = utils::transfer_and_measure_received(
+        env,
+        asset,
+        caller,
+        &pool_addr,
+        amount,
+        GenericError::AmountMustBePositive,
+    );
 
     pool_client.add_rewards(&feed.price_wad, &actual_received);
 }
 
-pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<Payment>) {
+pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
     for i in 0..rewards.len() {
         let (asset, amount) = rewards.get(i).unwrap();
         add_reward(env, caller, &asset, amount);
@@ -270,7 +355,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         for category_id in categories {
             storage::bump_shared(env, &ControllerKey::EModeCategory(category_id));
             if storage::get_emode_asset(env, category_id, &asset).is_some() {
-                storage::bump_shared(env, &ControllerKey::EModeAsset(category_id, asset.clone()));
+                storage::bump_shared(env, &ControllerKey::EModeAssets(category_id));
             }
         }
     }
@@ -279,9 +364,9 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
 pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
     for i in 0..account_ids.len() {
         let account_id = account_ids.get(i).unwrap();
-        if storage::try_get_account(env, account_id).is_some() {
-            storage::bump_account(env, account_id);
-        }
+        // `bump_account` per-key `has` checks already make missing accounts a
+        // no-op, so a separate existence read up front is wasted I/O.
+        storage::bump_account(env, account_id);
     }
 }
 

@@ -74,7 +74,6 @@ fuzz_target!(|i: In| {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let accumulator = Address::generate(&env);
 
     // Register a real Stellar Asset Contract so view functions like
     // `reserves()` (which calls `asset_token.balance(pool)`) succeed
@@ -91,7 +90,7 @@ fuzz_target!(|i: In| {
     // Register the pool natively at a fresh address. Running
     // `__constructor` via register's second argument keeps the contract's
     // instance storage populated.
-    let pool_addr = env.register(LiquidityPool, (admin, params.clone(), accumulator));
+    let pool_addr = env.register(LiquidityPool, (admin, params.clone()));
     let pool = LiquidityPoolClient::new(&env, &pool_addr);
 
     // Baseline: supplied/borrowed are both zero, indices at RAY.

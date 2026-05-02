@@ -1,61 +1,75 @@
-use common::constants::WAD;
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
-use common::types::{Account, AccountPosition, Payment, PoolPositionMutation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
+use common::types::{Account, AccountPosition, ControllerKey, Payment, PoolPositionMutation};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
+use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
-use crate::{helpers, storage, utils, validation};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-/// Processes a batch of withdrawals. Validates ownership, applies a post-batch HF check
-/// when borrows are open, and removes the account from storage when all positions close.
-pub fn process_withdraw(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    withdrawals: &Vec<Payment>,
-) {
-    caller.require_auth();
-    validation::require_not_paused(env);
-    validation::require_not_flash_loaning(env);
-    let mut account = storage::get_account(env, account_id);
+/// Sentinel passed to the pool to request a full-position withdrawal. The
+/// pool clamps any value `>= current_supply_actual` to the post-accrual
+/// balance, so `i128::MAX` is the canonical "withdraw all" signal.
+const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
-    if account.owner != *caller {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<Payment>) {
+        process_withdraw(&env, &caller, account_id, &withdrawals);
     }
+}
 
-    // Allow unsafe price only when the account has no debt: the post-loop
-    // `validate_is_healthy` short-circuits when no borrows exist, so allowing
-    // the unsafe price unlocks no risk-increasing operation. Supply-only
-    // users can therefore exit during oracle deviation > 5%.
+/// Processes a withdrawal batch and removes the account when all positions close.
+///
+/// Storage I/O:
+///   * debt-free: 1 meta read + 1 supply-side read + 1 supply-side write
+///     (or full account close if both sides become empty).
+///   * with debt: + 1 borrow-side read for the post-batch HF gate.
+pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
+    caller.require_auth();
+    validation::require_not_flash_loaning(env);
+
+    let meta = storage::get_account_meta(env, account_id);
+    let supply_positions = storage::get_supply_positions(env, account_id);
+
+    // Supply-only exits are risk-decreasing; accounts with debt keep strict
+    // oracle checks before the final health-factor gate. Probe the borrow
+    // side key with `has` (cheap) to avoid loading the borrow map for
+    // accounts that have no debt.
+    let has_debt = env
+        .storage()
+        .persistent()
+        .has(&ControllerKey::BorrowPositions(account_id));
+    let borrow_positions = if has_debt {
+        storage::get_borrow_positions(env, account_id)
+    } else {
+        Map::new(env)
+    };
+
+    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
+
+    validation::require_account_owner_match(env, &account, caller);
+
     let allow_unsafe = account.borrow_positions.is_empty();
     let mut cache = ControllerCache::new(env, allow_unsafe);
 
-    for (asset, amount) in withdrawals {
+    let withdrawal_plan = utils::aggregate_withdrawal_payments(env, withdrawals);
+    for (asset, amount) in withdrawal_plan {
         process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    if !account.borrow_positions.is_empty() {
-        let hf = helpers::calculate_health_factor(
-            env,
-            &mut cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        );
-        if hf < WAD {
-            panic_with_error!(env, CollateralError::InsufficientCollateral);
-        }
-    }
+    validation::require_healthy_account(env, &mut cache, &account);
 
-    // When the account closes out, remove it entirely instead of rewriting an empty account.
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
-        utils::validate_account_is_empty(env, &account);
         utils::remove_account(env, account_id);
     } else {
-        storage::set_account(env, account_id, &account);
+        // Withdraw mutates only the supply side. The borrow side stays as
+        // it was on disk (we only read it for HF and never modified it).
+        storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 }
 
@@ -67,16 +81,11 @@ fn process_single_withdrawal(
     amount: i128,
     cache: &mut ControllerCache,
 ) {
-    // Reject negative amounts. `amount == 0` is the "withdraw all" sentinel;
-    // any negative value would otherwise reach `pool.withdraw` and, via
-    // saturating_sub_ray on signed i128, mint phantom collateral.
+    // `0` means withdraw all; negative withdrawals are never valid.
     if amount < 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 
-    // Cache uses strict pricing whenever the account has any borrows,
-    // matching the gate set in `process_withdraw`. With borrows present,
-    // `oracle::token_price` blocks when deviation exceeds second tolerance.
     let feed = cache.cached_price(asset);
 
     let position = match account.supply_positions.get(asset.clone()) {
@@ -84,13 +93,8 @@ fn process_single_withdrawal(
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
 
-    // `amount == 0` sentinel: withdraw all.
-    let withdraw_amount = if amount == 0 { i128::MAX } else { amount };
+    let withdraw_amount = if amount == 0 { WITHDRAW_ALL_SENTINEL } else { amount };
 
-    // Shared withdrawal execution (also used by liquidation and strategy flows).
-    // The helper emits `UpdatePositionEvent` itself with the caller-provided
-    // `action` tag, guaranteeing every position mutation produces an event
-    // (plain / liquidation / strategy paths all covered).
     let _ = execute_withdrawal(
         env,
         account,
@@ -108,21 +112,9 @@ fn process_single_withdrawal(
     );
 }
 
-// ---------------------------------------------------------------------------
-// Shared withdrawal execution (also used by liquidation)
-// ---------------------------------------------------------------------------
-
-/// Execute the withdrawal through the pool, update the position, and emit
-/// an `UpdatePositionEvent`.
-///
-/// - `caller` is the pool-call authority (the address that receives tokens).
-/// - `event_caller` is the originator logged in the event. For plain
-///   withdraw and liquidation these are the same; for strategy flows (where
-///   `caller = env.current_contract_address()` because the controller is
-///   the intermediate recipient) pass the real user.
-/// - `action` is the event tag the caller wants indexers to see
-///   (e.g. `"withdraw"`, `"liq_seize"`, `"rp_col_wd"`, `"sw_col_wd"`,
-///   `"close_wd"`).
+/// Executes the pool withdrawal leg and records the account-side mutation.
+/// `ctx.caller` receives tokens from the pool; `ctx.event_caller` is the
+/// user address emitted for indexers.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,
@@ -135,7 +127,11 @@ pub fn execute_withdrawal(
     price_wad: i128,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
-    let EventContext { caller, event_caller, action } = ctx;
+    let EventContext {
+        caller,
+        event_caller,
+        action,
+    } = ctx;
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let result = pool_client.withdraw(
@@ -148,7 +144,6 @@ pub fn execute_withdrawal(
     );
     update::update_or_remove_position(account, &result.position);
 
-    // Withdraw uses supply_index_ray.
     emit_update_position(
         env,
         UpdatePositionEvent {

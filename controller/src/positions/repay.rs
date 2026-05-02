@@ -2,49 +2,54 @@ use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, UpdatePositionEvent};
 use common::fp::Ray;
 use common::types::{Account, AccountPosition, Payment, PoolPositionMutation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
+use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
-use crate::{storage, utils, validation};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-/// Processes a batch of debt repayments. Any caller may repay any account.
-/// Uses a permissive oracle cache so repayment succeeds during oracle outages.
-/// Never deletes the account, even after full debt clearance.
-pub fn process_repay(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    payments: &Vec<Payment>,
-) {
+#[contractimpl]
+impl Controller {
+    #[when_not_paused]
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
+        process_repay(&env, &caller, account_id, &payments);
+    }
+}
+
+/// Processes a repayment batch. Any caller may repay any account.
+///
+/// Storage I/O: 1 meta read + 1 borrow-side read + 1 borrow-side write.
+/// The supply side is never touched.
+pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
     caller.require_auth();
-    validation::require_not_paused(env);
     validation::require_not_flash_loaning(env);
-    // Single storage read; no owner check because anyone can repay.
-    let mut account = storage::get_account(env, account_id);
+    validation::require_non_empty_payments(env, payments);
 
-    // Repay is risk-decreasing: tolerate disabled-market pricing, high oracle
-    // deviation, and stale Reflector feeds. Users with
-    // funds in hand must be able to save their position during a Reflector
-    // outage; otherwise they get force-liquidated.
-    let mut cache = ControllerCache::new_with_disabled_market_price(env, true);
+    let meta = storage::get_account_meta(env, account_id);
+    let borrow_positions = storage::get_borrow_positions(env, account_id);
+    // Isolated accounts must use safe prices: the per-repay decrement of
+    // the global IsolatedDebt(asset) USD ceiling uses `feed.price_wad`, and a
+    // stale price would drift the ceiling counter against actual debt. Other
+    // (non-isolated) accounts have no such global accumulator, so a
+    // permissive cache stays acceptable to keep repay reachable during
+    // oracle degradation.
+    let allow_unsafe = !meta.is_isolated;
+    let mut account =
+        storage::account_from_parts(meta, Map::new(env), borrow_positions);
+    let mut cache = ControllerCache::new_with_disabled_market_price(env, allow_unsafe);
 
-    for (asset, amount) in payments {
+    let repayment_plan = utils::aggregate_positive_payments(env, payments);
+    for (asset, amount) in repayment_plan {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    // Never burn the account on full repay. Only `withdraw` is allowed to
-    // delete an account. Leaving an empty account
-    // in place preserves e-mode/isolation context, prevents griefing where a
-    // third party fully repays your last debt and your account vanishes
-    // mid-block, and lets pending same-block txs that depend on `account_id`
-    // continue to resolve.
-    storage::set_account(env, account_id, &account);
-
-    // Flush the isolated-debt accumulator: one storage write and one event per
-    // modified asset, regardless of how many repayments this batch made.
+    // Full repay does not delete the account; only owner withdraw/close flows
+    // may burn account storage. Meta is never mutated by repay; supply side
+    // stays as it was on disk.
+    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
 }
 
@@ -58,30 +63,12 @@ fn process_single_repay(
 ) {
     validation::require_amount_positive(env, amount);
 
-    let position = match account.borrow_positions.get(asset.clone()) {
-        Some(pos) => pos,
-        None => panic_with_error!(env, CollateralError::PositionNotFound),
-    };
+    let position = account
+        .borrow_positions
+        .get(asset.clone())
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound));
+    let actual_received = transfer_repayment_to_pool(env, caller, asset, amount, cache);
 
-    // Transfer tokens from caller to pool using balance-delta accounting,
-    // so fee-on-transfer or rebasing tokens cannot credit more debt repayment
-    // than the pool actually received.
-    let pool_addr = cache.cached_pool_address(asset);
-    let token = soroban_sdk::token::Client::new(env, asset);
-    let pool_balance_before = token.balance(&pool_addr);
-    token.transfer(caller, &pool_addr, &amount);
-    let pool_balance_after = token.balance(&pool_addr);
-    let actual_received = pool_balance_after
-        .checked_sub(pool_balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive));
-    if actual_received <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
-
-    // Shared repayment execution (also used by liquidation and strategy flows).
-    // The helper emits `UpdatePositionEvent` itself with the caller-provided
-    // `action` tag, guaranteeing every position mutation produces an event
-    // regardless of which outer flow (plain / liquidation / strategy) triggered it.
     let feed = cache.cached_price(asset);
     let _ = execute_repayment(
         env,
@@ -98,16 +85,7 @@ fn process_single_repay(
     );
 }
 
-// ---------------------------------------------------------------------------
-// Shared repayment execution (also used by liquidation)
-// ---------------------------------------------------------------------------
-
-/// Execute the repayment through the pool, update the position, optionally
-/// adjust isolated debt, and emit an `UpdatePositionEvent`.
-///
-/// Every mutating path routes through here, so an indexer that subscribes to
-/// `UpdatePositionEvent` sees *all* position changes regardless of which
-/// outer flow (plain / liquidation / strategy) triggered them.
+/// Executes the pool repay leg and records the account-side mutation.
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
@@ -117,39 +95,34 @@ pub fn execute_repayment(
     amount: i128,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
-    let EventContext { caller, event_caller, action } = ctx;
+    let EventContext {
+        caller,
+        event_caller,
+        action,
+    } = ctx;
     let pool_addr = cache.cached_pool_address(&position.asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
     let mut result = pool_client.repay(&caller, &amount, position, &price_wad);
 
-    // Derive the applied repayment from the pre-repay scaled debt and the
-    // pool-returned synced borrow index. Prevents accounting drift when the
-    // caller overpays: the applied amount is clamped to outstanding debt.
     let feed = cache.cached_price(&position.asset);
-    let outstanding_before = Ray::from_raw(position.scaled_amount_ray)
-        .mul(env, Ray::from_raw(result.market_index.borrow_index_ray))
-        .to_asset(feed.asset_decimals);
+    let outstanding_before = actual_borrow_amount(
+        env,
+        position,
+        result.market_index.borrow_index_ray,
+        feed.asset_decimals,
+    );
     result.actual_amount = amount.min(outstanding_before);
 
     update::update_or_remove_position(account, &result.position);
-
-    // Adjust isolated debt using the applied amount, not the requested
-    // amount. The decrement is unconditional even under a permissive oracle
-    // cache; a slightly off USD value is preferable to letting the global
-    // ceiling drift further from reality.
-    if account.is_isolated && result.actual_amount > 0 {
-        utils::adjust_isolated_debt_usd(
-            env,
-            account,
-            result.actual_amount,
-            &price_wad,
-            feed.asset_decimals,
-            cache,
-        );
-    }
-
-    // Repay uses borrow_index_ray.
+    adjust_isolated_debt_for_repay(
+        env,
+        account,
+        cache,
+        result.actual_amount,
+        price_wad,
+        feed.asset_decimals,
+    );
     emit_update_position(
         env,
         UpdatePositionEvent {
@@ -166,8 +139,7 @@ pub fn execute_repayment(
     result
 }
 
-/// Decrements the isolated-debt ceiling by the full current value of `position`.
-/// No-ops for non-isolated accounts.
+/// Decrements isolated debt by the full current value of `position`.
 pub fn clear_position_isolated_debt(
     env: &Env,
     position: &AccountPosition,
@@ -178,20 +150,68 @@ pub fn clear_position_isolated_debt(
         return;
     }
 
-    let market_index = cache.cached_market_index_readonly(&position.asset);
+    let market_index = cache.cached_market_index(&position.asset);
     let feed = cache.cached_price(&position.asset);
-    let actual_amount = Ray::from_raw(position.scaled_amount_ray)
-        .mul(env, Ray::from_raw(market_index.borrow_index_ray))
-        .to_asset(feed.asset_decimals);
+    let actual_amount = actual_borrow_amount(
+        env,
+        position,
+        market_index.borrow_index_ray,
+        feed.asset_decimals,
+    );
+    adjust_isolated_debt_for_repay(
+        env,
+        account,
+        cache,
+        actual_amount,
+        feed.price_wad,
+        feed.asset_decimals,
+    );
+}
 
-    if actual_amount > 0 {
-        let feed = cache.cached_price(&position.asset);
+fn transfer_repayment_to_pool(
+    env: &Env,
+    caller: &Address,
+    asset: &Address,
+    amount: i128,
+    cache: &mut ControllerCache,
+) -> i128 {
+    let pool_addr = cache.cached_pool_address(asset);
+    utils::transfer_and_measure_received(
+        env,
+        asset,
+        caller,
+        &pool_addr,
+        amount,
+        GenericError::AmountMustBePositive,
+    )
+}
+
+fn actual_borrow_amount(
+    env: &Env,
+    position: &AccountPosition,
+    borrow_index_ray: i128,
+    asset_decimals: u32,
+) -> i128 {
+    Ray::from_raw(position.scaled_amount_ray)
+        .mul(env, Ray::from_raw(borrow_index_ray))
+        .to_asset(asset_decimals)
+}
+
+fn adjust_isolated_debt_for_repay(
+    env: &Env,
+    account: &Account,
+    cache: &mut ControllerCache,
+    actual_amount: i128,
+    price_wad: i128,
+    asset_decimals: u32,
+) {
+    if account.is_isolated && actual_amount > 0 {
         utils::adjust_isolated_debt_usd(
             env,
             account,
             actual_amount,
-            &feed.price_wad,
-            feed.asset_decimals,
+            &price_wad,
+            asset_decimals,
             cache,
         );
     }
@@ -226,7 +246,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -254,10 +274,7 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = env.register(
-                pool::LiquidityPool,
-                (controller.clone(), params, controller.clone()),
-            );
+            let pool = env.register(pool::LiquidityPool, (controller.clone(), params));
 
             let reflector = env.register(crate::helpers::testutils::TestReflector, ());
             let r_client = crate::helpers::testutils::TestReflectorClient::new(&env, &reflector);
@@ -380,8 +397,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Error(Contract, #16)")]
+    fn test_repay_rejects_empty_payments() {
+        let t = TestSetup::new();
+
+        t.as_controller(|| {
+            let payments = soroban_sdk::Vec::new(&t.env);
+            process_repay(&t.env, &t.owner, 1, &payments);
+        });
+    }
+
+    #[test]
     fn test_repay_does_not_delete_account_when_empty() {
-        // Full repay must not remove the account; only withdraw is permitted to delete.
         let t = TestSetup::new();
         let account_id = 1;
         let repay_amount = 1_0000000i128;
@@ -424,16 +451,12 @@ mod tests {
                 account.supply_positions.is_empty(),
                 "supply map remains empty as before"
             );
-            // Owner/mode metadata preserved.
             assert_eq!(account.owner, t.owner);
         });
     }
 
     #[test]
     fn test_repay_works_when_oracle_is_stale() {
-        // Repay must succeed when the price feed exceeds `max_price_stale_seconds`.
-        // `allow_unsafe_price = true` bypasses deviation and staleness gates;
-        // risk-increasing flows keep the flag off and still panic on stale.
         let t = TestSetup::new();
         let account_id = 2;
         let repay_amount = 1_0000000i128;
@@ -449,13 +472,10 @@ mod tests {
                 &t.account_with_borrow_only(account_id, false),
             );
 
-            // Advance past `max_price_stale_seconds` (900) without
-            // re-publishing the spot price. Any non-repay path would panic
-            // with `PriceFeedStale` here.
             let now = t.env.ledger().timestamp();
             t.env.ledger().set(LedgerInfo {
                 timestamp: now + 1_500,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -464,9 +484,6 @@ mod tests {
                 max_entry_ttl: 3_110_400,
             });
 
-            // Initialise the pool AFTER the time advance so this test focuses
-            // on the staleness-bypass path: no interest accrues on top of the
-            // outstanding debt and `repay_amount` exactly closes it.
             t.env.as_contract(&t.pool, || {
                 t.env.storage().instance().set(
                     &PoolKey::State,

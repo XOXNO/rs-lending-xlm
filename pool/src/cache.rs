@@ -26,7 +26,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
         let state: Option<PoolState> = env.storage().instance().get(&PoolKey::State);
-
+        let time_ms = env.ledger().timestamp() * 1000;
         match state {
             Some(s) => Cache {
                 env: env.clone(),
@@ -36,7 +36,7 @@ impl Cache {
                 borrow_index: Ray::from_raw(s.borrow_index_ray),
                 supply_index: Ray::from_raw(s.supply_index_ray),
                 last_timestamp: s.last_timestamp,
-                current_timestamp: env.ledger().timestamp() * 1000,
+                current_timestamp: time_ms,
                 params,
             },
             None => Cache {
@@ -47,7 +47,7 @@ impl Cache {
                 borrow_index: Ray::ONE,
                 supply_index: Ray::ONE,
                 last_timestamp: 0,
-                current_timestamp: env.ledger().timestamp() * 1000,
+                current_timestamp: time_ms,
                 params,
             },
         }
@@ -150,7 +150,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -172,8 +172,7 @@ mod tests {
                 asset_id: Address::generate(&env),
                 asset_decimals: 7,
             };
-            let contract =
-                env.register(crate::LiquidityPool, (admin.clone(), params.clone(), admin));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(), params.clone()));
 
             Self {
                 env,

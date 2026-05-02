@@ -1,8 +1,8 @@
 use common::constants::WAD;
-use common::errors::CollateralError;
+use common::errors::GenericError;
 use common::fp::Wad;
 use common::types::{Account, Payment, PositionMode};
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
 use crate::storage;
@@ -10,17 +10,107 @@ use crate::storage;
 pub use crate::positions::account::{create_account, remove_account};
 
 // ---------------------------------------------------------------------------
+// Payment Helpers
+// ---------------------------------------------------------------------------
+
+/// Deduplicates `(asset, amount)` payments in first-seen asset order and sums
+/// duplicate amounts. Rejects zero, negative, and overflowing totals.
+pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
+    aggregate_payments(env, payments, false)
+}
+
+/// Deduplicates withdrawal requests. Positive duplicates are summed, while a
+/// zero amount remains the "withdraw all" sentinel for that asset.
+pub fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
+    aggregate_payments(env, payments, true)
+}
+
+/// Transfers `asset` from `from` to `to` and returns the positive balance
+/// increase observed at `to`.
+pub fn transfer_and_measure_received(
+    env: &Env,
+    asset: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+    balance_decrease_error: GenericError,
+) -> i128 {
+    let token = soroban_sdk::token::Client::new(env, asset);
+    let balance_before = token.balance(to);
+
+    token.transfer(from, to, &amount);
+
+    let received = token
+        .balance(to)
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, balance_decrease_error));
+    if received <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+
+    received
+}
+
+fn aggregate_payments(
+    env: &Env,
+    payments: &Vec<Payment>,
+    zero_is_withdraw_all: bool,
+) -> Vec<Payment> {
+    let mut order: Vec<Address> = Vec::new(env);
+    let mut totals: Map<Address, i128> = Map::new(env);
+
+    for (asset, amount) in payments {
+        let next =
+            aggregate_payment_amount(env, totals.get(asset.clone()), amount, zero_is_withdraw_all);
+
+        if !totals.contains_key(asset.clone()) {
+            order.push_back(asset.clone());
+        }
+        totals.set(asset, next);
+    }
+
+    let mut result = Vec::new(env);
+    for asset in order {
+        let amount = totals.get(asset.clone()).unwrap();
+        result.push_back((asset, amount));
+    }
+
+    result
+}
+
+fn aggregate_payment_amount(
+    env: &Env,
+    previous: Option<i128>,
+    amount: i128,
+    zero_is_withdraw_all: bool,
+) -> i128 {
+    if amount < 0 || (!zero_is_withdraw_all && amount == 0) {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+
+    if zero_is_withdraw_all && (amount == 0 || previous == Some(0)) {
+        return 0;
+    }
+
+    previous
+        .unwrap_or(0)
+        .checked_add(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+// ---------------------------------------------------------------------------
 // Account Helpers
 // ---------------------------------------------------------------------------
 
 /// Creates a new account for the supply entry point, deriving the isolation flag from
-/// the first asset in the batch.
+/// the first asset in the batch. Returns both the new id and the in-memory snapshot
+/// so the caller can skip a redundant re-read.
 pub fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
     e_mode_category: u32,
     assets: &Vec<Payment>,
-) -> u64 {
+) -> (u64, Account) {
     let (first_asset, _) = assets.get(0).unwrap();
     let first_config = storage::get_market_config(env, &first_asset).asset_config;
     let is_isolated = first_config.is_isolated_asset;
@@ -37,13 +127,6 @@ pub fn create_account_for_first_asset(
         is_isolated,
         isolated_asset,
     )
-}
-
-/// Panics with `PositionNotFound` when either position map is non-empty.
-pub fn validate_account_is_empty(env: &Env, account: &Account) {
-    if !account.supply_positions.is_empty() || !account.borrow_positions.is_empty() {
-        panic_with_error!(env, CollateralError::PositionNotFound);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +190,6 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, AccountPositionType};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map};
 
@@ -138,6 +220,43 @@ mod tests {
     }
 
     #[test]
+    fn test_aggregate_positive_payments_sums_duplicates_in_first_seen_order() {
+        let env = Env::default();
+        let usdc = Address::generate(&env);
+        let eth = Address::generate(&env);
+        let payments =
+            soroban_sdk::vec![&env, (usdc.clone(), 5), (eth.clone(), 7), (usdc.clone(), 3)];
+
+        let aggregated = aggregate_positive_payments(&env, &payments);
+
+        assert_eq!(aggregated.len(), 2);
+        assert_eq!(aggregated.get(0).unwrap(), (usdc, 8));
+        assert_eq!(aggregated.get(1).unwrap(), (eth, 7));
+    }
+
+    #[test]
+    fn test_aggregate_withdrawal_payments_keeps_zero_sentinel() {
+        let env = Env::default();
+        let usdc = Address::generate(&env);
+        let payments = soroban_sdk::vec![&env, (usdc.clone(), 5), (usdc.clone(), 0)];
+
+        let aggregated = aggregate_withdrawal_payments(&env, &payments);
+
+        assert_eq!(aggregated.len(), 1);
+        assert_eq!(aggregated.get(0).unwrap(), (usdc, 0));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_aggregate_positive_payments_rejects_overflow() {
+        let env = Env::default();
+        let usdc = Address::generate(&env);
+        let payments = soroban_sdk::vec![&env, (usdc.clone(), i128::MAX), (usdc, 1)];
+
+        let _ = aggregate_positive_payments(&env, &payments);
+    }
+
+    #[test]
     fn test_adjust_isolated_debt_usd_erases_sub_dollar_dust() {
         let env = Env::default();
         let isolated_asset = Address::generate(&env);
@@ -151,27 +270,4 @@ mod tests {
         assert_eq!(cache.get_isolated_debt(&isolated_asset), 0);
     }
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #110)")]
-    fn test_validate_account_is_empty_rejects_open_positions() {
-        let env = Env::default();
-        let mut account = empty_account(&env, None);
-        let asset = Address::generate(&env);
-
-        account.supply_positions.set(
-            asset.clone(),
-            AccountPosition {
-                position_type: AccountPositionType::Deposit,
-                asset,
-                scaled_amount_ray: 1,
-                account_id: 1,
-                liquidation_threshold_bps: 8_000,
-                liquidation_bonus_bps: 500,
-                liquidation_fees_bps: 100,
-                loan_to_value_bps: 7_500,
-            },
-        );
-
-        validate_account_is_empty(&env, &account);
-    }
 }

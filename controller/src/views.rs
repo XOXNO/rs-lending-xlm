@@ -5,10 +5,87 @@ use common::types::{
     LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
     POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 use crate::cache::ControllerCache;
-use crate::{helpers, storage};
+use crate::{helpers, storage, Controller, ControllerArgs, ControllerClient};
+
+#[contractimpl]
+impl Controller {
+    pub fn can_be_liquidated(env: Env, account_id: u64) -> bool {
+        can_be_liquidated(&env, account_id)
+    }
+
+    pub fn health_factor(env: Env, account_id: u64) -> i128 {
+        health_factor(&env, account_id)
+    }
+
+    pub fn total_collateral_in_usd(env: Env, account_id: u64) -> i128 {
+        total_collateral_in_usd(&env, account_id)
+    }
+
+    pub fn total_borrow_in_usd(env: Env, account_id: u64) -> i128 {
+        total_borrow_in_usd(&env, account_id)
+    }
+
+    pub fn collateral_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128 {
+        collateral_amount_for_token(&env, account_id, &asset)
+    }
+
+    pub fn borrow_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128 {
+        borrow_amount_for_token(&env, account_id, &asset)
+    }
+
+    pub fn get_account_positions(
+        env: Env,
+        account_id: u64,
+    ) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
+        get_account_positions(&env, account_id)
+    }
+
+    pub fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes {
+        get_account_attributes(&env, account_id)
+    }
+
+    pub fn get_market_config(env: Env, asset: Address) -> MarketConfig {
+        get_market_config_view(&env, &asset)
+    }
+
+    pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategory {
+        get_emode_category_view(&env, category_id)
+    }
+
+    pub fn get_isolated_debt(env: Env, asset: Address) -> i128 {
+        get_isolated_debt_view(&env, &asset)
+    }
+
+    pub fn get_all_markets_detailed(
+        env: Env,
+        assets: Vec<Address>,
+    ) -> Vec<AssetExtendedConfigView> {
+        get_all_markets_detailed(&env, &assets)
+    }
+
+    pub fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView> {
+        get_all_market_indexes_detailed(&env, &assets)
+    }
+
+    pub fn liquidation_estimations_detailed(
+        env: Env,
+        account_id: u64,
+        debt_payments: Vec<Payment>,
+    ) -> LiquidationEstimate {
+        liquidation_estimations_detailed(&env, account_id, &debt_payments)
+    }
+
+    pub fn liquidation_collateral_available(env: Env, account_id: u64) -> i128 {
+        liquidation_collateral_available(&env, account_id)
+    }
+
+    pub fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128 {
+        ltv_collateral_in_usd(&env, account_id)
+    }
+}
 
 fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     storage::try_get_account_meta(env, account_id)
@@ -34,20 +111,19 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 crate::summarized!(
     crate::spec::summaries::total_collateral_in_usd_summary,
     pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-        let meta = match try_get_account_meta(env, account_id) {
-            Some(meta) => meta,
-            None => return 0,
-        };
-        if meta.supply_assets.is_empty() {
+        if try_get_account_meta(env, account_id).is_none() {
+            return 0;
+        }
+        let supply = storage::get_supply_positions(env, account_id);
+        if supply.is_empty() {
             return 0;
         }
 
         let mut cache = ControllerCache::new_view(env);
         let mut total_collateral = Wad::ZERO;
 
-        for asset in meta.supply_assets.iter() {
-            let position =
-                storage::get_account_position(env, account_id, POSITION_TYPE_DEPOSIT, &asset);
+        for asset in supply.keys() {
+            let position = supply.get(asset).unwrap();
             let feed = cache.cached_price(&position.asset);
             let market_index = cache.cached_market_index(&position.asset);
 
@@ -57,7 +133,7 @@ crate::summarized!(
                 Ray::from_raw(market_index.supply_index_ray),
                 Wad::from_raw(feed.price_wad),
             );
-            total_collateral = total_collateral + value;
+            total_collateral += value;
         }
 
         total_collateral.raw()
@@ -67,20 +143,19 @@ crate::summarized!(
 crate::summarized!(
     crate::spec::summaries::total_borrow_in_usd_summary,
     pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
-        let meta = match try_get_account_meta(env, account_id) {
-            Some(meta) => meta,
-            None => return 0,
-        };
-        if meta.borrow_assets.is_empty() {
+        if try_get_account_meta(env, account_id).is_none() {
+            return 0;
+        }
+        let borrow = storage::get_borrow_positions(env, account_id);
+        if borrow.is_empty() {
             return 0;
         }
 
         let mut cache = ControllerCache::new_view(env);
         let mut total_borrow = Wad::ZERO;
 
-        for asset in meta.borrow_assets.iter() {
-            let position =
-                storage::get_account_position(env, account_id, POSITION_TYPE_BORROW, &asset);
+        for asset in borrow.keys() {
+            let position = borrow.get(asset).unwrap();
             let feed = cache.cached_price(&position.asset);
             let market_index = cache.cached_market_index(&position.asset);
 
@@ -90,7 +165,7 @@ crate::summarized!(
                 Ray::from_raw(market_index.borrow_index_ray),
                 Wad::from_raw(feed.price_wad),
             );
-            total_borrow = total_borrow + value;
+            total_borrow += value;
         }
 
         total_borrow.raw()
@@ -98,11 +173,10 @@ crate::summarized!(
 );
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position =
-        match storage::try_get_account_position(env, account_id, POSITION_TYPE_DEPOSIT, asset) {
-            Some(position) => position,
-            None => return 0,
-        };
+    let position = match storage::try_get_position(env, account_id, POSITION_TYPE_DEPOSIT, asset) {
+        Some(position) => position,
+        None => return 0,
+    };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -114,11 +188,10 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position =
-        match storage::try_get_account_position(env, account_id, POSITION_TYPE_BORROW, asset) {
-            Some(position) => position,
-            None => return 0,
-        };
+    let position = match storage::try_get_position(env, account_id, POSITION_TYPE_BORROW, asset) {
+        Some(position) => position,
+        None => return 0,
+    };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -133,27 +206,20 @@ pub fn get_account_positions(
     env: &Env,
     account_id: u64,
 ) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
-    let meta = match try_get_account_meta(env, account_id) {
-        Some(meta) => meta,
-        None => return (Vec::new(env), Vec::new(env)),
-    };
-
-    let mut supply = Vec::new(env);
-    for asset in meta.supply_assets.iter() {
-        if let Some(position) =
-            storage::try_get_account_position(env, account_id, POSITION_TYPE_DEPOSIT, &asset)
-        {
-            supply.push_back(position);
-        }
+    if try_get_account_meta(env, account_id).is_none() {
+        return (Vec::new(env), Vec::new(env));
     }
 
+    let supply_map = storage::get_supply_positions(env, account_id);
+    let mut supply = Vec::new(env);
+    for asset in supply_map.keys() {
+        supply.push_back(supply_map.get(asset).unwrap());
+    }
+
+    let borrow_map = storage::get_borrow_positions(env, account_id);
     let mut borrow = Vec::new(env);
-    for asset in meta.borrow_assets.iter() {
-        if let Some(position) =
-            storage::try_get_account_position(env, account_id, POSITION_TYPE_BORROW, &asset)
-        {
-            borrow.push_back(position);
-        }
+    for asset in borrow_map.keys() {
+        borrow.push_back(borrow_map.get(asset).unwrap());
     }
 
     (supply, borrow)
@@ -304,6 +370,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::helpers::testutils::{TestReflector, TestReflectorAsset, TestReflectorClient};
     use crate::ControllerClient;
     use common::constants::RAY;
     use common::types::{
@@ -312,58 +379,7 @@ mod tests {
         PoolKey, PoolState, PositionMode, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{contract, contractimpl, contracttype, Address, Map, Symbol, Vec};
-
-    #[contracttype]
-    #[derive(Clone)]
-    enum TestReflectorAsset {
-        Stellar(Address),
-        Other(Symbol),
-    }
-
-    #[contracttype]
-    #[derive(Clone)]
-    struct TestReflectorPriceData {
-        price: i128,
-        timestamp: u64,
-    }
-
-    #[contract]
-    struct TestReflector;
-
-    #[contractimpl]
-    impl TestReflector {
-        pub fn set_spot(env: Env, asset: TestReflectorAsset, price: i128, timestamp: u64) {
-            env.storage()
-                .temporary()
-                .set(&asset, &TestReflectorPriceData { price, timestamp });
-        }
-
-        pub fn decimals(_env: Env) -> u32 {
-            14
-        }
-
-        pub fn resolution(_env: Env) -> u32 {
-            300
-        }
-
-        pub fn lastprice(env: Env, asset: TestReflectorAsset) -> Option<TestReflectorPriceData> {
-            env.storage().temporary().get(&asset)
-        }
-
-        pub fn prices(
-            env: Env,
-            asset: TestReflectorAsset,
-            records: u32,
-        ) -> Vec<Option<TestReflectorPriceData>> {
-            let mut out = Vec::new(&env);
-            let spot = Self::lastprice(env.clone(), asset);
-            for _ in 0..records {
-                out.push_back(spot.clone());
-            }
-            out
-        }
-    }
+    use soroban_sdk::{Address, Map, Symbol, Vec};
 
     struct TestSetup {
         env: Env,
@@ -378,7 +394,7 @@ mod tests {
             env.mock_all_auths();
             env.ledger().set(LedgerInfo {
                 timestamp: 1_000,
-                protocol_version: 25,
+                protocol_version: 26,
                 sequence_number: 100,
                 network_id: Default::default(),
                 base_reserve: 10,
@@ -423,10 +439,9 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let pool = self.env.register(
-                pool::LiquidityPool,
-                (self.controller.clone(), params, self.controller.clone()),
-            );
+            let pool = self
+                .env
+                .register(pool::LiquidityPool, (self.controller.clone(), params));
             self.env.as_contract(&pool, || {
                 self.env.storage().instance().set(
                     &PoolKey::State,
@@ -715,9 +730,9 @@ mod tests {
         );
         assert_eq!(oracle_client.lastprice(&other_asset).unwrap().price, 321);
 
-        let history = oracle_client.prices(&stellar_asset, &2);
+        let history = oracle_client.prices(&stellar_asset, &2).unwrap();
         assert_eq!(history.len(), 2);
-        assert_eq!(history.get(0).unwrap().unwrap().price, 123);
-        assert_eq!(history.get(1).unwrap().unwrap().timestamp, 456);
+        assert_eq!(history.get(0).unwrap().price, 123);
+        assert_eq!(history.get(1).unwrap().timestamp, 456);
     }
 }

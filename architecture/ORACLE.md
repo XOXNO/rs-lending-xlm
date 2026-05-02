@@ -26,7 +26,7 @@ SEP-40 `PriceOracle` contract. The controller calls four methods:
 | `decimals() -> u32` | Feed precision. Reflector returns 14 for USD feeds. |
 | `resolution() -> u32` | Sample period in seconds (300 in mainnet Reflector). |
 | `lastprice(asset) -> Option<PriceData>` | Spot price with timestamp. |
-| `prices(asset, records: u32) -> Vec<Option<PriceData>>` | Historical window used for TWAP. |
+| `prices(asset, records: u32) -> Option<Vec<PriceData>>` | Dense historical window used for TWAP. |
 
 The `ReflectorAsset` enum names assets — `Stellar(Address)` for native
 assets, `Other(Symbol)` for bridged tickers such as `BTC` or `ETH`.
@@ -177,10 +177,11 @@ Three checks at `controller/src/oracle/mod.rs:163-178`:
    `None` instead of panicking (`:326-329`). The CEX TWAP anchor then serves
    as the final price; the DEX side only ever tightens.
 
-A valid TWAP needs **≥50%** of `twap_records` populated (`oracle/mod.rs:247`).
-Below that, the call panics `TwapInsufficientObservations` (error 219). This
-catches a Reflector that responds but has gaps in its window, for example
-right after a contract redeploy.
+A valid TWAP needs **≥50%** of `twap_records` returned, rounded up
+(`oracle/mod.rs:198`). Below that, the call panics
+`TwapInsufficientObservations` (error 219). This catches a Reflector that
+responds but has too short a window, for example right after a contract
+redeploy.
 
 ## Zero and missing prices
 
@@ -188,7 +189,7 @@ right after a contract redeploy.
 |---|---|
 | `lastprice` returns `None` | panic `NoLastPrice` (error 210). |
 | `lastprice` returns a non-positive value | panic `InvalidPrice` (error 217). |
-| Every TWAP sample is `None` with `count == 0` | fall back to spot (spot must exist). |
+| `prices` returns `None` or an empty vector | fall back to spot (spot must exist). |
 | TWAP count below 50% threshold | panic `TwapInsufficientObservations`. |
 | DEX feed unavailable in `DualOracle` | return `None`; the CEX TWAP becomes the final price. |
 
@@ -223,7 +224,7 @@ directly. Surface:
 | `set_price(asset, price_wad)` | Stores spot (14-decimal internally) under `MockKey::Spot`. |
 | `set_twap_price(asset, price_wad)` | Stores TWAP under `MockKey::Twap`. |
 | `lastprice(asset)` | Returns the spot record with `env.ledger().timestamp()`. |
-| `prices(asset, records)` | Returns a vector of TWAP records (falls back to spot if no TWAP set). |
+| `prices(asset, records)` | Returns `Some(Vec<PriceData>)` of TWAP records (falls back to spot if no TWAP set). |
 | `decimals()` | Hardcoded `14`. |
 | `resolution()` | Hardcoded `300`. |
 

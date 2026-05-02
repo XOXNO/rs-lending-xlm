@@ -55,8 +55,10 @@ pub trait LiquidityPoolInterface {
         price_wad: i128,
     ) -> PoolStrategyMutation;
     fn seize_position(env: Env, position: AccountPosition, price_wad: i128) -> AccountPosition;
-    /// Pool transfers revenue to the accumulator address stored at
-    /// construction; the ABI takes no caller-supplied destination.
+    /// Pool transfers revenue to its owner (the controller), which then
+    /// forwards to the protocol accumulator. The ABI takes no
+    /// caller-supplied destination, and the pool stores no destination of
+    /// its own — ownership IS the routing anchor.
     fn claim_revenue(env: Env, price_wad: i128) -> i128;
     fn update_params(
         env: Env,

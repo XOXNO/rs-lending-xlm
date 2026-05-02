@@ -206,7 +206,7 @@ All four bracket the aggregator call with
 | **`revenue_ray`** | Scaled protocol fee accrued into the supply index. Burned in proportion to a `claim_revenue` transfer; suppliers' implicit share grows as a side-effect of the same scaling. |
 | **`supplied_ray`** | Scaled aggregate of all supply positions for the pool. |
 | **`borrowed_ray`** | Scaled aggregate of all borrow positions for the pool. |
-| **Accumulator** | The external address that `claim_revenue` forwards revenue to. Owner-set, written into the pool at construction. |
+| **Accumulator** | The external address that protocol revenue is ultimately routed to. Owner-set on the controller; the controller is the single source of truth and forwards revenue from each pool's `claim_revenue` (pool → controller → accumulator). Pools do not store the accumulator and never see it directly. |
 
 ## Bulk endpoints
 

@@ -340,6 +340,54 @@ update_indexes() {
     echo "Indexes updated."
 }
 
+claim_revenue() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
+        list_markets >&2
+        exit 1
+    fi
+
+    echo "Claiming revenue for markets: $*"
+
+    local ctrl
+    ctrl=$(get_controller)
+    local caller
+    caller=$(get_signer_address)
+    local assets_json
+    assets_json=$(build_asset_addresses_json "$@")
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- claim_revenue \
+        --caller "$caller" \
+        --assets "$assets_json"
+
+    echo "Revenue claimed."
+}
+
+claim_revenue_all() {
+    local assets_json
+    assets_json=$(all_configured_asset_addresses)
+
+    if [ -z "$assets_json" ] || [ "$assets_json" = "[]" ]; then
+        echo "No markets with asset_address configured in ${MARKET_CONFIG_FILE}" >&2
+        exit 1
+    fi
+
+    echo "Claiming revenue for all configured markets..."
+
+    local ctrl
+    ctrl=$(get_controller)
+    local caller
+    caller=$(get_signer_address)
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- claim_revenue \
+        --caller "$caller" \
+        --assets "$assets_json"
+
+    echo "Revenue claimed for all markets."
+}
+
 set_aggregator() {
     echo "Configuring Aggregator for ${NETWORK}..."
     local router=$(jq -r ".\"$NETWORK\".aggregator" "$NETWORKS_FILE")
@@ -810,6 +858,18 @@ case "$1" in
         shift
         update_indexes "$@"
         ;;
+    "claimRevenue")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 claimRevenue <market_name> [market_name...]"
+            list_markets
+            exit 1
+        fi
+        shift
+        claim_revenue "$@"
+        ;;
+    "claimRevenueAll")
+        claim_revenue_all
+        ;;
     "setupAllMarkets")
         setup_all_markets
         ;;
@@ -960,6 +1020,8 @@ case "$1" in
         echo "  revokeRole <account> <role>     Revoke role"
         echo "  setAggregator                   Set aggregator from networks.json"
         echo "  setupAll                        Markets + E-Modes from config"
+        echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
+        echo "  claimRevenueAll                 Claim revenue for every configured market"
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"

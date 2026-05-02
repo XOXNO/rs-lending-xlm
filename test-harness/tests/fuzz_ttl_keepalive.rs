@@ -109,7 +109,7 @@ proptest! {
         // between set time and read time. Per-asset rows live inside the
         // side map; the map's TTL is what keeps every position alive.
         let min_ttl = TTL_BUMP_USER.saturating_sub(1);
-        for (_idx, id) in account_ids.iter().enumerate() {
+        for id in account_ids.iter() {
             let meta_ttl = persistent_ttl(&t, &ControllerKey::AccountMeta(*id));
             prop_assert!(
                 meta_ttl >= min_ttl,

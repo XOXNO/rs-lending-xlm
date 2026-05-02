@@ -1,5 +1,5 @@
 use common::constants::{
-    BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY,
+    BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY, WAD,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
@@ -8,7 +8,7 @@ use common::types::{
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
-use crate::storage;
+use crate::{helpers, storage};
 
 /// Panics with `AssetNotSupported` when `asset` has no market config.
 pub fn require_asset_supported(env: &Env, asset: &Address) {
@@ -25,17 +25,13 @@ pub fn require_market_active(env: &Env, asset: &Address) {
     }
 }
 
-/// Panics with `AccountNotInMarket` when `caller` is not the account owner, then requires auth.
-pub fn require_account_owner(env: &Env, account: &Account, caller: &Address) {
+/// Panics with `AccountNotInMarket` when `caller` is not the account owner.
+/// Does not call `require_auth`; use this when the caller was authenticated at
+/// the endpoint boundary.
+pub fn require_account_owner_match(env: &Env, account: &Account, caller: &Address) {
     if account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
-    caller.require_auth();
-}
-
-/// Panics with error code 1000 when the contract is paused.
-pub fn require_not_paused(env: &Env) {
-    stellar_contract_utils::pausable::when_not_paused(env);
 }
 
 /// Panics with `FlashLoanOngoing` when a flash loan is already in progress.
@@ -49,6 +45,41 @@ pub fn require_not_flash_loaning(env: &Env) {
 pub fn require_amount_positive(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+}
+
+/// Panics with `InvalidPayments` when a payment-like batch is empty.
+pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
+    if payments.is_empty() {
+        panic_with_error!(env, GenericError::InvalidPayments);
+    }
+}
+
+/// Panics with `InvalidPayments` when credited balance exceeds the sent amount.
+pub fn require_credit_not_above_sent(env: &Env, sent: i128, received: i128) {
+    if received > sent {
+        panic_with_error!(env, GenericError::InvalidPayments);
+    }
+}
+
+/// Panics with `InsufficientCollateral` when an account with debt has HF < 1.
+pub fn require_healthy_account(
+    env: &Env,
+    cache: &mut crate::cache::ControllerCache,
+    account: &Account,
+) {
+    if account.borrow_positions.is_empty() {
+        return;
+    }
+
+    let hf = helpers::calculate_health_factor(
+        env,
+        cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+    if hf < WAD {
+        panic_with_error!(env, CollateralError::InsufficientCollateral);
     }
 }
 
@@ -116,11 +147,16 @@ pub fn validate_bulk_position_limits(
             account.borrow_positions.contains_key(asset)
         };
         if !already_present {
-            new_positions_count += 1;
+            new_positions_count = new_positions_count
+                .checked_add(1)
+                .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
         }
     }
 
-    if current_count + new_positions_count > max_allowed {
+    let total_positions = current_count
+        .checked_add(new_positions_count)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    if total_positions > max_allowed {
         panic_with_error!(env, CollateralError::PositionLimitExceeded);
     }
 }

@@ -518,7 +518,8 @@ create-market:
 SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setupAll setupAllMarkets setupAllEModes \
                   setAggregator pause unpause info \
-                  getAllMarkets getAllIndexes
+                  getAllMarkets getAllIndexes \
+                  claimRevenueAll
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig configureMarketOracle \
                              getPrice getMarket getIndex getIsolatedDebt \
                              getReflector
@@ -529,7 +530,7 @@ POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
-VARARG_ACTIONS := updateIndexes
+VARARG_ACTIONS := updateIndexes claimRevenue
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
@@ -674,6 +675,8 @@ help:
 	@echo "    make testnet setAggregator"
 	@echo "    make testnet grantRole GAB...XYZ KEEPER     (roles: KEEPER|REVENUE|ORACLE)"
 	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
+	@echo "    make testnet claimRevenue USDC XLM          Claim revenue for one or more markets (REVENUE role)"
+	@echo "    make testnet claimRevenueAll                Claim revenue for every configured market"
 	@echo ""
 	@echo "  Quick views (reads, no signing cost):"
 	@echo "    make testnet info                      Deployment addresses"

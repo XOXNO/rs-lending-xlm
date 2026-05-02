@@ -79,7 +79,7 @@ pub fn is_within_anchor_summary(
 /// Summary for `crate::oracle::update_asset_index`.
 ///
 /// Production reads the pool's current sync data (cross-contract) and
-/// optionally accrues interest. The summary returns a fresh `MarketIndex`
+/// simulates interest accrual. The summary returns a fresh `MarketIndex`
 /// satisfying the index-monotonicity post-conditions:
 ///   * `supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW` (= `WAD`, the bad-debt
 ///     floor).
@@ -88,7 +88,6 @@ pub fn is_within_anchor_summary(
 pub fn update_asset_index_summary(
     _cache: &mut ControllerCache,
     _asset: &Address,
-    _simulate: bool,
 ) -> MarketIndex {
     let supply_index_ray: i128 = nondet();
     let borrow_index_ray: i128 = nondet();

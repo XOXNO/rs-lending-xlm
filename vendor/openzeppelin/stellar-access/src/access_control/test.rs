@@ -1,0 +1,919 @@
+extern crate std;
+
+use soroban_sdk::{
+    contract, symbol_short,
+    testutils::{Address as _, Ledger},
+    Address, Env, Symbol,
+};
+use stellar_event_assertion::EventAssertion;
+
+use crate::access_control::{
+    accept_admin_transfer, add_to_role_enumeration, ensure_if_admin_or_admin_role, get_admin,
+    get_existing_roles, get_role_admin, get_role_member, get_role_member_count, grant_role,
+    grant_role_no_auth, has_role, remove_from_role_enumeration, remove_role_accounts_count_no_auth,
+    remove_role_admin_no_auth, renounce_admin, renounce_role, revoke_role, set_admin,
+    set_role_admin, set_role_admin_no_auth, transfer_admin_role,
+};
+
+#[contract]
+struct MockContract;
+
+const ADMIN_ROLE: Symbol = symbol_short!("admin");
+const USER_ROLE: Symbol = symbol_short!("user");
+const MANAGER_ROLE: Symbol = symbol_short!("manager");
+
+#[test]
+fn admin_functions_work() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Admin can grant roles
+        grant_role(&e, &user, &USER_ROLE, &admin);
+        assert!(has_role(&e, &user, &USER_ROLE).is_some());
+
+        // Test events
+        let event_assert = EventAssertion::new(&e, address.clone());
+        event_assert.assert_event_count(1);
+    });
+
+    e.as_contract(&address, || {
+        // Admin can revoke roles
+        revoke_role(&e, &user, &USER_ROLE, &admin);
+        assert!(has_role(&e, &user, &USER_ROLE).is_none());
+
+        // Test events
+        let event_assert = EventAssertion::new(&e, address.clone());
+        event_assert.assert_event_count(1);
+    });
+}
+
+#[test]
+fn role_management_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user1 = Address::generate(&e);
+    let user2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant roles to multiple users
+        grant_role(&e, &user1, &USER_ROLE, &admin);
+    });
+
+    e.as_contract(&address, || {
+        grant_role(&e, &user2, &USER_ROLE, &admin);
+
+        // Check role count
+        assert_eq!(get_role_member_count(&e, &USER_ROLE), 2);
+
+        // Check role members
+        assert_eq!(get_role_member(&e, &USER_ROLE, 0), user1);
+        assert_eq!(get_role_member(&e, &USER_ROLE, 1), user2);
+    });
+
+    e.as_contract(&address, || {
+        // Revoke role from first user
+        revoke_role(&e, &user1, &USER_ROLE, &admin);
+
+        // Check updated count and enumeration
+        assert_eq!(get_role_member_count(&e, &USER_ROLE), 1);
+        assert_eq!(get_role_member(&e, &USER_ROLE, 0), user2);
+    });
+}
+
+#[test]
+fn role_admin_management_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let manager = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Set MANAGER_ROLE as admin for USER_ROLE
+        set_role_admin(&e, &USER_ROLE, &MANAGER_ROLE);
+    });
+
+    e.as_contract(&address, || {
+        // Grant MANAGER_ROLE to manager
+        grant_role(&e, &manager, &MANAGER_ROLE, &admin);
+
+        // Manager can now grant USER_ROLE
+        grant_role(&e, &user, &USER_ROLE, &manager);
+        assert!(has_role(&e, &user, &USER_ROLE).is_some());
+    });
+
+    e.as_contract(&address, || {
+        // Manager can revoke USER_ROLE
+        revoke_role(&e, &user, &USER_ROLE, &manager);
+        assert!(has_role(&e, &user, &USER_ROLE).is_none());
+    });
+}
+
+#[test]
+fn get_role_member_count_for_nonexistent_role_returns_zero() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let nonexistent_role = Symbol::new(&e, "nonexistent");
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Get count for a role that doesn't exist
+        let count = get_role_member_count(&e, &nonexistent_role);
+
+        // Should return 0 for non-existent roles
+        assert_eq!(count, 0);
+    });
+}
+
+#[test]
+fn get_role_admin_returns_some_when_set() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Set ADMIN_ROLE as the admin for USER_ROLE
+        set_role_admin(&e, &USER_ROLE, &ADMIN_ROLE);
+
+        // Check that get_role_admin returns the correct admin role
+        let admin_role = get_role_admin(&e, &USER_ROLE);
+        assert_eq!(admin_role, Some(ADMIN_ROLE));
+    });
+}
+
+#[test]
+fn get_role_admin_returns_none_when_not_set() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // No admin role has been set for USER_ROLE
+
+        // Check that get_role_admin returns None
+        let admin_role = get_role_admin(&e, &USER_ROLE);
+        assert_eq!(admin_role, None);
+    });
+}
+
+#[test]
+fn renounce_role_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant role to user
+        grant_role(&e, &user, &USER_ROLE, &admin);
+        assert!(has_role(&e, &user, &USER_ROLE).is_some());
+
+        // User can renounce their own role
+        renounce_role(&e, &USER_ROLE, &user);
+        assert!(has_role(&e, &user, &USER_ROLE).is_none());
+    });
+}
+
+#[test]
+fn admin_transfer_works_with_admin_auth() {
+    let e = Env::default();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let new_admin = Address::generate(&e);
+
+    e.mock_all_auths();
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+    });
+
+    e.as_contract(&address, || {
+        transfer_admin_role(&e, &new_admin, 1000);
+    });
+
+    e.as_contract(&address, || {
+        // Accept admin transfer
+        accept_admin_transfer(&e);
+
+        // Verify new admin
+        assert_eq!(get_admin(&e), Some(new_admin));
+
+        // Verify events
+        let event_assert = EventAssertion::new(&e, address.clone());
+        event_assert.assert_event_count(1);
+    });
+}
+
+#[test]
+fn admin_transfer_cancel_works() {
+    let e = Env::default();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let new_admin = Address::generate(&e);
+
+    e.mock_all_auths();
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+    });
+
+    e.as_contract(&address, || {
+        // Start admin transfer
+        transfer_admin_role(&e, &new_admin, 1000);
+
+        // Verify events
+        let event_assert = EventAssertion::new(&e, address.clone());
+        event_assert.assert_event_count(1);
+    });
+
+    e.as_contract(&address, || {
+        // Cancel admin transfer
+        transfer_admin_role(&e, &new_admin, 0);
+
+        // Verify admin hasn't changed
+        assert_eq!(get_admin(&e), Some(admin));
+
+        // Verify events
+        let event_assert = EventAssertion::new(&e, address.clone());
+        event_assert.assert_event_count(1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2000)")]
+fn unauthorized_role_grant_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+    let other = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Unauthorized user attempts to grant role
+        grant_role(&e, &user, &USER_ROLE, &other);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2000)")]
+fn unauthorized_role_revoke_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+    let other = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant role to user
+        grant_role(&e, &user, &USER_ROLE, &admin);
+
+        // Unauthorized user attempts to revoke role
+        revoke_role(&e, &user, &USER_ROLE, &other);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2007)")]
+fn renounce_nonexistent_role_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // User attempts to renounce role they don't have
+        renounce_role(&e, &USER_ROLE, &user);
+    });
+}
+
+#[test]
+fn get_admin_with_no_admin_set_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+
+    e.as_contract(&address, || {
+        // No admin is set in storage
+        assert!(get_admin(&e).is_none());
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2002)")]
+fn get_role_member_with_out_of_bounds_index_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant role to create one member
+        grant_role(&e, &user, &USER_ROLE, &admin);
+
+        // Verify count is 1
+        assert_eq!(get_role_member_count(&e, &USER_ROLE), 1);
+
+        // Try to access index that is out of bounds (only index 0 exists)
+        get_role_member(&e, &USER_ROLE, 1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2001)")]
+fn admin_transfer_fails_when_no_admin_set() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let new_admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Attempt to accept transfer with no admin set
+        transfer_admin_role(&e, &new_admin, 1000);
+    });
+}
+
+#[test]
+fn add_to_role_enumeration_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Initial count should be 0
+        let count_before = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_before, 0);
+
+        // Directly call the enumeration function
+        add_to_role_enumeration(&e, &account, &USER_ROLE);
+
+        // Count should be incremented
+        let count_after = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_after, 1);
+
+        // Account should be retrievable by index
+        let retrieved = get_role_member(&e, &USER_ROLE, 0);
+        assert_eq!(retrieved, account);
+
+        // Account should have the role
+        let has_role = has_role(&e, &account, &USER_ROLE);
+        assert_eq!(has_role, Some(0));
+    });
+}
+
+#[test]
+fn remove_from_role_enumeration_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account1 = Address::generate(&e);
+    let account2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Add two accounts
+        add_to_role_enumeration(&e, &account1, &USER_ROLE);
+        add_to_role_enumeration(&e, &account2, &USER_ROLE);
+
+        // Initial count should be 2
+        let count_before = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_before, 2);
+
+        // Directly call the removal function
+        remove_from_role_enumeration(&e, &account1, &USER_ROLE);
+
+        // Count should be decremented
+        let count_after = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_after, 1);
+
+        // Only account2 should remain and should be at index 0 (the swap happened)
+        let retrieved = get_role_member(&e, &USER_ROLE, 0);
+        assert_eq!(retrieved, account2);
+
+        // account1 should no longer have the role
+        let has_role1 = has_role(&e, &account1, &USER_ROLE);
+        assert_eq!(has_role1, None);
+
+        // account2 should still have the role
+        let has_role2 = has_role(&e, &account2, &USER_ROLE);
+        assert_eq!(has_role2, Some(0));
+    });
+}
+
+#[test]
+fn remove_from_role_enumeration_for_last_account_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Add one account
+        add_to_role_enumeration(&e, &account, &USER_ROLE);
+
+        // Initial count should be 1
+        let count_before = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_before, 1);
+
+        // Remove the account
+        remove_from_role_enumeration(&e, &account, &USER_ROLE);
+
+        // Count should be 0
+        let count_after = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count_after, 0);
+
+        // Account should no longer have the role
+        let has_role = has_role(&e, &account, &USER_ROLE);
+        assert_eq!(has_role, None);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2008)")]
+fn remove_from_role_enumeration_with_nonexistent_role_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account = Address::generate(&e);
+    let nonexistent_role = Symbol::new(&e, "nonexistent");
+
+    e.as_contract(&address, || {
+        // Attempt to remove account from a role that doesn't exist
+        remove_from_role_enumeration(&e, &account, &nonexistent_role);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2007)")]
+fn remove_from_role_enumeration_with_account_not_in_role_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account1 = Address::generate(&e);
+    let account2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Add one account to the role
+        add_to_role_enumeration(&e, &account1, &USER_ROLE);
+
+        // Attempt to remove a different account that doesn't have the role
+        remove_from_role_enumeration(&e, &account2, &USER_ROLE);
+    });
+}
+
+#[test]
+fn ensure_if_admin_or_admin_role_allows_role_admin_without_contract_admin() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let manager = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Set up MANAGER_ROLE as admin for USER_ROLE without setting a contract admin
+        set_role_admin_no_auth(&e, &USER_ROLE, &MANAGER_ROLE);
+
+        // Grant MANAGER_ROLE to manager directly
+        grant_role_no_auth(&e, &manager, &MANAGER_ROLE, &manager);
+
+        // This should not panic - manager should be authorized for USER_ROLE operations
+        // even though there's no contract admin
+        ensure_if_admin_or_admin_role(&e, &USER_ROLE, &manager);
+    });
+}
+
+#[test]
+fn remove_role_admin_no_auth_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Set ADMIN_ROLE as the admin for USER_ROLE
+        set_role_admin(&e, &USER_ROLE, &ADMIN_ROLE);
+
+        // Verify admin role is set
+        let admin_role = get_role_admin(&e, &USER_ROLE);
+        assert_eq!(admin_role, Some(ADMIN_ROLE));
+
+        // Remove the admin role
+        remove_role_admin_no_auth(&e, &USER_ROLE);
+
+        // Verify admin role is removed
+        let admin_role_after = get_role_admin(&e, &USER_ROLE);
+        assert_eq!(admin_role_after, None);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2006)")]
+fn set_admin_when_already_set_panics() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin1 = Address::generate(&e);
+    let admin2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Set admin for the first time - should succeed
+        set_admin(&e, &admin1);
+
+        // Verify admin is set correctly
+        let current_admin = get_admin(&e);
+        assert_eq!(current_admin, Some(admin1));
+
+        // Try to set admin again - should panic with AdminAlreadySet error
+        set_admin(&e, &admin2);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2003)")]
+fn remove_role_admin_no_auth_panics_with_nonexistent_role() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let nonexistent_role = Symbol::new(&e, "nonexistent");
+
+    e.as_contract(&address, || {
+        // Attempt to remove admin role for a role that doesn't exist
+        remove_role_admin_no_auth(&e, &nonexistent_role);
+    });
+}
+
+#[test]
+fn remove_role_accounts_count_no_auth_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Add and then remove an account to get a zero count
+        add_to_role_enumeration(&e, &account, &USER_ROLE);
+        remove_from_role_enumeration(&e, &account, &USER_ROLE);
+
+        // Verify count is zero
+        let count = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count, 0);
+
+        // Remove the role accounts count
+        remove_role_accounts_count_no_auth(&e, &USER_ROLE);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2004)")]
+fn remove_role_accounts_count_no_auth_does_not_remove_nonzero_count() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let account = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Add an account to create a non-zero count
+        add_to_role_enumeration(&e, &account, &USER_ROLE);
+
+        // Verify count is one
+        let count = get_role_member_count(&e, &USER_ROLE);
+        assert_eq!(count, 1);
+
+        // Attempt to remove the role accounts count
+        remove_role_accounts_count_no_auth(&e, &USER_ROLE);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2005)")]
+fn remove_role_accounts_count_no_auth_panics_with_nonexistent_role() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let nonexistent_role = Symbol::new(&e, "nonexistent");
+
+    e.as_contract(&address, || {
+        // Attempt to remove accounts count for a role that doesn't exist
+        remove_role_accounts_count_no_auth(&e, &nonexistent_role);
+    });
+}
+
+#[test]
+fn renounce_admin_works() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Set up an admin
+        set_admin(&e, &admin);
+
+        // Verify admin is set correctly
+        assert_eq!(get_admin(&e), Some(admin));
+
+        // Admin renounces their role
+        renounce_admin(&e);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2001)")]
+fn renounce_admin_fails_when_no_admin_set() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+
+    e.as_contract(&address, || {
+        // Try to renounce admin when no admin is set
+        renounce_admin(&e);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2009)")]
+fn renounce_admin_fails_when_transfer_in_progress() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let new_admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        // Set up an admin
+        set_admin(&e, &admin);
+
+        // Start an admin transfer (this sets PendingAdmin)
+        transfer_admin_role(&e, &new_admin, 1000);
+    });
+
+    e.as_contract(&address, || {
+        // Try to renounce admin while transfer is in progress
+        // This should panic with TransferInProgress error
+        renounce_admin(&e);
+    });
+}
+
+/// Renouncing admin should succeed when a pending transfer exists but has
+/// expired.
+#[test]
+fn renounce_admin_succeeds_when_pending_transfer_expired() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let new_admin = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+        // Start a transfer that expires at ledger 1000.
+        transfer_admin_role(&e, &new_admin, 1000);
+    });
+
+    // Advance ledger past the expiry.
+    e.ledger().set_sequence_number(1001);
+
+    e.as_contract(&address, || {
+        // Should succeed — expired pending transfer is treated as absent.
+        renounce_admin(&e);
+        assert_eq!(get_admin(&e), None);
+    });
+}
+
+#[test]
+fn get_existing_roles_returns_empty_when_no_roles_exist() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+
+    e.as_contract(&address, || {
+        let roles = get_existing_roles(&e);
+        assert_eq!(roles.len(), 0);
+    });
+}
+
+#[test]
+fn get_existing_roles_returns_roles_after_granting() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant first role
+        grant_role(&e, &user, &USER_ROLE, &admin);
+
+        let roles = get_existing_roles(&e);
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles.get(0).unwrap(), USER_ROLE);
+    });
+}
+
+#[test]
+fn get_existing_roles_removes_role_when_last_account_removed() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant role
+        grant_role(&e, &user, &USER_ROLE, &admin);
+
+        // Verify role exists
+        let roles_before = get_existing_roles(&e);
+        assert_eq!(roles_before.len(), 1);
+    });
+
+    e.as_contract(&address, || {
+        // Revoke role from last (and only) user
+        revoke_role(&e, &user, &USER_ROLE, &admin);
+
+        // Verify role is removed from existing roles
+        let roles_after = get_existing_roles(&e);
+        assert_eq!(roles_after.len(), 0);
+    });
+}
+
+#[test]
+fn get_existing_roles_keeps_role_when_some_accounts_remain() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user1 = Address::generate(&e);
+    let user2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant role to two users
+        grant_role(&e, &user1, &USER_ROLE, &admin);
+    });
+
+    e.as_contract(&address, || {
+        grant_role(&e, &user2, &USER_ROLE, &admin);
+
+        // Verify role exists
+        let roles_before = get_existing_roles(&e);
+        assert_eq!(roles_before.len(), 1);
+    });
+
+    e.as_contract(&address, || {
+        // Revoke role from one user (but another still has it)
+        revoke_role(&e, &user1, &USER_ROLE, &admin);
+
+        // Verify role still exists
+        let roles_after = get_existing_roles(&e);
+        assert_eq!(roles_after.len(), 1);
+        assert_eq!(roles_after.get(0).unwrap(), USER_ROLE);
+    });
+}
+
+#[test]
+fn get_existing_roles_does_not_create_duplicates() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user1 = Address::generate(&e);
+    let user2 = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+
+        // Grant same role to multiple users
+        grant_role(&e, &user1, &USER_ROLE, &admin);
+    });
+
+    e.as_contract(&address, || {
+        grant_role(&e, &user2, &USER_ROLE, &admin);
+
+        // Should still only have one role in the list
+        let roles = get_existing_roles(&e);
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles.get(0).unwrap(), USER_ROLE);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2010)")]
+fn grant_role_fails_when_max_roles_exceeded() {
+    use crate::access_control::MAX_ROLES;
+
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+    });
+
+    // Create MAX_ROLES roles
+    for i in 0..MAX_ROLES {
+        e.as_contract(&address, || {
+            let role = Symbol::new(&e, &std::format!("role_{}", i));
+            grant_role(&e, &user, &role, &admin);
+        });
+    }
+
+    e.as_contract(&address, || {
+        // Verify we have MAX_ROLES
+        let roles = get_existing_roles(&e);
+        assert_eq!(roles.len(), MAX_ROLES);
+
+        // Try to create one more role - should panic
+        let overflow_role = Symbol::new(&e, "overflow_role");
+        grant_role(&e, &user, &overflow_role, &admin);
+    });
+}
+
+#[test]
+fn can_reuse_role_slot_after_removal() {
+    use crate::access_control::MAX_ROLES;
+
+    let e = Env::default();
+    e.mock_all_auths();
+    let address = e.register(MockContract, ());
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    e.as_contract(&address, || {
+        set_admin(&e, &admin);
+    });
+
+    // Create MAX_ROLES roles
+    for i in 0..MAX_ROLES {
+        e.as_contract(&address, || {
+            let role = Symbol::new(&e, &std::format!("role_{}", i));
+            grant_role(&e, &user, &role, &admin);
+        });
+    }
+    e.as_contract(&address, || {
+        // Verify we have MAX_ROLES
+        let roles_before = get_existing_roles(&e);
+        assert_eq!(roles_before.len(), MAX_ROLES);
+
+        // Remove one role
+        let first_role = Symbol::new(&e, "role_0");
+        revoke_role(&e, &user, &first_role, &admin);
+
+        // Verify we now have MAX_ROLES - 1
+        let roles_after_removal = get_existing_roles(&e);
+        assert_eq!(roles_after_removal.len(), MAX_ROLES - 1);
+    });
+
+    e.as_contract(&address, || {
+        // Now we should be able to add a new role
+        let new_role = Symbol::new(&e, "new_role");
+        grant_role(&e, &user, &new_role, &admin);
+
+        // Verify we're back to MAX_ROLES
+        let roles_final = get_existing_roles(&e);
+        assert_eq!(roles_final.len(), MAX_ROLES);
+    });
+}
