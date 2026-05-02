@@ -326,7 +326,7 @@ fn update_market_position(
     let credited_amount = pull_supply_tokens(env, caller, asset, &pool_addr, amount);
 
     validate_supply_cap(env, cache, asset_config, asset, credited_amount, feed);
-    apply_pool_supply(env, &pool_addr, position, feed, credited_amount)
+    apply_pool_supply(env, position, feed, credited_amount)
 }
 
 fn pull_supply_tokens(
@@ -362,16 +362,11 @@ fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
 
 fn apply_pool_supply(
     env: &Env,
-    pool_addr: &Address,
     position: &mut AccountPosition,
     feed: &PriceFeed,
     amount: i128,
 ) -> SupplyMarketUpdate {
-    let result = pool_interface::LiquidityPoolClient::new(env, pool_addr).supply(
-        position,
-        &feed.price_wad,
-        &amount,
-    );
+    let result = pool_supply_call(env, position.clone(), feed.price_wad, amount);
 
     *position = result.position;
 
@@ -380,6 +375,23 @@ fn apply_pool_supply(
         credited_amount: amount,
     }
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::supply_summary,
+    fn pool_supply_call(
+        env: &Env,
+        position: AccountPosition,
+        price_wad: i128,
+        amount: i128,
+    ) -> common::types::PoolPositionMutation {
+        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).supply(
+            &position,
+            &price_wad,
+            &amount,
+        )
+    }
+);
 
 fn validate_supply_cap(
     env: &Env,

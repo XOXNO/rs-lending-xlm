@@ -10,7 +10,7 @@
 ///   - Signed variants round away from zero for negative results
 ///   - I256 intermediates prevent overflow for RAY*RAY products
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
+use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
 
 use common::constants::{RAY, WAD};
@@ -81,14 +81,11 @@ fn mul_half_up_identity(e: Env) {
     cvlr_assert!(result == a);
 }
 
-#[rule]
-fn mul_half_up_identity_sanity(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    cvlr_assume!((0..=RAY * 1000).contains(&a));
-
-    let result = mul_div_half_up(&e, a, RAY, RAY);
-    cvlr_satisfy!(result == a);
-}
+// `mul_half_up_identity_sanity` removed (efficiency E1):
+// pure cvlr_satisfy duplicate of `mul_half_up_identity` -- same inputs
+// (`0..=RAY * 1000`), same call, same comparison. The assertion rule
+// already proves `result == a` for every value in the input range, which
+// trivially implies the satisfy condition is reachable.
 
 // ---------------------------------------------------------------------------
 // Rule 4: div_half_up is inverse of mul_half_up (within rounding tolerance)
@@ -99,9 +96,13 @@ fn div_half_up_inverse(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
     let b: i128 = cvlr::nondet::nondet();
 
-    // Positive, non-zero divisor, realistic ranges
+    // Positive, non-zero divisor, realistic ranges. Lower-bounding `b` at
+    // `RAY / 1_000` keeps the recovered intermediate (`product * RAY / b`)
+    // finite -- with `b = 1`, the I256 -> i128 conversion in the second
+    // mul_div_half_up call would panic. Pruning that branch saves the
+    // prover from exploring a panic path that does not arise in production.
     cvlr_assume!((0..=RAY * 100).contains(&a));
-    cvlr_assume!(b > 0 && b <= RAY * 100);
+    cvlr_assume!((RAY / 1_000..=RAY * 100).contains(&b));
 
     let product = mul_div_half_up(&e, a, b, RAY);
     let recovered = mul_div_half_up(&e, product, RAY, b);
@@ -110,18 +111,11 @@ fn div_half_up_inverse(e: Env) {
     cvlr_assert!(recovered >= a - 2 && recovered <= a + 2);
 }
 
-#[rule]
-fn div_half_up_inverse_sanity(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    let b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((0..=RAY * 100).contains(&a));
-    cvlr_assume!(b > 0 && b <= RAY * 100);
-
-    let product = mul_div_half_up(&e, a, b, RAY);
-    let recovered = mul_div_half_up(&e, product, RAY, b);
-    cvlr_satisfy!(recovered >= a - 2 && recovered <= a + 2);
-}
+// `div_half_up_inverse_sanity` removed (efficiency E1):
+// pure cvlr_satisfy duplicate of `div_half_up_inverse` -- same input
+// constraints, same round-trip computation, same envelope predicate
+// (`recovered in [a-2, a+2]`). The assertion rule proves the property
+// universally; the satisfy companion adds no new reachability signal.
 
 // ---------------------------------------------------------------------------
 // Rule 5: div_half_up with zero numerator -- div_half_up(0, b, RAY) == 0
@@ -175,17 +169,13 @@ fn mul_half_up_rounding_direction(e: Env) {
     cvlr_assert!(result * WAD >= a * b - (WAD - 1));
 }
 
-#[rule]
-fn mul_half_up_rounding_direction_sanity(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    let b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((0..=WAD * 100).contains(&a));
-    cvlr_assume!((0..=WAD * 100).contains(&b));
-
-    let result = mul_div_half_up(&e, a, b, WAD);
-    cvlr_satisfy!(result >= 0);
-}
+// `mul_half_up_rounding_direction_sanity` removed (efficiency E1):
+// asserts only `result >= 0` for `(a, b) in [0, WAD*100]^2`. With both
+// operands non-negative, `mul_div_half_up` is non-negative by construction
+// (the production code path computes `(a*b + WAD/2) / WAD` over I256 then
+// converts to a non-negative i128). The companion rule pays solver time
+// to re-prove a typechecker-trivial fact already covered by the assertion
+// rule's input domain.
 
 // ---------------------------------------------------------------------------
 // Rule 7: div_half_up rounding direction -- rounds up when remainder >= b/2
@@ -243,14 +233,11 @@ fn rescale_upscale_lossless() {
     cvlr_assert!(upscaled == x * factor);
 }
 
-#[rule]
-fn rescale_upscale_lossless_sanity() {
-    let x: i128 = cvlr::nondet::nondet();
-    cvlr_assume!((0..=WAD).contains(&x));
-
-    let upscaled = rescale_half_up(x, 7, 18);
-    cvlr_satisfy!(upscaled > 0);
-}
+// `rescale_upscale_lossless_sanity` removed (efficiency E1):
+// pure cvlr_satisfy duplicate of `rescale_upscale_lossless` -- same input
+// range, same call, weaker predicate (`upscaled > 0` instead of the exact
+// `upscaled == x * factor`). The assertion rule subsumes the satisfy
+// version: for any `x > 0` in the range, `upscaled = x * 10^11 > 0`.
 
 // ---------------------------------------------------------------------------
 // Rule 9: rescale roundtrip -- rescale_half_up(rescale_half_up(x, 7, 18), 18, 7) approx x (within +/-1)
@@ -276,15 +263,10 @@ fn rescale_roundtrip() {
     cvlr_assert!(recovered == x);
 }
 
-#[rule]
-fn rescale_roundtrip_sanity() {
-    let x: i128 = cvlr::nondet::nondet();
-    cvlr_assume!((0..=1_000_000_000_000_000).contains(&x));
-
-    let upscaled = rescale_half_up(x, 7, 18);
-    let recovered = rescale_half_up(upscaled, 18, 7);
-    cvlr_satisfy!(recovered == x);
-}
+// `rescale_roundtrip_sanity` removed (efficiency E1):
+// pure cvlr_satisfy duplicate of `rescale_roundtrip` -- identical inputs,
+// identical computation, identical predicate (`recovered == x`). The
+// assertion rule already proves this for every value in the range.
 
 // ---------------------------------------------------------------------------
 // Rule 10: signed mul rounds away from zero for negative inputs
@@ -323,17 +305,12 @@ fn signed_mul_away_from_zero(e: Env) {
     cvlr_assert!(result * RAY <= a * b + RAY);
 }
 
-#[rule]
-fn signed_mul_away_from_zero_sanity(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    let b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((-(RAY * 100)..0).contains(&a));
-    cvlr_assume!(b > 0 && b <= RAY * 100);
-
-    let result = mul_div_half_up_signed(&e, a, b, RAY);
-    cvlr_satisfy!(result < 0);
-}
+// `signed_mul_away_from_zero_sanity` removed (efficiency E1):
+// asserts only `result < 0` over a wider range (`a in [-RAY*100, 0)`,
+// `b in (0, RAY*100]`) than the assertion rule. The predicate is implied
+// by the sign of `a * b` (negative since `a < 0` and `b > 0`) and the
+// half-up away-from-zero rounding semantics. No reachability information
+// the assertion rule does not already cover.
 
 // ---------------------------------------------------------------------------
 // Rule 11: I256 no overflow -- mul_half_up with max realistic values (RAY * RAY)
@@ -361,17 +338,12 @@ fn i256_no_overflow(e: Env) {
     cvlr_assert!(result <= 100 * RAY + 1); // +1 for rounding
 }
 
-#[rule]
-fn i256_no_overflow_sanity(e: Env) {
-    let a: i128 = cvlr::nondet::nondet();
-    let b: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((0..=10 * RAY).contains(&a));
-    cvlr_assume!((0..=10 * RAY).contains(&b));
-
-    let result = mul_div_half_up(&e, a, b, RAY);
-    cvlr_satisfy!(result > 0);
-}
+// `i256_no_overflow_sanity` removed (efficiency E1):
+// pure cvlr_satisfy duplicate of `i256_no_overflow` -- same inputs, same
+// call. The assertion rule already proves `result <= 100 * RAY + 1` and
+// `result >= 0` for the same input range; with `a, b > 0` (implied by
+// `a, b in (0, 10*RAY]`) the I256 product is positive and `result >= 1`,
+// trivially satisfying `result > 0`.
 
 // ---------------------------------------------------------------------------
 // Rule 12: div_by_zero sanity -- div_half_up(a, 0, RAY) should be unreachable

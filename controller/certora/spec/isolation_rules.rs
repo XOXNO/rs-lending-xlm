@@ -106,10 +106,14 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
 // ---------------------------------------------------------------------------
 
 /// On the success path of an isolated borrow, the global isolated debt
-/// counter for the isolated collateral asset must remain at or below the
-/// asset's `isolation_debt_ceiling_usd_wad`. Vacuity guards:
-///   - require the account is isolated AND has a concrete `isolated_asset`;
-///   - the borrow must execute successfully (control reaches the assertion).
+/// counter for the isolated collateral asset must:
+///   1. strictly increase relative to the pre-state (the borrow actually
+///      moved the counter — converts a vacuously-satisfied rule into one
+///      that requires the success path), AND
+///   2. remain at or below the asset's `isolation_debt_ceiling_usd_wad`.
+/// The `debt_after > debt_before` assertion is the "borrow_succeeded"
+/// proxy: a regression that no-ops `handle_isolated_debt` would leave the
+/// counter unchanged and fail the rule.
 #[rule]
 fn isolation_debt_ceiling_respected(
     e: Env,
@@ -129,24 +133,39 @@ fn isolation_debt_ceiling_respected(
     cvlr_assume!(meta.isolated_asset.is_some());
     let isolated_asset = meta.isolated_asset.unwrap();
 
-    // Execute the borrow via the public auth path. If this reverts the
-    // assertion below is unreachable, so the rule covers the success path
-    // explicitly.
+    // Capture the isolated-debt counter before the borrow so the post-
+    // condition can require an actual movement.
+    let debt_before = crate::storage::get_isolated_debt(&e, &isolated_asset);
+
+    // Execute the borrow via the public auth path. If this reverts neither
+    // assertion below is reachable, so the strict-increase assertion forces
+    // the prover onto the success path.
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
     // Read ceiling from the live MarketConfig and the isolated-debt counter.
     let market = crate::storage::get_market_config(&e, &isolated_asset);
-    let current_debt = crate::storage::get_isolated_debt(&e, &isolated_asset);
-    cvlr_assert!(current_debt <= market.asset_config.isolation_debt_ceiling_usd_wad);
+    let debt_after = crate::storage::get_isolated_debt(&e, &isolated_asset);
+
+    // (1) Counter actually moved: rules out the regression where
+    // `handle_isolated_debt` is no-op'd while the borrow succeeds.
+    cvlr_assert!(debt_after > debt_before);
+    // (2) Ceiling never exceeded post-borrow.
+    cvlr_assert!(debt_after <= market.asset_config.isolation_debt_ceiling_usd_wad);
 }
 
 // ---------------------------------------------------------------------------
 // Rule 7b: Repay in isolation mode strictly decreases the isolated-debt counter
 // ---------------------------------------------------------------------------
 
-/// A repayment of an isolated borrow must strictly reduce the global
-/// `IsolatedDebt(asset)` counter when the repayment amount is positive and
-/// the borrow side actually held that asset.
+/// A successful repayment of an isolated borrow must reduce the global
+/// `IsolatedDebt(asset)` counter. The post-condition handles the WAD
+/// dust-floor in `adjust_isolated_debt_usd`
+/// (`controller/src/utils.rs:181-183`): when the residual debt falls
+/// below `WAD` it is snapped to `0`, so the counter can either strictly
+/// decrease *or* land at zero. Without the `|| debt_after == 0` clause the
+/// rule produces a spurious counter-example on the dust-floor edge for
+/// repayments whose USD-WAD value rounds to zero on low-decimal / low-
+/// price assets.
 #[rule]
 fn isolation_repay_decreases_counter(
     e: Env,
@@ -179,7 +198,9 @@ fn isolation_repay_decreases_counter(
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset, amount);
 
     let debt_after = crate::storage::get_isolated_debt(&e, &isolated_asset);
-    cvlr_assert!(debt_after < debt_before);
+    // Dust-floor edge: residual < WAD is snapped to 0, so accept either a
+    // strict decrease or a snapped-to-zero counter.
+    cvlr_assert!(debt_after < debt_before || debt_after == 0);
 }
 
 // ---------------------------------------------------------------------------

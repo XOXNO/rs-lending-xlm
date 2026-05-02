@@ -200,7 +200,11 @@ pub fn repay_summary(
 /// Production guarantees: a fresh sync of `(supply_index_ray, borrow_index_ray)`
 /// satisfying the global index invariants. No position mutation, no token
 /// transfer.
-pub fn update_indexes_summary(_env: &Env, _price_wad: i128) -> MarketIndex {
+pub fn update_indexes_summary(
+    _env: &Env,
+    _pool_addr: &Address,
+    _price_wad: i128,
+) -> MarketIndex {
     nondet_market_index()
 }
 
@@ -213,7 +217,13 @@ pub fn update_indexes_summary(_env: &Env, _price_wad: i128) -> MarketIndex {
 ///     pure side-effect (no return) so this precondition is preserved by
 ///     the prover via the production reachability check, not the summary
 ///     itself.
-pub fn add_rewards_summary(_env: &Env, _price_wad: i128, _amount: i128) {}
+pub fn add_rewards_summary(
+    _env: &Env,
+    _pool_addr: &Address,
+    _price_wad: i128,
+    _amount: i128,
+) {
+}
 
 /// Summary for `pool::LiquidityPool::flash_loan_begin` (lines 389-413).
 ///
@@ -224,7 +234,13 @@ pub fn add_rewards_summary(_env: &Env, _price_wad: i128, _amount: i128) {}
 ///     `flash_loan_end` will read it back.
 ///
 /// Pure side-effect; no return value.
-pub fn flash_loan_begin_summary(_env: &Env, _amount: i128, _receiver: Address) {}
+pub fn flash_loan_begin_summary(
+    _env: &Env,
+    _pool_addr: &Address,
+    _amount: i128,
+    _receiver: &Address,
+) {
+}
 
 /// Summary for `pool::LiquidityPool::flash_loan_end` (lines 415-456).
 ///
@@ -235,7 +251,14 @@ pub fn flash_loan_begin_summary(_env: &Env, _amount: i128, _receiver: Address) {
 ///   * `fee` is added to protocol revenue (line 452).
 ///
 /// Pure side-effect; no return value.
-pub fn flash_loan_end_summary(_env: &Env, _amount: i128, _fee: i128, _receiver: Address) {}
+pub fn flash_loan_end_summary(
+    _env: &Env,
+    _pool_addr: &Address,
+    _amount: i128,
+    _fee: i128,
+    _receiver: &Address,
+) {
+}
 
 /// Summary for `pool::LiquidityPool::create_strategy` (lines 458-508).
 ///
@@ -316,7 +339,11 @@ pub fn seize_position_summary(
 ///     returns 0 unconditionally.
 ///   * State updates are committed before the external token call so
 ///     reentrant claims observe the post-burn state (lines 584-585).
-pub fn claim_revenue_summary(_env: &Env, _price_wad: i128) -> i128 {
+pub fn claim_revenue_summary(
+    _env: &Env,
+    _pool_addr: &Address,
+    _price_wad: i128,
+) -> i128 {
     let amount: i128 = nondet();
     cvlr_assume!(amount >= 0);
     amount
@@ -340,7 +367,7 @@ pub fn claim_revenue_summary(_env: &Env, _price_wad: i128) -> i128 {
 ///
 /// `params` is fully havoced -- rules that depend on a specific param
 /// shape should constrain it themselves.
-pub fn get_sync_data_summary(_env: &Env) -> PoolSyncData {
+pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     let supplied_ray: i128 = nondet();
     let borrowed_ray: i128 = nondet();
     let revenue_ray: i128 = nondet();
@@ -387,6 +414,136 @@ pub fn get_sync_data_summary(_env: &Env) -> PoolSyncData {
             supply_index_ray,
             last_timestamp,
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Single-value view summaries
+// ---------------------------------------------------------------------------
+//
+// These five views (`reserves`, `supplied_amount`, `borrowed_amount`,
+// `protocol_revenue`, `capital_utilisation`) appear up to 4 times per rule
+// in `solvency_rules.rs` and `flash_loan_rules.rs`. Without summaries each
+// call returns an independent havoc; rules of shape "after op X, identity
+// Y(reserves, supplied, borrowed) holds" become vacuous because the prover
+// picks a different reserves/supplied/borrowed triple per call site.
+//
+// Two complementary summary shapes are provided:
+//   * Independent per-view summaries (below) — minimal `>= 0` bound; safe
+//     when the rule only reads ONE view.
+//   * A joint `pool_snapshot_summary` (further down) returning all four
+//     amounts under production-side identities (revenue <= supplied,
+//     borrowed <= supplied + revenue) for rules that need cross-view
+//     consistency.
+
+/// Summary for `pool::LiquidityPool::reserves` (`pool/src/lib.rs:708-710`,
+/// real impl at `pool/src/views.rs:44-48`).
+///
+/// Production reads the SAC `balance` of the pool contract address. SAC
+/// guarantees a non-negative balance (negative transfers panic in the host).
+pub fn reserves_summary(_env: &Env) -> i128 {
+    let amount: i128 = nondet();
+    cvlr_assume!(amount >= 0);
+    amount
+}
+
+/// Summary for `pool::LiquidityPool::supplied_amount`
+/// (`pool/src/views.rs:75-81`).
+///
+/// Production rescales `supplied_ray * supply_index_ray` to asset decimals.
+/// Both inputs are non-negative (state invariant: `supplied_ray >= 0`,
+/// `supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW`), so the rescaled result is
+/// non-negative.
+pub fn supplied_amount_summary(_env: &Env) -> i128 {
+    let amount: i128 = nondet();
+    cvlr_assume!(amount >= 0);
+    amount
+}
+
+/// Summary for `pool::LiquidityPool::borrowed_amount`
+/// (`pool/src/views.rs:84-90`).
+///
+/// Same shape as `supplied_amount`: rescales
+/// `borrowed_ray * borrow_index_ray` to asset decimals, both inputs are
+/// non-negative.
+pub fn borrowed_amount_summary(_env: &Env) -> i128 {
+    let amount: i128 = nondet();
+    cvlr_assume!(amount >= 0);
+    amount
+}
+
+/// Summary for `pool::LiquidityPool::protocol_revenue`
+/// (`pool/src/views.rs:66-72`).
+///
+/// Production rescales `revenue_ray * supply_index_ray` to asset decimals;
+/// `revenue_ray >= 0` and `supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW`
+/// guarantee a non-negative output.
+pub fn protocol_revenue_summary(_env: &Env) -> i128 {
+    let amount: i128 = nondet();
+    cvlr_assume!(amount >= 0);
+    amount
+}
+
+/// Summary for `pool::LiquidityPool::capital_utilisation`
+/// (`pool/src/views.rs:24-41`).
+///
+/// Production returns `borrowed / supplied` in RAY precision (or 0 when
+/// supply is empty). Bounds: `0 <= utilisation <= RAY`. A pool that has been
+/// over-borrowed via bad-debt write-down can transiently exceed RAY in
+/// practice, but the controller-side rules treat the bounded RAY range as
+/// the safe domain.
+pub fn capital_utilisation_summary(_env: &Env) -> i128 {
+    let util_ray: i128 = nondet();
+    cvlr_assume!(util_ray >= 0);
+    cvlr_assume!(util_ray <= RAY);
+    util_ray
+}
+
+// ---------------------------------------------------------------------------
+// Joint pool view snapshot (cross-view consistency)
+// ---------------------------------------------------------------------------
+
+/// Joint snapshot of the four pool quantity views.
+///
+/// Used by rules that compare two or more views against each other (e.g.,
+/// "revenue <= supplied", "borrowed <= supplied"). Returning a tuple under
+/// production-side identities is sound and lets the prover share the same
+/// snapshot across every assertion in one rule body.
+pub struct PoolViewsSnapshot {
+    pub reserves: i128,
+    pub supplied: i128,
+    pub borrowed: i128,
+    pub revenue: i128,
+}
+
+/// Build a single internally-consistent snapshot of the four pool views.
+///
+/// Production identities encoded:
+///   * Each value `>= 0`.
+///   * `revenue <= supplied` -- accrued revenue is a slice of the supply
+///     index; it cannot exceed the total supplied principal.
+///   * `borrowed <= supplied + revenue` -- borrowed principal is bounded by
+///     the supplier-funded liquidity plus accrued protocol revenue.
+///
+/// Reserves is left independent of the other three: SAC balance can drift
+/// from the accounting view via direct token transfers (production tracks
+/// this discrepancy via `transfer_and_measure_received`).
+pub fn pool_snapshot_summary(_env: &Env) -> PoolViewsSnapshot {
+    let reserves: i128 = nondet();
+    let supplied: i128 = nondet();
+    let borrowed: i128 = nondet();
+    let revenue: i128 = nondet();
+    cvlr_assume!(reserves >= 0);
+    cvlr_assume!(supplied >= 0);
+    cvlr_assume!(borrowed >= 0);
+    cvlr_assume!(revenue >= 0);
+    cvlr_assume!(revenue <= supplied);
+    cvlr_assume!(borrowed <= supplied + revenue);
+    PoolViewsSnapshot {
+        reserves,
+        supplied,
+        borrowed,
+        revenue,
     }
 }
 

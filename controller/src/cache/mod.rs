@@ -149,8 +149,7 @@ impl ControllerCache {
             return data;
         }
         let pool_addr = self.cached_pool_address(asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(&self.env, &pool_addr);
-        let data = pool_client.get_sync_data();
+        let data = fetch_pool_sync_data(&self.env, &pool_addr);
         self.pool_sync_data.set(asset.clone(), data.clone());
         data
     }
@@ -209,6 +208,13 @@ impl ControllerCache {
         }
     }
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::get_sync_data_summary,
+    pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address) -> PoolSyncData {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data()
+    }
+);
 
 #[cfg(test)]
 mod tests {

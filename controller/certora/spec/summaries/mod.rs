@@ -36,9 +36,12 @@ use crate::cache::ControllerCache;
 
 // Cross-contract summaries split into their own modules to keep the file
 // boundary aligned with the contract being summarised.
-//   * `pool`  -- the `LiquidityPool` ABI in `pool/src/lib.rs`.
-//   * `sac`   -- the SAC `soroban_sdk::token::Client` ABI.
+//   * `pool`       -- the `LiquidityPool` ABI in `pool/src/lib.rs`.
+//   * `sac`        -- the SAC `soroban_sdk::token::Client` ABI.
+//   * `reflector`  -- the SEP-40 Reflector oracle ABI in
+//     `controller/src/oracle/reflector.rs`.
 pub mod pool;
+pub mod reflector;
 pub mod sac;
 
 // ---------------------------------------------------------------------------
@@ -113,62 +116,50 @@ pub fn update_asset_index_summary(
 // Health-factor and account-totals summaries
 // ---------------------------------------------------------------------------
 
-/// Summary for `crate::helpers::calculate_health_factor`.
+/// "Summary" for `crate::helpers::calculate_health_factor` -- delegates to
+/// the unsummarised production body preserved by `apply_summary!` in the
+/// `calculate_health_factor` sub-module.
 ///
-/// Production iterates supply / borrow position maps, computes weighted USD
-/// values, and divides via I256 with `i128::MAX` saturation
-/// (`controller/src/helpers/mod.rs:100-113`).
+/// Why delegate instead of nondet: a free-nondet draw makes any
+/// `hf_after >= hf_before` rule vacuously refutable -- the prover picks
+/// independent values for the two sides. Bounding by input shape (empty
+/// borrows -> MAX, empty supply with debt -> 0) handles the edge cases but
+/// leaves the central case (both maps non-empty) free, which still admits
+/// the same vacuity for the rules that matter most. Delegating to the real
+/// implementation guarantees function purity (same inputs in the same proof
+/// -> same output) and forces the prover to verify the real arithmetic.
 ///
-/// Why the bound is tied to the input maps (Option A): a plain
-/// `cvlr_assume!(hf >= 0)` returns an independent fresh draw on every call,
-/// so any rule asserting "after operation X, HF satisfies P" would be checking
-/// a fresh nondet value, not the value the production function actually
-/// produced. A buggy `calculate_health_factor` returning, say, `WAD - 1` for
-/// every undercollateralized account would still pass every rule. Tying the
-/// summary's domain to observable input shape (empty borrow → MAX, empty
-/// supply with debt → 0) is the minimum constraint that makes post-state HF
-/// rules meaningful.
+/// Cost: heavier per rule (the I256 weighted-USD math is now in the
+/// verification path). Benefit: real implementation is exercised; no
+/// summary-roundtrip vacuity. This is the Solvency efficiency report's
+/// preferred approach (`audit/certora-efficiency/01-solvency-health-position.md`).
 pub fn calculate_health_factor_summary(
-    _env: &Env,
-    _cache: &mut ControllerCache,
+    env: &Env,
+    cache: &mut ControllerCache,
     supply_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
     borrow_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
 ) -> i128 {
-    let hf: i128 = nondet();
-    cvlr_assume!(hf >= 0);
-    // No-debt accounts saturate to `i128::MAX` (helpers/mod.rs:100-101).
-    if borrow_positions.is_empty() {
-        cvlr_assume!(hf == i128::MAX);
-    } else if supply_positions.is_empty() {
-        // Non-empty borrow with empty supply: numerator is zero, division
-        // yields zero.
-        cvlr_assume!(hf == 0);
-    }
-    hf
+    crate::helpers::calculate_health_factor::calculate_health_factor(
+        env,
+        cache,
+        supply_positions,
+        borrow_positions,
+    )
 }
 
 #[cfg(feature = "certora")]
-/// Summary for `crate::helpers::calculate_health_factor_for`.
-///
-/// Looks up the account from storage and dispatches to the same input-tied
-/// bounds as `calculate_health_factor_summary`. See the doc comment on that
-/// summary for why the nondet draw is constrained by the account's position
-/// maps rather than left fully unconstrained.
+/// "Summary" for `crate::helpers::calculate_health_factor_for` -- delegates
+/// to the unsummarised production body for the same reason as
+/// `calculate_health_factor_summary`. Calling the real implementation
+/// preserves function purity across repeated calls in the same proof.
 pub fn calculate_health_factor_for_summary(
     env: &Env,
-    _cache: &mut ControllerCache,
+    cache: &mut ControllerCache,
     account_id: u64,
 ) -> i128 {
-    let hf: i128 = nondet();
-    cvlr_assume!(hf >= 0);
-    if let Some(account) = crate::storage::try_get_account(env, account_id) {
-        if account.borrow_positions.is_empty() {
-            cvlr_assume!(hf == i128::MAX);
-        } else if account.supply_positions.is_empty() {
-            cvlr_assume!(hf == 0);
-        }
-    }
-    hf
+    crate::helpers::calculate_health_factor_for::calculate_health_factor_for(
+        env, cache, account_id,
+    )
 }
 
 /// Summary for `crate::helpers::calculate_account_totals`.
@@ -204,17 +195,28 @@ pub fn calculate_account_totals_summary(
 /// Summary for `crate::helpers::calculate_linear_bonus`.
 ///
 /// Production linearly interpolates between `base_bonus` and `max_bonus`
-/// based on how far HF sits below `1.02 WAD`. The summary returns a `Bps`
-/// value in `[base_bonus, max_bonus]` -- the only bound any rule asserts.
+/// based on how far HF sits below `1.02 WAD`. When `HF >= target_hf`
+/// (= 1.02 WAD) production returns *exactly* `base_bonus`
+/// (`controller/src/helpers/mod.rs::calculate_linear_bonus_with_target` returns
+/// `base` on the early-return path when `target - hf <= 0`). The summary
+/// pins that boundary case so rules asserting `bonus == base_bonus` at
+/// `HF >= 1.02 WAD` are not refuted by an unconstrained
+/// `[base_bonus, max_bonus]` draw.
 pub fn calculate_linear_bonus_summary(
     _env: &Env,
-    _hf: Wad,
+    hf: Wad,
     base_bonus: Bps,
     max_bonus: Bps,
 ) -> Bps {
     let bonus_raw: i128 = nondet();
     cvlr_assume!(bonus_raw >= base_bonus.raw());
     cvlr_assume!(bonus_raw <= max_bonus.raw());
+    // Production target: 1.02 WAD. When `hf >= target`, the linear
+    // interpolation early-returns `base` unchanged.
+    let target_hf_wad: i128 = 102 * common::constants::WAD / 100;
+    if hf.raw() >= target_hf_wad {
+        cvlr_assume!(bonus_raw == base_bonus.raw());
+    }
     Bps::from_raw(bonus_raw)
 }
 

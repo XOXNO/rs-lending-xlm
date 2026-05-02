@@ -128,6 +128,7 @@ pub mod market_params {
 pub mod isolation {
     use super::*;
 
+    #[allow(dead_code)]
     pub fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {
         super::get_isolated_debt(env, asset)
     }

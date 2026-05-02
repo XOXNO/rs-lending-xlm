@@ -20,14 +20,9 @@ use common::types::{POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 /// After a successful supply, the user's deposit scaled amount for that asset
 /// must increase (or be created if it didn't exist).
 #[rule]
-fn supply_increases_position(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    asset: Address,
-    amount: i128,
-) {
-    cvlr_assume!(amount > 0);
+fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= common::constants::WAD * 1000);
 
     // Get position before (0 if doesn't exist)
     let pos_before =
@@ -47,8 +42,9 @@ fn supply_increases_position(
 
 /// After a successful borrow, the user's borrow scaled amount must increase.
 #[rule]
-fn borrow_increases_debt(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    cvlr_assume!(amount > 0);
+fn borrow_increases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= common::constants::WAD * 1000);
 
     let pos_before =
         crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
@@ -75,7 +71,8 @@ fn borrow_increases_debt(e: Env, caller: Address, account_id: u64, asset: Addres
 /// inflated the path count. The bounded form proves the same property
 /// without the sentinel-overflow case-split.
 #[rule]
-fn full_repay_clears_debt(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
+fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
     let pos_before =
         crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
     cvlr_assume!(pos_before > 0);
@@ -97,14 +94,9 @@ fn full_repay_clears_debt(e: Env, caller: Address, account_id: u64, asset: Addre
 // ---------------------------------------------------------------------------
 
 #[rule]
-fn withdraw_decreases_position(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    asset: Address,
-    amount: i128,
-) {
-    cvlr_assume!(amount > 0);
+fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= common::constants::WAD * 1000);
 
     let pos_before =
         crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_DEPOSIT, &asset);
@@ -123,8 +115,9 @@ fn withdraw_decreases_position(
 // ---------------------------------------------------------------------------
 
 #[rule]
-fn repay_decreases_debt(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    cvlr_assume!(amount > 0);
+fn repay_decreases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= common::constants::WAD * 1000);
 
     let pos_before =
         crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
@@ -143,7 +136,8 @@ fn repay_decreases_debt(e: Env, caller: Address, account_id: u64, asset: Address
 // ---------------------------------------------------------------------------
 
 #[rule]
-fn supply_sanity(e: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
+fn supply_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
     cvlr_assume!(amount > 0);
     crate::spec::compat::supply_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(true);

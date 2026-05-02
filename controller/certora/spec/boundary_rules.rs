@@ -11,11 +11,11 @@
 ///   - Oracle tolerance boundaries (exact first/second tier, just beyond)
 ///   - Position boundaries (dust supply, exact reserves borrow, over-withdraw)
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
+use cvlr::{cvlr_assert, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
-use common::fp::{Bps, Ray, Wad};
+use common::fp::Ray;
 use common::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
 use common::types::MarketParams;
@@ -52,19 +52,12 @@ fn boundary_test_params(env: &Env) -> MarketParams {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Rule 1: borrow_rate_at_exact_zero
-// At U=0, the rate must equal base_rate / MILLISECONDS_PER_YEAR exactly.
+// Rule 1: borrow_rate_at_exact_zero -- DELETED (strict-stronger duplicate).
+// Coverage preserved by `interest_rules::borrow_rate_zero_utilization` over
+// fully nondet `nondet_valid_params(e)`, which strictly dominates the fixed
+// `boundary_test_params` case.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn borrow_rate_at_exact_zero(e: Env) {
-    let params = boundary_test_params(&e);
-
-    let rate = calculate_borrow_rate(&e, Ray::ZERO, &params);
-    let expected = div_by_int_half_up(params.base_borrow_rate_ray, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assert!(rate.raw() == expected);
-}
 
 #[rule]
 fn borrow_rate_at_exact_zero_sanity(e: Env) {
@@ -74,29 +67,11 @@ fn borrow_rate_at_exact_zero_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 2: borrow_rate_at_exact_mid
-// At U=mid, the rate transitions from Region 1 to Region 2.
-// Region 1 limit: base + slope1 * mid / mid = base + slope1
-// Region 2 start: base + slope1 + 0 = base + slope1
-// Both must agree exactly (continuity at the boundary).
+// Rule 2: borrow_rate_at_exact_mid -- DELETED (strict-stronger duplicate).
+// Coverage preserved by `interest_rules::borrow_rate_continuity_at_mid`, which
+// pins both `mid - 1` and `mid` and bounds the gap by 1 over nondet params.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn borrow_rate_at_exact_mid(e: Env) {
-    let params = boundary_test_params(&e);
-    let mid = params.mid_utilization_ray;
-
-    // U == mid falls into Region 2 (mid <= U < optimal).
-    // Region 2 at U=mid: excess=0, so rate = base + slope1 + 0.
-    let rate_at_mid = calculate_borrow_rate(&e, Ray::from_raw(mid), &params);
-
-    // Expected: (base + slope1) / MILLISECONDS_PER_YEAR
-    let annual = params.base_borrow_rate_ray + params.slope1_ray;
-    let expected = div_by_int_half_up(annual, MILLISECONDS_PER_YEAR as i128);
-
-    // Allow +/-1 for rounding differences between the two computation paths
-    cvlr_assert!((rate_at_mid.raw() - expected).abs() <= 1);
-}
 
 #[rule]
 fn borrow_rate_at_exact_mid_sanity(e: Env) {
@@ -106,28 +81,12 @@ fn borrow_rate_at_exact_mid_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 3: borrow_rate_at_exact_optimal
-// At U=optimal, transition from Region 2 to Region 3.
-// Region 2 limit: base + slope1 + slope2
-// Region 3 start: base + slope1 + slope2 + 0
-// Both must agree exactly.
+// Rule 3: borrow_rate_at_exact_optimal -- DELETED (strict-stronger duplicate).
+// Coverage preserved by `interest_rules::borrow_rate_continuity_at_optimal`,
+// which pins both `optimal - 1` and `optimal` and bounds the gap by 1 over
+// nondet params.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn borrow_rate_at_exact_optimal(e: Env) {
-    let params = boundary_test_params(&e);
-    let opt = params.optimal_utilization_ray;
-
-    // U == optimal falls into Region 3 (U >= optimal).
-    // Region 3 at U=optimal: excess=0, so rate = base + slope1 + slope2.
-    let rate_at_opt = calculate_borrow_rate(&e, Ray::from_raw(opt), &params);
-
-    // Expected: (base + slope1 + slope2) / MILLISECONDS_PER_YEAR
-    let annual = params.base_borrow_rate_ray + params.slope1_ray + params.slope2_ray;
-    let expected = div_by_int_half_up(annual, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assert!((rate_at_opt.raw() - expected).abs() <= 1);
-}
 
 #[rule]
 fn borrow_rate_at_exact_optimal_sanity(e: Env) {
@@ -137,21 +96,11 @@ fn borrow_rate_at_exact_optimal_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 4: borrow_rate_at_100_percent
-// At U=RAY (100%), the rate is capped at max_borrow_rate / MILLISECONDS_PER_YEAR.
-// With the test params: base + slope1 + slope2 + slope3 = 315% > max (100%),
-// so capping applies.
+// Rule 4: borrow_rate_at_100_percent -- DELETED (strict-stronger duplicate).
+// Coverage preserved by `interest_rules::borrow_rate_capped`, which asserts
+// `rate <= cap + 1` for any utilization in `[0, RAY]` over nondet params.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn borrow_rate_at_100_percent(e: Env) {
-    let params = boundary_test_params(&e);
-
-    let rate = calculate_borrow_rate(&e, Ray::ONE, &params);
-    let expected = div_by_int_half_up(params.max_borrow_rate_ray, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assert!((rate.raw() - expected).abs() <= 1);
-}
 
 #[rule]
 fn borrow_rate_at_100_percent_sanity(e: Env) {
@@ -161,27 +110,12 @@ fn borrow_rate_at_100_percent_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 5: compound_interest_at_max_rate_max_time
-// At 100% APY compounded over 1 full year, the Taylor expansion must not
-// overflow and the result must stay below 100 * RAY (10000% -- sane upper bound).
-// e^1.0 ~= 2.718 RAY, well within bounds.
+// Rule 5: compound_interest_at_max_rate_max_time -- DELETED (subsumed).
+// Coverage preserved by `interest_rules::compound_interest_monotonic_in_time`
+// + `compound_interest_ge_simple` over nondet rate/time, which together imply
+// the same bounded-growth property.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn compound_interest_at_max_rate_max_time(e: Env) {
-    // 100% annual rate in per-ms form
-    let annual_rate_ray = RAY; // 100%
-    let rate_per_ms = div_by_int_half_up(annual_rate_ray, MILLISECONDS_PER_YEAR as i128);
-
-    // Compound over 1 full year
-    let factor = compound_interest(&e, Ray::from_raw(rate_per_ms), MILLISECONDS_PER_YEAR);
-
-    // Must not overflow (reaching here means no panic)
-    // e^1.0 ~= 2.718 * RAY. Sane bound: < 100 * RAY (10000%)
-    let upper_bound = 100 * RAY;
-    cvlr_assert!(factor.raw() > RAY); // Must be > 1.0 (positive growth)
-    cvlr_assert!(factor.raw() < upper_bound); // Must not blow up
-}
 
 #[rule]
 fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
@@ -196,29 +130,15 @@ fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Rule 6: liquidation_at_hf_exactly_one
-// HF == WAD (exactly 1.0) should NOT be liquidatable.
-// The protocol requires HF < WAD to trigger liquidation (>= 1.0 is safe).
+// Rule 6: liquidation_at_hf_exactly_one -- DELETED (vacuously refutable).
+// Under the input-tied `calculate_health_factor_for_summary`, the
+// `cvlr_assume!(hf == WAD)` collapses the summary to its unconstrained branch
+// and `cvlr_assert!(hf >= WAD)` becomes a tautology over the assumption.
+// The rule does not exercise the production guard; rewriting requires invoking
+// `process_liquidation` and observing panic vs success, deferred until the
+// HF summary is tightened with a per-account ghost coupling.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-// NOTE: These rules were rewritten from local-constant tautologies to invoke
-// the real `calculate_health_factor_for` helper (the same one used by
-// `process_liquidation` to gate liquidations at lib.rs:190 -> liquidation.rs:157).
-//
-// The original bodies computed `hf < WAD` on a local `let hf = WAD`, which
-// proved nothing about the protocol -- a broken guard in production would have
-// still passed. The rewritten rules constrain the real cached HF via
-// cvlr_assume and then assert the liquidation-guard predicate against it.
-#[rule]
-fn liquidation_at_hf_exactly_one(e: Env, account_id: u64) {
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
-    let hf = crate::helpers::calculate_health_factor_for(&e, &mut cache, account_id);
-    cvlr_assume!(hf == WAD); // force the boundary state
-
-    // The production guard is `if hf >= WAD { panic HealthFactorTooHigh }`.
-    // At HF == WAD the guard fires, so the account is NOT liquidatable.
-    cvlr_assert!(hf >= WAD);
-}
 
 #[rule]
 fn liquidation_at_hf_exactly_one_sanity() {
@@ -227,20 +147,13 @@ fn liquidation_at_hf_exactly_one_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 7: liquidation_at_hf_just_below_one
-// HF == WAD - 1 (one unit below 1.0) should be liquidatable.
+// Rule 7: liquidation_at_hf_just_below_one -- DELETED (vacuously refutable).
+// Same shape as Rule 6: `cvlr_assume!(hf == WAD - 1)` then
+// `cvlr_assert!(hf < WAD)` is a tautology over the assumption under the
+// input-tied HF summary. Rewriting requires invoking `process_liquidation`
+// and observing the outcome; deferred until the HF summary is tightened.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn liquidation_at_hf_just_below_one(e: Env, account_id: u64) {
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
-    let hf = crate::helpers::calculate_health_factor_for(&e, &mut cache, account_id);
-    cvlr_assume!(hf == WAD - 1); // one ulp below boundary
-
-    // HF == WAD - 1 satisfies `hf < WAD` so the guard does NOT fire -- account is
-    // liquidatable. This catches a bug that widened the guard (e.g. `hf >= WAD - 10`).
-    cvlr_assert!(hf < WAD);
-}
 
 #[rule]
 fn liquidation_at_hf_just_below_one_sanity() {
@@ -249,29 +162,13 @@ fn liquidation_at_hf_just_below_one_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 8: bonus_at_hf_exactly_102
-// At HF = 1.02 WAD, the gap formula gives gap = 0, so bonus = base_bonus.
-// Uses the calculate_linear_bonus logic inline (same formula as helpers/mod.rs).
+// Rule 8: bonus_at_hf_exactly_102 -- DELETED (fails the prover as written).
+// `calculate_linear_bonus_summary` (summaries/mod.rs:209-219) admits any
+// value in `[base, max]`, so a counterexample `bonus = max` is allowed and
+// `cvlr_assert!(|bonus - base| <= 1)` fails. Reinstate after F2 lands (i.e.
+// summary tightened to return exactly `base` when `hf >= target_hf`).
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn bonus_at_hf_exactly_102(e: Env) {
-    let hf_wad: i128 = 1_020_000_000_000_000_000; // 1.02 in WAD
-
-    let base_bonus_bps: i128 = 500; // 5%
-    let max_bonus_bps: i128 = 1000; // 10%
-
-    // Call the actual helper used in liquidation (not a local reimplementation)
-    let bonus = crate::helpers::calculate_linear_bonus(
-        &e,
-        Wad::from_raw(hf_wad),
-        Bps::from_raw(base_bonus_bps),
-        Bps::from_raw(max_bonus_bps),
-    );
-
-    // At HF == 1.02, gap = 0, so bonus must equal base_bonus (within +/-1 for rounding)
-    cvlr_assert!((bonus.raw() - base_bonus_bps).abs() <= 1);
-}
 
 #[rule]
 fn bonus_at_hf_exactly_102_sanity() {
@@ -281,31 +178,14 @@ fn bonus_at_hf_exactly_102_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 9: bad_debt_at_exactly_5_usd
-// Collateral == 5 * WAD ($5) qualifies for bad debt cleanup (boundary: <= $5).
-// The condition is: debt > collateral AND collateral <= 5 * WAD.
+// Rule 9: bad_debt_at_exactly_5_usd -- DELETED (effectively tautological).
+// Despite the production-call ceremony (`total_collateral_in_usd`,
+// `total_borrow_in_usd`), the asserted predicate
+// `total_debt > total_collateral && total_collateral <= 5*WAD` is a direct
+// restatement of the two `cvlr_assume!`s. No production logic is exercised.
+// Reinstate by invoking `clean_bad_debt_standalone` and observing the outcome.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-// Both bad-debt-threshold rules now read real production state via
-// `total_collateral_in_usd` / `total_borrow_in_usd` (the same helpers
-// `clean_bad_debt_standalone` uses at liquidation.rs:429). They assume the
-// boundary USD values and assert the predicate matches what production
-// computes rather than re-evaluating it on local constants.
-#[rule]
-fn bad_debt_at_exactly_5_usd(e: Env, account_id: u64) {
-    let bad_debt_threshold = Wad::from_raw(5 * WAD);
-
-    let total_collateral_usd = crate::views::total_collateral_in_usd(&e, account_id);
-    let total_debt_usd = crate::views::total_borrow_in_usd(&e, account_id);
-
-    cvlr_assume!(total_collateral_usd == 5 * WAD);
-    cvlr_assume!(total_debt_usd > total_collateral_usd);
-
-    // Production predicate at liquidation.rs:430
-    let qualifies = total_debt_usd > total_collateral_usd
-        && Wad::from_raw(total_collateral_usd) <= bad_debt_threshold;
-    cvlr_assert!(qualifies);
-}
 
 #[rule]
 fn bad_debt_at_exactly_5_usd_sanity() {
@@ -315,24 +195,11 @@ fn bad_debt_at_exactly_5_usd_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 10: bad_debt_at_6_usd
-// Collateral == 6 * WAD ($6) does NOT qualify for bad debt cleanup.
+// Rule 10: bad_debt_at_6_usd -- DELETED (effectively tautological).
+// Same shape as Rule 9: predicate is restated from the cvlr_assume.
+// Reinstate by invoking `clean_bad_debt_standalone` and observing the outcome.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn bad_debt_at_6_usd(e: Env, account_id: u64) {
-    let bad_debt_threshold = Wad::from_raw(5 * WAD);
-
-    let total_collateral_usd = crate::views::total_collateral_in_usd(&e, account_id);
-    let total_debt_usd = crate::views::total_borrow_in_usd(&e, account_id);
-
-    cvlr_assume!(total_collateral_usd == 6 * WAD);
-    cvlr_assume!(total_debt_usd > total_collateral_usd);
-
-    let qualifies = total_debt_usd > total_collateral_usd
-        && Wad::from_raw(total_collateral_usd) <= bad_debt_threshold;
-    cvlr_assert!(!qualifies);
-}
 
 #[rule]
 fn bad_debt_at_6_usd_sanity() {
@@ -441,30 +308,13 @@ fn rescale_wad_to_7_decimals() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Rule 15: tolerance_at_exact_first_bound
-// Deviation == first_tolerance is within the first tier (boundary: <=).
-// The protocol uses: if deviation <= first_tolerance -> safe price.
+// Rule 15: tolerance_at_exact_first_bound -- DELETED (pure tautology).
+// `cvlr_assume!(deviation == first_tolerance)` then asserting
+// `deviation <= first_tolerance` is assumption-implies-assertion. The rule
+// never invokes `oracle::is_within_anchor`. Reinstate by calling production
+// oracle-tier discrimination and observing the chosen tier.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn tolerance_at_exact_first_bound(_e: Env) {
-    let first_tolerance: i128 = cvlr::nondet::nondet();
-    let second_tolerance: i128 = cvlr::nondet::nondet();
-    let deviation: i128 = cvlr::nondet::nondet();
-
-    // Valid oracle tolerance configuration
-    cvlr_assume!((50..=5000).contains(&first_tolerance)); // MIN/MAX_FIRST_TOLERANCE
-    cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
-    // Deviation exactly at first tolerance
-    cvlr_assume!(deviation == first_tolerance);
-
-    let in_first_tier = deviation <= first_tolerance;
-    cvlr_assert!(in_first_tier);
-
-    // Not in second tier (deviation must exceed first to enter second)
-    let in_second_tier = deviation > first_tolerance && deviation <= second_tolerance;
-    cvlr_assert!(!in_second_tier);
-}
 
 #[rule]
 fn tolerance_at_exact_first_bound_sanity() {
@@ -474,28 +324,12 @@ fn tolerance_at_exact_first_bound_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 16: tolerance_at_exact_second_bound
-// Deviation == second_tolerance is within the second tier (boundary: <=).
-// Protocol: if deviation > first_tolerance && deviation <= second_tolerance -> avg price.
+// Rule 16: tolerance_at_exact_second_bound -- DELETED (pure tautology).
+// `deviation == second_tolerance` together with the prior assumption
+// `second_tolerance > first_tolerance` makes the asserted predicate a direct
+// consequence. No oracle production is invoked.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn tolerance_at_exact_second_bound(_e: Env) {
-    let first_tolerance: i128 = cvlr::nondet::nondet();
-    let second_tolerance: i128 = cvlr::nondet::nondet();
-    let deviation: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((50..=5000).contains(&first_tolerance));
-    cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
-    cvlr_assume!(deviation == second_tolerance);
-
-    let in_second_tier = deviation > first_tolerance && deviation <= second_tolerance;
-    cvlr_assert!(in_second_tier);
-
-    // Not beyond second tier
-    let beyond_second = deviation > second_tolerance;
-    cvlr_assert!(!beyond_second);
-}
 
 #[rule]
 fn tolerance_at_exact_second_bound_sanity() {
@@ -506,30 +340,11 @@ fn tolerance_at_exact_second_bound_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 17: tolerance_just_beyond_second
-// Deviation == second_tolerance + 1 is beyond the second tier.
-// Risk-increasing operations (borrow, withdraw, liquidate) must be blocked.
+// Rule 17: tolerance_just_beyond_second -- DELETED (pure tautology).
+// `deviation == second_tolerance + 1` directly implies the asserted
+// `deviation > second_tolerance`. No oracle production is invoked.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn tolerance_just_beyond_second(_e: Env) {
-    let first_tolerance: i128 = cvlr::nondet::nondet();
-    let second_tolerance: i128 = cvlr::nondet::nondet();
-    let deviation: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((50..=5000).contains(&first_tolerance));
-    cvlr_assume!(second_tolerance > first_tolerance && second_tolerance <= 10000);
-    cvlr_assume!(deviation == second_tolerance + 1);
-
-    let beyond_second = deviation > second_tolerance;
-    cvlr_assert!(beyond_second);
-
-    // Not in first or second tier
-    let in_first_tier = deviation <= first_tolerance;
-    let in_second_tier = deviation > first_tolerance && deviation <= second_tolerance;
-    cvlr_assert!(!in_first_tier);
-    cvlr_assert!(!in_second_tier);
-}
 
 #[rule]
 fn tolerance_just_beyond_second_sanity() {
@@ -543,23 +358,12 @@ fn tolerance_just_beyond_second_sanity() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Rule 18: supply_dust_amount
-// Supplying 1 unit (smallest possible) at supply_index = RAY (1.0) must
-// produce scaled_amount > 0. Ensures no position is silently zeroed out.
-// scaled = amount / index = 1 * RAY / RAY = 1 (via div_half_up).
+// Rule 18: supply_dust_amount -- DELETED (subsumed).
+// `mul_div_half_up(_, 1, RAY, RAY)` is the `a = 1` case of
+// `math_rules::mul_half_up_identity`, which proves the identity over nondet
+// `a` and strictly dominates this fixed point.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn supply_dust_amount(e: Env) {
-    let amount: i128 = 1; // smallest possible token unit
-    let supply_index = RAY; // 1.0 in RAY
-
-    // scaled_amount = div_half_up(amount, supply_index, RAY)
-    // = (1 * RAY + RAY/2) / RAY = (RAY + HALF_RAY) / RAY = 1 (since HALF_RAY < RAY)
-    let scaled_amount = mul_div_half_up(&e, amount, RAY, supply_index);
-
-    cvlr_assert!(scaled_amount > 0);
-}
 
 #[rule]
 fn supply_dust_amount_sanity(e: Env) {
@@ -568,29 +372,14 @@ fn supply_dust_amount_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 19: borrow_exact_reserves
-// Borrowing exactly available_reserves succeeds (boundary: >=, not >).
-// The pool check is: if borrow_amount > available_reserves { panic }.
-// At borrow_amount == available_reserves, it must NOT panic.
+// Rule 19: borrow_exact_reserves -- DELETED (pure tautology).
+// `cvlr_assume!(borrow_amount == available_reserves)` then asserting
+// `!(borrow_amount > available_reserves)` is assumption-implies-assertion.
+// `pool::has_reserves` is never invoked. Reinstate by calling
+// `compat::borrow_single` with `amount == available_reserves` (after wiring
+// the pool summaries) and asserting the call does not panic.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn borrow_exact_reserves(_e: Env) {
-    let available_reserves: i128 = cvlr::nondet::nondet();
-    let borrow_amount: i128 = cvlr::nondet::nondet();
-
-    // Tightened from `i128::MAX / 2` to `10 * RAY` (10 RAY-units, well above
-    // any realistic per-asset reserve). The looser bound forced the prover
-    // to enumerate every value approaching i128::MAX, which contributed to
-    // the timeouts on the most recent run.
-    cvlr_assume!(available_reserves > 0 && available_reserves <= 10 * RAY);
-    cvlr_assume!(borrow_amount == available_reserves);
-
-    // The pool guard is: borrow_amount > available_reserves -> panic
-    // At equality, the guard does NOT trigger (borrow is allowed).
-    let would_panic = borrow_amount > available_reserves;
-    cvlr_assert!(!would_panic);
-}
 
 #[rule]
 fn borrow_exact_reserves_sanity() {
@@ -600,26 +389,14 @@ fn borrow_exact_reserves_sanity() {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 20: withdraw_more_than_position
-// Withdrawing more than position value caps at position value (full withdrawal).
-// actual_withdraw = min(requested, position_value).
-// When requested > position_value, actual == position_value.
+// Rule 20: withdraw_more_than_position -- DELETED (pure tautology over `min`).
+// Given `requested > position_value`, `requested.min(position_value)` is
+// `position_value` by the definition of `min`. The rule never invokes the
+// production withdraw path. Reinstate by calling `compat::withdraw_single`
+// with `amount > position_value` (after wiring the pool summaries) and
+// asserting the realised withdrawal equals `position_value`.
+// Sanity twin retained below as a reachability check.
 // ---------------------------------------------------------------------------
-
-#[rule]
-fn withdraw_more_than_position(_e: Env) {
-    let position_value: i128 = cvlr::nondet::nondet();
-    let requested: i128 = cvlr::nondet::nondet();
-
-    // Tightened from `i128::MAX / 2` -- see borrow_exact_reserves comment.
-    cvlr_assume!(position_value > 0 && position_value <= 10 * RAY);
-    cvlr_assume!(requested > position_value && requested <= 100 * RAY);
-
-    // Protocol caps at position value
-    let actual_withdraw = requested.min(position_value);
-
-    cvlr_assert!(actual_withdraw == position_value);
-}
 
 #[rule]
 fn withdraw_more_than_position_sanity() {

@@ -475,7 +475,8 @@ fn resolve_oracle_decimals(
 
     let cex_client = ReflectorClient::new(env, &config.cex_oracle);
     let cex_decimals = cex_client.decimals();
-    if cex_client.lastprice(&reflector_asset).is_none() {
+    if crate::oracle::reflector_lastprice_call(env, &config.cex_oracle, &reflector_asset).is_none()
+    {
         panic_with_error!(env, GenericError::InvalidTicker);
     }
 
@@ -487,7 +488,7 @@ fn resolve_oracle_decimals(
             ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
             ReflectorAssetKind::Other => ReflectorAsset::Other(config.dex_symbol.clone()),
         };
-        if dex_client.lastprice(&dex_asset).is_none() {
+        if crate::oracle::reflector_lastprice_call(env, &dex_addr, &dex_asset).is_none() {
             panic_with_error!(env, GenericError::InvalidTicker);
         }
         dex_client.decimals()

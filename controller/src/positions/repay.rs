@@ -100,10 +100,8 @@ pub fn execute_repayment(
         event_caller,
         action,
     } = ctx;
-    let pool_addr = cache.cached_pool_address(&position.asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
-    let mut result = pool_client.repay(&caller, &amount, position, &price_wad);
+    let mut result = pool_repay_call(env, caller.clone(), amount, position.clone(), price_wad);
 
     let feed = cache.cached_price(&position.asset);
     let outstanding_before = actual_borrow_amount(
@@ -216,6 +214,25 @@ fn adjust_isolated_debt_for_repay(
         );
     }
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::repay_summary,
+    fn pool_repay_call(
+        env: &Env,
+        caller: Address,
+        amount: i128,
+        position: AccountPosition,
+        price_wad: i128,
+    ) -> PoolPositionMutation {
+        let pool_addr = crate::storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).repay(
+            &caller,
+            &amount,
+            &position,
+            &price_wad,
+        )
+    }
+);
 
 #[cfg(test)]
 mod tests {

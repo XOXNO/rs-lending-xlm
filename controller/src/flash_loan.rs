@@ -49,8 +49,7 @@ pub fn process_flash_loan(
     // Engage reentrancy guard for the duration of the callback.
     storage::set_flash_loan_ongoing(env, true);
 
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    pool_client.flash_loan_begin(&amount, receiver);
+    pool_flash_loan_begin_call(env, &pool_addr, amount, receiver);
 
     // Callback signature: execute_flash_loan(initiator, asset, amount, fee, data).
     env.invoke_contract::<()>(
@@ -59,7 +58,7 @@ pub fn process_flash_loan(
         (caller.clone(), asset.clone(), amount, fee, data.clone()).into_val(env),
     );
 
-    pool_client.flash_loan_end(&amount, &fee, receiver);
+    pool_flash_loan_end_call(env, &pool_addr, amount, fee, receiver);
 
     storage::set_flash_loan_ongoing(env, false);
 
@@ -74,3 +73,30 @@ pub fn process_flash_loan(
         },
     );
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::flash_loan_begin_summary,
+    fn pool_flash_loan_begin_call(
+        env: &Env,
+        pool_addr: &Address,
+        amount: i128,
+        receiver: &Address,
+    ) {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).flash_loan_begin(&amount, receiver)
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::pool::flash_loan_end_summary,
+    fn pool_flash_loan_end_call(
+        env: &Env,
+        pool_addr: &Address,
+        amount: i128,
+        fee: i128,
+        receiver: &Address,
+    ) {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).flash_loan_end(
+            &amount, &fee, receiver,
+        )
+    }
+);

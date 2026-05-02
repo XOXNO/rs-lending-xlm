@@ -48,17 +48,16 @@ pub fn handle_create_borrow_strategy(
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = Bps::from_raw(debt_config.flashloan_fee_bps).apply_to(env, amount);
-    let pool_address = cache.cached_pool_address(debt_token);
     let borrow_position =
         get_or_create_borrow_position(account, account_id, &debt_config, debt_token);
 
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_address);
-    let result = pool_client.create_strategy(
-        &env.current_contract_address(),
-        &borrow_position,
-        &amount,
-        &flash_fee,
-        &price_feed.price_wad,
+    let result = pool_create_strategy_call(
+        env,
+        env.current_contract_address(),
+        borrow_position,
+        amount,
+        flash_fee,
+        price_feed.price_wad,
     );
     record_borrow_update(
         env,
@@ -239,7 +238,6 @@ fn execute_borrow_plan(
             &asset_config,
             caller,
             &feed,
-            cache,
         );
     }
 }
@@ -254,13 +252,16 @@ fn update_borrow_position(
     asset_config: &AssetConfig,
     caller: &Address,
     feed: &PriceFeed,
-    cache: &mut ControllerCache,
 ) {
     let borrow_position = get_or_create_borrow_position(account, account_id, asset_config, asset);
 
-    let pool_address = cache.cached_pool_address(asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_address);
-    let result = pool_client.borrow(caller, &amount, &borrow_position, &feed.price_wad);
+    let result = pool_borrow_call(
+        env,
+        caller.clone(),
+        amount,
+        borrow_position,
+        feed.price_wad,
+    );
 
     record_borrow_update(
         env,
@@ -273,6 +274,46 @@ fn update_borrow_position(
         caller,
     );
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::borrow_summary,
+    fn pool_borrow_call(
+        env: &Env,
+        caller: Address,
+        amount: i128,
+        position: AccountPosition,
+        price_wad: i128,
+    ) -> common::types::PoolPositionMutation {
+        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).borrow(
+            &caller,
+            &amount,
+            &position,
+            &price_wad,
+        )
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::pool::create_strategy_summary,
+    fn pool_create_strategy_call(
+        env: &Env,
+        caller: Address,
+        position: AccountPosition,
+        amount: i128,
+        fee: i128,
+        price_wad: i128,
+    ) -> common::types::PoolStrategyMutation {
+        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).create_strategy(
+            &caller,
+            &position,
+            &amount,
+            &fee,
+            &price_wad,
+        )
+    }
+);
 
 #[allow(clippy::too_many_arguments)]
 fn record_borrow_update(

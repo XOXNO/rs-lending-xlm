@@ -215,11 +215,9 @@ fn cex_spot_price(
         .cex_oracle
         .clone()
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-    let client = ReflectorClient::new(env, &cex_oracle);
     let ra = to_reflector_asset(asset, &market.cex_asset_kind, &market.cex_symbol);
 
-    let pd = client
-        .lastprice(&ra)
+    let pd = reflector_lastprice_call(env, &cex_oracle, &ra)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoLastPrice));
 
     check_staleness(cache, pd.timestamp, max_stale);
@@ -238,12 +236,10 @@ fn cex_spot_and_twap_price(
         .cex_oracle
         .clone()
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-    let client = ReflectorClient::new(env, &cex_oracle);
     let ra = to_reflector_asset(asset, &market.cex_asset_kind, &market.cex_symbol);
     let decimals = market.cex_decimals;
 
-    let spot_pd = client
-        .lastprice(&ra)
+    let spot_pd = reflector_lastprice_call(env, &cex_oracle, &ra)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoLastPrice));
     check_staleness(cache, spot_pd.timestamp, max_stale);
     let spot_wad = Wad::from_token(spot_pd.price, decimals).raw();
@@ -252,7 +248,7 @@ fn cex_spot_and_twap_price(
         return (spot_wad, spot_wad);
     }
 
-    let history = client.prices(&ra, &market.twap_records);
+    let history = reflector_prices_call(env, &cex_oracle, &ra, market.twap_records);
     let Some(history) = history else {
         return (spot_wad, spot_wad);
     };
@@ -300,11 +296,10 @@ fn cex_twap_price(
         .cex_oracle
         .clone()
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-    let client = ReflectorClient::new(env, &cex_oracle);
     let ra = to_reflector_asset(asset, &market.cex_asset_kind, &market.cex_symbol);
     let decimals = market.cex_decimals;
 
-    let history = client.prices(&ra, &market.twap_records);
+    let history = reflector_prices_call(env, &cex_oracle, &ra, market.twap_records);
     let Some(history) = history else {
         // No history available. Fall back to spot rather than blocking the
         // entire protocol, preserving the previous all-empty-window behavior.
@@ -345,10 +340,9 @@ fn dex_spot_price(
     let dex_addr = market.dex_oracle.clone()?;
 
     let env = cache.env();
-    let client = ReflectorClient::new(env, &dex_addr);
     let ra = to_reflector_asset(asset, &market.dex_asset_kind, &market.dex_symbol);
 
-    let pd = client.lastprice(&ra)?; // None: asset not tracked on Stellar DEX oracle.
+    let pd = reflector_lastprice_call(env, &dex_addr, &ra)?; // None: asset not tracked on Stellar DEX oracle.
 
     // DEX staleness is soft: treat stale as unavailable; allow fallback.
     let now_secs = cache.current_timestamp_ms / 1000;
@@ -504,6 +498,34 @@ crate::summarized!(
             Ray::from_raw(sync_data.state.supply_index_ray),
             &sync_data.params,
         )
+    }
+);
+
+// ---------------------------------------------------------------------------
+// Summarised Reflector wrappers (used across the oracle module; the macro is a
+// no-op outside `--features certora`).
+// ---------------------------------------------------------------------------
+
+crate::summarized!(
+    crate::spec::summaries::reflector::lastprice_summary,
+    pub(crate) fn reflector_lastprice_call(
+        env: &Env,
+        oracle: &Address,
+        asset: &ReflectorAsset,
+    ) -> Option<reflector::ReflectorPriceData> {
+        ReflectorClient::new(env, oracle).lastprice(asset)
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::reflector::prices_summary,
+    pub(crate) fn reflector_prices_call(
+        env: &Env,
+        oracle: &Address,
+        asset: &ReflectorAsset,
+        records: u32,
+    ) -> Option<soroban_sdk::Vec<reflector::ReflectorPriceData>> {
+        ReflectorClient::new(env, oracle).prices(asset, &records)
     }
 );
 

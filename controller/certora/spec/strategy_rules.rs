@@ -14,7 +14,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::WAD;
+use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::types::{SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 
 // ===========================================================================
@@ -22,14 +22,23 @@ use common::types::{SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Rule 1: multiply creates both deposit and borrow positions
+// Rule 1: multiply creates both deposit and borrow positions (split per branch)
 // ---------------------------------------------------------------------------
+//
+// The original `multiply_creates_both_positions` havoced `account_id`,
+// `initial_payment` and `convert_steps` inside the compat shim. That produced a
+// 32-path entry-preamble explosion (4 entry-shape combinations x 4
+// payment-token shapes x 2 account-id shapes) for a single property statement.
+// The audit (06-strategy-flashloan.md, "multiply_creates_both_positions") shows
+// the property is independent of which optional-input branch is taken, so we
+// split into per-branch rules with concrete inputs and bounded payment shapes.
 
-/// After a successful multiply, the newly created account must have both a
-/// deposit position (collateral) with scaled_amount > 0 and a borrow position
-/// (debt) with scaled_amount > 0.
+/// Canonical happy-path multiply: brand-new account, no initial payment,
+/// no `convert_steps`. The cheapest of the three multiply happy-path rules
+/// because `process_multiply` skips the load-existing branch and the
+/// `collect_initial_multiply_payment` swap branches entirely.
 #[rule]
-fn multiply_creates_both_positions(
+fn multiply_basic(
     e: Env,
     caller: Address,
     e_mode_category: u32,
@@ -43,7 +52,7 @@ fn multiply_creates_both_positions(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
-    let account_id = crate::spec::compat::multiply(
+    let account_id = crate::spec::compat::multiply_basic(
         e.clone(),
         caller,
         e_mode_category,
@@ -69,6 +78,99 @@ fn multiply_creates_both_positions(
     cvlr_assert!(borrow.scaled_amount_ray > 0);
 }
 
+/// Multiply with an `initial_payment` denominated in `collateral_token`. This
+/// is the cheap branch of `collect_initial_multiply_payment` (no nested
+/// `swap_tokens`); the payment is added to the collateral leg directly.
+#[rule]
+fn multiply_with_initial_payment_collateral(
+    e: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+    initial_amount: i128,
+) {
+    cvlr_assume!(debt_to_flash_loan > 0);
+    cvlr_assume!(initial_amount > 0);
+    cvlr_assume!(collateral_token != debt_token);
+    cvlr_assume!((1..=3).contains(&mode));
+
+    let account_id = crate::spec::compat::multiply_with_initial_payment_collateral(
+        e.clone(),
+        caller,
+        e_mode_category,
+        collateral_token.clone(),
+        debt_to_flash_loan,
+        debt_token.clone(),
+        mode,
+        steps,
+        initial_amount,
+    );
+
+    let deposit_pos =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+    cvlr_assert!(deposit_pos.is_some());
+    cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
+
+    let borrow_pos =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+    cvlr_assert!(borrow_pos.is_some());
+    cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
+}
+
+/// Multiply with an `initial_payment` denominated in a third token (distinct
+/// from both `collateral_token` and `debt_token`) and a non-empty
+/// `convert_steps`. Exercises the nested `swap_tokens` branch in
+/// `collect_initial_multiply_payment`.
+#[rule]
+fn multiply_with_initial_payment_third_token(
+    e: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+    third_token: Address,
+    initial_amount: i128,
+    convert_steps: SwapSteps,
+) {
+    cvlr_assume!(debt_to_flash_loan > 0);
+    cvlr_assume!(initial_amount > 0);
+    cvlr_assume!(collateral_token != debt_token);
+    cvlr_assume!(third_token != collateral_token);
+    cvlr_assume!(third_token != debt_token);
+    cvlr_assume!((1..=3).contains(&mode));
+
+    let account_id = crate::spec::compat::multiply_with_initial_payment_third_token(
+        e.clone(),
+        caller,
+        e_mode_category,
+        collateral_token.clone(),
+        debt_to_flash_loan,
+        debt_token.clone(),
+        mode,
+        steps,
+        third_token,
+        initial_amount,
+        convert_steps,
+    );
+
+    let deposit_pos =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+    cvlr_assert!(deposit_pos.is_some());
+    cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
+
+    let borrow_pos =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+    cvlr_assert!(borrow_pos.is_some());
+    cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
+}
+
 // ---------------------------------------------------------------------------
 // Rule 2: multiply rejects same collateral and debt tokens
 // ---------------------------------------------------------------------------
@@ -89,8 +191,11 @@ fn multiply_rejects_same_tokens(
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!((1..=3).contains(&mode));
 
-    // Call multiply with same token for both collateral and debt
-    crate::spec::compat::multiply(
+    // Call multiply with same token for both collateral and debt.
+    // Use the minimal shim: the panic at strategy.rs:158-160 fires before any
+    // optional-input branch is consulted, so havocing account_id /
+    // initial_payment / convert_steps would only add wasted nondet draws.
+    crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
         e_mode_category,
@@ -132,7 +237,9 @@ fn multiply_requires_collateralizable(
     let config = cache.cached_asset_config(&collateral_token);
     cvlr_assume!(!config.is_collateralizable);
 
-    crate::spec::compat::multiply(
+    // Use the minimal shim: panic at strategy.rs:189-191 fires before the
+    // `account_id` / `initial_payment` / `convert_steps` branches matter.
+    crate::spec::compat::multiply_minimal(
         e.clone(),
         caller,
         e_mode_category,
@@ -351,13 +458,22 @@ fn swap_collateral_rejects_isolated(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 9: repay_with_collateral reduces both debt and collateral
+// Rule 9: repay_with_collateral reduces both debt and collateral (split per
+//         close_position branch)
 // ---------------------------------------------------------------------------
+//
+// The original `repay_with_collateral_reduces_both` havoced `close_position`
+// inside the compat shim. With `close_position = true`, production runs
+// `execute_withdraw_all` which iterates the full supply position map -- an
+// unbounded loop the prover cannot tame at the default `loop_iter`. Splitting
+// into a no-close rule (cheap, no loop) and a close rule (loop-bearing,
+// scoped to single-asset accounts) collapses the path explosion.
 
-/// After process_repay_debt_with_collateral, both the debt position and the
-/// collateral position must have decreased (or been removed).
+/// `repay_debt_with_collateral` with `close_position = false`. Removes the
+/// `execute_withdraw_all` unbounded loop entirely; verifies the canonical
+/// "reduce both sides" property without the account-deletion branch.
 #[rule]
-fn repay_with_collateral_reduces_both(
+fn repay_with_collateral_reduces_both_no_close(
     e: Env,
     caller: Address,
     account_id: u64,
@@ -382,8 +498,8 @@ fn repay_with_collateral_reduces_both(
     let debt_scaled_before = debt_before.unwrap().scaled_amount_ray;
     cvlr_assume!(debt_scaled_before > 0);
 
-    // Execute repay_debt_with_collateral
-    crate::spec::compat::repay_debt_with_collateral(
+    // Execute repay_debt_with_collateral with close_position pinned off.
+    crate::spec::compat::repay_debt_with_collateral_minimal(
         e.clone(),
         caller,
         account_id,
@@ -410,6 +526,62 @@ fn repay_with_collateral_reduces_both(
     }
 }
 
+/// `repay_debt_with_collateral` with `close_position = true`. After the call,
+/// remaining collateral must be withdrawn via `execute_withdraw_all` (which
+/// iterates the supply map) and the account must be removed from storage.
+/// The companion `loop_iter` setting in `repay_with_collateral_close.conf`
+/// (or whatever the prover-config file is named) should be tightened to 2 to
+/// bound the supply-map iteration.
+#[rule]
+fn repay_with_collateral_full_close_removes_account(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    collateral_token: Address,
+    collateral_amount: i128,
+    debt_token: Address,
+    steps: SwapSteps,
+) {
+    cvlr_assume!(collateral_amount > 0);
+    cvlr_assume!(collateral_token != debt_token);
+
+    // Account must exist with both position legs before the call; the
+    // close-position path is gated on `borrow_positions` being empty after the
+    // repay, so we let the prover discover the witness within the loop_iter
+    // bound rather than force-pinning the map shape here.
+    let collateral_before =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+    cvlr_assume!(collateral_before.is_some());
+    cvlr_assume!(collateral_before.unwrap().scaled_amount_ray > 0);
+
+    let debt_before =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+    cvlr_assume!(debt_before.is_some());
+    cvlr_assume!(debt_before.unwrap().scaled_amount_ray > 0);
+
+    // Execute repay_debt_with_collateral with close_position pinned on.
+    crate::spec::compat::repay_debt_with_collateral_close(
+        e.clone(),
+        caller,
+        account_id,
+        collateral_token.clone(),
+        collateral_amount,
+        debt_token.clone(),
+        steps,
+    );
+
+    // After the close branch, both legs must be cleared. `execute_withdraw_all`
+    // pulls each remaining supply asset; `strategy_finalize` deletes the
+    // account if both maps are empty.
+    let debt_after =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+    cvlr_assert!(debt_after.is_none());
+
+    let collateral_after =
+        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+    cvlr_assert!(collateral_after.is_none());
+}
+
 // ===========================================================================
 // Admin Operation Rules
 // ===========================================================================
@@ -418,26 +590,50 @@ fn repay_with_collateral_reduces_both(
 // Rule 10: clean_bad_debt requires qualification
 // ---------------------------------------------------------------------------
 
-/// clean_bad_debt on an account that does not qualify (debt <= collateral
-/// OR collateral > $5 USD) must revert with CannotCleanBadDebt.
+/// `clean_bad_debt_standalone` (controller/src/positions/liquidation.rs:478)
+/// panics with `CannotCleanBadDebt` unless
+/// `total_debt_usd > total_collateral_usd && total_collateral_usd <= 5*WAD`.
+/// This rule asserts that any account violating that predicate cannot reach
+/// the post-state.
+///
+/// Earlier versions used a health-factor proxy (`hf >= WAD`) which is sound
+/// but incomplete: it misses underwater accounts above the dust threshold
+/// (`hf < WAD && total_debt > total_coll && total_coll > 5*WAD`). Because
+/// `calculate_health_factor_for` and `calculate_account_totals` have
+/// independently-havoced summaries, the proxy also produced PASS witnesses
+/// where the HF assume held but the account-totals satisfied the panic
+/// predicate -- making the rule vacuously satisfied via the panic path.
+///
+/// This rewrite ties the precondition directly to the production guard by
+/// reading the same `calculate_account_totals` triple production reads.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
-    // Assume the account does NOT qualify for bad debt cleanup:
-    // Either collateral > $5 or debt <= collateral
     let mut cache = crate::cache::ControllerCache::new(&e, false);
 
-    // Verify account has borrows (otherwise PositionNotFound)
-    let borrow_list = crate::storage::get_position_list(&e, account_id, POSITION_TYPE_BORROW);
-    cvlr_assume!(!borrow_list.is_empty());
+    // PositionNotFound short-circuit: production fast-fails when the account
+    // has no borrows, which is not the path this rule covers.
+    let account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(!account.borrow_positions.is_empty());
 
-    // Calculate totals -- assume account is healthy enough to not qualify
-    let hf = crate::helpers::calculate_health_factor_for(&e, &mut cache, account_id);
-    cvlr_assume!(hf >= WAD); // HF >= 1.0 means debt < weighted collateral
+    // Capture the same triple production gates on.
+    let (total_collateral_usd, total_debt_usd, _) = crate::helpers::calculate_account_totals(
+        &e,
+        &mut cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
 
-    // This call should revert with CannotCleanBadDebt
+    // Assume the account does NOT qualify for cleanup. Either the debt is at
+    // or below collateral, or the collateral exceeds the dust threshold.
+    cvlr_assume!(
+        !(total_debt_usd.raw() > total_collateral_usd.raw()
+            && total_collateral_usd.raw() <= BAD_DEBT_USD_THRESHOLD)
+    );
+
+    // Production must panic before reaching the post-state.
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
 
-    // Must not reach here
+    // Must not reach here.
     cvlr_satisfy!(false);
 }
 
@@ -493,127 +689,19 @@ fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Addres
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Rule 14: strategy operations blocked during flash loan
+// Rule 14: strategy operations blocked during flash loan -- DELETED
 // ---------------------------------------------------------------------------
-
-/// All strategy operations (multiply, swap_debt, swap_collateral,
-/// repay_debt_with_collateral) must revert when the flash loan reentrancy
-/// guard is active. Tests multiply as representative; the guard check is
-/// shared via require_not_flash_loaning.
-#[rule]
-fn strategy_blocked_during_flash_loan_multiply(
-    e: Env,
-    caller: Address,
-    e_mode_category: u32,
-    collateral_token: Address,
-    debt_to_flash_loan: i128,
-    debt_token: Address,
-    mode: u32,
-    steps: SwapSteps,
-) {
-    cvlr_assume!(debt_to_flash_loan > 0);
-
-    // Activate flash loan reentrancy guard
-    crate::storage::set_flash_loan_ongoing(&e, true);
-
-    crate::spec::compat::multiply(
-        e.clone(),
-        caller,
-        e_mode_category,
-        collateral_token,
-        debt_to_flash_loan,
-        debt_token,
-        mode,
-        steps,
-    );
-
-    // Must not reach here -- should have reverted with FlashLoanOngoing
-    cvlr_satisfy!(false);
-}
-
-/// swap_debt must revert when flash loan guard is active.
-#[rule]
-fn strategy_blocked_during_flash_loan_swap_debt(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    existing_debt_token: Address,
-    new_debt_amount: i128,
-    new_debt_token: Address,
-    steps: SwapSteps,
-) {
-    cvlr_assume!(new_debt_amount > 0);
-
-    crate::storage::set_flash_loan_ongoing(&e, true);
-
-    crate::Controller::swap_debt(
-        e.clone(),
-        caller,
-        account_id,
-        existing_debt_token,
-        new_debt_amount,
-        new_debt_token,
-        steps,
-    );
-
-    cvlr_satisfy!(false);
-}
-
-/// swap_collateral must revert when flash loan guard is active.
-#[rule]
-fn strategy_blocked_during_flash_loan_swap_collateral(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    current_collateral: Address,
-    from_amount: i128,
-    new_collateral: Address,
-    steps: SwapSteps,
-) {
-    cvlr_assume!(from_amount > 0);
-
-    crate::storage::set_flash_loan_ongoing(&e, true);
-
-    crate::Controller::swap_collateral(
-        e.clone(),
-        caller,
-        account_id,
-        current_collateral,
-        from_amount,
-        new_collateral,
-        steps,
-    );
-
-    cvlr_satisfy!(false);
-}
-
-/// repay_debt_with_collateral must revert when flash loan guard is active.
-#[rule]
-fn strategy_blocked_during_flash_loan_repay_with_collateral(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    collateral_token: Address,
-    collateral_amount: i128,
-    debt_token: Address,
-    steps: SwapSteps,
-) {
-    cvlr_assume!(collateral_amount > 0);
-
-    crate::storage::set_flash_loan_ongoing(&e, true);
-
-    crate::spec::compat::repay_debt_with_collateral(
-        e.clone(),
-        caller,
-        account_id,
-        collateral_token,
-        collateral_amount,
-        debt_token,
-        steps,
-    );
-
-    cvlr_satisfy!(false);
-}
+//
+// The four endpoint-level rules (`strategy_blocked_during_flash_loan_multiply`,
+// `_swap_debt`, `_swap_collateral`, `_repay_with_collateral`) each paid the
+// full mutating-endpoint setup cost (compat shim havocs + parameter symbols)
+// to verify the same single-line guard. The helper-level rule
+// `flash_loan_rules::flash_loan_guard_blocks_callers` covers the property
+// directly against `validation::require_not_flash_loaning` -- every mutating
+// endpoint that calls the helper first inherits the property by construction.
+//
+// See audit/certora-efficiency/06-strategy-flashloan.md, "Collapse the four
+// 'blocked during flash loan' rules into one" for rationale.
 
 // ===========================================================================
 // Sanity rules (reachability checks)

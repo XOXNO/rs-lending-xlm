@@ -132,15 +132,15 @@ pub fn execute_withdrawal(
         event_caller,
         action,
     } = ctx;
-    let pool_addr = cache.cached_pool_address(&position.asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-    let result = pool_client.withdraw(
-        &caller,
-        &amount,
-        position,
-        &is_liquidation,
-        &protocol_fee,
-        &price_wad,
+    let _ = cache;
+    let result = pool_withdraw_call(
+        env,
+        caller.clone(),
+        amount,
+        position.clone(),
+        is_liquidation,
+        protocol_fee,
+        price_wad,
     );
     update::update_or_remove_position(account, &result.position);
 
@@ -159,3 +159,26 @@ pub fn execute_withdrawal(
 
     result
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::withdraw_summary,
+    fn pool_withdraw_call(
+        env: &Env,
+        caller: Address,
+        amount: i128,
+        position: AccountPosition,
+        is_liquidation: bool,
+        protocol_fee: i128,
+        price_wad: i128,
+    ) -> PoolPositionMutation {
+        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).withdraw(
+            &caller,
+            &amount,
+            &position,
+            &is_liquidation,
+            &protocol_fee,
+            &price_wad,
+        )
+    }
+);

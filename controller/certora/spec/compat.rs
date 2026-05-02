@@ -116,6 +116,210 @@ pub fn repay_debt_with_collateral(
     );
 }
 
+/// Minimal-mode shim for `Controller::multiply` used by negative-path rules
+/// (e.g. `multiply_rejects_same_tokens`, `multiply_requires_collateralizable`)
+/// where the panic fires inside `process_multiply` *before* any of the optional
+/// branches matter. Pinning `account_id = 0`, `initial_payment = None` and
+/// `convert_steps = None` removes three nondet draws and the 4-way payment-token
+/// branch from the prover's exploration with no loss of property coverage,
+/// because the early-exit panic is reached on every path.
+pub fn multiply_minimal(
+    env: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+) -> u64 {
+    let mode = match mode {
+        0 => PositionMode::Normal,
+        1 => PositionMode::Multiply,
+        2 => PositionMode::Long,
+        3 => PositionMode::Short,
+        _ => panic!("invalid strategy mode for certora compat"),
+    };
+
+    crate::Controller::multiply(
+        env,
+        caller,
+        0, // create new account
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        steps,
+        None, // no initial_payment
+        None, // no convert_steps
+    )
+}
+
+/// Minimal-mode shim for `Controller::repay_debt_with_collateral` used by
+/// flash-loan-guard rules where the early-exit panic fires before the
+/// `close_position` branch is consulted. Pins `close_position = false` to
+/// remove the unbounded `execute_withdraw_all` loop from the prover's path.
+pub fn repay_debt_with_collateral_minimal(
+    env: Env,
+    caller: Address,
+    account_id: u64,
+    collateral_token: Address,
+    collateral_amount: i128,
+    debt_token: Address,
+    steps: SwapSteps,
+) {
+    crate::Controller::repay_debt_with_collateral(
+        env,
+        caller,
+        account_id,
+        collateral_token,
+        collateral_amount,
+        debt_token,
+        steps,
+        false, // close_position pinned off
+    );
+}
+
+/// Variant of `repay_debt_with_collateral` that pins `close_position = true`.
+/// Used by the dedicated full-close rule that verifies the
+/// `execute_withdraw_all` + account-deletion branch in
+/// `process_repay_debt_with_collateral`.
+pub fn repay_debt_with_collateral_close(
+    env: Env,
+    caller: Address,
+    account_id: u64,
+    collateral_token: Address,
+    collateral_amount: i128,
+    debt_token: Address,
+    steps: SwapSteps,
+) {
+    crate::Controller::repay_debt_with_collateral(
+        env,
+        caller,
+        account_id,
+        collateral_token,
+        collateral_amount,
+        debt_token,
+        steps,
+        true, // close_position pinned on
+    );
+}
+
+/// Variant of `multiply` that pins `account_id = 0` and `initial_payment = None`
+/// while leaving `convert_steps` controlled by the rule. Used by the
+/// canonical-happy-path multiply rule.
+pub fn multiply_basic(
+    env: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+) -> u64 {
+    let mode = match mode {
+        0 => PositionMode::Normal,
+        1 => PositionMode::Multiply,
+        2 => PositionMode::Long,
+        3 => PositionMode::Short,
+        _ => panic!("invalid strategy mode for certora compat"),
+    };
+
+    crate::Controller::multiply(
+        env,
+        caller,
+        0,
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        steps,
+        None,
+        None,
+    )
+}
+
+/// Variant of `multiply` with a pinned initial payment in `collateral_token`
+/// (the cheap branch in `collect_initial_multiply_payment` that skips the
+/// nested `swap_tokens`).
+pub fn multiply_with_initial_payment_collateral(
+    env: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+    initial_amount: i128,
+) -> u64 {
+    let mode = match mode {
+        0 => PositionMode::Normal,
+        1 => PositionMode::Multiply,
+        2 => PositionMode::Long,
+        3 => PositionMode::Short,
+        _ => panic!("invalid strategy mode for certora compat"),
+    };
+
+    let initial_payment: Option<Payment> = Some((collateral_token.clone(), initial_amount));
+    crate::Controller::multiply(
+        env,
+        caller,
+        0,
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        steps,
+        initial_payment,
+        None,
+    )
+}
+
+/// Variant of `multiply` with a pinned initial payment in a third token
+/// (neither collateral nor debt) and `convert_steps` provided. Exercises the
+/// nested `swap_tokens` branch.
+pub fn multiply_with_initial_payment_third_token(
+    env: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: SwapSteps,
+    third_token: Address,
+    initial_amount: i128,
+    convert_steps: SwapSteps,
+) -> u64 {
+    let mode = match mode {
+        0 => PositionMode::Normal,
+        1 => PositionMode::Multiply,
+        2 => PositionMode::Long,
+        3 => PositionMode::Short,
+        _ => panic!("invalid strategy mode for certora compat"),
+    };
+
+    let initial_payment: Option<Payment> = Some((third_token, initial_amount));
+    crate::Controller::multiply(
+        env,
+        caller,
+        0,
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        steps,
+        initial_payment,
+        Some(convert_steps),
+    )
+}
+
 /// Public-API shim for `Controller::liquidate`
 /// (`controller/src/positions/liquidation.rs:17-19`). Routes through the
 /// `#[when_not_paused]` + `liquidator.require_auth()` path so liquidation

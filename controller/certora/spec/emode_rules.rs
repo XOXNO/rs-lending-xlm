@@ -248,9 +248,11 @@ fn deprecated_emode_blocks_new_borrow(
 // Rule 6: deprecated_emode_allows_withdraw
 // ---------------------------------------------------------------------------
 
-/// Deprecated categories must still allow withdrawals. The rule constrains the
-/// asset to an existing deposit position and the amount to a valid withdrawal
-/// range so any revert is attributable to deprecated-category handling.
+/// Deprecated categories must still allow withdrawals. The previous
+/// `cvlr_satisfy!(true)` post-condition was satisfied by *any* reachable
+/// state (including reverts), making the rule vacuous. The rewrite asserts
+/// the position actually moved: either the scaled amount strictly
+/// decreased or the position was fully closed.
 #[rule]
 fn deprecated_emode_allows_withdraw(
     e: Env,
@@ -268,35 +270,32 @@ fn deprecated_emode_allows_withdraw(
     let category = crate::storage::get_emode_category(&e, attrs.e_mode_category_id);
     cvlr_assume!(category.is_deprecated);
 
-    // Account must have a deposit position for this specific asset
-    let deposit_list =
-        crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_DEPOSIT);
-    cvlr_assume!(!deposit_list.is_empty());
-
-    // Asset must be in the deposit list (isolate deprecated-category behavior)
-    let mut asset_in_list = false;
-    for i in 0..deposit_list.len() {
-        let existing = deposit_list.get(i).unwrap();
-        if existing == asset {
-            asset_in_list = true;
-        }
-    }
-    cvlr_assume!(asset_in_list);
-
-    // Amount must not exceed the position value (avoid revert from over-withdrawal)
+    // Account must have a deposit position for this specific asset.
     let position =
         crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_DEPOSIT, &asset);
     cvlr_assume!(position.is_some());
-    let pos = position.unwrap();
-    cvlr_assume!(pos.scaled_amount_ray > 0);
+    let pos_before = position.unwrap();
+    cvlr_assume!(pos_before.scaled_amount_ray > 0);
+    let scaled_before = pos_before.scaled_amount_ray;
 
     // Withdraw must succeed -- deprecated categories do not block exits
     let mut withdrawals: Vec<(Address, i128)> = Vec::new(&e);
-    withdrawals.push_back((asset, amount));
+    withdrawals.push_back((asset.clone(), amount));
     crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals);
 
-    // Reachable: withdraw from deprecated e-mode category must not revert
-    cvlr_satisfy!(true);
+    // Post-state must show the withdraw actually happened: either the
+    // position is gone (full withdraw) or its scaled amount strictly
+    // decreased (partial withdraw).
+    let position_after =
+        crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_DEPOSIT, &asset);
+    match position_after {
+        None => {
+            cvlr_assert!(true);
+        }
+        Some(pos_after) => {
+            cvlr_assert!(pos_after.scaled_amount_ray < scaled_before);
+        }
+    }
 }
 
 // ===========================================================================
@@ -382,8 +381,11 @@ fn emode_category_has_valid_params(e: Env, category_id: u32) {
 /// (`controller/src/config.rs:271-304`). The rule asserts:
 ///   1. category flagged deprecated;
 ///   2. side map empty after the call;
-///   3. for at least one pre-existing member asset, the reverse index
-///      `AssetEModes(asset)` no longer contains `category_id`.
+///   3. for the sampled pre-existing member, the reverse index
+///      `AssetEModes(asset)` no longer contains `category_id`;
+///   4. when the sampled member's reverse index becomes empty, the
+///      `e_mode_enabled` flag is cleared on its market config (the slim-
+///      storage refactor invariant).
 #[rule]
 fn emode_remove_category(e: Env, category_id: u32) {
     cvlr_assume!(category_id > 0);
@@ -392,9 +394,19 @@ fn emode_remove_category(e: Env, category_id: u32) {
     // entry so the post-state assertion can target the same asset.
     let members_before = crate::storage::get_emode_assets(&e, category_id);
     cvlr_assume!(!members_before.is_empty());
+    // Bound the side-map size: production semantics do not depend on map
+    // size and the loop in `remove_e_mode_category` does N reads + up to
+    // 2N writes per member. Without this cap the prover quantifies over
+    // an unbounded `Map<Address, EModeAssetConfig>` and TAC-blows.
+    cvlr_assume!(members_before.len() <= 5);
     let sample_asset = members_before.keys().get(0).unwrap();
     let cats_before = crate::storage::get_asset_emodes(&e, &sample_asset);
     cvlr_assume!(cats_before.contains(category_id));
+    // Capture the pre-state `e_mode_enabled` flag and reverse-index length
+    // so the post-condition can target the cleared-flag branch.
+    let market_before = crate::storage::get_market_config(&e, &sample_asset);
+    let was_e_mode_enabled = market_before.asset_config.e_mode_enabled;
+    let cats_before_len = cats_before.len();
 
     // Remove the category. This sets `is_deprecated = true`, walks every
     // member of the side map to remove `category_id` from the reverse
@@ -414,11 +426,32 @@ fn emode_remove_category(e: Env, category_id: u32) {
     // (3) Reverse index for the sampled member no longer contains the id.
     let cats_after = crate::storage::get_asset_emodes(&e, &sample_asset);
     cvlr_assert!(!cats_after.contains(category_id));
+
+    // (4) When the sampled member's reverse index becomes empty (it had
+    // exactly one category entry — the removed one — before), the market
+    // config's `e_mode_enabled` flag must be cleared. This verifies the
+    // slim-storage refactor invariant from `config.rs:292-299`.
+    if cats_before_len == 1 && was_e_mode_enabled {
+        let market_after = crate::storage::get_market_config(&e, &sample_asset);
+        cvlr_assert!(!market_after.asset_config.e_mode_enabled);
+    }
 }
 
-/// Adding an asset to a deprecated category must revert.
+/// Adding an asset to a deprecated category must revert. Without the
+/// existence + deprecation precondition the prover can satisfy the rule
+/// trivially via the `EModeCategoryNotFound` revert path
+/// (`config.rs:317-318`), which is a different gate than the
+/// `EModeCategoryDeprecated` revert (`config.rs:319-320`) under test.
 #[rule]
 fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u32) {
+    cvlr_assume!(category_id > 0);
+
+    // Category must exist AND be deprecated, so the only reachable revert
+    // path is the deprecated-category panic.
+    let category = crate::storage::try_get_emode_category(&e, category_id);
+    cvlr_assume!(category.is_some());
+    cvlr_assume!(category.unwrap().is_deprecated);
+
     // Attempt to add asset to deprecated category -- must revert
     crate::config::add_asset_to_e_mode_category(&e, asset, category_id, true, true);
 
@@ -435,39 +468,34 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
 // ---------------------------------------------------------------------------
 
 /// An account with e_mode_category > 0 cannot have is_isolated = true.
-/// Verified at account creation: attempting to create an account with both
-/// e-mode and isolation must revert.
+/// The production gate is `ensure_e_mode_compatible_with_asset`
+/// (`controller/src/positions/emode.rs:47-51`), invoked from
+/// `prepare_deposit_plan` before any pool I/O. Calling it directly is
+/// orders of magnitude cheaper than traversing the full `process_supply`
+/// entry point and exercises the exact panic this rule is asserting.
 #[rule]
-fn emode_account_cannot_enter_isolation(
-    e: Env,
-    caller: Address,
-    e_mode_category: u32,
-    asset: Address,
-    amount: i128,
-) {
-    cvlr_assume!(amount > 0);
+fn emode_account_cannot_enter_isolation(e: Env, asset: Address, e_mode_category: u32) {
     cvlr_assume!(e_mode_category > 0);
 
-    // Asset is an isolated asset
+    // Asset is an isolated asset.
     let config = crate::storage::get_market_config(&e, &asset).asset_config;
     cvlr_assume!(config.is_isolated_asset);
 
-    // Attempt to create new account (account_id = 0) with e-mode and isolated asset
-    // The first asset being isolated triggers is_isolated = true in
-    // create_account_from_first_asset, but e_mode_category > 0 conflicts.
-    let mut assets: Vec<(Address, i128)> = Vec::new(&e);
-    assets.push_back((asset, amount));
-    crate::positions::supply::process_supply(&e, &caller, 0, e_mode_category, &assets);
+    // Calling the gate with `is_isolated_asset = true` and `e_mode_id > 0`
+    // must panic with `EModeWithIsolated`.
+    crate::positions::emode::ensure_e_mode_compatible_with_asset(&e, &config, e_mode_category);
 
-    // Unreachable: e-mode + isolation at account creation must revert
+    // Unreachable: the gate must panic.
     cvlr_satisfy!(false);
 }
 
-/// Inductive form of the mutual-exclusion invariant: after any successful
-/// supply (the only entry point that can flip `is_isolated` or assign an
-/// e-mode category), the account meta must satisfy
-/// `!(is_isolated && e_mode_category_id > 0)`. Without an entry-point call
-/// the rule reads havoced storage and is vacuously satisfied/violated.
+/// Inductive form of the mutual-exclusion invariant for the supply entry
+/// point. `process_supply` only writes `AccountMeta` on the create-new
+/// branch (`account_id == 0` -> `create_account_for_first_asset`); the
+/// load-existing branch reads meta and never mutates `is_isolated` or
+/// `e_mode_category_id`. Pinning `account_id == 0` exercises the only
+/// branch where the invariant is non-trivially established and avoids
+/// paying for a redundant load path.
 #[rule]
 fn emode_isolation_mutual_exclusion_after_supply(
     e: Env,
@@ -478,11 +506,53 @@ fn emode_isolation_mutual_exclusion_after_supply(
     amount: i128,
 ) {
     cvlr_assume!(amount > 0);
+    // Only the create-new branch writes meta. Pin to that branch so the
+    // prover doesn't pay for the load-existing path that never mutates
+    // `is_isolated` or `e_mode_category_id`.
+    cvlr_assume!(account_id == 0);
 
     let mut assets: Vec<(Address, i128)> = Vec::new(&e);
     assets.push_back((asset, amount));
     let acct_id =
         crate::positions::supply::process_supply(&e, &caller, account_id, e_mode_category, &assets);
+
+    // Post-state must respect the e-mode XOR isolation invariant.
+    let attrs = crate::storage::get_account_attrs(&e, acct_id);
+    cvlr_assert!(!(attrs.is_isolated && attrs.e_mode_category_id > 0));
+}
+
+/// Sibling of `emode_isolation_mutual_exclusion_after_supply` for the
+/// `multiply` entry point. `process_multiply` also creates accounts via
+/// the same `create_account_for_first_asset` path, so the mutual-
+/// exclusion invariant must hold there too. The `compat::multiply` shim
+/// havocs `account_id` internally; this rule constrains the e-mode
+/// category and the collateral/debt pair via the shim's signature and
+/// asserts the post-state invariant.
+#[rule]
+fn emode_isolation_mutual_exclusion_after_multiply(
+    e: Env,
+    caller: Address,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: u32,
+    steps: common::types::SwapSteps,
+) {
+    cvlr_assume!(debt_to_flash_loan > 0);
+    // `compat::multiply` panics on `mode > 3`; constrain to a valid mode.
+    cvlr_assume!(mode <= 3);
+
+    let acct_id = crate::spec::compat::multiply(
+        e.clone(),
+        caller,
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        steps,
+    );
 
     // Post-state must respect the e-mode XOR isolation invariant.
     let attrs = crate::storage::get_account_attrs(&e, acct_id);

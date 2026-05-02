@@ -16,52 +16,21 @@ use soroban_sdk::{Address, Bytes, Env};
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Rule 2: Flash loan repayment covers borrowed + fee
+// Rule 2: Flash loan repayment covers borrowed + fee -- DELETED
 // ---------------------------------------------------------------------------
-
-/// The pool must receive back at least (borrowed_amount + fee) after the
-/// flash loan callback completes. This is enforced in pool.flash_loan_end().
-///
-/// Note: This property is partially verified here and partially in the pool
-/// contract specs. The controller ensures the call sequence is correct.
-// P1 rewrite: assert a pre/post revenue delta on the pool, not cvlr_satisfy!(true).
-// If flash_loan completes successfully, the pool's revenue MUST not regress.
-// A `>=` (not `>`) bound is the strongest correct assertion:
-//   * Operators may set `flashloan_fee_bps == 0` (production accepts any fee in
-//     `[0, MAX_FLASHLOAN_FEE_BPS]` -- see `validation::validate_asset_config`).
-//   * Even with a positive fee, half-up rounding zeroes out tiny `amount`
-//     values (`fee = amount * bps / BPS` rounds to 0 when
-//     `amount * bps < BPS / 2`).
-//   * `add_protocol_revenue` short-circuits when `supply_index <
-//     SUPPLY_INDEX_FLOOR_RAW`, leaving revenue unchanged even on a
-//     non-zero fee in pathological post-bad-debt states.
-// In each of these cases the strict `>` form would fail despite production
-// behaving correctly. The relaxed `>=` still catches the failure mode the
-// rule was written to detect: a broken `flash_loan_end` path that *negatively*
-// adjusts revenue.
-#[rule]
-fn flash_loan_fee_collected(
-    e: Env,
-    caller: Address,
-    receiver: Address,
-    asset: Address,
-    amount: i128,
-    data: Bytes,
-) {
-    cvlr_assume!(amount > 0);
-
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
-    let pool_addr = cache.cached_pool_address(&asset);
-
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-    let revenue_before = pool_client.protocol_revenue();
-
-    crate::Controller::flash_loan(e.clone(), caller, asset.clone(), amount, receiver, data);
-
-    let revenue_after = pool_client.protocol_revenue();
-
-    cvlr_assert!(revenue_after >= revenue_before);
-}
+//
+// The earlier `flash_loan_fee_collected` rule compared two independent calls
+// to `pool_client.protocol_revenue()` taken before and after the flash-loan
+// invocation. With no `protocol_revenue` summary wired and no shared per-tx
+// snapshot, both reads return independent havoced i128 values -- so the
+// `revenue_after >= revenue_before` assertion was vacuous.
+//
+// The protocol-revenue monotonicity property belongs in the pool crate's
+// spec (where the same storage backs both reads), or it requires a joint
+// pool-views summary that draws both reads from a single snapshot. Both are
+// out of scope for this controller-side spec module. See
+// audit/certora-efficiency/06-strategy-flashloan.md, "flash_loan_fee_collected
+// is mis-located" for rationale.
 
 // ---------------------------------------------------------------------------
 // Rule 3: Flash-loan guard helper rejects calls when the flag is set
@@ -108,11 +77,26 @@ fn flash_loan_guard_allows_when_clear(e: Env) {
 
 /// After a successful flash loan (process_flash_loan returns without
 /// reverting), the FlashLoanOngoing guard must be reset to false.
-/// This ensures subsequent operations are not permanently blocked.
 ///
 /// The guard lifecycle is: false -> true (before callback) -> false (after
 /// repayment verified). If the guard remains true after completion, all
 /// mutating endpoints would be permanently locked.
+///
+/// Audit P1a / `06-strategy-flashloan.md` flagged this rule as vacuously
+/// satisfied on every revert path inside `process_flash_loan`: when any
+/// pre-check (`require_amount_positive`, `require_market_active`,
+/// `is_flashloanable`), the receiver callback, or `flash_loan_end` panics,
+/// Soroban rolls the entire transaction back -- the guard is implicitly
+/// cleared by rollback, not by the production code, so the assertion was
+/// trivially satisfied via the unreachable post-state.
+///
+/// Below we exclude the controller-side revert paths via `cvlr_assume!`s so
+/// the rule actually exercises the success path. The third-party callback
+/// path (`env.invoke_contract::<()>` at flash_loan.rs:56-60) and the pool's
+/// own `flash_loan_end` repay-shortfall panic are out of the controller's
+/// reach; both remain vacuously satisfied via rollback. Pair with the
+/// `flash_loan_guard_cleared_sanity` companion below to confirm the success
+/// path is actually reachable under the wired summaries.
 #[rule]
 fn flash_loan_guard_cleared_after_completion(
     e: Env,
@@ -122,16 +106,59 @@ fn flash_loan_guard_cleared_after_completion(
     amount: i128,
     data: Bytes,
 ) {
-    cvlr_assume!(amount > 0);
+    // Bound the controller-side revert paths so the rule's PASS does not
+    // silently come from one of these short-circuits.
+    cvlr_assume!(amount > 0); // require_amount_positive (validation.rs:45-49)
+    cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e)); // require_not_flash_loaning
 
-    // Guard must be false before the flash loan
-    cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
+    // Constrain the asset to a flashloanable, active market. Otherwise
+    // `is_flashloanable` (flash_loan.rs:42-44) and `require_market_active`
+    // (flash_loan.rs:37) panic before the guard is ever set.
+    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let cfg = cache.cached_asset_config(&asset);
+    cvlr_assume!(cfg.is_flashloanable);
+    let market = crate::storage::get_market_config(&e, &asset);
+    cvlr_assume!(market.status == common::types::MarketStatus::Active);
+    drop(cache); // production rebuilds its own cache inside process_flash_loan
 
-    // Execute the flash loan (will revert if repayment insufficient)
+    // Execute the flash loan. Third-party paths (callback panic, pool-side
+    // repay-shortfall panic) are out of the controller's reach; on those
+    // revert paths Soroban rolls back state, which is the expected behaviour.
     crate::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
 
-    // After successful completion, the guard must be cleared
+    // Successful path: production must clear the guard at flash_loan.rs:64.
     cvlr_assert!(!crate::storage::is_flash_loan_ongoing(&e));
+}
+
+/// Reachability check for the success path of `flash_loan_guard_cleared_after_completion`.
+/// Without summaries that constrain the cross-contract callback's return, the
+/// success path may not be feasible to the prover -- in which case the parent
+/// rule passes vacuously. This sanity rule fails (does not satisfy) when the
+/// success path is unreachable, surfacing the wiring gap.
+#[rule]
+fn flash_loan_guard_cleared_sanity(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    asset: Address,
+    amount: i128,
+    data: Bytes,
+) {
+    cvlr_assume!(amount > 0);
+    cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
+
+    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let cfg = cache.cached_asset_config(&asset);
+    cvlr_assume!(cfg.is_flashloanable);
+    let market = crate::storage::get_market_config(&e, &asset);
+    cvlr_assume!(market.status == common::types::MarketStatus::Active);
+    drop(cache);
+
+    crate::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
+
+    // Reachability: if this never satisfies, the prover never finds a witness
+    // for the post-state and the parent rule's PASS is vacuous.
+    cvlr_satisfy!(!crate::storage::is_flash_loan_ongoing(&e));
 }
 
 // ---------------------------------------------------------------------------

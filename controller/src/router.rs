@@ -234,7 +234,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     let mut cache = ControllerCache::new(env, true);
     let feed = cache.cached_price(asset);
-    pool_client.update_indexes(&feed.price_wad);
+    pool_update_indexes_call(env, &market.pool_address, feed.price_wad);
 
     pool_client.update_params(
         &params.max_borrow_rate_ray,
@@ -276,15 +276,19 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     // Safe-price cache: revenue claim cannot liquidate positions.
     let mut cache = ControllerCache::new(env, true);
     let pool_addr = cache.cached_pool_address(asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
 
-    let amount = pool_client.claim_revenue(&feed.price_wad);
+    let amount = pool_claim_revenue_call(env, &pool_addr, feed.price_wad);
 
     if amount > 0 {
         let accumulator = storage::get_accumulator(env);
-        let tok = token::Client::new(env, asset);
-        tok.transfer(&env.current_contract_address(), &accumulator, &amount);
+        utils::sac_transfer_call(
+            env,
+            asset,
+            &env.current_contract_address(),
+            &accumulator,
+            &amount,
+        );
     }
 
     amount
@@ -309,7 +313,6 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     // Safe-price cache: reward credit cannot liquidate positions.
     let mut cache = ControllerCache::new(env, true);
     let pool_addr = cache.cached_pool_address(asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(asset);
 
     let actual_received = utils::transfer_and_measure_received(
@@ -321,7 +324,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
         GenericError::AmountMustBePositive,
     );
 
-    pool_client.add_rewards(&feed.price_wad, &actual_received);
+    pool_add_rewards_call(env, &pool_addr, feed.price_wad, actual_received);
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
@@ -381,3 +384,42 @@ pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         pool_client.keepalive();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Summarised pool wrappers (used by router + helpers; the macro is a no-op
+// outside `--features certora`).
+// ---------------------------------------------------------------------------
+
+crate::summarized!(
+    crate::spec::summaries::pool::update_indexes_summary,
+    pub(crate) fn pool_update_indexes_call(
+        env: &Env,
+        pool_addr: &Address,
+        price_wad: i128,
+    ) -> common::types::MarketIndex {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes(&price_wad)
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::pool::claim_revenue_summary,
+    pub(crate) fn pool_claim_revenue_call(
+        env: &Env,
+        pool_addr: &Address,
+        price_wad: i128,
+    ) -> i128 {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(&price_wad)
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::pool::add_rewards_summary,
+    pub(crate) fn pool_add_rewards_call(
+        env: &Env,
+        pool_addr: &Address,
+        price_wad: i128,
+        amount: i128,
+    ) {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(&price_wad, &amount)
+    }
+);

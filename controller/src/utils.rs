@@ -35,13 +35,11 @@ pub fn transfer_and_measure_received(
     amount: i128,
     balance_decrease_error: GenericError,
 ) -> i128 {
-    let token = soroban_sdk::token::Client::new(env, asset);
-    let balance_before = token.balance(to);
+    let balance_before = sac_balance_call(env, asset, to);
 
-    token.transfer(from, to, &amount);
+    sac_transfer_call(env, asset, from, to, &amount);
 
-    let received = token
-        .balance(to)
+    let received = sac_balance_call(env, asset, to)
         .checked_sub(balance_before)
         .unwrap_or_else(|| panic_with_error!(env, balance_decrease_error));
     if received <= 0 {
@@ -50,6 +48,41 @@ pub fn transfer_and_measure_received(
 
     received
 }
+
+// ---------------------------------------------------------------------------
+// Summarised SAC wrappers (used across the controller; the macro is a no-op
+// outside `--features certora`).
+// ---------------------------------------------------------------------------
+
+crate::summarized!(
+    crate::spec::summaries::sac::balance_summary,
+    pub(crate) fn sac_balance_call(env: &Env, token: &Address, account: &Address) -> i128 {
+        soroban_sdk::token::Client::new(env, token).balance(account)
+    }
+);
+
+crate::summarized!(
+    crate::spec::summaries::sac::transfer_summary,
+    pub(crate) fn sac_transfer_call(
+        env: &Env,
+        token: &Address,
+        from: &Address,
+        to: &Address,
+        amount: &i128,
+    ) {
+        soroban_sdk::token::Client::new(env, token).transfer(from, to, amount)
+    }
+);
+
+// `sac::approve_summary` and `sac::allowance_summary` carry the matching
+// arity (leading `_token: &Address`) for future wiring. The current production
+// `approve` / `allowance` call sites all live inside `controller/src/strategy.rs`
+// and bind a `token::Client` reference reused across multiple ops — wiring
+// them through a free-fn summarised wrapper would force passing the asset
+// `Address` instead of the client across each helper. Leaving those sites as
+// raw client calls and the spec-level summaries idle (with the address arg in
+// place) is the minimal, soundness-preserving choice; revisit if/when the
+// router approve flow gets summarised.
 
 fn aggregate_payments(
     env: &Env,
@@ -139,8 +172,7 @@ pub fn create_account_for_first_asset(
 pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
-        let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
-        let index = pool_client.update_indexes(&0);
+        let index = crate::router::pool_update_indexes_call(env, &pool_addr, 0);
         // Refresh the in-memory cache so any subsequent reads in this tx see
         // the now-persisted index instead of recomputing.
         cache.market_indexes.set(asset.clone(), index);

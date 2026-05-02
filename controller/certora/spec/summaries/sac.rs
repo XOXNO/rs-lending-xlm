@@ -38,7 +38,13 @@ use soroban_sdk::{Address, Env};
 /// Bound: only the non-negative-amount precondition is enforced. The
 /// downstream balance reads (summarized below) carry the post-condition
 /// that balances stay non-negative.
-pub fn transfer_summary(_env: &Env, _from: &Address, _to: &Address, amount: &i128) {
+pub fn transfer_summary(
+    _env: &Env,
+    _token: &Address,
+    _from: &Address,
+    _to: &Address,
+    amount: &i128,
+) {
     cvlr_assume!(*amount >= 0);
 }
 
@@ -57,7 +63,7 @@ pub fn transfer_summary(_env: &Env, _from: &Address, _to: &Address, amount: &i12
 /// must rely on a separate model of the transfer effect (handled via
 /// `transfer_summary` + `cvlr_assume!` at call sites, not here -- mocking
 /// the SAC's internal ledger inside a summary would be unsound).
-pub fn balance_summary(_env: &Env, _account: &Address) -> i128 {
+pub fn balance_summary(_env: &Env, _token: &Address, _account: &Address) -> i128 {
     let bal: i128 = nondet();
     cvlr_assume!(bal >= 0);
     bal
@@ -76,6 +82,7 @@ pub fn balance_summary(_env: &Env, _account: &Address) -> i128 {
 ///   * No return value.
 pub fn approve_summary(
     _env: &Env,
+    _token: &Address,
     _from: &Address,
     _spender: &Address,
     amount: &i128,
@@ -88,7 +95,12 @@ pub fn approve_summary(
 ///
 /// Production guarantees: SAC allowances are always non-negative. The call
 /// is read-only -- no state mutation.
-pub fn allowance_summary(_env: &Env, _from: &Address, _spender: &Address) -> i128 {
+pub fn allowance_summary(
+    _env: &Env,
+    _token: &Address,
+    _from: &Address,
+    _spender: &Address,
+) -> i128 {
     let allowance: i128 = nondet();
     cvlr_assume!(allowance >= 0);
     allowance

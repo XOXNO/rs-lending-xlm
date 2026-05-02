@@ -521,11 +521,22 @@ fn execute_bad_debt_cleanup(
 }
 
 fn seize_pool_position(env: &Env, cache: &mut ControllerCache, position: &AccountPosition) {
-    let pool_addr = cache.cached_pool_address(&position.asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     let feed = cache.cached_price(&position.asset);
-    pool_client.seize_position(position, &feed.price_wad);
+    pool_seize_position_call(env, position.clone(), feed.price_wad);
 }
+
+crate::summarized!(
+    crate::spec::summaries::pool::seize_position_summary,
+    fn pool_seize_position_call(
+        env: &Env,
+        position: AccountPosition,
+        price_wad: i128,
+    ) -> AccountPosition {
+        let pool_addr = crate::storage::get_market_config(env, &position.asset).pool_address;
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
+            .seize_position(&position, &price_wad)
+    }
+);
 
 #[cfg(test)]
 mod tests {
