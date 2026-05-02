@@ -294,16 +294,17 @@ fn rescale_roundtrip_sanity() {
 // computation timed out the solver during the most recent Certora run
 // (`signed_mul_away_from_zero: solving threw an exception`).
 //
-// Property: for a < 0, b > 0, half-up signed division rounds the negative
-// result away from zero, so the result is <= the truncation-toward-zero of
-// a*b/RAY. With `a*b` negative, truncation-toward-zero == ceiling, and
-// floor (toward minus infinity) is at most one unit lower.
+// Property: half-up signed rounding (away from zero) keeps `result * d`
+// within one full divisor `d` of the true product `a*b`. The earlier
+// one-sided bound `result * RAY <= a * b` is wrong on negative products:
+// rounding `-3.4` away from zero yields `-3`, and `-3 * RAY > -3.4 * RAY`.
+// The correct linear envelope is symmetric:
 //
-// Linear envelope: `result * RAY` is at most `RAY` below `a*b`, never above:
-//   result * RAY <= a * b
-//   result * RAY >= a * b - RAY
+//   a * b - RAY <= result * RAY <= a * b + RAY
 //
-// Tighter input bounds (10^14) keep `a*b` inside i128.
+// which captures both rounding directions. Input bounds keep `a * b`
+// inside i128 (max product ~10^28 vs i128 max ~1.7e38) so the
+// multiplications are linear and overflow-free.
 #[rule]
 fn signed_mul_away_from_zero(e: Env) {
     let a: i128 = cvlr::nondet::nondet();
@@ -314,11 +315,12 @@ fn signed_mul_away_from_zero(e: Env) {
 
     let result = mul_div_half_up_signed(&e, a, b, RAY);
 
-    // Half-up away-from-zero on a negative product: result is no greater
-    // than truncation-toward-zero of a*b/RAY (i.e. more negative-or-equal),
-    // and at most one RAY below.
-    cvlr_assert!(result * RAY <= a * b);
+    // Symmetric envelope: `result * RAY` is at most one `RAY` away from
+    // the exact product `a * b` in either direction. Holds for both
+    // signs of the product (here always non-positive given the input
+    // ranges, but the bound is sign-agnostic).
     cvlr_assert!(result * RAY >= a * b - RAY);
+    cvlr_assert!(result * RAY <= a * b + RAY);
 }
 
 #[rule]

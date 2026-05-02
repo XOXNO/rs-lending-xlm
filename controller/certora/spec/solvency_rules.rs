@@ -318,23 +318,11 @@ fn borrow_rejects_zero_amount(e: Env, caller: Address, account_id: u64) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule 6: Withdraw rejects zero amount
+// Rule 6: DELETED -- withdraw_rejects_zero_amount asserted a false invariant.
+// Production (`controller/src/positions/withdraw.rs:96`) treats `amount == 0`
+// as the documented `WITHDRAW_ALL_SENTINEL` (full-close) sentinel, not as a
+// rejection. The rule expected a revert that never happens.
 // ---------------------------------------------------------------------------
-
-/// Controller::withdraw with amount=0 must revert or be a no-op.
-#[rule]
-fn withdraw_rejects_zero_amount(e: Env, caller: Address, account_id: u64) {
-    let asset = e.current_contract_address();
-    let zero_amount: i128 = 0;
-
-    let mut withdrawals = Vec::new(&e);
-    withdrawals.push_back((asset, zero_amount));
-
-    crate::Controller::withdraw(e.clone(), caller, account_id, withdrawals);
-
-    // If execution reaches here, zero-amount withdraw was accepted -- violation.
-    cvlr_satisfy!(false);
-}
 
 // ---------------------------------------------------------------------------
 // Rule 7: Repay rejects zero amount

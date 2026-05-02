@@ -65,23 +65,12 @@ fn utilization_params_ordered(e: Env, asset: Address) {
 
 // ---------------------------------------------------------------------------
 // Rule 5: Isolation and E-Mode are mutually exclusive
+//
+// Inductive form lives in `emode_rules::emode_isolation_mutual_exclusion_after_supply`.
+// A read-only rule over havoced storage is vacuous because storage can
+// freely produce both flags set; the invariant only holds across the
+// writing entry points (supply/multiply) that mutate AccountMeta.
 // ---------------------------------------------------------------------------
-
-/// An account cannot have both an e-mode category AND be in isolation mode.
-#[rule]
-fn isolation_emode_exclusive(e: Env, account_id: u64) {
-    let account_data = crate::storage::accounts::get_account_data(&e, account_id);
-
-    // If e-mode category is set (> 0), isolation must be off
-    if account_data.e_mode_category > 0 {
-        cvlr_assert!(!account_data.is_isolated);
-    }
-
-    // If isolated, e-mode must be 0
-    if account_data.is_isolated {
-        cvlr_assert!(account_data.e_mode_category == 0);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Rule 6: Isolated accounts have at most one collateral asset
@@ -116,8 +105,11 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
 // Rule 7: Borrow in isolation mode respects debt ceiling
 // ---------------------------------------------------------------------------
 
-/// After a borrow in isolation mode, the global isolated debt for that asset
-/// must not exceed the configured debt ceiling.
+/// On the success path of an isolated borrow, the global isolated debt
+/// counter for the isolated collateral asset must remain at or below the
+/// asset's `isolation_debt_ceiling_usd_wad`. Vacuity guards:
+///   - require the account is isolated AND has a concrete `isolated_asset`;
+///   - the borrow must execute successfully (control reaches the assertion).
 #[rule]
 fn isolation_debt_ceiling_respected(
     e: Env,
@@ -128,17 +120,66 @@ fn isolation_debt_ceiling_respected(
 ) {
     cvlr_assume!(amount > 0);
 
-    let account_data = crate::storage::accounts::get_account_data(&e, account_id);
-    cvlr_assume!(account_data.is_isolated);
+    // Read the raw meta so we can require an actual isolated collateral
+    // (the `accounts::get_account_data` shim defaults `isolated_asset` to
+    // the account owner when None, which would let the rule pass against
+    // an unrelated address).
+    let meta = crate::storage::get_account_meta(&e, account_id);
+    cvlr_assume!(meta.is_isolated);
+    cvlr_assume!(meta.isolated_asset.is_some());
+    let isolated_asset = meta.isolated_asset.unwrap();
 
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
+    // Execute the borrow via the public auth path. If this reverts the
+    // assertion below is unreachable, so the rule covers the success path
+    // explicitly.
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    // After borrow, check ceiling
-    let isolated_asset = account_data.isolated_asset;
-    let isolated_config = crate::storage::asset_config::get_asset_config(&e, &isolated_asset);
-    let current_debt = crate::storage::isolation::get_isolated_debt(&e, &isolated_asset);
+    // Read ceiling from the live MarketConfig and the isolated-debt counter.
+    let market = crate::storage::get_market_config(&e, &isolated_asset);
+    let current_debt = crate::storage::get_isolated_debt(&e, &isolated_asset);
+    cvlr_assert!(current_debt <= market.asset_config.isolation_debt_ceiling_usd_wad);
+}
 
-    cvlr_assert!(current_debt <= isolated_config.isolation_debt_ceiling_usd_wad);
+// ---------------------------------------------------------------------------
+// Rule 7b: Repay in isolation mode strictly decreases the isolated-debt counter
+// ---------------------------------------------------------------------------
+
+/// A repayment of an isolated borrow must strictly reduce the global
+/// `IsolatedDebt(asset)` counter when the repayment amount is positive and
+/// the borrow side actually held that asset.
+#[rule]
+fn isolation_repay_decreases_counter(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+
+    let meta = crate::storage::get_account_meta(&e, account_id);
+    cvlr_assume!(meta.is_isolated);
+    cvlr_assume!(meta.isolated_asset.is_some());
+    let isolated_asset = meta.isolated_asset.unwrap();
+
+    // The account must already owe the repaid asset, otherwise repay is a
+    // no-op and the counter would not move.
+    let borrow_pos = crate::storage::get_position(
+        &e,
+        account_id,
+        common::types::POSITION_TYPE_BORROW,
+        &asset,
+    );
+    cvlr_assume!(borrow_pos.is_some());
+    cvlr_assume!(borrow_pos.unwrap().scaled_amount_ray > 0);
+
+    let debt_before = crate::storage::get_isolated_debt(&e, &isolated_asset);
+    cvlr_assume!(debt_before > 0);
+
+    crate::spec::compat::repay_single(e.clone(), caller, account_id, asset, amount);
+
+    let debt_after = crate::storage::get_isolated_debt(&e, &isolated_asset);
+    cvlr_assert!(debt_after < debt_before);
 }
 
 // ---------------------------------------------------------------------------

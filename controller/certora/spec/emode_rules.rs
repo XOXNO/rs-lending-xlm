@@ -316,6 +316,11 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     // Category must exist
     let category = crate::storage::get_emode_category(&e, category_id);
 
+    // `apply_e_mode_to_asset_config` early-returns on deprecated categories
+    // (`controller/src/positions/emode.rs:20-29`) and leaves the base config
+    // untouched. Restrict the rule to the override branch.
+    cvlr_assume!(!category.is_deprecated);
+
     // Asset must be registered in the category
     let emode_asset = crate::storage::get_emode_asset(&e, category_id, &asset);
     cvlr_assume!(emode_asset.is_some());
@@ -371,17 +376,44 @@ fn emode_category_has_valid_params(e: Env, category_id: u32) {
 // ---------------------------------------------------------------------------
 
 /// Removing (deprecating) an e-mode category via `remove_e_mode_category`
-/// sets `is_deprecated = true`. After removal, the category must be marked
-/// deprecated. Also verifies that attempting to add a new asset to a
-/// deprecated category reverts.
+/// sets `is_deprecated = true`, walks the side map to clear each member's
+/// reverse index entry, drops the entire `EModeAssets(category_id)` ledger
+/// entry, and clears `e_mode_enabled` on now-orphaned markets
+/// (`controller/src/config.rs:271-304`). The rule asserts:
+///   1. category flagged deprecated;
+///   2. side map empty after the call;
+///   3. for at least one pre-existing member asset, the reverse index
+///      `AssetEModes(asset)` no longer contains `category_id`.
 #[rule]
 fn emode_remove_category(e: Env, category_id: u32) {
-    // Remove the category (sets is_deprecated = true)
+    cvlr_assume!(category_id > 0);
+
+    // Capture a member of the category before deprecation. Pin to the first
+    // entry so the post-state assertion can target the same asset.
+    let members_before = crate::storage::get_emode_assets(&e, category_id);
+    cvlr_assume!(!members_before.is_empty());
+    let sample_asset = members_before.keys().get(0).unwrap();
+    let cats_before = crate::storage::get_asset_emodes(&e, &sample_asset);
+    cvlr_assume!(cats_before.contains(category_id));
+
+    // Remove the category. This sets `is_deprecated = true`, walks every
+    // member of the side map to remove `category_id` from the reverse
+    // index, drops `EModeAssets(category_id)` entirely, and clears
+    // `e_mode_enabled` on assets whose reverse index becomes empty.
     crate::config::remove_e_mode_category(&e, category_id);
 
-    // After removal, the category must be deprecated
+    // (1) Category is flagged deprecated.
     let category = crate::storage::get_emode_category(&e, category_id);
     cvlr_assert!(category.is_deprecated);
+
+    // (2) Side map is dropped: read returns an empty map (the persistent
+    // entry was removed by `storage::remove_emode_assets`).
+    let members_after = crate::storage::get_emode_assets(&e, category_id);
+    cvlr_assert!(members_after.is_empty());
+
+    // (3) Reverse index for the sampled member no longer contains the id.
+    let cats_after = crate::storage::get_asset_emodes(&e, &sample_asset);
+    cvlr_assert!(!cats_after.contains(category_id));
 }
 
 /// Adding an asset to a deprecated category must revert.
@@ -431,19 +463,30 @@ fn emode_account_cannot_enter_isolation(
     cvlr_satisfy!(false);
 }
 
-/// Verify existing account invariant: no account can have both e-mode and
-/// isolation simultaneously, regardless of how it was created.
+/// Inductive form of the mutual-exclusion invariant: after any successful
+/// supply (the only entry point that can flip `is_isolated` or assign an
+/// e-mode category), the account meta must satisfy
+/// `!(is_isolated && e_mode_category_id > 0)`. Without an entry-point call
+/// the rule reads havoced storage and is vacuously satisfied/violated.
 #[rule]
-fn emode_isolation_mutual_exclusion_invariant(e: Env, account_id: u64) {
-    let attrs = crate::storage::get_account_attrs(&e, account_id);
+fn emode_isolation_mutual_exclusion_after_supply(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    e_mode_category: u32,
+    asset: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
 
-    // These two conditions cannot both be true
-    if attrs.e_mode_category_id > 0 {
-        cvlr_assert!(!attrs.is_isolated);
-    }
-    if attrs.is_isolated {
-        cvlr_assert!(attrs.e_mode_category_id == 0);
-    }
+    let mut assets: Vec<(Address, i128)> = Vec::new(&e);
+    assets.push_back((asset, amount));
+    let acct_id =
+        crate::positions::supply::process_supply(&e, &caller, account_id, e_mode_category, &assets);
+
+    // Post-state must respect the e-mode XOR isolation invariant.
+    let attrs = crate::storage::get_account_attrs(&e, acct_id);
+    cvlr_assert!(!(attrs.is_isolated && attrs.e_mode_category_id > 0));
 }
 
 // ===========================================================================

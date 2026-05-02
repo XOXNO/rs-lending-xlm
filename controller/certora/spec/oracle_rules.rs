@@ -35,7 +35,7 @@ fn price_staleness_enforced(e: Env, asset: Address) {
 
     // Invoke the production oracle entrypoint. If the underlying feed is
     // stale, production panics before this returns.
-    let feed = crate::oracle::token_price(&mut cache, &asset);
+    let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
 
     // Post-condition: the feed timestamp is AT OR BEFORE the cache clock
     // (no future-dated feed leaked through), and the gap is bounded by the
@@ -68,7 +68,7 @@ fn first_tolerance_uses_safe_price(
     cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
 
     // Check if within first tolerance band
-    let within_first = crate::oracle::is_within_anchor(
+    let within_first = crate::oracle::is_within_anchor::is_within_anchor(
         &e,
         agg_price,
         safe_price_val,
@@ -114,14 +114,14 @@ fn second_tolerance_uses_average(
     cvlr_assume!(last_upper_bps >= first_upper_bps);
     cvlr_assume!(last_lower_bps >= first_lower_bps);
 
-    let within_first = crate::oracle::is_within_anchor(
+    let within_first = crate::oracle::is_within_anchor::is_within_anchor(
         &e,
         agg_price,
         safe_price_val,
         first_upper_bps,
         first_lower_bps,
     );
-    let within_second = crate::oracle::is_within_anchor(
+    let within_second = crate::oracle::is_within_anchor::is_within_anchor(
         &e,
         agg_price,
         safe_price_val,
@@ -174,7 +174,7 @@ fn beyond_tolerance_blocks_risk_ops(
     cvlr_assume!(last_lower_bps >= MIN_LAST_TOLERANCE);
     cvlr_assume!(last_lower_bps <= MAX_LAST_TOLERANCE);
 
-    let within_second = crate::oracle::is_within_anchor(
+    let within_second = crate::oracle::is_within_anchor::is_within_anchor(
         &e,
         agg_price,
         safe_price_val,
@@ -206,10 +206,10 @@ fn price_cache_consistency(e: Env, asset: Address) {
     let mut cache = crate::cache::ControllerCache::new(&e, false);
 
     // First price fetch (populates cache)
-    let feed1 = crate::oracle::token_price(&mut cache, &asset);
+    let feed1 = crate::oracle::token_price::token_price(&mut cache, &asset);
 
     // Second price fetch (should hit cache)
-    let feed2 = crate::oracle::token_price(&mut cache, &asset);
+    let feed2 = crate::oracle::token_price::token_price(&mut cache, &asset);
 
     // Both must return identical values
     cvlr_assert!(feed1.price_wad == feed2.price_wad);
@@ -270,8 +270,9 @@ fn tolerance_bounds_valid(
 
 // ---------------------------------------------------------------------------
 // Note: spec-level reimplementation `is_within_anchor_spec` REMOVED.
-// Rules now invoke `crate::oracle::is_within_anchor` directly so divergence
-// between spec and production is caught by construction.
+// Rules now invoke `crate::oracle::is_within_anchor::is_within_anchor`
+// (the unsummarised real function preserved by `apply_summary!`) directly
+// so divergence between spec and production is caught by construction.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -285,7 +286,7 @@ fn oracle_tolerance_sanity(e: Env) {
     cvlr_assume!(agg > 0 && agg < 1_000_000 * WAD);
     cvlr_assume!(safe > 0 && safe < 1_000_000 * WAD);
 
-    let within = crate::oracle::is_within_anchor(&e, agg, safe, 200, 200); // 2% tolerance
+    let within = crate::oracle::is_within_anchor::is_within_anchor(&e, agg, safe, 200, 200); // 2% tolerance
     cvlr_satisfy!(within);
 }
 
@@ -293,6 +294,6 @@ fn oracle_tolerance_sanity(e: Env) {
 fn price_cache_sanity(e: Env) {
     let asset = e.current_contract_address();
     let mut cache = crate::cache::ControllerCache::new(&e, false);
-    let feed = crate::oracle::token_price(&mut cache, &asset);
+    let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
     cvlr_satisfy!(feed.price_wad > 0);
 }

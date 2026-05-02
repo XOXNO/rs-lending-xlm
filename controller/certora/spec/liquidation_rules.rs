@@ -15,9 +15,9 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use common::constants::{BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
+use common::constants::{BAD_DEBT_USD_THRESHOLD, BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
 use common::fp::{Bps, Wad};
-use common::fp_core::mul_div_half_up;
+use common::fp_core::{mul_div_floor, mul_div_half_up};
 
 // ---------------------------------------------------------------------------
 // Rule 1: Health factor improves after liquidation
@@ -180,6 +180,15 @@ fn seizure_proportional(
 /// Protocol fee = bonus_amount * liquidation_fees_bps / BPS.
 /// The fee is computed on the bonus portion (seizure - base), not the
 /// entire seizure amount.
+///
+/// Mirrors production at `controller/src/positions/liquidation.rs:355-365`:
+///   one_plus_bonus = WAD + bonus_bps_to_wad           (half-up)
+///   base_amount    = seizure * WAD / one_plus_bonus   (FLOOR -- div_floor)
+///   bonus_portion  = seizure - base_amount
+///   protocol_fee   = bonus_portion * fees_bps / BPS   (half-up)
+///
+/// The base side uses `div_floor` (not half-up) so the bonus side is never
+/// understated and the fee is always at least the spec value.
 #[rule]
 fn protocol_fee_on_bonus_only(
     e: Env,
@@ -193,9 +202,12 @@ fn protocol_fee_on_bonus_only(
     cvlr_assume!(liquidation_fees_bps >= 0);
     cvlr_assume!(liquidation_fees_bps <= BPS);
 
-    // Compute base and bonus amounts (mirrors liquidation.rs logic)
+    // Compute base and bonus amounts (mirrors liquidation.rs logic).
+    // `one_plus_bonus_wad` is built with half-up (matches `Bps::to_wad`
+    // composed with `Wad::ONE + ...`); `base_amount` uses floor division
+    // (matches `Wad::div_floor`).
     let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
-    let base_amount = mul_div_half_up(&e, seizure_amount, WAD, one_plus_bonus_wad);
+    let base_amount = mul_div_floor(&e, seizure_amount, WAD, one_plus_bonus_wad);
     let bonus_amount = seizure_amount - base_amount;
     let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees_bps, BPS);
 
@@ -215,35 +227,53 @@ fn protocol_fee_on_bonus_only(
 }
 
 // ---------------------------------------------------------------------------
-// Rule 8: Bad debt threshold
+// Rule 8: Bad debt threshold gates cleanup
 // ---------------------------------------------------------------------------
 
-/// Bad debt cleanup triggers only when collateral <= $5 USD AND debt > collateral.
-/// The threshold is 5 * WAD.
+/// `clean_bad_debt_standalone` (controller/src/positions/liquidation.rs:460)
+/// panics with `CannotCleanBadDebt` unless
+/// `total_debt_usd > total_collateral_usd && total_collateral_usd <= 5*WAD`.
+///
+/// This rule asserts that real production gating predicate by capturing the
+/// account's USD totals from `calculate_account_totals`, calling the
+/// production entry point, and asserting that any path that reaches the
+/// post-state must satisfy the qualification (otherwise the call would
+/// have panicked). The previous version checked a locally-defined boolean
+/// against itself -- a propositional tautology that proved nothing about
+/// production.
 #[rule]
-fn bad_debt_threshold(_e: Env, total_collateral_usd_wad: i128, total_debt_usd_wad: i128) {
-    cvlr_assume!(total_collateral_usd_wad >= 0);
-    cvlr_assume!(total_debt_usd_wad >= 0);
+fn bad_debt_threshold(e: Env, account_id: u64) {
+    let mut cache = crate::cache::ControllerCache::new(&e, false);
 
-    let bad_debt_threshold_wad: i128 = 5 * WAD; // $5 USD
+    // The standalone entry rejects accounts without any borrow positions
+    // before reaching the qualification check (`PositionNotFound`), so
+    // exclude that path here.
+    let account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(!account.borrow_positions.is_empty());
 
-    let qualifies = total_debt_usd_wad > total_collateral_usd_wad
-        && total_collateral_usd_wad <= bad_debt_threshold_wad;
+    // Capture USD totals using the same helper production uses, so the
+    // values we assert about are exactly the ones gating the cleanup.
+    let (total_collateral_usd, total_debt_usd, _) = crate::helpers::calculate_account_totals(
+        &e,
+        &mut cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
 
-    // If collateral > $5, should NOT qualify
-    if total_collateral_usd_wad > bad_debt_threshold_wad {
-        cvlr_assert!(!qualifies);
-    }
+    // Bound the totals to keep i128 arithmetic linear / overflow-free in
+    // the prover model. The threshold path only fires when collateral is
+    // tiny (<= $5), so a generous protocol-realistic upper bound is fine.
+    cvlr_assume!(total_collateral_usd.raw() >= 0);
+    cvlr_assume!(total_debt_usd.raw() >= 0);
 
-    // If debt <= collateral, should NOT qualify (account is solvent)
-    if total_debt_usd_wad <= total_collateral_usd_wad {
-        cvlr_assert!(!qualifies);
-    }
+    // If execution reaches the post-state, the qualification predicate
+    // must have held. Equivalent to: cleanup happens iff the predicate
+    // holds, since the failure path panics atomically.
+    crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
 
-    // If collateral = 0 and debt > 0, MUST qualify
-    if total_collateral_usd_wad == 0 && total_debt_usd_wad > 0 {
-        cvlr_assert!(qualifies);
-    }
+    let bad_debt_threshold_wad = BAD_DEBT_USD_THRESHOLD; // 5 * WAD
+    cvlr_assert!(total_debt_usd.raw() > total_collateral_usd.raw());
+    cvlr_assert!(total_collateral_usd.raw() <= bad_debt_threshold_wad);
 }
 
 // ---------------------------------------------------------------------------
