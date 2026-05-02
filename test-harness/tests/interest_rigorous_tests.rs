@@ -263,15 +263,16 @@ fn test_scaled_amount_times_index_equals_actual() {
     // Read the borrow index.
     let (_, borrow_index) = get_indexes(&t, "ETH");
 
-    // Read the scaled position from split position storage.
+    // Read the scaled position from the borrow side map.
     let scaled_borrow = t.env.as_contract(&t.controller_address(), || {
-        t.env
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition> = t
+            .env
             .storage()
             .persistent()
-            .get::<_, common::types::AccountPosition>(
-                &common::types::ControllerKey::BorrowPosition(account_id, eth_addr.clone()),
-            )
-            .unwrap()
+            .get(&common::types::ControllerKey::BorrowPositions(account_id))
+            .expect("borrow side map must exist");
+        map.get(eth_addr.clone())
+            .expect("borrow position for asset must exist")
             .scaled_amount_ray
     });
 

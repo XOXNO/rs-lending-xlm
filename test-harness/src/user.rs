@@ -100,8 +100,6 @@ impl LendingTest {
                     e_mode_category_id: e_mode_category,
                     mode,
                     isolated_asset,
-                    supply_assets: Vec::new(&self.env),
-                    borrow_assets: Vec::new(&self.env),
                 },
             );
             next
@@ -323,6 +321,29 @@ impl LendingTest {
         ctrl.borrow(&addr, &account_id, &soroban_borrows);
     }
 
+    pub fn try_borrow_bulk(
+        &mut self,
+        user: &str,
+        assets: &[(&str, f64)],
+    ) -> Result<(), soroban_sdk::Error> {
+        let account_id = self.try_resolve_account_id(user)?;
+        let addr = self.users.get(user).unwrap().address.clone();
+
+        let mut soroban_borrows: Vec<(Address, i128)> = Vec::new(&self.env);
+        for (asset_name, amount) in assets {
+            let market = self.resolve_market(asset_name);
+            let raw = f64_to_i128(*amount, market.decimals);
+            soroban_borrows.push_back((market.asset.clone(), raw));
+        }
+
+        let ctrl = self.ctrl_client();
+        match ctrl.try_borrow(&addr, &account_id, &soroban_borrows) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Withdraw
     // -----------------------------------------------------------------------
@@ -492,27 +513,22 @@ impl LendingTest {
 
     fn remove_account_direct(&self, account_id: u64) -> Result<(), soroban_sdk::Error> {
         self.env.as_contract(&self.controller, || {
-            let Some(meta) = self
-                .env
-                .storage()
-                .persistent()
-                .get::<_, AccountMeta>(&ControllerKey::AccountMeta(account_id))
-            else {
+            let persistent = self.env.storage().persistent();
+            if !persistent.has(&ControllerKey::AccountMeta(account_id)) {
                 return Err(soroban_sdk::Error::from_contract_error(
                     common::errors::GenericError::AccountNotFound as u32,
                 ));
             };
 
-            if !meta.supply_assets.is_empty() || !meta.borrow_assets.is_empty() {
+            let has_supply = persistent.has(&ControllerKey::SupplyPositions(account_id));
+            let has_borrow = persistent.has(&ControllerKey::BorrowPositions(account_id));
+            if has_supply || has_borrow {
                 return Err(soroban_sdk::Error::from_contract_error(
                     common::errors::CollateralError::PositionNotFound as u32,
                 ));
             }
 
-            self.env
-                .storage()
-                .persistent()
-                .remove(&ControllerKey::AccountMeta(account_id));
+            persistent.remove(&ControllerKey::AccountMeta(account_id));
             Ok(())
         })
     }

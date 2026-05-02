@@ -80,6 +80,41 @@ fn test_borrow_multiple_assets_bulk() {
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
     t.assert_position_exists(ALICE, "WBTC", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
+    t.assert_borrow_near(ALICE, "WBTC", 0.01, 0.0001);
+    let eth_wallet = t.token_balance(ALICE, "ETH");
+    let wbtc_wallet = t.token_balance(ALICE, "WBTC");
+    assert!(
+        eth_wallet > 0.99,
+        "ETH wallet should be ~1.0, got {}",
+        eth_wallet
+    );
+    assert!(
+        wbtc_wallet > 0.0099,
+        "WBTC wallet should be ~0.01, got {}",
+        wbtc_wallet
+    );
+    t.assert_healthy(ALICE);
+}
+
+#[test]
+fn test_borrow_duplicate_asset_bulk_accumulates_single_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow_bulk(ALICE, &[("ETH", 0.5), ("ETH", 0.75)]);
+
+    t.assert_borrow_count(ALICE, 1);
+    t.assert_borrow_near(ALICE, "ETH", 1.25, 0.01);
+    let eth_wallet = t.token_balance(ALICE, "ETH");
+    assert!(
+        eth_wallet > 1.24 && eth_wallet < 1.26,
+        "ETH wallet should be ~1.25 after duplicate-asset borrow, got {}",
+        eth_wallet
+    );
     t.assert_healthy(ALICE);
 }
 
@@ -217,13 +252,9 @@ fn test_borrow_position_limit_exceeded() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 0.1);
 
-    // The second borrow position must exceed the limit. Soroban wraps the
-    // error as InvalidAction on the cross-contract path.
+    // The second borrow position must exceed the limit.
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
-    assert!(
-        result.is_err(),
-        "borrow exceeding position limit should fail"
-    );
+    assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +278,24 @@ fn test_borrow_siloed_asset_blocks_mixed() {
     // Borrowing WBTC must fail because ETH is siloed.
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
+}
+
+#[test]
+fn test_borrow_bulk_rejects_siloed_asset_mixed_in_same_batch() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_siloed_borrowing = true;
+        })
+        .with_market(wbtc_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+
+    let result = t.try_borrow_bulk(ALICE, &[("ETH", 0.1), ("WBTC", 0.001)]);
+    assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
+    t.assert_borrow_count(ALICE, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +372,14 @@ fn test_borrow_emode_enhanced_ltv() {
     // Standard LTV = 75% caps the normal limit at $7500.
     // E-mode LTV = 97%, so a $9500 borrow stays allowed.
     t.borrow(ALICE, "USDT", 9_500.0);
+    t.assert_position_exists(ALICE, "USDT", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "USDT", 9_500.0, 1.0);
+    let usdt_wallet = t.token_balance(ALICE, "USDT");
+    assert!(
+        usdt_wallet > 9_499.0,
+        "USDT wallet should be ~9500, got {}",
+        usdt_wallet
+    );
     t.assert_healthy(ALICE);
 
     let hf = t.health_factor(ALICE);
@@ -348,6 +405,12 @@ fn test_borrow_health_factor_exactly_one() {
     // HF uses liquidation_threshold (80%), not LTV (75%).
     t.borrow(ALICE, "USDT", 7_500.0);
     t.assert_healthy(ALICE);
+    let usdt_wallet = t.token_balance(ALICE, "USDT");
+    assert!(
+        usdt_wallet > 7_499.0,
+        "USDT wallet should hold ~7500, got {}",
+        usdt_wallet
+    );
 
     let hf = t.health_factor(ALICE);
     assert!(
@@ -377,5 +440,15 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
     t.assert_position_exists(ALICE, "WBTC", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "ETH", 0.5, 0.01);
+    t.assert_borrow_near(ALICE, "WBTC", 0.005, 0.0001);
+    let eth_wallet = t.token_balance(ALICE, "ETH");
+    let wbtc_wallet = t.token_balance(ALICE, "WBTC");
+    assert!(eth_wallet > 0.49, "ETH wallet ~0.5, got {}", eth_wallet);
+    assert!(
+        wbtc_wallet > 0.0049,
+        "WBTC wallet ~0.005, got {}",
+        wbtc_wallet
+    );
     t.assert_healthy(ALICE);
 }

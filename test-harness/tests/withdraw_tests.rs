@@ -75,6 +75,8 @@ fn test_withdraw_multiple_assets() {
 
     t.assert_supply_near(ALICE, "USDC", 8_000.0, 1.0);
     t.assert_supply_near(ALICE, "ETH", 4.0, 0.01);
+    t.assert_balance_eq(ALICE, "USDC", 2_000.0);
+    t.assert_balance_eq(ALICE, "ETH", 1.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,7 @@ fn test_withdraw_allowed_without_borrows() {
 
     let supply = t.supply_balance(ALICE, "USDC");
     assert!(supply < 0.01, "supply should be ~0");
+    t.assert_balance_eq(ALICE, "USDC", 10_000.0);
 }
 
 // ---------------------------------------------------------------------------

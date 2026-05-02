@@ -1,8 +1,21 @@
 use common::constants::WAD;
 use common::types::ControllerKey;
+use soroban_sdk::{Address, Env, Map};
 
 use crate::context::LendingTest;
 use crate::view::PositionType;
+
+fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
+    let key = match pos_type {
+        PositionType::Supply => ControllerKey::SupplyPositions(account_id),
+        PositionType::Borrow => ControllerKey::BorrowPositions(account_id),
+    };
+    env.storage()
+        .persistent()
+        .get::<_, Map<Address, common::types::AccountPosition>>(&key)
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
 
 // ---------------------------------------------------------------------------
 // Error code constants for assertions (from common/src/errors.rs)
@@ -12,7 +25,10 @@ pub mod errors {
     // GenericError
     pub const ASSET_NOT_SUPPORTED: u32 = 1;
     pub const ASSET_ALREADY_SUPPORTED: u32 = 2;
+    pub const INVALID_ASSET: u32 = 6;
     pub const ASSETS_ARE_THE_SAME: u32 = 7;
+    pub const WRONG_TOKEN: u32 = 8;
+    pub const PAIR_NOT_ACTIVE: u32 = 12;
     pub const ACCOUNT_NOT_IN_MARKET: u32 = 13;
     pub const AMOUNT_MUST_BE_POSITIVE: u32 = 14;
     pub const INVALID_PAYMENTS: u32 = 16;
@@ -35,6 +51,7 @@ pub mod errors {
     pub const INSUFFICIENT_LIQUIDITY: u32 = 112;
     pub const INVALID_LIQ_THRESHOLD: u32 = 113;
     pub const CANNOT_CLEAN_BAD_DEBT: u32 = 114;
+    pub const INVALID_BORROW_PARAMS: u32 = 116;
     pub const DEBT_POSITION_NOT_FOUND: u32 = 120;
     pub const COLLATERAL_POSITION_NOT_FOUND: u32 = 121;
     pub const CANNOT_CLOSE_WITH_REMAINING_DEBT: u32 = 122;
@@ -163,18 +180,19 @@ impl LendingTest {
         };
 
         self.env.as_contract(&self.controller, || {
-            let has_pos = match pos_type {
-                PositionType::Supply => self
-                    .env
-                    .storage()
-                    .persistent()
-                    .has(&ControllerKey::SupplyPosition(account_id, asset.clone())),
-                PositionType::Borrow => self
-                    .env
-                    .storage()
-                    .persistent()
-                    .has(&ControllerKey::BorrowPosition(account_id, asset.clone())),
+            let map_key = match pos_type {
+                PositionType::Supply => ControllerKey::SupplyPositions(account_id),
+                PositionType::Borrow => ControllerKey::BorrowPositions(account_id),
             };
+            let has_pos = self
+                .env
+                .storage()
+                .persistent()
+                .get::<_, soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition>>(
+                    &map_key,
+                )
+                .map(|m| m.contains_key(asset.clone()))
+                .unwrap_or(false);
             assert!(
                 has_pos,
                 "'{}' account {} should have {} position for '{}'",
@@ -191,14 +209,8 @@ impl LendingTest {
 
     pub fn assert_no_positions_for(&self, user: &str, account_id: u64) {
         self.env.as_contract(&self.controller, || {
-            let account: Option<common::types::AccountMeta> = self
-                .env
-                .storage()
-                .persistent()
-                .get(&ControllerKey::AccountMeta(account_id));
-            let (supply_count, borrow_count) = account.map_or((0u32, 0u32), |acct| {
-                (acct.supply_assets.len(), acct.borrow_assets.len())
-            });
+            let supply_count = side_count(&self.env, account_id, PositionType::Supply);
+            let borrow_count = side_count(&self.env, account_id, PositionType::Borrow);
             assert!(
                 supply_count == 0 && borrow_count == 0,
                 "'{}' account {} should have no positions but has {} supply, {} borrow",
@@ -212,14 +224,8 @@ impl LendingTest {
 
     pub fn assert_supply_count(&self, user: &str, expected: u32) {
         let count = self.find_account_id(user).map_or(0u32, |account_id| {
-            self.env.as_contract(&self.controller, || {
-                let account: Option<common::types::AccountMeta> = self
-                    .env
-                    .storage()
-                    .persistent()
-                    .get(&ControllerKey::AccountMeta(account_id));
-                account.map_or(0u32, |acct| acct.supply_assets.len())
-            })
+            self.env
+                .as_contract(&self.controller, || side_count(&self.env, account_id, PositionType::Supply))
         });
         assert_eq!(
             count, expected,
@@ -230,14 +236,8 @@ impl LendingTest {
 
     pub fn assert_borrow_count(&self, user: &str, expected: u32) {
         let count = self.find_account_id(user).map_or(0u32, |account_id| {
-            self.env.as_contract(&self.controller, || {
-                let account: Option<common::types::AccountMeta> = self
-                    .env
-                    .storage()
-                    .persistent()
-                    .get(&ControllerKey::AccountMeta(account_id));
-                account.map_or(0u32, |acct| acct.borrow_assets.len())
-            })
+            self.env
+                .as_contract(&self.controller, || side_count(&self.env, account_id, PositionType::Borrow))
         });
         assert_eq!(
             count, expected,

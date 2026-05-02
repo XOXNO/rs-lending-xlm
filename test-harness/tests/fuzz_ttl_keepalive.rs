@@ -35,8 +35,8 @@ const USERS: &[&str] = &["alice", "bob", "carol", "dave", "eve"];
 const ASSETS: &[&str] = &["USDC", "ETH", "WBTC"];
 
 // ---------------------------------------------------------------------------
-// TTL read helpers. In soroban-sdk 25.3.1 the testutils `get_ttl(key)`
-// returns the *remaining* ledgers until expiry (not the absolute
+// TTL read helpers. The testutils `get_ttl(key)` returns the *remaining*
+// ledgers until expiry (not the absolute
 // live_until_ledger). The assertion `remaining >= TTL_BUMP_*` is equivalent
 // to `live_until_ledger >= current + TTL_BUMP_*`.
 // ---------------------------------------------------------------------------
@@ -104,26 +104,22 @@ proptest! {
         // Call keepalive_accounts.
         t.ctrl_client().keepalive_accounts(&t.keeper, &ids);
 
-        // Assert every AccountMeta + per-asset SupplyPosition key has
+        // Assert AccountMeta + the SupplyPositions side map both have
         // TTL >= TTL_BUMP_USER. Allow 1-ledger tolerance for off-by-one
-        // between set time and read time.
+        // between set time and read time. Per-asset rows live inside the
+        // side map; the map's TTL is what keeps every position alive.
         let min_ttl = TTL_BUMP_USER.saturating_sub(1);
-        for (idx, id) in account_ids.iter().enumerate() {
+        for (_idx, id) in account_ids.iter().enumerate() {
             let meta_ttl = persistent_ttl(&t, &ControllerKey::AccountMeta(*id));
             prop_assert!(
                 meta_ttl >= min_ttl,
                 "AccountMeta({}) TTL too low: {} < {}", id, meta_ttl, min_ttl
             );
-            for asset in &per_account_assets[idx] {
-                let asset_addr = t.resolve_asset(asset);
-                let key = ControllerKey::SupplyPosition(*id, asset_addr);
-                let ttl = persistent_ttl(&t, &key);
-                prop_assert!(
-                    ttl >= min_ttl,
-                    "SupplyPosition({}, {}) TTL too low: {} < {}",
-                    id, asset, ttl, min_ttl
-                );
-            }
+            let supply_ttl = persistent_ttl(&t, &ControllerKey::SupplyPositions(*id));
+            prop_assert!(
+                supply_ttl >= min_ttl,
+                "SupplyPositions({}) TTL too low: {} < {}", id, supply_ttl, min_ttl
+            );
         }
     }
 }
@@ -277,29 +273,28 @@ proptest! {
         // pruned; the key assertion is the post-state.
         let _ = t.ctrl_client().try_withdraw(&addr, &id, &withdrawals);
 
-        // (a) No orphan SupplyPosition key left.
-        let orphan_key = ControllerKey::SupplyPosition(id, asset_addr.clone());
-        // When the account is fully pruned, the AccountMeta is also gone;
-        // in that case the supply key must likewise be gone.
-        let has_orphan = persistent_has(&t, &orphan_key);
-        prop_assert!(
-            !has_orphan,
-            "CRITICAL M-14: orphan SupplyPosition({}, {:?}) left in persistent storage",
-            id, asset_addr
-        );
-
-        // (b) If AccountMeta is still present, its supply_assets must not mention the asset.
-        let meta_key = ControllerKey::AccountMeta(id);
-        if persistent_has(&t, &meta_key) {
-            let meta: common::types::AccountMeta = t.env.as_contract(&t.controller, || {
-                t.env.storage().persistent().get(&meta_key).unwrap()
-            });
-            for a in meta.supply_assets.iter() {
-                prop_assert!(
-                    a != asset_addr,
-                    "CRITICAL: AccountMeta.supply_assets still contains fully-withdrawn asset"
-                );
-            }
+        // (a) After a full exit on the only supplied asset, the side map
+        //     must be empty -- and an empty map removes the side key entirely.
+        let side_key = ControllerKey::SupplyPositions(id);
+        let side_present = persistent_has(&t, &side_key);
+        if side_present {
+            // If the side key still exists, it must not contain the
+            // fully-withdrawn asset.
+            let map: soroban_sdk::Map<Address, common::types::AccountPosition> = t
+                .env
+                .as_contract(&t.controller, || {
+                    t.env.storage().persistent().get(&side_key).unwrap()
+                });
+            prop_assert!(
+                !map.contains_key(asset_addr.clone()),
+                "CRITICAL M-14: SupplyPositions({}) still contains fully-withdrawn asset {:?}",
+                id, asset_addr
+            );
         }
+
+        // (b) AccountMeta context fields stay slim -- no per-asset Vec to
+        //     accidentally retain stale entries. The check above on the
+        //     side map is the load-bearing invariant.
+        let _ = persistent_has(&t, &ControllerKey::AccountMeta(id));
     }
 }

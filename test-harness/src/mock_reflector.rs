@@ -64,20 +64,20 @@ impl MockReflector {
         Some(PriceData { price, timestamp })
     }
 
-    pub fn prices(env: Env, asset: Sep40Asset, records: u32) -> Vec<Option<PriceData>> {
+    pub fn prices(env: Env, asset: Sep40Asset, records: u32) -> Option<Vec<PriceData>> {
         let addr = match asset.clone() {
             Sep40Asset::Stellar(a) => a,
-            _ => return Vec::new(&env),
+            _ => return None,
         };
         let twap_pd = match env.storage().temporary().get(&MockKey::Twap(addr)) {
-            Some((price, timestamp)) => Some(PriceData { price, timestamp }),
-            None => Self::lastprice(env.clone(), asset),
+            Some((price, timestamp)) => PriceData { price, timestamp },
+            None => Self::lastprice(env.clone(), asset)?,
         };
 
         let mut out = Vec::new(&env);
         for _ in 0..records {
             out.push_back(twap_pd.clone());
         }
-        out
+        Some(out)
     }
 }

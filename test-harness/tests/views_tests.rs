@@ -466,3 +466,131 @@ fn test_pool_address_view() {
     let expected = t.resolve_market("USDC").pool.clone();
     assert_eq!(pool_addr, expected, "pool address should match");
 }
+
+// ---------------------------------------------------------------------------
+// 19. test_collateral_amount_for_token_happy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_collateral_amount_for_token_happy() {
+    // Targets controller/src/views.rs lines 175-188:
+    // `collateral_amount_for_token` happy path with a non-zero supply position.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let amount = t.ctrl_client().collateral_amount_for_token(&account_id, &usdc);
+
+    // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
+    let expected = 10_000i128 * 10_000_000;
+    assert!(
+        (amount - expected).abs() < expected / 10_000,
+        "collateral_amount_for_token should be ~{} raw units, got {}",
+        expected,
+        amount
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 20. test_borrow_amount_for_token_happy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_borrow_amount_for_token_happy() {
+    // Targets controller/src/views.rs lines 190-203:
+    // `borrow_amount_for_token` happy path with an actual debt position.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 2.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let eth = t.resolve_asset("ETH");
+    let amount = t.ctrl_client().borrow_amount_for_token(&account_id, &eth);
+
+    // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
+    let expected = 2i128 * 10_000_000;
+    assert!(
+        (amount - expected).abs() < expected / 10_000,
+        "borrow_amount_for_token should be ~{} raw units, got {}",
+        expected,
+        amount
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 21. test_liquidation_collateral_available_happy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_liquidation_collateral_available_happy() {
+    // Targets controller/src/views.rs lines 245-256: ensures
+    // `calculate_account_totals` runs and returns a non-zero `weighted_coll`.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Supply $10,000 USDC + 1 ETH ($2,000) = $12,000 collateral.
+    // USDC threshold 8000bps + ETH threshold 8000bps -> weighted ~ $9,600.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "ETH", 1.0);
+    t.borrow(ALICE, "ETH", 0.5);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let weighted = t.ctrl_client().liquidation_collateral_available(&account_id);
+
+    // weighted_coll is in WAD USD: ~$9,600 * 10^18.
+    let expected = 9_600.0;
+    let weighted_usd = weighted as f64 / WAD as f64;
+    assert!(
+        (weighted_usd - expected).abs() < 1.0,
+        "liquidation_collateral_available should be ~${}, got ${}",
+        expected,
+        weighted_usd
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 22. test_ltv_collateral_in_usd_happy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_ltv_collateral_in_usd_happy() {
+    // Targets controller/src/views.rs line 267:
+    // `ltv_collateral_in_usd` returns a non-zero LTV-weighted total.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Supply $10,000 USDC (LTV 7500bps) + 1 ETH ($2,000, LTV 7500bps).
+    // LTV-weighted = ($10,000 + $2,000) * 0.75 = $9,000.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "ETH", 1.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let ltv_wad = t.ctrl_client().ltv_collateral_in_usd(&account_id);
+
+    let expected = 9_000.0;
+    let ltv_usd = ltv_wad as f64 / WAD as f64;
+    assert!(
+        ltv_usd > 0.0,
+        "ltv_collateral_in_usd should be positive, got {}",
+        ltv_usd
+    );
+    assert!(
+        (ltv_usd - expected).abs() < 1.0,
+        "ltv_collateral_in_usd should be ~${}, got ${}",
+        expected,
+        ltv_usd
+    );
+}

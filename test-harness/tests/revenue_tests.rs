@@ -1,8 +1,11 @@
 extern crate std;
 
 use test_harness::{
-    days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
+    assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
+    BOB, LIQUIDATOR,
 };
+
+const UNAUTHORIZED: u32 = 2000;
 
 /// Helper: set the accumulator address (required for claim_revenue).
 fn setup_accumulator(t: &LendingTest) {
@@ -51,6 +54,64 @@ fn test_claim_revenue_after_interest() {
 }
 
 // ---------------------------------------------------------------------------
+// 1b. test_claim_revenue_routes_through_controller_to_accumulator
+// ---------------------------------------------------------------------------
+
+/// Asserts the new revenue flow: pool transfers to its owner (the
+/// controller), which forwards to the accumulator in the same transaction.
+/// The controller must hold zero of the asset before AND after the claim;
+/// the entire `claimed` amount must land at the accumulator.
+#[test]
+fn test_claim_revenue_routes_through_controller_to_accumulator() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Generate interest revenue on ETH.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+    t.advance_and_sync(days(90));
+
+    // Wire the accumulator and snapshot balances right before the claim.
+    let accumulator = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    t.ctrl_client().set_accumulator(&accumulator);
+
+    let asset = t.resolve_market("ETH").asset.clone();
+    let pool_addr = t.resolve_market("ETH").pool.clone();
+    let controller_addr = t.controller_address();
+    let tok = soroban_sdk::token::Client::new(&t.env, &asset);
+
+    let pool_before = tok.balance(&pool_addr);
+    let controller_before = tok.balance(&controller_addr);
+    let accumulator_before = tok.balance(&accumulator);
+
+    let claimed = t.claim_revenue("ETH");
+    assert!(claimed > 0, "expected non-zero claim; got {}", claimed);
+
+    let pool_after = tok.balance(&pool_addr);
+    let controller_after = tok.balance(&controller_addr);
+    let accumulator_after = tok.balance(&accumulator);
+
+    assert_eq!(
+        controller_before, controller_after,
+        "controller must not retain claimed tokens between hops"
+    );
+    assert_eq!(
+        accumulator_after - accumulator_before,
+        claimed,
+        "accumulator must receive the full claimed amount"
+    );
+    assert_eq!(
+        pool_before - pool_after,
+        claimed,
+        "pool must release exactly the claimed amount"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 2. test_claim_revenue_after_liquidation
 // ---------------------------------------------------------------------------
 
@@ -74,15 +135,57 @@ fn test_claim_revenue_after_liquidation() {
     // Liquidate: generates fees.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    // Advance time so interest accrues on remaining positions.
+    // Liquidation seizes USDC collateral; the fee accrues on the seized
+    // asset, not on the debt asset. We can't assert mid-flight revenue
+    // increase on ETH from the liquidation alone — only the post-time-
+    // advance interest accrual reliably bumps ETH-side revenue.
     t.advance_and_sync(days(30));
 
     let revenue_after_liq = t.snapshot_revenue("ETH");
     assert!(
         revenue_after_liq > revenue_before_liq,
-        "revenue should increase after liquidation: before={}, after={}",
+        "post-liq + interest accrual must lift revenue: before={}, after_30d={}",
         revenue_before_liq,
         revenue_after_liq
+    );
+
+    // Wire the accumulator and verify the post-liquidation claim routes
+    // tokens through the controller to the accumulator (a code path the
+    // interest-only routing test does not exercise).
+    let accumulator = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    t.ctrl_client().set_accumulator(&accumulator);
+
+    let asset = t.resolve_market("ETH").asset.clone();
+    let pool_addr = t.resolve_market("ETH").pool.clone();
+    let controller_addr = t.controller_address();
+    let tok = soroban_sdk::token::Client::new(&t.env, &asset);
+
+    let pool_before = tok.balance(&pool_addr);
+    let controller_before = tok.balance(&controller_addr);
+    let accumulator_before = tok.balance(&accumulator);
+
+    let claimed = t.claim_revenue("ETH");
+    assert!(claimed > 0, "expected non-zero claim; got {}", claimed);
+
+    let pool_after = tok.balance(&pool_addr);
+    let controller_after = tok.balance(&controller_addr);
+    let accumulator_after = tok.balance(&accumulator);
+
+    assert_eq!(
+        controller_before, controller_after,
+        "controller must not retain claimed tokens between hops"
+    );
+    assert_eq!(
+        accumulator_after - accumulator_before,
+        claimed,
+        "accumulator must receive the full claimed amount"
+    );
+    assert_eq!(
+        pool_before - pool_after,
+        claimed,
+        "pool must release exactly the claimed amount"
     );
 }
 
@@ -181,19 +284,22 @@ fn test_revenue_role_required() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Bob tries claim_revenue.
+    // Bob tries claim_revenue. The only_role guard panics with
+    // AccessControlError::Unauthorized = 2000, which surfaces as
+    // Err(Ok(soroban_sdk::Error)) for the non-Result-returning
+    // claim_revenue / add_rewards entry points.
     let assets = soroban_sdk::vec![&t.env, asset.clone()];
-    let result = ctrl.try_claim_revenue(&bob_addr, &assets);
-    assert!(
-        result.is_err(),
-        "non-revenue user should not be able to claim revenue"
-    );
+    let claim_err = ctrl
+        .try_claim_revenue(&bob_addr, &assets)
+        .expect_err("non-revenue user must not claim revenue")
+        .expect("expected contract error, got InvokeError");
+    assert_contract_error::<()>(Err(claim_err), UNAUTHORIZED);
 
     // Bob tries add_rewards.
     let rewards = soroban_sdk::vec![&t.env, (asset, 100i128)];
-    let result = ctrl.try_add_rewards(&bob_addr, &rewards);
-    assert!(
-        result.is_err(),
-        "non-revenue user should not be able to add rewards"
-    );
+    let rewards_err = ctrl
+        .try_add_rewards(&bob_addr, &rewards)
+        .expect_err("non-revenue user must not add rewards")
+        .expect("expected contract error, got InvokeError");
+    assert_contract_error::<()>(Err(rewards_err), UNAUTHORIZED);
 }

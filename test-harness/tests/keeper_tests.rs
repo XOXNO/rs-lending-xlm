@@ -2,19 +2,21 @@ extern crate std;
 
 use common::types::ControllerKey;
 use test_harness::{
-    days, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
+    assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
+    BOB, STABLECOIN_EMODE,
 };
 
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        t.env
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition> = t
+            .env
             .storage()
             .persistent()
-            .get::<_, common::types::AccountPosition>(&ControllerKey::SupplyPosition(
-                account_id, asset,
-            ))
-            .expect("supply position should exist")
+            .get(&ControllerKey::SupplyPositions(account_id))
+            .expect("supply side map should exist");
+        map.get(asset)
+            .expect("supply position should exist for asset")
             .liquidation_threshold_bps
     })
 }
@@ -95,10 +97,7 @@ fn test_clean_bad_debt_rejects_healthy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
-    assert!(
-        result.is_err(),
-        "clean_bad_debt should fail on healthy account"
-    );
+    assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
 
 // ---------------------------------------------------------------------------
@@ -126,10 +125,7 @@ fn test_clean_bad_debt_rejects_above_threshold() {
     // Collateral is above the $5 threshold, so clean_bad_debt must fail.
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
-    assert!(
-        result.is_err(),
-        "clean_bad_debt should fail when collateral > $5"
-    );
+    assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,10 +222,7 @@ fn test_update_account_threshold_rejects_low_hf() {
     });
 
     let result = t.try_update_account_threshold("USDC", true, &[account_id]);
-    assert!(
-        result.is_err(),
-        "update_account_threshold should fail when HF < 1.05 after update"
-    );
+    assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,19 +266,20 @@ fn test_keeper_role_required() {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
 
-    // BOB calls `update_indexes` without the KEEPER role.
-    // Use bare `is_err()` because Soroban wraps cross-contract errors at
-    // the outer caller boundary.
+    // BOB calls `update_indexes` without the KEEPER role; expect
+    // AccessControlError::Unauthorized = 2000.
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
-    assert!(
-        result.is_err(),
-        "non-keeper should not be able to call update_indexes"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, 2000);
 
     // BOB calls clean_bad_debt without the KEEPER role.
     let result = ctrl.try_clean_bad_debt(&bob_addr, &999u64);
-    assert!(
-        result.is_err(),
-        "non-keeper should not be able to call clean_bad_debt"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, 2000);
 }

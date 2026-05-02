@@ -62,14 +62,20 @@ fn classify_panic(payload: Box<dyn std::any::Any + Send>) -> Result<(), std::str
     } else {
         std::format!("{:?}", payload.type_id())
     };
+    // Tighten substring match: previous "limit" / "size" matches were
+    // satisfied by "index out of bounds" and arithmetic-overflow text.
+    // Require Soroban host-budget keywords AND exclude common false
+    // positives (overflow, out of bounds, panicked).
     let low = msg.to_lowercase();
-    let is_budget = low.contains("budget")
-        || low.contains("exceeded")
-        || low.contains("limit")
-        || low.contains("cpu")
-        || low.contains("memory")
-        || low.contains("entries")
-        || low.contains("size");
+    let is_overflow = low.contains("overflow") || low.contains("out of bounds");
+    let is_budget = !is_overflow
+        && (low.contains("budget exceeded")
+            || low.contains("exceededlimit")
+            || low.contains("cpu instruction")
+            || low.contains("memory limit")
+            || low.contains("read entries")
+            || low.contains("write entries")
+            || low.contains("tx size"));
     if is_budget {
         Ok(())
     } else {

@@ -60,12 +60,15 @@ fn flatten<T>(
 fn supply_position_params(t: &LendingTest, account_id: u64, asset_name: &str) -> (i128, i128) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let position: common::types::AccountPosition = t
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition> = t
             .env
             .storage()
             .persistent()
-            .get(&ControllerKey::SupplyPosition(account_id, asset))
-            .expect("supply position should exist");
+            .get(&ControllerKey::SupplyPositions(account_id))
+            .expect("supply side map should exist");
+        let position = map
+            .get(asset)
+            .expect("supply position should exist for asset");
         (
             position.loan_to_value_bps,
             position.liquidation_threshold_bps,
@@ -96,6 +99,7 @@ fn test_multiply_with_debt_token_initial_payment() {
     let eth_market = t.resolve_market("ETH");
     eth_market.token_admin.mint(&alice, &5_000000i128); // 0.5 ETH
 
+    let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.fund_router("USDC", 4_500.0);
     let steps = build_swap_steps(&t, "ETH", "USDC", 4500_0000000);
 
@@ -124,6 +128,15 @@ fn test_multiply_with_debt_token_initial_payment() {
         (0.99..=1.01).contains(&borrow),
         "borrowed ETH should remain the strategy debt amount only, got {}",
         borrow
+    );
+    // The 0.5 ETH initial payment must come out of Alice's wallet; the
+    // controller must not mint or otherwise replace it.
+    let alice_eth_after = t.token_balance(ALICE, "ETH");
+    assert!(
+        (alice_eth_before - alice_eth_after - 0.5).abs() < 1e-6,
+        "Alice's ETH wallet should drop by exactly 0.5 ETH, before={}, after={}",
+        alice_eth_before,
+        alice_eth_after
     );
 }
 
@@ -232,6 +245,21 @@ fn test_multiply_preserves_existing_collateral_balance() {
         final_supply > 3_500.0,
         "existing collateral must be preserved and increased, got {}",
         final_supply
+    );
+
+    // The multiply must also open the new ETH borrow leg; without this the
+    // test would silently pass if the borrow side regressed to a no-op.
+    let final_borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (0.99..=1.01).contains(&final_borrow),
+        "new ETH borrow leg should be ~1.0 ETH, got {}",
+        final_borrow
+    );
+    let hf = t.health_factor_for(ALICE, account_id);
+    assert!(
+        hf >= 1.0,
+        "post-multiply HF must remain solvent, got {}",
+        hf
     );
 }
 
@@ -1127,6 +1155,7 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
     t.borrow(ALICE, "ETH", 1.0);
     let account_id = t.resolve_account_id(ALICE);
 
+    let alice_usdc_before = t.token_balance(ALICE, "USDC");
     t.fund_router("ETH", 1.0);
     let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, true);
@@ -1134,6 +1163,16 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
     assert!(
         !t.account_exists(account_id),
         "close_position should remove the fully closed account"
+    );
+    // Close-position semantics: residual collateral must be returned to the
+    // caller's wallet, not swept inside the controller. A regression that
+    // dropped the refund would leave usdc_after < usdc_before.
+    let alice_usdc_after = t.token_balance(ALICE, "USDC");
+    assert!(
+        alice_usdc_after >= alice_usdc_before,
+        "close_position must refund residual USDC collateral to Alice, before={}, after={}",
+        alice_usdc_before,
+        alice_usdc_after
     );
 }
 
@@ -1253,6 +1292,14 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         eth_supply > 0.0,
         "should have ETH supply: got {}",
         eth_supply
+    );
+    // The 1000 USDC of source collateral must be removed from the supply
+    // side; otherwise the swap leg silently regressed to "deposit only".
+    let usdc_supply_after = t.supply_balance(ALICE, "USDC");
+    assert!(
+        (98_999.0..=99_001.0).contains(&usdc_supply_after),
+        "USDC supply should drop by ~1000 after swap_collateral, got {}",
+        usdc_supply_after
     );
 }
 

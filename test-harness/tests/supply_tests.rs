@@ -49,10 +49,22 @@ fn test_supply_to_existing_account() {
 
     t.supply(ALICE, "USDC", 5_000.0);
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
+    let wallet_after_first = t.token_balance(ALICE, "USDC");
+    assert!(
+        wallet_after_first < 0.01,
+        "wallet should be ~0 after first supply, got {}",
+        wallet_after_first
+    );
 
     // Supply more to the same account.
     t.supply(ALICE, "USDC", 3_000.0);
     t.assert_supply_near(ALICE, "USDC", 8_000.0, 1.0);
+    let wallet_after_second = t.token_balance(ALICE, "USDC");
+    assert!(
+        wallet_after_second < 0.01,
+        "wallet should be ~0 after second supply, got {}",
+        wallet_after_second
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +84,46 @@ fn test_supply_multiple_assets_bulk() {
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
+    t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
+    t.assert_supply_near(ALICE, "ETH", 1.0, 0.001);
+    let usdc_wallet = t.token_balance(ALICE, "USDC");
+    let eth_wallet = t.token_balance(ALICE, "ETH");
+    assert!(
+        usdc_wallet < 0.01,
+        "USDC wallet should be ~0, got {}",
+        usdc_wallet
+    );
+    assert!(
+        eth_wallet < 0.0001,
+        "ETH wallet should be ~0, got {}",
+        eth_wallet
+    );
+}
+
+#[test]
+fn test_supply_duplicate_asset_bulk_accumulates_single_position() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    t.supply_bulk(ALICE, &[("USDC", 5_000.0), ("USDC", 3_000.0)]);
+
+    t.assert_supply_count(ALICE, 1);
+    t.assert_supply_near(ALICE, "USDC", 8_000.0, 1.0);
+}
+
+#[test]
+fn test_supply_duplicate_isolated_asset_bulk_is_allowed() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_config("USDC", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
+        })
+        .build();
+
+    t.supply_bulk(ALICE, &[("USDC", 2_000.0), ("USDC", 3_000.0)]);
+
+    t.assert_supply_count(ALICE, 1);
+    t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +162,11 @@ fn test_supply_with_emode_category() {
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.e_mode_category_id, 1);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
+    t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
+    assert!(
+        t.token_balance(ALICE, "USDC") < 0.01,
+        "wallet should be ~0 after supply"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,13 +264,10 @@ fn test_supply_position_limit_exceeded() {
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // The third supply must exceed the limit of 2. Note: the Soroban host
-    // wraps the error as InvalidAction on the cross-contract path.
+    // The third supply must reject with the specific PositionLimitExceeded
+    // error.
     let result = t.try_supply(ALICE, "WBTC", 0.01);
-    assert!(
-        result.is_err(),
-        "supply exceeding position limit should fail"
-    );
+    assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +290,10 @@ fn test_supply_isolated_account_single_asset() {
 
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
+    assert!(
+        t.token_balance(ALICE, "USDC") < 0.01,
+        "wallet should be ~0 after supply"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -300,5 +358,12 @@ fn test_supply_raw_precision() {
         balance >= 1,
         "raw supply should preserve precision, got {}",
         balance
+    );
+    // The 1 raw unit must have left Alice's wallet.
+    let wallet_raw = t.token_balance_raw(ALICE, "USDC");
+    assert_eq!(
+        wallet_raw, 0,
+        "raw wallet should be 0 after pulling 1 unit, got {}",
+        wallet_raw
     );
 }

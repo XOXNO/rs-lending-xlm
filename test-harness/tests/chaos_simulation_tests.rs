@@ -40,6 +40,16 @@ impl Rng {
 // 1. Chaos: 15 users, random valid operations over 8 weeks, invariant check
 // ---------------------------------------------------------------------------
 
+/// Deterministic chaos regression: 15 users, fixed-seed (42) LCG-driven
+/// scenario over 8 weeks with one ETH price oscillation. Assertions:
+///  (1) every borrowing account stays HF >= 1 OR has no debt (no-debt HF
+///      surfaces as `i128::MAX / WAD` per
+///      test-harness/src/view.rs:28-32 + helpers.rs:69-71, hence the
+///      `> 1e18` discriminator below).
+///  (2) supply and borrow indexes >= 1.0 RAY for every market.
+///  (3) protocol revenue >= 0 for every market.
+/// The "random" in the name is a misnomer kept for git history -- this is
+/// a deterministic regression scenario, not a randomized fuzz.
 #[test]
 fn test_chaos_multi_user_random_operations() {
     let mut t = LendingTest::new()
@@ -153,12 +163,12 @@ fn test_chaos_multi_user_random_operations() {
             if user_state.default_account_id.is_some() {
                 let hf = t.health_factor(user);
                 // HF >= 1.0 or no borrows (HF = max).
-                assert!(
-                    hf >= 1.0 || hf == f64::MAX || hf > 1e18,
-                    "user {} HF should be >= 1.0, got {}",
-                    user,
-                    hf
-                );
+                // No-debt accounts surface as health_factor_raw = i128::MAX,
+                // which divides to ~1.7e20 in f64 (test-harness helpers:
+                // wad_to_f64). Use `> 1e18` as the no-debt fingerprint;
+                // f64::MAX and f64::INFINITY never appear on this path.
+                let healthy = hf > 1e18 || hf >= 1.0;
+                assert!(healthy, "user {} HF should be >= 1.0, got {}", user, hf);
             }
         }
     }

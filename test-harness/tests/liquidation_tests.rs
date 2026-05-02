@@ -58,6 +58,9 @@ fn test_liquidation_basic_proportional() {
         collateral_value_usd,
         debt_paid_usd
     );
+    // Borrower post-state: debt and collateral both decreased.
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0, "Alice ETH debt must decrease");
+    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0, "Alice USDC must be seized");
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +90,10 @@ fn test_liquidation_targeted_single_collateral() {
         liq_usdc > 0.0,
         "liquidator should have received USDC collateral"
     );
+    // Borrower post-state: ETH debt and USDC collateral both reduced.
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
+    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
+    assert!(t.health_factor(ALICE) > 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +154,15 @@ fn test_liquidation_dynamic_bonus_moderate() {
         "liquidator should profit from bonus: received ${} of collateral for $2000 debt",
         collateral_received_usd
     );
+    // Bonus rate must be within the dynamic range (5-15%) for moderate HF (~0.67).
+    let bonus_rate = collateral_received_usd / 2000.0 - 1.0;
+    assert!(
+        bonus_rate > 0.04 && bonus_rate < 0.16,
+        "moderate-HF bonus must fall in 4-16% range, got {:.4}",
+        bonus_rate
+    );
+    // Borrower debt reduced.
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +191,7 @@ fn test_liquidation_dynamic_bonus_deep_underwater() {
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(liq_usdc > 0.0, "liquidator should receive collateral");
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,12 +214,17 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     let rev_after = t.snapshot_revenue("USDC");
 
+    t.assert_revenue_increased_since("USDC", rev_before);
+    // Fee must be < 1% of total seizure (fee = bonus_portion * 100 BPS).
+    // Liquidator received collateral; fee is a small slice of the bonus.
+    let fee = (rev_after - rev_before) as f64 / 1e7;
+    let liquidator_received = t.token_balance(LIQUIDATOR, "USDC");
     assert!(
-        rev_after >= rev_before,
-        "protocol revenue should not decrease after liquidation: before={}, after={}",
-        rev_before,
-        rev_after
+        fee > 0.0 && fee / liquidator_received < 0.01,
+        "fee should be on bonus only (<1% of total seizure): fee={:.4}, recv={:.4}",
+        fee, liquidator_received
     );
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,14 +247,17 @@ fn test_liquidation_liquidator_profit() {
         "liquidator should profit: received ${} in collateral for $2000 debt",
         usdc_value_usd
     );
+    // Borrower side: debt reduced, collateral seized.
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
+    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
 }
 
 // ---------------------------------------------------------------------------
-// 9. test_liquidation_multi_debt_payment
+// 9. test_liquidation_sequential_partial_liquidations
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_liquidation_multi_debt_payment() {
+fn test_liquidation_sequential_partial_liquidations() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -247,11 +272,16 @@ fn test_liquidation_multi_debt_payment() {
     t.assert_liquidatable(ALICE);
 
     // First liquidation.
+    let debt_before = t.borrow_balance(ALICE, "ETH");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
+    let debt_after_first = t.borrow_balance(ALICE, "ETH");
+    assert!(debt_after_first < debt_before, "1st liquidation must reduce debt");
 
     // Check whether still liquidatable for a second pass.
     if t.can_be_liquidated(ALICE) {
         t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
+        assert!(t.borrow_balance(ALICE, "ETH") < debt_after_first,
+            "2nd liquidation must reduce debt further");
     }
 
     // The liquidator should have accumulated collateral.
@@ -260,6 +290,8 @@ fn test_liquidation_multi_debt_payment() {
         liq_usdc > 0.0,
         "liquidator should receive collateral from liquidation(s)"
     );
+    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0,
+        "Alice USDC collateral must be seized");
 }
 
 // ---------------------------------------------------------------------------
@@ -270,9 +302,23 @@ fn test_liquidation_multi_debt_payment() {
 fn test_liquidation_caps_at_actual_debt() {
     let mut t = setup_liquidatable();
 
-    // Try to repay far more debt than the account owes. The liquidation
-    // must cap repayment at the real debt amount.
+    // Repay more than the actual debt. The contract uses a pull-model:
+    // it transfers only the post-cap repayment from the liquidator's
+    // wallet, so the unused mint stays with the liquidator.
+    let debt_before = t.borrow_balance(ALICE, "ETH"); // ~3.0 ETH
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 100.0);
+
+    // Liquidator started with 100 ETH minted (see harness `liquidate`).
+    // The contract pulls at most `debt_before * (1+bonus)` worth.
+    let liq_eth_left = t.token_balance(LIQUIDATOR, "ETH");
+    assert!(
+        liq_eth_left > 100.0 - debt_before - 0.01,
+        "unused mint (~{}) must stay with liquidator; got {}",
+        100.0 - debt_before, liq_eth_left
+    );
+    // Borrower's debt was paid down (proves repayment was capped, not lost).
+    assert!(t.borrow_balance(ALICE, "ETH") < debt_before,
+        "Alice's ETH debt must have decreased");
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(
@@ -283,11 +329,11 @@ fn test_liquidation_caps_at_actual_debt() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. test_liquidation_proportional_multi_collateral
+// 11. test_liquidation_proportional_single_collateral
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_liquidation_proportional_multi_collateral() {
+fn test_liquidation_proportional_single_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -391,6 +437,8 @@ fn test_liquidation_caps_at_max_bonus() {
             ratio,
         );
     }
+    assert!(t.borrow_balance(ALICE, "ETH") < 3.0,
+        "borrower debt must have decreased");
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +472,11 @@ fn test_liquidation_bad_debt_cleanup_auto() {
         "liquidator should have received USDC collateral: {}",
         liq_usdc
     );
+    // Bad-debt path: Alice's account must be cleaned up (no remaining positions).
+    t.assert_no_positions(ALICE);
+    let accounts = t.get_active_accounts(ALICE);
+    assert_eq!(accounts.len(), 0,
+        "auto-cleanup must remove account when bad debt fires");
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +490,8 @@ fn test_liquidation_bad_debt_socializes_loss() {
         .with_market(eth_preset())
         .build();
 
+    // Bob supplies ETH so loss can actually be socialized across his stake.
+    t.supply(test_harness::BOB, "ETH", 100.0);
     // Small position.
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.03);
@@ -445,18 +500,19 @@ fn test_liquidation_bad_debt_socializes_loss() {
     t.set_price("USDC", usd_cents(1));
     t.assert_liquidatable(ALICE);
 
+    let bob_before = t.supply_balance(test_harness::BOB, "ETH");
     // Deeply underwater tiny positions socialize the residual loss during
     // liquidation.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.03);
 
-    // The account is removed during cleanup, so execution is confirmed
-    // through the liquidator's collateral receipt.
-    let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
-    assert!(
-        liq_usdc > 0.0,
-        "liquidator should have received USDC collateral: {}",
-        liq_usdc
-    );
+    // Socialization invariant: Bob's ETH supply has shrunk because the
+    // residual bad debt was applied via apply_bad_debt_to_supply_index.
+    let bob_after = t.supply_balance(test_harness::BOB, "ETH");
+    assert!(bob_after < bob_before,
+        "bad-debt socialization must reduce other suppliers' balance: {} -> {}",
+        bob_before, bob_after);
+    // Alice's account is removed during cleanup.
+    t.assert_no_positions(ALICE);
 }
 
 // ---------------------------------------------------------------------------
@@ -528,5 +584,5 @@ fn test_liquidation_rejects_empty_debt_payments() {
 
     // Use an exact zero payment. `0.0000001` ETH stays non-zero at 7 decimals.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.0);
-    assert!(result.is_err(), "liquidation with zero amount should fail");
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }

@@ -57,6 +57,10 @@ fn test_isolated_supply_single_asset() {
 
     t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
     t.assert_supply_near(ALICE, "ETH", 5.0, 0.01);
+    assert!(
+        t.token_balance(ALICE, "ETH") < 0.0001,
+        "ETH wallet should be ~0 after supply"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,13 @@ fn test_isolated_borrow_enabled_asset() {
     // USDC has isolation_borrow_enabled = true.
     t.borrow(ALICE, "USDC", 5_000.0);
     t.assert_position_exists(ALICE, "USDC", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "USDC", 5_000.0, 1.0);
+    let usdc_wallet = t.token_balance(ALICE, "USDC");
+    assert!(
+        (usdc_wallet - 5_000.0).abs() < 1.0,
+        "Alice should receive ~5000 USDC, got {}",
+        usdc_wallet
+    );
     t.assert_healthy(ALICE);
 }
 
@@ -192,7 +203,7 @@ fn test_isolated_debt_decremented_on_liquidation() {
 
 #[test]
 fn test_isolated_rejects_emode() {
-    let t = LendingTest::new()
+    let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market_config("ETH", |cfg| {
@@ -201,17 +212,15 @@ fn test_isolated_rejects_emode() {
         })
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "ETH", true, true)
         .build();
 
-    // Creating an account with both e-mode and isolation must panic.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut t2 = t;
-        t2.create_account_full(ALICE, 1, common::types::PositionMode::Normal, true);
-    }));
-    assert!(
-        result.is_err(),
-        "should reject account with both e-mode and isolation"
-    );
+    // Drive the contract path: an e-mode account that supplies an isolated
+    // asset must be rejected with EModeWithIsolated (302). The harness's
+    // `create_account_*` helpers bypass the contract validator.
+    t.create_emode_account(ALICE, 1);
+    let result = t.try_supply(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::EMODE_WITH_ISOLATED);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,11 +235,8 @@ fn test_isolated_rejects_swap_collateral() {
 
     let steps = t.mock_swap_steps("ETH", "USDC", usd(2000));
     let result = t.try_swap_collateral(ALICE, "ETH", 1.0, "USDC", &steps);
-    // Strategy cross-contract calls may surface as host errors.
-    assert!(
-        result.is_err(),
-        "should reject swap_collateral on isolated account"
-    );
+    // The contract panics with SwapCollateralNoIso (404) for isolated accounts.
+    assert_contract_error(result, errors::SWAP_COLLATERAL_NO_ISO);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,14 +257,23 @@ fn test_isolated_liquidation_works() {
     t.assert_liquidatable(ALICE);
 
     let debt_before = t.borrow_balance(ALICE, "USDC");
+    let iso_debt_before = t.get_isolated_debt("ETH");
     t.liquidate(LIQUIDATOR, ALICE, "USDC", 1_000.0);
     let debt_after = t.borrow_balance(ALICE, "USDC");
+    let iso_debt_after = t.get_isolated_debt("ETH");
 
     assert!(
         debt_after < debt_before,
         "debt should decrease after liquidation: before={}, after={}",
         debt_before,
         debt_after
+    );
+
+    assert!(
+        iso_debt_after < iso_debt_before,
+        "isolated debt tracker should decrement: before={}, after={}",
+        iso_debt_before,
+        iso_debt_after
     );
 
     // The liquidator should have received ETH collateral.
@@ -302,10 +317,9 @@ fn test_isolated_bad_debt_clears_isolated_tracker() {
     // (collateral was tiny, so bad-debt cleanup socializes the loss).
     // The isolated-debt tracker must be cleared to zero.
     let iso_debt_after = t.get_isolated_debt("ETH");
-    assert!(
-        iso_debt_after < iso_debt_before,
-        "isolated debt should decrease: before={}, after={}",
+    assert_eq!(
+        iso_debt_after, 0,
+        "isolated debt tracker must be cleared to zero after bad-debt cleanup, got {}",
         iso_debt_before,
-        iso_debt_after
     );
 }

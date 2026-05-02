@@ -47,8 +47,20 @@ fn test_repay_full_clears_position() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
+    let wallet_before = t.token_balance(ALICE, "ETH");
     // Repay slightly more to clear the position fully.
     t.repay(ALICE, "ETH", 1.01);
+
+    // repay() auto-mints `amount` then the contract pulls the actual debt.
+    // Net wallet delta should be the refunded surplus (~0.01 ETH, since the
+    // outstanding debt was ~1.0).
+    let wallet_after = t.token_balance(ALICE, "ETH");
+    assert!(
+        (wallet_after - wallet_before).abs() < 0.05,
+        "wallet delta should be ~0 after exact-repay (auto-mint cancels transfer): before={}, after={}",
+        wallet_before,
+        wallet_after
+    );
 
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(
@@ -122,6 +134,7 @@ fn test_repay_by_third_party() {
     // Mint ETH to Bob so he can pay.
     let repay_amount = 1_0100000i128; // 1.01 ETH (7 decimals)
     eth_market.token_admin.mint(&bob_addr, &repay_amount);
+    let bob_before = t.token_balance(BOB, "ETH");
 
     let ctrl = t.ctrl_client();
     let payments = soroban_sdk::vec![&t.env, (eth_addr, repay_amount)];
@@ -133,6 +146,18 @@ fn test_repay_by_third_party() {
         borrow < 0.01,
         "ALICE's borrow should be ~0 after BOB's repay, got {}",
         borrow
+    );
+    let bob_after = t.token_balance(BOB, "ETH");
+    assert!(
+        bob_before - bob_after >= 0.99,
+        "Bob's wallet must be debited by ~1.0 ETH for Alice's repay: before={}, after={}",
+        bob_before,
+        bob_after
+    );
+    assert_eq!(
+        t.token_balance(ALICE, "ETH"),
+        1.0,
+        "Alice's wallet must be untouched by Bob's repay"
     );
 }
 
@@ -166,6 +191,8 @@ fn test_repay_multiple_assets() {
     t.resolve_market("WBTC")
         .token_admin
         .mint(&addr, &wbtc_repay);
+    let eth_before = t.token_balance(ALICE, "ETH");
+    let wbtc_before = t.token_balance(ALICE, "WBTC");
 
     let ctrl = t.ctrl_client();
     let payments = soroban_sdk::vec![&t.env, (eth_addr, eth_repay), (wbtc_addr, wbtc_repay)];
@@ -182,6 +209,20 @@ fn test_repay_multiple_assets() {
         wbtc_borrow < 0.0001,
         "WBTC borrow should be cleared, got {}",
         wbtc_borrow
+    );
+    let eth_after = t.token_balance(ALICE, "ETH");
+    let wbtc_after = t.token_balance(ALICE, "WBTC");
+    assert!(
+        eth_before - eth_after >= 0.99,
+        "ETH wallet must drop by ~1.0 after repay: before={}, after={}",
+        eth_before,
+        eth_after
+    );
+    assert!(
+        wbtc_before - wbtc_after >= 0.0099,
+        "WBTC wallet must drop by ~0.01 after repay: before={}, after={}",
+        wbtc_before,
+        wbtc_after
     );
 }
 
@@ -271,11 +312,11 @@ fn test_repay_isolated_debt_decremented() {
     t.repay(ALICE, "ETH", 0.5);
 
     let debt_after = t.get_isolated_debt("USDC");
-    assert!(
-        debt_after < debt_before,
-        "isolated debt should decrease after repay: before={}, after={}",
-        debt_before,
-        debt_after
+    // Full repay of the only borrow must zero the isolated counter.
+    assert_eq!(
+        debt_after, 0,
+        "isolated debt should be zero after full repay: before={}, after={}",
+        debt_before, debt_after
     );
 }
 

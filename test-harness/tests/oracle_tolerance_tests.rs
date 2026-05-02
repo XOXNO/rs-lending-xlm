@@ -1,6 +1,9 @@
 extern crate std;
 
-use test_harness::{eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+    LIQUIDATOR,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,15 +39,20 @@ fn test_safe_price_allows_all_operations() {
 
     // Supply (risk-decreasing).
     t.supply(ALICE, "USDC", 100_000.0);
+    t.assert_supply_near(ALICE, "USDC", 100_000.0, 1.0);
 
     // Borrow (risk-increasing).
     t.borrow(ALICE, "ETH", 10.0);
+    t.assert_borrow_near(ALICE, "ETH", 10.0, 0.01);
 
     // Repay (risk-decreasing).
     t.repay(ALICE, "ETH", 1.0);
+    t.assert_borrow_near(ALICE, "ETH", 9.0, 0.01);
 
     // Withdraw (risk-increasing when borrows exist).
     t.withdraw(ALICE, "USDC", 1_000.0);
+    t.assert_supply_near(ALICE, "USDC", 99_000.0, 1.0);
+    t.assert_healthy(ALICE);
 }
 
 // ===========================================================================
@@ -65,12 +73,16 @@ fn test_second_tolerance_allows_risk_decreasing() {
 
     // Supply succeeds (risk-decreasing).
     t.supply(ALICE, "USDC", 100_000.0);
+    t.assert_supply_near(ALICE, "USDC", 100_000.0, 1.0);
 
     // Borrow also succeeds (within second tolerance, uses average price).
     t.borrow(ALICE, "ETH", 10.0);
+    t.assert_borrow_near(ALICE, "ETH", 10.0, 0.01);
+    t.assert_healthy(ALICE);
 
     // Repay succeeds (risk-decreasing).
     t.repay(ALICE, "ETH", 1.0);
+    t.assert_borrow_near(ALICE, "ETH", 9.0, 0.01);
 }
 
 #[test]
@@ -86,8 +98,15 @@ fn test_second_tolerance_allows_borrow() {
     t.supply(ALICE, "USDC", 100_000.0);
 
     // Borrow succeeds: price deviation is within the second tolerance band.
-    let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(result.is_ok(), "borrow should work within second tolerance");
+    t.try_borrow(ALICE, "ETH", 10.0)
+        .expect("borrow should work within second tolerance");
+    t.assert_borrow_near(ALICE, "ETH", 10.0, 0.01);
+    let eth_wallet = t.token_balance(ALICE, "ETH");
+    assert!(
+        eth_wallet > 9.99,
+        "ETH wallet should be ~10, got {}",
+        eth_wallet
+    );
 }
 
 // ===========================================================================
@@ -103,9 +122,12 @@ fn test_unsafe_price_allows_supply() {
     // Aggregator: $1.00, Safe: $1.10 (10% deviation).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Supply still succeeds (allow_unsafe_price=true for supply).
-    let result = t.try_supply(ALICE, "USDC", 10_000.0);
-    assert!(result.is_ok(), "supply should work even with unsafe price");
+    // Supply still succeeds (allow_unsafe_price=true for supply). Use the
+    // tracking `supply` helper so the new account is registered for the
+    // post-state read; bare `try_supply` returns the new account_id without
+    // tracking it.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
 }
 
 #[test]
@@ -159,10 +181,7 @@ fn test_unsafe_price_blocks_borrow() {
     // Borrow fails: USDC (collateral) price is unsafe, and borrow uses
     // allow_unsafe_price=false.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail with unsafe collateral price"
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -182,10 +201,7 @@ fn test_unsafe_price_blocks_borrow_debt_asset() {
 
     // Borrow fails: ETH (debt asset) price is unsafe.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
-    assert!(
-        result.is_err(),
-        "borrow should fail with unsafe debt asset price"
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 #[test]
@@ -207,10 +223,7 @@ fn test_unsafe_price_blocks_withdraw_with_borrows() {
     // Withdraw fails when the user has borrows (risk-increasing,
     // allow_unsafe_price=false).
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
-    assert!(
-        result.is_err(),
-        "withdraw with borrows should fail with unsafe price"
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 // Withdraw under oracle deviation > 5%:
@@ -236,11 +249,16 @@ fn withdraw_succeeds_under_oracle_deviation_when_no_debt() {
     // With no debt, the withdraw cache runs with allow_unsafe_price=true,
     // and the post-loop health-factor gate short-circuits when no borrows
     // exist. Supply-only users must keep liveness during oracle deviation.
-    let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
+    let wallet_before = t.token_balance(ALICE, "USDC");
+    t.try_withdraw(ALICE, "USDC", 1_000.0)
+        .expect("withdraw should succeed under oracle deviation when account has no debt");
+    t.assert_supply_near(ALICE, "USDC", 99_000.0, 1.0);
+    let wallet_after = t.token_balance(ALICE, "USDC");
     assert!(
-        result.is_ok(),
-        "withdraw should succeed under oracle deviation when account has no debt: {:?}",
-        result
+        wallet_after - wallet_before > 999.0,
+        "wallet should grow by ~1000: before={}, after={}",
+        wallet_before,
+        wallet_after
     );
 }
 
@@ -301,7 +319,7 @@ fn test_unsafe_price_blocks_liquidation() {
 
     // Liquidation fails: allow_unsafe_price=false for liquidate.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert!(result.is_err(), "liquidation should fail with unsafe price");
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 // ===========================================================================
@@ -320,12 +338,18 @@ fn test_stale_price_blocks_supply() {
     t.advance_time_no_refresh(1000);
 
     // Supply also fails with a stale price because the oracle adapter's
-    // get_price() enforces staleness unconditionally before the controller
-    // sees the price.
-    let result = t.try_supply(ALICE, "USDC", 1_000.0);
-    assert!(
-        result.is_err(),
-        "supply should fail with stale price (adapter enforces staleness)"
+    // mock storage entry expired on `advance_time_no_refresh`, so
+    // `lastprice` returns `None` -> `OracleError::NoLastPrice`. Pin the
+    // precise contract code so any regression that fails for a different
+    // reason surfaces loudly.
+    let err = t
+        .try_supply(ALICE, "USDC", 1_000.0)
+        .expect_err("supply should fail under stale-mock conditions");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(210),
+        "expected OracleError::NoLastPrice (210), got {:?}",
+        err
     );
 }
 
@@ -613,10 +637,12 @@ fn test_edit_asset_in_e_mode_category() {
     // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<common::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
-        t.env
-            .storage()
-            .persistent()
-            .get(&common::types::ControllerKey::EModeAsset(1, usdc_asset))
+        let map: Option<soroban_sdk::Map<soroban_sdk::Address, common::types::EModeAssetConfig>> =
+            t.env
+                .storage()
+                .persistent()
+                .get(&common::types::ControllerKey::EModeAssets(1));
+        map.and_then(|m| m.get(usdc_asset))
     });
     let config = config.expect("emode asset config should exist");
     assert!(

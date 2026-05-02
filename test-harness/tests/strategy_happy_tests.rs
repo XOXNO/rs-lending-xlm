@@ -121,6 +121,22 @@ fn test_multiply_mode_long() {
         "mode should be Long"
     );
 
+    // An empty position trivially satisfies HF >= 1.0 (controller returns
+    // i128::MAX). Pin the supply and borrow magnitudes to catch a regression
+    // that skipped the deposit branch in Long mode.
+    let supply = t.supply_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (2999.0..=3001.0).contains(&supply),
+        "USDC supply should be ~3000 in Long mode, got {}",
+        supply
+    );
+    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (0.99..=1.01).contains(&borrow),
+        "ETH borrow should be ~1.0 in Long mode, got {}",
+        borrow
+    );
+
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
@@ -155,6 +171,22 @@ fn test_multiply_mode_short() {
         attrs.mode,
         common::types::PositionMode::Short,
         "mode should be Short"
+    );
+
+    // An empty position trivially satisfies HF >= 1.0 (controller returns
+    // i128::MAX). Pin the supply and borrow magnitudes to catch a regression
+    // that skipped the deposit branch in Short mode.
+    let supply = t.supply_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (2999.0..=3001.0).contains(&supply),
+        "USDC supply should be ~3000 in Short mode, got {}",
+        supply
+    );
+    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (0.99..=1.01).contains(&borrow),
+        "ETH borrow should be ~1.0 in Short mode, got {}",
+        borrow
     );
 
     let hf = t.health_factor_for(ALICE, account_id);
@@ -573,6 +605,35 @@ fn test_multiply_two_users() {
 
     assert_ne!(alice_id, bob_id, "accounts should be different");
 
+    let alice_supply = t.supply_balance_for(ALICE, alice_id, "USDC");
+    let bob_supply = t.supply_balance_for(BOB, bob_id, "USDC");
+    assert!(
+        (2999.0..=3001.0).contains(&alice_supply),
+        "Alice should have ~3000 USDC supply, got {}",
+        alice_supply
+    );
+    assert!(
+        (5999.0..=6001.0).contains(&bob_supply),
+        "Bob should have ~6000 USDC supply, got {}",
+        bob_supply
+    );
+    let alice_borrow = t.borrow_balance_for(ALICE, alice_id, "ETH");
+    let bob_borrow = t.borrow_balance_for(BOB, bob_id, "ETH");
+    assert!(
+        (0.99..=1.01).contains(&alice_borrow),
+        "Alice should owe ~1 ETH, got {}",
+        alice_borrow
+    );
+    assert!(
+        (1.99..=2.01).contains(&bob_borrow),
+        "Bob should owe ~2 ETH, got {}",
+        bob_borrow
+    );
+    let alice_addr = t.get_or_create_user(ALICE);
+    let bob_addr = t.get_or_create_user(BOB);
+    assert_eq!(t.get_account_owner(alice_id), alice_addr);
+    assert_eq!(t.get_account_owner(bob_id), bob_addr);
+
     let alice_hf = t.health_factor_for(ALICE, alice_id);
     let bob_hf = t.health_factor_for(BOB, bob_id);
 
@@ -589,12 +650,14 @@ fn test_multiply_two_users() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// test_swap_debt_hf_improvement
-// Swapping to a cheaper debt can improve the HF.
+// test_swap_debt_to_costlier_debt_preserves_minimum_hf
+// Swap 10 ETH ($20k) debt -> 0.5 WBTC ($30k) debt: USD debt grows, so HF
+// shrinks but must stay >= 1.0. Pinning the strict direction catches any
+// regression that silently dropped the new debt or kept the old.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_swap_debt_hf_improvement() {
+fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -617,6 +680,12 @@ fn test_swap_debt_hf_improvement() {
     assert!(
         hf_after >= 1.0,
         "HF should still be >= 1.0 after swap_debt, got {}",
+        hf_after
+    );
+    assert!(
+        hf_after < hf_before,
+        "HF must shrink when swapping to costlier debt: before={}, after={}",
+        hf_before,
         hf_after
     );
 }

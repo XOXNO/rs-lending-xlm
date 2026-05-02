@@ -330,7 +330,7 @@ impl LendingTestBuilder {
         // Set ledger info
         env.ledger().set(LedgerInfo {
             timestamp: 1000,
-            protocol_version: 25,
+            protocol_version: 26,
             sequence_number: 100,
             network_id: Default::default(),
             base_reserve: 10,
@@ -381,10 +381,11 @@ impl LendingTestBuilder {
         // Set aggregator in controller
         ctrl.set_aggregator(&aggregator_address);
 
-        // Accumulator must be set before any `create_liquidity_pool` call
-        // so the pool stores it at construction. `set_accumulator` requires
-        // a contract address; reuse the mock aggregator to satisfy the
-        // WASM-executable check (it never receives accumulator calls).
+        // Accumulator must be configured on the controller before any
+        // `claim_revenue` call (the controller forwards each pool's revenue
+        // to it). `set_accumulator` requires a contract address; reuse the
+        // mock aggregator to satisfy the WASM-executable check (it never
+        // receives accumulator calls).
         let accumulator = aggregator_address.clone();
         ctrl.set_accumulator(&accumulator);
 

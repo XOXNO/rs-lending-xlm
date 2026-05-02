@@ -16,7 +16,7 @@ impl LendingTest {
 
         self.env.ledger().set(LedgerInfo {
             timestamp: new_timestamp,
-            protocol_version: 25,
+            protocol_version: 26,
             sequence_number: new_seq,
             network_id: Default::default(),
             base_reserve: 10,
@@ -39,7 +39,7 @@ impl LendingTest {
 
         self.env.ledger().set(LedgerInfo {
             timestamp: new_timestamp,
-            protocol_version: 25,
+            protocol_version: 26,
             sequence_number: new_seq,
             network_id: Default::default(),
             base_reserve: 10,

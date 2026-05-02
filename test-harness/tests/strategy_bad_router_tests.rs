@@ -117,14 +117,13 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         &steps,
     );
 
-    // The transfer_from for 2x amount_in fails inside the token contract.
-    // Any concrete contract error is acceptable evidence that the controller
-    // did not pre-approve more than requested; !is_ok is enough.
-    assert!(
-        result.is_err(),
-        "bad router should have been blocked by the token allowance, got Ok({:?})",
-        result
-    );
+    // The SAC's transfer_from rejects the 2x pull with its insufficient-
+    // allowance error (Error(Contract, #9)). Pinning the exact code makes
+    // sure a regression that rejects multiply at an *earlier* layer (e.g. a
+    // bogus validation panic that surfaces a different contract error)
+    // does not silently keep the test green. The error is propagated as a
+    // contract error by the SAC, not as a host-level Auth/InvalidAction.
+    assert_contract_error(result, 9);
 }
 
 // ---------------------------------------------------------------------------

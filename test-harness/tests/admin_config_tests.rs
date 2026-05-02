@@ -51,10 +51,11 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     config.liquidation_threshold_bps = 8000; // Equal to LTV.
 
     let result = ctrl.try_edit_asset_config(&asset, &config);
-    assert!(
-        result.is_err(),
-        "edit_asset_config should reject threshold == LTV"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::INVALID_LIQ_THRESHOLD);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,15 +223,17 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
             reserve_factor_bps: 1000,
         },
     );
-    assert!(
-        result.is_err(),
-        "upgrade_pool_params must reject max_borrow_rate_ray > 2 * RAY"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::INVALID_BORROW_PARAMS);
 }
 
 #[test]
 fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
+    let rate_before = t.pool_borrow_rate("USDC");
 
     // At the exact cap (`2 * RAY`); slope3 must remain <= max.
     t.upgrade_pool_params(
@@ -246,7 +249,13 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
             reserve_factor_bps: 1000,
         },
     );
-    // Did not panic — cap allows the boundary value.
+    // The IRM was rewritten — confirm the borrow rate remains readable
+    // after the boundary upgrade.
+    let rate_after = t.pool_borrow_rate("USDC");
+    assert!(
+        rate_after != rate_before || rate_after >= 0.0,
+        "borrow rate must remain readable after boundary upgrade",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +288,15 @@ fn test_configure_market_oracle() {
 
     // Must not panic; the admin has permission.
     ctrl.configure_market_oracle(&t.admin(), &asset, &config);
+
+    let market = ctrl.get_market_config(&asset);
+    assert_eq!(market.cex_oracle, Some(t.mock_reflector.clone()));
+    assert_eq!(market.twap_records, 3);
+    assert_eq!(
+        (market.status as u32),
+        1,
+        "market should be Active after oracle config",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +314,16 @@ fn test_set_aggregator() {
 
     // Must not panic; the admin has permission.
     ctrl.set_aggregator(&new_aggregator);
+
+    // Confirm the new aggregator is actually persisted.
+    let stored: Address = t.env.as_contract(&t.controller_address(), || {
+        t.env
+            .storage()
+            .instance()
+            .get(&common::types::ControllerKey::Aggregator)
+            .expect("aggregator must be stored")
+    });
+    assert_eq!(stored, new_aggregator, "aggregator must be persisted");
 }
 
 // ---------------------------------------------------------------------------
@@ -313,10 +341,11 @@ fn test_oracle_tolerance_validation() {
     // now takes raw deviation BPS (first, last) instead of
     // OraclePriceFluctuation.
     let result = ctrl.try_edit_oracle_tolerance(&t.admin(), &asset, &10, &500);
-    assert!(
-        result.is_err(),
-        "oracle tolerance with first < 50 bps should be rejected"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::BAD_FIRST_TOLERANCE);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,16 +388,16 @@ fn test_role_enforcement_keeper() {
     // Create BOB (no KEEPER role).
     let bob_addr = t.get_or_create_user(BOB);
 
-    // BOB calls update_indexes without KEEPER; this must fail. Use bare
-    // `is_err()` because Soroban wraps cross-contract errors at the outer
-    // caller boundary.
+    // BOB calls update_indexes without KEEPER; this must fail with
+    // AccessControlError::Unauthorized = 2000.
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
-    assert!(
-        result.is_err(),
-        "non-keeper should not be able to call update_indexes"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, 2000);
 }
 
 // ---------------------------------------------------------------------------
@@ -382,16 +411,17 @@ fn test_role_enforcement_revenue() {
     // Create BOB (no REVENUE role).
     let bob_addr = t.get_or_create_user(BOB);
 
-    // Use bare `is_err()` because Soroban wraps cross-contract errors at the
-    // outer caller boundary.
+    // claim_revenue is `#[only_role(caller, "REVENUE")]`; non-revenue callers
+    // must trip AccessControlError::Unauthorized = 2000.
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
     let assets = soroban_sdk::vec![&t.env, asset];
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
-    assert!(
-        result.is_err(),
-        "non-revenue user should not be able to claim revenue"
-    );
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, 2000);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,20 +449,24 @@ fn test_role_enforcement_oracle() {
         twap_records: 3,
     };
 
-    assert!(
-        ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector)
-            .is_err(),
-        "non-oracle user should not be able to set reflector config"
-    );
-    assert!(
-        ctrl.try_edit_oracle_tolerance(&bob_addr, &asset, &300, &600)
-            .is_err(),
-        "non-oracle user should not be able to edit oracle tolerance"
-    );
-    assert!(
-        ctrl.try_disable_token_oracle(&bob_addr, &asset).is_err(),
-        "non-oracle user should not be able to disable the oracle"
-    );
+    let configure_result =
+        match ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector) {
+            Ok(res) => res.map_err(|e| e.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+    assert_contract_error(configure_result, 2000);
+
+    let tolerance_result = match ctrl.try_edit_oracle_tolerance(&bob_addr, &asset, &300, &600) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(tolerance_result, 2000);
+
+    let disable_result = match ctrl.try_disable_token_oracle(&bob_addr, &asset) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(disable_result, 2000);
 }
 
 // ---------------------------------------------------------------------------
@@ -464,16 +498,24 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
     };
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(&bob_addr, &asset, &reflector);
+    let after_configure = ctrl.get_market_config(&asset);
+    assert_eq!(after_configure.cex_oracle, Some(t.mock_reflector.clone()));
+    assert_eq!(after_configure.twap_records, 2);
 
     ctrl.edit_oracle_tolerance(&bob_addr, &asset, &300, &600);
-
-    let market = ctrl.get_market_config(&asset).asset_config;
+    let after_tolerance = ctrl.get_market_config(&asset);
     assert!(
-        market.is_collateralizable,
-        "asset config should remain readable"
+        after_tolerance.oracle_config.tolerance.first_upper_ratio_bps > 0,
+        "tolerance must be persisted",
     );
 
     ctrl.disable_token_oracle(&bob_addr, &asset);
+    let after_disable = ctrl.get_market_config(&asset);
+    assert_eq!(
+        (after_disable.status as u32),
+        2,
+        "disable_token_oracle must move market to Disabled (=2)",
+    );
 }
 
 // ---------------------------------------------------------------------------

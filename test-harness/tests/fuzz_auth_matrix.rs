@@ -326,7 +326,16 @@ proptest! {
 
     #[test]
     fn prop_wrong_role_rejected(
-        _seed in any::<u64>(),
+        // Sweep the 6 (granted_role, target_role) pairs where granted != target,
+        // so each case grants ONE role and probes an endpoint gated on a
+        // different role:
+        //   0 = KEEPER  -> REVENUE  (claim_revenue)
+        //   1 = KEEPER  -> ORACLE   (disable_token_oracle)
+        //   2 = REVENUE -> ORACLE   (disable_token_oracle)
+        //   3 = REVENUE -> KEEPER   (update_indexes)
+        //   4 = ORACLE  -> KEEPER   (update_indexes)
+        //   5 = ORACLE  -> REVENUE  (claim_revenue)
+        case_idx in 0u8..6,
     ) {
         use soroban_sdk::testutils::MockAuth;
         use soroban_sdk::testutils::MockAuthInvoke;
@@ -338,56 +347,64 @@ proptest! {
         let usdc = t.resolve_asset("USDC");
         let empty_assets: SVec<Address> = SVec::new(&env);
 
-        // Grant a fresh address only the KEEPER role. The admin holds all three
-        // roles from the constructor; `ctrl.grant_role` calls under
-        // `mock_all_auths` work because the env already mocks admin's auth.
-        let keeper_only = Address::generate(&env);
-        // `grant_role` needs a role Symbol; call the low-level client method.
-        ctrl.grant_role(&keeper_only, &Symbol::new(&env, "KEEPER"));
+        // (granted_role, target_role, target_endpoint).
+        let (granted, target, endpoint) = match case_idx {
+            0 => ("KEEPER", "REVENUE", "claim_revenue"),
+            1 => ("KEEPER", "ORACLE", "disable_token_oracle"),
+            2 => ("REVENUE", "ORACLE", "disable_token_oracle"),
+            3 => ("REVENUE", "KEEPER", "update_indexes"),
+            4 => ("ORACLE", "KEEPER", "update_indexes"),
+            5 => ("ORACLE", "REVENUE", "claim_revenue"),
+            _ => unreachable!(),
+        };
+
+        // Grant the caller exactly one role; admin holds all three from the
+        // constructor, so `grant_role` under `mock_all_auths` succeeds.
+        let caller = Address::generate(&env);
+        ctrl.grant_role(&caller, &Symbol::new(&env, granted));
 
         // only_role macros run `require_auth(caller)` first, then check the
-        // role, so we must provide a valid MockAuth for `keeper_only`. The
-        // role check then fails because `keeper_only` lacks REVENUE / ORACLE.
-        let args_rev: soroban_sdk::Vec<soroban_sdk::Val> =
-            (keeper_only.clone(), empty_assets.clone()).into_val(&env);
-        let invoke_rev = MockAuthInvoke {
+        // role. Provide a valid MockAuth for `caller` so role check is what
+        // rejects (not the host auth gate).
+        let args: soroban_sdk::Vec<soroban_sdk::Val> = match endpoint {
+            "claim_revenue" => (caller.clone(), empty_assets.clone()).into_val(&env),
+            "disable_token_oracle" => (caller.clone(), usdc.clone()).into_val(&env),
+            "update_indexes" => (caller.clone(), empty_assets.clone()).into_val(&env),
+            _ => unreachable!(),
+        };
+        let invoke = MockAuthInvoke {
             contract: &t.controller,
-            fn_name: "claim_revenue",
-            args: args_rev,
+            fn_name: endpoint,
+            args,
             sub_invokes: &[],
         };
-        let auth_rev = [MockAuth {
-            address: &keeper_only,
-            invoke: &invoke_rev,
+        let auths = [MockAuth {
+            address: &caller,
+            invoke: &invoke,
         }];
-        // KEEPER -> REVENUE endpoint: caller-auth OK, role check fails.
-        let res = ctrl
-            .mock_auths(&auth_rev)
-            .try_claim_revenue(&keeper_only, &empty_assets);
-        prop_assert!(
-            !matches!(res, Ok(Ok(_))),
-            "CRITICAL: KEEPER-only address succeeded against REVENUE endpoint claim_revenue"
-        );
 
-        // KEEPER -> ORACLE endpoint: disable_token_oracle
-        let args_dto: soroban_sdk::Vec<soroban_sdk::Val> =
-            (keeper_only.clone(), usdc.clone()).into_val(&env);
-        let invoke_dto = MockAuthInvoke {
-            contract: &t.controller,
-            fn_name: "disable_token_oracle",
-            args: args_dto,
-            sub_invokes: &[],
+        let res = match endpoint {
+            "claim_revenue" => ctrl
+                .mock_auths(&auths)
+                .try_claim_revenue(&caller, &empty_assets)
+                .map(|inner| inner.map(|_| ()))
+                .map_err(|e| std::format!("{:?}", e)),
+            "disable_token_oracle" => ctrl
+                .mock_auths(&auths)
+                .try_disable_token_oracle(&caller, &usdc)
+                .map(|inner| inner.map(|_| ()))
+                .map_err(|e| std::format!("{:?}", e)),
+            "update_indexes" => ctrl
+                .mock_auths(&auths)
+                .try_update_indexes(&caller, &empty_assets)
+                .map(|inner| inner.map(|_| ()))
+                .map_err(|e| std::format!("{:?}", e)),
+            _ => unreachable!(),
         };
-        let auth_dto = [MockAuth {
-            address: &keeper_only,
-            invoke: &invoke_dto,
-        }];
-        let res = ctrl
-            .mock_auths(&auth_dto)
-            .try_disable_token_oracle(&keeper_only, &usdc);
         prop_assert!(
             !matches!(res, Ok(Ok(_))),
-            "CRITICAL: KEEPER-only address succeeded against ORACLE endpoint disable_token_oracle"
+            "CRITICAL: {}-only address succeeded against {} endpoint {}",
+            granted, target, endpoint
         );
     }
 }

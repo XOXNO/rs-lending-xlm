@@ -303,6 +303,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
     // use as collateral.
     usdc_market.token_admin.mint(&alice, &500_0000000i128);
 
+    let alice_usdc_before = t.token_balance(ALICE, "USDC");
     t.fund_router("USDC", 3_000.0);
     let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
 
@@ -337,6 +338,15 @@ fn test_multiply_with_collateral_token_initial_payment() {
         "borrow must be only the flash debt: got {}",
         borrow
     );
+    // The 500 USDC initial payment must come out of Alice's wallet; the
+    // controller must not synthesize it from elsewhere.
+    let alice_usdc_after = t.token_balance(ALICE, "USDC");
+    assert!(
+        (alice_usdc_before - alice_usdc_after - 500.0).abs() < 1e-6,
+        "Alice's USDC wallet should drop by exactly 500, before={}, after={}",
+        alice_usdc_before,
+        alice_usdc_after
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +371,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     // Alice pays in with WBTC. Mint some to her.
     wbtc_market.token_admin.mint(&alice, &10_000_000i128); // 0.1 WBTC
 
+    let alice_wbtc_before = t.token_balance(ALICE, "WBTC");
     // Main debt swap (ETH -> USDC) and initial-payment convert (WBTC ->
     // USDC). The mock aggregator funds each side independently, so fund
     // both.
@@ -388,6 +399,16 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
         (3_499.0..=3_501.0).contains(&supply),
         "third-token payment must be converted and added to collateral: got {}",
         supply
+    );
+    // The WBTC initial payment must come out of Alice's wallet (exact
+    // delta depends on harness auto-mint at user creation, so just assert
+    // a non-trivial decrement).
+    let alice_wbtc_after = t.token_balance(ALICE, "WBTC");
+    assert!(
+        alice_wbtc_after < alice_wbtc_before,
+        "Alice's WBTC wallet must decrease after multiply with WBTC initial payment: before={}, after={}",
+        alice_wbtc_before,
+        alice_wbtc_after
     );
 }
 
