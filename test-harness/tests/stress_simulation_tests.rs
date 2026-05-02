@@ -394,11 +394,11 @@ fn test_interest_accrual_consistency() {
 }
 
 // ===========================================================================
-// Test 5: Position limit stress
+// Test 5: Position limit exactly at cap
 // ===========================================================================
 
 #[test]
-fn test_position_limit_stress() {
+fn test_position_limit_exactly_at_cap() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

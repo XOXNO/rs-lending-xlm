@@ -98,11 +98,11 @@ fn test_borrow_amount_for_missing_token() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. test_can_be_liquidated_boundary
+// 5. test_can_be_liquidated_returns_false_for_healthy
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_can_be_liquidated_boundary() {
+fn test_can_be_liquidated_returns_false_for_healthy() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

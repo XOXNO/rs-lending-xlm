@@ -48,10 +48,8 @@ impl Rng {
 ///      `> 1e18` discriminator below).
 ///  (2) supply and borrow indexes >= 1.0 RAY for every market.
 ///  (3) protocol revenue >= 0 for every market.
-/// The "random" in the name is a misnomer kept for git history -- this is
-/// a deterministic regression scenario, not a randomized fuzz.
 #[test]
-fn test_chaos_multi_user_random_operations() {
+fn test_chaos_multi_user_seeded_operation_sequence() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

@@ -5,7 +5,7 @@ use test_harness::{
 };
 
 #[test]
-fn test_liquidation_skips_excess_debt_payments() {
+fn test_liquidation_aggregates_duplicate_debt_payments() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
