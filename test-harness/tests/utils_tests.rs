@@ -199,7 +199,7 @@ fn test_health_factor_changes_with_price() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. test_pool_utilization_increases_with_borrows
+// 8. test_pool_borrow_rate_increases_with_borrows
 // ---------------------------------------------------------------------------
 
 #[test]

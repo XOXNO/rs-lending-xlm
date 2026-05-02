@@ -387,11 +387,11 @@ fn test_borrow_emode_enhanced_ltv() {
 }
 
 // ---------------------------------------------------------------------------
-// 14. test_borrow_health_factor_exactly_one
+// 14. test_borrow_at_ltv_limit_stays_healthy
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_borrow_health_factor_exactly_one() {
+fn test_borrow_at_ltv_limit_stays_healthy() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())

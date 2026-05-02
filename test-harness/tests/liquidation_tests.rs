@@ -575,11 +575,11 @@ fn test_liquidation_rejects_during_flash_loan() {
 }
 
 // ---------------------------------------------------------------------------
-// 18. test_liquidation_rejects_empty_debt_payments
+// 18. test_liquidation_rejects_zero_amount
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_liquidation_rejects_empty_debt_payments() {
+fn test_liquidation_rejects_zero_amount() {
     let mut t = setup_liquidatable();
 
     // Use an exact zero payment. `0.0000001` ETH stays non-zero at 7 decimals.

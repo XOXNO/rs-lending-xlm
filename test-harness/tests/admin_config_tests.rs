@@ -519,7 +519,7 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
 }
 
 // ---------------------------------------------------------------------------
-// 15. test_init_market_uniqueness
+// 15. test_create_liquidity_pool_uniqueness
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -184,11 +184,11 @@ fn test_deep_underwater_higher_bonus() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Verify HF improves after liquidation (quantitative)
+// 4. Verify liquidation does not increase debt
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_hf_improves_quantitatively() {
+fn test_liquidation_does_not_increase_debt() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

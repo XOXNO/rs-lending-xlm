@@ -122,11 +122,11 @@ fn test_can_be_liquidated_returns_false_for_healthy() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. test_can_be_liquidated_just_below
+// 6. test_can_be_liquidated_when_unhealthy
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_can_be_liquidated_just_below() {
+fn test_can_be_liquidated_when_unhealthy() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -179,7 +179,7 @@ fn test_get_all_markets_multiple() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. test_get_all_markets_empty_count
+// 8. test_get_all_markets_single
 // ---------------------------------------------------------------------------
 
 #[test]

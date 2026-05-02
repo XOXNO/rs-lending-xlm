@@ -204,11 +204,11 @@ fn test_emode_higher_ltv() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. test_revenue_snapshot
+// 7. test_revenue_accrues_over_time
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_revenue_snapshot() {
+fn test_revenue_accrues_over_time() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
