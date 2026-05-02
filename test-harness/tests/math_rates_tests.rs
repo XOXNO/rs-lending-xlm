@@ -1,7 +1,7 @@
 extern crate std;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
-use common::fp::Ray;
+use common::fp::{Ray, Wad};
 use common::fp_core::{
     div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
 };
@@ -150,15 +150,21 @@ fn test_div_by_int_half_up() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. test_min_max_equal
+// 11. test_wad_min_max
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_min_max_equal() {
-    assert_eq!(5, 5);
-    assert_eq!(5, 5);
-    assert_eq!(-3, -3);
-    assert_eq!(-3, -3);
+fn test_wad_min_max() {
+    let a = Wad::from_raw(5 * WAD);
+    let b = Wad::from_raw(7 * WAD);
+    let c = Wad::from_raw(-3 * WAD);
+
+    assert_eq!(a.min(b), a, "min picks the smaller side");
+    assert_eq!(a.max(b), b, "max picks the larger side");
+    assert_eq!(a.min(a), a, "min is reflexive on equal values");
+    assert_eq!(a.max(a), a, "max is reflexive on equal values");
+    assert_eq!(c.min(a), c, "min handles negatives");
+    assert_eq!(c.max(a), a, "max handles negatives");
 }
 
 // ===========================================================================
