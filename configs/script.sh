@@ -391,7 +391,7 @@ claim_revenue_all() {
 set_aggregator() {
     echo "Configuring Aggregator for ${NETWORK}..."
     local router=$(jq -r ".\"$NETWORK\".aggregator" "$NETWORKS_FILE")
-    
+
     if [ -z "$router" ] || [ "$router" = "null" ] || [ "$router" = "" ]; then
         echo "ERROR: No aggregator address found for ${NETWORK} in ${NETWORKS_FILE}"
         exit 1
@@ -405,6 +405,64 @@ set_aggregator() {
         --addr "$router"
 
     echo "Aggregator configured on Controller."
+}
+
+# ---------------------------------------------------------------------------
+# Position helpers (supply / borrow)
+#
+# Strategy entry points (multiply, swap_debt, swap_collateral,
+# repay_debt_with_collateral) are still defined on the controller but require
+# an AggregatorSwap JSON sourced from the off-chain quote server backing the
+# in-house swap aggregator. Invoke them via `make invoke` with a swap JSON
+# produced by that quote server.
+# ---------------------------------------------------------------------------
+
+# `supply` — deposit collateral.
+# Args: <market> <amount_raw> [<account_id:0>]
+supply_position() {
+    local market=$1
+    local amount_raw=$2
+    local account_id=${3:-0}
+
+    local ctrl=$(get_controller)
+    local caller=$SIGNER_ADDRESS
+    local asset_addr=$(get_market_value "$market" "asset_address")
+
+    echo "=== supply ==="
+    echo "  Account: $account_id  (0 = create new)"
+    echo "  Asset:   $market ($asset_addr)"
+    echo "  Amount:  $amount_raw"
+    echo
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- supply \
+        --caller "$caller" \
+        --account_id "$account_id" \
+        --assets "[[\"$asset_addr\", $amount_raw]]"
+}
+
+# `borrow` — open a borrow position against existing collateral.
+# Args: <market> <amount_raw> <account_id>
+borrow_position() {
+    local market=$1
+    local amount_raw=$2
+    local account_id=$3
+
+    local ctrl=$(get_controller)
+    local caller=$SIGNER_ADDRESS
+    local asset_addr=$(get_market_value "$market" "asset_address")
+
+    echo "=== borrow ==="
+    echo "  Account: $account_id"
+    echo "  Asset:   $market ($asset_addr)"
+    echo "  Amount:  $amount_raw"
+    echo
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- borrow_batch \
+        --caller "$caller" \
+        --account_id "$account_id" \
+        --borrows "[[\"$asset_addr\", $amount_raw]]"
 }
 
 configure_market_oracle() {
@@ -429,7 +487,7 @@ configure_market_oracle() {
             # Dead metadata when dex_oracle is null — send empty string so
             # storage doesn't carry a misleading ticker for an unused leg.
             dex_symbol: (if .reflector.dex_oracle == null
-                         then ""
+                         then \"\"
                          else (.reflector.dex_symbol // .reflector.cex_symbol)
                          end),
             twap_records: .reflector.twap_records
@@ -880,6 +938,21 @@ case "$1" in
         ;;
     "setAggregator")
         set_aggregator
+        ;;
+    "supply")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>]" >&2
+            list_markets >&2
+            exit 1
+        fi
+        supply_position "$2" "$3" "$4"
+        ;;
+    "borrow")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+            echo "Usage: $0 borrow <market> <amount_raw> <account_id>" >&2
+            exit 1
+        fi
+        borrow_position "$2" "$3" "$4"
         ;;
     "pause")
         pause_protocol

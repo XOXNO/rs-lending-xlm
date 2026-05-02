@@ -462,15 +462,26 @@ configure-controller:
 	POOL_HASH=$$(cat /tmp/pool_wasm_hash.txt); \
 	echo "Setting pool template..."; \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$POOL_HASH; \
-	echo "Controller configured."
+		-- set_liquidity_pool_template --hash $$POOL_HASH
+	@# Constructor only auto-grants KEEPER. ORACLE and REVENUE need explicit
+	@# grants before configure_market_oracle / claim_revenue can run.
+	@echo "Granting ORACLE role to deployer..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) ORACLE
+	@echo "Granting REVENUE role to deployer..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) REVENUE
+	@echo "Controller configured."
 
-## Full setup: deploy + configure + create/configure markets and e-modes from config
+## Full setup: deploy + configure + create/configure markets and e-modes, then unpause.
+## Constructor pauses the controller; the final unpause turns the protocol live.
 setup-testnet: NETWORK=testnet
-setup-testnet: deploy-testnet configure-controller _setup-markets
+setup-testnet: deploy-testnet configure-controller _setup-markets _unpause-after-setup
 
 setup-mainnet: NETWORK=mainnet
-setup-mainnet: deploy-mainnet configure-controller _setup-markets
+setup-mainnet: deploy-mainnet configure-controller _setup-markets _unpause-after-setup
+
+_unpause-after-setup:
+	@echo "=== Unpausing $(NETWORK) controller ==="
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh unpause
 
 _setup-markets:
 	@echo "=== Setting up markets from $(CONFIG_DIR)/$(NETWORK)_markets.json ==="
@@ -530,7 +541,7 @@ POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
-VARARG_ACTIONS := updateIndexes claimRevenue
+VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
@@ -668,6 +679,14 @@ help:
 	@echo "    make testnet setupAllEModes"
 	@echo "    make testnet setupAll"
 	@echo "    make testnet listEModeCategories"
+	@echo ""
+	@echo "  Positions (writes):"
+	@echo "    make testnet supply USDC 1000000000                  100 USDC at 7 dec, into account 0"
+	@echo "    make testnet borrow USDC 100000000 <account_id>      Direct borrow (no swap)"
+	@echo ""
+	@echo "  Strategies (multiply / swap_debt / swap_collateral / repay_debt_with_collateral)"
+	@echo "  require an AggregatorSwap JSON from the off-chain quote server. Invoke directly:"
+	@echo "    make invoke FN=multiply ARGS='--caller G... --account_id 0 ... --swap @swap.json' NETWORK=testnet"
 	@echo ""
 	@echo "  Protocol control (writes):"
 	@echo "    make testnet pause"
