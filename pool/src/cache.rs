@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_uses_zeroed_defaults_when_state_is_missing() {
+    fn test_load_uses_neutral_defaults_when_state_is_missing() {
         let t = TestSetup::new();
 
         t.as_contract(|| {

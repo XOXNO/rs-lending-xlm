@@ -217,7 +217,7 @@ fn test_flash_loan_reentrancy_blocks_liquidation() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. test_flash_loan_fee_calculation
+// 10. test_flash_loan_fee_config_matches_default_preset
 // ---------------------------------------------------------------------------
 
 #[test]

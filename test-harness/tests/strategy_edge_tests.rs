@@ -439,14 +439,15 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_multiply_rejects_mode_4() {
+fn test_multiply_rejects_normal_mode() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    // mode = 4 is out of range (valid: 1, 2, 3).
+    // PositionMode::Normal is reserved for non-strategy accounts; multiply
+    // requires Multiply, Long, or Short.
     let result = t.try_multiply(
         ALICE,
         "USDC",

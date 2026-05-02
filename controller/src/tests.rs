@@ -477,10 +477,12 @@ fn test_create_isolated_account() {
 }
 
 // -----------------------------------------------------------------------
-// Test: position limit enforcement
+// Test: position storage reaches configured max (no enforcement assertion)
+// End-to-end enforcement (rejecting a third asset) lives in
+// test-harness::supply_tests::test_supply_position_limit_exceeded.
 // -----------------------------------------------------------------------
 #[test]
-fn test_position_limit_enforcement() {
+fn test_position_limit_reaches_configured_max() {
     let t = TestSetup::new();
     let client = t.client();
     let owner = Address::generate(&t.env);
@@ -515,7 +517,9 @@ fn test_position_limit_enforcement() {
         }
         storage::set_account(&t.env, id, &account);
 
-        // The limit check must now fail for a third position.
+        // After storing two positions the supply_positions map is at the
+        // configured limit. End-to-end enforcement is covered separately
+        // in the harness suite (see banner above).
         let account = storage::get_account(&t.env, id);
         assert_eq!(account.supply_positions.len(), 2);
         let limits = storage::get_position_limits(&t.env);
