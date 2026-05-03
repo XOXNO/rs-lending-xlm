@@ -1,0 +1,126 @@
+---
+title: "Accounts and Risk"
+description: "Account metadata, scaled positions, LTV, health factor, e-mode, isolation mode, siloed borrowing, and liquidation eligibility."
+---
+
+# Accounts and Risk
+
+An account is an owner-controlled position container. It can hold multiple supplied assets and multiple borrowed assets, bounded by position limits and risk modes.
+
+## Account state
+
+| Record | Stored under | Purpose |
+| --- | --- | --- |
+| `AccountMeta` | `AccountMeta(account_id)` | Owner, isolation flag, e-mode category, strategy mode, isolated asset. |
+| Supply map | `SupplyPositions(account_id)` | Asset to `AccountPosition` for deposits. |
+| Borrow map | `BorrowPositions(account_id)` | Asset to `AccountPosition` for debts. |
+
+`account_id == 0` on `supply` creates a new account. Existing-account operations require the owner unless the flow is intentionally permissionless, such as `repay`.
+
+## AccountPosition
+
+Both supplies and borrows use the same position struct.
+
+| Field | Meaning |
+| --- | --- |
+| `position_type` | `Deposit` or `Borrow`. |
+| `asset` | Asset address. |
+| `scaled_amount_ray` | RAY-scaled balance. |
+| `account_id` | Owning account ID. |
+| `loan_to_value_bps` | LTV captured for the position. |
+| `liquidation_threshold_bps` | Health factor weight. |
+| `liquidation_bonus_bps` | Liquidation bonus for collateral. |
+| `liquidation_fees_bps` | Protocol fee on liquidation bonus. |
+
+Actual balances are reconstructed from scaled amount and the latest market index:
+
+```text
+supply_actual = scaled_amount_ray * supply_index_ray / RAY
+borrow_actual = scaled_amount_ray * borrow_index_ray / RAY
+```
+
+## Borrow admission
+
+Borrow admission uses LTV. After adding the proposed borrow:
+
+```text
+post_borrow_total_debt_usd <= sum(collateral_value_usd * loan_to_value_bps / BPS)
+```
+
+The controller also validates:
+
+- Caller owns the account.
+- Market is active.
+- Asset is borrowable.
+- Borrow amount is positive.
+- Borrow cap is not exceeded.
+- E-mode membership allows the borrow.
+- Isolation mode allows the borrow.
+- Siloed borrowing constraints hold.
+- The account remains healthy after the borrow.
+
+## Health factor
+
+Health factor uses liquidation threshold, not LTV:
+
+```text
+HF = weighted_collateral_usd / total_borrow_usd
+weighted_collateral_usd = sum(collateral_value_usd * liquidation_threshold_bps / BPS)
+```
+
+| Condition | Meaning |
+| --- | --- |
+| No debt | `HF = i128::MAX`. |
+| `HF >= 1e18` | Account is solvent. |
+| `HF < 1e18` | Account is liquidatable. |
+
+Withdrawals and strategies that can reduce collateral or increase debt run a health-factor gate after mutation.
+
+## E-Mode
+
+E-mode increases capital efficiency for correlated assets by replacing per-asset risk parameters with category-level values when the account and assets are eligible.
+
+| Record | Purpose |
+| --- | --- |
+| `EModeCategory` | Category ID, LTV, liquidation threshold, bonus, deprecation flag. |
+| `EModeAssetConfig` | Per-asset membership: collateralizable and borrowable flags. |
+| `AssetEModes` | Reverse index used for keepalive and membership lookups. |
+
+E-mode accounts cannot mix isolated collateral. Deprecated categories reject new supply into the category but existing accounts can wind down.
+
+## Isolation mode
+
+Isolation mode contains risk from specific collateral assets.
+
+Rules:
+
+- An account enters isolation when it supplies an isolated collateral asset as its isolated asset.
+- Isolated accounts can only borrow assets with `isolation_borrow_enabled`.
+- The controller tracks aggregate isolated debt in USD-WAD under `IsolatedDebt(asset)`.
+- New isolated borrows are rejected when the debt ceiling would be exceeded.
+- Repay and liquidation decrement the isolated debt counter.
+
+The debt counter clamps at zero, and sub-$1 USD-WAD residuals are erased on decrement.
+
+## Siloed borrowing
+
+Siloed borrowing prevents a risky debt asset from coexisting with other borrow assets.
+
+Rules:
+
+- If the new debt asset is siloed, it must be the only borrow asset.
+- If existing debt is siloed, additional borrow assets are rejected unless they are the same asset.
+- `swap_debt` rejects siloed assets because that flow temporarily holds old and new debt at the same time.
+
+## Strategy modes
+
+`PositionMode` labels account intent:
+
+| Mode | Meaning |
+| --- | --- |
+| `Normal` | Standard supply/borrow position. |
+| `Multiply` | Leveraged collateral/debt loop. |
+| `Long` | Directional long strategy. |
+| `Short` | Directional short strategy. |
+
+`multiply` accepts only `Multiply`, `Long`, or `Short`. Standard account flows can still read and enforce the same solvency invariants.

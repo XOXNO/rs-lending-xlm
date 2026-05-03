@@ -1,0 +1,110 @@
+---
+title: "Liquidations"
+description: "Health-factor eligibility, liquidation estimation, repayment and seizure flow, protocol fees, dynamic bonus cascade, and bad-debt cleanup."
+---
+
+# Liquidations
+
+Liquidation protects solvency when an account's health factor falls below `1e18`. A liquidator repays debt and receives collateral according to the liquidation engine.
+
+## ABI
+
+```rust
+liquidate(
+    liquidator: Address,
+    account_id: u64,
+    debt_payments: Vec<(Address, i128)>
+)
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `liquidator` | Payer and collateral recipient. Must authorize. |
+| `account_id` | Target account. |
+| `debt_payments` | Debt assets and max amounts the liquidator is willing to repay. |
+
+## Eligibility
+
+The controller requires:
+
+```text
+health_factor(account_id) < 1e18
+```
+
+Liquidation uses strict oracle mode for every collateral and debt asset involved in the target account.
+
+## Estimation views
+
+Use these read-only functions to simulate before sending a liquidation:
+
+| View | Returns |
+| --- | --- |
+| `can_be_liquidated(account_id)` | Boolean eligibility. |
+| `health_factor(account_id)` | Current health factor. |
+| `liquidation_estimations_detailed(account_id, debt_payments)` | Seized collateral vector, protocol fee vector, refunds, max payment, bonus rate. |
+| `liquidation_collateral_available(account_id)` | Weighted liquidation collateral. |
+
+## Liquidation engine
+
+The engine computes a repayment amount using a target cascade:
+
+1. Try to bring the account to health factor `1.02`.
+2. If infeasible, try `1.01`.
+3. If infeasible, use fallback based on total collateral and base bonus.
+4. Guard against fallback worsening the health factor.
+
+The selected debt repayment is split across the provided debt payment vector and the available collateral vector.
+
+## Repayment leg
+
+For each debt asset:
+
+1. Controller transfers payment from liquidator to the debt pool.
+2. Controller calls `pool.repay` with the target account's debt position.
+3. Pool burns debt and returns the applied amount.
+4. Controller updates the target borrow map.
+5. Controller decrements isolated debt when applicable.
+
+## Seizure leg
+
+For each collateral asset:
+
+1. Controller computes seized amount, liquidation bonus, and protocol fee.
+2. Controller calls `pool.withdraw(liquidator, amount, position, true, protocol_fee, price_wad)`.
+3. Pool burns the target account's scaled supply.
+4. Pool retains protocol fee as revenue.
+5. Pool transfers net collateral to the liquidator.
+6. Controller updates the target supply map.
+
+## Bonus and protocol fee
+
+For a collateral seizure:
+
+```text
+base = capped_collateral / (1 + liquidation_bonus)
+bonus = capped_collateral - base
+protocol_fee = bonus * liquidation_fees_bps / BPS
+liquidator_receives = capped_collateral - protocol_fee
+```
+
+The protocol fee remains in pool reserves and accrues as protocol revenue.
+
+## Bad-debt cleanup
+
+After liquidation, if residual debt exceeds collateral and collateral is below the configured small-collateral threshold, bad debt can be cleaned:
+
+- Liquidation can trigger cleanup automatically.
+- `KEEPER` can call `clean_bad_debt(caller, account_id)`.
+- Pool socializes bad debt by applying it to the supply index.
+- Supply index is clamped to the raw `10^18` floor.
+
+## Events
+
+Liquidation emits `position/update` events using liquidation-specific action tags:
+
+| Action | Meaning |
+| --- | --- |
+| `liq_repay` | Liquidator repaid a debt position. |
+| `liq_seize` | Liquidator seized collateral. |
+
+Bad-debt cleanup emits dedicated cleanup and pool-insolvent events when applicable.

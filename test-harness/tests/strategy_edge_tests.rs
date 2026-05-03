@@ -1,12 +1,12 @@
 extern crate std;
 
-use common::types::{ControllerKey, MarketConfig};
-use common::types::{DexDistribution, Protocol, SwapSteps};
-use soroban_sdk::{token, vec};
+use common::types::{AggregatorSwap, ControllerKey, MarketConfig};
+use soroban_sdk::token;
+use soroban_sdk::Vec;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
-    STABLECOIN_EMODE,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, usd,
+    usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB,
+    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
 };
 
 // ---------------------------------------------------------------------------
@@ -14,21 +14,15 @@ use test_harness::{
 // the mock swap router.
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_market(token_in).asset.clone();
-    let out_addr = t.resolve_market(token_out).asset.clone();
-    SwapSteps {
-        amount_out_min: min_out,
-        distribution: vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
+fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+    // Placeholder fixture for compile-clean tests. The new aggregator ABI
+    // requires per-path SwapHop entries; tests that actually exercise the
+    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
+    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
+    // error-path tests pass through this without reaching swap_tokens.
+    AggregatorSwap {
+        paths: Vec::new(&t.env),
+        total_min_out: min_out,
     }
 }
 
@@ -101,7 +95,15 @@ fn test_multiply_with_debt_token_initial_payment() {
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.fund_router("USDC", 4_500.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 4500_0000000);
+    // multiply: borrow 1 ETH (post-fee = 9_991_000) + 0.5 ETH initial debt
+    // payment (5_000_000). swap_amount_in = 14_991_000.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000) + 5_000_000,
+        4500_0000000,
+    );
 
     let account_id = t.ctrl_client().multiply(
         &alice,
@@ -220,7 +222,14 @@ fn test_multiply_preserves_existing_collateral_balance() {
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -330,7 +339,14 @@ fn test_multiply_emode_wrong_category_collateral() {
                                              // Fund the mock router so the swap itself succeeds; this lets the emode
                                              // check on the deposit leg fire (otherwise the router fails first).
     t.fund_router("ETH", 5.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
+    // multiply borrows 1000 USDC (raw 10_000_000_000) minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "USDC",
+        "ETH",
+        apply_flash_fee(10_000_000_000),
+        5_0000000,
+    );
 
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
@@ -406,7 +422,14 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        3000_0000000,
+    );
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -478,7 +501,14 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        3000_0000000,
+    );
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -555,7 +585,14 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
         .build();
 
     t.fund_router("USDC", 100.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 100_0000000);
+    // 0.05 ETH (raw 500_000) flash-borrowed minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(500_000),
+        100_0000000,
+    );
 
     let result = t.try_multiply(
         ALICE,
@@ -591,7 +628,14 @@ fn test_swap_debt_refund_only_uses_strategy_excess() {
         .mint(&t.controller_address(), &50_0000000i128);
 
     t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    // swap_debt borrows 0.005 WBTC (7 decimals = raw 50_000) minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "WBTC",
+        "ETH",
+        apply_flash_fee(50_000),
+        1_0000000,
+    );
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.swap_debt(ALICE, "ETH", 0.005, "WBTC", &steps);
@@ -644,7 +688,14 @@ fn test_swap_debt_health_factor_guard_after_swap() {
     t.borrow(ALICE, "ETH", 5.0);
 
     t.fund_router("ETH", 5.0);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 5_0000000);
+    // swap_debt borrows 1.0 WBTC (7 decimals = raw 10_000_000) minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "WBTC",
+        "ETH",
+        apply_flash_fee(10_000_000),
+        5_0000000,
+    );
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
@@ -718,7 +769,8 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
 
     t.fund_router("USDT", 1_000.0);
-    let steps = build_swap_steps(&t, "USDC", "USDT", 10_000_000_000);
+    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "USDT", 10_000_000_000, 10_000_000_000);
     t.swap_collateral(ALICE, "USDC", 1_000.0, "USDT", &steps);
 
     let (ltv, threshold) = supply_position_params(&t, account_id, "USDT");
@@ -1023,7 +1075,8 @@ fn test_swap_collateral_rejects_supply_cap_after_deposit() {
     t.borrow(ALICE, "ETH", 1.0);
 
     t.fund_router_raw("WBTC", 1_00000000i128);
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
+    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "WBTC", 10_000_000_000, 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1_000.0, "WBTC", &steps);
 
     assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
@@ -1097,7 +1150,8 @@ fn test_repay_debt_with_collateral_refund_only_uses_repay_excess() {
         .mint(&t.controller_address(), &50_0000000i128);
 
     t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+    // repay_debt_with_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 1_0000000);
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
@@ -1133,7 +1187,8 @@ fn test_repay_debt_with_collateral_health_factor_guard() {
     t.borrow(ALICE, "ETH", 30.0);
 
     t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+    // repay_debt_with_collateral withdraws 50_000 USDC (raw 500_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 500_000_000_000, 1_0000000);
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 50_000.0, "ETH", &steps, false);
 
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
@@ -1158,7 +1213,8 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
 
     let alice_usdc_before = t.token_balance(ALICE, "USDC");
     t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+    // repay_debt_with_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 1_0000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, true);
 
     assert!(
@@ -1195,7 +1251,8 @@ fn test_repay_debt_with_collateral_removes_empty_account_without_close() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.fund_router("ETH", 0.5);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_000000);
+    // repay_debt_with_collateral withdraws 2_000 USDC (raw 20_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 20_000_000_000, 5_000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 2_000.0, "ETH", &steps, false);
 
     assert!(
@@ -1280,7 +1337,8 @@ fn test_swap_collateral_no_borrows_skip_hf() {
     // Swap collateral: the HF check is skipped (no borrows). With the
     // working mock router, this succeeds.
     t.fund_router("ETH", 5.0); // Pre-fund the router with output tokens.
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
+    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert!(
         result.is_ok(),
@@ -1321,10 +1379,11 @@ fn test_strategy_empty_swap_steps_multiply() {
         .with_market(eth_preset())
         .build();
 
-    // Build empty swap steps.
-    let empty_steps = SwapSteps {
-        amount_out_min: 0,
-        distribution: soroban_sdk::Vec::new(&t.env),
+    // Build empty swap steps. `total_min_out=0` trips the strategy's
+    // entry-point `require_amount_positive(swap.total_min_out)` check.
+    let empty_steps = AggregatorSwap {
+        paths: soroban_sdk::Vec::new(&t.env),
+        total_min_out: 0,
     };
 
     // Must fail: empty hops cause underflow in swap_tokens

@@ -1,0 +1,95 @@
+---
+title: "Oracles"
+description: "Reflector spot and TWAP integration, price normalization, two-tier tolerances, staleness checks, and risk-aware oracle modes."
+---
+
+# Oracles
+
+The controller prices assets through Reflector SEP-40 oracle contracts. Prices are normalized to USD-WAD at the edge and then used by health-factor, LTV, liquidation, revenue, and view logic.
+
+## Reflector methods
+
+| Method | Purpose |
+| --- | --- |
+| `decimals()` | Feed precision. Production USD feeds are expected to return their own precision instead of relying on token decimals. |
+| `resolution()` | Oracle sample period in seconds. |
+| `lastprice(asset)` | Latest spot price and timestamp. |
+| `prices(asset, records)` | Historical price window for TWAP. |
+
+The controller supports `ReflectorAssetKind::Stellar` for asset-address feeds and `ReflectorAssetKind::Other` for symbol feeds.
+
+## Exchange sources
+
+| Source | Behavior |
+| --- | --- |
+| `SpotOnly` | Uses CEX spot only. Intended for dev/test or explicitly accepted configurations. |
+| `SpotVsTwap` | Compares CEX spot against CEX TWAP. |
+| `DualOracle` | Uses CEX TWAP as safe anchor and optional DEX spot as the riskier aggregator price. |
+
+## Price pipeline
+
+```text
+token_price(asset, allow_unsafe)
+  -> load MarketConfig
+  -> require market active and oracle enabled
+  -> load spot/TWAP feeds according to ExchangeSource
+  -> reject stale, future, missing, or non-positive prices
+  -> normalize feed decimals to WAD
+  -> compare risky price against safe anchor
+  -> return final WAD price or reject risk-increasing operation
+```
+
+## Two-tier tolerance
+
+The operator sets a first tolerance and a last tolerance in BPS. The controller derives upper and lower reciprocal bands so upward and downward deviations are symmetric in ratio space.
+
+| Case | Result |
+| --- | --- |
+| Risky price inside first band | Return safe anchor. |
+| Risky price outside first but inside last band | Return midpoint of risky and safe prices. |
+| Risky price outside last band and operation allows unsafe prices | Return safe anchor. |
+| Risky price outside last band and operation is risk-increasing | Panic with `UnsafePriceNotAllowed`. |
+
+## Risk-aware oracle mode
+
+Operations classify whether a stale or deviating price would increase protocol risk.
+
+| Operation class | `allow_unsafe` | Reason |
+| --- | --- | --- |
+| Supply | `true` | Adds collateral and improves health. |
+| Non-isolated repay | `true` | Reduces debt. |
+| Isolated repay | `false` | Updates the global isolated debt counter in USD-WAD. |
+| Borrow | `false` | Increases debt. |
+| Withdraw with debt | `false` | Reduces collateral. |
+| Liquidation | `false` | Transfers collateral based on prices. |
+| Strategy borrow / collateral decrease | `false` | Can increase leverage or change collateral risk. |
+| Debt-free collateral withdrawal | `true` | No borrow-side solvency risk remains. |
+
+## Staleness and validity
+
+| Condition | Behavior |
+| --- | --- |
+| Missing last price | `NoLastPrice`. |
+| Non-positive price | `InvalidPrice`. |
+| Feed older than `max_price_stale_seconds` | `PriceFeedStale`. |
+| Feed timestamp more than 60 seconds in the future | `PriceFeedStale`. |
+| TWAP observations below 50 percent of requested count | `TwapInsufficientObservations`. |
+| DEX side stale in `DualOracle` | Soft-fails; CEX TWAP anchor can still be used. |
+
+## Normalization
+
+All oracle prices become WAD:
+
+```text
+price_wad = rescale_half_up(price_from_feed, feed_decimals, 18)
+```
+
+The controller does not infer oracle-feed decimals from token decimals. Token decimals and oracle decimals are discovered from their respective contracts during setup.
+
+## Operator controls
+
+| Endpoint | Role | Effect |
+| --- | --- | --- |
+| `configure_market_oracle(caller, asset, cfg)` | `ORACLE` | Sets Reflector feed addresses, asset kind, symbols, staleness, TWAP count, tolerances, and activates the market. |
+| `edit_oracle_tolerance(caller, asset, first_tolerance, last_tolerance)` | `ORACLE` | Updates tolerance bands. |
+| `disable_token_oracle(caller, asset)` | `ORACLE` | Disables oracle-dependent operations for the market. |

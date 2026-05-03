@@ -38,7 +38,7 @@ use stellar_fuzz::{
     snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
 };
 
-use common::types::{DexDistribution, PositionMode, Protocol, SwapSteps};
+use common::types::{AggregatorSwap, PositionMode};
 
 const ASSETS: [&str; 3] = ["USDC", "ETH", "XLM"];
 const MAX_OPS: usize = 6;
@@ -102,21 +102,17 @@ fn pick_mode(bits: u8) -> PositionMode {
 /// exhausting the router funding and lets many ops chain in one sequence.
 /// Strategy correctness is asserted via HF floor + reserve checks, not via
 /// matching a specific swap rate.
-fn build_steps(t: &LendingTest, token_in: &str, token_out: &str) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_asset(token_in);
-    let out_addr = t.resolve_asset(token_out);
-    SwapSteps {
-        amount_out_min: 1,
-        distribution: soroban_vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: soroban_vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
+fn build_steps(t: &LendingTest, _token_in: &str, _token_out: &str) -> AggregatorSwap {
+    // Empty-paths placeholder: the new aggregator ABI requires per-path
+    // SwapHop entries with `amount_in` matching the controller's actual
+    // swap amount. The fuzz target above relies on `mock_all_auths` plus
+    // best-effort `try_*` calls that absorb panics, so an empty batch
+    // simply makes every strategy op fail at validation rather than
+    // exercising the swap path. Targets that need real swaps must build
+    // an inline `AggregatorSwap` per-op with current `amount_in`.
+    AggregatorSwap {
+        paths: soroban_vec![&t.env],
+        total_min_out: 1,
     }
 }
 

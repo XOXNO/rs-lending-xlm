@@ -12,8 +12,10 @@
 //!   * `swap_tokens` post-failure allowance state (NEW-01 regression).
 extern crate std;
 
-use common::types::{DexDistribution, Protocol, SwapSteps};
-use soroban_sdk::{token, vec};
+use common::types::AggregatorSwap;
+use soroban_sdk::Vec;
+use test_harness::{apply_flash_fee, build_aggregator_swap};
+use soroban_sdk::token;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
@@ -23,21 +25,15 @@ use test_harness::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_market(token_in).asset.clone();
-    let out_addr = t.resolve_market(token_out).asset.clone();
-    SwapSteps {
-        amount_out_min: min_out,
-        distribution: vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
+fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+    // Placeholder fixture for compile-clean tests. The new aggregator ABI
+    // requires per-path SwapHop entries; tests that actually exercise the
+    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
+    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
+    // error-path tests pass through this without reaching swap_tokens.
+    AggregatorSwap {
+        paths: Vec::new(&t.env),
+        total_min_out: min_out,
     }
 }
 
@@ -167,7 +163,9 @@ fn test_swap_debt_existing_position_missing_rejects() {
     // Swap direction: new=WBTC, swap WBTC -> ETH. The router must be funded
     // with ETH.
     t.fund_router("ETH", 0.5);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 5_000_000);
+    // 0.001 WBTC (7 decimals = 10_000 raw) flash-borrowed minus 9bps fee.
+    let steps =
+        build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000), 5_000_000);
     // existing=ETH (Alice does not hold it). new=WBTC (Alice already holds
     // WBTC debt, but swap_debt requires only the existing debt to be
     // present -- not the new one).
@@ -271,7 +269,8 @@ fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
 
     // Repay only a tiny fraction; Alice still owes ETH.
     t.fund_router("ETH", 0.01);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 100_000);
+    // repay_debt_with_collateral withdraws 20 USDC (raw 200_000_000); no flash fee.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000, 100_000);
 
     // close_position=true: must reject with CannotCloseWithRemainingDebt.
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 20.0, "ETH", &steps, true);
@@ -305,7 +304,16 @@ fn test_multiply_with_collateral_token_initial_payment() {
 
     let alice_usdc_before = t.token_balance(ALICE, "USDC");
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    // 1 ETH flash-borrowed minus 9bps fee. The 500 USDC initial payment is in
+    // the COLLATERAL token, not the debt token, so `swap_amount_in` is
+    // unaffected by it (it lands directly in `collateral_amount`).
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
 
     let ctrl = t.ctrl_client();
     let account_id = ctrl.multiply(
@@ -376,8 +384,18 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     // USDC). The mock aggregator funds each side independently, so fund
     // both.
     t.fund_router("USDC", 3_500.0); // 3000 for main + 500 for convert
-    let main_steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
-    let convert_steps = build_swap_steps(&t, "WBTC", "USDC", 500_0000000);
+    // Main: 1 ETH flash-borrow minus 9bps fee.
+    let main_steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
+    // Convert: 1.0 WBTC at 7 decimals = 10_000_000 raw (the user's mint
+    // amount). Initial-payment converts use the actual transferred amount
+    // (no flash fee on user-supplied tokens).
+    let convert_steps = build_aggregator_swap(&t, "WBTC", "USDC", 10_000_000, 500_0000000);
 
     let ctrl = t.ctrl_client();
     let account_id = ctrl.multiply(
@@ -480,7 +498,14 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
         .build();
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    // 1 ETH flash-borrow minus 9bps fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
     let _account_id = t.multiply(
         ALICE,
         "USDC",
@@ -517,9 +542,16 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         .with_market(eth_preset())
         .build();
 
-    // Alice creates a leveraged position first.
+    // Alice creates a leveraged position first — needs a real fixture so
+    // her swap completes.
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
     let alice_account = t.multiply(
         ALICE,
         "USDC",
@@ -529,7 +561,10 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         &steps,
     );
 
-    // Bob tries to reuse Alice's account.
+    // Bob tries to reuse Alice's account. He fails at the owner check
+    // BEFORE swap_tokens runs, so an empty placeholder fixture is fine —
+    // its `total_min_out > 0` satisfies the entry-point validation, and
+    // the owner check fires next.
     t.fund_router("USDC", 3_000.0);
     let steps2 = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let bob = t.get_or_create_user(BOB);

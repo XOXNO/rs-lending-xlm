@@ -1,0 +1,101 @@
+---
+title: "Storage Model"
+description: "Soroban storage keys, durability tiers, TTL strategy, account maps, market config, pool state, and flash-loan scratch state."
+---
+
+# Storage Model
+
+The protocol uses Soroban `Instance` and `Persistent` storage. `Temporary` storage is not part of normal protocol state.
+
+## Durability tiers
+
+| Tier | Used by | Purpose | TTL policy |
+| --- | --- | --- | --- |
+| Instance | Controller and pools | Contract-lifetime globals and per-pool state. | Bumped on normal contract operation and keeper routines. |
+| Persistent | Controller | Market records, account metadata, account side maps, e-mode records, isolated debt, pool enumeration. | Keeper-bumped as shared or user state. |
+
+## Controller persistent keys
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `Market(asset)` | `MarketConfig` | Canonical asset record: lifecycle status, risk config, pool address, oracle config, and Reflector fields. |
+| `AccountMeta(account_id)` | `AccountMeta` | Account owner, isolation flag, e-mode category, strategy mode, isolated asset. |
+| `SupplyPositions(account_id)` | `Map<Address, AccountPosition>` | Supply-side positions keyed by asset. |
+| `BorrowPositions(account_id)` | `Map<Address, AccountPosition>` | Borrow-side positions keyed by asset. |
+| `EModeCategory(id)` | `EModeCategory` | Category-wide LTV, liquidation threshold, bonus, and deprecation state. |
+| `EModeAssets(id)` | `Map<Address, EModeAssetConfig>` | Per-category asset membership and permissions. |
+| `AssetEModes(asset)` | `Vec<u32>` | Reverse index of categories containing the asset. |
+| `IsolatedDebt(asset)` | `i128` | USD-WAD debt counter for an isolated collateral asset. |
+| `PoolsList(i)` | `(Address, Address)` | Enumerable `(asset, pool)` tuple. |
+
+## Controller instance keys
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `PoolTemplate` | `BytesN<32>` | Pool WASM hash used for deterministic pool deployment. |
+| `Aggregator` | `Address` | Router used by strategy swap operations. |
+| `Accumulator` | `Address` | Protocol revenue destination. |
+| `AccountNonce` | `u64` | Monotonic ID source for new accounts. |
+| `PositionLimits` | `PositionLimits` | Maximum supply and borrow assets per account. |
+| `LastEModeCategoryId` | `u32` | E-mode category counter. |
+| `FlashLoanOngoing` | `bool` | Shared reentry guard for flash loans and strategy aggregator calls. |
+| `PoolsCount` | `u32` | Number of listed pools. |
+| `ApprovedToken(Address)` | `bool` | Token allowlist for market creation. |
+
+## Account layout
+
+Accounts are split across one metadata key and two side maps.
+
+```text
+AccountMeta(42)          -> owner, mode, e-mode, isolation
+SupplyPositions(42)      -> Map<asset, AccountPosition>
+BorrowPositions(42)      -> Map<asset, AccountPosition>
+```
+
+This layout keeps common operations narrow:
+
+- Supply writes only `SupplyPositions`.
+- Borrow writes only `BorrowPositions`.
+- Repay writes only `BorrowPositions`.
+- Debt-free withdraw does not load `BorrowPositions`.
+- Liquidation writes both side maps.
+
+`AccountMeta` is retained until the owner closes all supply and borrow positions by withdrawing. A full repay does not delete the account.
+
+## Pool instance storage
+
+Each pool stores two primary records:
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `Params` | `MarketParams` | Asset ID, asset decimals, interest-rate parameters, and reserve factor. |
+| `State` | `PoolState` | Aggregate scaled supply, scaled debt, revenue, indexes, and last timestamp. |
+
+`PoolState` is the asset-local source of truth for indexes and totals:
+
+| Field | Meaning |
+| --- | --- |
+| `supplied_ray` | Total scaled supply including protocol revenue that is represented as scaled supply. |
+| `borrowed_ray` | Total scaled debt. |
+| `revenue_ray` | Protocol revenue claim, held as scaled supply until claimed. |
+| `borrow_index_ray` | Borrow index used to reconstruct debt actuals. |
+| `supply_index_ray` | Supply index used to reconstruct supplied actuals. |
+| `last_timestamp` | Last index accrual timestamp in milliseconds. |
+
+## Flash-loan scratch state
+
+The pool uses the instance key `FL_PREBAL` to store the pre-loan token balance during `flash_loan_begin`. `flash_loan_end` removes the key after verifying repayment. A transaction panic rolls back both the controller guard and this pool scratch key.
+
+## TTL keepalive routines
+
+| Routine | Role | Extends |
+| --- | --- | --- |
+| `keepalive_shared_state(caller, assets)` | `KEEPER` | Controller instance keys, pool list, market records, isolated debt, and e-mode records for listed assets. |
+| `keepalive_accounts(caller, account_ids)` | `KEEPER` | `AccountMeta`, `SupplyPositions`, and `BorrowPositions` for selected accounts. |
+| `keepalive_pools(caller, assets)` | `KEEPER` | Delegates to each pool's `keepalive()` ABI to bump pool instance storage. |
+
+## Cache layer
+
+The controller cache is transaction-local. It memoizes price feeds, market configs, market indexes, pool sync data, e-mode assets, and isolated debt deltas. Only isolated debt has explicit write-back through `flush_isolated_debts`.
+
+The pool cache loads `Params` and `State` once at an entrypoint and writes back only through explicit `cache.save()`.

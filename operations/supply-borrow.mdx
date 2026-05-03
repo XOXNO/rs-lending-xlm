@@ -1,0 +1,127 @@
+---
+title: "Supply and Borrow"
+description: "User-facing deposit and borrow flows, account creation, risk checks, pool mutations, and emitted events."
+---
+
+# Supply and Borrow
+
+Supply and borrow are the core account flows. Supply can create an account; borrow requires an existing account owned by the caller.
+
+## Supply ABI
+
+```rust
+supply(
+    caller: Address,
+    account_id: u64,
+    e_mode_category: u32,
+    assets: Vec<(Address, i128)>
+) -> u64
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `caller` | Payer and account owner for new accounts. Must authorize. |
+| `account_id` | `0` creates a new account; non-zero supplies into an existing account. |
+| `e_mode_category` | Category used when creating a new account or validating e-mode supply. |
+| `assets` | Batch of `(asset, amount)` payments. Duplicate assets are aggregated. |
+
+## Supply validation
+
+The controller validates:
+
+- Caller authorization.
+- Protocol is not paused.
+- Reentry guard is not active.
+- Payment vector is not empty.
+- Account ownership for existing accounts.
+- Position limits after the batch.
+- Market support and active status.
+- Positive amounts.
+- Collateralizability.
+- Supply cap.
+- E-mode membership and category state.
+- Isolation rules, including no mixing of isolated collateral.
+
+Supply uses permissive oracle mode because it adds collateral.
+
+## Supply accounting
+
+For each asset:
+
+1. Controller resolves the pool and safe price.
+2. Controller transfers tokens from caller to pool.
+3. Controller verifies the received balance delta.
+4. Controller calls `pool.supply(position, price_wad, amount_received)`.
+5. Pool syncs indexes.
+6. Pool computes `scaled_amount = amount * RAY / supply_index_ray`.
+7. Pool increments position scaled amount and `supplied_ray`.
+8. Controller writes the supply-side map.
+9. Controller emits `position/update` with action `supply`.
+
+## Borrow ABI
+
+```rust
+borrow(
+    caller: Address,
+    account_id: u64,
+    borrows: Vec<(Address, i128)>
+)
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `caller` | Account owner and token recipient. Must authorize. |
+| `account_id` | Existing account ID. |
+| `borrows` | Batch of `(asset, amount)` borrow requests. Duplicate assets are aggregated. |
+
+## Borrow validation
+
+Borrow uses strict oracle mode because it increases debt. The controller validates:
+
+- Caller authorization and account ownership.
+- Payment vector is not empty.
+- Market support and active status.
+- Positive amounts.
+- Asset is borrowable.
+- E-mode borrow membership.
+- Isolation borrowing permission.
+- Siloed borrowing constraints.
+- Borrow cap.
+- Isolated debt ceiling.
+- LTV collateral after the borrow.
+- Health factor after the batch.
+
+## Borrow accounting
+
+For each asset:
+
+1. Controller computes or updates the effective borrow config for the account.
+2. Controller resolves price and pool address.
+3. Controller calls `pool.borrow(caller, amount, position, price_wad)`.
+4. Pool syncs indexes.
+5. Pool checks live reserves.
+6. Pool computes `scaled_debt = amount * RAY / borrow_index_ray`.
+7. Pool increments position scaled debt and `borrowed_ray`.
+8. Pool transfers tokens to caller.
+9. Controller writes the borrow-side map.
+10. Controller flushes isolated debt deltas.
+11. Controller emits `position/update` with action `borrow`.
+
+## Failure modes
+
+| Error | Common cause |
+| --- | --- |
+| `AccountNotInMarket` | Borrow on missing account or caller is not owner. |
+| `AmountMustBePositive` | Zero or negative borrow amount. |
+| `AssetNotBorrowable` | Market exists but `is_borrowable` is false. |
+| `InsufficientCollateral` | LTV or health-factor gate fails. |
+| `BorrowCapReached` | Borrow cap would be exceeded. |
+| `DebtCeilingReached` | Isolated debt would exceed configured ceiling. |
+| `NotBorrowableSiloed` | Siloed debt would mix with another borrow asset. |
+| `UnsafePriceNotAllowed` | Oracle deviation is too large for risk-increasing borrow. |
+
+## Integration notes
+
+- Use views such as `get_account_positions`, `health_factor`, `total_collateral_in_usd`, `total_borrow_in_usd`, and `ltv_collateral_in_usd` before submitting a borrow.
+- Borrow tokens are transferred directly from the pool to `caller`.
+- There is no approval/allowance model for borrowing. Token movement is a pool transfer authorized by the controller as pool owner.

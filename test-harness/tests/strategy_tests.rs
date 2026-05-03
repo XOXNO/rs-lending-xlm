@@ -1,8 +1,8 @@
 extern crate std;
 
 use common::constants::WAD;
-use common::types::{DexDistribution, Protocol, SwapSteps};
-use soroban_sdk::vec;
+use common::types::AggregatorSwap;
+use soroban_sdk::Vec;
 use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 // ---------------------------------------------------------------------------
@@ -10,21 +10,15 @@ use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, Lendi
 // the mock swap router.
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_market(token_in).asset.clone();
-    let out_addr = t.resolve_market(token_out).asset.clone();
-    SwapSteps {
-        amount_out_min: min_out,
-        distribution: vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
+fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+    // Placeholder fixture for compile-clean tests. The new aggregator ABI
+    // requires per-path SwapHop entries; tests that actually exercise the
+    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
+    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
+    // error-path tests pass through this without reaching swap_tokens.
+    AggregatorSwap {
+        paths: Vec::new(&t.env),
+        total_min_out: min_out,
     }
 }
 

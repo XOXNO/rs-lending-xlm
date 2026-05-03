@@ -2,10 +2,13 @@ use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, 
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
 use common::fp::{Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AssetConfig, PositionMode, SwapSteps, POSITION_TYPE_BORROW,
-    POSITION_TYPE_DEPOSIT,
+    Account, AccountPosition, AggregatorSwap, AssetConfig, BatchSwap, PositionMode,
+    POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
+use soroban_sdk::{
+    contractimpl, panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec,
+};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -14,24 +17,19 @@ use crate::{
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
 };
 
+/// Wire-format client for `stellar-router-contract::Router`. Soroban
+/// auth-chains the controller's `current_contract_address` into the
+/// router's `sender.require_auth()` automatically — no SEP-41 approve
+/// dance required, the router pulls each path's `amount_in` directly
+/// via `token.transfer(sender, router, amount)`.
 mod aggregator {
-    use common::types::DexDistribution;
-    use soroban_sdk::{contractclient, Address, Vec};
+    use common::types::BatchSwap;
+    use soroban_sdk::contractclient;
 
     #[allow(dead_code)]
     #[contractclient(name = "AggregatorClient")]
     pub trait Aggregator {
-        #[allow(clippy::too_many_arguments)]
-        fn swap_exact_tokens_for_tokens(
-            env: soroban_sdk::Env,
-            token_in: Address,
-            token_out: Address,
-            amount_in: i128,
-            amount_out_min: i128,
-            distribution: Vec<DexDistribution>,
-            to: Address,
-            deadline: u64,
-        ) -> Vec<Vec<i128>>;
+        fn batch_execute(env: soroban_sdk::Env, batch: BatchSwap) -> i128;
     }
 }
 
@@ -47,9 +45,9 @@ impl Controller {
         debt_to_flash_loan: i128,
         debt_token: Address,
         mode: PositionMode,
-        steps: SwapSteps,
+        swap: AggregatorSwap,
         initial_payment: Option<(Address, i128)>,
-        convert_steps: Option<SwapSteps>,
+        convert_swap: Option<AggregatorSwap>,
     ) -> u64 {
         process_multiply(
             &env,
@@ -60,9 +58,9 @@ impl Controller {
             debt_to_flash_loan,
             &debt_token,
             mode,
-            &steps,
+            &swap,
             initial_payment,
-            convert_steps,
+            convert_swap,
         )
     }
 
@@ -74,7 +72,7 @@ impl Controller {
         existing_debt_token: Address,
         amount: i128,
         new_debt_token: Address,
-        steps: SwapSteps,
+        swap: AggregatorSwap,
     ) {
         process_swap_debt(
             &env,
@@ -83,7 +81,7 @@ impl Controller {
             &existing_debt_token,
             amount,
             &new_debt_token,
-            &steps,
+            &swap,
         );
     }
 
@@ -95,7 +93,7 @@ impl Controller {
         current_collateral: Address,
         amount: i128,
         new_collateral: Address,
-        steps: SwapSteps,
+        swap: AggregatorSwap,
     ) {
         process_swap_collateral(
             &env,
@@ -104,7 +102,7 @@ impl Controller {
             &current_collateral,
             amount,
             &new_collateral,
-            &steps,
+            &swap,
         );
     }
 
@@ -116,7 +114,7 @@ impl Controller {
         collateral_token: Address,
         collateral_amount: i128,
         debt_token: Address,
-        steps: SwapSteps,
+        swap: AggregatorSwap,
         close_position: bool,
     ) {
         process_repay_debt_with_collateral(
@@ -126,7 +124,7 @@ impl Controller {
             &collateral_token,
             collateral_amount,
             &debt_token,
-            &steps,
+            &swap,
             close_position,
         );
     }
@@ -148,9 +146,9 @@ pub fn process_multiply(
     debt_to_flash_loan: i128,
     debt_token: &Address,
     mode: PositionMode,
-    steps: &SwapSteps,
+    swap: &AggregatorSwap,
     initial_payment: Option<(Address, i128)>,
-    convert_steps: Option<SwapSteps>,
+    convert_swap: Option<AggregatorSwap>,
 ) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -171,7 +169,7 @@ pub fn process_multiply(
     validation::require_amount_positive(env, debt_to_flash_loan);
     // Reject zero-floor swap requests at entry so a compromised router
     // cannot observe an unprotected slippage floor.
-    validation::require_amount_positive(env, steps.amount_out_min);
+    validation::require_amount_positive(env, swap.total_min_out);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
@@ -179,7 +177,7 @@ pub fn process_multiply(
         collateral_token,
         debt_token,
         &initial_payment,
-        &convert_steps,
+        &convert_swap,
     );
 
     // Strict-price cache: strategy borrows are risk-increasing.
@@ -218,7 +216,7 @@ pub fn process_multiply(
         debt_token,
         swap_amount_in,
         collateral_token,
-        steps,
+        swap,
         caller,
     );
 
@@ -257,7 +255,7 @@ pub fn process_swap_debt(
     existing_debt_token: &Address,
     new_debt_amount: i128,
     new_debt_token: &Address,
-    steps: &SwapSteps,
+    swap: &AggregatorSwap,
 ) {
     validation::require_not_flash_loaning(env);
 
@@ -273,7 +271,7 @@ pub fn process_swap_debt(
 
     validation::require_amount_positive(env, new_debt_amount);
     // Reject zero-floor swap requests at entry.
-    validation::require_amount_positive(env, steps.amount_out_min);
+    validation::require_amount_positive(env, swap.total_min_out);
 
     // Reject swap_debt when either side is siloed: the flow holds both debt
     // positions simultaneously (new is borrowed before old is repaid),
@@ -299,7 +297,7 @@ pub fn process_swap_debt(
         new_debt_token,
         amount_received,
         existing_debt_token,
-        steps,
+        swap,
         caller,
     );
 
@@ -335,7 +333,7 @@ pub fn process_swap_collateral(
     current_collateral: &Address,
     from_amount: i128,
     new_collateral: &Address,
-    steps: &SwapSteps,
+    swap: &AggregatorSwap,
 ) {
     validation::require_not_flash_loaning(env);
 
@@ -357,7 +355,7 @@ pub fn process_swap_collateral(
 
     validation::require_amount_positive(env, from_amount);
     // Reject zero-floor swap requests at entry.
-    validation::require_amount_positive(env, steps.amount_out_min);
+    validation::require_amount_positive(env, swap.total_min_out);
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 
@@ -382,7 +380,7 @@ pub fn process_swap_collateral(
         current_collateral,
         actual_withdrawn,
         new_collateral,
-        steps,
+        swap,
         caller,
     );
 
@@ -409,46 +407,133 @@ fn swap_tokens(
     token_in: &Address,
     amount_in: i128,
     token_out: &Address,
-    steps: &SwapSteps,
-    refund_to: &Address,
+    swap: &AggregatorSwap,
+    _refund_to: &Address,
 ) -> i128 {
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
-    // Snapshot controller balances on both sides before any approvals to
-    // verify exact spend and received amounts against a misbehaving router.
+    // Validate the off-chain-built `AggregatorSwap` against the controller's
+    // own `(token_in, amount_in, token_out)`. A misaligned batch could only
+    // succeed at the router but deliver tokens of the wrong type back to the
+    // controller, so we fail fast here with a specific error.
+    validate_aggregator_swap(env, swap, token_in, token_out, amount_in);
+
+    // Snapshot balances so `verify_router_output` can confirm the exact
+    // delta the router pushed back. The router is trusted, but a defensive
+    // delta check catches future ABI drift.
     let balance_before = snapshot_swap_balances(env, &token_in_client, &token_out_client);
 
-    approve_router_input(env, &token_in_client, &router_addr, amount_in);
-    call_router_with_reentrancy_guard(env, &router, token_in, token_out, amount_in, steps);
+    // Build the on-the-wire batch. `sender` is forced to the controller —
+    // user input never sets it, eliminating any spoof path. `total_in` is
+    // the controller's authoritative withdrawal amount; the router slices
+    // it across paths via each path's `split_ppm`.
+    // Lending strategies never charge user-facing aggregator fees;
+    // referral_id = 0 disables the fee path entirely on the router side.
+    let batch = BatchSwap {
+        paths: swap.paths.clone(),
+        referral_id: 0,
+        sender: env.current_contract_address(),
+        total_in: amount_in,
+        total_min_out: swap.total_min_out,
+    };
 
-    settle_router_input(
-        env,
-        &token_in_client,
-        &router_addr,
-        amount_in,
-        balance_before.token_in,
-        refund_to,
-    );
-    
+    // Pre-authorize the SAC `transfer` calls the router will make on our
+    // behalf. The router calls `token.transfer(controller, router, amount)`
+    // for each path's first hop; that fires `controller.require_auth_for_args`
+    // inside the SAC, where the *router* is the direct caller — not the
+    // controller — so Soroban's direct-caller attestation does NOT chain
+    // transitively. Without an explicit `InvokerContractAuthEntry` for each
+    // expected transfer, the host trips `Error(Auth, InvalidAction)` the
+    // moment the router tries to pull the input token.
+    //
+    // We authorize ONLY the per-path input pulls (the router's other SAC
+    // calls — pool→router and router→controller transfers — have the router
+    // as the direct caller, so direct attestation covers them).
+    pre_authorize_router_pulls(env, &router_addr, &batch);
 
-    // Note: any third-party token the router happens to deposit into the
-    // controller (LP rebate, governance reward, malformed output) is NOT
-    // swept here. With SEP-41 push-on-transfer semantics only the
-    // configured router can land tokens, and only `token_in` and
-    // `token_out` are part of this swap's contract. Adding a generic sweep
-    // would require an oracle of "expected output tokens" which the
-    // strategy callsites already supply via `token_out`. If a future
-    // aggregator integration emits multi-token output, expand the
-    // signature with a `&Vec<Address>` of expected-zero-delta tokens.
+    call_router_with_reentrancy_guard(env, &router, &batch);
+
+    // Defense-in-depth: confirm the controller spent exactly `amount_in`
+    // of `token_in`. Our router pulls `path.amount_in` per path, and
+    // `validate_aggregator_swap` ensured the path sum equals `amount_in`,
+    // so the post-call delta must match exactly. Any drift signals an
+    // unexpected token movement (compromised router or token contract).
+    verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
+
+    // The router enforces `total_out >= total_min_out` internally and
+    // would have panicked otherwise. We re-check the controller-side
+    // balance delta both as a sanity assertion and as the strategy's
+    // primary slippage guard — strategy entrypoints already reject
+    // `total_min_out <= 0` upfront.
     verify_router_output(
         env,
         &token_out_client,
         balance_before.token_out,
-        steps.amount_out_min,
+        swap.total_min_out,
     )
+}
+
+/// Reject batches whose shape doesn't match the strategy's
+/// `(token_in, amount_in, token_out)` commitment. Cheap fast-fail before
+/// invoking the router so the panic site stays inside the controller —
+/// cleaner error attribution and no router gas spent on a doomed batch.
+fn validate_aggregator_swap(
+    env: &Env,
+    swap: &AggregatorSwap,
+    token_in: &Address,
+    token_out: &Address,
+    amount_in: i128,
+) {
+    // Empty batch / empty path / wrong tokens are caller mistakes. We
+    // report them as `InvalidPayments`, mirroring the rest of the
+    // controller's "malformed input" surface.
+    if swap.paths.is_empty() {
+        panic_with_error!(env, GenericError::InvalidPayments);
+    }
+    if amount_in <= 0 || swap.total_min_out <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+
+    // Per-path validation: each path must declare a non-zero PPM share,
+    // start at `token_in` and end at `token_out`. The router computes the
+    // per-path input as `amount_in * split_ppm / 1_000_000` (last path
+    // absorbs PPM rounding) so there are no per-path amount fields here
+    // to validate. Any rounding drift between off-chain quote and
+    // on-chain settlement is irrelevant: the controller sources `amount_in`
+    // from its actual withdrawal delta, never from the quote.
+    let mut sum_ppm: u32 = 0;
+    let n = swap.paths.len();
+    for i in 0..n {
+        let path = swap.paths.get(i).unwrap();
+        if path.hops.is_empty() {
+            panic_with_error!(env, GenericError::InvalidPayments);
+        }
+        if path.split_ppm == 0 {
+            panic_with_error!(env, GenericError::InvalidPayments);
+        }
+        sum_ppm = sum_ppm
+            .checked_add(path.split_ppm)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidPayments));
+
+        let first_hop = path.hops.get(0).unwrap();
+        if first_hop.token_in != *token_in {
+            panic_with_error!(env, GenericError::WrongToken);
+        }
+        let last_hop = path.hops.get(path.hops.len() - 1).unwrap();
+        if last_hop.token_out != *token_out {
+            panic_with_error!(env, GenericError::WrongToken);
+        }
+    }
+    // PPM weights MUST sum to exactly 1_000_000. Anything else means the
+    // off-chain quote was malformed; the router would also reject this
+    // but failing fast in the controller keeps the panic site close to
+    // the user-visible call.
+    if sum_ppm != 1_000_000 {
+        panic_with_error!(env, GenericError::InvalidPayments);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +549,7 @@ pub fn process_repay_debt_with_collateral(
     collateral_token: &Address,
     collateral_amount: i128,
     debt_token: &Address,
-    steps: &SwapSteps,
+    swap: &AggregatorSwap,
     close_position: bool,
 ) {
     validation::require_not_flash_loaning(env);
@@ -472,7 +557,7 @@ pub fn process_repay_debt_with_collateral(
     // Skip the slippage-floor check for the same-asset short-circuit (no
     // swap occurs).
     if collateral_token != debt_token {
-        validation::require_amount_positive(env, steps.amount_out_min);
+        validation::require_amount_positive(env, swap.total_min_out);
     }
 
     // The same-asset flow is intentionally allowed: self-collateralized
@@ -504,7 +589,7 @@ pub fn process_repay_debt_with_collateral(
         collateral_token,
         debt_token,
         actual_withdrawn,
-        steps,
+        swap,
     );
     repay_debt_from_controller(
         env,
@@ -550,104 +635,91 @@ fn snapshot_swap_balances(
     }
 }
 
-fn approve_router_input(
-    env: &Env,
-    token_in_client: &soroban_sdk::token::Client,
-    router_addr: &Address,
-    amount_in: i128,
-) {
-    token_in_client.approve(
-        &env.current_contract_address(),
-        router_addr,
-        &amount_in,
-        &env.ledger()
-            .sequence()
-            .checked_add(200)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    );
-}
-
+/// Invoke the router's `batch_execute` under the re-entry guard. The
+/// guard reuses the flash-loan flag: a misbehaving router that calls
+/// back into any mutating controller endpoint trips the mutator's
+/// `require_not_flash_loaning` and panics. The flag is FALSE on entry
+/// because strategies never run inside a flash loan.
 fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
-    token_in: &Address,
-    token_out: &Address,
-    amount_in: i128,
-    steps: &SwapSteps,
+    batch: &BatchSwap,
 ) {
-    // Reuse the flash-loan-ongoing flag as a re-entry guard: a misbehaving
-    // aggregator callback into any mutating controller endpoint trips the
-    // mutator's `require_not_flash_loaning` and panics. The flag is FALSE
-    // on entry because strategies never run inside a flash loan.
     storage::set_flash_loan_ongoing(env, true);
-
-    let _ = router.swap_exact_tokens_for_tokens(
-        token_in,
-        token_out,
-        &amount_in,
-        &steps.amount_out_min,
-        &steps.distribution,
-        &env.current_contract_address(),
-        &env.ledger()
-            .timestamp()
-            .checked_add(3600)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    );
-
+    let _ = router.batch_execute(batch);
     storage::set_flash_loan_ongoing(env, false);
 }
 
-fn settle_router_input(
-    env: &Env,
-    token_in_client: &soroban_sdk::token::Client,
-    router_addr: &Address,
-    amount_in: i128,
-    balance_before: i128,
-    refund_to: &Address,
-) {
-    // Verify the exact input spend. A well-behaved router pulls at most
-    // `amount_in` and never returns tokens (balance going UP). Either
-    // direction of misbehavior is an internal error.
-    let actual_in_spent =
-        verify_router_input_spend(env, token_in_client, balance_before, amount_in);
-
-    // Zero any residual allowance so a compromised or lazy router cannot
-    // pull additional funds after the swap returns.
-    token_in_client.approve(&env.current_contract_address(), router_addr, &0, &0);
-
-    // Refund any unspent `token_in` to `refund_to` (= original user). A
-    // router that partial-fills (route exhaustion, integer rounding, or a
-    // bug) leaves residual `token_in` on the controller; the SEP-41
-    // approve+pull model provides no callback-returned transfer bundle, so
-    // unspent input requires manual reconciliation.
-    let unspent = amount_in - actual_in_spent;
-    if unspent > 0 {
-        token_in_client.transfer(&env.current_contract_address(), refund_to, &unspent);
-    }
+/// Authorize the router to pull `total_in` of the input token from the
+/// controller in a SINGLE SAC transfer.
+///
+/// The router pulls the entire `total_in` once at the start of
+/// `batch_execute` and slices it across paths from its own vault — no
+/// per-path SAC calls on the input token. So the auth tree only needs
+/// ONE `InvokerContractAuthEntry::Contract` for the
+/// `transfer(controller, router, total_in)` call. Pool↔router transfers
+/// inside individual hops have the router as the direct caller, so
+/// Soroban's direct-caller attestation covers them.
+///
+/// `authorize_as_current_contract` consumes the entries for a single
+/// downstream invocation, so this MUST be called immediately before
+/// `router.batch_execute(...)`.
+fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
+    let first_hop = batch.paths.get(0).unwrap().hops.get(0).unwrap();
+    let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
+        context: ContractContext {
+            contract: first_hop.token_in.clone(),
+            fn_name: Symbol::new(env, "transfer"),
+            args: (
+                env.current_contract_address(),
+                router_addr.clone(),
+                batch.total_in,
+            )
+                .into_val(env),
+        },
+        sub_invocations: Vec::new(env),
+    });
+    let mut entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
+    entries.push_back(entry);
+    env.authorize_as_current_contract(entries);
 }
 
+/// Confirm the controller spent EXACTLY `amount_in` of `token_in`. Our
+/// router pulls each path's `amount_in` directly via
+/// `token.transfer(sender, router, amount)`, and
+/// [`validate_aggregator_swap`] guarantees the path-amount sum equals
+/// `amount_in`, so the post-call delta is deterministic. Any drift (over-
+/// or under-spend, or a token landing back on the controller) is treated
+/// as an internal error.
 fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
     balance_before: i128,
     amount_in: i128,
-) -> i128 {
+) {
     let balance_after = token_in_client.balance(&env.current_contract_address());
     if balance_after > balance_before {
         panic_with_error!(env, GenericError::InternalError);
     }
     let actual_in_spent = balance_before - balance_after;
+    // Allow the router to spend less than `amount_in` — `validate_aggregator_swap`
+    // already enforces `sum(path.amount_in) <= amount_in`, so any underspend
+    // here matches the declared swap shape and the leftover stays on the
+    // controller as benign dust. Reject the overspend direction: that path
+    // signals a bad/compromised router that pulled more than authorised
+    // (the SAC's `transfer` would also fail in that case once the
+    // controller balance runs out — this guard catches the attack early
+    // when the controller happened to hold the surplus).
     if actual_in_spent > amount_in {
         panic_with_error!(env, GenericError::InternalError);
     }
-    actual_in_spent
 }
 
 fn verify_router_output(
     env: &Env,
     token_out_client: &soroban_sdk::token::Client,
     balance_before: i128,
-    amount_out_min: i128,
+    total_min_out: i128,
 ) -> i128 {
     // Received must be non-negative. A decrease is impossible from a sane
     // token contract and indicates aggregator or token misbehavior.
@@ -656,10 +728,11 @@ fn verify_router_output(
         .checked_sub(balance_before)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
 
-    // Enforce the slippage minimum at the controller so a router that
-    // ignores its own `amount_out_min` cannot silently shortchange the
-    // caller. Strategy entrypoints already reject `amount_out_min <= 0`.
-    if received < amount_out_min {
+    // Defense-in-depth slippage check at the controller. The router
+    // already enforces `total_out >= total_min_out` and would have
+    // panicked otherwise. Strategy entrypoints reject
+    // `total_min_out <= 0` upfront.
+    if received < total_min_out {
         panic_with_error!(env, GenericError::InternalError);
     }
 
@@ -672,7 +745,7 @@ fn collect_initial_multiply_payment(
     collateral_token: &Address,
     debt_token: &Address,
     initial_payment: &Option<(Address, i128)>,
-    convert_steps: &Option<SwapSteps>,
+    convert_swap: &Option<AggregatorSwap>,
 ) -> (i128, i128) {
     let mut collateral_amount = 0;
     let mut debt_extra = 0;
@@ -688,8 +761,8 @@ fn collect_initial_multiply_payment(
         } else if *payment_token == *debt_token {
             debt_extra = *payment_amount;
         } else {
-            let convert = match convert_steps.as_ref() {
-                Some(steps) => steps,
+            let convert = match convert_swap.as_ref() {
+                Some(s) => s,
                 None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
             };
             collateral_amount = swap_tokens(
@@ -827,7 +900,7 @@ fn swap_or_net_collateral_to_debt(
     collateral_token: &Address,
     debt_token: &Address,
     collateral_amount: i128,
-    steps: &SwapSteps,
+    swap: &AggregatorSwap,
 ) -> i128 {
     if collateral_token == debt_token {
         return collateral_amount;
@@ -838,7 +911,7 @@ fn swap_or_net_collateral_to_debt(
         collateral_token,
         collateral_amount,
         debt_token,
-        steps,
+        swap,
         caller,
     )
 }

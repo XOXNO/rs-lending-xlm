@@ -1,0 +1,147 @@
+---
+title: "Strategies"
+description: "Leverage, debt swap, collateral swap, repay-with-collateral, aggregator ABI, balance-delta verification, and strategy risk rules."
+---
+
+# Strategies
+
+Strategy entrypoints compose existing supply, borrow, withdraw, repay, and pool flash-borrow primitives with an external aggregator. They are controller-native flows and keep the same account, oracle, and reentry safety model as the base operations.
+
+## Strategy endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `multiply` | Borrow debt token through pool strategy, swap it into collateral token, and supply the collateral. |
+| `swap_debt` | Borrow new debt token, swap it into existing debt token, and repay old debt. |
+| `swap_collateral` | Withdraw collateral, swap into a new collateral asset, and resupply. |
+| `repay_debt_with_collateral` | Withdraw collateral, swap or net into debt token, and repay debt. Optionally close remaining collateral. |
+
+## AggregatorSwap
+
+The controller accepts an off-chain-built `AggregatorSwap` and wraps it into `BatchSwap` by forcing `sender = current_contract_address`.
+
+```rust
+struct AggregatorSwap {
+    paths: Vec<SwapPath>,
+    total_min_out: i128,
+}
+
+struct SwapPath {
+    amount_in: i128,
+    hops: Vec<SwapHop>,
+    min_amount_out: i128,
+}
+```
+
+The router pulls each path's input from the controller. The user never controls `BatchSwap.sender`.
+
+## Aggregator validation
+
+Before invoking the router, the controller validates:
+
+- `paths` is not empty.
+- Each path has at least one hop.
+- Each `amount_in` and `min_amount_out` is positive.
+- First hop input token equals the strategy's committed input token.
+- Last hop output token equals the strategy's committed output token.
+- Sum of path inputs equals the amount committed by the controller.
+- `total_min_out` is positive.
+
+After invocation, the controller verifies:
+
+- Exact input spend equals `amount_in`.
+- Output balance delta is at least `total_min_out`.
+- Router callback reentry is blocked by `FlashLoanOngoing`.
+
+## Multiply
+
+```rust
+multiply(
+    caller: Address,
+    account_id: u64,
+    e_mode_category: u32,
+    collateral_token: Address,
+    debt_to_flash_loan: i128,
+    debt_token: Address,
+    mode: PositionMode,
+    swap: AggregatorSwap,
+    initial_payment: Option<(Address, i128)>,
+    convert_swap: Option<AggregatorSwap>
+) -> u64
+```
+
+Rules:
+
+- `mode` must be `Multiply`, `Long`, or `Short`.
+- `collateral_token != debt_token`.
+- Debt amount and swap floor must be positive.
+- Collateral asset must be collateralizable.
+- Strategy borrow uses strict oracle mode.
+- Optional initial payment can be in collateral token or debt token. A third-token initial payment requires `convert_swap`.
+
+## Swap debt
+
+```rust
+swap_debt(
+    caller: Address,
+    account_id: u64,
+    existing_debt_token: Address,
+    amount: i128,
+    new_debt_token: Address,
+    swap: AggregatorSwap
+)
+```
+
+Rules:
+
+- Caller must own the account.
+- Existing and new debt assets must differ.
+- New debt amount and swap floor must be positive.
+- Either side being siloed is rejected because the flow temporarily holds both debt positions.
+
+## Swap collateral
+
+```rust
+swap_collateral(
+    caller: Address,
+    account_id: u64,
+    current_collateral: Address,
+    amount: i128,
+    new_collateral: Address,
+    swap: AggregatorSwap
+)
+```
+
+Rules:
+
+- Caller must own the account.
+- Current and new collateral assets must differ.
+- Isolated accounts are rejected.
+- New collateral must pass preflight checks.
+- Debt-free accounts can use permissive oracle mode; accounts with debt use strict mode.
+
+## Repay debt with collateral
+
+```rust
+repay_debt_with_collateral(
+    caller: Address,
+    account_id: u64,
+    collateral_token: Address,
+    collateral_amount: i128,
+    debt_token: Address,
+    swap: AggregatorSwap,
+    close_position: bool
+)
+```
+
+Rules:
+
+- Caller must own the account.
+- Collateral amount must be positive.
+- Same-asset collateral/debt flow is allowed and skips the swap.
+- Different-asset flow requires a positive swap floor.
+- `close_position = true` requires no remaining debt after repayment.
+
+## Reentry model
+
+Strategy aggregator calls reuse the flash-loan guard. A compromised or misconfigured router cannot call back into mutating controller entrypoints during the strategy swap.

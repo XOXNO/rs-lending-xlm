@@ -1,0 +1,158 @@
+---
+title: "Deployment"
+description: "Build, optimize, deploy, configure, set up markets and e-modes, and smoke-test the Soroban lending contracts."
+---
+
+# Deployment
+
+The operator deployment surface is the `Makefile` plus `configs/script.sh`. The same shape applies to testnet and mainnet.
+
+## Source of truth
+
+| File | Purpose |
+| --- | --- |
+| `configs/networks.json` | RPC metadata, latest controller ID, uploaded pool WASM hash. |
+| `configs/testnet_markets.json` | Testnet market definitions. |
+| `configs/mainnet_markets.json` | Mainnet market definitions. |
+| `configs/emodes.json` | E-mode categories and memberships. |
+| `configs/script.sh` | Config-driven setup actions. |
+| `Makefile` | Build, deploy, setup, invoke, and view commands. |
+
+## Prerequisites
+
+- `stellar` CLI.
+- `jq`.
+- Rust toolchain compatible with `rust-toolchain.toml`.
+- Funded Stellar identity such as `deployer`, or `SIGNER=ledger` for ledger-backed signing.
+- Mintlify CLI only for docs validation and local docs preview.
+
+## Build artifacts
+
+```bash
+make build
+make optimize
+make deploy-artifacts
+```
+
+Artifact directories:
+
+| Directory | Contents |
+| --- | --- |
+| `target/wasm32v1-none/release/` | Raw build outputs. |
+| `target/optimized/` | Optimized WASM. |
+| `target/deploy/` | Artifacts consumed by deployment targets. |
+
+## Deploy contracts
+
+Substitute `testnet` or `mainnet` for `<network>`.
+
+```bash
+make deploy-<network>
+```
+
+This uploads pool WASM, deploys the controller, and updates `configs/networks.json`.
+
+## Configure controller
+
+```bash
+make configure-controller NETWORK=<network>
+```
+
+This sets:
+
+- Aggregator address when configured.
+- Pool template hash.
+
+The controller starts paused at construction. Keep it paused until markets, oracles, e-modes, and smoke tests are complete.
+
+## Set up markets and e-modes
+
+```bash
+NETWORK=<network> SIGNER=<signer> ./configs/script.sh setupAll
+```
+
+This runs:
+
+1. `setupAllMarkets`
+2. `setupAllEModes`
+
+Shortcut:
+
+```bash
+make setup-<network>
+```
+
+## Market setup order
+
+For each market:
+
+1. `createMarket`
+   - Reads `asset_address`.
+   - Reads asset decimals on-chain.
+   - Creates `MarketParams`.
+   - Deploys pool.
+   - Stores market in `PendingOracle`.
+2. `configureMarketOracle`
+   - Sets Reflector CEX/DEX metadata, staleness, tolerances, and TWAP count.
+   - Controller discovers oracle decimals on-chain.
+   - Market becomes active when oracle config is valid.
+3. `editAssetConfig`
+   - Applies final risk flags, caps, flash-loan flags, and liquidation parameters.
+
+The order is load-bearing: pool first, oracle second, final risk config last.
+
+## E-mode setup order
+
+For each category in `configs/emodes.json`:
+
+1. `addEModeCategory`
+2. `addAssetToEMode` for each configured asset.
+
+## Smoke tests
+
+Required post-deploy checks:
+
+```bash
+make view NETWORK=<network> FN=get_all_markets_detailed ARGS="--assets-file-path /tmp/assets.json"
+make view NETWORK=<network> FN=get_all_market_indexes_detailed ARGS="--assets-file-path /tmp/assets.json"
+make invoke NETWORK=<network> FN=supply ARGS="..."
+make invoke NETWORK=<network> FN=borrow ARGS="..."
+make invoke NETWORK=<network> FN=update_indexes ARGS="..."
+make invoke NETWORK=<network> FN=claim_revenue ARGS="..."
+make invoke NETWORK=<network> FN=repay ARGS="..."
+make invoke NETWORK=<network> FN=withdraw ARGS="..."
+```
+
+Recommended checks:
+
+- Duplicate same-token entries in a batch supply.
+- Post-update index reads.
+- Pool-side `protocol_revenue`.
+- Pool-side `reserves`.
+
+## Direct invocation
+
+Controller:
+
+```bash
+make invoke NETWORK=<network> FN=supply ARGS="..."
+make view NETWORK=<network> FN=get_market_config ARGS="..."
+```
+
+Explicit contract ID:
+
+```bash
+make invoke-id NETWORK=<network> CONTRACT_ID=<id> FN=claim_revenue ARGS="..."
+make view-id NETWORK=<network> CONTRACT_ID=<id> FN=protocol_revenue
+```
+
+## Docs deployment
+
+The Mintlify docs deployment is rooted at `docs.json`.
+
+```bash
+mint validate --disable-openapi
+mint dev --no-open
+```
+
+Connect the repository to Mintlify through the GitHub integration. Mintlify deploys automatically when changes are pushed to the configured branch.

@@ -317,7 +317,15 @@ impl LendingTestBuilder {
         // If the caller asked to opt out via `without_auto_auth()`, we revert
         // to strict auth-checking at the very end of build(), so the test
         // itself starts from a clean slate.
-        env.mock_all_auths();
+        //
+        // `_allowing_non_root_auth` is required for the new aggregator ABI:
+        // strategy → router → SAC.transfer(from=controller, ...) is a
+        // 2-level-deep contract-address auth that vanilla `mock_all_auths`
+        // doesn't cover. The non-root variant accepts contract-address
+        // auths at any depth in the call tree, matching Soroban's
+        // production behavior where contract A's invocation of B
+        // implicitly authorizes B's sub-invocations on A's behalf.
+        env.mock_all_auths_allowing_non_root_auth();
         // Remove test budget and resource limits so these tests focus on
         // business logic rather than execution ceilings. Opt-in flag
         // `with_budget_enabled()` keeps Soroban's defaults in place so

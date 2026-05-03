@@ -1,8 +1,71 @@
-use common::types::{PositionMode, SwapSteps};
-use soroban_sdk::Vec;
+use common::types::{AggregatorSwap, PositionMode, SwapHop, SwapPath, SwapVenue};
+use soroban_sdk::{vec, Vec};
 
 use crate::context::{AccountEntry, LendingTest};
 use crate::helpers::f64_to_i128;
+
+/// Default flash-loan fee in bps for every preset (`flashloan_fee_bps =
+/// 9`). For strategies that flash-borrow (`multiply`, `swap_debt`), the
+/// controller's actual swap `amount_in` is the requested borrow MINUS
+/// this fee. Tests that build fixtures from the *requested* borrow
+/// amount can call [`apply_flash_fee`] to land on the post-fee value
+/// `validate_aggregator_swap` expects.
+pub const DEFAULT_FLASHLOAN_FEE_BPS: i128 = 9;
+
+/// `requested * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000` — the
+/// amount the controller actually receives from the flash strategy
+/// borrow under the default preset config. Use this when sizing the
+/// `amount_in` field of a fixture path for `multiply` / `swap_debt`.
+pub fn apply_flash_fee(requested_raw: i128) -> i128 {
+    requested_raw * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000
+}
+
+/// Build a single-path single-hop `AggregatorSwap` whose token chain
+/// matches the strategy's `(token_in, token_out)` and slippage floor
+/// matches `min_out`. Used by every happy-path test that exercises
+/// `swap_tokens` end-to-end.
+///
+/// The new ABI is amount-free per path: the router computes the per-path
+/// input from `total_in * split_ppm / 1_000_000`. For single-path
+/// fixtures `split_ppm = 1_000_000`. The legacy `amount_in` parameter is
+/// kept in the signature for call-site compatibility but is no longer
+/// embedded in the path — the harness's strategy methods supply the
+/// authoritative `amount_in` to the controller, which uses it as
+/// `total_in` in the resulting `BatchSwap`.
+///
+/// The mock aggregator ignores `pool` and `fee_bps`, so we reuse the
+/// harness's aggregator address as a placeholder pool — keeps the
+/// fixture self-contained without spinning up dummy pool contracts.
+pub fn build_aggregator_swap(
+    t: &LendingTest,
+    token_in_name: &str,
+    token_out_name: &str,
+    _amount_in: i128,
+    min_out: i128,
+) -> AggregatorSwap {
+    let env = &t.env;
+    let in_addr = t.resolve_market(token_in_name).asset.clone();
+    let out_addr = t.resolve_market(token_out_name).asset.clone();
+    AggregatorSwap {
+        paths: vec![
+            env,
+            SwapPath {
+                split_ppm: 1_000_000,
+                hops: vec![
+                    env,
+                    SwapHop {
+                        fee_bps: 30,
+                        pool: t.aggregator.clone(),
+                        token_in: in_addr,
+                        token_out: out_addr,
+                        venue: SwapVenue::Soroswap,
+                    },
+                ],
+            },
+        ],
+        total_min_out: min_out,
+    }
+}
 
 impl LendingTest {
     /// Pre-fund the swap router with tokens so the mock router can transfer them.
@@ -19,21 +82,22 @@ impl LendingTest {
         market.token_admin.mint(&self.aggregator, &amount);
     }
 
-    /// Builds `SwapSteps` with no hops for error-path tests that panic
-    /// before reaching the swap router. Use `build_swap_steps` for happy
-    /// paths that need a real `amount_out_min`.
+    /// Builds an empty `AggregatorSwap` for error-path tests that panic
+    /// BEFORE reaching `swap_tokens`. For happy-path tests that exercise
+    /// the swap, build a real `AggregatorSwap` per-test with at least one
+    /// `SwapPath` containing one or more `SwapHop`s.
     ///
-    /// `amount_out_min = 1` satisfies the controller's `> 0` entry check
+    /// `total_min_out = 1` satisfies the controller's `> 0` entry check
     /// without constraining behavior, since the router is never reached.
     pub fn mock_swap_steps(
         &self,
         _token_in: &str,
         _token_out: &str,
         _price_wad: i128,
-    ) -> SwapSteps {
-        SwapSteps {
-            amount_out_min: 1,
-            distribution: Vec::new(&self.env),
+    ) -> AggregatorSwap {
+        AggregatorSwap {
+            paths: Vec::new(&self.env),
+            total_min_out: 1,
         }
     }
 
@@ -45,7 +109,7 @@ impl LendingTest {
         debt_amount: f64,
         debt_asset: &str,
         mode: PositionMode,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) -> u64 {
         let debt_decimals = self.resolve_market(debt_asset).decimals;
         let raw_debt = f64_to_i128(debt_amount, debt_decimals);
@@ -93,7 +157,7 @@ impl LendingTest {
         debt_amount: f64,
         debt_asset: &str,
         mode: PositionMode,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) -> Result<u64, soroban_sdk::Error> {
         let debt_decimals = self.resolve_market(debt_asset).decimals;
         let raw_debt = f64_to_i128(debt_amount, debt_decimals);
@@ -141,7 +205,7 @@ impl LendingTest {
         debt_amount: f64,
         debt_asset: &str,
         mode: PositionMode,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) -> Result<u64, soroban_sdk::Error> {
         self.try_multiply_with_category(
             user,
@@ -161,7 +225,7 @@ impl LendingTest {
         existing_debt: &str,
         new_amount: f64,
         new_debt: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
@@ -181,7 +245,7 @@ impl LendingTest {
         existing_debt: &str,
         new_amount: f64,
         new_debt: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
@@ -211,7 +275,7 @@ impl LendingTest {
         current_collateral: &str,
         amount: f64,
         new_collateral: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
@@ -237,7 +301,7 @@ impl LendingTest {
         current_collateral: &str,
         amount: f64,
         new_collateral: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
@@ -267,7 +331,7 @@ impl LendingTest {
         collateral_asset: &str,
         collateral_amount: f64,
         debt_asset: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
         close_position: bool,
     ) {
         let account_id = self.resolve_account_id(user);
@@ -295,7 +359,7 @@ impl LendingTest {
         collateral_asset: &str,
         collateral_amount: f64,
         debt_asset: &str,
-        steps: &SwapSteps,
+        steps: &AggregatorSwap,
         close_position: bool,
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;

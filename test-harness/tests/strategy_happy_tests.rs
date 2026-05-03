@@ -2,35 +2,10 @@ extern crate std;
 
 use common::constants::WAD;
 
-use common::types::{DexDistribution, Protocol, SwapSteps};
-use soroban_sdk::vec;
 use test_harness::{
-    eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE, BOB,
-    STABLECOIN_EMODE,
+    apply_flash_fee, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset,
+    wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
-// Helper: build SwapSteps with a single hop that yields `min_amount_out` from
-// the mock swap router.
-// ---------------------------------------------------------------------------
-
-fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_market(token_in).asset.clone();
-    let out_addr = t.resolve_market(token_out).asset.clone();
-    SwapSteps {
-        amount_out_min: min_out,
-        distribution: vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
-    }
-}
 
 // ===========================================================================
 // Multiply happy paths
@@ -55,7 +30,14 @@ fn test_multiply_creates_leveraged_position() {
 
     // Flash-borrow 1 ETH, swap to 3000 USDC (favorable mock rate).
     t.fund_router("USDC", 3000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        3000_0000000,
+    );
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -102,7 +84,14 @@ fn test_multiply_mode_long() {
         .build();
 
     t.fund_router("USDC", 3000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        3000_0000000,
+    );
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -154,7 +143,14 @@ fn test_multiply_mode_short() {
         .build();
 
     t.fund_router("USDC", 3000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        3000_0000000,
+    );
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -210,7 +206,14 @@ fn test_multiply_wbtc_collateral() {
     // HF = 1200 * 0.8 / 1000 = 0.96: too low.
     // Need more: 0.03 WBTC = $1800. HF = 1800*0.8/1000 = 1.44.
     t.fund_router_raw("WBTC", 3_000_000);
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 3_000_000);
+    // 1000 USDC (7 decimals) flash-borrowed minus 9bps flash fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "USDC",
+        "WBTC",
+        apply_flash_fee(10_000_000_000),
+        3_000_000,
+    );
     let account_id = t.multiply(
         ALICE,
         "WBTC",
@@ -262,7 +265,14 @@ fn test_swap_debt_replaces_borrow() {
     // Swap ETH debt -> WBTC debt. Borrow 1 WBTC ($60000), swap to ETH (need
     // enough to repay 1 ETH). min_amount_out = 1_0000000 raw ETH (1 ETH).
     t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    // swap_debt borrows 1.0 WBTC (7 decimals = 10_000_000 raw) minus 9bps flash fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "WBTC",
+        "ETH",
+        apply_flash_fee(10_000_000),
+        1_0000000,
+    );
     t.swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
     // The WBTC borrow must now exist.
@@ -299,7 +309,14 @@ fn test_swap_debt_partial() {
     // 0.5 WBTC = 50_000_000 raw (8 decimals).
     // Swap output = 0.5 ETH = 5_000_000 raw (7 decimals): partial repay.
     t.fund_router_raw("ETH", 5_000_000);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 5_000_000);
+    // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "WBTC",
+        "ETH",
+        apply_flash_fee(5_000_000),
+        5_000_000,
+    );
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 
     // Both borrows must exist.
@@ -348,7 +365,8 @@ fn test_swap_collateral_replaces_supply() {
 
     // Swap 20,000 USDC -> 10 ETH (mock rate $2000/ETH).
     t.fund_router("ETH", 10.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 10_0000000);
+    // swap_collateral withdraws 20_000 USDC (7 decimals) → 200_000_000_000 raw.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
     t.swap_collateral(ALICE, "USDC", 20_000.0, "ETH", &steps);
 
     // USDC supply must shrink.
@@ -392,7 +410,8 @@ fn test_swap_collateral_no_borrows() {
 
     // Swap some USDC to ETH: no borrows, so no HF check.
     t.fund_router("ETH", 5.0);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
+    // swap_collateral withdraws 10_000 USDC → 100_000_000_000 raw.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 100_000_000_000, 5_0000000);
     t.swap_collateral(ALICE, "USDC", 10_000.0, "ETH", &steps);
 
     let eth_supply = t.supply_balance(ALICE, "ETH");
@@ -433,7 +452,8 @@ fn test_repay_debt_with_collateral_reduces_positions() {
     let debt_before = t.borrow_balance(ALICE, "ETH");
 
     t.fund_router("ETH", 0.5);
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_000000);
+    // repay_debt_with_collateral withdraws 1_000 USDC → 10_000_000_000 raw.
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000000);
     t.repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps, false);
 
     let collateral_after = t.supply_balance(ALICE, "USDC");
@@ -485,7 +505,14 @@ fn test_multiply_emode_stablecoin() {
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("USDT");
     t.fund_router("USDC", 1050.0);
-    let steps = build_swap_steps(&t, "USDT", "USDC", 1050_0000000);
+    // E-mode multiply borrows 1000 USDT minus 9bps flash fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "USDT",
+        "USDC",
+        apply_flash_fee(10_000_000_000),
+        1050_0000000,
+    );
 
     let ctrl = t.ctrl_client();
     let account_id = ctrl.multiply(
@@ -535,7 +562,14 @@ fn test_multiply_large_amounts() {
     // Borrow 100 ETH ($200,000), swap to $300,000 USDC.
     // HF = 300000 * 0.8 / 200000 = 1.2.
     t.fund_router("USDC", 300_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3_000_000_000_000);
+    // 100 ETH (7 decimals) flash-borrowed minus 9bps flash fee.
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(1_000_000_000),
+        3_000_000_000_000,
+    );
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -581,7 +615,9 @@ fn test_multiply_two_users() {
 
     // Alice: borrow 1 ETH, receive 3000 USDC.
     t.fund_router("USDC", 3000.0);
-    let steps_alice = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    // Alice borrows 1.0 ETH minus 9bps flash fee.
+    let steps_alice =
+        build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let alice_id = t.multiply(
         ALICE,
         "USDC",
@@ -593,7 +629,9 @@ fn test_multiply_two_users() {
 
     // Bob: borrow 2 ETH, receive 6000 USDC.
     t.fund_router("USDC", 6000.0);
-    let steps_bob = build_swap_steps(&t, "ETH", "USDC", 6000_0000000);
+    // Bob borrows 2.0 ETH minus 9bps flash fee.
+    let steps_bob =
+        build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(20_000_000), 6000_0000000);
     let bob_id = t.multiply(
         BOB,
         "USDC",
@@ -673,7 +711,8 @@ fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
     // Swap 10 ETH debt into 0.5 WBTC debt ($30,000 at $60k each). The swap
     // output must cover 10 ETH of repayment, so `min_amount_out` is 10 ETH.
     t.fund_router("ETH", 10.0);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 10_0000000);
+    // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(5_000_000), 10_0000000);
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 
     let hf_after = t.health_factor(ALICE);

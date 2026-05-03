@@ -1,6 +1,8 @@
-use common::types::{AssetConfig, SwapSteps};
-use soroban_sdk::Vec;
-use test_harness::{assert_contract_error, eth_preset, tokens, usd, usdc_preset, LendingTest, BOB};
+use common::types::AssetConfig;
+use test_harness::{
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, eth_preset, tokens, usd,
+    usdc_preset, LendingTest, BOB,
+};
 
 #[test]
 fn test_strategy_swap_collateral_supply_cap_reached() {
@@ -32,10 +34,9 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     // Fund the router with USDC for the swap.
     t.fund_router("USDC", 100_000.0);
 
-    let steps = SwapSteps {
-        amount_out_min: tokens(20_000, 7), // Return 20k USDC
-        distribution: Vec::new(&t.env),
-    };
+    // 5 ETH (7 decimals) → 50_000_000 raw. swap_collateral does not flash-
+    // borrow, so amount_in matches the requested withdrawal exactly.
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 50_000_000, tokens(20_000, 7));
 
     // Expect #105 (SupplyCapReached).
     let res = t.try_swap_collateral("alice", "ETH", 5.0, "USDC", &steps);
@@ -71,10 +72,14 @@ fn test_strategy_multiply_supply_cap_reached() {
 
     t.fund_router("USDC", 100_000.0);
 
-    let steps = SwapSteps {
-        amount_out_min: tokens(30_000, 7), // Return 30k USDC
-        distribution: Vec::new(&t.env),
-    };
+    // 10 ETH flash-borrowed → controller receives apply_flash_fee(100_000_000).
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(100_000_000),
+        tokens(30_000, 7),
+    );
 
     // Expect #105 (SupplyCapReached).
     let res = t.try_multiply(

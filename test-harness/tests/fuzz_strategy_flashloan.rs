@@ -34,32 +34,13 @@
 extern crate std;
 
 use common::constants::WAD;
-use common::types::{DexDistribution, PositionMode, Protocol, SwapSteps};
+use common::types::PositionMode;
 use proptest::prelude::*;
-use soroban_sdk::{contract, contractimpl, token, vec, Address, Env};
-use test_harness::{auth, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn build_swap_steps(t: &LendingTest, token_in: &str, token_out: &str, min_out: i128) -> SwapSteps {
-    let env = &t.env;
-    let in_addr = t.resolve_market(token_in).asset.clone();
-    let out_addr = t.resolve_market(token_out).asset.clone();
-    SwapSteps {
-        amount_out_min: min_out,
-        distribution: vec![
-            env,
-            DexDistribution {
-                protocol_id: Protocol::Soroswap,
-                path: vec![env, in_addr, out_addr],
-                parts: 1,
-                bytes: None,
-            },
-        ],
-    }
-}
+use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use test_harness::{
+    auth, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    BOB,
+};
 
 // ---------------------------------------------------------------------------
 // Alternate "short" aggregator used by the M-11 property test. It returns
@@ -75,35 +56,36 @@ pub struct ShortAggregator;
 impl ShortAggregator {
     pub fn __constructor(_env: Env, _admin: Address) {}
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn swap_exact_tokens_for_tokens(
-        env: Env,
-        token_in: Address,
-        token_out: Address,
-        amount_in: i128,
-        amount_out_min: i128,
-        _distribution: soroban_sdk::Vec<DexDistribution>,
-        to: Address,
-        _deadline: u64,
-    ) -> soroban_sdk::Vec<soroban_sdk::Vec<i128>> {
-        let in_client = token::Client::new(&env, &token_in);
-        in_client.transfer_from(
-            &env.current_contract_address(),
-            &to,
-            &env.current_contract_address(),
-            &amount_in,
-        );
-        // Deliver 1% less than requested.
-        let delivered = amount_out_min * 99 / 100;
+    /// Mirrors the new router ABI but delivers 1% less than
+    /// `total_min_out` to probe the M-11 property that `swap_tokens`
+    /// reads the actual balance delta rather than trusting any internal
+    /// accounting.
+    pub fn batch_execute(env: Env, batch: common::types::BatchSwap) -> i128 {
+        batch.sender.require_auth();
+        let router = env.current_contract_address();
+        let path = batch.paths.get(0).unwrap();
+        let first_hop = path.hops.get(0).unwrap();
+        let last_hop = path.hops.get(path.hops.len() - 1).unwrap();
+
+        let in_client = token::Client::new(&env, &first_hop.token_in);
+        in_client.transfer(&batch.sender, &router, &batch.total_in);
+
+        // Deliver 1% less than `total_min_out` so the controller's
+        // post-call balance delta falls below the slippage floor and
+        // the strategy aborts.
+        let delivered = batch.total_min_out * 99 / 100;
         if delivered > 0 {
-            let out_client = token::Client::new(&env, &token_out);
-            out_client.transfer(&env.current_contract_address(), &to, &delivered);
+            let out_client = token::Client::new(&env, &last_hop.token_out);
+            out_client.transfer(&router, &batch.sender, &delivered);
         }
-        soroban_sdk::Vec::new(&env)
+        delivered
     }
 }
 
-// Helper: controller allowance on the router for a given asset.
+// Helper: controller allowance on the router for a given asset. Retained
+// for legacy property tests that asserted the old SEP-41 approve+pull
+// model leaves zero residual allowance. The new ABI doesn't approve, so
+// allowances stay at 0 by construction.
 fn router_allowance(t: &LendingTest, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     let tok = token::Client::new(&t.env, &asset);
@@ -239,9 +221,16 @@ proptest! {
         t.fund_router("USDC", usdc_out);
 
         // USDC 7 decimals per presets; min_out in raw units.
-        let decimals = t.resolve_market("USDC").decimals;
-        let min_out_raw = (usdc_out as i128) * 10i128.pow(decimals);
-        let steps = build_swap_steps(&t, "ETH", "USDC", min_out_raw);
+        let usdc_decimals = t.resolve_market("USDC").decimals;
+        let eth_decimals = t.resolve_market("ETH").decimals;
+        let min_out_raw = (usdc_out as i128) * 10i128.pow(usdc_decimals);
+        // Strategy `multiply` swaps the flash-borrowed `eth_amount` ETH
+        // into USDC; controller's `validate_aggregator_swap` requires the
+        // path's `amount_in` to match the controller's actual swap
+        // amount. There's no `initial_payment` on this path so
+        // `swap_amount_in == debt_to_flash_loan` exactly.
+        let amount_in_raw = (eth_amount as i128) * 10i128.pow(eth_decimals);
+        let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
 
         let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
 
@@ -305,13 +294,29 @@ proptest! {
         t.fund_router("USDT", withdraw_amount * 2.0);
 
         // Either min_out = 0 (M-10 trigger) or a reasonable positive value.
-        let decimals = t.resolve_market("USDT").decimals;
+        let usdt_decimals = t.resolve_market("USDT").decimals;
+        let usdc_decimals = t.resolve_market("USDC").decimals;
         let min_out_raw = if min_out_valid {
-            (withdraw_amount as i128) * 10i128.pow(decimals)
+            (withdraw_amount as i128) * 10i128.pow(usdt_decimals)
         } else {
             0
         };
-        let steps = build_swap_steps(&t, "USDC", "USDT", min_out_raw);
+        // `swap_collateral` swaps `actual_withdrawn` (= withdraw_amount
+        // for non-rebasing tokens) of the source collateral.
+        let amount_in_raw = (withdraw_amount as i128) * 10i128.pow(usdc_decimals);
+        let steps = if min_out_valid {
+            build_aggregator_swap(&t, "USDC", "USDT", amount_in_raw, min_out_raw)
+        } else {
+            // For the M-10 rejection case we want `total_min_out == 0`,
+            // which `build_aggregator_swap` cannot represent (path-level
+            // `min_amount_out > 0` is required by validation). Build the
+            // batch inline with `total_min_out = 0` so the strategy's
+            // own entry-point check fires.
+            common::types::AggregatorSwap {
+                paths: soroban_sdk::Vec::new(&t.env),
+                total_min_out: 0,
+            }
+        };
 
         let result = t.try_swap_collateral(ALICE, "USDC", withdraw_amount, "USDT", &steps);
 
@@ -346,9 +351,58 @@ proptest! {
     }
 }
 
-// Suppress unused-item warnings in the ShortAggregator helper while no
-// property test instantiates it (kept for future coverage).
-#[allow(dead_code)]
-fn _unused_short_aggregator_hook() {
-    let _ = ShortAggregator;
+// ---------------------------------------------------------------------------
+// Property 4: M-09 — `ShortAggregator` delivers 1% under `min_amount_out`.
+// The controller's `verify_router_output` reads the actual balance delta and
+// must reject with INTERNAL_ERROR. Pre-NEW-01 audit, a `saturating_sub` hid
+// the underpay and let it propagate.
+// ---------------------------------------------------------------------------
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
+
+    #[test]
+    fn prop_short_aggregator_rejected(
+        debt_units in 1u32..5u32,
+    ) {
+        let mut t = LendingTest::new()
+            .with_market(usdc_preset())
+            .with_market(eth_preset())
+            .build();
+
+        // Swap our `set_aggregator` away from the benign mock to the
+        // adversarial `ShortAggregator` that under-delivers by 1%.
+        let admin = t.admin.clone();
+        let short = t.env.register(ShortAggregator, (admin,));
+        t.ctrl_client().set_aggregator(&short);
+
+        // Fund the short aggregator with output tokens so it can transfer
+        // the (under-delivered) amount to the controller.
+        let eth_amount = debt_units as f64;
+        let usdc_amount = eth_amount * 2_000.0;
+        let usdc_decimals = t.resolve_market("USDC").decimals;
+        let eth_decimals = t.resolve_market("ETH").decimals;
+        let min_out_raw = (usdc_amount as i128) * 10i128.pow(usdc_decimals);
+        let amount_in_raw = (eth_amount as i128) * 10i128.pow(eth_decimals);
+
+        // Mint USDC to the short aggregator so it has output to send.
+        let usdc_addr = t.resolve_asset("USDC");
+        let usdc_admin = soroban_sdk::token::StellarAssetClient::new(&t.env, &usdc_addr);
+        usdc_admin.mint(&short, &(min_out_raw * 2));
+
+        let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
+        let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
+
+        // The under-delivery must be detected. Either INTERNAL_ERROR from
+        // `verify_router_output`, or the router's own slippage panic if
+        // the path's `min_amount_out` matches `total_min_out` (then the
+        // shortage trips the path slippage check first). Either is fine —
+        // the property is "doesn't silently succeed".
+        prop_assert!(
+            result.is_err(),
+            "ShortAggregator under-delivery must be rejected (M-09)"
+        );
+
+        // Reentrancy guard cleared on failure path.
+        prop_assert!(flash_guard_cleared(&t), "guard must clear after failed swap");
+    }
 }

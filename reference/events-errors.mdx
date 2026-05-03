@@ -1,0 +1,83 @@
+---
+title: "Events and Errors"
+description: "Protocol event topics, event payload purpose, action tags, and contract error code ranges."
+---
+
+# Events and Errors
+
+Events live in `common/src/events.rs`. Error enums live in `common/src/errors.rs`.
+
+## Event topics
+
+| Event | Topics | Purpose |
+| --- | --- | --- |
+| `CreateMarketEvent` | `["market", "create"]` | Market and pool creation. |
+| `UpdateMarketParamsEvent` | `["market", "params_update"]` | Pool rate parameter update. |
+| `UpdateMarketStateEvent` | `["market", "state_update"]` | Pool state/index snapshot after pool mutations. |
+| `UpdatePositionEvent` | `["position", "update"]` | Supply, borrow, withdraw, repay, liquidation, and strategy position updates. |
+| `FlashLoanEvent` | `["position", "flash_loan"]` | Completed flash loan. |
+| `UpdateAssetConfigEvent` | `["config", "asset"]` | Asset risk/config update. |
+| `UpdateAssetOracleEvent` | `["config", "oracle"]` | Oracle config or tolerance update. |
+| `UpdateEModeCategoryEvent` | `["config", "emode_category"]` | E-mode category creation/update/deprecation. |
+| `UpdateEModeAssetEvent` | `["config", "emode_asset"]` | E-mode asset membership update. |
+| `RemoveEModeAssetEvent` | `["config", "emode_asset_remove"]` | E-mode asset removal. |
+| `UpdateDebtCeilingEvent` | `["config", "debt_ceiling"]` | Isolated debt counter update. |
+| `CleanBadDebtEvent` | `["position", "clean_bad_debt"]` | Bad-debt cleanup. |
+| `InitialMultiplyPaymentEvent` | `["position", "initial_multiply_payment"]` | Initial payment leg of multiply strategy. |
+| `PoolInsolventEvent` | `["market", "pool_insolvent"]` | Bad-debt branch reached insolvency condition. |
+| `ApproveTokenWasmEvent` | `["config", "approve_token_wasm"]` | Token allowlist change. |
+
+## Position action tags
+
+`UpdatePositionEvent.action` disambiguates the flow behind the shared `["position", "update"]` topic.
+
+| Tag | Meaning |
+| --- | --- |
+| `supply` | User supply. |
+| `borrow` | User borrow. |
+| `withdraw` | User withdrawal. |
+| `repay` | Repayment. |
+| `param_upd` | Account threshold update. |
+| `multiply` | Multiply strategy borrow leg. |
+| `liq_repay` | Liquidation debt repayment leg. |
+| `liq_seize` | Liquidation collateral seizure leg. |
+| `sw_debt_r` | Debt swap repay leg. |
+| `sw_col_wd` | Collateral swap withdraw leg. |
+| `rp_col_wd` | Repay-with-collateral withdraw leg. |
+| `rp_col_r` | Repay-with-collateral repay leg. |
+| `close_wd` | Close-position withdrawal leg. |
+
+## Error ranges
+
+Each enum has a disjoint numeric range.
+
+| Enum | Range | Examples |
+| --- | --- | --- |
+| `GenericError` | `1..=38` | `AssetNotSupported`, `AmountMustBePositive`, `MathOverflow`, `TokenNotApproved`, `SpotOnlyNotProductionSafe`. |
+| `CollateralError` | `100..=124` | `InsufficientCollateral`, `HealthFactorTooHigh`, `SupplyCapReached`, `BorrowCapReached`, `InsufficientLiquidity`. |
+| `OracleError` | `200..=219` | `UnsafePriceNotAllowed`, `PriceFeedStale`, `NoLastPrice`, `InvalidPrice`, `TwapInsufficientObservations`. |
+| `EModeError` | `300..=308` | `EModeCategoryDeprecated`, `MixIsolatedCollateral`, `DebtCeilingReached`, `NotBorrowableIsolation`. |
+| `FlashLoanError` | `400..=411` | `FlashLoanOngoing`, `FlashloanNotEnabled`, `InvalidFlashloanRepay`, `StrategyFeeExceeds`. |
+| `StrategyError` | `500` | `ConvertStepsRequired`. |
+
+## Common integration handling
+
+| Error | Suggested response |
+| --- | --- |
+| `PairNotActive` | Check market status and oracle configuration. |
+| `UnsafePriceNotAllowed` | Retry after oracle convergence or inspect tolerance configuration. |
+| `InsufficientCollateral` | Reduce borrow/withdraw amount or add collateral. |
+| `InsufficientLiquidity` | Requested pool reserves are unavailable. |
+| `DebtCeilingReached` | Isolated market debt cap is exhausted. |
+| `PositionLimitExceeded` | Split account positions or adjust protocol limits through owner config. |
+| `FlashLoanOngoing` | Avoid nested controller mutation inside flash-loan or router callbacks. |
+
+## Indexer notes
+
+Indexers should use:
+
+- Event topics for coarse routing.
+- `UpdatePositionEvent.action` for flow-specific position changes.
+- `account_nonce` and `asset_id` from `EventAccountPosition` for position identity.
+- `asset_price` when present for replaying USD-WAD observations.
+- `UpdateMarketStateEvent` to track market index snapshots and revenue progression.

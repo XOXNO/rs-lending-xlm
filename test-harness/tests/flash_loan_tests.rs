@@ -5,21 +5,17 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// 1. test_flash_loan_mock_auth_limitation_documented
+// 1. test_flash_loan_success_under_non_root_auth
 // ---------------------------------------------------------------------------
-// `mock_all_auths` in recording mode cannot authorize the nested
-// `StellarAssetClient::mint()` call that the good flash-loan receiver uses
-// to pay the fee. Rather than naming a test "success" while asserting
-// `is_err()`, this test documents the harness limitation and verifies the
-// error is an auth/host failure -- not a misplaced contract error code
-// that could mask a real protocol regression.
-//
-// A dedicated property test covers the true success path under an explicit
-// MockAuth tree: `fuzz_strategy_flashloan.rs::prop_flash_loan_success_repayment`
-// (currently `#[ignore]` pending SDK support for nested SAC admin auth).
+// Under `mock_all_auths_allowing_non_root_auth()` (now the harness default
+// — required by the new aggregator ABI's contract-address auth chain), the
+// nested `StellarAssetClient::mint()` call inside the good flash-loan
+// receiver authorizes correctly. The previous "limitation documented"
+// assertion (the call must err) is inverted here: the flow now completes
+// end-to-end and we pin the success.
 
 #[test]
-fn test_flash_loan_mock_auth_limitation_documented() {
+fn test_flash_loan_success_under_non_root_auth() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -35,30 +31,11 @@ fn test_flash_loan_mock_auth_limitation_documented() {
     let receiver = t.deploy_flash_loan_receiver();
     let result = t.try_flash_loan(BOB, "USDC", 10_000.0, &receiver);
 
-    // `try_flash_loan` already flattens to `Result<(), soroban_sdk::Error>`.
-    // Recording-mode mock_all_auths cannot record the nested SAC mint auth,
-    // so the call must not succeed. An `Ok` here means either (a) the SDK
-    // now records the nested auth (un-ignore the property test in
-    // fuzz_strategy_flashloan) or (b) a new code path falsely reports
-    // success. Both cases warrant investigation.
     assert!(
-        result.is_err(),
-        "flash loan with good receiver must not return Ok under recording-mode mock_all_auths: {:?}",
+        result.is_ok(),
+        "flash loan with good receiver must succeed under non-root auth mock: {:?}",
         result
     );
-    // Sanity: the returned error must not match FLASHLOAN_NOT_ENABLED or any
-    // other controller-side precondition error. Such a code would mean a
-    // guard fired before the receiver invocation -- a regression.
-    if let Err(err) = &result {
-        for regression_code in [401u32, 400u32, 14u32] {
-            let predictable = soroban_sdk::Error::from_contract_error(regression_code);
-            assert_ne!(
-                *err, predictable,
-                "regression: flash_loan returned precondition error {} before reaching the receiver",
-                regression_code
-            );
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

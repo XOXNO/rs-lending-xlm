@@ -1,0 +1,23 @@
+# Existing repo documentation is not part of the public Mintlify site.
+*.md
+
+# Rust workspace, generated artifacts, audit notes, and operational configs.
+.certora-venv/
+audit/
+common/
+configs/
+controller/
+docs/
+fuzz/
+pool/
+pool-interface/
+target/
+test-harness/
+vendor/
+Cargo.lock
+Cargo.toml
+Makefile
+rust-toolchain.toml
+
+# Existing architecture assets that are not MDX pages.
+architecture/*.json

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "XOXNO Lending",
+  "colors": {
+    "primary": "#0E7C86"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start Here",
+        "icon": "sparkles",
+        "pages": [
+          "index"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "icon": "network",
+        "pages": [
+          "architecture/system-overview",
+          "architecture/data-flow",
+          "architecture/storage"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "icon": "boxes",
+        "pages": [
+          "concepts/markets-and-pools",
+          "concepts/accounts-and-risk",
+          "concepts/interest-revenue",
+          "concepts/oracles"
+        ]
+      },
+      {
+        "group": "Operations",
+        "icon": "route",
+        "pages": [
+          "operations/supply-borrow",
+          "operations/withdraw-repay",
+          "operations/liquidations",
+          "operations/flash-loans",
+          "operations/strategies"
+        ]
+      },
+      {
+        "group": "Reference",
+        "icon": "book-open",
+        "pages": [
+          "reference/types",
+          "reference/controller-abi",
+          "reference/pool-abi",
+          "reference/events-errors"
+        ]
+      },
+      {
+        "group": "Operators",
+        "icon": "settings",
+        "pages": [
+          "operators/deployment",
+          "operators/configuration",
+          "operators/security-model"
+        ]
+      }
+    ]
+  }
+}

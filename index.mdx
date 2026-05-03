@@ -1,0 +1,64 @@
+---
+title: "XOXNO Lending Architecture"
+description: "Mintlify documentation for the Stellar/Soroban lending protocol architecture, user flows, risk model, ABIs, and deployment surface."
+---
+
+# XOXNO Lending
+
+XOXNO Lending is a multi-asset lending protocol for Stellar, built on Soroban. Users supply supported assets, borrow against overcollateralized positions, repay debt, withdraw collateral, liquidate unhealthy accounts, execute flash loans, and route strategy flows through an operator-configured swap aggregator.
+
+The documentation is organized in the same mental shape that works well for mature lending protocols such as Aave: start with the protocol overview, then move through liquidity pools, reserves, risk modes, account positions, interest accrual, liquidations, flash loans, and finally the exact ABI and type reference. The implementation is Stellar-specific: there are no ERC-20 aTokens or debt tokens. Instead, the controller stores account positions as scaled RAY balances and each asset pool owns custody, indexes, liquidity, revenue, and reserve checks.
+
+## System at a glance
+
+| Layer | Contract or module | Responsibility |
+| --- | --- | --- |
+| User entrypoint | `controller` | All public lending, liquidation, strategy, flash-loan, oracle, config, and view entrypoints. |
+| Asset accounting | `pool` | One pool per listed asset. Holds custody, scaled totals, indexes, reserve checks, revenue, and bad-debt socialization. |
+| Stable ABI | `pool-interface` | Contract client trait used by the controller so it depends on the pool ABI rather than pool internals. |
+| Shared model | `common` | Fixed-point math, types, events, errors, constants, and interest-rate functions. |
+| Off-chain operations | `configs/` and `Makefile` | Network state, market definitions, e-mode definitions, deployment, setup, and smoke-test commands. |
+
+## Read paths
+
+| Reader goal | Start here |
+| --- | --- |
+| Understand the high-level topology | [System overview](/architecture/system-overview) |
+| Trace trust boundaries and external calls | [Data flow](/architecture/data-flow) |
+| Understand collateral, debt, e-mode, and isolation | [Accounts and risk](/concepts/accounts-and-risk) |
+| Integrate with contract functions | [Controller ABI](/reference/controller-abi) and [Pool ABI](/reference/pool-abi) |
+| Build config or deploy a network | [Deployment](/operators/deployment) and [Configuration](/operators/configuration) |
+
+## Aave-inspired mapping
+
+| Aave concept | XOXNO Lending equivalent |
+| --- | --- |
+| Liquidity pool / market | Controller registry plus one Soroban pool contract per listed asset. |
+| Reserve | Pool `MarketParams` and `PoolState` for one asset. |
+| aToken balance | `AccountPosition` on the supply side, reconstructed as `scaled_amount_ray * supply_index_ray / RAY`. |
+| variable debt token | `AccountPosition` on the borrow side, reconstructed as `scaled_amount_ray * borrow_index_ray / RAY`. |
+| Health factor | USD-WAD weighted collateral divided by total USD-WAD debt. `HF < 1e18` is liquidatable. |
+| E-Mode | Controller e-mode categories with per-asset collateral and borrow membership. |
+| Isolation mode | Account-level isolated asset plus global USD-WAD isolated debt ceiling. |
+| Flash loans | Controller-orchestrated single-asset callback with pool-side pre/post balance verification. |
+| Interest-rate strategy | Pool-local piecewise model using RAY parameters and utilization. |
+
+## Fixed-point domains
+
+| Domain | Scale | Used for |
+| --- | --- | --- |
+| Asset-native | token decimals | SAC/SEP-41 token balances and transfers. |
+| BPS | `10^4` | LTV, liquidation thresholds, fees, bonuses, reserve factor. |
+| WAD | `10^18` | USD values, health factor, oracle-normalized prices. |
+| RAY | `10^27` | indexes, rates, and scaled balances. |
+
+## Deployment entry
+
+Mintlify uses `docs.json` at the repository root. To preview locally after installing the Mintlify CLI:
+
+```bash
+mint validate --disable-openapi
+mint dev --no-open
+```
+
+Production deployment is handled by connecting this repository to Mintlify's GitHub integration. Each push to the selected deployment branch will publish the docs site when `docs.json` and all referenced MDX paths validate.

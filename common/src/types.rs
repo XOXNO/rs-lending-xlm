@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Map, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Map, Symbol, Vec};
 
 /// Internal asset + amount pair used by controller operation helpers.
 /// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
@@ -432,32 +432,101 @@ pub struct LiquidationResult {
 
 // ---------------------------------------------------------------------------
 // Aggregator Swap types
+//
+// These mirror EXACTLY the public ABI of `stellar-router-contract`
+// (XOXNO's deployed Stellar aggregator). The off-chain quote builder
+// produces an `AggregatorSwap` value that the controller forwards to the
+// router via `batch_execute`. The router's own `BatchSwap` struct
+// additionally carries `sender`, which the controller fills in with its
+// own contract address — the user never sets it, eliminating spoofing.
+//
+// **DO NOT rename fields or reorder enum variants** without updating
+// `stellar-router-contract/src/types.rs` AND
+// `stellar-indexer/src/transaction/abi.rs` in lockstep. Soroban's
+// `#[contracttype]` derives an alphabetical `ScMap` key encoding, so
+// the bytes have to match across all three crates.
 // ---------------------------------------------------------------------------
 
+/// Which DEX/venue routes a given hop. Tag-only enum — every hop is
+/// dispatched on this discriminant inside the router contract.
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum Protocol {
-    Soroswap = 0,
-    Phoenix = 1,
-    Aqua = 2,
-    Comet = 3,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwapVenue {
+    Soroswap,
+    Aquarius,
+    Phoenix,
+    NativeAmm,
+    StaticBridge,
 }
 
+/// Single hop in a path. `pool`, `token_in`, `token_out` are all Soroban
+/// `Address` values; Classic assets are pre-resolved to their SAC
+/// contract IDs by the off-chain builder.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct DexDistribution {
-    pub protocol_id: Protocol,
-    pub path: Vec<Address>,
-    pub parts: u32,
-    pub bytes: Option<Vec<BytesN<32>>>,
+pub struct SwapHop {
+    /// Fee in basis points (1 bps = 0.01%). Informational; the pool has
+    /// authority over actual fees applied.
+    pub fee_bps: u32,
+    /// Pool contract address (for Soroswap/Aquarius/Phoenix), LP account
+    /// (for NativeAmm), or zero bytes (for StaticBridge).
+    pub pool: Address,
+    pub token_in: Address,
+    pub token_out: Address,
+    pub venue: SwapVenue,
 }
 
+/// One path in a (possibly multi-path) swap.
+///
+/// `split_ppm` is parts per million of the total input allocated to this
+/// path. The router computes per-path input as
+/// `total_in * split_ppm / 1_000_000`; the LAST path absorbs PPM rounding
+/// so the entire `total_in` is consumed and no dust is left on the
+/// sender. Within a path, output of hop N feeds hop N+1 directly — there
+/// are no per-hop or per-path amount fields. The single `total_min_out`
+/// guard at the router-batch level is the only slippage gate.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct SwapSteps {
-    pub amount_out_min: i128,
-    pub distribution: Vec<DexDistribution>,
+pub struct SwapPath {
+    pub hops: Vec<SwapHop>,
+    /// Parts per million of the total input. `> 0`; sum across all paths
+    /// must equal `1_000_000`.
+    pub split_ppm: u32,
+}
+
+/// User-facing aggregator swap request. The controller wraps this in
+/// `BatchSwap` (filling `sender = current_contract_address` and
+/// `total_in = actual_withdrawn`) before dispatching to the router.
+/// Off-chain callers produce this directly from the indexer's quote
+/// response.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AggregatorSwap {
+    /// One or more paths that all converge on the same final
+    /// `token_out`. Each path's `split_ppm` declares its share of the
+    /// total input.
+    pub paths: Vec<SwapPath>,
+    /// Aggregate slippage floor across all paths. Computed off-chain
+    /// against quoted `amount_out * (1 - slippage)`. Must be > 0.
+    pub total_min_out: i128,
+}
+
+/// Full batch passed to `Router::batch_execute`. Internal — strategy
+/// endpoints take [`AggregatorSwap`] and the controller fills `sender`,
+/// `total_in`, and `referral_id = 0` (lending strategies never charge
+/// fees on user collateral / debt operations; the standalone swap UI
+/// is the path that uses non-zero `referral_id`).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct BatchSwap {
+    pub paths: Vec<SwapPath>,
+    /// Referral ID for fee attribution. `0` means no fee. Lending
+    /// strategies always pass `0`; only direct user→router swaps via
+    /// the standalone swap UI use a non-zero referral ID.
+    pub referral_id: u64,
+    pub sender: Address,
+    pub total_in: i128,
+    pub total_min_out: i128,
 }
 
 // ---------------------------------------------------------------------------

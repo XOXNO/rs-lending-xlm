@@ -1,0 +1,97 @@
+---
+title: "Data Flow"
+description: "Trust boundaries, external integrations, and the numbered flows for supply, borrow, withdraw, repay, liquidation, flash loans, strategies, and revenue."
+---
+
+# Data Flow
+
+The controller is the only mediator between users, pools, oracles, token contracts, the swap aggregator, and the revenue accumulator. Pools never call each other.
+
+## Trust boundaries
+
+| Boundary | Participants | Controller validation |
+| --- | --- | --- |
+| User boundary | Users, liquidators, flash-loan receivers | `require_auth`, account ownership checks, non-empty payment vectors, amount sign checks, reentry guard. |
+| Operator boundary | Owner, `KEEPER`, `REVENUE`, `ORACLE` | `stellar-access` role gates and field-level validation. |
+| Controller-pool boundary | Controller to asset pool | Pool `verify_admin` on every mutating ABI. |
+| Oracle boundary | Reflector CEX and DEX feeds | Decimals discovery, staleness checks, non-positive rejection, TWAP coverage, two-tier tolerance. |
+| Aggregator boundary | Swap router | Batch shape validation, exact input spend, output delta, slippage floor, reentry guard. |
+| Token boundary | SAC / SEP-41 tokens | Token allowlist at market creation; input-side balance-delta checks on supply, repay, rewards. |
+
+## Supply flow
+
+1. User calls `supply(caller, account_id, e_mode_category, assets)`.
+2. Controller authenticates `caller`, rejects paused/reentry state, creates an account when `account_id == 0`, and validates isolation/e-mode/caps.
+3. Controller resolves the asset price with permissive oracle mode because supply reduces risk.
+4. Controller transfers tokens from caller to the asset pool and verifies the received amount.
+5. Controller calls `pool.supply(position, price_wad, amount)`.
+6. Pool syncs indexes, converts amount to scaled supply, updates `supplied_ray`, and returns `PoolPositionMutation`.
+7. Controller writes the supply-side map and emits a `position/update` event with action `supply`.
+
+## Borrow flow
+
+1. User calls `borrow(caller, account_id, borrows)`.
+2. Controller authenticates owner, loads supply and borrow maps, and uses strict oracle mode.
+3. Controller validates market active status, e-mode, isolation, siloed borrowing, LTV, borrow cap, and isolated debt ceiling.
+4. Controller calls `pool.borrow(caller, amount, position, price_wad)`.
+5. Pool syncs indexes, checks reserves, converts amount to scaled debt, updates `borrowed_ray`, and transfers tokens to caller.
+6. Controller writes the borrow-side map, flushes isolated-debt deltas, and emits `position/update` with action `borrow`.
+
+## Withdraw flow
+
+1. User calls `withdraw(caller, account_id, withdrawals)`.
+2. Controller authenticates owner and loads the supply side. It only loads the borrow side when debt exists.
+3. Amount `0` means withdraw all; the controller converts it to `i128::MAX`.
+4. Controller calls `pool.withdraw(caller, amount, position, is_liquidation=false, protocol_fee=0, price_wad)`.
+5. Pool syncs indexes, clamps full withdrawals, applies dust-lock protection, checks reserves, burns scaled supply, and transfers tokens to caller.
+6. Controller rechecks health factor if the account still has borrows.
+7. Controller writes the supply side or removes the account when all positions close.
+
+## Repay flow
+
+1. Any address calls `repay(caller, account_id, payments)`.
+2. Controller authenticates the payer and loads the target account's borrow side.
+3. Repay is permissionless on the target account. The payer receives any overpayment refund.
+4. Controller transfers tokens from payer to the pool and calls `pool.repay`.
+5. Pool syncs indexes, burns scaled debt, refunds excess, and returns the applied amount.
+6. Controller writes the borrow side and decrements isolated debt when applicable.
+
+## Liquidation flow
+
+1. Liquidator calls `liquidate(liquidator, account_id, debt_payments)`.
+2. Controller authenticates the liquidator, loads the target account, and uses strict oracle mode.
+3. Controller requires `health_factor < 1e18`.
+4. The liquidation engine computes repayment and seizure vectors with a target cascade of `1.02`, `1.01`, then fallback.
+5. Controller transfers repayment tokens to debt pools and calls `pool.repay`.
+6. Controller calls collateral pools to withdraw seized collateral to the liquidator, retaining protocol fees in the pool.
+7. If residual bad debt qualifies, controller triggers bad-debt cleanup and the pool socializes debt through the supply index floor.
+
+## Flash-loan flow
+
+1. User calls `flash_loan(caller, asset, amount, receiver, data)`.
+2. Controller authenticates caller, validates market active status and `is_flashloanable`, computes fee, and sets the reentry guard.
+3. Controller calls `pool.flash_loan_begin(amount, receiver)`.
+4. Pool snapshots pre-balance and transfers amount to receiver.
+5. Controller invokes `receiver.execute_flash_loan(caller, asset, amount, fee, data)`.
+6. Controller calls `pool.flash_loan_end(amount, fee, receiver)`.
+7. Pool pulls `amount + fee` from receiver and verifies post-balance is at least pre-balance plus fee.
+8. Controller clears the guard and emits `position/flash_loan`.
+
+## Strategy flow
+
+Strategy entrypoints are composed from the same primitives:
+
+- `multiply` borrows through `pool.create_strategy`, routes debt through the aggregator, and supplies received collateral.
+- `swap_debt` borrows the new debt asset, swaps it, and repays the old debt.
+- `swap_collateral` withdraws collateral, swaps it, and supplies the new collateral.
+- `repay_debt_with_collateral` withdraws collateral, swaps or nets to debt token, and repays debt.
+
+The aggregator call is bracketed by the same reentry guard used for flash loans.
+
+## Revenue flow
+
+1. `REVENUE` role calls `claim_revenue(caller, assets)`.
+2. Controller resolves each pool and price.
+3. Pool computes claimable revenue as scaled revenue times supply index, capped by reserves.
+4. Pool burns the proportional scaled revenue and transfers claimed tokens to its owner, the controller.
+5. Controller forwards tokens to the configured accumulator in the same transaction.

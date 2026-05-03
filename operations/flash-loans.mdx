@@ -1,0 +1,90 @@
+---
+title: "Flash Loans"
+description: "Single-asset flash-loan flow, receiver callback ABI, fee accounting, Soroban authorization expectations, and repayment verification."
+---
+
+# Flash Loans
+
+Flash loans let a receiver borrow one pool asset for the duration of a single transaction, provided the receiver repays `amount + fee` before the transaction finishes.
+
+## ABI
+
+```rust
+flash_loan(
+    caller: Address,
+    asset: Address,
+    amount: i128,
+    receiver: Address,
+    data: Bytes
+)
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `caller` | Initiator. Must authorize. |
+| `asset` | Asset borrowed from its pool. |
+| `amount` | Borrowed amount in asset-native units. |
+| `receiver` | Contract receiving the loan and callback. |
+| `data` | Opaque bytes forwarded to receiver. |
+
+## Receiver callback
+
+The receiver contract must export:
+
+```rust
+execute_flash_loan(
+    initiator: Address,
+    asset: Address,
+    amount: i128,
+    fee: i128,
+    data: Bytes
+)
+```
+
+The controller invokes the callback after the pool transfers the loan amount.
+
+## Flow
+
+1. Caller authorizes `flash_loan`.
+2. Controller rejects paused state, nested flash-loan state, non-positive amount, inactive market, and non-flashloanable asset.
+3. Controller computes `fee = flashloan_fee_bps.apply_to(amount)`.
+4. Controller sets `FlashLoanOngoing = true`.
+5. Controller calls `pool.flash_loan_begin(amount, receiver)`.
+6. Pool syncs indexes, checks reserves, stores pre-balance, and transfers amount to receiver.
+7. Controller invokes receiver callback.
+8. Controller calls `pool.flash_loan_end(amount, fee, receiver)`.
+9. Pool transfers `amount + fee` from receiver to pool and checks post-balance.
+10. Pool records fee as protocol revenue.
+11. Controller clears the guard and emits `position/flash_loan`.
+
+## Soroban authorization
+
+The pool repayment is a token transfer from `receiver` to pool. The receiver must authorize that token transfer during the callback, for example with Soroban current-contract authorization patterns. This is not an ERC-20 allowance flow.
+
+## Reentry guard
+
+`FlashLoanOngoing` blocks nested calls into mutating controller endpoints during the flash-loan callback. If the receiver tries to call supply, borrow, withdraw, repay, liquidate, strategy flows, or another flash loan through the controller, those entrypoints reject the call.
+
+## Repayment verification
+
+The pool verifies repayment with a pre/post balance check:
+
+```text
+post_balance >= pre_balance + fee
+```
+
+The check rejects missing `flash_loan_begin`, insufficient repayment, and token behavior that fails to deliver the expected balance.
+
+## Fee accounting
+
+The flash-loan fee is added to protocol revenue in the pool. It is represented as scaled supply revenue and can later be claimed by the `REVENUE` role.
+
+## Failure modes
+
+| Error | Cause |
+| --- | --- |
+| `FlashLoanOngoing` | Nested flash-loan or strategy/flash callback reentry. |
+| `FlashloanNotEnabled` | Asset config has `is_flashloanable = false`. |
+| `InvalidFlashloanRepay` | Missing pre-balance or insufficient repayment. |
+| `InsufficientLiquidity` | Pool reserves are below requested amount. |
+| `NegativeFlashLoanFee` | Defensive pool-side fee validation failed. |

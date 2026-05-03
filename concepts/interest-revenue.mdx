@@ -1,0 +1,105 @@
+---
+title: "Interest and Revenue"
+description: "Utilization, piecewise borrow rates, supply rates, indexes, scaled balances, protocol revenue, rewards, and bad-debt socialization."
+---
+
+# Interest and Revenue
+
+Pools accrue interest by updating indexes. Account balances stay scaled, so the system can apply interest to all suppliers and borrowers by changing market-level indexes instead of iterating accounts.
+
+## Scaled balances
+
+The pool stores aggregate supply and debt as scaled RAY amounts:
+
+```text
+actual_supply = scaled_supply * supply_index_ray / RAY
+actual_borrow = scaled_borrow * borrow_index_ray / RAY
+```
+
+User positions store the same scaled representation. Views reconstruct actuals by reading the current pool index and token decimals.
+
+## Utilization
+
+Utilization is the borrowed actual amount divided by supplied actual amount:
+
+```text
+U = borrowed_actual / supplied_actual
+```
+
+When supplied actual is zero, utilization is defined as zero.
+
+## Borrow-rate model
+
+The pool uses a piecewise RAY borrow curve with `mid_utilization_ray` and `optimal_utilization_ray`.
+
+| Region | Behavior |
+| --- | --- |
+| Low utilization | Borrow rate starts at `base_borrow_rate_ray` and rises through `slope1_ray`. |
+| Mid utilization | Rate rises toward `slope2_ray` as utilization approaches optimal. |
+| High utilization | Rate rises faster through `slope3_ray`, capped by `max_borrow_rate_ray`. |
+
+Rate parameters are validated for monotonicity and bounded by `MAX_BORROW_RATE_RAY` before they are stored.
+
+## Index update pipeline
+
+On each mutating pool call and `update_indexes`:
+
+1. Pool computes elapsed milliseconds since `last_timestamp`.
+2. Pool computes utilization from current scaled totals and indexes.
+3. Pool computes annual borrow rate from utilization.
+4. Pool converts annual rate to a per-ms rate.
+5. Pool compounds borrow interest using the fixed Taylor approximation.
+6. Pool updates `borrow_index_ray`.
+7. Pool splits accrued borrower interest into supplier rewards and protocol revenue using `reserve_factor_bps`.
+8. Pool updates `supply_index_ray` with supplier rewards.
+9. Pool adds protocol fee to `revenue_ray` and `supplied_ray`.
+
+## Supplier and borrower effects
+
+| Actor | Effect |
+| --- | --- |
+| Supplier | Position actual balance increases as `supply_index_ray` increases. |
+| Borrower | Debt actual balance increases as `borrow_index_ray` increases. |
+| Protocol | Revenue accrues as scaled supply in `revenue_ray`, so it appreciates until claimed. |
+
+## Protocol revenue
+
+Protocol revenue is represented as a scaled supply claim:
+
+```text
+0 <= revenue_ray <= supplied_ray
+```
+
+Claim flow:
+
+1. `REVENUE` role calls `claim_revenue`.
+2. Pool syncs indexes.
+3. Pool reconstructs `treasury_actual = revenue_ray * supply_index_ray / RAY`.
+4. Pool caps transfer by live reserves.
+5. Pool burns the proportional scaled revenue from both `revenue_ray` and `supplied_ray`.
+6. Pool transfers to owner, which is the controller.
+7. Controller forwards to the accumulator.
+
+## Rewards
+
+`add_rewards` transfers reward tokens into a pool and bumps the supply index. It rejects rewards when no supply exists, because there would be no scaled supply base to receive the reward.
+
+## Bad debt
+
+Bad debt is socialized by lowering the supply index, with a hard floor:
+
+```text
+supply_index_ray >= 10^18
+```
+
+The floor is far below nominal `1e27` RAY but prevents division by near-zero after socialization. Bad-debt cleanup is triggered by liquidation flows when residual debt exceeds collateral under the configured small-collateral threshold, or by the `KEEPER` role through `clean_bad_debt`.
+
+## Fixed-point discipline
+
+| Unit | Precision | Examples |
+| --- | --- | --- |
+| BPS | `10^4` | Reserve factor, liquidation fees. |
+| WAD | `10^18` | USD collateral, debt, health factor. |
+| RAY | `10^27` | Rates, indexes, scaled balances. |
+
+All multiply/divide helpers use half-up rounding unless explicitly named otherwise.
