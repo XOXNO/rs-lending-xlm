@@ -73,7 +73,7 @@ fn test_liquidation_after_price_drop() {
     t.borrow(ALICE, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Drop USDC price to $0.50: collateral now worth $5000.
+    // Drop USDC price to $0.50: collateral value becomes $5000.
     // liquidation_threshold = 80% => weighted collateral = $4000.
     // debt = $6000 => HF = 4000/6000 ~ 0.67 => liquidatable.
     t.set_price("USDC", usd_cents(50));

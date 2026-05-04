@@ -224,8 +224,9 @@ impl LendingTest {
 
     pub fn assert_supply_count(&self, user: &str, expected: u32) {
         let count = self.find_account_id(user).map_or(0u32, |account_id| {
-            self.env
-                .as_contract(&self.controller, || side_count(&self.env, account_id, PositionType::Supply))
+            self.env.as_contract(&self.controller, || {
+                side_count(&self.env, account_id, PositionType::Supply)
+            })
         });
         assert_eq!(
             count, expected,
@@ -236,8 +237,9 @@ impl LendingTest {
 
     pub fn assert_borrow_count(&self, user: &str, expected: u32) {
         let count = self.find_account_id(user).map_or(0u32, |account_id| {
-            self.env
-                .as_contract(&self.controller, || side_count(&self.env, account_id, PositionType::Borrow))
+            self.env.as_contract(&self.controller, || {
+                side_count(&self.env, account_id, PositionType::Borrow)
+            })
         });
         assert_eq!(
             count, expected,

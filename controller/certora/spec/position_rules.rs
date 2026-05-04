@@ -1,12 +1,9 @@
 /// Position Integrity Rules
 ///
 /// Verify that add/remove operations maintain consistent position state.
-/// Mirrors Blend's user_rules.rs pattern.
 ///
-/// From CLAUDE.md:
-///   - Max 10 positions per type (gas safety for liquidation iteration)
-///   - Position type must remain consistent with storage key
-///   - Sum(user_scaled) <= total_scaled -- no phantom liquidity
+/// Rules cover position-count bounds, storage-side consistency, and absence
+/// of phantom liquidity across scaled account balances.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -64,12 +61,9 @@ fn borrow_increases_debt(e: Env, caller: Address, asset: Address, amount: i128) 
 /// After repaying with an amount strictly larger than the outstanding debt,
 /// the borrow position must be zero (the pool refunds the surplus).
 ///
-/// We bound `amount` to a "very large" but finite value (`10^18 = WAD`) and
-/// constrain it to exceed the outstanding debt. The previous version used
-/// `i128::MAX` directly, which forced the prover to enumerate the
-/// repay-flow's overflow and i128::MAX-sentinel branches and dramatically
-/// inflated the path count. The bounded form proves the same property
-/// without the sentinel-overflow case-split.
+/// The repayment amount is bounded to a large finite value (`10^18 = WAD`)
+/// and constrained to exceed the outstanding debt, avoiding sentinel and
+/// overflow branches that are outside this property.
 #[rule]
 fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;

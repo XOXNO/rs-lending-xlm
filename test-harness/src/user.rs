@@ -127,8 +127,8 @@ impl LendingTest {
             mode,
             is_isolated,
         });
-        // Set the default account when none exists or the previous default
-        // was already removed by contract-side cleanup.
+        // Set the default account when none exists or the current default was
+        // already cleared by contract-side cleanup.
         if default_is_missing {
             user_state.default_account_id = Some(account_id);
         }

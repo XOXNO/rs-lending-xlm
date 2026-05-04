@@ -133,7 +133,15 @@ pub fn process_borrow_plan(
     }
 
     prepare_borrow_plan(env, account, &borrow_plan, cache, &effective_configs);
-    execute_borrow_plan(env, caller, account_id, account, &borrow_plan, cache, &effective_configs);
+    execute_borrow_plan(
+        env,
+        caller,
+        account_id,
+        account,
+        &borrow_plan,
+        cache,
+        &effective_configs,
+    );
 }
 
 fn validate_borrow_asset_preflight(
@@ -291,12 +299,8 @@ crate::summarized!(
         price_wad: i128,
     ) -> common::types::PoolPositionMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).borrow(
-            &caller,
-            &amount,
-            &position,
-            &price_wad,
-        )
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
+            .borrow(&caller, &amount, &position, &price_wad)
     }
 );
 
@@ -312,13 +316,8 @@ crate::summarized!(
         price_wad: i128,
     ) -> common::types::PoolStrategyMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).create_strategy(
-            &caller,
-            &position,
-            &amount,
-            &fee,
-            &price_wad,
-        )
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
+            .create_strategy(&caller, &position, &amount, &fee, &price_wad)
     }
 );
 

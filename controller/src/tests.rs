@@ -376,8 +376,7 @@ fn test_edit_asset_config_preserves_existing_emode_categories() {
 
     t.env.as_contract(&t.contract, || {
         let mut market = storage::get_market_config(&t.env, &asset);
-        market.asset_config.e_mode_categories =
-            soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
+        market.asset_config.e_mode_categories = soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
         storage::set_market_config(&t.env, &asset, &market);
     });
 
@@ -555,7 +554,7 @@ fn test_position_limit_reaches_configured_max() {
 fn test_edit_oracle_tolerance_bad_first() {
     let t = TestSetup::new();
     let client = t.client();
-    // M-02 + M-03 hardening: grant ORACLE role and unpause.
+    // Grant ORACLE role and unpause before exercising oracle configuration.
     client.grant_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE));
     client.unpause();
     let asset = t
@@ -593,7 +592,7 @@ fn test_edit_oracle_tolerance_bad_first() {
 fn test_configure_market_oracle_rejects_missing_dual_oracle_dex() {
     let t = TestSetup::new();
     let client = t.client();
-    // M-02 + M-03 hardening: grant ORACLE role and unpause.
+    // Grant ORACLE role and unpause before exercising oracle configuration.
     client.grant_role(&t.admin, &Symbol::new(&t.env, ORACLE_ROLE));
     client.unpause();
     let asset = t

@@ -150,7 +150,7 @@ fn test_upgrade_pool_params() {
         },
     );
 
-    // Compare before/after to confirm the pool rate changed. At zero
+    // Compare before/after to confirm the pool rate differs. At zero
     // utilization the rate equals base_rate / MILLISECONDS_PER_YEAR, so the
     // higher base_rate (2%) must raise it.
     let rate_after = t.pool_borrow_rate("USDC");
@@ -337,9 +337,7 @@ fn test_oracle_tolerance_validation() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Set tolerance with first below MIN_FIRST_TOLERANCE (50 bps). The API
-    // now takes raw deviation BPS (first, last) instead of
-    // OraclePriceFluctuation.
+    // Set tolerance with `first` below MIN_FIRST_TOLERANCE (50 bps).
     let result = ctrl.try_edit_oracle_tolerance(&t.admin(), &asset, &10, &500);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
@@ -449,11 +447,10 @@ fn test_role_enforcement_oracle() {
         twap_records: 3,
     };
 
-    let configure_result =
-        match ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector) {
-            Ok(res) => res.map_err(|e| e.into()),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        };
+    let configure_result = match ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
     assert_contract_error(configure_result, 2000);
 
     let tolerance_result = match ctrl.try_edit_oracle_tolerance(&bob_addr, &asset, &300, &600) {
@@ -505,7 +502,11 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
     ctrl.edit_oracle_tolerance(&bob_addr, &asset, &300, &600);
     let after_tolerance = ctrl.get_market_config(&asset);
     assert!(
-        after_tolerance.oracle_config.tolerance.first_upper_ratio_bps > 0,
+        after_tolerance
+            .oracle_config
+            .tolerance
+            .first_upper_ratio_bps
+            > 0,
         "tolerance must be persisted",
     );
 
@@ -589,7 +590,7 @@ fn test_market_initialization_cascade() {
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(admin, &asset, &reflector_cfg);
 
-    // 3. Confirm the market is now Active (Active = 1).
+    // 3. Confirm the market is Active (Active = 1).
     let m = ctrl.get_market_config(&asset);
     assert_eq!((m.status as u32), 1, "market should be in Active status");
 }

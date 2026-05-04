@@ -2,15 +2,14 @@
 //!
 //! Targets two branches that the broader revenue suite does not exercise:
 //!
-//! - `pool/src/lib.rs:376` — `add_rewards` panics with `NoSuppliersToReward`
-//!   when `cache.supplied == Ray::ZERO`. The default fixture (no supply yet)
-//!   covers the empty-market case; here we hit the same panic after the
-//!   only supplier withdraws their entire position, so `supplied_ray`
-//!   transitions back to zero on a previously active market.
+//! - `add_rewards` panics with `NoSuppliersToReward` when
+//!   `cache.supplied == Ray::ZERO`. This case covers a market whose
+//!   only supplier withdraws the entire position, returning `supplied_ray`
+//!   to zero.
 //!
-//! - `pool/src/lib.rs:594-596` — the else branch of `claim_revenue` runs
-//!   when `cache.revenue > 0` (so the early `return 0` at line 555 is
-//!   skipped) but `current_reserves == 0`, making `amount_to_transfer == 0`.
+//! - The zero-transfer branch of `claim_revenue` runs when
+//!   `cache.revenue > 0` but `current_reserves == 0`, making
+//!   `amount_to_transfer == 0`.
 //!   In that case the pool must still emit `MarketUpdate` and persist
 //!   state, but transfer nothing and burn no scaled revenue.
 
@@ -22,9 +21,9 @@ use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 // 1. add_rewards on a market drained back to zero suppliers
 // ---------------------------------------------------------------------------
 
-/// Re-trigger `NoSuppliersToReward` after a previously-funded market is fully
-/// withdrawn. This exercises the panic path from the "active market reverts
-/// to empty" angle, which is distinct from the never-supplied case in
+/// Re-triggers `NoSuppliersToReward` after a funded market is fully
+/// withdrawn. This exercises the zero-supply panic path after market activity,
+/// distinct from the never-supplied case in
 /// `rewards_rigorous_tests::test_add_rewards_rejects_when_no_supply`.
 #[test]
 #[should_panic(expected = "Error(Contract, #37)")]
@@ -37,7 +36,7 @@ fn test_add_rewards_rejects_after_full_withdrawal() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
 
-    // Pool is now empty again. add_rewards must reject rather than silently
+    // The pool is empty again. add_rewards must reject rather than silently
     // crediting the reserve pot.
     t.add_rewards("USDC", 500.0);
 }
@@ -66,10 +65,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
 
     // SpotOnly bypasses the TWAP requirement during oracle reads triggered
     // by `claim_revenue` -> `update_market_with_price`.
-    t.set_exchange_source(
-        "USDC",
-        common::types::ExchangeSource::SpotOnly,
-    );
+    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
 
     // Generate USDC revenue: Alice supplies + borrows USDC against her own
     // collateral, then time advances so interest accrues.

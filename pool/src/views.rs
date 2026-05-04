@@ -187,7 +187,7 @@ mod tests {
             assert_eq!(load_params(&t.env).asset_id, t.asset);
             assert_eq!(load_state(&t.env).supplied_ray, 10 * RAY);
             assert_eq!(reserves(&t.env), 12_345);
-            // Views now return asset decimals (7) instead of RAY.
+            // View amounts are returned in asset decimals (7).
             // supplied: 10 scaled * 2.0 index = 20.0 -> 200_000_000 (7 dec).
             assert_eq!(supplied_amount(&t.env), 200_000_000);
             // borrowed: 5 scaled * 3.0 index = 15.0 -> 150_000_000 (7 dec).

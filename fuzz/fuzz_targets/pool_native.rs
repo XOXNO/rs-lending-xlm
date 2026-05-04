@@ -1,16 +1,16 @@
 //! Native-Rust fuzz target for `pool::LiquidityPool`.
 //!
 //! Registers the pool as a **native** Soroban contract (via `env.register`)
-//! rather than loading its WASM bytecode. This is the ONLY way to get native
-//! coverage instrumentation (`-Cinstrument-coverage`) to see the pool code —
+//! rather than loading its WASM bytecode. Native registration exposes pool
+//! code to coverage instrumentation (`-Cinstrument-coverage`);
 //! `flow_e2e` / `flow_strategy` load compiled WASM and execute it in
 //! Soroban's VM, which bypasses native profile counters entirely.
 //!
 //! Scope: functions reachable *without* token transfers. `supply` / `borrow`
 //! / `withdraw` / `repay` all invoke `token::Client::transfer` against
 //! `params.asset_id`; wiring a Stellar Asset Contract here would add a lot of
-//! setup code for little marginal coverage value. That layer is already
-//! exercised via the WASM path in `flow_e2e`. Instead, we focus on:
+//! setup code for little marginal coverage value. That layer is exercised via
+//! the WASM path in `flow_e2e`. This target focuses on:
 //!
 //!   - `__constructor` (initial state)
 //!   - `update_indexes(price_wad)` (interest accrual pipeline —
@@ -78,8 +78,8 @@ fuzz_target!(|i: In| {
     // Register a real Stellar Asset Contract so view functions like
     // `reserves()` (which calls `asset_token.balance(pool)`) succeed
     // instead of panicking with `Storage, MissingValue`. No tokens are
-    // actually minted — the SAC returns balance 0 for the pool, which is
-    // fine for the pre-activity invariants we assert.
+    // actually minted; the SAC returns balance 0 for the pool, which satisfies
+    // the pre-activity invariants asserted by this target.
     let asset = env
         .register_stellar_asset_contract_v2(admin.clone())
         .address()

@@ -399,8 +399,7 @@ fn compound_interest_monotonic_in_rate(e: Env) {
 /// `rate` is per-millisecond in RAY; `t` is plain milliseconds. The product
 /// `rate * t` is the cumulative `x` in RAY. We bound `rate <= 1 RAY/year` so
 /// the product stays inside i128 (`<= RAY = 10^27`, well below i128 max
-/// 1.7e38) -- this lets us drop the I256/`to_i128().unwrap()` path the
-/// previous version relied on.
+/// 1.7e38).
 #[rule]
 fn compound_interest_ge_simple(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
@@ -486,8 +485,8 @@ fn supplier_rewards_conservation(e: Env) {
 // Rule 13: Borrow index update is monotonically increasing
 // ===========================================================================
 
-/// After applying a compound interest factor (which is >= RAY by Rule 11),
-/// the new borrow index must be >= the old borrow index.
+/// After applying a compound interest factor that is at least RAY, the updated
+/// borrow index must not decrease.
 #[rule]
 fn update_borrow_index_monotonic(e: Env) {
     let old_index: i128 = cvlr::nondet::nondet();
@@ -495,8 +494,8 @@ fn update_borrow_index_monotonic(e: Env) {
 
     cvlr_assume!(old_index >= RAY);
     cvlr_assume!(interest_factor >= RAY); // compound interest is always >= 1.0
-    // Bound both operands so old_index * interest_factor stays well inside
-    // i128 inside `Ray::mul` -- prunes the to_i128 panic-branch exploration.
+                                          // Bound both operands so old_index * interest_factor stays well inside
+                                          // i128 inside `Ray::mul` -- prunes the to_i128 panic-branch exploration.
     cvlr_assume!(old_index <= RAY * 8);
     cvlr_assume!(interest_factor <= RAY * 8);
 
@@ -536,15 +535,3 @@ fn update_supply_index_monotonic(e: Env) {
 
     cvlr_assert!(new_index.raw() >= old_index);
 }
-
-// ===========================================================================
-// Sanity rules removed (efficiency E2):
-//
-// `interest_rules_sanity` was a `cvlr_satisfy!` companion that asserted a
-// borrow rate > 0 is reachable. Every assertion rule above already exercises
-// `calculate_borrow_rate` over the same parameter polytope and a positive
-// rate is implied by `borrow_rate_monotonic` (non-empty domain) and
-// `borrow_rate_zero_utilization` (rate at zero == base/MS_PER_YEAR > 0
-// whenever base > 0). The companion adds no reachability information not
-// already covered by the assertion rules.
-

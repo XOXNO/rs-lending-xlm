@@ -40,7 +40,7 @@ impl Rng {
 // 1. Chaos: 15 users, random valid operations over 8 weeks, invariant check
 // ---------------------------------------------------------------------------
 
-/// Deterministic chaos regression: 15 users, fixed-seed (42) LCG-driven
+/// Deterministic chaos scenario: 15 users, fixed-seed (42) LCG-driven
 /// scenario over 8 weeks with one ETH price oscillation. Assertions:
 ///  (1) every borrowing account stays HF >= 1 OR has no debt (no-debt HF
 ///      surfaces as `i128::MAX / WAD` per
@@ -65,7 +65,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
 
     let mut rng = Rng::new(42);
 
-    // Phase 1: every user supplies a random asset and amount.
+    // Step 1: every user supplies a random asset and amount.
     for user in &users {
         let asset = *rng.pick(&supply_assets);
         let amount = match asset {
@@ -77,7 +77,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         t.supply(user, asset, amount);
     }
 
-    // Phase 2: half the users borrow conservative amounts.
+    // Step 2: half the users borrow conservative amounts.
     let mut borrow_successes = 0u32;
     let mut borrow_failures = 0u32;
     for user in &users[0..8] {
@@ -99,7 +99,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
     // Advance one week and sync.
     t.advance_and_sync(days(7));
 
-    // Phase 3: partial repays and more borrows.
+    // Step 3: partial repays and more borrows.
     for user in users.iter().take(5) {
         let user = *user;
         let asset = *rng.pick(&borrow_assets);
@@ -111,11 +111,11 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
     // Advance another week.
     t.advance_and_sync(days(7));
 
-    // Phase 4: price movement -- ETH drops 10%.
+    // Step 4: price movement -- ETH drops 10%.
     t.set_price("ETH", usd(1800));
     t.advance_and_sync(days(7));
 
-    // Phase 5: more activity.
+    // Step 5: more activity.
     for user in &users[8..12] {
         let user = *user;
         let asset = *rng.pick(&borrow_assets);
@@ -142,7 +142,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
     // Operation success tracking.
     // -----------------------------------------------------------------------
 
-    // Phase 1 uses safe amounts, so all 15 supplies must succeed. Some
+    // Initial supplies use safe amounts, so all 15 supplies must succeed. Some
     // borrows and repays must also succeed.
     assert!(
         borrow_successes >= 3,
@@ -240,7 +240,7 @@ fn test_chaos_bank_run_full_exit() {
     t.repay(BOB, "ETH", 100.0);
     t.repay(CAROL, "USDC", 100_000.0);
 
-    // Every borrower must now hold ~0 debt.
+    // Every borrower must hold approximately zero debt after full repayment.
     assert!(
         t.borrow_balance(ALICE, "ETH") < 0.001,
         "Alice debt should be ~0 after full repay"
@@ -497,13 +497,13 @@ fn test_chaos_keeper_revenue_lifecycle() {
         .with_market(eth_preset())
         .build();
 
-    // Phase 1: users supply and borrow.
+    // Step 1: users supply and borrow.
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 50.0);
     t.borrow(ALICE, "ETH", 10.0);
     t.borrow(BOB, "USDC", 30_000.0);
 
-    // Phase 2: the keeper updates indexes manually, not via advance_and_sync.
+    // Step 2: the keeper updates indexes manually, not via advance_and_sync.
     t.advance_time(days(7));
     t.update_indexes_for(&["USDC", "ETH"]);
 
@@ -530,11 +530,11 @@ fn test_chaos_keeper_revenue_lifecycle() {
         "ETH borrow index should increase"
     );
 
-    // Phase 3: more time passes; the keeper syncs again.
+    // Step 3: more time passes; the keeper syncs again.
     t.advance_time(days(30));
     t.update_indexes_for(&["USDC", "ETH"]);
 
-    // Phase 4: confirm interest produced revenue.
+    // Step 4: confirm interest produced revenue.
     let usdc_rev = t.snapshot_revenue("USDC");
     let eth_rev = t.snapshot_revenue("ETH");
     assert!(
@@ -567,7 +567,7 @@ fn test_chaos_keeper_revenue_lifecycle() {
         claimed_eth
     );
 
-    // Phase 5: add external rewards.
+    // Step 5: add external rewards.
     t.add_rewards("USDC", 1_000.0);
 
     // Alice's USDC supply balance must rise from rewards.
@@ -578,7 +578,7 @@ fn test_chaos_keeper_revenue_lifecycle() {
         alice_supply
     );
 
-    // Phase 6: continue 60 more days, then exit fully.
+    // Step 6: continue 60 more days, then exit fully.
     t.advance_and_sync(days(60));
 
     // Full repay.

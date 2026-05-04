@@ -185,10 +185,9 @@ fn bonus_bounded(e: Env, hf_wad: i128, base_bonus_bps: i128, max_bonus_bps: i128
 /// Each collateral asset is seized proportionally to its value share:
 /// `seizure_for_asset = total_seizure * (asset_value / total_collateral)`.
 ///
-/// Production's `calculate_seized_collateral` is a private function over
-/// the (unbounded) `account.supply_positions` map, so we cannot invoke it
-/// directly with a synthetic shape. This rule mirrors its per-asset
-/// arithmetic (`asset_value / total_collateral` then `total_seizure *
+/// Production's `calculate_seized_collateral` is a private function over the
+/// unbounded `account.supply_positions` map, so this rule mirrors its
+/// per-asset arithmetic (`asset_value / total_collateral` then `total_seizure *
 /// share`) in two-asset form so that any drift between the rule's math
 /// and the production helper surfaces as a proof failure here.
 #[rule]

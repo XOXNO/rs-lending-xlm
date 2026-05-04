@@ -1,10 +1,8 @@
 /// Index Safety & Monotonicity Rules
 ///
-/// From CLAUDE.md:
-///   - supply_index >= RAY -- violation = total supplier loss
-///   - borrow_index >= RAY -- violation = interest calculation errors
-///   - Indexes must be monotonically increasing
-///     (except bad debt socialization for supply_index)
+/// Rules cover supply-index floors, borrow-index floors, monotonic index
+/// growth, and the controlled supply-index reduction used for bad-debt
+/// socialization.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -118,7 +116,7 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     let factor = common::rates::compound_interest(&e, Ray::from_raw(rate), 0);
     cvlr_assert!(factor == Ray::ONE);
 
-    // Borrow index: old * RAY / RAY = old (identity)
+    // Borrow index identity under a unit compound factor.
     let new_borrow =
         common::rates::update_borrow_index(&e, Ray::from_raw(old_borrow_index), factor);
     cvlr_assert!(new_borrow.raw() == old_borrow_index);

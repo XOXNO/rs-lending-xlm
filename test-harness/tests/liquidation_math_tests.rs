@@ -284,7 +284,7 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Bad debt: verify supply index decrease = EXACTLY bad_debt / total_supply
+// 6. Bad debt: verify supply index decrease equals bad_debt / total_supply
 // ---------------------------------------------------------------------------
 
 #[test]

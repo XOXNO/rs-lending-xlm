@@ -108,7 +108,7 @@ proptest! {
 
 // ---------------------------------------------------------------------------
 // Property 2: `multiply` with realistic leverage (<= 3x) runs within the
-// default budget or fails cleanly. Catches cost-model regressions on the
+// default budget or fails cleanly. Catches cost-model violations on the
 // flash-loan + strategy path.
 // ---------------------------------------------------------------------------
 

@@ -14,7 +14,12 @@ use test_harness::{
 // the mock swap router.
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+fn build_swap_steps(
+    t: &LendingTest,
+    _token_in: &str,
+    _token_out: &str,
+    min_out: i128,
+) -> AggregatorSwap {
     // Placeholder fixture for compile-clean tests. The new aggregator ABI
     // requires per-path SwapHop entries; tests that actually exercise the
     // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
@@ -40,7 +45,7 @@ fn dai_preset() -> MarketPreset {
 /// Flatten the nested result returned by the raw `ctrl_client().try_*` calls
 /// into `Result<T, soroban_sdk::Error>` so it can feed `assert_contract_error`.
 /// A host-level InvokeError (pre-contract host check) is escalated via
-/// `.expect()` so regressions that never reach the contract surface loudly.
+/// `.expect()` so host-level failures surface clearly.
 fn flatten<T>(
     r: Result<Result<T, soroban_sdk::Error>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
 ) -> Result<T, soroban_sdk::Error> {
@@ -198,12 +203,6 @@ fn test_multiply_borrow_cap_would_exceed() {
     );
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
 }
-
-// NOTE: `test_multiply_supply_cap_would_exceed` used to live here. It did not
-// fund the mock router, so the mock's own `transfer` failed before the cap
-// check fired. The strict, deterministic replacement is
-// `test_multiply_rejects_supply_cap_after_deposit` (below), which funds the
-// router and asserts SUPPLY_CAP_REACHED.
 
 // ---------------------------------------------------------------------------
 // test_multiply_preserves_existing_collateral_balance
@@ -423,13 +422,7 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
 
     t.fund_router("USDC", 3000.0);
     // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(10_000_000),
-        3000_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -502,13 +495,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
 
     t.fund_router("USDC", 3000.0);
     // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(10_000_000),
-        3000_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
 
     let caller = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
@@ -586,13 +573,7 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
 
     t.fund_router("USDC", 100.0);
     // 0.05 ETH (raw 500_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(500_000),
-        100_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(500_000), 100_0000000);
 
     let result = t.try_multiply(
         ALICE,
@@ -629,13 +610,7 @@ fn test_swap_debt_refund_only_uses_strategy_excess() {
 
     t.fund_router("ETH", 1.0);
     // swap_debt borrows 0.005 WBTC (7 decimals = raw 50_000) minus 9bps fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "WBTC",
-        "ETH",
-        apply_flash_fee(50_000),
-        1_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(50_000), 1_0000000);
 
     let alice_eth_before = t.token_balance(ALICE, "ETH");
     t.swap_debt(ALICE, "ETH", 0.005, "WBTC", &steps);
@@ -689,13 +664,7 @@ fn test_swap_debt_health_factor_guard_after_swap() {
 
     t.fund_router("ETH", 5.0);
     // swap_debt borrows 1.0 WBTC (7 decimals = raw 10_000_000) minus 9bps fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "WBTC",
-        "ETH",
-        apply_flash_fee(10_000_000),
-        5_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 5_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
@@ -852,7 +821,7 @@ fn test_swap_debt_existing_siloed_borrow_blocks_new() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    // `swap_debt` holds the old and new debt positions at the same time. If
+    // `swap_debt` holds source and target debt positions at the same time. If
     // either side is siloed, the "single borrow only" invariant is violated
     // and the swap must fail.
     t.fund_router("ETH", 1.0);
@@ -1050,11 +1019,6 @@ fn test_swap_collateral_to_isolated_asset() {
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
 
-// NOTE: `test_swap_collateral_supply_cap` used to live here. It did not fund
-// the mock router, so the output-side `transfer` could fail before the cap
-// check. Strict replacement:
-// `test_swap_collateral_rejects_supply_cap_after_deposit`.
-
 // ---------------------------------------------------------------------------
 // test_swap_collateral_rejects_supply_cap_after_deposit
 // Fund the router so the flow reaches the post-deposit cap check.
@@ -1222,8 +1186,7 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
         "close_position should remove the fully closed account"
     );
     // Close-position semantics: residual collateral must be returned to the
-    // caller's wallet, not swept inside the controller. A regression that
-    // dropped the refund would leave usdc_after < usdc_before.
+    // caller's wallet, not swept inside the controller.
     let alice_usdc_after = t.token_balance(ALICE, "USDC");
     assert!(
         alice_usdc_after >= alice_usdc_before,
@@ -1337,7 +1300,7 @@ fn test_swap_collateral_no_borrows_skip_hf() {
     // Swap collateral: the HF check is skipped (no borrows). With the
     // working mock router, this succeeds.
     t.fund_router("ETH", 5.0); // Pre-fund the router with output tokens.
-    // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
+                               // swap_collateral withdraws 1_000 USDC (raw 10_000_000_000); no flash fee.
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert!(
@@ -1397,11 +1360,8 @@ fn test_strategy_empty_swap_steps_multiply() {
         common::types::PositionMode::Multiply,
         &empty_steps,
     );
-    // M-10: the controller rejects `amount_out_min <= 0` at the multiply
-    // entry point with AmountMustBePositive. Before the M-10 fix, this test
-    // relied on a deeper chain: empty distribution -> zero swap output ->
-    // AmountMustBePositive at the deposit path. The outcome is unchanged;
-    // the check now fails fast.
+    // The controller rejects `amount_out_min <= 0` at the multiply entrypoint
+    // with AmountMustBePositive.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 

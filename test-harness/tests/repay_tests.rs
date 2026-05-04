@@ -242,7 +242,7 @@ fn test_repay_rejects_zero_amount() {
 
     let result = t.try_repay(ALICE, "ETH", 0.0);
     // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14), not just any
-    // failure, so regressions in the validator chain surface loudly.
+    // failure in the validator chain.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 

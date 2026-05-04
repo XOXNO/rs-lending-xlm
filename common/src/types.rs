@@ -462,7 +462,7 @@ pub struct LiquidationResult {
 // ---------------------------------------------------------------------------
 // Aggregator Swap types
 //
-// These mirror EXACTLY the public ABI of `stellar-router-contract`
+// These mirror the public ABI of `stellar-router-contract`
 // (XOXNO's deployed Stellar aggregator). The off-chain quote builder
 // produces an `AggregatorSwap` value that the controller forwards to the
 // router via `batch_execute`. The router's own `BatchSwap` struct

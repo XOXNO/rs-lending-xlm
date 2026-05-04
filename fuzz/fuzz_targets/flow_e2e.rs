@@ -1,11 +1,9 @@
 #![no_main]
 //! Central contract-level libFuzzer target for the lending protocol.
 //!
-//! Replaces the retired `flow_multi_op`, `flow_supply_borrow_liquidate`,
-//! `flow_flash_loan`, and `flow_oracle_tolerance` targets. One op-sequence
-//! fuzzer drives every user-facing entrypoint (supply/borrow/withdraw/repay/
-//! liquidate/flash-loan) plus the keeper paths (advance+sync, clean bad debt)
-//! and the revenue path (claim) across three markets and two borrowers.
+//! Drives user-facing entrypoints (supply, borrow, withdraw, repay, liquidate,
+//! flash loan), keeper paths (advance and sync, clean bad debt), and revenue
+//! claiming across three markets and two borrowers.
 //!
 //! ### Invariants (per op, aligned with INVARIANTS.md)
 //!
@@ -16,9 +14,8 @@
 //! - **§13 Reserve availability**: `pool_reserves(asset) ≥ 0` for every asset
 //!   after every op, success or failure.
 //! - **Cache atomicity**: when a `try_*` call returns `Err`, pool reserves and
-//!   *both* users' raw supply/borrow balances must be unchanged (±1 ulp drift
-//!   from index-rescale rounding). This subsumes the retired
-//!   `flow_cache_atomicity` proptest's core guarantee.
+//!   *both* users' raw supply/borrow balances must be unchanged (+/-1 ulp drift
+//!   from index-rescale rounding).
 //! - **Flash-loan atomicity**: a `FlashLoan` with a receiver that fails to
 //!   repay must return `Err`; a good receiver may succeed or fail (budget /
 //!   auth may reject) but must never silently mutate state.
@@ -26,10 +23,9 @@
 //! ### Why no `catch_unwind`
 //!
 //! libfuzzer-sys's panic hook calls `std::process::abort()` before the
-//! unwind reaches any user-level `catch_unwind` — see the Phase 2 note in
-//! `rates_and_index.rs`. All contract calls go through `try_*` variants so
-//! contract errors surface as `Result::Err`; only *host* panics (bugs)
-//! abort, which is exactly what we want libFuzzer to flag as a crash.
+//! unwind reaches `catch_unwind`. All contract calls go through `try_*`
+//! variants so contract errors surface as `Result::Err`; only host panics
+//! abort and are reported by libFuzzer as crashes.
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use stellar_fuzz::{
@@ -47,12 +43,12 @@ enum Op {
     Supply { user: u8, asset: u8, amount: u32 },
     /// Borrow from one of the two fuzz users.
     Borrow { user: u8, asset: u8, amount: u32 },
-    /// Withdraw; amount is an upper bound — protocol rejects over-withdraw.
+    /// Withdraw; amount is an upper bound because the protocol rejects over-withdrawal.
     Withdraw { user: u8, asset: u8, amount: u32 },
     /// Repay own debt.
     Repay { user: u8, asset: u8, amount: u32 },
-    /// Liquidator tries to seize debtor's collateral via a debt-asset payment.
-    /// `frac` = 0..=255 → 0..1.0 of the debtor's outstanding debt.
+    /// Liquidator attempts to seize debtor collateral via a debt-asset payment.
+    /// `frac` maps 0..=255 to 0..1.0 of the debtor's outstanding debt.
     Liquidate { debtor: u8, asset: u8, frac: u8 },
     /// Flash loan through the test harness's good/bad receiver.
     FlashLoan {
@@ -62,7 +58,7 @@ enum Op {
         bad: bool,
     },
     /// Push a spot/TWAP deviation onto an asset's mock oracle. `bps` is
-    /// clamped to ±5000 bps (±50%); beyond that the protocol's tolerance
+    /// clamped to +/-5000 bps (+/-50%); beyond that the protocol's tolerance
     /// bands will reject subsequent ops, which is the interesting behaviour.
     OracleJitter {
         asset: u8,
@@ -90,9 +86,8 @@ fn pick_user(idx: u8) -> &'static str {
     USERS[(idx as usize) % USERS.len()]
 }
 
-/// Bootstrap a non-trivial starting state so the first few ops can reach
-/// interesting branches. Without seeding, ~90% of `Borrow` ops would fail
-/// with "no collateral" and libFuzzer would explore only `Supply` combinations.
+/// Bootstraps a non-trivial starting state so early operations can reach
+/// collateralized borrow, liquidation, and flash-loan paths.
 fn bootstrap(t: &mut stellar_fuzz::LendingTest) {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "ETH", 10.0);
@@ -156,7 +151,7 @@ fuzz_target!(|inp: Input| {
 /// `(user_name, min_hf_floor)` pairs whose HF the caller should verify.
 ///
 /// `AdvanceAndSync` is modelled as always-OK because time advance cannot fail
-/// at the protocol layer; any error would be a test-harness bug.
+/// at the protocol layer; any error indicates a harness failure.
 fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static str, f64)>) {
     match *op {
         Op::Supply {
@@ -222,8 +217,8 @@ fn dispatch(t: &mut stellar_fuzz::LendingTest, op: &Op) -> (bool, Vec<(&'static 
                 return (true, vec![]);
             }
             let ok = t.try_liquidate(LIQUIDATOR, d, a, amt).is_ok();
-            // HF of debtor can remain < 1 if heavily underwater (see README
-            // "What we do NOT assert"). Only the >0 invariant survives.
+            // A deeply underwater debtor can remain below the health threshold
+            // after liquidation; preserve only the positive-health invariant.
             (ok, vec![(d, 0.0)])
         }
         Op::FlashLoan {

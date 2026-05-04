@@ -25,17 +25,14 @@ pub fn apply_flash_fee(requested_raw: i128) -> i128 {
 /// matches `min_out`. Used by every happy-path test that exercises
 /// `swap_tokens` end-to-end.
 ///
-/// The new ABI is amount-free per path: the router computes the per-path
-/// input from `total_in * split_ppm / 1_000_000`. For single-path
-/// fixtures `split_ppm = 1_000_000`. The legacy `amount_in` parameter is
-/// kept in the signature for call-site compatibility but is no longer
-/// embedded in the path — the harness's strategy methods supply the
-/// authoritative `amount_in` to the controller, which uses it as
-/// `total_in` in the resulting `BatchSwap`.
+/// Router paths are amount-free: the router computes per-path input from
+/// `total_in * split_ppm / 1_000_000`. For single-path fixtures,
+/// `split_ppm = 1_000_000`. The `_amount_in` parameter is retained for
+/// call-site compatibility; harness strategy methods pass the authoritative
+/// amount to the controller as `BatchSwap.total_in`.
 ///
-/// The mock aggregator ignores `pool` and `fee_bps`, so we reuse the
-/// harness's aggregator address as a placeholder pool — keeps the
-/// fixture self-contained without spinning up dummy pool contracts.
+/// The mock aggregator ignores `pool` and `fee_bps`, so the harness
+/// aggregator address is used as a placeholder pool.
 pub fn build_aggregator_swap(
     t: &LendingTest,
     token_in_name: &str,

@@ -152,9 +152,8 @@ fn test_borrow_rejects_zero_amount() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let result = t.try_borrow(ALICE, "ETH", 0.0);
-    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14). A generic
-    // is_err() would hide regressions that fall through to a different
-    // validator.
+    // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14), not a generic
+    // validator failure.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 

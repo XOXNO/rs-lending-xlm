@@ -3,10 +3,8 @@
 //! `multiply`, `swap_debt`, `swap_collateral`, and
 //! `repay_debt_with_collateral`.
 //!
-//! These paths chain a flash loan → router swap → position-mutation sequence
-//! inside a single controller call. Before this target they had no
-//! coverage-guided fuzzing (only a single `fuzz_strategy_flashloan` proptest
-//! exercised a narrow happy-path shape).
+//! These paths chain a flash loan, router swap, and position mutation inside a
+//! single controller call.
 //!
 //! ### Why a separate target from `flow_e2e`
 //!
@@ -23,10 +21,9 @@
 //!   risk-decreasing so only HF > 0 survives.
 //! - **Reserves non-negative**: every asset's pool reserves ≥ 0 after every
 //!   op, success or failure.
-//! - **NEW-01 regression — router allowance zeroed**: after any successful
-//!   strategy op, the controller must have zero outstanding allowance on
-//!   the aggregator for the swapped assets. A non-zero residual allowance
-//!   is the high-severity audit finding this target regresses.
+//! - **Router allowance cleared**: after any successful strategy operation,
+//!   the controller must have zero outstanding allowance on the aggregator for
+//!   the swapped assets.
 //! - **Cache atomicity on failure**: a failed `try_*` call must not mutate
 //!   pool reserves or user raw balances (the same cache-Drop property
 //!   `flow_e2e` enforces for core ops).
@@ -103,13 +100,8 @@ fn pick_mode(bits: u8) -> PositionMode {
 /// Strategy correctness is asserted via HF floor + reserve checks, not via
 /// matching a specific swap rate.
 fn build_steps(t: &LendingTest, _token_in: &str, _token_out: &str) -> AggregatorSwap {
-    // Empty-paths placeholder: the new aggregator ABI requires per-path
-    // SwapHop entries with `amount_in` matching the controller's actual
-    // swap amount. The fuzz target above relies on `mock_all_auths` plus
-    // best-effort `try_*` calls that absorb panics, so an empty batch
-    // simply makes every strategy op fail at validation rather than
-    // exercising the swap path. Targets that need real swaps must build
-    // an inline `AggregatorSwap` per-op with current `amount_in`.
+    // Empty-path placeholder. Strategy operations that need real swap coverage
+    // must build a valid `AggregatorSwap` for the selected operation.
     AggregatorSwap {
         paths: soroban_vec![&t.env],
         total_min_out: 1,
@@ -136,11 +128,8 @@ fn bootstrap(t: &mut LendingTest) {
     t.borrow(ALICE, "XLM", 1_000.0);
 }
 
-/// Assert the NEW-01 regression: no residual router allowance after a
-/// successful strategy op. The mock aggregator's swap path pulls tokens
-/// via `transfer_from(controller)`, so any un-cleared `approve()` would
-/// leak capital risk to the router. Production fix increments a nonce +
-/// zeroes allowance on each call; this target regresses that.
+/// Asserts that no residual router allowance remains after a successful
+/// strategy operation.
 fn assert_router_allowance_zeroed(t: &LendingTest) {
     for a in ASSETS {
         let addr = t.resolve_asset(a);
@@ -148,7 +137,7 @@ fn assert_router_allowance_zeroed(t: &LendingTest) {
         let allowance = tok.allowance(&t.controller, &t.aggregator);
         assert_eq!(
             allowance, 0,
-            "NEW-01: router allowance for {} left at {} after strategy op",
+            "router allowance for {} left at {} after strategy op",
             a, allowance
         );
     }
@@ -175,8 +164,7 @@ fuzz_target!(|inp: Input| {
             for a in ASSETS {
                 assert!(t.pool_reserves(a) >= 0.0, "{} reserves negative", a);
             }
-            // NEW-01 regression: router must not carry stale allowance.
-            // AdvanceAndSync doesn't touch the router — skip the check.
+            // AdvanceAndSync does not touch the router.
             if !matches!(op, Op::AdvanceAndSync { .. }) {
                 assert_router_allowance_zeroed(&t);
             }

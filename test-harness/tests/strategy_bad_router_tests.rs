@@ -1,4 +1,4 @@
-//! Adversarial router regression tests for `strategy::swap_tokens`.
+//! Adversarial router tests for `strategy::swap_tokens`.
 //!
 //! The helper at `controller/src/strategy.rs:433-491` defends against three
 //! misbehaviors by a swap router with access to the controller's allowance:
@@ -127,15 +127,17 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
     // (Pinning a single error code here is brittle because it depends on
     // whether the controller happened to hold enough ETH when the bad
     // router tried to over-pull.)
-    assert!(result.is_err(), "OverPull must be rejected, got {:?}", result);
+    assert!(
+        result.is_err(),
+        "OverPull must be rejected, got {:?}",
+        result
+    );
 }
 
 // ---------------------------------------------------------------------------
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
-// token_out. The controller's `received < amount_out_min` postcheck (added
-// during audit prep) rejects the swap immediately. Previously this case
-// would propagate zero into the deposit path, which would reject with
-// AMOUNT_MUST_BE_POSITIVE -- a weaker, later defense.
+// token_out. The controller's `received < amount_out_min` postcheck rejects
+// the swap immediately.
 // ---------------------------------------------------------------------------
 
 #[test]

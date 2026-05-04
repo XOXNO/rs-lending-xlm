@@ -1,8 +1,7 @@
 //! Helpers shared by contract-level libFuzzer targets.
 //!
-//! Keep this module tiny: a minimal builder, input-decoding helpers, and
-//! invariant assertion helpers. Each fuzz target should focus on its
-//! scenario, not on boilerplate.
+//! Provides minimal context builders, input-decoding helpers, and invariant
+//! assertions for fuzz targets.
 
 pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
@@ -14,9 +13,8 @@ pub fn build_min_context() -> LendingTest {
         .build()
 }
 
-/// Build a three-market (USDC + ETH + XLM) lending context. Used by
-/// `flow_e2e` so op sequences can cross-pollinate across assets (USD stable,
-/// volatile, native) without per-asset market setup noise in each target.
+/// Builds a three-market (USDC + ETH + XLM) lending context for multi-asset
+/// operation sequences.
 pub fn build_wide_context() -> LendingTest {
     LendingTest::new()
         .with_market(usdc_preset())
@@ -69,10 +67,8 @@ pub fn assert_global_invariants(t: &LendingTest, user: &str, assets: &[&str], mi
     }
 }
 
-/// Snapshot of fuzz-relevant pool + user state, for pre/post comparison
-/// around fallible operations. Use with `assert_state_preserved_on_failure`
-/// to detect silent state drift when a `try_*` call reverts (the property
-/// the retired `flow_cache_atomicity` target used to assert).
+/// Snapshot of fuzz-relevant pool and account state used for pre/post
+/// comparisons around fallible operations.
 #[derive(Clone, Debug)]
 pub struct StateSnapshot {
     pub reserves: Vec<f64>,
@@ -95,9 +91,10 @@ pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
 }
 
 /// Assert that a failed (`Err`) operation did not mutate reserves or the
-/// user's raw supply/borrow balances. Tolerance is chosen to absorb the
-/// ~1-ulp drift that index-rescale rounding can introduce when the cache
-/// Drop fires with no actual write; anything larger is a bug.
+/// user's raw supply/borrow balances. Tolerance absorbs the approximate
+/// one-ulp drift that index-rescale rounding can introduce when the cache
+/// `Drop` path runs without an actual write; larger drift indicates an
+/// unexpected state mutation.
 pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSnapshot) {
     assert_eq!(before.reserves.len(), after.reserves.len());
     for (i, (b, a)) in before.reserves.iter().zip(&after.reserves).enumerate() {

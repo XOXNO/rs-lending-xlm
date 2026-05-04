@@ -1,13 +1,8 @@
 /// Isolation Mode & E-Mode Invariant Rules
 ///
-/// From CLAUDE.md:
-///   - LTV < liquidation_threshold always
-///   - liquidation_bonus <= 15% (MAX_LIQUIDATION_BONUS = 1500 BPS)
-///   - reserve_factor < 100%
-///   - optimal_utilization > mid_utilization and < 1.0
-///   - Single isolated collateral per account (no mixing)
-///   - isolated_debt <= debt_ceiling enforced on every borrow
-///   - Isolation and E-Mode are mutually exclusive
+/// Rules cover liquidation-threshold ordering, risk-parameter bounds, single
+/// isolated-collateral enforcement, debt-ceiling accounting, and E-mode
+/// exclusion.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -111,9 +106,8 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
 ///      moved the counter — converts a vacuously-satisfied rule into one
 ///      that requires the success path), AND
 ///   2. remain at or below the asset's `isolation_debt_ceiling_usd_wad`.
-/// The `debt_after > debt_before` assertion is the "borrow_succeeded"
-/// proxy: a regression that no-ops `handle_isolated_debt` would leave the
-/// counter unchanged and fail the rule.
+/// The `debt_after > debt_before` assertion proves that the isolated-debt
+/// counter moved on the successful borrow path.
 #[rule]
 fn isolation_debt_ceiling_respected(
     e: Env,
@@ -124,10 +118,8 @@ fn isolation_debt_ceiling_respected(
 ) {
     cvlr_assume!(amount > 0);
 
-    // Read the raw meta so we can require an actual isolated collateral
-    // (the `accounts::get_account_data` shim defaults `isolated_asset` to
-    // the account owner when None, which would let the rule pass against
-    // an unrelated address).
+    // Read raw metadata to require an actual isolated collateral asset; the
+    // account-data shim substitutes a default when `isolated_asset` is absent.
     let meta = crate::storage::get_account_meta(&e, account_id);
     cvlr_assume!(meta.is_isolated);
     cvlr_assume!(meta.isolated_asset.is_some());
@@ -146,8 +138,7 @@ fn isolation_debt_ceiling_respected(
     let market = crate::storage::get_market_config(&e, &isolated_asset);
     let debt_after = crate::storage::get_isolated_debt(&e, &isolated_asset);
 
-    // (1) Counter actually moved: rules out the regression where
-    // `handle_isolated_debt` is no-op'd while the borrow succeeds.
+    // (1) Counter actually moved while the borrow succeeds.
     cvlr_assert!(debt_after > debt_before);
     // (2) Ceiling never exceeded post-borrow.
     cvlr_assert!(debt_after <= market.asset_config.isolation_debt_ceiling_usd_wad);
@@ -183,12 +174,8 @@ fn isolation_repay_decreases_counter(
 
     // The account must already owe the repaid asset, otherwise repay is a
     // no-op and the counter would not move.
-    let borrow_pos = crate::storage::get_position(
-        &e,
-        account_id,
-        common::types::POSITION_TYPE_BORROW,
-        &asset,
-    );
+    let borrow_pos =
+        crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_BORROW, &asset);
     cvlr_assume!(borrow_pos.is_some());
     cvlr_assume!(borrow_pos.unwrap().scaled_amount_ray > 0);
 

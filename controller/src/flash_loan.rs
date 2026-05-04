@@ -95,8 +95,7 @@ crate::summarized!(
         fee: i128,
         receiver: &Address,
     ) {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).flash_loan_end(
-            &amount, &fee, receiver,
-        )
+        pool_interface::LiquidityPoolClient::new(env, pool_addr)
+            .flash_loan_end(&amount, &fee, receiver)
     }
 );

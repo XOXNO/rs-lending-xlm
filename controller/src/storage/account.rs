@@ -18,11 +18,7 @@ fn side_key(account_id: u64, position_type: u32) -> ControllerKey {
     }
 }
 
-fn read_side_map(
-    env: &Env,
-    account_id: u64,
-    position_type: u32,
-) -> Map<Address, AccountPosition> {
+fn read_side_map(env: &Env, account_id: u64, position_type: u32) -> Map<Address, AccountPosition> {
     let key = side_key(account_id, position_type);
     env.storage()
         .persistent()
@@ -114,7 +110,7 @@ pub fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
-/// Writes meta if it actually changed; always extends meta TTL so the
+/// Writes meta when it differs; always extends meta TTL so the
 /// account stays alive even on no-op upserts.
 pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     let key = account_meta_key(account_id);
@@ -154,20 +150,12 @@ pub fn get_borrow_positions(env: &Env, account_id: u64) -> Map<Address, AccountP
 /// Single flush for the supply side. Removes the side key when the map is
 /// empty; otherwise writes + bumps the side TTL. Use this when a batch
 /// loaded the side map once, mutated in memory, and wants one final write.
-pub fn set_supply_positions(
-    env: &Env,
-    account_id: u64,
-    map: &Map<Address, AccountPosition>,
-) {
+pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_DEPOSIT, map);
 }
 
 /// Symmetric flush for the borrow side.
-pub fn set_borrow_positions(
-    env: &Env,
-    account_id: u64,
-    map: &Map<Address, AccountPosition>,
-) {
+pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_BORROW, map);
 }
 
@@ -190,8 +178,18 @@ pub fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
 pub fn set_account(env: &Env, account_id: u64, account: &Account) {
     let meta = meta_from_account(account);
     set_account_meta(env, account_id, &meta);
-    write_side_map(env, account_id, POSITION_TYPE_DEPOSIT, &account.supply_positions);
-    write_side_map(env, account_id, POSITION_TYPE_BORROW, &account.borrow_positions);
+    write_side_map(
+        env,
+        account_id,
+        POSITION_TYPE_DEPOSIT,
+        &account.supply_positions,
+    );
+    write_side_map(
+        env,
+        account_id,
+        POSITION_TYPE_BORROW,
+        &account.borrow_positions,
+    );
 }
 
 /// Removes meta + both side maps. Idempotent.

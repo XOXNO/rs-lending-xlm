@@ -53,8 +53,8 @@ pub fn process_liquidation(
         validation::require_asset_supported(env, &asset);
     }
 
-    // The trailing `set_account` bumps meta + both side TTLs, so an
-    // explicit `bump_account` keep-alive call here is redundant.
+    // The side-map writes below bump account metadata TTLs, so an explicit
+    // `bump_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
     let mut cache = ControllerCache::new(env, false);
 
@@ -93,8 +93,7 @@ pub fn process_liquidation(
     storage::set_supply_positions(env, account_id, &account.supply_positions);
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
 
-    // Same in-memory snapshot the cleanup needs; avoids a re-read of all 3
-    // account keys we just wrote.
+    // Reuse the post-liquidation account snapshot for bad-debt cleanup.
     check_bad_debt_after_liquidation(env, &mut cache, account_id, &account);
 
     cache.flush_isolated_debts();

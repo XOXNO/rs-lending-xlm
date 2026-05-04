@@ -473,7 +473,6 @@ fn test_pool_address_view() {
 
 #[test]
 fn test_collateral_amount_for_token_happy() {
-    // Targets controller/src/views.rs lines 175-188:
     // `collateral_amount_for_token` happy path with a non-zero supply position.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -484,7 +483,9 @@ fn test_collateral_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let amount = t.ctrl_client().collateral_amount_for_token(&account_id, &usdc);
+    let amount = t
+        .ctrl_client()
+        .collateral_amount_for_token(&account_id, &usdc);
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -502,7 +503,6 @@ fn test_collateral_amount_for_token_happy() {
 
 #[test]
 fn test_borrow_amount_for_token_happy() {
-    // Targets controller/src/views.rs lines 190-203:
     // `borrow_amount_for_token` happy path with an actual debt position.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -532,8 +532,7 @@ fn test_borrow_amount_for_token_happy() {
 
 #[test]
 fn test_liquidation_collateral_available_happy() {
-    // Targets controller/src/views.rs lines 245-256: ensures
-    // `calculate_account_totals` runs and returns a non-zero `weighted_coll`.
+    // `calculate_account_totals` returns a non-zero weighted collateral total.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -546,7 +545,9 @@ fn test_liquidation_collateral_available_happy() {
     t.borrow(ALICE, "ETH", 0.5);
 
     let account_id = t.resolve_account_id(ALICE);
-    let weighted = t.ctrl_client().liquidation_collateral_available(&account_id);
+    let weighted = t
+        .ctrl_client()
+        .liquidation_collateral_available(&account_id);
 
     // weighted_coll is in WAD USD: ~$9,600 * 10^18.
     let expected = 9_600.0;
@@ -565,7 +566,6 @@ fn test_liquidation_collateral_available_happy() {
 
 #[test]
 fn test_ltv_collateral_in_usd_happy() {
-    // Targets controller/src/views.rs line 267:
     // `ltv_collateral_in_usd` returns a non-zero LTV-weighted total.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

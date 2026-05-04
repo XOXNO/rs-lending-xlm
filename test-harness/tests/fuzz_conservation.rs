@@ -25,8 +25,8 @@
 //! 4. Reserves non-negative (strict):
 //!    `pool_reserves(X) >= 0` (no -0.0001 slack).
 //!
-//! The op distribution deliberately tilts toward supply over borrow, to
-//! counter the bias Codex noted in `fuzz_multi_asset_solvency.rs`.
+//! The op distribution deliberately tilts toward supply over borrow so the
+//! harness reaches more successful conservation checks.
 
 use proptest::prelude::*;
 use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB};
@@ -73,9 +73,8 @@ fn asset_strat() -> impl Strategy<Value = &'static str> {
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
-    // Weights favor supply + repay + advance over borrow/withdraw to widen
-    // conservation coverage. Codex noted that fuzz_multi_asset_solvency was
-    // borrow-heavy and produced few successful operations.
+    // Weights favor supply, repay, and advance over borrow/withdraw to widen
+    // conservation coverage and produce more successful operations.
     prop_oneof![
         // 4x supply -- should dominate
         4 => (user_strat(), asset_strat(), 1u32..20_000u32)

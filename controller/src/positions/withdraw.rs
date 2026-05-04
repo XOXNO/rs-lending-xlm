@@ -77,8 +77,8 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {
-        // Withdraw mutates only the supply side. The borrow side stays as
-        // it was on disk (we only read it for HF and never modified it).
+        // Withdraw mutates only supply positions; borrow positions are read
+        // only for health-factor validation.
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 }
@@ -105,7 +105,11 @@ fn process_single_withdrawal(
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
 
-    let withdraw_amount = if amount == 0 { WITHDRAW_ALL_SENTINEL } else { amount };
+    let withdraw_amount = if amount == 0 {
+        WITHDRAW_ALL_SENTINEL
+    } else {
+        amount
+    };
 
     let _ = execute_withdrawal(
         env,

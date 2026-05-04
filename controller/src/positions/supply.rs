@@ -103,11 +103,11 @@ pub fn process_supply(
     acct_id
 }
 
-/// Returns the resolved account id and a ready-to-mutate `Account` snapshot.
-/// On the new-account path the snapshot is the freshly-created account
-/// (skipping the meta + supply-map re-read of what we just wrote). On the
-/// existing-account path we read meta + supply-map and leave borrow empty
-/// because supply never consumes borrow positions.
+/// Returns the resolved account id and a mutable account snapshot.
+///
+/// New accounts are returned from the created snapshot. Existing accounts load
+/// metadata and supply positions only because supply does not consume borrow
+/// positions.
 fn resolve_supply_account(
     env: &Env,
     caller: &Address,
@@ -122,11 +122,8 @@ fn resolve_supply_account(
     } else {
         let meta = storage::get_account_meta(env, account_id);
         let supply_positions = storage::get_supply_positions(env, account_id);
-        let account = storage::account_from_parts(
-            meta,
-            supply_positions,
-            soroban_sdk::Map::new(env),
-        );
+        let account =
+            storage::account_from_parts(meta, supply_positions, soroban_sdk::Map::new(env));
         (account_id, account)
     }
 }
@@ -388,11 +385,8 @@ crate::summarized!(
         amount: i128,
     ) -> common::types::PoolPositionMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).supply(
-            &position,
-            &price_wad,
-            &amount,
-        )
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
+            .supply(&position, &price_wad, &amount)
     }
 );
 
@@ -459,7 +453,7 @@ pub fn update_position_threshold(
         return;
     };
 
-    // Borrow side is only loaded when we actually need it for the HF gate.
+    // Load borrow positions only when the health-factor gate requires them.
     let borrow_positions = if has_risks {
         storage::get_borrow_positions(env, account_id)
     } else {
@@ -644,13 +638,7 @@ mod tests {
             }
         }
 
-        fn account_with_supply(
-            &self,
-            owner: Address,
-            ltv: u32,
-            bonus: u32,
-            fees: u32,
-        ) -> Account {
+        fn account_with_supply(&self, owner: Address, ltv: u32, bonus: u32, fees: u32) -> Account {
             let mut supply_positions = Map::new(&self.env);
             supply_positions.set(
                 self.asset.clone(),

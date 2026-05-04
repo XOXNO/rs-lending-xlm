@@ -108,10 +108,9 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
 ///   additionally short-circuit when `index <= floor` so a near-zero index
 ///   cannot blow up `fee / supply_index`.
 /// - If the proposed reduction would drop the index by more than 90% in a
-///   single call, emits `PoolInsolventEvent` so the controller can
-///   subscribe and disable the market (e.g. via `disable_token_oracle`).
-///   The reduction still applies (clamped to the floor) so existing math
-///   stays consistent.
+///   single call, emits `PoolInsolventEvent` for external monitoring. The
+///   pool does not pause itself; the reduction still applies, clamped to the
+///   floor, so existing math stays consistent.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 
@@ -132,10 +131,10 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let old_index_raw = cache.supply_index.raw();
     let new_index_raw = new_supply_index.raw();
 
-    // Insolvency signal: a drop of >90% in a single bad-debt event.
-    // If new < old/10, the index has collapsed catastrophically.
-    // The controller should subscribe to PoolInsolventEvent and disable the
-    // asset or oracle; the pool itself has no status field to pause writes.
+    // Insolvency signal: a drop of more than 90% in a single bad-debt event.
+    // If the candidate index falls below one tenth of the prior index, emit a
+    // controller-consumable risk event.
+    // The pool itself has no status field to pause writes.
     if new_index_raw < old_index_raw / 10 {
         // bad_debt_ratio_bps = min(bad_debt / total_supplied, 100%) * BPS.
         let ratio_ray = capped.div(&cache.env, total_supplied_value);

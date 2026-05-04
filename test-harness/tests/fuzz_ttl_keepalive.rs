@@ -11,14 +11,14 @@
 //!
 //! If these bumps drift out of sync with actual storage (e.g. an orphan
 //! position left in persistent storage after a full exit), entries expire
-//! and break the protocol at a ledger boundary -- a class of bug no directed
-//! test will find.
+//! and break the protocol at a ledger boundary, a failure mode outside normal
+//! directed coverage.
 //!
 //! Four properties:
 //!   1. `prop_keepalive_accounts_bumps_positions`  -- random account/asset mix.
 //!   2. `prop_keepalive_shared_bumps_markets`      -- random market + e-mode.
 //!   3. `prop_keepalive_pools_forwards`            -- pool instance TTL grows.
-//!   4. `prop_account_orphan_positions_not_stuck`  -- M-14 regression.
+//!   4. `prop_account_orphan_positions_not_stuck`  -- orphan-position lifecycle.
 
 extern crate std;
 
@@ -229,15 +229,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 4: M-14 regression -- after a full withdraw, no orphan
+// Property 4: after a full withdraw, no orphan
 // SupplyPosition entry may remain, and AccountMeta.supply_assets must not
 // contain the asset.
 //
-// M-14 was reported "FIXED" at the pool level; this property verifies the
-// fix also holds at the controller storage layer (where `bump_account`
-// iterates `meta.supply_assets`). If an orphan exists, a future keepalive
-// call silently skips it (the meta list omits it) AND the key remains
-// persisted -- so the entry expires and breaks invariants.
+// The property verifies the controller storage layer where `bump_account`
+// iterates `meta.supply_assets`. If an orphan exists, keepalive can skip the
+// key while it remains persisted, allowing expiry to break invariants.
 // ---------------------------------------------------------------------------
 
 proptest! {

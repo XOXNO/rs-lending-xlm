@@ -4,13 +4,11 @@
 //! mutating paths reach into Cache + interest accrual + I256 scaled-amount
 //! math, which trips the TAC command-count budget. Every domain rule that
 //! traverses a pool call becomes vacuous over havoced returns; the bounds
-//! captured here are the post-conditions production guarantees so downstream
-//! reasoning has something to lean on.
+//! captured here provide the postconditions consumed by downstream reasoning.
 //!
-//! Each summary's `cvlr_assume!` bounds are derived directly from the
-//! production source line ranges noted on the doc comment. Bounds capture
-//! only what production ENFORCES on the return value (post-conditions);
-//! anything stricter would silently hide bugs.
+//! Each summary's `cvlr_assume!` bounds encode the modeled branch or domain.
+//! Rules that need excluded edge branches should call the production function
+//! directly.
 //!
 //! Wiring: each summary is registered against its production fn via
 //! `cvlr_soroban_macros::apply_summary!` at the production site (the
@@ -63,16 +61,14 @@ fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
 // Mutating endpoints
 // ---------------------------------------------------------------------------
 
-/// Summary for `pool::LiquidityPool::supply` (lines 132-162).
+/// Summary for `pool::LiquidityPool::supply`.
 ///
-/// Production guarantees:
-///   * `actual_amount == amount` (line 160) -- pool reports the exact gross
-///     credited; `amount` is already non-negative (line 139).
+/// Modeled postconditions:
+///   * `actual_amount == amount`; pool reports the exact gross credited
+///     amount on the successful path.
 ///   * `position.scaled_amount_ray` is monotone non-decreasing in the input
-///     (lines 144-148: checked-add of `scaled_amount` derived from a
-///     non-negative `amount`).
-///   * `market_index` satisfies the global index invariants after
-///     `interest::global_sync` (line 142).
+///     because the scaled amount is derived from a non-negative input.
+///   * `market_index` satisfies the global index invariants after accrual.
 pub fn supply_summary(
     _env: &Env,
     position: AccountPosition,
@@ -92,15 +88,13 @@ pub fn supply_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::borrow` (lines 164-203).
+/// Summary for `pool::LiquidityPool::borrow`.
 ///
-/// Production guarantees:
-///   * `actual_amount == amount` (line 201). The pool transfers exactly
-///     `amount` to the caller (line 190); the controller already validated
-///     positivity and applied any flash-loan fee elsewhere.
-///   * Reserves were sufficient at call time (lines 177-179: panics with
-///     `InsufficientLiquidity` otherwise).
-///   * `position.scaled_amount_ray` is monotone non-decreasing (lines 181-185).
+/// Modeled postconditions:
+///   * `actual_amount == amount`. The pool transfers exactly `amount` to the
+///     caller on the successful path.
+///   * Reserves were sufficient at call time.
+///   * `position.scaled_amount_ray` is monotone non-decreasing.
 ///   * `market_index` satisfies the global index invariants.
 pub fn borrow_summary(
     _env: &Env,
@@ -122,15 +116,15 @@ pub fn borrow_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::withdraw` (lines 205-285).
+/// Summary for `pool::LiquidityPool::withdraw`.
 ///
-/// Production guarantees:
+/// Modeled postconditions:
 ///   * `actual_amount` is the gross withdrawn before any liquidation fee
-///     (line 283: returned as `gross_amount`). It is bounded above by the
-///     position's current_supply_actual (lines 226-243: full-withdraw branch
-///     caps at `current_supply_actual`; partial branch returns `amount`).
-///   * `actual_amount >= 0` (input is checked non-negative at line 217).
-///   * `position.scaled_amount_ray` is monotone non-increasing (lines 261-266).
+///     and is modeled within the requested `amount` domain. The production
+///     dust-lock branch can promote a near-full partial request into a full
+///     withdrawal; rules that need that branch should call production directly.
+///   * `actual_amount >= 0`.
+///   * `position.scaled_amount_ray` is monotone non-increasing.
 ///   * `market_index` satisfies the global index invariants.
 pub fn withdraw_summary(
     _env: &Env,
@@ -159,16 +153,16 @@ pub fn withdraw_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::repay` (lines 287-350).
+/// Summary for `pool::LiquidityPool::repay`.
 ///
-/// Production guarantees:
-///   * `actual_amount = amount.min(current_debt)` (line 338). With
-///     `amount >= 0` (line 295) and `current_debt >= 0`, this gives
+/// Modeled postconditions:
+///   * `actual_amount = amount.min(current_debt)`. With `amount >= 0` and
+///     `current_debt >= 0`, this gives
 ///     `0 <= actual_amount <= amount`.
 ///   * Overpayment beyond `current_debt` is refunded to the caller
-///     (lines 333-336); the position cannot go negative because the
-///     scaled-balance subtraction is checked (lines 319-322).
-///   * `position.scaled_amount_ray` is monotone non-increasing (line 322).
+///     and the position cannot go negative because the scaled-balance
+///     subtraction is checked.
+///   * `position.scaled_amount_ray` is monotone non-increasing.
 ///   * `market_index` satisfies the global index invariants.
 pub fn repay_summary(
     _env: &Env,
@@ -195,41 +189,29 @@ pub fn repay_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::update_indexes` (lines 352-365).
+/// Summary for `pool::LiquidityPool::update_indexes`.
 ///
-/// Production guarantees: a fresh sync of `(supply_index_ray, borrow_index_ray)`
+/// Modeled postcondition: a fresh sync of `(supply_index_ray, borrow_index_ray)`
 /// satisfying the global index invariants. No position mutation, no token
 /// transfer.
-pub fn update_indexes_summary(
-    _env: &Env,
-    _pool_addr: &Address,
-    _price_wad: i128,
-) -> MarketIndex {
+pub fn update_indexes_summary(_env: &Env, _pool_addr: &Address, _price_wad: i128) -> MarketIndex {
     nondet_market_index()
 }
 
-/// Summary for `pool::LiquidityPool::add_rewards` (lines 367-387).
+/// Summary for `pool::LiquidityPool::add_rewards`.
 ///
-/// Production guarantees:
-///   * `amount >= 0` is enforced at line 369.
-///   * `cache.supplied != Ray::ZERO` is enforced at lines 375-377; calling
-///     into an empty pool panics with `NoSuppliersToReward`. The summary is
-///     pure side-effect (no return) so this precondition is preserved by
-///     the prover via the production reachability check, not the summary
-///     itself.
-pub fn add_rewards_summary(
-    _env: &Env,
-    _pool_addr: &Address,
-    _price_wad: i128,
-    _amount: i128,
-) {
-}
+/// Modeled postconditions:
+///   * `amount >= 0`.
+///   * Empty-pool reward credits panic with `NoSuppliersToReward`. The summary
+///     is pure side-effect, so this precondition is preserved by production
+///     reachability rather than a return value.
+pub fn add_rewards_summary(_env: &Env, _pool_addr: &Address, _price_wad: i128, _amount: i128) {}
 
-/// Summary for `pool::LiquidityPool::flash_loan_begin` (lines 389-413).
+/// Summary for `pool::LiquidityPool::flash_loan_begin`.
 ///
-/// Production guarantees:
-///   * `amount >= 0` (line 391).
-///   * Reserves were sufficient at begin time (lines 396-398).
+/// Modeled postconditions:
+///   * `amount >= 0`.
+///   * Reserves were sufficient at begin time.
 ///   * Pre-balance snapshot is recorded in instance storage; any subsequent
 ///     `flash_loan_end` will read it back.
 ///
@@ -242,13 +224,13 @@ pub fn flash_loan_begin_summary(
 ) {
 }
 
-/// Summary for `pool::LiquidityPool::flash_loan_end` (lines 415-456).
+/// Summary for `pool::LiquidityPool::flash_loan_end`.
 ///
-/// Production guarantees:
-///   * `amount >= 0` (line 417), `fee >= 0` (lines 422-424).
-///   * The receiver returned at least `amount + fee` (lines 444-449); a
-///     short repayment panics with `InvalidFlashloanRepay`.
-///   * `fee` is added to protocol revenue (line 452).
+/// Modeled postconditions:
+///   * `amount >= 0`, `fee >= 0`.
+///   * The receiver returned at least `amount + fee`; a short repayment panics
+///     with `InvalidFlashloanRepay`.
+///   * `fee` is added to protocol revenue.
 ///
 /// Pure side-effect; no return value.
 pub fn flash_loan_end_summary(
@@ -260,14 +242,14 @@ pub fn flash_loan_end_summary(
 ) {
 }
 
-/// Summary for `pool::LiquidityPool::create_strategy` (lines 458-508).
+/// Summary for `pool::LiquidityPool::create_strategy`.
 ///
-/// Production guarantees:
-///   * `amount >= 0`, `fee >= 0` (lines 467-468).
-///   * `fee <= amount` (lines 473-475: panics with `StrategyFeeExceeds`).
-///   * Reserves cover `amount` (lines 476-478).
-///   * `actual_amount == amount`, `amount_received == amount - fee` (lines
-///     490, 505-506). `amount_received >= 0` follows from `fee <= amount`.
+/// Modeled postconditions:
+///   * `amount >= 0`, `fee >= 0`.
+///   * `fee <= amount`.
+///   * Reserves cover `amount`.
+///   * `actual_amount == amount`, `amount_received == amount - fee`.
+///     `amount_received >= 0` follows from `fee <= amount`.
 ///   * `position.scaled_amount_ray` is monotone non-decreasing (debt added).
 ///   * `market_index` satisfies the global index invariants.
 pub fn create_strategy_summary(
@@ -300,13 +282,13 @@ pub fn create_strategy_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::seize_position` (lines 510-545).
+/// Summary for `pool::LiquidityPool::seize_position`.
 ///
-/// Production guarantees:
-///   * Returned position has `scaled_amount_ray == 0` (lines 530, 535).
+/// Modeled postconditions:
+///   * Returned position has `scaled_amount_ray == 0`.
 ///     The full position is consumed -- borrow branch socializes the debt
-///     into the supply index (line 524) and zeroes the scaled balance;
-///     deposit branch absorbs the residual into pool revenue.
+///     into the supply index and zeroes the scaled balance; deposit branch
+///     absorbs the residual into pool revenue.
 ///   * The supply index may DROP in the borrow branch (bad-debt write-down
 ///     via `apply_bad_debt_to_supply_index`), still floored at
 ///     `SUPPLY_INDEX_FLOOR_RAW`. Unlike every other path, `seize_position`
@@ -322,7 +304,7 @@ pub fn seize_position_summary(
     let mut zeroed = position.clone();
     zeroed.scaled_amount_ray = 0;
     // Production restricts mutation to {Deposit, Borrow}; an unknown variant
-    // panics with `InvalidPositionType` (line 539).
+    // panics with `InvalidPositionType`.
     cvlr_assume!(
         position.position_type == AccountPositionType::Deposit
             || position.position_type == AccountPositionType::Borrow
@@ -330,20 +312,15 @@ pub fn seize_position_summary(
     zeroed
 }
 
-/// Summary for `pool::LiquidityPool::claim_revenue` (lines 547-600).
+/// Summary for `pool::LiquidityPool::claim_revenue`.
 ///
-/// Production guarantees:
+/// Modeled postconditions:
 ///   * Return value is `amount_to_transfer = current_reserves.min(treasury_actual)`
-///     (line 566). Both inputs are non-negative, so `result >= 0`.
-///   * On the zero-revenue early-return branch (lines 552-556) the function
-///     returns 0 unconditionally.
+///     and both inputs are non-negative, so `result >= 0`.
+///   * On the zero-revenue early-return branch the function returns 0.
 ///   * State updates are committed before the external token call so
-///     reentrant claims observe the post-burn state (lines 584-585).
-pub fn claim_revenue_summary(
-    _env: &Env,
-    _pool_addr: &Address,
-    _price_wad: i128,
-) -> i128 {
+///     reentrant claims observe the post-burn state.
+pub fn claim_revenue_summary(_env: &Env, _pool_addr: &Address, _price_wad: i128) -> i128 {
     let amount: i128 = nondet();
     cvlr_assume!(amount >= 0);
     amount
@@ -353,7 +330,7 @@ pub fn claim_revenue_summary(
 // Read-only views
 // ---------------------------------------------------------------------------
 
-/// Summary for `pool::LiquidityPool::get_sync_data` (lines 736-749).
+/// Summary for `pool::LiquidityPool::get_sync_data`.
 ///
 /// Production reads `(MarketParams, PoolState)` from instance storage. The
 /// summary returns a fresh `PoolSyncData` whose `state` satisfies the

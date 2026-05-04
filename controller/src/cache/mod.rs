@@ -1,5 +1,7 @@
 use common::events::{emit_update_debt_ceiling, UpdateDebtCeilingEvent};
-use common::types::{AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PoolSyncData, PriceFeed};
+use common::types::{
+    AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PoolSyncData, PriceFeed,
+};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::storage;
@@ -24,8 +26,8 @@ pub struct ControllerCache {
     pub current_timestamp_ms: u64,
     /// When `true`, the oracle bypasses both the deviation-tolerance gate and
     /// the staleness gate (`oracle::check_staleness`). The clock-skew gate
-    /// (`check_not_future`) stays unconditional. Liquidation flips this off
-    /// before its health-factor pass.
+    /// (`check_not_future`) stays unconditional. Liquidation and
+    /// risk-increasing paths construct the cache with this set to `false`.
     pub allow_unsafe_price: bool,
     pub allow_disabled_market_price: bool,
 }
@@ -92,7 +94,7 @@ impl ControllerCache {
     }
 
     // -------------------------------------------------------------------
-    // Market config (consolidated) -- bumps shared TTL on first load
+    // Market config (consolidated)
     // -------------------------------------------------------------------
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {

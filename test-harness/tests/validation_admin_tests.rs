@@ -13,9 +13,9 @@ use test_harness::{
 // ---------------------------------------------------------------------------
 //
 // `validate_bulk_isolation` panics with #405 when a batch of distinct assets
-// has length > 1 and the FIRST asset is an isolated asset (or the account is
-// isolated). Duplicate-asset batches are deduped before validation, so we
-// must use two distinct asset addresses.
+// has length > 1 and the first asset is isolated, or when the account is
+// isolated. Duplicate-asset batches are deduped before validation, so the
+// scenario uses two distinct asset addresses.
 
 #[test]
 #[should_panic(expected = "Error(Contract, #405)")]
@@ -200,7 +200,8 @@ fn test_configure_market_oracle_rejects_low_staleness() {
     let admin = t.admin();
     let mut cfg = base_oracle_config(&t);
     cfg.max_price_stale_seconds = 30; // Below the 60-second floor.
-    t.ctrl_client().configure_market_oracle(&admin, &asset, &cfg);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
 }
 
 // config.rs:524 -- max_price_stale_seconds > 86_400 rejects #218 (upper bound).
@@ -212,7 +213,8 @@ fn test_configure_market_oracle_rejects_high_staleness() {
     let admin = t.admin();
     let mut cfg = base_oracle_config(&t);
     cfg.max_price_stale_seconds = 86_401; // Above the 24-hour ceiling.
-    t.ctrl_client().configure_market_oracle(&admin, &asset, &cfg);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
 }
 
 // config.rs:453 -- twap_records > 12 rejects InvalidOracleTokenType (#204).
@@ -224,7 +226,8 @@ fn test_configure_market_oracle_rejects_excessive_twap_records() {
     let admin = t.admin();
     let mut cfg = base_oracle_config(&t);
     cfg.twap_records = 13;
-    t.ctrl_client().configure_market_oracle(&admin, &asset, &cfg);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
 }
 
 // config.rs:479 -- DualOracle without dex_oracle rejects InvalidExchangeSrc (#11).
@@ -237,7 +240,8 @@ fn test_configure_market_oracle_rejects_dual_without_dex() {
     let mut cfg = base_oracle_config(&t);
     cfg.exchange_source = common::types::ExchangeSource::DualOracle;
     cfg.dex_oracle = None;
-    t.ctrl_client().configure_market_oracle(&admin, &asset, &cfg);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +282,6 @@ fn test_emode_user_supply_rejects_deprecated_category() {
     let usdc_addr = usdc.asset.clone();
     // 1_000 USDC at 7 decimals.
     usdc.token_admin.mint(&alice, &10_000_000_000_i128);
-    let assets: soroban_sdk::Vec<(Address, i128)> =
-        vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
+    let assets: soroban_sdk::Vec<(Address, i128)> = vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
     t.ctrl_client().supply(&alice, &0u64, &1u32, &assets);
 }

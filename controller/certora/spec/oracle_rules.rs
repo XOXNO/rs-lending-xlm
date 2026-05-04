@@ -18,7 +18,9 @@ use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Symbol};
 
-use common::constants::{MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD};
+use common::constants::{
+    MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
+};
 use common::types::{
     AssetConfig, ExchangeSource, MarketConfig, MarketStatus, OraclePriceFluctuation,
     OracleProviderConfig, OracleType, PriceFeed, ReflectorAssetKind,
@@ -201,8 +203,16 @@ fn first_tolerance_uses_safe_price(
     // between the two input prices, so the post-condition `min <= final <= max`
     // holds across whichever branch the summarised `is_within_anchor` selects.
     let avg = (aggregator_price + safe_price) / 2;
-    let min_price = if aggregator_price < safe_price { aggregator_price } else { safe_price };
-    let max_price = if aggregator_price > safe_price { aggregator_price } else { safe_price };
+    let min_price = if aggregator_price < safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
+    let max_price = if aggregator_price > safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
     cvlr_assert!(final_price == safe_price || final_price == avg);
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
@@ -263,8 +273,16 @@ fn second_tolerance_uses_average(
 
     // Post-condition: when the second-band branch fires, the production code
     // returns the integer midpoint, which lies in [min, max] of inputs.
-    let min_price = if aggregator_price < safe_price { aggregator_price } else { safe_price };
-    let max_price = if aggregator_price > safe_price { aggregator_price } else { safe_price };
+    let min_price = if aggregator_price < safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
+    let max_price = if aggregator_price > safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
@@ -324,8 +342,16 @@ fn beyond_tolerance_permissive_returns_safe(
     // Across all three branches reachable under permissive mode, the return
     // is in {safe, (agg+safe)/2}. The midpoint and the safe price both lie
     // between min and max of the two inputs.
-    let min_price = if aggregator_price < safe_price { aggregator_price } else { safe_price };
-    let max_price = if aggregator_price > safe_price { aggregator_price } else { safe_price };
+    let min_price = if aggregator_price < safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
+    let max_price = if aggregator_price > safe_price {
+        aggregator_price
+    } else {
+        safe_price
+    };
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
@@ -334,14 +360,13 @@ fn beyond_tolerance_permissive_returns_safe(
 // Rule 5: Price cache consistency
 // ---------------------------------------------------------------------------
 
-/// A second `token_price` call for the same asset hits the cache at
-/// oracle/mod.rs:28-30 and returns the previously-stored feed bit-for-bit.
+/// A second `token_price` call for the same asset hits the cache and returns
+/// the stored feed bit-for-bit.
 ///
-/// **Approach:** seed `prices_cache` with a nondet feed (in production-realistic
-/// range) before calling `token_price`. The first cache lookup at line 28
-/// short-circuits, so the call returns the seeded feed. No storage read, no
-/// market-config branching, no Reflector traversal. The rule verifies the
-/// `Map::get` cache-hit invariant in isolation.
+/// The rule seeds `prices_cache` with a nondeterministic feed in the
+/// production-realistic range before calling `token_price`. The cache-hit path
+/// returns the seeded feed without storage reads, market-config branching, or
+/// Reflector traversal.
 #[rule]
 fn price_cache_consistency(e: Env, asset: Address) {
     let mut cache = crate::cache::ControllerCache::new(&e, false);
@@ -354,7 +379,11 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assume!(asset_decimals <= 27);
     let now_secs = cache.current_timestamp_ms / 1000;
     cvlr_assume!(timestamp <= now_secs + 60);
-    let seeded = PriceFeed { price_wad, asset_decimals, timestamp };
+    let seeded = PriceFeed {
+        price_wad,
+        asset_decimals,
+        timestamp,
+    };
     cache.set_price(&asset, &seeded);
 
     let feed = crate::oracle::token_price::token_price(&mut cache, &asset);

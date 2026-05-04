@@ -59,8 +59,14 @@ fn test_liquidation_basic_proportional() {
         debt_paid_usd
     );
     // Borrower post-state: debt and collateral both decreased.
-    assert!(t.borrow_balance(ALICE, "ETH") < 3.0, "Alice ETH debt must decrease");
-    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0, "Alice USDC must be seized");
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 3.0,
+        "Alice ETH debt must decrease"
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") < 10_000.0,
+        "Alice USDC must be seized"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +228,8 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
     assert!(
         fee > 0.0 && fee / liquidator_received < 0.01,
         "fee should be on bonus only (<1% of total seizure): fee={:.4}, recv={:.4}",
-        fee, liquidator_received
+        fee,
+        liquidator_received
     );
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
@@ -275,13 +282,18 @@ fn test_liquidation_sequential_partial_liquidations() {
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     let debt_after_first = t.borrow_balance(ALICE, "ETH");
-    assert!(debt_after_first < debt_before, "1st liquidation must reduce debt");
+    assert!(
+        debt_after_first < debt_before,
+        "1st liquidation must reduce debt"
+    );
 
     // Check whether still liquidatable for a second pass.
     if t.can_be_liquidated(ALICE) {
         t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
-        assert!(t.borrow_balance(ALICE, "ETH") < debt_after_first,
-            "2nd liquidation must reduce debt further");
+        assert!(
+            t.borrow_balance(ALICE, "ETH") < debt_after_first,
+            "2nd liquidation must reduce debt further"
+        );
     }
 
     // The liquidator should have accumulated collateral.
@@ -290,8 +302,10 @@ fn test_liquidation_sequential_partial_liquidations() {
         liq_usdc > 0.0,
         "liquidator should receive collateral from liquidation(s)"
     );
-    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0,
-        "Alice USDC collateral must be seized");
+    assert!(
+        t.supply_balance(ALICE, "USDC") < 10_000.0,
+        "Alice USDC collateral must be seized"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -314,11 +328,14 @@ fn test_liquidation_caps_at_actual_debt() {
     assert!(
         liq_eth_left > 100.0 - debt_before - 0.01,
         "unused mint (~{}) must stay with liquidator; got {}",
-        100.0 - debt_before, liq_eth_left
+        100.0 - debt_before,
+        liq_eth_left
     );
     // Borrower's debt was paid down (proves repayment was capped, not lost).
-    assert!(t.borrow_balance(ALICE, "ETH") < debt_before,
-        "Alice's ETH debt must have decreased");
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < debt_before,
+        "Alice's ETH debt must have decreased"
+    );
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(
@@ -437,8 +454,10 @@ fn test_liquidation_caps_at_max_bonus() {
             ratio,
         );
     }
-    assert!(t.borrow_balance(ALICE, "ETH") < 3.0,
-        "borrower debt must have decreased");
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 3.0,
+        "borrower debt must have decreased"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -475,8 +494,11 @@ fn test_liquidation_bad_debt_cleanup_auto() {
     // Bad-debt path: Alice's account must be cleaned up (no remaining positions).
     t.assert_no_positions(ALICE);
     let accounts = t.get_active_accounts(ALICE);
-    assert_eq!(accounts.len(), 0,
-        "auto-cleanup must remove account when bad debt fires");
+    assert_eq!(
+        accounts.len(),
+        0,
+        "auto-cleanup must remove account when bad debt fires"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -508,9 +530,12 @@ fn test_liquidation_bad_debt_socializes_loss() {
     // Socialization invariant: Bob's ETH supply has shrunk because the
     // residual bad debt was applied via apply_bad_debt_to_supply_index.
     let bob_after = t.supply_balance(test_harness::BOB, "ETH");
-    assert!(bob_after < bob_before,
+    assert!(
+        bob_after < bob_before,
         "bad-debt socialization must reduce other suppliers' balance: {} -> {}",
-        bob_before, bob_after);
+        bob_before,
+        bob_after
+    );
     // Alice's account is removed during cleanup.
     t.assert_no_positions(ALICE);
 }

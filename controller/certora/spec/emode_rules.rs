@@ -4,11 +4,8 @@
 /// deprecated category blocking, parameter overrides, category lifecycle,
 /// and cross-constraint with isolation mode.
 ///
-/// From CLAUDE.md:
-///   - Category chosen at account creation. Only category-registered assets allowed.
-///   - Deprecated categories block new positions.
-///   - E-Mode XOR Isolation (never both).
-///   - E-mode parameters (LTV, threshold, bonus) override base asset config.
+/// Rules cover category selection, member-asset validation, deprecated-category
+/// restrictions, isolation-mode exclusion, and E-mode risk-parameter overrides.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
@@ -248,11 +245,9 @@ fn deprecated_emode_blocks_new_borrow(
 // Rule 6: deprecated_emode_allows_withdraw
 // ---------------------------------------------------------------------------
 
-/// Deprecated categories must still allow withdrawals. The previous
-/// `cvlr_satisfy!(true)` post-condition was satisfied by *any* reachable
-/// state (including reverts), making the rule vacuous. The rewrite asserts
-/// the position actually moved: either the scaled amount strictly
-/// decreased or the position was fully closed.
+/// Deprecated categories must still allow withdrawals. The rule asserts that
+/// the position changes: either the scaled amount decreases or the position is
+/// fully closed.
 #[rule]
 fn deprecated_emode_allows_withdraw(
     e: Env,
@@ -377,15 +372,14 @@ fn emode_category_has_valid_params(e: Env, category_id: u32) {
 /// Removing (deprecating) an e-mode category via `remove_e_mode_category`
 /// sets `is_deprecated = true`, walks the side map to clear each member's
 /// reverse index entry, drops the entire `EModeAssets(category_id)` ledger
-/// entry, and clears `e_mode_enabled` on now-orphaned markets
+/// entry, and clears `e_mode_enabled` on orphaned markets
 /// (`controller/src/config.rs:271-304`). The rule asserts:
 ///   1. category flagged deprecated;
 ///   2. side map empty after the call;
 ///   3. for the sampled pre-existing member, the reverse index
 ///      `AssetEModes(asset)` no longer contains `category_id`;
 ///   4. when the sampled member's reverse index becomes empty, the
-///      `e_mode_enabled` flag is cleared on its market config (the slim-
-///      storage refactor invariant).
+///      `e_mode_enabled` flag is cleared on its market config.
 #[rule]
 fn emode_remove_category(e: Env, category_id: u32) {
     cvlr_assume!(category_id > 0);
@@ -418,8 +412,7 @@ fn emode_remove_category(e: Env, category_id: u32) {
     let category = crate::storage::get_emode_category(&e, category_id);
     cvlr_assert!(category.is_deprecated);
 
-    // (2) Side map is dropped: read returns an empty map (the persistent
-    // entry was removed by `storage::remove_emode_assets`).
+    // (2) Side map is absent: reads return an empty map.
     let members_after = crate::storage::get_emode_assets(&e, category_id);
     cvlr_assert!(members_after.is_empty());
 
@@ -427,10 +420,8 @@ fn emode_remove_category(e: Env, category_id: u32) {
     let cats_after = crate::storage::get_asset_emodes(&e, &sample_asset);
     cvlr_assert!(!cats_after.contains(category_id));
 
-    // (4) When the sampled member's reverse index becomes empty (it had
-    // exactly one category entry — the removed one — before), the market
-    // config's `e_mode_enabled` flag must be cleared. This verifies the
-    // slim-storage refactor invariant from `config.rs:292-299`.
+    // (4) When the sampled member's reverse index becomes empty, the market
+    // config's `e_mode_enabled` flag must be cleared.
     if cats_before_len == 1 && was_e_mode_enabled {
         let market_after = crate::storage::get_market_config(&e, &sample_asset);
         cvlr_assert!(!market_after.asset_config.e_mode_enabled);

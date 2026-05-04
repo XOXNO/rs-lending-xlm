@@ -1,9 +1,7 @@
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::Ray;
-use common::types::{
-    Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation,
-};
+use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
@@ -39,13 +37,20 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     // permissive cache stays acceptable to keep repay reachable during
     // oracle degradation.
     let allow_unsafe = !meta.is_isolated;
-    let mut account =
-        storage::account_from_parts(meta, Map::new(env), borrow_positions);
+    let mut account = storage::account_from_parts(meta, Map::new(env), borrow_positions);
     let mut cache = ControllerCache::new_with_disabled_market_price(env, allow_unsafe);
 
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan {
-        process_single_repay(env, caller, account_id, &mut account, &asset, amount, &mut cache);
+        process_single_repay(
+            env,
+            caller,
+            account_id,
+            &mut account,
+            &asset,
+            amount,
+            &mut cache,
+        );
     }
 
     // Full repay does not delete the account; only owner withdraw/close flows
@@ -109,7 +114,14 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
-    let mut result = pool_repay_call(env, asset, caller.clone(), amount, position.clone(), price_wad);
+    let mut result = pool_repay_call(
+        env,
+        asset,
+        caller.clone(),
+        amount,
+        position.clone(),
+        price_wad,
+    );
 
     let feed = cache.cached_price(asset);
     let outstanding_before = actual_borrow_amount(
@@ -245,12 +257,8 @@ crate::summarized!(
         price_wad: i128,
     ) -> PoolPositionMutation {
         let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).repay(
-            &caller,
-            &amount,
-            &position,
-            &price_wad,
-        )
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
+            .repay(&caller, &amount, &position, &price_wad)
     }
 );
 

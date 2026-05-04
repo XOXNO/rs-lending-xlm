@@ -42,7 +42,10 @@ impl MockAggregator {
 
         let first_hop = batch.paths.get(0).unwrap().hops.get(0).unwrap();
         let last_hop_path = batch.paths.get(batch.paths.len() - 1).unwrap();
-        let last_hop = last_hop_path.hops.get(last_hop_path.hops.len() - 1).unwrap();
+        let last_hop = last_hop_path
+            .hops
+            .get(last_hop_path.hops.len() - 1)
+            .unwrap();
 
         // Pull the entire input once.
         let in_client = soroban_sdk::token::Client::new(&env, &first_hop.token_in);
@@ -54,8 +57,7 @@ impl MockAggregator {
             out_client.transfer(&router, &batch.sender, &batch.total_min_out);
         }
 
-        // Silence dead-code warnings — `path_input` helper kept for
-        // future tests that explicitly model per-path movements.
+        // Keep `path_input` compiled for tests that model per-path movements.
         let _ = path_input(batch.total_in, 1_000_000, true, 0);
 
         batch.total_min_out
@@ -63,8 +65,7 @@ impl MockAggregator {
 }
 
 // ---------------------------------------------------------------------------
-// BadAggregator: an adversarial stand-in used to prove the controller's
-// `swap_tokens` helper defends against misbehaving routers (strategy.rs).
+// Adversarial aggregator for controller-side router validation.
 //
 // Three misbehaviors are supported via a simple mode enum stored in instance
 // storage so tests can flip the behavior between runs:

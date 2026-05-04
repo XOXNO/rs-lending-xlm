@@ -246,8 +246,9 @@ pub fn process_multiply(
 // Swap Debt
 // ---------------------------------------------------------------------------
 
-/// Swaps an existing debt position to a new token: borrows the new token via the pool flash
-/// strategy, swaps through the aggregator, and repays the old debt.
+/// Swaps an existing debt position to a new token: borrows the target token via
+/// the pool flash strategy, swaps through the aggregator, and repays the source
+/// debt.
 pub fn process_swap_debt(
     env: &Env,
     caller: &Address,
@@ -274,8 +275,7 @@ pub fn process_swap_debt(
     validation::require_amount_positive(env, swap.total_min_out);
 
     // Reject swap_debt when either side is siloed: the flow holds both debt
-    // positions simultaneously (new is borrowed before old is repaid),
-    // which violates the siloed-borrow invariant.
+    // positions simultaneously, which violates the siloed-borrow invariant.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);
     let new_debt_config = cache.cached_asset_config(new_debt_token);
     if existing_debt_config.is_siloed_borrowing || new_debt_config.is_siloed_borrowing {
@@ -418,9 +418,9 @@ fn swap_tokens(
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
     // Validate the off-chain-built `AggregatorSwap` against the controller's
-    // own `(token_in, amount_in, token_out)`. A misaligned batch could only
+    // `(token_in, amount_in, token_out)` commitment. A misaligned batch could
     // succeed at the router but deliver tokens of the wrong type back to the
-    // controller, so we fail fast here with a specific error.
+    // controller, so the controller rejects it before routing.
     validate_aggregator_swap(env, swap, token_in, token_out, amount_in);
 
     // Snapshot balances so `verify_router_output` can confirm the exact
@@ -442,31 +442,20 @@ fn swap_tokens(
         total_min_out: swap.total_min_out,
     };
 
-    // Pre-authorize the SAC `transfer` calls the router will make on our
-    // behalf. The router calls `token.transfer(controller, router, amount)`
-    // for each path's first hop; that fires `controller.require_auth_for_args`
-    // inside the SAC, where the *router* is the direct caller — not the
-    // controller — so Soroban's direct-caller attestation does NOT chain
-    // transitively. Without an explicit `InvokerContractAuthEntry` for each
-    // expected transfer, the host trips `Error(Auth, InvalidAction)` the
-    // moment the router tries to pull the input token.
-    //
-    // We authorize ONLY the per-path input pulls (the router's other SAC
-    // calls — pool→router and router→controller transfers — have the router
-    // as the direct caller, so direct attestation covers them).
+    // Pre-authorize the router's input-token pull from the controller. Other
+    // router transfers are initiated by the router itself and are covered by
+    // direct-caller attestation.
     pre_authorize_router_pulls(env, &router_addr, &batch);
 
     call_router_with_reentrancy_guard(env, &router, &batch);
 
-    // Defense-in-depth: confirm the controller spent exactly `amount_in`
-    // of `token_in`. Our router pulls `path.amount_in` per path, and
-    // `validate_aggregator_swap` ensured the path sum equals `amount_in`,
-    // so the post-call delta must match exactly. Any drift signals an
-    // unexpected token movement (compromised router or token contract).
+    // Defense-in-depth: reject any router pull above the controller's
+    // committed input amount. Underspend remains on the controller and the
+    // output-side minimum guards the received amount.
     verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
 
     // The router enforces `total_out >= total_min_out` internally and
-    // would have panicked otherwise. We re-check the controller-side
+    // would have panicked otherwise. Re-check the controller-side
     // balance delta both as a sanity assertion and as the strategy's
     // primary slippage guard — strategy entrypoints already reject
     // `total_min_out <= 0` upfront.
@@ -489,8 +478,8 @@ fn validate_aggregator_swap(
     token_out: &Address,
     amount_in: i128,
 ) {
-    // Empty batch / empty path / wrong tokens are caller mistakes. We
-    // report them as `InvalidPayments`, mirroring the rest of the
+    // Empty batch, empty path, and wrong-token batches are caller mistakes.
+    // Report them as `InvalidPayments`, mirroring the rest of the
     // controller's "malformed input" surface.
     if swap.paths.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
@@ -529,7 +518,7 @@ fn validate_aggregator_swap(
             panic_with_error!(env, GenericError::WrongToken);
         }
     }
-    // PPM weights MUST sum to exactly 1_000_000. Anything else means the
+    // PPM weights must sum to exactly 1_000_000. Anything else means the
     // off-chain quote was malformed; the router would also reject this
     // but failing fast in the controller keeps the panic site close to
     // the user-visible call.
@@ -661,19 +650,16 @@ fn call_router_with_reentrancy_guard(
     storage::set_flash_loan_ongoing(env, false);
 }
 
-/// Authorize the router to pull `total_in` of the input token from the
-/// controller in a SINGLE SAC transfer.
+/// Authorizes the router to pull `total_in` of the input token from the
+/// controller in a single SAC transfer.
 ///
 /// The router pulls the entire `total_in` once at the start of
-/// `batch_execute` and slices it across paths from its own vault — no
-/// per-path SAC calls on the input token. So the auth tree only needs
-/// ONE `InvokerContractAuthEntry::Contract` for the
-/// `transfer(controller, router, total_in)` call. Pool↔router transfers
-/// inside individual hops have the router as the direct caller, so
+/// `batch_execute` and slices it across paths from its own vault. Pool-router
+/// transfers inside individual hops have the router as the direct caller, so
 /// Soroban's direct-caller attestation covers them.
 ///
 /// `authorize_as_current_contract` consumes the entries for a single
-/// downstream invocation, so this MUST be called immediately before
+/// downstream invocation, so this must be called immediately before
 /// `router.batch_execute(...)`.
 fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
     let first_hop = batch.paths.get(0).unwrap().hops.get(0).unwrap();
@@ -695,13 +681,10 @@ fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwa
     env.authorize_as_current_contract(entries);
 }
 
-/// Confirm the controller spent EXACTLY `amount_in` of `token_in`. Our
-/// router pulls each path's `amount_in` directly via
-/// `token.transfer(sender, router, amount)`, and
-/// [`validate_aggregator_swap`] guarantees the path-amount sum equals
-/// `amount_in`, so the post-call delta is deterministic. Any drift (over-
-/// or under-spend, or a token landing back on the controller) is treated
-/// as an internal error.
+/// Rejects router input-token spend above the controller's committed amount.
+///
+/// Underspend is allowed because the output-side minimum remains the slippage
+/// guard and leftover input stays on the controller.
 fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -713,14 +696,10 @@ fn verify_router_input_spend(
         panic_with_error!(env, GenericError::InternalError);
     }
     let actual_in_spent = balance_before - balance_after;
-    // Allow the router to spend less than `amount_in` — `validate_aggregator_swap`
-    // already enforces `sum(path.amount_in) <= amount_in`, so any underspend
-    // here matches the declared swap shape and the leftover stays on the
-    // controller as benign dust. Reject the overspend direction: that path
-    // signals a bad/compromised router that pulled more than authorised
-    // (the SAC's `transfer` would also fail in that case once the
-    // controller balance runs out — this guard catches the attack early
-    // when the controller happened to hold the surplus).
+    // Allow the router to spend less than `amount_in`; leftover input stays on
+    // the controller and output verification still enforces `total_min_out`.
+    // Reject overspend because it signals that the router or token contract
+    // pulled more than the strategy committed to spend.
     if actual_in_spent > amount_in {
         panic_with_error!(env, GenericError::InternalError);
     }
@@ -1123,11 +1102,9 @@ pub fn validate_swap_new_collateral_preflight(
     account: &Account,
     new_collateral: &Address,
 ) {
-    // Apply the e-mode category. Reject deprecated categories explicitly so
-    // a user whose stored `loan_to_value_bps` reflects a now-retired e-mode
-    // cap cannot ride the boosted parameters through the swap-collateral
-    // path. `process_deposit` would also catch this later, but failing here
-    // avoids running pool::withdraw + swap_tokens for a doomed transaction.
+    // Apply the e-mode category. Reject deprecated categories before running
+    // withdrawal and swap side effects for a transaction that cannot deposit
+    // the replacement collateral.
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
     let config = emode::effective_asset_config(env, account, new_collateral, cache, &e_mode);
     if config.is_isolated_asset {

@@ -249,9 +249,8 @@ mod tests {
 
     use super::*;
     use common::types::{
-        AccountPosition, AssetConfig, ExchangeSource, MarketConfig,
-        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionMode,
-        ReflectorAssetKind,
+        AccountPosition, AssetConfig, ExchangeSource, MarketConfig, MarketStatus,
+        OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionMode, ReflectorAssetKind,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Symbol};
@@ -365,7 +364,7 @@ mod tests {
         });
     }
 
-    // Unknown position_type panics with InvalidPositionType; a buggy caller
+    // Unknown position_type panics with InvalidPositionType; an invalid caller
     // cannot bypass the position-limit check.
     #[test]
     #[should_panic(expected = "Error(Contract, #23)")]
@@ -397,10 +396,6 @@ mod tests {
             validate_bulk_position_limits(&t.env, &account, POSITION_TYPE_DEPOSIT, &assets);
         });
     }
-
-    // `flashloan_fee_bps` is `u32`, so the type system forbids a negative
-    // value at the call boundary; the runtime branch that previously
-    // rejected `< 0` no longer has a reachable counter-example.
 
     #[test]
     #[should_panic(expected = "Error(Contract, #409)")]

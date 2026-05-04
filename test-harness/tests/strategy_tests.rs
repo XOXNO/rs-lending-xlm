@@ -10,7 +10,12 @@ use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, Lendi
 // the mock swap router.
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+fn build_swap_steps(
+    t: &LendingTest,
+    _token_in: &str,
+    _token_out: &str,
+    min_out: i128,
+) -> AggregatorSwap {
     // Placeholder fixture for compile-clean tests. The new aggregator ABI
     // requires per-path SwapHop entries; tests that actually exercise the
     // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
@@ -36,9 +41,8 @@ fn test_multiply_rejects_non_borrowable_debt() {
         })
         .build();
 
-    // ETH is not borrowable: multiply must fail with a specific error
-    // (ASSET_NOT_BORROWABLE). A bare is_err() would accept upstream failures
-    // like the pause or flash-loan guards and miss regressions.
+    // ETH is not borrowable: multiply must fail with ASSET_NOT_BORROWABLE,
+    // not an upstream pause or flash-loan guard error.
     let steps = build_swap_steps(&t, "ETH", "USDC", 1_0000000);
     let result = t.try_multiply(
         ALICE,
@@ -128,28 +132,6 @@ fn test_swap_collateral_rejects_isolated() {
     assert_contract_error(result, errors::SWAP_COLLATERAL_NO_ISO);
 }
 
-// NOTE: `test_multiply_happy_path`, `test_swap_debt_happy_path`, and
-// `test_swap_collateral_happy_path` were removed as redundant. They are
-// fully covered (with stronger assertions) by the dedicated happy-path
-// suite in `strategy_happy_tests.rs`:
-//   - `test_multiply_creates_leveraged_position` (supply in [2999..=3001],
-//     borrow in [0.99..=1.01] vs. the old `> 0.0` loose check).
-//   - `test_swap_debt_replaces_borrow` (asserts `initial_eth > 0.9`, vs.
-//     the old variant which asserted only `> 0.0`).
-//   - `test_swap_collateral_replaces_supply` (asserts initial supply in
-//     [99_999..] plus `eth_supply in [9.99..=10.01]`).
-//
-// Removing these strict duplicates cuts CI time without losing coverage:
-// the three happy-path behaviors remain regression-tested through the
-// stricter assertions elsewhere.
-//
-// `test_swap_collateral_rejects_same_token`, `test_multiply_rejects_zero_amount`,
-// and `test_multiply_rejects_invalid_mode` also used to live here with
-// generic `is_err()` asserts. They are fully covered by the strict
-// `assert_contract_error` variants in `strategy_edge_tests.rs`
-// (`test_swap_collateral_same_token_error_code`,
-// `test_multiply_zero_debt_amount`, `test_multiply_rejects_mode_4`).
-
 // ---------------------------------------------------------------------------
 // 5. test_multiply_rejects_isolated_debt_ceiling_breach
 // ---------------------------------------------------------------------------
@@ -203,8 +185,8 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     // Provide the initial payment as collateral to the multiply function.
     // Because the collateral is isolated, multiply must create an isolated
     // account and enforce the $100 ceiling on the USDC debt leg.
-    // amount_out_min = 1 is a trivial positive sentinel (passes the M-10
-    // entry check); this test fails before reaching the swap router.
+    // amount_out_min = 1 is a positive sentinel; this test fails before
+    // reaching the swap router.
     let steps = build_swap_steps(&t, "USDC", "SHITCOIN", 1);
 
     // Call multiply directly using the raw client.
@@ -226,9 +208,8 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     );
 
     // The multiply must surface the isolated debt-ceiling breach with a
-    // specific error code so regressions that substitute a different error
-    // (e.g. the HF guard triggering first) are caught. Convert the nested
-    // Result from `try_multiply` into a single Result<_, Error>.
+    // specific error code. Convert the nested Result from `try_multiply`
+    // into a single Result<_, Error>.
     let flat: Result<u64, soroban_sdk::Error> = match result {
         Ok(Ok(id)) => Ok(id),
         Ok(Err(err)) => Err(err),

@@ -1,8 +1,7 @@
 //! Contract-level property test: admin / role auth matrix.
 //!
-//! Codex audit C-01 flagged `edit_e_mode_category` as missing the
-//! `#[only_owner]` gate. This harness enumerates every privileged controller
-//! endpoint and verifies that calling it **without** the required auth
+//! Enumerates privileged controller endpoints and verifies that calling them
+//! **without** the required auth
 //! (via `ControllerClient::set_auths(&[])` -- no signed auth in the env)
 //! fails at the host layer.
 //!
@@ -14,7 +13,7 @@
 //!     `Result<Result<Ret, ContractErr>, Result<Err, InvokeError>>`.
 //!     An **outer Err** signals host-level rejection (auth failure / panic).
 //!     An **outer Ok** (inner Ok or Err) means the endpoint body ran past
-//!     the auth gate -- a **missing gate**, a C-01-class bug.
+//!     the auth gate, indicating a missing authorization gate.
 //!
 //! Each endpoint runs against 64 random inputs (role string / asset / amount),
 //! paired with a random caller address that holds no role and does not own
@@ -187,11 +186,11 @@ proptest! {
         }).unwrap();
         let _ = (max_supply, max_borrow);
 
-        // E-mode category management (all only_owner -- C-01 regression gate)
+        // E-mode category management: all endpoints require owner auth.
         expect_rejected("add_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_add_e_mode_category(&ltv, &threshold, &bonus)
         }).unwrap();
-        // C-01 REGRESSION: edit_e_mode_category MUST be only_owner.
+        // edit_e_mode_category must be owner-gated.
         expect_rejected("edit_e_mode_category (C-01)", || {
             ctrl.set_auths(&no_auths)
                 .try_edit_e_mode_category(&category_id, &ltv, &threshold, &bonus)

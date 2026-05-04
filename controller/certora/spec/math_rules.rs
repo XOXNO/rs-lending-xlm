@@ -1,14 +1,8 @@
 /// Math Precision Formal Verification Rules
 ///
-/// Certora Sunbeam rules for the half-up rounding arithmetic system.
-///
-/// From CLAUDE.md:
-///   - All arithmetic uses half-up rounding (rounds 0.5 away from zero)
-///   - mul_half_up(a, b, precision) = (a * b + precision/2) / precision
-///   - div_half_up(a, b, precision) = (a * precision + b/2) / b
-///   - rescale upscaling is lossless; downscaling uses half-up rounding
-///   - Signed variants round away from zero for negative results
-///   - I256 intermediates prevent overflow for RAY*RAY products
+/// Rules cover half-up rounding, lossless upscaling, bounded downscaling,
+/// signed rounding away from zero, and I256-backed overflow resistance for
+/// realistic RAY products.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
@@ -81,12 +75,6 @@ fn mul_half_up_identity(e: Env) {
     cvlr_assert!(result == a);
 }
 
-// `mul_half_up_identity_sanity` removed (efficiency E1):
-// pure cvlr_satisfy duplicate of `mul_half_up_identity` -- same inputs
-// (`0..=RAY * 1000`), same call, same comparison. The assertion rule
-// already proves `result == a` for every value in the input range, which
-// trivially implies the satisfy condition is reachable.
-
 // ---------------------------------------------------------------------------
 // Rule 4: div_half_up is inverse of mul_half_up (within rounding tolerance)
 // ---------------------------------------------------------------------------
@@ -111,12 +99,6 @@ fn div_half_up_inverse(e: Env) {
     cvlr_assert!(recovered >= a - 2 && recovered <= a + 2);
 }
 
-// `div_half_up_inverse_sanity` removed (efficiency E1):
-// pure cvlr_satisfy duplicate of `div_half_up_inverse` -- same input
-// constraints, same round-trip computation, same envelope predicate
-// (`recovered in [a-2, a+2]`). The assertion rule proves the property
-// universally; the satisfy companion adds no new reachability signal.
-
 // ---------------------------------------------------------------------------
 // Rule 5: div_half_up with zero numerator -- div_half_up(0, b, RAY) == 0
 // ---------------------------------------------------------------------------
@@ -139,12 +121,8 @@ fn div_half_up_zero_numerator(e: Env) {
 // Rule 6: mul_half_up rounding direction -- never rounds below floor(a*b/p)
 // ---------------------------------------------------------------------------
 
-// Reformulated to linear arithmetic over i128. The previous version computed
-// `floor` with `soroban_sdk::I256` mul/div/to_i128 (the prover models these
-// as bitvector ops, contributing the `nonlinear ops: 8 / max polyn.
-// degree: 4` warning the Certora run reported, and the `.to_i128().unwrap()`
-// added a panic branch). The same property -- "result is no less than the
-// mathematical floor of (a*b)/WAD" -- is captured by:
+// Linear arithmetic property: result is no less than the mathematical floor of
+// `(a * b) / WAD`, captured by:
 //
 //     result * WAD >= a * b - (WAD - 1)
 //
@@ -169,28 +147,15 @@ fn mul_half_up_rounding_direction(e: Env) {
     cvlr_assert!(result * WAD >= a * b - (WAD - 1));
 }
 
-// `mul_half_up_rounding_direction_sanity` removed (efficiency E1):
-// asserts only `result >= 0` for `(a, b) in [0, WAD*100]^2`. With both
-// operands non-negative, `mul_div_half_up` is non-negative by construction
-// (the production code path computes `(a*b + WAD/2) / WAD` over I256 then
-// converts to a non-negative i128). The companion rule pays solver time
-// to re-prove a typechecker-trivial fact already covered by the assertion
-// rule's input domain.
-
 // ---------------------------------------------------------------------------
 // Rule 7: div_half_up rounding direction -- rounds up when remainder >= b/2
 // ---------------------------------------------------------------------------
 
-// Reformulated to linear arithmetic over i128. Original computed `floor` and
-// `remainder` via `soroban_sdk::I256` and asserted exact-branch equality;
-// the bitvector mul/div + `.to_i128().unwrap()` paths combined to time out
-// the solver per the Certora run. The two-sided envelope below captures
-// the same half-up rounding contract:
+// The two-sided linear envelope captures the half-up rounding contract:
 //
 //     floor <= result <= floor + 1
 //
-// where `floor = (a * WAD) / b` integer-divided. We don't need to identify
-// which branch fires -- the linear envelope is enough to catch any
+// where `floor = (a * WAD) / b` integer-divided. The envelope catches any
 // implementation that rounds outside the half-up window.
 #[rule]
 fn div_half_up_rounding_direction(e: Env) {
@@ -233,12 +198,6 @@ fn rescale_upscale_lossless() {
     cvlr_assert!(upscaled == x * factor);
 }
 
-// `rescale_upscale_lossless_sanity` removed (efficiency E1):
-// pure cvlr_satisfy duplicate of `rescale_upscale_lossless` -- same input
-// range, same call, weaker predicate (`upscaled > 0` instead of the exact
-// `upscaled == x * factor`). The assertion rule subsumes the satisfy
-// version: for any `x > 0` in the range, `upscaled = x * 10^11 > 0`.
-
 // ---------------------------------------------------------------------------
 // Rule 9: rescale roundtrip -- rescale_half_up(rescale_half_up(x, 7, 18), 18, 7) approx x (within +/-1)
 // ---------------------------------------------------------------------------
@@ -263,22 +222,13 @@ fn rescale_roundtrip() {
     cvlr_assert!(recovered == x);
 }
 
-// `rescale_roundtrip_sanity` removed (efficiency E1):
-// pure cvlr_satisfy duplicate of `rescale_roundtrip` -- identical inputs,
-// identical computation, identical predicate (`recovered == x`). The
-// assertion rule already proves this for every value in the range.
-
 // ---------------------------------------------------------------------------
 // Rule 10: signed mul rounds away from zero for negative inputs
 // ---------------------------------------------------------------------------
 
-// Reformulated to linear arithmetic. The previous I256-based floor
-// computation timed out the solver during the most recent Certora run
-// (`signed_mul_away_from_zero: solving threw an exception`).
-//
 // Property: half-up signed rounding (away from zero) keeps `result * d`
-// within one full divisor `d` of the true product `a*b`. The earlier
-// one-sided bound `result * RAY <= a * b` is wrong on negative products:
+// within one full divisor `d` of the true product `a*b`. A one-sided bound
+// `result * RAY <= a * b` is invalid for negative products:
 // rounding `-3.4` away from zero yields `-3`, and `-3 * RAY > -3.4 * RAY`.
 // The correct linear envelope is symmetric:
 //
@@ -305,13 +255,6 @@ fn signed_mul_away_from_zero(e: Env) {
     cvlr_assert!(result * RAY <= a * b + RAY);
 }
 
-// `signed_mul_away_from_zero_sanity` removed (efficiency E1):
-// asserts only `result < 0` over a wider range (`a in [-RAY*100, 0)`,
-// `b in (0, RAY*100]`) than the assertion rule. The predicate is implied
-// by the sign of `a * b` (negative since `a < 0` and `b > 0`) and the
-// half-up away-from-zero rounding semantics. No reachability information
-// the assertion rule does not already cover.
-
 // ---------------------------------------------------------------------------
 // Rule 11: I256 no overflow -- mul_half_up with max realistic values (RAY * RAY)
 // ---------------------------------------------------------------------------
@@ -337,13 +280,6 @@ fn i256_no_overflow(e: Env) {
     cvlr_assert!(result >= 0);
     cvlr_assert!(result <= 100 * RAY + 1); // +1 for rounding
 }
-
-// `i256_no_overflow_sanity` removed (efficiency E1):
-// pure cvlr_satisfy duplicate of `i256_no_overflow` -- same inputs, same
-// call. The assertion rule already proves `result <= 100 * RAY + 1` and
-// `result >= 0` for the same input range; with `a, b > 0` (implied by
-// `a, b in (0, 10*RAY]`) the I256 product is positive and `result >= 1`,
-// trivially satisfying `result > 0`.
 
 // ---------------------------------------------------------------------------
 // Rule 12: div_by_zero sanity -- div_half_up(a, 0, RAY) should be unreachable

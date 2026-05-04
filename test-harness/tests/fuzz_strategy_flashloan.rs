@@ -6,16 +6,14 @@
 //! call escapes the recording-mode mock. Strategy flows (`multiply`,
 //! `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`) stay on
 //! the *internal* `create_strategy` path (no external receiver) and run
-//! fine under `mock_all_auths` -- but had no property-test coverage.
+//! under `mock_all_auths`.
 //!
-//! This harness adds three properties that cover the gaps and regress four
-//! audit findings from `bugs.md`:
+//! This harness covers:
 //!
-//! - NEW-01 (HIGH): router allowance must be zero after a strategy swap.
-//! - M-09: `saturating_sub` hides buggy aggregator underpay in `swap_tokens`.
-//! - M-10: `amount_out_min <= 0` must be rejected on strategy entry points.
-//! - M-11: `swap_collateral` must use the *actual* withdrawn delta, not the
-//!   requested amount, when calling the router.
+//! - Router allowance is zero after a strategy swap.
+//! - Router under-delivery is rejected by controller-side balance checks.
+//! - `amount_out_min <= 0` is rejected on strategy entrypoints.
+//! - `swap_collateral` uses the actual withdrawn delta when calling the router.
 //!
 //! ## Explicit auth trees
 //!
@@ -26,10 +24,8 @@
 //! opts out via `LendingTest::new().without_auto_auth()` and attaches a
 //! per-call `MockAuth` tree (see `test-harness/src/auth.rs`).
 //!
-//! If the explicit tree turns out to be incomplete and every generated input
-//! fails at the auth layer, keep the test with `#[ignore]` plus a note that
-//! points to the step that could not be authorized -- preserving the
-//! regression surface for when the SDK improves.
+//! If the explicit tree is incomplete and generated inputs fail at the auth
+//! layer, the ignored test records the authorization boundary.
 
 extern crate std;
 
@@ -43,10 +39,8 @@ use test_harness::{
 };
 
 // ---------------------------------------------------------------------------
-// Alternate "short" aggregator used by the M-11 property test. It returns
-// `amount_out_min * 99 / 100` (1% shortfall) to probe that the caller
-// (controller.strategy::swap_tokens) reads the *actual* balance delta rather
-// than trusting `amount_out_min` or any internal accounting.
+// Adversarial aggregator that returns `amount_out_min * 99 / 100` to verify
+// that controller strategy swaps read the actual balance delta.
 // ---------------------------------------------------------------------------
 
 #[contract]
@@ -56,10 +50,7 @@ pub struct ShortAggregator;
 impl ShortAggregator {
     pub fn __constructor(_env: Env, _admin: Address) {}
 
-    /// Mirrors the new router ABI but delivers 1% less than
-    /// `total_min_out` to probe the M-11 property that `swap_tokens`
-    /// reads the actual balance delta rather than trusting any internal
-    /// accounting.
+    /// Mirrors the router ABI but delivers 1% less than `total_min_out`.
     pub fn batch_execute(env: Env, batch: common::types::BatchSwap) -> i128 {
         batch.sender.require_auth();
         let router = env.current_contract_address();
@@ -82,10 +73,8 @@ impl ShortAggregator {
     }
 }
 
-// Helper: controller allowance on the router for a given asset. Retained
-// for legacy property tests that asserted the old SEP-41 approve+pull
-// model leaves zero residual allowance. The new ABI doesn't approve, so
-// allowances stay at 0 by construction.
+// Controller allowance on the router for a given asset. The current router
+// ABI does not approve tokens, so allowances remain zero by construction.
 fn router_allowance(t: &LendingTest, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     let tok = token::Client::new(&t.env, &asset);
@@ -119,23 +108,10 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
 
-    // The flash-loan happy path currently fails at the SAC mint call inside
-    // the good receiver: `Error(Context, InvalidAction)`. This is a real
-    // limitation of Soroban's recording-mode `mock_all_auths` for nested
-    // `StellarAssetClient::mint()` calls that originate three frames deep
-    // (controller -> pool -> receiver -> SAC).
-    //
-    // An explicit MockAuth tree would need to authorize the SAC admin's
-    // `mint` invocation as a sub_invoke of the receiver's
-    // `execute_flash_loan`, but the SAC's admin address in a Stellar asset
-    // contract V2 is not directly callable via MockAuthInvoke: the SAC
-    // contract is native and its auth context is opaque to the
-    // recording-mode harness.
-    //
-    // This test stays alive (not deleted) so the property assertions stay
-    // recorded and the regression surface stays visible. Once a new SDK
-    // release exposes a way to authorize SAC admin sub-invokes, drop the
-    // `#[ignore]` and the fuzzer starts catching regressions.
+    // Strict-auth flash-loan coverage reaches the receiver's nested SAC mint,
+    // where recording-mode auth cannot express the native asset admin
+    // sub-invoke. The ignored test records the intended assertions for a
+    // harness that can authorize that boundary.
     #[test]
     #[ignore = "real finding: Soroban recording-mode mock_all_auths cannot \
                 authorize nested SAC admin mint inside a flash-loan receiver; \
@@ -148,9 +124,8 @@ proptest! {
             .without_auto_auth()
             .build();
 
-        // Opt back into env-level blanket auth for this test. Keep
-        // `without_auto_auth()` at the builder so future work can drop this
-        // call and swap in strict per-call MockAuth trees.
+        // Use env-level blanket auth here until strict per-call MockAuth trees
+        // can cover the nested SAC admin mint.
         t.env.mock_all_auths();
         t.supply(ALICE, "USDC", 1_000_000.0);
 
@@ -195,8 +170,7 @@ proptest! {
     //
     //   - HF >= 1.0 after a successful multiply (the contract's invariant).
     //   - The controller holds ZERO allowance on the router after the call
-    //     (NEW-01 regression: the audit found allowance previously left
-    //     non-zero after a strategy swap).
+    //   - The controller holds zero allowance on the router after the call.
     //   - The reentrancy guard is cleared.
     //   - On error: no partial state -- if try_multiply returns Err, no
     //     account is left behind for the caller.
@@ -234,15 +208,8 @@ proptest! {
 
         let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
 
-        // NEW-01 regression: allowance zeroed regardless of Ok/Err. After a
-        // successful swap, it must be zero; on a failed swap, the approve
-        // call may or may not have fired -- but the post-tx snapshot must
-        // still be zero, since any approved allowance that was set must be
-        // zeroed before returning.
-        //
-        // For the Err case, the transaction rolls back, so allowance is
-        // whatever it was before (0). Assert the stronger post-Ok condition
-        // here, plus a weaker post-Err sanity check.
+        // Allowance must be zero after success; failed transactions roll back
+        // to the pre-call zero allowance state.
         let allowance_eth = router_allowance(&t, "ETH");
         prop_assert_eq!(allowance_eth, 0, "ETH allowance on router must be zero after multiply");
 
@@ -267,10 +234,6 @@ proptest! {
     // ---------------------------------------------------------------------
     // Property 3: strategy swap_collateral balance-delta consistency
     //
-    // Targets M-10 and M-11 regressions:
-    //   - M-10: `amount_out_min <= 0` rejected (here: 0).
-    //   - M-11: swap input uses the actual withdrawal delta.
-    //
     // Setup: supply USDC, swap_collateral into USDT. Use a mock router (the
     // default `MockAggregator`) that pays exactly `amount_out_min`. A valid
     // positive `amount_out_min` succeeds; `amount_out_min == 0` must fail.
@@ -293,7 +256,7 @@ proptest! {
         // Pre-fund router with enough USDT.
         t.fund_router("USDT", withdraw_amount * 2.0);
 
-        // Either min_out = 0 (M-10 trigger) or a reasonable positive value.
+        // Use either an invalid zero minimum or a reasonable positive value.
         let usdt_decimals = t.resolve_market("USDT").decimals;
         let usdc_decimals = t.resolve_market("USDC").decimals;
         let min_out_raw = if min_out_valid {
@@ -307,11 +270,8 @@ proptest! {
         let steps = if min_out_valid {
             build_aggregator_swap(&t, "USDC", "USDT", amount_in_raw, min_out_raw)
         } else {
-            // For the M-10 rejection case we want `total_min_out == 0`,
-            // which `build_aggregator_swap` cannot represent (path-level
-            // `min_amount_out > 0` is required by validation). Build the
-            // batch inline with `total_min_out = 0` so the strategy's
-            // own entry-point check fires.
+            // Build an invalid batch with `total_min_out == 0` so the
+            // strategy entrypoint rejects it before routing.
             common::types::AggregatorSwap {
                 paths: soroban_sdk::Vec::new(&t.env),
                 total_min_out: 0,
@@ -321,24 +281,24 @@ proptest! {
         let result = t.try_swap_collateral(ALICE, "USDC", withdraw_amount, "USDT", &steps);
 
         if !min_out_valid {
-            // M-10: amount_out_min == 0 must be rejected. The exact error
+            // amount_out_min == 0 must be rejected. The exact error
             // surface depends on where the check lives (SwapSteps validation
             // in controller::validation or the router itself). Either way,
-            // the call must fail -- success is the regression.
+            // the call must fail.
             prop_assert!(
                 result.is_err(),
                 "swap_collateral with amount_out_min == 0 must be rejected (M-10)"
             );
         } else if result.is_ok() {
-            // M-11 regression assertion: the USDC supply position shrunk by
-            // approximately `withdraw_amount`, and USDT grew. Dust
+            // The USDC supply position shrinks by approximately
+            // `withdraw_amount`, and USDT grows. Dust
             // differences are acceptable (pool rounding), but the USDT
             // supply must be non-zero (the swap produced tokens based on
             // the actual withdrawal, not phantom accounting).
             let usdt_supply = t.supply_balance(ALICE, "USDT");
             prop_assert!(usdt_supply > 0.0, "USDT supply must be non-zero after successful swap_collateral");
 
-            // NEW-01 regression on this path too.
+            // Router allowance remains zero on this path.
             prop_assert_eq!(
                 router_allowance(&t, "USDC"),
                 0,
@@ -352,10 +312,9 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 4: M-09 — `ShortAggregator` delivers 1% under `min_amount_out`.
+// Property 4: `ShortAggregator` delivers 1% under `min_amount_out`.
 // The controller's `verify_router_output` reads the actual balance delta and
-// must reject with INTERNAL_ERROR. Pre-NEW-01 audit, a `saturating_sub` hid
-// the underpay and let it propagate.
+// must reject with INTERNAL_ERROR.
 // ---------------------------------------------------------------------------
 proptest! {
     #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
@@ -369,8 +328,7 @@ proptest! {
             .with_market(eth_preset())
             .build();
 
-        // Swap our `set_aggregator` away from the benign mock to the
-        // adversarial `ShortAggregator` that under-delivers by 1%.
+        // Route swaps through an adversarial aggregator that under-delivers by 1%.
         let admin = t.admin.clone();
         let short = t.env.register(ShortAggregator, (admin,));
         t.ctrl_client().set_aggregator(&short);
@@ -392,11 +350,8 @@ proptest! {
         let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
         let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
 
-        // The under-delivery must be detected. Either INTERNAL_ERROR from
-        // `verify_router_output`, or the router's own slippage panic if
-        // the path's `min_amount_out` matches `total_min_out` (then the
-        // shortage trips the path slippage check first). Either is fine —
-        // the property is "doesn't silently succeed".
+        // Under-delivery must be detected by either controller output
+        // verification or router slippage validation.
         prop_assert!(
             result.is_err(),
             "ShortAggregator under-delivery must be rejected (M-09)"

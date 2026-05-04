@@ -599,12 +599,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
     );
 }
 
-pub fn edit_oracle_tolerance(
-    env: &Env,
-    asset: Address,
-    first_tolerance: u32,
-    last_tolerance: u32,
-) {
+pub fn edit_oracle_tolerance(env: &Env, asset: Address, first_tolerance: u32, last_tolerance: u32) {
     let tolerance = validate_and_calculate_tolerances(env, first_tolerance, last_tolerance);
 
     let mut market = storage::get_market_config(env, &asset);

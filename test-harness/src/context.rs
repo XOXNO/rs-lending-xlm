@@ -312,11 +312,10 @@ impl LendingTestBuilder {
 
     pub fn build(self) -> LendingTest {
         let env = Env::default();
-        // Always mock auths during the setup phase (upload pool WASM, register
-        // markets, grant roles, configure oracles, mint initial liquidity).
-        // If the caller asked to opt out via `without_auto_auth()`, we revert
-        // to strict auth-checking at the very end of build(), so the test
-        // itself starts from a clean slate.
+        // Mock auths during setup operations: upload pool WASM, register
+        // markets, grant roles, configure oracles, and mint initial liquidity.
+        // `without_auto_auth()` restores strict auth checking at the end of
+        // build so the test starts from a clean slate.
         //
         // `_allowing_non_root_auth` is required for the new aggregator ABI:
         // strategy → router → SAC.transfer(from=controller, ...) is a
@@ -329,7 +328,7 @@ impl LendingTestBuilder {
         // Remove test budget and resource limits so these tests focus on
         // business logic rather than execution ceilings. Opt-in flag
         // `with_budget_enabled()` keeps Soroban's defaults in place so
-        // budget/metering fuzz harnesses can catch cost-model regressions.
+        // budget/metering fuzz harnesses can catch cost-model violations.
         if !self.budget_enabled {
             env.cost_estimate().budget().reset_unlimited();
             env.cost_estimate().disable_resource_limits();
@@ -369,7 +368,7 @@ impl LendingTestBuilder {
 
         // Upload and set pool template
         let pool_wasm_path = "target/wasm32v1-none/release/pool.wasm".to_string();
-        // Since tests run from various workspace roots, we try a few relative paths
+        // Resolve pool WASM from common workspace-relative locations.
         let mut bytes = std::fs::read(&pool_wasm_path);
         if bytes.is_err() {
             bytes = std::fs::read(format!("../{}", pool_wasm_path));
@@ -427,8 +426,8 @@ impl LendingTestBuilder {
             // 1. First, deploy the pool and initialize the market (Step 1: creates the MarketConfig in PendingOracle state)
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
             let asset_config = pm.config.to_asset_config(&env);
-            // Pre-approve the token contract -- the controller's allow-list gate
-            // (T1-7) now requires explicit admin approval before market creation.
+            // Pre-approve the token contract; the controller's allow-list gate
+            // requires explicit admin approval before market creation.
             ctrl.approve_token_wasm(&asset_address);
             let pool_address =
                 ctrl.create_liquidity_pool(&asset_address, &market_params, &asset_config);
@@ -498,7 +497,7 @@ impl LendingTestBuilder {
         }
 
         // If the caller opted out of auto-auth, clear the blanket auth mock
-        // now that setup is done. Tests can re-enable it locally (via
+        // after setup. Tests can re-enable it locally (via
         // `t.env.mock_all_auths()`) or attach per-call `MockAuth` trees.
         if self.skip_mock_auths {
             env.set_auths(&[]);

@@ -5,11 +5,10 @@
 //! positions, etc.), then packs them into per-target byte layouts matching
 //! each fuzz target's `Arbitrary`-derived input struct.
 //!
-//! The goal is NOT byte-perfect matching of the `Arbitrary` decoder -- libFuzzer
-//! tolerates short/long/imperfect seeds as long as they decode to a valid input.
-//! The real payoff is populating the input space with realistic numeric
-//! magnitudes (RAY indexes, bps rates, timestamps, position amounts) so the
-//! mutation engine has something non-trivial to bit-flip from iteration 0.
+//! Seeds are not required to match the `Arbitrary` decoder byte-for-byte;
+//! libFuzzer accepts short or partial seeds that decode to valid inputs. The
+//! value is populating the input space with realistic numeric magnitudes
+//! (RAY indexes, bps rates, timestamps, position amounts) before mutation.
 //!
 //! Usage:
 //!   cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
@@ -40,7 +39,7 @@ struct ExtractedFields {
     // u32 values (asset_decimals, etc.).
     u32s: Vec<u32>,
 
-    // Structured per-market fields -- when we can identify them by symbol key.
+    // Structured per-market fields, keyed when a symbol is identifiable.
     // These are far more useful for `rates_borrow` than a shapeless i128 heap.
     market_params: Vec<MarketParamsFields>,
     market_states: Vec<MarketStateFields>,
@@ -95,7 +94,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-            // Recurse into any dir; we rely on the file-name filter below.
+            // Recurse into nested directories; the file-name filter is applied below.
             walk_dir(&path, out);
         } else if path
             .extension()
@@ -164,7 +163,7 @@ fn extract_u32(val: &Value) -> Option<u32> {
     }
 }
 
-/// Walk the entire JSON tree, harvesting every i128/u32/u64 we see.
+/// Walks the JSON tree and harvests every i128, u32, and u64 value.
 fn harvest_numeric_rec(val: &Value, out: &mut ExtractedFields) {
     match val {
         Value::Object(map) => {
@@ -414,16 +413,10 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `rates_borrow`: In { util_bps: u16, base_pct: u8, s1_pct: u8, s2_pct: u8,
-///                      s3_pct: u16, mid_pct: u8, opt_pct: u8, max_pct: u16,
-///                      flip: u8 }
-///
-/// That's 2+1+1+1+2+1+1+2+1 = 12 bytes matching Arbitrary's derive-default LE
-/// decoding (integers are consumed LE, bytes in field order).
 /// `rates_and_index`: 29 bytes matching the `In` struct in
-/// `fuzz_targets/rates_and_index.rs`. Merges the retired `rates_borrow` and
-/// `compound_monotonic` packers so libFuzzer can cross-pollinate rate/params
-/// bytes with accrual/borrow bytes inside a single target.
+/// `fuzz_targets/rates_and_index.rs`. The seed layout combines rate-model
+/// geometry with accrual and borrow fields so mutations can cross related
+/// inputs in one target.
 fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     const MS_PER_YEAR: i128 = MILLISECONDS_PER_YEAR as i128;
@@ -511,13 +504,11 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
 /// `flow_supply_borrow_liquidate`: Arbitrary layout is 8 bytes LE:
 /// `{ supply_raw: u32, borrow_frac_raw: u8, jump_hours: u16, liq_frac_raw: u8 }`.
 /// `flow_e2e`: Arbitrary over `{ ops: Vec<Op> }`. libFuzzer's vec-length
-/// prefix means we don't need to emit precise byte layouts — a handful of
-/// short seeds kickstart mutation, and the coverage-guided engine builds out
-/// interesting op-sequence prefixes on its own.
+/// prefix allows short seeds; the coverage-guided engine extends useful
+/// operation-sequence prefixes during mutation.
 ///
-/// The seeds below cover the common bootstraps the retired flow targets used
-/// to seed explicitly: a supply, a supply+borrow, a supply+borrow+liquidate
-/// sequence, a flash-loan op, and an empty vec.
+/// The seeds below cover common bootstraps: empty input, supply, supply and
+/// borrow, supply and liquidation, and flash loan.
 fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
     vec![
         // Empty op sequence.

@@ -1,22 +1,20 @@
-//! Directed regression tests for every `panic_with_error!` site in
+//! Directed coverage tests for every `panic_with_error!` site in
 //! `controller/src/strategy.rs` that lacked explicit coverage.
 //!
-//! Auditing strategy.rs surfaced 8 panic sites that no directed test
-//! exercised end-to-end. Each test here pins the exact contract error code
-//! so that a regression which substitutes a different error (or, worse,
-//! silently succeeds) breaks CI.
+//! Each test pins the exact contract error code so an incorrect error surface
+//! or silent success fails CI.
 //!
 //! The tests also cover:
 //!   * `multiply` Case 1 (initial_payment == collateral_token).
 //!   * `multiply` Case 3 (initial_payment is a third token) happy path.
-//!   * `swap_tokens` post-failure allowance state (NEW-01 regression).
+//!   * `swap_tokens` post-failure allowance state.
 extern crate std;
 
 use common::types::AggregatorSwap;
-use soroban_sdk::Vec;
-use test_harness::{apply_flash_fee, build_aggregator_swap};
 use soroban_sdk::token;
+use soroban_sdk::Vec;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
+use test_harness::{apply_flash_fee, build_aggregator_swap};
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
@@ -25,7 +23,12 @@ use test_harness::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn build_swap_steps(t: &LendingTest, _token_in: &str, _token_out: &str, min_out: i128) -> AggregatorSwap {
+fn build_swap_steps(
+    t: &LendingTest,
+    _token_in: &str,
+    _token_out: &str,
+    min_out: i128,
+) -> AggregatorSwap {
     // Placeholder fixture for compile-clean tests. The new aggregator ABI
     // requires per-path SwapHop entries; tests that actually exercise the
     // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
@@ -55,7 +58,7 @@ fn flatten<T>(
 // strategy.rs:91 -- ConvertStepsRequired
 //
 // When multiply receives an initial_payment whose token is a third token
-// (neither collateral nor debt), `convert_steps` MUST be Some. The current
+// (neither collateral nor debt), `convert_steps` must be Some. The current
 // suite had zero coverage for this panic site.
 // ---------------------------------------------------------------------------
 #[test]
@@ -164,8 +167,7 @@ fn test_swap_debt_existing_position_missing_rejects() {
     // with ETH.
     t.fund_router("ETH", 0.5);
     // 0.001 WBTC (7 decimals = 10_000 raw) flash-borrowed minus 9bps fee.
-    let steps =
-        build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000), 5_000_000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000), 5_000_000);
     // existing=ETH (Alice does not hold it). new=WBTC (Alice already holds
     // WBTC debt, but swap_debt requires only the existing debt to be
     // present -- not the new one).
@@ -217,19 +219,10 @@ fn test_repay_debt_with_collateral_missing_collateral_rejects() {
 }
 
 // ---------------------------------------------------------------------------
-// strategy.rs -- DebtPositionNotFound in repay_debt_with_collateral
-// (regression)
+// strategy.rs -- DebtPositionNotFound in repay_debt_with_collateral.
 //
-// The audit surfaced two bugs here:
-//   1. swap_tokens received `collateral_amount` (the requested amount), not
-//      the actual withdrawal delta. Same M-11 pattern that had been fixed
-//      for swap_collateral but not ported here.
-//   2. debt_tok.transfer ran before borrow_positions.get(debt_token), so a
-//      missing debt position host-panicked on the transfer rather than
-//      surfacing DebtPositionNotFound (120).
-//
-// Both fixes landed in strategy.rs: both positions are validated up-front,
-// and the function then measures the actual withdrawal delta and feeds it
+// The function validates both positions before token movement, then measures
+// the actual withdrawal delta and feeds it
 // into swap_tokens. This test pins the DebtPositionNotFound guard.
 // ---------------------------------------------------------------------------
 #[test]
@@ -384,7 +377,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
     // USDC). The mock aggregator funds each side independently, so fund
     // both.
     t.fund_router("USDC", 3_500.0); // 3000 for main + 500 for convert
-    // Main: 1 ETH flash-borrow minus 9bps fee.
+                                    // Main: 1 ETH flash-borrow minus 9bps fee.
     let main_steps = build_aggregator_swap(
         &t,
         "ETH",
@@ -436,12 +429,10 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
 
 // ---------------------------------------------------------------------------
 // After an OverPull-triggered transaction rollback, the controller's
-// allowance on the router must remain at zero. NEW-01 regression.
+// allowance on the router must remain at zero.
 //
-// Soroban rolls back state on contract panics, so the allowance approved by
-// swap_tokens line 451 is undone atomically. Verify it post-op. Distinct
-// from fuzz_strategy_flashloan prop 2, which covers the success-path
-// zeroing (line 483).
+// Soroban rolls back state on contract panics, so router allowance must remain
+// zero after an over-pull rejection.
 // ---------------------------------------------------------------------------
 #[test]
 fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
@@ -472,8 +463,7 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     assert!(result.is_err(), "OverPull must be rejected");
 
     // After rollback, the controller's ETH allowance on the bad router must
-    // be zero. A regression that leaks the pre-approved allowance would
-    // expose the controller to future drains.
+    // be zero, preventing residual approval from exposing controller funds.
     let eth = t.resolve_asset("ETH");
     let eth_tok = token::Client::new(&t.env, &eth);
     let allowance = eth_tok.allowance(&t.controller_address(), &bad);
@@ -487,8 +477,8 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
 // ---------------------------------------------------------------------------
 // Defense-in-depth: allowance still zero after a successful swap via the
 // happy-path mock. The controller explicitly calls `approve(..0, 0)` at
-// strategy.rs:483. Regression: a commit that removed that zeroing call
-// would leave the allowance equal to `amount_in`.
+// strategy.rs:483. Without the zeroing call, allowance would remain equal to
+// `amount_in`.
 // ---------------------------------------------------------------------------
 #[test]
 fn test_swap_tokens_allowance_zero_after_successful_multiply() {
@@ -526,14 +516,11 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
 }
 
 // ===========================================================================
-// Part 4: Bob-not-owner regression with account created via multiply
+// Part 4: Bob-not-owner authorization with account created via multiply
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// strategy.rs:136 -- AccountNotInMarket for a Multiply reuse by wrong owner.
-//
-// swap_debt and swap_collateral already cover this path in edge_tests; the
-// multiply reuse path (lines 135-137) was untested.
+// AccountNotInMarket for a multiply reuse by the wrong owner.
 // ---------------------------------------------------------------------------
 #[test]
 fn test_multiply_reusing_account_wrong_owner_rejects() {

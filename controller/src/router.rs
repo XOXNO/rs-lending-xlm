@@ -210,10 +210,9 @@ pub fn create_liquidity_pool(
     );
 
     // Approval is single-use: the gate at the top of this function
-    // verified the caller had pre-approved this asset; consume it now
-    // so the instance footprint doesn't accumulate stale approvals
-    // and any future `create_liquidity_pool` call requires a fresh
-    // admin review.
+    // verified the caller had pre-approved this asset; consume it in this
+    // call so the instance footprint does not accumulate stale approvals and
+    // each `create_liquidity_pool` call requires a fresh admin review.
     storage::set_token_approved(env, asset, false);
 
     pool_address
@@ -421,11 +420,7 @@ crate::summarized!(
 
 crate::summarized!(
     crate::spec::summaries::pool::claim_revenue_summary,
-    pub(crate) fn pool_claim_revenue_call(
-        env: &Env,
-        pool_addr: &Address,
-        price_wad: i128,
-    ) -> i128 {
+    pub(crate) fn pool_claim_revenue_call(env: &Env, pool_addr: &Address, price_wad: i128) -> i128 {
         pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(&price_wad)
     }
 );

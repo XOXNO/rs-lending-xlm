@@ -64,7 +64,7 @@ pub trait LiquidityPoolInterface {
     /// Pool transfers revenue to its owner (the controller), which then
     /// forwards to the protocol accumulator. The ABI takes no
     /// caller-supplied destination, and the pool stores no destination of
-    /// its own — ownership IS the routing anchor.
+    /// its own; ownership is the routing anchor.
     fn claim_revenue(env: Env, price_wad: i128) -> i128;
     fn update_params(
         env: Env,

@@ -23,7 +23,8 @@ use soroban_sdk::{
 
 /// Temporary instance-storage key used by flash_loan_begin / flash_loan_end
 /// to record the pool's pre-loan token balance and verify the post-repay
-/// delta meets expectations. Written in `begin`; read and cleared in `end`.
+/// balance is at least the pre-loan balance plus the fee. Written in `begin`;
+/// read and cleared in `end`.
 const FLASH_LOAN_PRE_BALANCE: Symbol = symbol_short!("FL_PREBAL");
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -215,7 +216,7 @@ impl LiquidityPool {
             // Dust-lock guard: if the residual scaled amount would round to
             // zero asset tokens, treat the call as a full withdrawal so the
             // user leaves no permanently-stuck dust behind. Credit the user
-            // the FULL `current_supply_actual` (not the smaller requested
+            // the full `current_supply_actual` (not the smaller requested
             // `amount`) — the entire scaled position is being burned, so the
             // sub-unit residual otherwise vanishes into the protocol.
             let remaining_scaled = checked_sub_ray(&env, pos_scaled, scaled);
@@ -415,8 +416,8 @@ impl LiquidityPool {
         let pool_addr = env.current_contract_address();
         tok.transfer(&receiver, &pool_addr, &total);
 
-        // Verify the balance delta matches expectation. Reject if the
-        // pre-balance snapshot is missing (indicates `begin` was not called).
+        // Verify the repayment floor. Reject if the pre-balance snapshot is
+        // missing, which indicates `begin` was not called.
         let pre_balance: i128 = env
             .storage()
             .instance()
@@ -1201,7 +1202,11 @@ mod tests {
 
         let idx_before = client.update_indexes(&0i128);
 
-        let seized = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position, &0i128);
+        let seized = client.seize_position(
+            &AccountPositionType::Borrow,
+            &updated_borrow.position,
+            &0i128,
+        );
 
         assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
 
@@ -1228,7 +1233,11 @@ mod tests {
             state.borrowed_ray = 0;
         });
 
-        let _ = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position, &0i128);
+        let _ = client.seize_position(
+            &AccountPositionType::Borrow,
+            &updated_borrow.position,
+            &0i128,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1243,7 +1252,8 @@ mod tests {
         let updated = client.supply(&supply_pos, &0i128, &100_0000000i128);
 
         let revenue_before = client.protocol_revenue();
-        let seized = client.seize_position(&AccountPositionType::Deposit, &updated.position, &0i128);
+        let seized =
+            client.seize_position(&AccountPositionType::Deposit, &updated.position, &0i128);
 
         assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
 
@@ -1298,7 +1308,11 @@ mod tests {
 
         let supply_pos = t.deposit_position();
         let oversized_supply = client.supply(&supply_pos, &0i128, &200_000_000_000_000i128);
-        let _ = client.seize_position(&AccountPositionType::Deposit, &oversized_supply.position, &0i128);
+        let _ = client.seize_position(
+            &AccountPositionType::Deposit,
+            &oversized_supply.position,
+            &0i128,
+        );
 
         let claimed = client.claim_revenue(&0i128);
         let remaining_revenue = client.protocol_revenue();
@@ -1664,9 +1678,7 @@ mod tests {
         );
 
         // Downstream sanity: with the base rate still 1% but higher slopes,
-        // the borrow rate at 50% utilisation must reflect the *new* slope1
-        // (5% vs the old 4%). We do not pin an exact number; the point is
-        // that the borrow path picks up the updated params.
+        // the borrow rate at 50% utilization must reflect the updated slope1.
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &10_000_000_000i128);
         let borrower = Address::generate(&t.env);
@@ -1714,8 +1726,7 @@ mod tests {
     }
 
     // reserve_factor at the BPS ceiling panics with InvalidReserveFactor;
-    // the validator demands `< BPS`. (The previous "negative" case is
-    // unrepresentable now that the parameter is `u32`.)
+    // the validator requires `< BPS`.
     #[test]
     #[should_panic(expected = "Error(Contract, #119)")]
     fn test_update_params_rejects_reserve_factor_at_bps() {

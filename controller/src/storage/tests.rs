@@ -157,12 +157,9 @@ fn test_market_account_and_emode_round_trips() {
             is_borrowable: false,
         };
 
-        // E-mode memberships now live on
-        // `MarketConfig.asset_config.e_mode_categories` — seed the
-        // market with two categories before persisting.
+        // Seed the market-level e-mode category membership before persisting.
         let mut market = market;
-        market.asset_config.e_mode_categories =
-            soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
+        market.asset_config.e_mode_categories = soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
 
         set_market_config(&t.env, &t.asset, &market);
         set_account(&t.env, 9, &account);

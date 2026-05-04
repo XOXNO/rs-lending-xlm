@@ -124,7 +124,7 @@ fn test_supply_index_monotonically_increasing() {
     let initial_balance = prev_balance;
 
     // Check supply balance grows over time (proxy for the supply index).
-    // Require STRICT inequality (>) to catch a stalled-accrual regression:
+    // Require strict inequality to detect stalled accrual:
     // a `>=` check would silently accept `current == prev` forever (e.g. if
     // reserve_factor reached 100% or the rate fell to zero).
     for week in 1..=4 {
@@ -142,7 +142,7 @@ fn test_supply_index_monotonically_increasing() {
 
     // After 4 weeks of ALICE borrowing 10 ETH against BOB's 100 ETH supply,
     // total accrual must exceed dust. This catches "index inches up by 1
-    // ulp per week" regressions.
+    // ulp per week" drift.
     let total_growth = prev_balance - initial_balance;
     assert!(
         total_growth > 0.0001,
@@ -168,8 +168,8 @@ fn test_borrow_index_monotonically_increasing() {
     let mut prev_debt = t.borrow_balance(ALICE, "ETH");
     let initial_debt = prev_debt;
 
-    // Strict inequality -- a frozen borrow index means borrowers pay no
-    // interest, a critical solvency bug that `>=` would hide.
+    // Strict inequality detects a frozen borrow index that would otherwise
+    // leave accrued interest uncharged.
     for week in 1..=4 {
         t.advance_and_sync(days(7));
         let current_debt = t.borrow_balance(ALICE, "ETH");
@@ -210,9 +210,8 @@ fn test_position_limits_enforced() {
     t.supply(ALICE, "ETH", 1.0);
 
     // The third supply must reject with the specific POSITION_LIMIT_EXCEEDED
-    // error. A bare `is_err()` check accepts any failure (pause, oracle
-    // stale, internal error) and would miss a regression that swapped the
-    // error code for a less informative one.
+    // error. A bare `is_err()` check accepts any failure, including pause,
+    // stale oracle, or internal errors.
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
@@ -241,10 +240,8 @@ fn test_isolation_and_emode_mutually_exclusive() {
     // `emode::validate_e_mode_isolation_exclusion` gate to run, which must
     // panic with EModeError::EModeWithIsolated (302).
     //
-    // The previous version called `create_account_full` through a harness
-    // helper that pre-asserts the exclusion in Rust (not the contract), so
-    // a regression that dropped the on-chain guard could silently pass the
-    // old `is_err()` check.
+    // Drive the on-chain exclusion gate directly; harness-side prechecks are
+    // not sufficient for this invariant.
     let alice = t.get_or_create_user(ALICE);
     let usdc_addr = t.resolve_asset("USDC");
     let assets = soroban_sdk::vec![&t.env, (usdc_addr, 10_000_000_000_i128)];

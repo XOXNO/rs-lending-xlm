@@ -31,13 +31,7 @@ fn test_multiply_creates_leveraged_position() {
     // Flash-borrow 1 ETH, swap to 3000 USDC (favorable mock rate).
     t.fund_router("USDC", 3000.0);
     // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(10_000_000),
-        3000_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -85,13 +79,7 @@ fn test_multiply_mode_long() {
 
     t.fund_router("USDC", 3000.0);
     // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(10_000_000),
-        3000_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -111,8 +99,8 @@ fn test_multiply_mode_long() {
     );
 
     // An empty position trivially satisfies HF >= 1.0 (controller returns
-    // i128::MAX). Pin the supply and borrow magnitudes to catch a regression
-    // that skipped the deposit branch in Long mode.
+    // i128::MAX). Pin the supply and borrow magnitudes to verify the Long
+    // mode deposit branch.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -144,13 +132,7 @@ fn test_multiply_mode_short() {
 
     t.fund_router("USDC", 3000.0);
     // 1 ETH (7 decimals) flash-borrowed; controller receives `1 ETH - 9bps fee`.
-    let steps = build_aggregator_swap(
-        &t,
-        "ETH",
-        "USDC",
-        apply_flash_fee(10_000_000),
-        3000_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
     let account_id = t.multiply(
         ALICE,
         "USDC",
@@ -170,8 +152,8 @@ fn test_multiply_mode_short() {
     );
 
     // An empty position trivially satisfies HF >= 1.0 (controller returns
-    // i128::MAX). Pin the supply and borrow magnitudes to catch a regression
-    // that skipped the deposit branch in Short mode.
+    // i128::MAX). Pin the supply and borrow magnitudes to verify the Short
+    // mode deposit branch.
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
     assert!(
         (2999.0..=3001.0).contains(&supply),
@@ -266,16 +248,10 @@ fn test_swap_debt_replaces_borrow() {
     // enough to repay 1 ETH). min_amount_out = 1_0000000 raw ETH (1 ETH).
     t.fund_router("ETH", 1.0);
     // swap_debt borrows 1.0 WBTC (7 decimals = 10_000_000 raw) minus 9bps flash fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "WBTC",
-        "ETH",
-        apply_flash_fee(10_000_000),
-        1_0000000,
-    );
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 1_0000000);
     t.swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
-    // The WBTC borrow must now exist.
+    // The WBTC borrow must exist after the debt swap.
     let wbtc_borrow = t.borrow_balance(ALICE, "WBTC");
     assert!(
         wbtc_borrow > 0.0,
@@ -291,7 +267,7 @@ fn test_swap_debt_replaces_borrow() {
 // ---------------------------------------------------------------------------
 // test_swap_debt_partial
 //
-// Swap only part of the debt: old and new borrows coexist.
+// Swap only part of the debt: source and target borrows coexist.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -310,13 +286,7 @@ fn test_swap_debt_partial() {
     // Swap output = 0.5 ETH = 5_000_000 raw (7 decimals): partial repay.
     t.fund_router_raw("ETH", 5_000_000);
     // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
-    let steps = build_aggregator_swap(
-        &t,
-        "WBTC",
-        "ETH",
-        apply_flash_fee(5_000_000),
-        5_000_000,
-    );
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(5_000_000), 5_000_000);
     t.swap_debt(ALICE, "ETH", 0.5, "WBTC", &steps);
 
     // Both borrows must exist.
@@ -690,8 +660,8 @@ fn test_multiply_two_users() {
 // ---------------------------------------------------------------------------
 // test_swap_debt_to_costlier_debt_preserves_minimum_hf
 // Swap 10 ETH ($20k) debt -> 0.5 WBTC ($30k) debt: USD debt grows, so HF
-// shrinks but must stay >= 1.0. Pinning the strict direction catches any
-// regression that silently dropped the new debt or kept the old.
+// shrinks but must stay >= 1.0. Pinning the strict direction verifies that
+// new debt is recorded and source debt is reduced.
 // ---------------------------------------------------------------------------
 
 #[test]

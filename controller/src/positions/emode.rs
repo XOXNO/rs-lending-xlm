@@ -272,10 +272,8 @@ mod tests {
         );
     }
 
-    /// Seed a `MarketConfig` for `asset` with the given e-mode category
-    /// memberships. Replaces the legacy `AssetEModes(asset)` reverse
-    /// index — memberships now live on
-    /// `MarketConfig.asset_config.e_mode_categories`.
+    /// Seeds a `MarketConfig` for `asset` with e-mode category memberships.
+    /// Memberships are stored in `MarketConfig.asset_config.e_mode_categories`.
     fn seed_market_with_emode_categories(t: &TestSetup, asset: &Address, cats: &[u32]) {
         let market = common::types::MarketConfig {
             status: common::types::MarketStatus::Active,

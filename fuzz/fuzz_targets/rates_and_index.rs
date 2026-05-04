@@ -1,7 +1,7 @@
 //! Unified fuzz target for the rate → compound → accrual pipeline.
 //!
-//! Merges the retired `rates_borrow` and `compound_monotonic` targets and
-//! adds the protocol-level §5 interest-split identity:
+//! Checks the protocol-level interest-split identity across the
+//! rate, compound-interest, and accrual pipeline:
 //!
 //!   accrued_interest = supplier_rewards + protocol_fee        (exact)
 //!   protocol_fee ≈ reserve_factor_bps/BPS × accrued_interest  (±1 ulp)
@@ -38,9 +38,8 @@ use soroban_sdk::{Address, Env};
 
 const MS_PER_YEAR: u64 = MILLISECONDS_PER_YEAR;
 
-/// 29-byte layout. First 12 bytes match the retired `rates_borrow.rs` prefix
-/// so historical seed bytes remain semantically meaningful. The tail carries
-/// the accrual inputs: `reserve_pct`, `delta_ms`, `borrowed_units`.
+/// 29-byte layout. The first fields cover rate-model geometry; the tail
+/// carries accrual inputs: `reserve_pct`, `delta_ms`, `borrowed_units`.
 #[derive(Debug, Arbitrary)]
 struct In {
     // --- rate params ---
@@ -58,8 +57,8 @@ struct In {
     delta_ms: u64,
     borrowed_units: u64,
     // --- pipeline wrapper (simulate_update_indexes) ---
-    // Appended at tail so existing corpus seeds remain byte-compatible:
-    // missing bytes deserialize to 0 and gracefully hit the skip paths.
+    // Tail fields allow short corpus entries to deserialize to zero and hit
+    // skip paths deterministically.
     supplied_units: u64,
 }
 
@@ -213,7 +212,7 @@ fn assert_interest_split(
 }
 
 fuzz_target!(|i: In| {
-    let _ = i.flip; // reserved for future degenerate-path re-introduction
+    let _ = i.flip; // Reserved corpus byte.
     let env = Env::default();
 
     let params = make_params(&env, &i);
@@ -224,9 +223,8 @@ fuzz_target!(|i: In| {
     assert_rate_invariants(&env, util_bps, &params, rate);
 
     // Clamp `x = rate * delta_ms` into the Taylor expansion's accurate range
-    // (≤ 2 RAY). Outside that, production rate caps would intervene; here we
-    // skip out-of-domain inputs to avoid `MathOverflow` panics that libfuzzer
-    // turns into aborts (see module doc comment).
+    // (<= 2 RAY). Outside that, production rate caps would intervene; skip
+    // out-of-domain inputs to avoid `MathOverflow` panics in the harness.
     let delta_ms = i.delta_ms % (10 * MS_PER_YEAR);
     match rate.raw().checked_mul(delta_ms as i128) {
         Some(rt) if rt.abs() <= 2 * RAY => {}
@@ -284,7 +282,7 @@ fuzz_target!(|i: In| {
     // Domain: `simulate_update_indexes` recomputes utilization internally
     // from `borrowed/supplied`. Derive `supplied` so the internal util
     // matches the already-validated `util_bps`, keeping us inside the
-    // `rate * delta_ms ≤ 2 RAY` bound we enforced above. Otherwise an
+    // `rate * delta_ms <= 2 RAY` bound enforced above. Otherwise an
     // adversarial supplied/borrowed ratio can produce a region-3 rate that
     // overflows compound_interest.
     // util_bps == 0 can't be faithfully reproduced via borrowed/supplied
@@ -301,11 +299,11 @@ fuzz_target!(|i: In| {
         None => return,
     };
     if supplied_raw <= borrowed_raw {
-        // util ≥ 1 would land in region 3 with rates outside our clamp.
+        // Utilization >= 1 would land in region 3 with rates outside the clamp.
         return;
     }
 
-    // Pin old indices at RAY so the assertions below compare against a known
+    // Pin starting indices at RAY so the assertions below compare against a known
     // floor. simulate_update_indexes uses `current_timestamp - last_timestamp`
     // for accrual, so feeding (delta_ms, 0) mirrors the clamp above exactly.
     let old_index_raw = Ray::ONE.raw();

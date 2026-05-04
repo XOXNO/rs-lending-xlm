@@ -6,24 +6,24 @@
 //! which wraps the function definition in place at its source site. The real
 //! body still compiles when the feature is off.
 //!
-//! Why summarize:
-//!   * Heavy I256 / bytemap / map-iteration paths blow up the prover's TAC
-//!     command count (the `1786191 > 1000000` errors we saw).
+//! Summary rationale:
+//!   * Heavy I256, bytemap, and map-iteration paths can exceed prover command
+//!     limits.
 //!   * Cross-contract `LiquidityPoolClient` calls are pure havoc to the
-//!     prover; explicit nondet returns are equivalent semantically and
-//!     orders of magnitude cheaper.
+//!     prover; explicit nondet returns provide equivalent abstraction with
+//!     lower verification cost.
 //!   * Math primitives like `mul_div_half_up` already have dedicated rules
-//!     in `math_rules`; no other rule should re-prove them by inlining.
+//!     in `math_rules`; other rules avoid re-proving them by inlining.
 //!
-//! Soundness contract: every summary returns a value in the same domain as
-//! the production function and assumes only properties production GUARANTEES
-//! (post-conditions). If a summary assumes more, it weakens correctness.
+//! Soundness contract: every summary must return a value in the same domain as
+//! the production function or explicitly document any narrowed branch it
+//! models. Over-constraining a summary weakens verification.
 //!
 //! Verifying the summary itself: dedicated rules in `oracle_rules`,
 //! `health_rules`, etc. exercise the real production function (via
 //! `crate::oracle::token_price::token_price` -- the unsummarised
 //! sub-module that `apply_summary!` preserves). If a summary's pre/post
-//! contract drifts from production, those rules fail.
+//! contract drifts from production, those rules provide the targeted check.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
@@ -95,10 +95,7 @@ pub fn is_within_anchor_summary(
 ///     floor).
 ///   * `borrow_index_ray >= RAY` (initial value; only grows).
 ///   * `last_timestamp <= cache.current_timestamp_ms`.
-pub fn update_asset_index_summary(
-    _cache: &mut ControllerCache,
-    _asset: &Address,
-) -> MarketIndex {
+pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address) -> MarketIndex {
     let supply_index_ray: i128 = nondet();
     let borrow_index_ray: i128 = nondet();
     cvlr_assume!(supply_index_ray >= common::constants::SUPPLY_INDEX_FLOOR_RAW);
@@ -129,10 +126,9 @@ pub fn update_asset_index_summary(
 /// implementation guarantees function purity (same inputs in the same proof
 /// -> same output) and forces the prover to verify the real arithmetic.
 ///
-/// Cost: heavier per rule (the I256 weighted-USD math is now in the
-/// verification path). Benefit: real implementation is exercised; no
-/// summary-roundtrip vacuity. This is the Solvency efficiency report's
-/// preferred approach (`audit/certora-efficiency/01-solvency-health-position.md`).
+/// Cost: heavier per rule because weighted-USD math remains in the
+/// verification path. Benefit: the real implementation is exercised and the
+/// summary cannot drift from production arithmetic.
 pub fn calculate_health_factor_summary(
     env: &Env,
     cache: &mut ControllerCache,
@@ -157,9 +153,7 @@ pub fn calculate_health_factor_for_summary(
     cache: &mut ControllerCache,
     account_id: u64,
 ) -> i128 {
-    crate::helpers::calculate_health_factor_for::calculate_health_factor_for(
-        env, cache, account_id,
-    )
+    crate::helpers::calculate_health_factor_for::calculate_health_factor_for(env, cache, account_id)
 }
 
 /// Summary for `crate::helpers::calculate_account_totals`.
@@ -202,12 +196,7 @@ pub fn calculate_account_totals_summary(
 /// pins that boundary case so rules asserting `bonus == base_bonus` at
 /// `HF >= 1.02 WAD` are not refuted by an unconstrained
 /// `[base_bonus, max_bonus]` draw.
-pub fn calculate_linear_bonus_summary(
-    _env: &Env,
-    hf: Wad,
-    base_bonus: Bps,
-    max_bonus: Bps,
-) -> Bps {
+pub fn calculate_linear_bonus_summary(_env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
     let bonus_raw: i128 = nondet();
     cvlr_assume!(bonus_raw >= base_bonus.raw());
     cvlr_assume!(bonus_raw <= max_bonus.raw());

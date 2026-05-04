@@ -201,7 +201,7 @@ fn test_emode_deprecated_blocks_new_accounts() {
     // Deprecate the e-mode category.
     t.remove_e_mode_category(1);
 
-    // Supplying under the now-deprecated category must reject with the
+    // Supplying under the deprecated category must reject with the
     // contract error EModeCategoryDeprecated (301).
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_DEPRECATED);
@@ -273,7 +273,7 @@ fn test_emode_add_asset_to_category() {
     // Add USDT to the category at runtime.
     t.add_asset_to_e_mode("USDT", 1, true, true);
 
-    // USDT must now work in e-mode.
+    // USDT is valid collateral and debt in the e-mode category.
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
@@ -297,7 +297,7 @@ fn test_emode_remove_asset_from_category() {
     // Remove USDT from the category.
     t.remove_asset_from_e_mode("USDT", 1);
 
-    // Borrowing USDT in e-mode must now fail.
+    // Borrowing USDT in e-mode must fail after category removal.
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
 

@@ -25,13 +25,9 @@ use common::types::{SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 // Rule 1: multiply creates both deposit and borrow positions (split per branch)
 // ---------------------------------------------------------------------------
 //
-// The original `multiply_creates_both_positions` havoced `account_id`,
-// `initial_payment` and `convert_steps` inside the compat shim. That produced a
-// 32-path entry-preamble explosion (4 entry-shape combinations x 4
-// payment-token shapes x 2 account-id shapes) for a single property statement.
-// The audit (06-strategy-flashloan.md, "multiply_creates_both_positions") shows
-// the property is independent of which optional-input branch is taken, so we
-// split into per-branch rules with concrete inputs and bounded payment shapes.
+// Split into per-branch rules with concrete inputs and bounded payment shapes
+// so the prover evaluates the position invariant without optional-input
+// path explosion.
 
 /// Canonical happy-path multiply: brand-new account, no initial payment,
 /// no `convert_steps`. The cheapest of the three multiply happy-path rules
@@ -258,9 +254,10 @@ fn multiply_requires_collateralizable(
 // Rule 4: swap_debt conserves debt value
 // ---------------------------------------------------------------------------
 
-/// After swap_debt, the new debt position must exist and the old debt position
-/// must have decreased. At minimum: new debt position exists with scaled > 0
-/// and old debt position's scaled amount decreased or was removed.
+/// After swap_debt, the target debt position must exist and the source debt
+/// position must have decreased. At minimum, the target debt position exists
+/// with `scaled > 0` and the source debt position's scaled amount decreased or
+/// was removed.
 #[rule]
 fn swap_debt_conserves_debt_value(
     e: Env,
@@ -274,7 +271,7 @@ fn swap_debt_conserves_debt_value(
     cvlr_assume!(new_debt_amount > 0);
     cvlr_assume!(existing_debt_token != new_debt_token);
 
-    // Capture old debt position scaled amount before swap
+    // Capture the source debt position before the swap.
     let old_pos_before =
         crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &existing_debt_token);
     cvlr_assume!(old_pos_before.is_some());
@@ -342,8 +339,8 @@ fn swap_debt_rejects_same_token(
 // Rule 6: swap_collateral conserves collateral
 // ---------------------------------------------------------------------------
 
-/// After swap_collateral, the old collateral decreased and the new collateral
-/// increased (position exists with scaled > 0).
+/// After swap_collateral, the source collateral decreases and the target
+/// collateral increases.
 #[rule]
 fn swap_collateral_conserves_collateral(
     e: Env,
@@ -357,7 +354,7 @@ fn swap_collateral_conserves_collateral(
     cvlr_assume!(from_amount > 0);
     cvlr_assume!(current_collateral != new_collateral);
 
-    // Capture old collateral position before swap
+    // Capture the source collateral position before the swap.
     let old_pos_before =
         crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &current_collateral);
     cvlr_assume!(old_pos_before.is_some());
@@ -547,8 +544,8 @@ fn repay_with_collateral_full_close_removes_account(
 
     // Account must exist with both position legs before the call; the
     // close-position path is gated on `borrow_positions` being empty after the
-    // repay, so we let the prover discover the witness within the loop_iter
-    // bound rather than force-pinning the map shape here.
+    // repay, so the prover discovers the witness within the loop_iter bound
+    // rather than pinning the map shape here.
     let collateral_before =
         crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
     cvlr_assume!(collateral_before.is_some());
@@ -700,9 +697,6 @@ fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Addres
 // directly against `validation::require_not_flash_loaning` -- every mutating
 // endpoint that calls the helper first inherits the property by construction.
 //
-// See audit/certora-efficiency/06-strategy-flashloan.md, "Collapse the four
-// 'blocked during flash loan' rules into one" for rationale.
-
 // ===========================================================================
 // Sanity rules (reachability checks)
 // ===========================================================================

@@ -75,14 +75,10 @@ crate::summarized!(
 );
 
 // `sac::approve_summary` and `sac::allowance_summary` carry the matching
-// arity (leading `_token: &Address`) for future wiring. The current production
-// `approve` / `allowance` call sites all live inside `controller/src/strategy.rs`
-// and bind a `token::Client` reference reused across multiple ops — wiring
-// them through a free-fn summarised wrapper would force passing the asset
-// `Address` instead of the client across each helper. Leaving those sites as
-// raw client calls and the spec-level summaries idle (with the address arg in
-// place) is the minimal, soundness-preserving choice; revisit if/when the
-// router approve flow gets summarised.
+// arity (leading `_token: &Address`) for direct wrapper call sites. Production
+// `approve` and `allowance` calls live in strategy helpers that reuse a
+// `token::Client`, so they remain raw client calls unless the router approval
+// flow is summarized explicitly.
 
 fn aggregate_payments(
     env: &Env,
@@ -173,8 +169,8 @@ pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
         let index = crate::router::pool_update_indexes_call(env, &pool_addr, 0);
-        // Refresh the in-memory cache so any subsequent reads in this tx see
-        // the now-persisted index instead of recomputing.
+        // Refresh the in-memory cache so subsequent reads in this transaction
+        // use the persisted index.
         cache.market_indexes.set(asset.clone(), index);
     }
 }
@@ -301,5 +297,4 @@ mod tests {
         // 0.5 WAD residual is below the dust floor.
         assert_eq!(cache.get_isolated_debt(&isolated_asset), 0);
     }
-
 }

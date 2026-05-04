@@ -3,9 +3,6 @@
 //! production i128-backed half-up implementations.
 //!
 //! These modules are test-only; the production path never calls into here.
-//!
-//! Phase B of the fuzzing polish plan:
-//! <https://github.com/> (see `plans/polished-yawning-snowglobe.md`).
 
 pub mod liquidation;
 

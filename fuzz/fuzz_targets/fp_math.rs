@@ -1,10 +1,9 @@
 //! Unified fuzz target for the three pure-math primitives in `common::fp_core`:
 //! `mul_div_half_up`, `div_by_int_half_up`, and `rescale_half_up`.
 //!
-//! One target replaces the former trio (`fp_mul_div`, `fp_div_by_int`,
-//! `fp_rescale`). A shared 35-byte input layout dispatches to the correct arm
-//! via `kind % 3`, which lets libFuzzer cross-pollinate bytes between arms
-//! while keeping invariants per-arm:
+//! A shared 35-byte input layout dispatches to the correct arm via `kind % 3`,
+//! allowing libFuzzer to mutate bytes across related arithmetic operations
+//! while keeping invariants per arm:
 //!
 //! - MulDiv (commutativity, identity, zero-absorbing, half-up bound)
 //! - DivByInt (away-from-zero sign, error bound, f64 differential)
@@ -12,7 +11,7 @@
 //!
 //! Inputs are clamped to protocol-realistic magnitudes (≤ 10^30). Values above
 //! that range exercise MathOverflow paths that are legitimate protocol
-//! behaviour, so they are treated as "out of domain" rather than bugs.
+//! behaviour, so they are treated as "out of domain" rather than defects.
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
@@ -42,8 +41,8 @@ struct In {
     extra: u8,
 }
 
-/// `mul_div_half_up` is NOT sign-correct (rounds toward zero, not away). In
-/// the protocol it is only called with non-negative operands because
+/// `mul_div_half_up` rounds negative values toward zero. In the protocol it is
+/// called with non-negative operands because
 /// Ray/Wad/Bps types are always >= 0. Signed math goes through
 /// `mul_div_half_up_signed`. The fuzzer honours this contract.
 fn clamp_nonneg(v: i128) -> i128 {
@@ -62,8 +61,8 @@ fn fuzz_mul_div(i: &In) {
         _ => BPS,
     };
 
-    // Final-result domain: a*b/d must fit in i128 (else MathOverflow panic,
-    // which is correct protocol behavior but not what we're fuzzing for).
+    // Final-result domain: a*b/d must fit in i128; overflow is outside this
+    // target's arithmetic-invariant domain.
     // Constrain a,b so that a*b/d <= 10^36 (well under i128::MAX = 1.7e38).
     let per_operand_cap = match d {
         RAY => 10i128.pow(27), // a*b <= 10^54, a*b/RAY <= 10^27
@@ -149,7 +148,7 @@ fn fuzz_div_by_int(i: &In) {
 
     // Differential reference check: for magnitudes within f64's exact-integer
     // range (|x| < 2^53 ≈ 9.007e15), compute half-up-away-from-zero via f64
-    // and compare. Catches off-by-one bugs the sign/error-bound checks miss.
+    // and compare. Catches off-by-one defects the sign/error-bound checks miss.
     const F64_EXACT_MAX: i128 = 1i128 << 53;
     if i.a.abs() < F64_EXACT_MAX && i.b < F64_EXACT_MAX {
         let q = i.a as f64 / i.b as f64;
@@ -195,8 +194,8 @@ fn fuzz_rescale(i: &In) {
         if i.a.abs() > bound {
             return;
         }
-        // `rescale_half_up` panics explicitly on upscale overflow -- that's
-        // the designed behavior. Skip inputs we know will trip it.
+        // `rescale_half_up` panics explicitly on upscale overflow. Skip
+        // out-of-domain inputs before asserting roundtrip behavior.
         let up = match std::panic::catch_unwind(|| rescale_half_up(i.a, from, to)) {
             Ok(v) => v,
             Err(_) => return,

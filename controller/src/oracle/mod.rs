@@ -174,11 +174,9 @@ fn to_reflector_asset(
 fn check_staleness(cache: &ControllerCache, feed_ts: u64, max_stale: u64) {
     let now_secs = cache.current_timestamp_ms / 1000;
     let is_stale = now_secs > feed_ts && (now_secs - feed_ts) > max_stale;
-    // Staleness is bypassed when the caller opted into the unsafe-price flag.
-    // Repay and views run with
-    // `allow_unsafe_price = true` and therefore stay live during a Reflector
-    // outage; risk-increasing ops (default cache, liquidation health pass)
-    // run with the flag off and panic.
+    // Staleness is bypassed only when the caller opted into the unsafe-price
+    // flag. Permissive caches keep risk-decreasing and view paths live during
+    // an oracle outage; strict caches panic.
     if is_stale && !cache.allow_unsafe_price {
         panic_with_error!(cache.env(), OracleError::PriceFeedStale);
     }
@@ -302,7 +300,7 @@ fn cex_twap_price(
     let history = reflector_prices_call(env, &cex_oracle, &ra, market.twap_records);
     let Some(history) = history else {
         // No history available. Fall back to spot rather than blocking the
-        // entire protocol, preserving the previous all-empty-window behavior.
+        // entire protocol when the TWAP window is empty.
         return cex_spot_price(cache, asset, market, max_stale);
     };
     if history.is_empty() {

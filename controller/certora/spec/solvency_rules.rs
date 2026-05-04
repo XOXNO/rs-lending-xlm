@@ -1,24 +1,8 @@
-/// Solvency & Cross-Contract Consistency Rules
+/// Solvency and cross-contract consistency rules.
 ///
-/// From CLAUDE.md:
-///   - reserves >= available_liquidity -- withdrawal failures if violated
-///   - Sum(user_scaled) <= total_scaled -- phantom liquidity if violated
-///   - borrowed_ray * borrow_index <= supplied_ray * supply_index (healthy pool)
-///   - revenue_ray <= supplied_ray (revenue is subset of supply)
-///
-/// Also verifies zero-amount reverts, position count limits, scaled-amount
-/// roundtrip dust bounds, and various math/cache invariants.
-///
-/// Several rules whose only post-condition was a direct comparison between
-/// independent havocs from the unsummarised pool views (`reserves`,
-/// `supplied_amount`, `borrowed_amount`, `protocol_revenue`) have been
-/// removed: with no joint summary tying those views to a single transaction
-/// snapshot, PASS proved nothing. The same applies to
-/// `*_scaled_conservation` rules (strict subsets of `position_rules` plus
-/// unsummarised pool views) and `borrow_index_gte_supply_index` (production
-/// deliberately violates this after `seize_position` bad-debt write-down).
-/// See `audit/certora-efficiency/01-solvency-health-position.md` for the
-/// full rationale per rule.
+/// Verifies reserve availability, position-count limits, scaled-amount
+/// roundtrip bounds, and controller/cache invariants that preserve market
+/// solvency across account operations.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
@@ -151,8 +135,11 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
     let post_account = crate::storage::get_account(&e, account_id);
 
     // LTV-weighted collateral via the unsummarised helper.
-    let ltv_collateral =
-        crate::helpers::calculate_ltv_collateral_wad(&e, &mut cache, &post_account.supply_positions);
+    let ltv_collateral = crate::helpers::calculate_ltv_collateral_wad(
+        &e,
+        &mut cache,
+        &post_account.supply_positions,
+    );
 
     // Total debt via inline iteration over the borrow map (mirrors the
     // production borrow-side loop at controller/src/helpers/mod.rs:170 but
@@ -232,7 +219,13 @@ fn supply_index_monotonic_across_borrow(e: Env, caller: Address, asset: Address,
 ///
 /// (supply_index_after - supply_index_before) <= (borrow_index_after - borrow_index_before)
 #[rule]
-fn supply_index_grows_slower(e: Env, asset: Address, caller: Address, e_mode_category: u32, amount: i128) {
+fn supply_index_grows_slower(
+    e: Env,
+    asset: Address,
+    caller: Address,
+    e_mode_category: u32,
+    amount: i128,
+) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
@@ -350,11 +343,9 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
 /// a NEW (not already held) asset must revert.
 ///
 /// The list iteration in production (`process_supply` / `prepare_deposit_plan`)
-/// runs `for i in 0..current_list.len()` over a symbolic-length list. To keep
-/// the loop bounded for the prover we additionally assume the list length is
-/// exactly `max_supply_positions`, which is the only case the rule cares
-/// about: the limit-equal precondition is what triggers the panic on a new
-/// asset.
+/// runs over a symbolic-length list. To keep the loop bounded for the prover,
+/// assume the list length is exactly `max_supply_positions`, the precondition
+/// that triggers the panic for a new asset.
 #[rule]
 fn supply_position_limit_enforced(
     e: Env,
@@ -608,7 +599,7 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     // First: populate the cache with a price
     let _feed1 = cache.cached_price(&asset);
 
-    // Sanity: cache now contains the price
+    // Sanity: the cache contains the price.
     let cached = cache.try_get_price(&asset);
     cvlr_assert!(cached.is_some());
 
@@ -619,9 +610,8 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let cached_after = cache.try_get_price(&asset);
     cvlr_assert!(cached_after.is_none());
 
-    // A fresh lookup will re-fetch from the oracle (may differ if oracle
-    // state changed between calls). The key property is that the cache
-    // was actually cleared -- stale prices are not silently reused.
+    // A fresh lookup will re-fetch from the oracle. The key property is that
+    // the cache was actually cleared; stale prices are not silently reused.
     let _feed2 = cache.cached_price(&asset);
 
     // The fresh fetch repopulates the cache
@@ -645,12 +635,7 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
 /// attempting to supply an isolated asset (which would require switching to
 /// isolation mode) must revert. And vice versa.
 #[rule]
-fn mode_transition_blocked_with_positions(
-    e: Env,
-    caller: Address,
-    asset: Address,
-    amount: i128,
-) {
+fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 

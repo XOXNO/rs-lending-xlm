@@ -36,11 +36,9 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
     );
 }
 
-// Post-audit (T1-3, M-02): `token_price` now rejects zero oracle prices
-// globally. The original scenario (USDC price = 0 -> degenerate HF math ->
-// liquidation fails with INVALID_PAYMENTS) is now unreachable. This test
-// asserts the safer behavior: reading any price for an asset whose oracle
-// returned 0 panics immediately with `OracleError::InvalidPrice` (#217).
+// `token_price` rejects zero oracle prices globally. Reading any price for an
+// asset whose oracle returns zero panics immediately with
+// `OracleError::InvalidPrice` (#217).
 #[test]
 #[should_panic(expected = "Error(Contract, #217)")]
 fn test_liquidation_zero_collateral_proportion() {
@@ -57,7 +55,7 @@ fn test_liquidation_zero_collateral_proportion() {
     t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
     t.set_price("USDC", 0);
 
-    // Any price fetch for USDC now panics with InvalidPrice.
+    // Any price fetch for USDC panics with InvalidPrice.
     t.assert_liquidatable(alice);
 }
 

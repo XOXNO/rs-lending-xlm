@@ -1,6 +1,6 @@
 //! Empirical max-position liquidate cost benchmark.
 //!
-//! Budget regression test for the max-position liquidation path. Validates that
+//! Budget coverage test for the max-position liquidation path. Validates that
 //! `liquidate` against an account holding the maximum supported number of
 //! supply + borrow positions either:
 //!
@@ -52,8 +52,8 @@ fn build_ctx() -> LendingTest {
 
 /// Classify any host-panic payload. Returns `Ok(())` if the payload
 /// surfaces a budget / limit error, `Err(message)` otherwise. Used to keep
-/// the bench resilient to either Soroban's `HostError::Budget(ExceededLimit)`
-/// or our own `panic_with_error!` propagation.
+/// the bench resilient to Soroban `HostError::Budget(ExceededLimit)` and
+/// contract `panic_with_error!` propagation.
 fn classify_panic(payload: Box<dyn std::any::Any + Send>) -> Result<(), std::string::String> {
     let msg = if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()
@@ -62,10 +62,8 @@ fn classify_panic(payload: Box<dyn std::any::Any + Send>) -> Result<(), std::str
     } else {
         std::format!("{:?}", payload.type_id())
     };
-    // Tighten substring match: previous "limit" / "size" matches were
-    // satisfied by "index out of bounds" and arithmetic-overflow text.
-    // Require Soroban host-budget keywords AND exclude common false
-    // positives (overflow, out of bounds, panicked).
+    // Require Soroban host-budget keywords and exclude common false positives
+    // such as overflow, out-of-bounds, and generic panic text.
     let low = msg.to_lowercase();
     let is_overflow = low.contains("overflow") || low.contains("out of bounds");
     let is_budget = !is_overflow

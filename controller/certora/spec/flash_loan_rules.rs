@@ -1,50 +1,17 @@
-/// Flash Loan Safety Rules
+/// Flash-loan safety rules.
 ///
-/// From CLAUDE.md:
-///   - Reentrancy guard: no nested flash loans (FLASH_LOAN_ALREADY_ONGOING)
-///   - repayment >= borrowed + fees enforced after callback
-///   - Cache dropped before callback, recreated after (reentrancy protection)
+/// Verifies the controller reentrancy guard and successful guard cleanup after
+/// callback completion.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 // ---------------------------------------------------------------------------
-// Rule 1: DELETED -- flash_loan_guard_active_during_callback was vacuous.
-// It assumed the guard was true then asserted it was true (tautology).
-// The guard behavior is properly tested by no_mutations_during_flash_loan
-// which sets the guard in storage and attempts a borrow.
+// Rule 1: Flash-loan guard helper rejects calls when the flag is set
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Rule 2: Flash loan repayment covers borrowed + fee -- DELETED
-// ---------------------------------------------------------------------------
-//
-// The earlier `flash_loan_fee_collected` rule compared two independent calls
-// to `pool_client.protocol_revenue()` taken before and after the flash-loan
-// invocation. With no `protocol_revenue` summary wired and no shared per-tx
-// snapshot, both reads return independent havoced i128 values -- so the
-// `revenue_after >= revenue_before` assertion was vacuous.
-//
-// The protocol-revenue monotonicity property belongs in the pool crate's
-// spec (where the same storage backs both reads), or it requires a joint
-// pool-views summary that draws both reads from a single snapshot. Both are
-// out of scope for this controller-side spec module. See
-// audit/certora-efficiency/06-strategy-flashloan.md, "flash_loan_fee_collected
-// is mis-located" for rationale.
-
-// ---------------------------------------------------------------------------
-// Rule 3: Flash-loan guard helper rejects calls when the flag is set
-// ---------------------------------------------------------------------------
-
-/// Every mutating controller endpoint calls `require_not_flash_loaning`
-/// before any other work; if that helper rejects when the flag is set, all
-/// downstream paths are blocked.
-///
-/// We verify the helper directly. The previous formulation called the full
-/// `borrow_single` flow, which expanded to ~129k basic blocks (over the
-/// `maxBlockCount` ceiling). The narrow form below is < 5k blocks and
-/// generalises: any future mutating endpoint that calls
-/// `require_not_flash_loaning` first inherits the property by construction.
+/// The helper is verified directly; controller paths that call it before
+/// mutating state inherit the same flash-loan exclusion property.
 #[rule]
 fn flash_loan_guard_blocks_callers(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, true);
@@ -58,21 +25,19 @@ fn flash_loan_guard_blocks_callers(e: Env) {
     cvlr_satisfy!(false);
 }
 
-/// Companion: when the flag is NOT set, the guard helper returns cleanly.
-/// Catches a regression where the guard panics unconditionally (which would
-/// permanently lock the protocol).
+/// Companion rule: when the flag is not set, the guard helper returns cleanly.
 #[rule]
 fn flash_loan_guard_allows_when_clear(e: Env) {
     crate::storage::set_flash_loan_ongoing(&e, false);
 
     crate::validation::require_not_flash_loaning(&e);
 
-    // Reachable: the guard returns and we get here.
+    // Reachable only when the guard returns.
     cvlr_satisfy!(true);
 }
 
 // ---------------------------------------------------------------------------
-// Rule 4: Flash loan guard cleared after successful completion
+// Rule 2: Flash loan guard cleared after successful completion
 // ---------------------------------------------------------------------------
 
 /// After a successful flash loan (process_flash_loan returns without
@@ -82,21 +47,10 @@ fn flash_loan_guard_allows_when_clear(e: Env) {
 /// repayment verified). If the guard remains true after completion, all
 /// mutating endpoints would be permanently locked.
 ///
-/// Audit P1a / `06-strategy-flashloan.md` flagged this rule as vacuously
-/// satisfied on every revert path inside `process_flash_loan`: when any
-/// pre-check (`require_amount_positive`, `require_market_active`,
-/// `is_flashloanable`), the receiver callback, or `flash_loan_end` panics,
-/// Soroban rolls the entire transaction back -- the guard is implicitly
-/// cleared by rollback, not by the production code, so the assertion was
-/// trivially satisfied via the unreachable post-state.
-///
-/// Below we exclude the controller-side revert paths via `cvlr_assume!`s so
-/// the rule actually exercises the success path. The third-party callback
-/// path (`env.invoke_contract::<()>` at flash_loan.rs:56-60) and the pool's
-/// own `flash_loan_end` repay-shortfall panic are out of the controller's
-/// reach; both remain vacuously satisfied via rollback. Pair with the
-/// `flash_loan_guard_cleared_sanity` companion below to confirm the success
-/// path is actually reachable under the wired summaries.
+/// Controller-side revert paths are excluded with `cvlr_assume!` so the rule
+/// exercises successful completion. Receiver callback failures and pool
+/// repay-shortfall failures roll back the transaction before post-state
+/// evaluation and are covered by rollback semantics.
 #[rule]
 fn flash_loan_guard_cleared_after_completion(
     e: Env,

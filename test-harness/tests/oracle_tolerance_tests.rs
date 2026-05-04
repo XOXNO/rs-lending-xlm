@@ -146,12 +146,8 @@ fn test_unsafe_price_allows_repay() {
     // Deviate the ETH safe price beyond the second tolerance.
     t.set_safe_price("ETH", usd(2200), true, true); // 10% deviation
 
-    // Repay still succeeds (allow_unsafe_price=true for repay). The previous
-    // version of this test had no assertion -- it relied on the implicit
-    // "panic-if-repay-fails" behavior of `t.repay()`. A regression that
-    // accepted the repay syntactically but left the position untouched would
-    // have passed. Snapshot the debt before and after to verify the repay
-    // actually reduced the scaled borrow.
+    // Repay still succeeds with `allow_unsafe_price=true`. Snapshot debt
+    // before and after to verify the scaled borrow decreases.
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.repay(ALICE, "ETH", 1.0);
     let debt_after = t.borrow_balance(ALICE, "ETH");
@@ -340,8 +336,7 @@ fn test_stale_price_blocks_supply() {
     // Supply also fails with a stale price because the oracle adapter's
     // mock storage entry expired on `advance_time_no_refresh`, so
     // `lastprice` returns `None` -> `OracleError::NoLastPrice`. Pin the
-    // precise contract code so any regression that fails for a different
-    // reason surfaces loudly.
+    // precise contract code so failures for unrelated reasons surface clearly.
     let err = t
         .try_supply(ALICE, "USDC", 1_000.0)
         .expect_err("supply should fail under stale-mock conditions");
@@ -612,7 +607,7 @@ fn test_disable_token_oracle_blocks_operations() {
     let admin = t.admin();
     t.ctrl_client().disable_token_oracle(&admin, &usdc_asset);
 
-    // The price now returns 0 for USDC, changing HF-sensitive behavior.
+    // The disabled USDC oracle returns zero, changing HF-sensitive behavior.
     // Borrowing against zero-value collateral must fail.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert!(

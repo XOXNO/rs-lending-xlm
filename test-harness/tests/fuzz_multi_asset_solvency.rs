@@ -86,15 +86,10 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 fn assert_invariants(t: &LendingTest) {
-    // NOTE: this fuzzer does NOT assert `HF >= 1 for every live account`.
-    // HF must be >= 1 only at the moment of a borrow or withdraw. Once time
-    // advances, interest accrual on outstanding debt pushes near-threshold
-    // positions below 1.0 -- correct protocol behavior (the user becomes
-    // liquidatable), not a solvency failure.
-    //
-    // The real cross-op invariants this sequence fuzzer checks are:
-    //   1. No operation returns a negative pool reserve.
-    //   2. Index monotonicity (asserted per-op in the main loop below).
+    // This fuzzer does not require every live account to keep HF >= 1 after
+    // time advances. Interest accrual can make near-threshold positions
+    // liquidatable. The cross-operation invariants checked here are non-negative
+    // reserves and per-operation index monotonicity.
     for asset in &["USDC", "ETH", "WBTC"] {
         let r = t.pool_reserves(asset);
         assert!(r >= -0.0001, "{} reserves negative: {}", asset, r);

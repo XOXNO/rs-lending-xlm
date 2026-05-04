@@ -367,8 +367,8 @@ mod tests {
     use common::constants::RAY;
     use common::types::{
         Account, AccountPosition, AssetConfig, ExchangeSource, MarketConfig, MarketParams,
-        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey,
-        PoolState, PositionMode, ReflectorAssetKind, ReflectorConfig,
+        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey, PoolState,
+        PositionMode, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{Address, Map, Symbol, Vec};

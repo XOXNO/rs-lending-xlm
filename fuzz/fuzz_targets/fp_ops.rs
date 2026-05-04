@@ -1,5 +1,5 @@
-//! Fuzz target for the `common::fp` helpers that `fp_math` and
-//! `rates_and_index` don't exercise:
+//! Fuzz target for the `common::fp` helpers outside the direct coverage of
+//! `fp_math` and `rates_and_index`:
 //!
 //!   - Ray ↔ Wad ↔ asset/token conversions (`to_wad`, `to_asset`,
 //!     `from_asset`, `Wad::from_token`, `Wad::to_token`, `Bps::to_wad`).
@@ -15,8 +15,7 @@
 //!   - Floor vs half-up: `div_floor(a, b) ≤ div(a, b)`.
 //!
 //! Inputs are clamped to protocol-realistic magnitudes (≤ 10^24). Anything
-//! larger triggers `MathOverflow` panics — legitimate protocol behaviour,
-//! not bugs — so we skip those inputs at the top of the target.
+//! larger triggers `MathOverflow` panics and is skipped as out of domain.
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};
@@ -24,11 +23,8 @@ use common::fp::{Bps, Ray, Wad};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 
-/// Keep magnitudes below the `mul_div` safe envelope. Products like
-/// `a * b / RAY` must fit in i128; at a = b = 10^24 the product is 10^48,
-/// well below i128::MAX (≈ 1.7e38) — wait, that's too large. 10^24 * 10^24 = 10^48.
-/// i128 max is ~1.7e38. So we need |a|, |b| ≤ 10^19 to guarantee no overflow.
-/// Use 10^18 (= WAD) for headroom.
+/// Keeps operands inside the `mul_div` safe envelope. `10^18` provides
+/// headroom below the `i128` product bound for fixed-point roundtrips.
 const MAX_MAG: i128 = 1_000_000_000_000_000_000; // 10^18
 
 #[derive(Debug, Arbitrary)]
@@ -125,8 +121,8 @@ fuzz_target!(|i: In| {
     // `a * 1 ≈ a` within 1 ulp. Not an exact identity for negative `a`
     // because `Wad::mul` uses `mul_div_half_up` which rounds toward +∞:
     // for a = -k.5 the result rounds up to -k (drifting by 1 magnitude
-    // toward zero). This is documented half-up behaviour, not a bug —
-    // the tolerance matches what the rest of the protocol assumes.
+    // toward zero). This matches the documented half-up behavior and the
+    // tolerance used by the protocol.
     let ident = wad_a.mul(&env, Wad::ONE);
     let ident_err = (ident.raw() - wad_a.raw()).abs();
     assert!(
@@ -196,13 +192,12 @@ fuzz_target!(|i: In| {
         "max not in {{a, b}}"
     );
 
-    // ---- Wad ↔ token conversion ----
+    // ---- Wad <-> token conversion ----
     // Exercises `Wad::from_token` and `Wad::to_token`. Assertions are
     // deliberately loose: `from_token` uses half-up rescale which can
     // round away from zero, so a strict `to_token(from_token(x)) <= x`
     // bound doesn't hold for negative amounts or near-boundary values.
-    // The invariant we CAN rely on is: same-sign after roundtrip, and
-    // zero maps to zero.
+    // Durable invariants: non-zero roundtrips preserve sign and zero maps to zero.
     if decimals >= 2 || i.token_amount.abs() as i128 <= 10i128.pow(15) {
         let w = Wad::from_token(i.token_amount as i128, decimals);
         let back = w.to_token(decimals);

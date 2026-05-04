@@ -31,8 +31,8 @@ fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
     let rev = t.snapshot_revenue("USDC");
     assert!(rev > 0, "Expected some revenue after 1 year");
 
-    // Snapshot pool and accumulator balances right before the claim so we
-    // can pin the token flow, not just the revenue accumulator state.
+    // Snapshot pool and accumulator balances before the claim to verify token
+    // flow, not only accumulator state.
     let asset = t.resolve_market("USDC").asset.clone();
     let pool_addr = t.resolve_market("USDC").pool.clone();
     let tok = soroban_sdk::token::Client::new(&t.env, &asset);
@@ -89,7 +89,7 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
     let res = t.pool_reserves("USDC");
     t.borrow(BOB, "USDC", res - 1.0);
 
-    // Reserves are now near 0. Ensure accrued revenue exceeds reserves.
+    // Reserves are near zero. Ensure accrued revenue exceeds reserves.
     let rev = t.snapshot_revenue("USDC");
     let res_raw = t.pool_client("USDC").reserves();
     assert!(
@@ -99,8 +99,8 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
         res_raw
     );
 
-    // Snapshot pool and accumulator balances after the reserve drain but
-    // before the claim, so we can pin the token flow on this branch.
+    // Snapshot pool and accumulator balances after the reserve drain and before
+    // the claim to verify token flow on this branch.
     let asset = t.resolve_market("USDC").asset.clone();
     let pool_addr = t.resolve_market("USDC").pool.clone();
     let tok = soroban_sdk::token::Client::new(&t.env, &asset);

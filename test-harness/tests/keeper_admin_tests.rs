@@ -25,8 +25,6 @@ use test_harness::{
 
 // ---------------------------------------------------------------------------
 // 1. keepalive_pools -- happy path with multiple assets + skip-on-missing.
-//    Covers router.rs lines 41-44 (entry + signature), 373-383 (loop body)
-//    and the `!has_market_config` skip at line 376-378.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -55,8 +53,7 @@ fn test_keepalive_pools_iterates_and_skips_unknown() {
 // 2. keepalive_shared_state -- exercises the deeper per-asset branches:
 //    `Market` and `IsolatedDebt` always; `AssetEModes`, `EModeCategory`,
 //    `EModeAssets` only when the asset belongs to at least one e-mode
-//    category. Covers router.rs lines 338-362 and the `!has_market_config`
-//    skip at 344-346.
+//    category.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -79,12 +76,8 @@ fn test_keepalive_shared_state_bumps_emode_keys() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. upgrade_pool -- admin path. Covers router.rs line 67-69 (entry) and
-//    252-257 (body: require_asset_supported + get_market_config +
-//    pool_client.upgrade). The same wasm hash already stored as the pool
-//    template is re-used: the Soroban host accepts a no-op upgrade for a
-//    known-uploaded hash, so we drive the full code path without needing a
-//    second wasm blob.
+// 3. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
+//    host accepts a no-op upgrade without a second wasm blob.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -100,9 +93,8 @@ fn test_upgrade_pool_admin_path() {
             .expect("pool template must be set after build()")
     });
 
-    // Drive the admin-gated upgrade entry point. With the controller's
-    // own template hash this is a no-op upgrade that exercises every line
-    // of `upgrade_liquidity_pool` without altering pool behavior.
+    // Drive the admin-gated upgrade entry point with the controller's own
+    // template hash, producing a no-op upgrade without altering pool behavior.
     let asset = t.resolve_asset("USDC");
     t.ctrl_client().upgrade_pool(&asset, &template_hash);
 }
@@ -110,7 +102,6 @@ fn test_upgrade_pool_admin_path() {
 // ---------------------------------------------------------------------------
 // 4. TemplateEmpty -- create_liquidity_pool must panic with
 //    GenericError::TemplateEmpty (#5) when no pool template is set.
-//    Covers router.rs line 142-144.
 //
 //    A fresh controller registered outside the LendingTest builder gives us
 //    a state where `has_pool_template == false` while still allowing us to
@@ -128,8 +119,8 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
     let controller = env.register(controller::Controller, (admin.clone(),));
     let ctrl = controller::ControllerClient::new(&env, &controller);
 
-    // Mirror the post-deploy operator runbook so we land on the template
-    // check rather than the pause / role gates.
+    // Apply the post-deploy operator state so the test reaches the template
+    // check rather than pause or role gates.
     ctrl.unpause();
 
     // A real SAC token satisfies the decimals + symbol + allow-list probes
@@ -151,8 +142,7 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Deprecated e-mode reject on the user path. Covers
-//    `controller/src/positions/emode.rs:95`. Sequence:
+// 5. Deprecated e-mode reject on the user path. Sequence:
 //      a) admin opens an e-mode category and adds USDC to it;
 //      b) ALICE opens an account in that category (still active);
 //      c) admin removes (deprecates) the category;
@@ -192,7 +182,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
     // Deprecate the category.
     t.remove_e_mode_category(1);
 
-    // Confirm the category is now flagged deprecated in storage.
+    // Confirm the category is flagged deprecated in storage.
     let deprecated: bool = t.env.as_contract(&t.controller_address(), || {
         let cat: EModeCategory = t
             .env

@@ -38,8 +38,7 @@ use crate::context::LendingTest;
 
 #[derive(Clone, Debug)]
 pub struct RefCollateralPosition {
-    /// Stable identifier used to zip reference outputs back to production
-    /// assets (index into the snapshot vector).
+    /// Stable identifier mapping reference outputs back to asset snapshots.
     pub asset_id: u32,
     pub supply_scaled_ray: BigRational,
     pub supply_index_ray: BigRational,
@@ -135,8 +134,8 @@ pub fn half_up_div(num: BigInt, denom: BigInt) -> BigInt {
 }
 
 /// Convert a BigRational to an i128 using half-up rounding (half away from
-/// zero). Saturates on overflow (never panics) so a buggy reference never
-/// masks a production comparison failure.
+/// zero). Saturates on overflow (never panics) so a reference overflow cannot
+/// mask a production comparison failure.
 pub fn bigrational_to_i128_half_up(x: &BigRational) -> i128 {
     let num = x.numer().clone();
     let denom = x.denom().clone();
@@ -187,8 +186,7 @@ fn position_value_wad(
 
 fn compute_hf_wad(supplies: &[RefCollateralPosition], debts: &[RefDebtPosition]) -> BigRational {
     if debts.is_empty() {
-        // Sentinel: return MAX rational (we pick a large number). Callers
-        // should never liquidate here.
+        // Sentinel for non-liquidatable debt-free accounts.
         return BigRational::from_integer(BigInt::from(i128::MAX));
     }
 
@@ -558,11 +556,8 @@ pub fn compute_liquidation(
         }
     }
 
-    // 4. Handle excess payments. Production's `process_excess_payment`
-    //    tail-trims the repayment list. For differential asserts we only
-    //    compare aggregate debt reduction (total USD) against production
-    //    total debt reduction, so we record the raw per-asset payments
-    //    here and the bound on total_repaid_usd is the primary check.
+    // 4. Record raw per-asset debt payments. Differential assertions compare
+    //    aggregate USD debt reduction against production output.
     let repaid_per_debt: Vec<(u32, BigRational)> = per_debt_payments_usd
         .iter()
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))

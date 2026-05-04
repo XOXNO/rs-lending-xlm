@@ -7,12 +7,10 @@ use test_harness::{
 // ---------------------------------------------------------------------------
 // 1. test_flash_loan_success_under_non_root_auth
 // ---------------------------------------------------------------------------
-// Under `mock_all_auths_allowing_non_root_auth()` (now the harness default
-// — required by the new aggregator ABI's contract-address auth chain), the
-// nested `StellarAssetClient::mint()` call inside the good flash-loan
-// receiver authorizes correctly. The previous "limitation documented"
-// assertion (the call must err) is inverted here: the flow now completes
-// end-to-end and we pin the success.
+// Under `mock_all_auths_allowing_non_root_auth()` (the harness default for
+// contract-address auth chains), the nested `StellarAssetClient::mint()` call
+// inside the good flash-loan receiver authorizes correctly and the flow
+// completes end-to-end.
 
 #[test]
 fn test_flash_loan_success_under_non_root_auth() {
@@ -199,12 +197,7 @@ fn test_flash_loan_reentrancy_blocks_liquidation() {
 
 #[test]
 fn test_flash_loan_fee_config_matches_default_preset() {
-    // The previous version asserted `expected_fee == 90.0` (tautological:
-    // `100_000 * 9 / 10_000` is always 90 at compile time) and
-    // `result.is_err()` from the same mock_all_auths limitation. It proved
-    // nothing the compiler did not.
-    //
-    // This rewrite pins the default preset config values so any change to
+    // Pin the default preset config values so any change to
     // `usdc_preset()` surfaces in CI. The end-to-end fee transfer runs in
     // the inline `test_flash_loan` in pool/src/lib.rs, which uses the admin
     // (covered by mock_all_auths) as receiver.

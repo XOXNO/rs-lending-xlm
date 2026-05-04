@@ -3,22 +3,17 @@
 //! The Reflector trait is declared in `controller/src/oracle/reflector.rs`
 //! via `#[contractclient(name = "ReflectorClient")]`. Production goes through
 //! `crate::oracle::token_price` -> `ReflectorClient::lastprice` /
-//! `ReflectorClient::prices`; both calls are pure havoc to the prover unless
-//! summarised. With both Reflector returns havoced, every cache-consistency
-//! / staleness / tolerance rule reasons over independent draws -- the
-//! oracle layer's chief efficiency blocker per the Oracle efficiency report
-//! (`audit/certora-efficiency/04-oracle.md`).
+//! `ReflectorClient::prices`; these summaries constrain oracle outputs to the
+//! same domain expected by production price validation.
 //!
 //! Soundness contract: each summary returns a value in the same domain as
 //! the production Reflector contract guarantees (price > 0, timestamps
 //! bounded by current ledger time + 60s clock-skew tolerance, monotone
-//! decreasing for `prices`). Anything stricter would silently hide bugs.
+//! decreasing for `prices`). Anything stricter would silently hide feasible
+//! behavior.
 //!
-//! Wiring: registered against the `ReflectorClient::*` call sites via
-//! `cvlr_soroban_macros::apply_summary!` -- the wrapper invocations live in
-//! `controller/src/oracle/...`. Until those wrappers are added (P0a in the
-//! efficiency review's wiring matrix), these summaries are inert; authoring
-//! them here is the spec-side prerequisite.
+//! Wiring: registered against `ReflectorClient::*` call sites via
+//! `cvlr_soroban_macros::apply_summary!`.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
@@ -108,9 +103,8 @@ pub fn prices_summary(
             let price: i128 = nondet();
             let timestamp: u64 = nondet();
             cvlr_assume!(price > 0);
-            // Monotone non-increasing timestamp chain. Bound from above by
-            // the previous (newer) entry's timestamp; the head is bounded
-            // by `now + clock_skew`.
+            // Monotone non-increasing timestamp chain. Each sample is bounded
+            // by the preceding newer entry's timestamp.
             cvlr_assume!(timestamp <= prev_ts);
             out.push_back(ReflectorPriceData { price, timestamp });
             prev_ts = timestamp;

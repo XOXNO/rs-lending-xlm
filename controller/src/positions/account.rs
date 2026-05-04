@@ -119,7 +119,8 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let (id, account) = create_account(&t.env, &t.owner, 0, PositionMode::Long, false, None);
+            let (id, account) =
+                create_account(&t.env, &t.owner, 0, PositionMode::Long, false, None);
 
             assert_eq!(id, 1);
             assert_eq!(account.owner, t.owner);

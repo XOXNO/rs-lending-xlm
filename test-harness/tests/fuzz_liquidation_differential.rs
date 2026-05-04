@@ -1,4 +1,4 @@
-//! Phase-B differential fuzz harness -- production liquidation math against a
+//! Differential fuzz harness for production liquidation math against a
 //! `num_rational::BigRational` reference.
 //!
 //! For each randomly-generated scenario:
@@ -22,7 +22,7 @@
 //!   PROPTEST_CASES=1000 cargo test --release -p test-harness \
 //!       --test fuzz_liquidation_differential -- --test-threads=1
 //!
-//! Bound rationale (from the plan): each half-up op drifts <= 0.5 ulp; the
+//! Bound rationale: each half-up op drifts <= 0.5 ulp; the
 //! chain here has ~6 ops, so worst-case drift is ~3 ulp.
 //!
 //! **Empirical calibration** (observed during initial runs): the *per-asset
@@ -34,7 +34,7 @@
 //! value and multiplies by `one_plus_bonus` with no rounding. For a $40
 //! seizure, drifts run up to ~1e15 WAD (= 0.001 USD), or ~2.5e-5 relative.
 //! The harness therefore uses a relative bound of 1e-3 (0.1%) on USD
-//! aggregates -- a generous envelope that still catches real bugs (any drift
+//! aggregates -- a generous envelope that still catches real deviations (any drift
 //! over 0.1% signals a systematic rounding-direction error, not the
 //! 0.5-ulp-per-op accumulation this harness tolerates).
 //!
@@ -178,13 +178,12 @@ proptest! {
         let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
         let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
         if liq_res.is_err() {
-            // The protocol can reject for e.g. HF >= 1 after rounding; if
-            // the reference also derived zero repayment, we are consistent.
+            // The protocol can reject when rounding leaves HF >= 1. A zero
+            // reference repayment is consistent with that rejection.
             if ref_total_repaid_usd_wad == 0 {
                 return Ok(());
             }
-            // Otherwise we have drifted -- flag only if the reference
-            // predicted a non-trivial repayment.
+            // Flag only when the reference predicts a non-trivial repayment.
             prop_assert!(
                 ref_total_repaid_usd_wad.abs() < ULP_BOUND_USD_WAD,
                 "production rejected but reference predicted repayment: ref_usd_wad={}",
