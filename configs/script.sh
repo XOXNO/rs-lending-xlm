@@ -270,13 +270,17 @@ create_market() {
         "$MARKET_CONFIG_FILE")
     # Markets are deployed in a pending state so they cannot be used before
     # oracle wiring and explicit activation.
+    # `e_mode_categories` is a `Vec<u32>` populated by
+    # `add_asset_to_e_mode_category` after the market exists; pin it
+    # to an empty array at create time so the contract spec accepts
+    # the JSON (jq emits `[]` which decodes to Vec::new).
     local pending_config=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .asset_config | \
          .is_collateralizable = false | \
          .is_borrowable = false | \
          .is_flashloanable = false | \
-         .e_mode_enabled = false | \
-         .isolation_borrow_enabled = false" \
+         .isolation_borrow_enabled = false | \
+         .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
     # Post-audit (T1-7): the controller gates `create_liquidity_pool` behind an
@@ -303,7 +307,12 @@ edit_asset_config() {
     echo "Editing asset config for ${market_name}..."
 
     local asset_address=$(get_market_value "$market_name" "asset_address")
-    local config=$(jq -c ".markets[] | select(.name == \"$market_name\") | .asset_config" "$MARKET_CONFIG_FILE")
+    # `e_mode_categories` is contract-managed and ignored by
+    # `edit_asset_config` on chain — pin to `[]` so the JSON shape
+    # matches the AssetConfig spec.
+    local config=$(jq -c \
+        ".markets[] | select(.name == \"$market_name\") | .asset_config | .e_mode_categories = []" \
+        "$MARKET_CONFIG_FILE")
 
     local ctrl=$(get_controller)
     local admin=$(get_signer_address)
