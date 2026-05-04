@@ -2,9 +2,9 @@
   "testnet": {
     "1": {
       "name": "Stablecoins",
-      "ltv": "9700",
-      "liquidation_threshold": "9800",
-      "liquidation_bonus": "200",
+      "ltv": 9700,
+      "liquidation_threshold": 9800,
+      "liquidation_bonus": 200,
       "assets": {
         "USDC": {
           "can_be_collateral": true,
@@ -20,9 +20,9 @@
   "mainnet": {
     "1": {
       "name": "USD Loop",
-      "ltv": "9300",
-      "liquidation_threshold": "9500",
-      "liquidation_bonus": "300",
+      "ltv": 9300,
+      "liquidation_threshold": 9500,
+      "liquidation_bonus": 300,
       "assets": {
         "USDC": {
           "can_be_collateral": true,
@@ -36,9 +36,9 @@
     },
     "2": {
       "name": "Stables + Bonds",
-      "ltv": "8800",
-      "liquidation_threshold": "9200",
-      "liquidation_bonus": "500",
+      "ltv": 8800,
+      "liquidation_threshold": 9200,
+      "liquidation_bonus": 500,
       "assets": {
         "USDC": {
           "can_be_collateral": true,

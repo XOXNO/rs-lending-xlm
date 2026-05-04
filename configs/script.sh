@@ -477,8 +477,8 @@ configure_market_oracle() {
         .markets[] | select(.name == \"$market_name\") | {
             exchange_source: .oracle.exchange_source,
             max_price_stale_seconds: .oracle.max_price_stale_seconds,
-            first_tolerance_bps: (.oracle.first_tolerance_bps | tostring),
-            last_tolerance_bps: (.oracle.last_tolerance_bps | tostring),
+            first_tolerance_bps: .oracle.first_tolerance_bps,
+            last_tolerance_bps: .oracle.last_tolerance_bps,
             cex_oracle: .reflector.cex_oracle,
             cex_asset_kind: .reflector.cex_asset_kind,
             cex_symbol: .reflector.cex_symbol,
