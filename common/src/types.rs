@@ -130,7 +130,6 @@ pub struct AssetConfig {
     pub liquidation_fees_bps: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub e_mode_enabled: bool,
     pub is_isolated_asset: bool,
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
@@ -143,6 +142,12 @@ pub struct AssetConfig {
     /// past `u64`; `-1` / `i128::MAX` encodes "no cap".
     pub borrow_cap: i128,
     pub supply_cap: i128,
+    /// E-mode category memberships for this asset. Empty when the asset
+    /// is not enrolled in any category — `has_emode()` returns false in
+    /// that state. Maintained by `add_asset_to_e_mode_category` /
+    /// `remove_asset_from_e_mode` / `remove_e_mode_category` so it
+    /// stays in sync with the per-category `EModeCategory.assets` map.
+    pub e_mode_categories: Vec<u32>,
 }
 
 impl AssetConfig {
@@ -167,7 +172,7 @@ impl AssetConfig {
     }
 
     pub fn has_emode(&self) -> bool {
-        self.e_mode_enabled
+        !self.e_mode_categories.is_empty()
     }
 }
 
@@ -660,10 +665,11 @@ pub enum ControllerKey {
     /// Single ledger entry per category — params + member-asset map
     /// inside the [`EModeCategory`] value. One TTL bump per category.
     EModeCategory(u32),
-    AssetEModes(Address),
     IsolatedDebt(Address),
-    PoolsList(u32),
-    PoolsCount,
+    /// Single ledger entry holding `Vec<Address>` (asset addresses).
+    /// Pool address per asset is resolved via [`MarketConfig::pool_address`];
+    /// no separate `PoolsCount` is kept (vec.len() is authoritative).
+    PoolsList,
 }
 
 /// Pool storage keys, all Instance-scoped.

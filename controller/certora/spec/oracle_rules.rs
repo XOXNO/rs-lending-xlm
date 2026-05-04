@@ -72,7 +72,7 @@ fn pinned_market_config(
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            e_mode_enabled: false,
+            e_mode_categories: soroban_sdk::Vec::new(&env),
             is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,

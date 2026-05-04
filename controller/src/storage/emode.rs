@@ -1,7 +1,7 @@
 use super::bump_shared;
 use common::errors::EModeError;
 use common::types::{ControllerKey, EModeAssetConfig, EModeCategory};
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, Address, Env};
 
 // ---------------------------------------------------------------------------
 // EModeCategory (one entry per category — params + member-asset map)
@@ -31,7 +31,10 @@ pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategory) {
 // ---------------------------------------------------------------------------
 // E-Mode asset memberships — read/written through the embedded `assets` map
 // on the [`EModeCategory`] entry. Single ledger entry per category; per-asset
-// ops load + rewrite the whole entry.
+// ops load + rewrite the whole entry. The reverse index (asset → categories)
+// lives on `AssetConfig.e_mode_categories` inside the per-asset MarketConfig
+// entry, so both directions of the membership relation share storage already
+// loaded by the surrounding operation.
 // ---------------------------------------------------------------------------
 
 pub fn get_emode_asset(env: &Env, category_id: u32, asset: &Address) -> Option<EModeAssetConfig> {
@@ -50,22 +53,4 @@ pub fn remove_emode_asset(env: &Env, category_id: u32, asset: &Address) {
         cat.assets.remove(asset.clone());
         set_emode_category(env, category_id, &cat);
     }
-}
-
-// ---------------------------------------------------------------------------
-// Reverse index: per-asset list of categories
-// ---------------------------------------------------------------------------
-
-pub fn get_asset_emodes(env: &Env, asset: &Address) -> Vec<u32> {
-    let key = ControllerKey::AssetEModes(asset.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(Vec::new(env))
-}
-
-pub fn set_asset_emodes(env: &Env, asset: &Address, categories: &Vec<u32>) {
-    let key = ControllerKey::AssetEModes(asset.clone());
-    env.storage().persistent().set(&key, categories);
-    bump_shared(env, &key);
 }

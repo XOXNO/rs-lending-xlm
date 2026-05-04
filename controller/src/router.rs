@@ -165,9 +165,15 @@ pub fn create_liquidity_pool(
 
     // Market starts in PendingOracle; `configure_market_oracle` populates
     // the flat oracle fields and transitions to Active.
+    //
+    // `e_mode_categories` is force-cleared regardless of what the admin
+    // passed in: e-mode membership is only set via the dedicated
+    // `add_asset_to_e_mode_category` flow, never at creation time.
+    let mut asset_config = config.clone();
+    asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
     let market = MarketConfig {
         status: MarketStatus::PendingOracle,
-        asset_config: config.clone(),
+        asset_config,
         pool_address: pool_address.clone(),
         oracle_config: OracleProviderConfig::default_for(asset.clone(), params.asset_decimals),
         cex_oracle: None,
@@ -355,9 +361,10 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
 
     for i in 0..assets.len() {
         let asset = assets.get(i).unwrap();
-        if !storage::has_market_config(env, &asset) {
-            continue;
-        }
+        let market = match storage::try_get_market_config(env, &asset) {
+            Some(m) => m,
+            None => continue,
+        };
 
         storage::bump_shared(env, &ControllerKey::Market(asset.clone()));
         // `IsolatedDebt(asset)` is created lazily on the first isolated
@@ -367,12 +374,9 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
             storage::bump_shared(env, &isolated_key);
         }
 
-        let categories = storage::get_asset_emodes(env, &asset);
-        if !categories.is_empty() {
-            storage::bump_shared(env, &ControllerKey::AssetEModes(asset.clone()));
-        }
-        for category_id in categories {
-            // Single ledger entry per category — params + member-asset map.
+        // E-mode memberships live on the asset's MarketConfig — already
+        // loaded above, so iterate without an extra storage read.
+        for category_id in market.asset_config.e_mode_categories.iter() {
             storage::bump_shared(env, &ControllerKey::EModeCategory(category_id));
         }
     }

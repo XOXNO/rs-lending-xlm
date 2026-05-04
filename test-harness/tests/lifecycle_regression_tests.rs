@@ -81,7 +81,7 @@ fn test_create_liquidity_pool_rejects_asset_id_mismatch() {
     let params = usdc_preset()
         .params
         .to_market_params(&wrong_asset, decimals);
-    let config = usdc_preset().config.to_asset_config();
+    let config = usdc_preset().config.to_asset_config(&t.env);
 
     let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
@@ -107,7 +107,7 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
     let params = usdc_preset()
         .params
         .to_market_params(&asset, mismatched_decimals);
-    let config = usdc_preset().config.to_asset_config();
+    let config = usdc_preset().config.to_asset_config(&t.env);
 
     let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),

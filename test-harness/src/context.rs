@@ -426,7 +426,7 @@ impl LendingTestBuilder {
 
             // 1. First, deploy the pool and initialize the market (Step 1: creates the MarketConfig in PendingOracle state)
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
-            let asset_config = pm.config.to_asset_config();
+            let asset_config = pm.config.to_asset_config(&env);
             // Pre-approve the token contract -- the controller's allow-list gate
             // (T1-7) now requires explicit admin approval before market creation.
             ctrl.approve_token_wasm(&asset_address);

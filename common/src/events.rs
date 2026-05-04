@@ -501,7 +501,7 @@ mod tests {
         Address::generate(env)
     }
 
-    fn dummy_asset_config() -> AssetConfig {
+    fn dummy_asset_config(env: &Env) -> AssetConfig {
         AssetConfig {
             loan_to_value_bps: 7500,
             liquidation_threshold_bps: 8000,
@@ -509,7 +509,7 @@ mod tests {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            e_mode_enabled: false,
+            e_mode_categories: soroban_sdk::Vec::new(env),
             is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
@@ -524,7 +524,7 @@ mod tests {
     fn dummy_market_config(env: &Env) -> MarketConfig {
         MarketConfig {
             status: MarketStatus::Active,
-            asset_config: dummy_asset_config(),
+            asset_config: dummy_asset_config(env),
             pool_address: dummy_address(env),
             oracle_config: OracleProviderConfig::default_for(dummy_address(env), 7),
             cex_oracle: Some(dummy_address(env)),
@@ -694,7 +694,7 @@ mod tests {
                     optimal_utilization: 0,
                     reserve_factor: 0,
                     market_address: asset.clone(),
-                    config: dummy_asset_config(),
+                    config: dummy_asset_config(&env),
                 },
             );
 
@@ -766,7 +766,7 @@ mod tests {
                 &env,
                 UpdateAssetConfigEvent {
                     asset: asset.clone(),
-                    config: dummy_asset_config(),
+                    config: dummy_asset_config(&env),
                 },
             );
 

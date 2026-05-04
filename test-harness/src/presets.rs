@@ -39,7 +39,6 @@ pub struct AssetConfigPreset {
     pub is_flashloanable: bool,
     pub is_isolated_asset: bool,
     pub is_siloed_borrowing: bool,
-    pub e_mode_enabled: bool,
     pub isolation_borrow_enabled: bool,
     pub isolation_debt_ceiling_usd_wad: i128,
     pub flashloan_fee_bps: u32,
@@ -88,7 +87,6 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     is_flashloanable: true,
     is_isolated_asset: false,
     is_siloed_borrowing: false,
-    e_mode_enabled: false,
     isolation_borrow_enabled: false,
     isolation_debt_ceiling_usd_wad: 0,
     flashloan_fee_bps: 9,
@@ -213,7 +211,7 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // ---------------------------------------------------------------------------
 
 impl AssetConfigPreset {
-    pub fn to_asset_config(&self) -> common::types::AssetConfig {
+    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> common::types::AssetConfig {
         common::types::AssetConfig {
             loan_to_value_bps: self.loan_to_value_bps,
             liquidation_threshold_bps: self.liquidation_threshold_bps,
@@ -224,12 +222,14 @@ impl AssetConfigPreset {
             is_flashloanable: self.is_flashloanable,
             is_isolated_asset: self.is_isolated_asset,
             is_siloed_borrowing: self.is_siloed_borrowing,
-            e_mode_enabled: self.e_mode_enabled,
             isolation_borrow_enabled: self.isolation_borrow_enabled,
             isolation_debt_ceiling_usd_wad: self.isolation_debt_ceiling_usd_wad,
             flashloan_fee_bps: self.flashloan_fee_bps,
             borrow_cap: self.borrow_cap,
             supply_cap: self.supply_cap,
+            // Memberships are populated via `add_asset_to_e_mode_category`,
+            // never at preset → market construction time.
+            e_mode_categories: soroban_sdk::Vec::new(env),
         }
     }
 }

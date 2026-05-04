@@ -1,49 +1,52 @@
 use super::bump_shared;
-use common::errors::GenericError;
 use common::types::ControllerKey;
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{Address, Env, Vec};
+#[cfg(test)]
+use {common::errors::GenericError, soroban_sdk::panic_with_error};
 
-pub fn get_pools_count(env: &Env) -> u32 {
+/// Returns the asset addresses of every market the controller manages.
+/// Pool addresses are resolved via `MarketConfig.pool_address` so the
+/// list value stays a flat `Vec<Address>`.
+pub fn get_pools_list(env: &Env) -> Vec<Address> {
     env.storage()
         .persistent()
-        .get(&ControllerKey::PoolsCount)
-        .unwrap_or(0u32)
+        .get(&ControllerKey::PoolsList)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
-pub fn set_pools_count(env: &Env, count: u32) {
-    let key = ControllerKey::PoolsCount;
-    env.storage().persistent().set(&key, &count);
+/// Number of pools — `vec.len()` is authoritative; no separate
+/// `PoolsCount` entry is maintained. Exposed for test fixtures and any
+/// future enumeration entrypoint.
+#[cfg(test)]
+pub fn get_pools_count(env: &Env) -> u32 {
+    get_pools_list(env).len()
+}
+
+/// Bumps the single `PoolsList` entry. No-ops when no pools exist yet.
+pub fn bump_pools_list(env: &Env) {
+    let key = ControllerKey::PoolsList;
+    if env.storage().persistent().has(&key) {
+        bump_shared(env, &key);
+    }
+}
+
+/// Appends `asset` to the asset list. The pool address is implicit via
+/// `MarketConfig(asset).pool_address` and is not stored here.
+///
+/// `_pool` is accepted for backwards-compatible callers but ignored —
+/// kept on the signature so the public API doesn't shift the call sites
+/// in `router.rs::create_liquidity_pool`.
+pub fn add_to_pools_list(env: &Env, asset: &Address, _pool: &Address) {
+    let mut list = get_pools_list(env);
+    list.push_back(asset.clone());
+    let key = ControllerKey::PoolsList;
+    env.storage().persistent().set(&key, &list);
     bump_shared(env, &key);
 }
 
 #[cfg(test)]
-pub fn get_pools_list_entry(env: &Env, idx: u32) -> (Address, Address) {
-    let key = ControllerKey::PoolsList(idx);
-    env.storage()
-        .persistent()
-        .get(&key)
+pub fn get_pools_list_entry(env: &Env, idx: u32) -> Address {
+    get_pools_list(env)
+        .get(idx)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolsListNotFound))
-}
-
-pub fn bump_pools_list(env: &Env) {
-    let count = get_pools_count(env);
-    bump_shared(env, &ControllerKey::PoolsCount);
-    for i in 0..count {
-        bump_shared(env, &ControllerKey::PoolsList(i));
-    }
-}
-
-pub fn add_to_pools_list(env: &Env, asset: &Address, pool: &Address) {
-    let count = get_pools_count(env);
-    let key = ControllerKey::PoolsList(count);
-    env.storage()
-        .persistent()
-        .set(&key, &(asset.clone(), pool.clone()));
-    bump_shared(env, &key);
-    set_pools_count(
-        env,
-        count
-            .checked_add(1)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    );
 }

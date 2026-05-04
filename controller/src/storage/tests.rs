@@ -8,7 +8,7 @@ use common::types::{
     PositionLimits, PositionMode, ReflectorAssetKind,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, BytesN, Env, Map, Symbol, Vec};
+use soroban_sdk::{Address, BytesN, Env, Map, Symbol};
 
 struct TestSetup {
     env: Env,
@@ -44,7 +44,7 @@ impl TestSetup {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            e_mode_enabled: true,
+            e_mode_categories: soroban_sdk::Vec::from_array(&self.env, [1u32]),
             is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
@@ -156,13 +156,18 @@ fn test_market_account_and_emode_round_trips() {
             is_collateralizable: true,
             is_borrowable: false,
         };
-        let categories = Vec::from_array(&t.env, [1u32, 2u32]);
+
+        // E-mode memberships now live on
+        // `MarketConfig.asset_config.e_mode_categories` — seed the
+        // market with two categories before persisting.
+        let mut market = market;
+        market.asset_config.e_mode_categories =
+            soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
 
         set_market_config(&t.env, &t.asset, &market);
         set_account(&t.env, 9, &account);
         set_emode_category(&t.env, 1, &emode);
         set_emode_asset(&t.env, 1, &t.asset, &emode_asset);
-        set_asset_emodes(&t.env, &t.asset, &categories);
         set_isolated_debt(&t.env, &t.asset, 42);
         add_to_pools_list(&t.env, &t.asset, &market.pool_address);
 
@@ -195,13 +200,20 @@ fn test_market_account_and_emode_round_trips() {
             9_000
         );
         assert!(!get_emode_asset(&t.env, 1, &t.asset).unwrap().is_borrowable);
-        assert_eq!(get_asset_emodes(&t.env, &t.asset).len(), 2);
+        // Reverse-index lives on the market entry; no separate read.
+        assert_eq!(
+            get_market_config(&t.env, &t.asset)
+                .asset_config
+                .e_mode_categories
+                .len(),
+            2
+        );
         remove_emode_asset(&t.env, 1, &t.asset);
         assert!(get_emode_asset(&t.env, 1, &t.asset).is_none());
 
         assert_eq!(get_isolated_debt(&t.env, &t.asset), 42);
         assert_eq!(get_pools_count(&t.env), 1);
-        assert_eq!(get_pools_list_entry(&t.env, 0).0, t.asset);
+        assert_eq!(get_pools_list_entry(&t.env, 0), t.asset);
         bump_pools_list(&t.env);
     });
 }

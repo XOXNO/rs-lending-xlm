@@ -62,7 +62,7 @@ pub mod asset_config {
         pub liquidation_fees_bps: i128,
         pub is_collateralizable: bool,
         pub is_borrowable: bool,
-        pub e_mode_enabled: bool,
+        pub has_emode: bool,
         pub is_isolated_asset: bool,
         pub is_siloed_borrowing: bool,
         pub is_flashloanable: bool,
@@ -79,22 +79,22 @@ pub mod asset_config {
         let sync = LiquidityPoolClient::new(env, &market.pool_address).get_sync_data();
         let cfg: AssetConfig = market.asset_config;
         CompatAssetConfig {
-            loan_to_value_bps: cfg.loan_to_value_bps,
-            liquidation_threshold_bps: cfg.liquidation_threshold_bps,
-            liquidation_bonus_bps: cfg.liquidation_bonus_bps,
-            liquidation_fees_bps: cfg.liquidation_fees_bps,
+            loan_to_value_bps: cfg.loan_to_value_bps as i128,
+            liquidation_threshold_bps: cfg.liquidation_threshold_bps as i128,
+            liquidation_bonus_bps: cfg.liquidation_bonus_bps as i128,
+            liquidation_fees_bps: cfg.liquidation_fees_bps as i128,
             is_collateralizable: cfg.is_collateralizable,
             is_borrowable: cfg.is_borrowable,
-            e_mode_enabled: cfg.e_mode_enabled,
+            has_emode: cfg.has_emode(),
             is_isolated_asset: cfg.is_isolated_asset,
             is_siloed_borrowing: cfg.is_siloed_borrowing,
             is_flashloanable: cfg.is_flashloanable,
             isolation_borrow_enabled: cfg.isolation_borrow_enabled,
             isolation_debt_ceiling_usd_wad: cfg.isolation_debt_ceiling_usd_wad,
-            flashloan_fee_bps: cfg.flashloan_fee_bps,
+            flashloan_fee_bps: cfg.flashloan_fee_bps as i128,
             borrow_cap: cfg.borrow_cap,
             supply_cap: cfg.supply_cap,
-            reserve_factor_bps: sync.params.reserve_factor_bps,
+            reserve_factor_bps: sync.params.reserve_factor_bps as i128,
         }
     }
 }

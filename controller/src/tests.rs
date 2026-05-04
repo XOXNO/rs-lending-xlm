@@ -62,7 +62,7 @@ impl TestSetup {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            e_mode_enabled: false,
+            e_mode_categories: soroban_sdk::Vec::new(&self.env),
             is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
@@ -367,7 +367,7 @@ fn test_edit_asset_config_valid() {
 }
 
 #[test]
-fn test_edit_asset_config_preserves_existing_emode_flag() {
+fn test_edit_asset_config_preserves_existing_emode_categories() {
     let t = TestSetup::new();
     let client = t.client();
     let asset = Address::generate(&t.env);
@@ -376,17 +376,23 @@ fn test_edit_asset_config_preserves_existing_emode_flag() {
 
     t.env.as_contract(&t.contract, || {
         let mut market = storage::get_market_config(&t.env, &asset);
-        market.asset_config.e_mode_enabled = true;
+        market.asset_config.e_mode_categories =
+            soroban_sdk::Vec::from_array(&t.env, [1u32, 2u32]);
         storage::set_market_config(&t.env, &asset, &market);
     });
 
     let mut config = t.sample_asset_config();
-    config.e_mode_enabled = false;
+    // Caller can't reset memberships through edit_asset_config — the
+    // controller-managed list survives the edit.
+    config.e_mode_categories = soroban_sdk::Vec::new(&t.env);
     client.edit_asset_config(&asset, &config);
 
     t.env.as_contract(&t.contract, || {
         let market = storage::get_market_config(&t.env, &asset);
-        assert!(market.asset_config.e_mode_enabled);
+        assert!(market.asset_config.has_emode());
+        assert_eq!(market.asset_config.e_mode_categories.len(), 2);
+        assert!(market.asset_config.e_mode_categories.contains(1u32));
+        assert!(market.asset_config.e_mode_categories.contains(2u32));
     });
 }
 

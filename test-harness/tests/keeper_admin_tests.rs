@@ -141,7 +141,7 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
 
     let preset = usdc_preset();
     let params = preset.params.to_market_params(&asset, preset.decimals);
-    let config = preset.config.to_asset_config();
+    let config = preset.config.to_asset_config(&env);
 
     let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),

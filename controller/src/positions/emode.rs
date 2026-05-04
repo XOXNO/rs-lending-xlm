@@ -57,8 +57,14 @@ pub fn token_e_mode_config(env: &Env, e_mode_id: u32, asset: &Address) -> Option
         return None;
     }
 
-    let asset_cats = storage::get_asset_emodes(env, asset);
-    if !asset_cats.contains(e_mode_id) {
+    // Reverse-index check: the asset's MarketConfig records every
+    // category it's enrolled in, so a missing entry rejects the call
+    // before the heavier per-category lookup.
+    let market = match storage::try_get_market_config(env, asset) {
+        Some(m) => m,
+        None => panic_with_error!(env, EModeError::EModeCategoryNotFound),
+    };
+    if !market.asset_config.e_mode_categories.contains(e_mode_id) {
         panic_with_error!(env, EModeError::EModeCategoryNotFound);
     }
 
@@ -166,9 +172,9 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, ControllerKey, PositionMode};
+    use common::types::{AccountPosition, PositionMode};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Address, Env, Map, Vec};
+    use soroban_sdk::{Address, Env, Map};
 
     struct TestSetup {
         env: Env,
@@ -219,7 +225,7 @@ mod tests {
                 liquidation_fees_bps: 100,
                 is_collateralizable: true,
                 is_borrowable: true,
-                e_mode_enabled: false,
+                e_mode_categories: soroban_sdk::Vec::new(&self.env),
                 is_isolated_asset,
                 is_siloed_borrowing: false,
                 is_flashloanable: true,
@@ -246,11 +252,7 @@ mod tests {
     fn test_token_e_mode_config_rejects_missing_asset_config() {
         let t = TestSetup::new();
         t.as_controller(|| {
-            let categories = Vec::from_array(&t.env, [1u32]);
-            t.env
-                .storage()
-                .persistent()
-                .set(&ControllerKey::AssetEModes(t.asset_a.clone()), &categories);
+            seed_market_with_emode_categories(&t, &t.asset_a, &[1u32]);
 
             let _ = token_e_mode_config(&t.env, 1, &t.asset_a);
         });
@@ -270,17 +272,40 @@ mod tests {
         );
     }
 
+    /// Seed a `MarketConfig` for `asset` with the given e-mode category
+    /// memberships. Replaces the legacy `AssetEModes(asset)` reverse
+    /// index — memberships now live on
+    /// `MarketConfig.asset_config.e_mode_categories`.
+    fn seed_market_with_emode_categories(t: &TestSetup, asset: &Address, cats: &[u32]) {
+        let market = common::types::MarketConfig {
+            status: common::types::MarketStatus::Active,
+            asset_config: t.asset_config(false),
+            pool_address: Address::generate(&t.env),
+            oracle_config: common::types::OracleProviderConfig::default_for(asset.clone(), 7),
+            cex_oracle: None,
+            cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            cex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
+            cex_decimals: 0,
+            dex_oracle: None,
+            dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
+            dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
+            dex_decimals: 0,
+            twap_records: 0,
+        };
+        let mut market = market;
+        for &c in cats {
+            market.asset_config.e_mode_categories.push_back(c);
+        }
+        storage::set_market_config(&t.env, asset, &market);
+    }
+
     #[test]
     #[should_panic(expected = "Error(Contract, #104)")]
     fn test_validate_e_mode_asset_rejects_non_collateralizable_membership() {
         let t = TestSetup::new();
         t.as_controller(|| {
             seed_emode_category(&t, 1);
-            let categories = Vec::from_array(&t.env, [1u32]);
-            t.env
-                .storage()
-                .persistent()
-                .set(&ControllerKey::AssetEModes(t.asset_a.clone()), &categories);
+            seed_market_with_emode_categories(&t, &t.asset_a, &[1u32]);
             storage::set_emode_asset(
                 &t.env,
                 1,
@@ -301,11 +326,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_controller(|| {
             seed_emode_category(&t, 1);
-            let categories = Vec::from_array(&t.env, [1u32]);
-            t.env
-                .storage()
-                .persistent()
-                .set(&ControllerKey::AssetEModes(t.asset_a.clone()), &categories);
+            seed_market_with_emode_categories(&t, &t.asset_a, &[1u32]);
             storage::set_emode_asset(
                 &t.env,
                 1,

@@ -58,7 +58,7 @@ fn build_ctx() -> LendingTest {
 
 // Blanket AssetConfig + MarketOracleConfigInput builders with plausible shapes.
 // Values need not be valid -- the auth gate must reject before the body runs.
-fn sample_asset_config() -> common::types::AssetConfig {
+fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfig {
     common::types::AssetConfig {
         loan_to_value_bps: 7500,
         liquidation_threshold_bps: 8000,
@@ -66,7 +66,7 @@ fn sample_asset_config() -> common::types::AssetConfig {
         liquidation_fees_bps: 100,
         is_collateralizable: true,
         is_borrowable: true,
-        e_mode_enabled: false,
+        e_mode_categories: soroban_sdk::Vec::new(env),
         is_isolated_asset: false,
         is_siloed_borrowing: false,
         is_flashloanable: true,
@@ -131,7 +131,7 @@ proptest! {
         let env = t.env.clone();
         let ctrl = t.ctrl_client();
         let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-        let cfg = sample_asset_config();
+        let cfg = sample_asset_config(&env);
         let oracle_cfg = sample_oracle_cfg(&t);
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");

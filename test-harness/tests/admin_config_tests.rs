@@ -528,7 +528,7 @@ fn test_create_liquidity_pool_uniqueness() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_asset("USDC");
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config();
+    let config = usdc_preset().config.to_asset_config(&t.env);
 
     // USDC was already initialized by the builder.
     // Calling create_liquidity_pool again should fail with AssetAlreadySupported.
@@ -555,7 +555,7 @@ fn test_market_initialization_cascade() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config();
+    let config = usdc_preset().config.to_asset_config(&t.env);
 
     // 0. Pre-approve the token contract (allow-list gate, T1-7).
     ctrl.approve_token_wasm(&asset);

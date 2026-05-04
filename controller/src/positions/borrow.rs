@@ -558,7 +558,7 @@ mod tests {
                 liquidation_fees_bps: 100,
                 is_collateralizable: true,
                 is_borrowable: true,
-                e_mode_enabled: false,
+                e_mode_categories: soroban_sdk::Vec::new(&self.env),
                 is_isolated_asset: false,
                 is_siloed_borrowing,
                 is_flashloanable: true,

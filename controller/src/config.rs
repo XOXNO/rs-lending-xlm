@@ -195,7 +195,10 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     validation::validate_asset_config(env, &next_config);
 
     let mut market = storage::get_market_config(env, &asset);
-    next_config.e_mode_enabled = market.asset_config.e_mode_enabled;
+    // Preserve the controller-managed e-mode membership list — it's
+    // updated via add/remove_asset_to_e_mode_category, never by the
+    // admin asset-config edit path.
+    next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
     market.asset_config = next_config.clone();
     storage::set_market_config(env, &asset, &market);
 
@@ -290,28 +293,25 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     cat.is_deprecated = true;
 
     // Snapshot the member set, clear it on the entry, then walk it to
-    // drop the per-asset reverse index entries. Accounts already pointing
-    // at this category wind down through the keeper path — `is_deprecated`
-    // stays set so `effective_asset_config` falls back to base values.
+    // drop the category id from each member's
+    // `MarketConfig.asset_config.e_mode_categories` list. Accounts
+    // already pointing at this category wind down through the keeper
+    // path — `is_deprecated` stays set so `effective_asset_config`
+    // falls back to base values.
     let members = cat.assets.clone();
     cat.assets = soroban_sdk::Map::new(env);
     storage::set_emode_category(env, id, &cat);
 
     for asset in members.keys() {
-        let mut cats = storage::get_asset_emodes(env, &asset);
-        if let Some(idx) = cats.iter().position(|cid| cid == id) {
-            cats.remove(idx as u32);
-            storage::set_asset_emodes(env, &asset, &cats);
-        }
-        // If the asset now belongs to no e-mode category, mirror the
-        // single-asset removal path and clear the `e_mode_enabled` flag on
-        // its market config.
-        if cats.is_empty() {
-            if let Some(mut market) = storage::try_get_market_config(env, &asset) {
-                if market.asset_config.e_mode_enabled {
-                    market.asset_config.e_mode_enabled = false;
-                    storage::set_market_config(env, &asset, &market);
-                }
+        if let Some(mut market) = storage::try_get_market_config(env, &asset) {
+            if let Some(idx) = market
+                .asset_config
+                .e_mode_categories
+                .iter()
+                .position(|cid| cid == id)
+            {
+                market.asset_config.e_mode_categories.remove(idx as u32);
+                storage::set_market_config(env, &asset, &market);
             }
         }
     }
@@ -355,19 +355,14 @@ pub fn add_asset_to_e_mode_category(
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
-    // Enable `e_mode_enabled` on the market config when the asset joins its first e-mode category.
-    let mut asset_cats = storage::get_asset_emodes(env, &asset);
-    let is_first_category = asset_cats.is_empty();
-    if !asset_cats.contains(category_id) {
-        asset_cats.push_back(category_id);
-        storage::set_asset_emodes(env, &asset, &asset_cats);
-    }
-    if is_first_category {
-        let mut market = storage::get_market_config(env, &asset);
-        if !market.asset_config.e_mode_enabled {
-            market.asset_config.e_mode_enabled = true;
-            storage::set_market_config(env, &asset, &market);
-        }
+    // Append `category_id` to the asset's reverse index — stored on
+    // `MarketConfig.asset_config.e_mode_categories`. `has_emode()`
+    // becomes true on the first non-empty push, so no separate flag
+    // toggle is needed.
+    let mut market = storage::get_market_config(env, &asset);
+    if !market.asset_config.e_mode_categories.contains(category_id) {
+        market.asset_config.e_mode_categories.push_back(category_id);
+        storage::set_market_config(env, &asset, &market);
     }
 
     emit_update_emode_asset(
@@ -410,18 +405,18 @@ pub fn edit_asset_in_e_mode_category(
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     storage::remove_emode_asset(env, category_id, &asset);
 
-    // Disable `e_mode_enabled` once the asset belongs to no e-mode category.
-    let mut asset_cats = storage::get_asset_emodes(env, &asset);
-    if let Some(idx) = asset_cats.iter().position(|id| id == category_id) {
-        asset_cats.remove(idx as u32);
-        storage::set_asset_emodes(env, &asset, &asset_cats);
-    }
-    if asset_cats.is_empty() {
-        if let Some(mut market) = storage::try_get_market_config(env, &asset) {
-            if market.asset_config.e_mode_enabled {
-                market.asset_config.e_mode_enabled = false;
-                storage::set_market_config(env, &asset, &market);
-            }
+    // Remove `category_id` from the asset's reverse index on
+    // `MarketConfig.asset_config.e_mode_categories`. When the list
+    // becomes empty `has_emode()` flips to false naturally.
+    if let Some(mut market) = storage::try_get_market_config(env, &asset) {
+        if let Some(idx) = market
+            .asset_config
+            .e_mode_categories
+            .iter()
+            .position(|id| id == category_id)
+        {
+            market.asset_config.e_mode_categories.remove(idx as u32);
+            storage::set_market_config(env, &asset, &market);
         }
     }
 
@@ -770,7 +765,7 @@ mod tests {
                 liquidation_fees_bps: 100,
                 is_collateralizable: true,
                 is_borrowable: true,
-                e_mode_enabled: false,
+                e_mode_categories: soroban_sdk::Vec::new(&self.env),
                 is_isolated_asset: false,
                 is_siloed_borrowing: false,
                 is_flashloanable: true,
@@ -890,7 +885,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_asset_to_e_mode_category_enables_market_flag() {
+    fn test_add_asset_to_e_mode_category_records_membership() {
         let t = TestSetup::new();
         t.as_controller(|| {
             storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
@@ -898,7 +893,8 @@ mod tests {
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
 
             let market = storage::get_market_config(&t.env, &t.asset);
-            assert!(market.asset_config.e_mode_enabled);
+            assert!(market.asset_config.has_emode());
+            assert!(market.asset_config.e_mode_categories.contains(id));
         });
     }
 
@@ -912,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_asset_from_e_mode_disables_market_flag_when_last_category_is_removed() {
+    fn test_remove_asset_from_e_mode_clears_membership_when_last_category_is_removed() {
         let t = TestSetup::new();
         t.as_controller(|| {
             storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
@@ -921,7 +917,8 @@ mod tests {
             remove_asset_from_e_mode(&t.env, t.asset.clone(), id);
 
             let market = storage::get_market_config(&t.env, &t.asset);
-            assert!(!market.asset_config.e_mode_enabled);
+            assert!(!market.asset_config.has_emode());
+            assert_eq!(market.asset_config.e_mode_categories.len(), 0);
         });
     }
 
@@ -937,46 +934,42 @@ mod tests {
     }
 
     #[test]
-    fn test_add_asset_to_e_mode_category_preserves_pre_enabled_market_flag() {
+    fn test_add_asset_to_e_mode_category_appends_without_duplicates() {
         let t = TestSetup::new();
 
         t.as_controller(|| {
-            let mut market = t.market_config(OracleType::None);
-            market.asset_config.e_mode_enabled = true;
-            storage::set_market_config(&t.env, &t.asset, &market);
-
+            storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
             let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
             add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
 
-            assert!(
-                storage::get_market_config(&t.env, &t.asset)
-                    .asset_config
-                    .e_mode_enabled
-            );
+            let cats = storage::get_market_config(&t.env, &t.asset)
+                .asset_config
+                .e_mode_categories;
+            assert_eq!(cats.len(), 1);
+            assert!(cats.contains(id));
         });
     }
 
     #[test]
-    fn test_remove_asset_from_e_mode_preserves_pre_disabled_market_flag() {
+    fn test_remove_asset_from_e_mode_removes_only_named_category() {
         let t = TestSetup::new();
 
         t.as_controller(|| {
             storage::set_market_config(&t.env, &t.asset, &t.market_config(OracleType::None));
 
-            let id = add_e_mode_category(&t.env, 9_700, 9_800, 200);
-            add_asset_to_e_mode_category(&t.env, t.asset.clone(), id, true, true);
+            let id_a = add_e_mode_category(&t.env, 9_700, 9_800, 200);
+            let id_b = add_e_mode_category(&t.env, 9_500, 9_600, 300);
+            add_asset_to_e_mode_category(&t.env, t.asset.clone(), id_a, true, true);
+            add_asset_to_e_mode_category(&t.env, t.asset.clone(), id_b, true, true);
 
-            let mut market = storage::get_market_config(&t.env, &t.asset);
-            market.asset_config.e_mode_enabled = false;
-            storage::set_market_config(&t.env, &t.asset, &market);
+            remove_asset_from_e_mode(&t.env, t.asset.clone(), id_a);
 
-            remove_asset_from_e_mode(&t.env, t.asset.clone(), id);
-
-            assert!(
-                !storage::get_market_config(&t.env, &t.asset)
-                    .asset_config
-                    .e_mode_enabled
-            );
+            let cats = storage::get_market_config(&t.env, &t.asset)
+                .asset_config
+                .e_mode_categories;
+            assert_eq!(cats.len(), 1);
+            assert!(cats.contains(id_b));
+            assert!(!cats.contains(id_a));
         });
     }
 

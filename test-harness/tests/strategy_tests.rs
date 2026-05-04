@@ -171,7 +171,6 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
             is_flashloanable: true,
             is_isolated_asset: true, // ISOLATED ASSET!
             is_siloed_borrowing: false,
-            e_mode_enabled: false,
             isolation_borrow_enabled: true,
             isolation_debt_ceiling_usd_wad: 100 * WAD, // ONLY 100 USD BORROW ALLOWED!
             flashloan_fee_bps: 9,
