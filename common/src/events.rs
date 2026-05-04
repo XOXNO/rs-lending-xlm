@@ -125,9 +125,14 @@ impl EventAccountPosition {
     }
 }
 
+/// Indexer-facing snapshot of [`AccountMeta`]. `owner` is the canonical
+/// account owner — indexers use this as the authoritative source for
+/// the position doc's `address` field, since the event-level `caller`
+/// can be the controller itself on strategy-internal supply legs.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountAttributes {
+    pub owner: Address,
     pub is_isolated_position: bool,
     pub e_mode_category_id: u32,
     pub mode: EventPositionMode,
@@ -137,6 +142,7 @@ pub struct EventAccountAttributes {
 impl From<&Account> for EventAccountAttributes {
     fn from(value: &Account) -> Self {
         Self {
+            owner: value.owner.clone(),
             is_isolated_position: value.is_isolated,
             e_mode_category_id: value.e_mode_category_id,
             mode: value.mode.into(),
@@ -148,6 +154,7 @@ impl From<&Account> for EventAccountAttributes {
 impl From<&AccountMeta> for EventAccountAttributes {
     fn from(value: &AccountMeta) -> Self {
         Self {
+            owner: value.owner.clone(),
             is_isolated_position: value.is_isolated,
             e_mode_category_id: value.e_mode_category_id,
             mode: value.mode.into(),
@@ -617,13 +624,14 @@ mod tests {
         let owner = dummy_address(&env);
         let iso = dummy_address(&env);
         let meta = AccountMeta {
-            owner,
+            owner: owner.clone(),
             is_isolated: true,
             e_mode_category_id: 0,
             mode: PositionMode::Normal,
             isolated_asset: Some(iso.clone()),
         };
         let attrs = EventAccountAttributes::from(&meta);
+        assert_eq!(attrs.owner, owner);
         assert!(attrs.is_isolated_position);
         assert_eq!(attrs.e_mode_category_id, 0);
         assert_eq!(attrs.mode, EventPositionMode::None);
@@ -635,13 +643,14 @@ mod tests {
         let env = Env::default();
         let owner = dummy_address(&env);
         let meta = AccountMeta {
-            owner,
+            owner: owner.clone(),
             is_isolated: false,
             e_mode_category_id: 3,
             mode: PositionMode::Long,
             isolated_asset: None,
         };
         let attrs = EventAccountAttributes::from(&meta);
+        assert_eq!(attrs.owner, owner);
         assert!(!attrs.is_isolated_position);
         assert_eq!(attrs.e_mode_category_id, 3);
         assert_eq!(attrs.mode, EventPositionMode::Long);
