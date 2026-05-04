@@ -309,6 +309,7 @@ pub fn process_swap_debt(
     repay_debt_from_controller(
         env,
         &mut account,
+        account_id,
         &mut cache,
         caller,
         existing_debt_token,
@@ -367,6 +368,7 @@ pub fn process_swap_collateral(
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
+        account_id,
         &mut cache,
         caller,
         current_collateral,
@@ -575,6 +577,7 @@ pub fn process_repay_debt_with_collateral(
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
+        account_id,
         &mut cache,
         caller,
         collateral_token,
@@ -594,6 +597,7 @@ pub fn process_repay_debt_with_collateral(
     repay_debt_from_controller(
         env,
         &mut account,
+        account_id,
         &mut cache,
         caller,
         debt_token,
@@ -602,7 +606,14 @@ pub fn process_repay_debt_with_collateral(
         symbol_short!("rp_col_r"),
     );
 
-    close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
+    close_remaining_collateral_if_requested(
+        env,
+        &mut account,
+        account_id,
+        caller,
+        &mut cache,
+        close_position,
+    );
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
@@ -916,9 +927,11 @@ fn swap_or_net_collateral_to_debt(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     cache: &mut ControllerCache,
     caller: &Address,
     debt_token: &Address,
@@ -950,6 +963,8 @@ fn repay_debt_from_controller(
     repay::execute_repayment(
         env,
         account,
+        account_id,
+        debt_token,
         controller_event_context(env, caller, action),
         debt_pos,
         debt_feed.price_wad,
@@ -963,6 +978,7 @@ fn repay_debt_from_controller(
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     caller: &Address,
     cache: &mut ControllerCache,
     close_position: bool,
@@ -975,12 +991,14 @@ fn close_remaining_collateral_if_requested(
         panic_with_error!(env, CollateralError::CannotCloseWithRemainingDebt);
     }
 
-    execute_withdraw_all(env, account, caller, cache);
+    execute_withdraw_all(env, account, account_id, caller, cache);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     cache: &mut ControllerCache,
     caller: &Address,
     asset: &Address,
@@ -995,6 +1013,8 @@ fn withdraw_collateral_to_controller(
     withdraw::execute_withdrawal(
         env,
         account,
+        account_id,
+        asset,
         controller_event_context(env, caller, action),
         amount,
         position,
@@ -1059,6 +1079,7 @@ pub fn strategy_finalize(
 pub fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     destination: &Address,
     cache: &mut ControllerCache,
 ) {
@@ -1076,6 +1097,8 @@ pub fn execute_withdraw_all(
             let _updated = withdraw::execute_withdrawal(
                 env,
                 account,
+                account_id,
+                &asset,
                 EventContext {
                     caller: destination.clone(),
                     event_caller: destination.clone(),

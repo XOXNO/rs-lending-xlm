@@ -115,7 +115,7 @@ fn test_liquidation_emits_many_events() {
 fn test_add_emode_emits_events() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     t.ctrl_client()
-        .add_e_mode_category(&9700i128, &9800i128, &200i128);
+        .add_e_mode_category(&9700u32, &9800u32, &200u32);
     let count = t.env.events().all().events().len();
     assert!(count > 0, "add_e_mode should emit events, got {}", count);
 }

@@ -117,9 +117,9 @@ proptest! {
 
     #[test]
     fn prop_owner_only_endpoints_reject_unauthed(
-        ltv in 0i128..10_000,
-        threshold in 0i128..10_000,
-        bonus in 0i128..2_000,
+        ltv in 0u32..10_000,
+        threshold in 0u32..10_000,
+        bonus in 0u32..2_000,
         category_id in 1u32..100,
         can_collateral in any::<bool>(),
         can_borrow in any::<bool>(),
@@ -310,7 +310,7 @@ proptest! {
         }).unwrap();
         expect_rejected("edit_oracle_tolerance (ORACLE)", || {
             ctrl.set_auths(&no_auths)
-                .try_edit_oracle_tolerance(&random_addr, &usdc, &100i128, &200i128)
+                .try_edit_oracle_tolerance(&random_addr, &usdc, &100u32, &200u32)
         }).unwrap();
         expect_rejected("disable_token_oracle (ORACLE)", || {
             ctrl.set_auths(&no_auths).try_disable_token_oracle(&random_addr, &usdc)

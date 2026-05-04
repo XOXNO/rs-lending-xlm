@@ -369,8 +369,8 @@ crate::summarized!(
         env: &Env,
         aggregator: i128,
         safe: i128,
-        upper_bound_ratio: i128,
-        lower_bound_ratio: i128,
+        upper_bound_ratio: u32,
+        lower_bound_ratio: u32,
     ) -> bool {
         if aggregator == 0 {
             return false;
@@ -380,8 +380,10 @@ crate::summarized!(
             .div(env, Ray::from_raw(aggregator))
             .raw();
         let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4); // RAY -> BPS decimals.
+        let upper = i128::from(upper_bound_ratio);
+        let lower = i128::from(lower_bound_ratio);
 
-        ratio_bps <= upper_bound_ratio && ratio_bps >= lower_bound_ratio
+        ratio_bps <= upper && ratio_bps >= lower
     }
 );
 

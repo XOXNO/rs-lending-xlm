@@ -1,21 +1,30 @@
 use common::types::{Account, AccountPosition, AccountPositionType};
+use soroban_sdk::Address;
 
-/// Upserts or removes the position from the appropriate map on `account`.
-/// Removes the entry when `scaled_amount_ray == 0`; returns `true` when removed.
-pub fn update_or_remove_position(account: &mut Account, position: &AccountPosition) -> bool {
-    let map = if position.position_type == AccountPositionType::Deposit {
-        &mut account.supply_positions
-    } else if position.position_type == AccountPositionType::Borrow {
-        &mut account.borrow_positions
-    } else {
-        unreachable!()
+/// Upserts or removes the position from the appropriate side map on
+/// `account`. Removes the entry when `scaled_amount_ray == 0`; returns
+/// `true` when removed.
+///
+/// `side` and `asset` are taken from the caller because
+/// [`AccountPosition`] no longer carries them in its stored form — the
+/// side is implied by which map the value lives in and the asset is the
+/// map key.
+pub fn update_or_remove_position(
+    account: &mut Account,
+    side: AccountPositionType,
+    asset: &Address,
+    position: &AccountPosition,
+) -> bool {
+    let map = match side {
+        AccountPositionType::Deposit => &mut account.supply_positions,
+        AccountPositionType::Borrow => &mut account.borrow_positions,
     };
 
     if position.scaled_amount_ray == 0 {
-        map.remove(position.asset.clone());
+        map.remove(asset.clone());
         true
     } else {
-        map.set(position.asset.clone(), position.clone());
+        map.set(asset.clone(), position.clone());
         false
     }
 }
@@ -41,17 +50,9 @@ mod tests {
         }
     }
 
-    fn position(
-        _env: &Env,
-        asset: Address,
-        position_type: AccountPositionType,
-        scaled_amount_ray: i128,
-    ) -> AccountPosition {
+    fn position(scaled_amount_ray: i128) -> AccountPosition {
         AccountPosition {
-            position_type,
-            asset,
             scaled_amount_ray,
-            account_id: 1,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,
             liquidation_fees_bps: 100,
@@ -64,9 +65,14 @@ mod tests {
         let env = Env::default();
         let asset = Address::generate(&env);
         let mut account = empty_account(&env);
-        let deposit = position(&env, asset.clone(), AccountPositionType::Deposit, 500);
+        let deposit = position(500);
 
-        assert!(!update_or_remove_position(&mut account, &deposit));
+        assert!(!update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &deposit,
+        ));
         assert_eq!(
             account
                 .supply_positions
@@ -76,8 +82,13 @@ mod tests {
             500
         );
 
-        let zero_deposit = position(&env, asset.clone(), AccountPositionType::Deposit, 0);
-        assert!(update_or_remove_position(&mut account, &zero_deposit));
+        let zero_deposit = position(0);
+        assert!(update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &zero_deposit,
+        ));
         assert!(account.supply_positions.get(asset).is_none());
     }
 
@@ -86,9 +97,14 @@ mod tests {
         let env = Env::default();
         let asset = Address::generate(&env);
         let mut account = empty_account(&env);
-        let borrow = position(&env, asset.clone(), AccountPositionType::Borrow, 700);
+        let borrow = position(700);
 
-        assert!(!update_or_remove_position(&mut account, &borrow));
+        assert!(!update_or_remove_position(
+            &mut account,
+            AccountPositionType::Borrow,
+            &asset,
+            &borrow,
+        ));
         assert_eq!(
             account
                 .borrow_positions
@@ -106,23 +122,28 @@ mod tests {
         let borrow_asset = Address::generate(&env);
         let mut account = empty_account(&env);
 
-        let first_deposit = position(
-            &env,
-            deposit_asset.clone(),
-            AccountPositionType::Deposit,
-            100,
-        );
-        let second_deposit = position(
-            &env,
-            deposit_asset.clone(),
-            AccountPositionType::Deposit,
-            250,
-        );
-        let borrow = position(&env, borrow_asset.clone(), AccountPositionType::Borrow, 333);
+        let first_deposit = position(100);
+        let second_deposit = position(250);
+        let borrow = position(333);
 
-        assert!(!update_or_remove_position(&mut account, &first_deposit));
-        assert!(!update_or_remove_position(&mut account, &second_deposit));
-        assert!(!update_or_remove_position(&mut account, &borrow));
+        assert!(!update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &deposit_asset,
+            &first_deposit,
+        ));
+        assert!(!update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &deposit_asset,
+            &second_deposit,
+        ));
+        assert!(!update_or_remove_position(
+            &mut account,
+            AccountPositionType::Borrow,
+            &borrow_asset,
+            &borrow,
+        ));
 
         assert_eq!(
             account

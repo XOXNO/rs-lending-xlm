@@ -25,9 +25,12 @@ impl Ray {
     pub const ONE: Ray = Ray(RAY);
     pub const ZERO: Ray = Ray(0);
 
+    /// Lift a RAY-precision integer into the math wrapper. Accepts any
+    /// integer that fits inside `i128`, so storage fields stored at
+    /// narrower widths and i128 constants share one constructor.
     #[inline]
-    pub fn from_raw(v: i128) -> Self {
-        Ray(v)
+    pub fn from_raw(v: impl Into<i128>) -> Self {
+        Ray(v.into())
     }
 
     #[inline]
@@ -111,9 +114,12 @@ impl Wad {
     pub const ONE: Wad = Wad(WAD);
     pub const ZERO: Wad = Wad(0);
 
+    /// Lift a WAD-precision integer into the math wrapper. Accepts any
+    /// integer that fits inside `i128`, so storage fields stored at
+    /// narrower widths and i128 constants share one constructor.
     #[inline]
-    pub fn from_raw(v: i128) -> Self {
-        Wad(v)
+    pub fn from_raw(v: impl Into<i128>) -> Self {
+        Wad(v.into())
     }
 
     #[inline]
@@ -204,9 +210,13 @@ impl Bps {
     /// 100% = 10_000 BPS.
     pub const ONE: Bps = Bps(BPS);
 
+    /// Lift a basis-point value into the math-friendly `i128`-backed
+    /// [`Bps`]. Accepts any integer that fits inside `i128`, so storage
+    /// fields stored as `u32` and constants stored as `i128` both pass
+    /// through the same constructor without a call-site cast.
     #[inline]
-    pub fn from_raw(v: i128) -> Self {
-        Bps(v)
+    pub fn from_raw(v: impl Into<i128>) -> Self {
+        Bps(v.into())
     }
 
     #[inline]

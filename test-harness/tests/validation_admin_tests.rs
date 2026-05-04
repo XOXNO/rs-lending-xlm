@@ -112,15 +112,15 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     t.ctrl_client().upgrade_pool_params(&asset, &irm);
 }
 
-// validation.rs:194 (reserve_factor) -- reserve_factor_bps >= BPS rejects
-// InvalidReserveFactor (#119). Covers the same validator block as 191 etc.
+// validation.rs (reserve_factor) -- reserve_factor_bps >= BPS rejects
+// InvalidReserveFactor (#119).
 #[test]
 #[should_panic(expected = "Error(Contract, #119)")]
 fn test_validate_irm_rejects_reserve_factor_at_bps() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
-    irm.reserve_factor_bps = BPS;
+    irm.reserve_factor_bps = BPS as u32;
     t.ctrl_client().upgrade_pool_params(&asset, &irm);
 }
 
@@ -131,19 +131,10 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
 // Driven via `edit_asset_config`. The validator is also called from
 // `create_liquidity_pool`, but the edit path is shorter to set up.
 
-// validation.rs:202 -- loan_to_value_bps < 0 rejects InvalidLiqThreshold (#113).
-#[test]
-#[should_panic(expected = "Error(Contract, #113)")]
-fn test_validate_asset_config_rejects_negative_ltv() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let ctrl = t.ctrl_client();
-    let mut cfg = ctrl.get_market_config(&asset).asset_config;
-    cfg.loan_to_value_bps = -1;
-    ctrl.edit_asset_config(&asset, &cfg);
-}
+// `loan_to_value_bps` is `u32`, so negative values are unrepresentable
+// and the corresponding runtime branch is unreachable.
 
-// validation.rs:215 -- liquidation_bonus_bps > MAX_LIQUIDATION_BONUS rejects #113.
+// validation.rs -- liquidation_bonus_bps > MAX_LIQUIDATION_BONUS rejects #113.
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
 fn test_validate_asset_config_rejects_excessive_liq_bonus() {
@@ -151,11 +142,11 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let asset = t.resolve_market("USDC").asset.clone();
     let ctrl = t.ctrl_client();
     let mut cfg = ctrl.get_market_config(&asset).asset_config;
-    cfg.liquidation_bonus_bps = MAX_LIQUIDATION_BONUS + 1;
+    cfg.liquidation_bonus_bps = (MAX_LIQUIDATION_BONUS + 1) as u32;
     ctrl.edit_asset_config(&asset, &cfg);
 }
 
-// validation.rs:230 -- isolation_debt_ceiling_usd_wad < 0 rejects InvalidBorrowParams (#116).
+// validation.rs -- isolation_debt_ceiling_usd_wad < 0 rejects InvalidBorrowParams (#116).
 #[test]
 #[should_panic(expected = "Error(Contract, #116)")]
 fn test_validate_asset_config_rejects_negative_isolation_ceiling() {
@@ -167,19 +158,17 @@ fn test_validate_asset_config_rejects_negative_isolation_ceiling() {
     ctrl.edit_asset_config(&asset, &cfg);
 }
 
-// Sanity: validator at line 240 caps flashloan_fee_bps at MAX_FLASHLOAN_FEE_BPS,
-// already covered by an existing test in admin_config_tests.rs but kept here as
-// a guard that the constant matches the documented limit.
+// Sanity: validator caps flashloan_fee_bps at MAX_FLASHLOAN_FEE_BPS.
 #[test]
 fn test_validate_asset_config_accepts_flashloan_fee_at_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let ctrl = t.ctrl_client();
     let mut cfg = ctrl.get_market_config(&asset).asset_config;
-    cfg.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS;
+    cfg.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS as u32;
     ctrl.edit_asset_config(&asset, &cfg);
     let updated = ctrl.get_market_config(&asset).asset_config;
-    assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS);
+    assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS as u32);
 }
 
 // ---------------------------------------------------------------------------

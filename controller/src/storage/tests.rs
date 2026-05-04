@@ -146,11 +146,11 @@ fn test_market_account_and_emode_round_trips() {
         let market = t.sample_market_config();
         let mut account = t.sample_account();
         let emode = EModeCategory {
-            category_id: 1,
             loan_to_value_bps: 8_500,
             liquidation_threshold_bps: 9_000,
             liquidation_bonus_bps: 200,
             is_deprecated: false,
+            assets: soroban_sdk::Map::new(&t.env),
         };
         let emode_asset = EModeAssetConfig {
             is_collateralizable: true,

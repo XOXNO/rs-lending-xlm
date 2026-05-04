@@ -1,7 +1,9 @@
 use common::errors::{CollateralError, GenericError};
-use common::events::{emit_update_position, UpdatePositionEvent};
+use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::Ray;
-use common::types::{Account, AccountPosition, Payment, PoolPositionMutation};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation,
+};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
@@ -43,7 +45,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan {
-        process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
+        process_single_repay(env, caller, account_id, &mut account, &asset, amount, &mut cache);
     }
 
     // Full repay does not delete the account; only owner withdraw/close flows
@@ -56,6 +58,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 fn process_single_repay(
     env: &Env,
     caller: &Address,
+    account_id: u64,
     account: &mut Account,
     asset: &Address,
     amount: i128,
@@ -73,6 +76,8 @@ fn process_single_repay(
     let _ = execute_repayment(
         env,
         account,
+        account_id,
+        asset,
         EventContext {
             caller: caller.clone(),
             event_caller: caller.clone(),
@@ -86,9 +91,12 @@ fn process_single_repay(
 }
 
 /// Executes the pool repay leg and records the account-side mutation.
+#[allow(clippy::too_many_arguments)]
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
+    asset: &Address,
     ctx: EventContext,
     position: &AccountPosition,
     price_wad: i128,
@@ -101,9 +109,9 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
-    let mut result = pool_repay_call(env, caller.clone(), amount, position.clone(), price_wad);
+    let mut result = pool_repay_call(env, asset, caller.clone(), amount, position.clone(), price_wad);
 
-    let feed = cache.cached_price(&position.asset);
+    let feed = cache.cached_price(asset);
     let outstanding_before = actual_borrow_amount(
         env,
         position,
@@ -112,7 +120,12 @@ pub fn execute_repayment(
     );
     result.actual_amount = amount.min(outstanding_before);
 
-    update::update_or_remove_position(account, &result.position);
+    update::update_or_remove_position(
+        account,
+        AccountPositionType::Borrow,
+        asset,
+        &result.position,
+    );
     adjust_isolated_debt_for_repay(
         env,
         account,
@@ -127,7 +140,12 @@ pub fn execute_repayment(
             action,
             index: result.market_index.borrow_index_ray,
             amount: result.actual_amount,
-            position: result.position.clone().into(),
+            position: EventAccountPosition::new(
+                AccountPositionType::Borrow,
+                asset.clone(),
+                account_id,
+                &result.position,
+            ),
             asset_price: Some(price_wad),
             caller: Some(event_caller),
             account_attributes: Some((&*account).into()),
@@ -140,6 +158,7 @@ pub fn execute_repayment(
 /// Decrements isolated debt by the full current value of `position`.
 pub fn clear_position_isolated_debt(
     env: &Env,
+    asset: &Address,
     position: &AccountPosition,
     account: &Account,
     cache: &mut ControllerCache,
@@ -148,8 +167,8 @@ pub fn clear_position_isolated_debt(
         return;
     }
 
-    let market_index = cache.cached_market_index(&position.asset);
-    let feed = cache.cached_price(&position.asset);
+    let market_index = cache.cached_market_index(asset);
+    let feed = cache.cached_price(asset);
     let actual_amount = actual_borrow_amount(
         env,
         position,
@@ -219,12 +238,13 @@ crate::summarized!(
     crate::spec::summaries::pool::repay_summary,
     fn pool_repay_call(
         env: &Env,
+        asset: &Address,
         caller: Address,
         amount: i128,
         position: AccountPosition,
         price_wad: i128,
     ) -> PoolPositionMutation {
-        let pool_addr = crate::storage::get_market_config(env, &position.asset).pool_address;
+        let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr).repay(
             &caller,
             &amount,
@@ -241,7 +261,7 @@ mod tests {
     use super::*;
     use common::constants::{RAY, WAD};
     use common::types::{
-        AccountPositionType, AssetConfig, ExchangeSource, MarketConfig, MarketParams, MarketStatus,
+        AssetConfig, ExchangeSource, MarketConfig, MarketParams, MarketStatus,
         OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey, PoolState, PositionMode,
         PriceFeed, ReflectorAssetKind, ReflectorConfig,
     };
@@ -381,12 +401,9 @@ mod tests {
             }
         }
 
-        fn borrow_position(&self, account_id: u64, scaled_amount_ray: i128) -> AccountPosition {
+        fn borrow_position(&self, _account_id: u64, scaled_amount_ray: i128) -> AccountPosition {
             AccountPosition {
-                position_type: AccountPositionType::Borrow,
-                asset: self.asset.clone(),
                 scaled_amount_ray,
-                account_id,
                 liquidation_threshold_bps: 8_000,
                 liquidation_bonus_bps: 500,
                 liquidation_fees_bps: 100,
@@ -576,7 +593,7 @@ mod tests {
             );
             cache.set_isolated_debt(&t.asset, 2 * WAD);
 
-            clear_position_isolated_debt(&t.env, &position, &account, &mut cache);
+            clear_position_isolated_debt(&t.env, &t.asset, &position, &account, &mut cache);
 
             // 2 WAD - (1 token × $1) = 1 WAD.
             assert_eq!(cache.get_isolated_debt(&t.asset), WAD);

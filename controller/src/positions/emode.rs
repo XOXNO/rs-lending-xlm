@@ -166,7 +166,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, AccountPositionType, ControllerKey, PositionMode};
+    use common::types::{AccountPosition, ControllerKey, PositionMode};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map, Vec};
 
@@ -256,11 +256,26 @@ mod tests {
         });
     }
 
+    fn seed_emode_category(t: &TestSetup, id: u32) {
+        storage::set_emode_category(
+            &t.env,
+            id,
+            &common::types::EModeCategory {
+                loan_to_value_bps: 9000,
+                liquidation_threshold_bps: 9500,
+                liquidation_bonus_bps: 200,
+                is_deprecated: false,
+                assets: Map::new(&t.env),
+            },
+        );
+    }
+
     #[test]
     #[should_panic(expected = "Error(Contract, #104)")]
     fn test_validate_e_mode_asset_rejects_non_collateralizable_membership() {
         let t = TestSetup::new();
         t.as_controller(|| {
+            seed_emode_category(&t, 1);
             let categories = Vec::from_array(&t.env, [1u32]);
             t.env
                 .storage()
@@ -285,6 +300,7 @@ mod tests {
     fn test_validate_e_mode_asset_rejects_non_borrowable_membership() {
         let t = TestSetup::new();
         t.as_controller(|| {
+            seed_emode_category(&t, 1);
             let categories = Vec::from_array(&t.env, [1u32]);
             t.env
                 .storage()
@@ -313,10 +329,7 @@ mod tests {
             account.supply_positions.set(
                 t.asset_a.clone(),
                 AccountPosition {
-                    position_type: AccountPositionType::Deposit,
-                    asset: t.asset_a.clone(),
                     scaled_amount_ray: 100,
-                    account_id: 1,
                     liquidation_threshold_bps: 8_000,
                     liquidation_bonus_bps: 500,
                     liquidation_fees_bps: 100,

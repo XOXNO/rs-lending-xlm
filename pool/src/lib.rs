@@ -49,18 +49,6 @@ fn require_nonneg_amount(env: &Env, amount: i128) {
     }
 }
 
-/// Defense-in-depth: every mutating pool ABI must reject positions whose
-/// `asset` field doesn't match the pool's own `asset_id`. The controller
-/// resolves `cached_pool_address(asset)` correctly today, but a misconfigured
-/// asset→pool registry (upgrade bug, governance error) could otherwise route
-/// a position into the wrong pool and corrupt its scaled-balance accounting.
-/// Enforced on supply/borrow/withdraw/repay/seize/strategy/flash-loan.
-fn require_same_asset(env: &Env, cache: &Cache, asset: &Address) {
-    if cache.params.asset_id != *asset {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
-}
-
 fn checked_add_ray(env: &Env, a: Ray, b: Ray) -> Ray {
     if a.raw() < 0 || b.raw() < 0 {
         panic_with_error!(env, GenericError::MathOverflow);
@@ -138,7 +126,6 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
@@ -171,7 +158,6 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         if !cache.has_reserves(amount) {
@@ -217,7 +203,6 @@ impl LiquidityPool {
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         // Gross withdrawal: cap at the position's current value.
@@ -294,7 +279,6 @@ impl LiquidityPool {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
@@ -467,7 +451,6 @@ impl LiquidityPool {
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
         if fee > amount {
@@ -509,34 +492,33 @@ impl LiquidityPool {
 
     pub fn seize_position(
         env: Env,
+        side: AccountPositionType,
         mut position: AccountPosition,
         price_wad: i128,
     ) -> AccountPosition {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
-        require_same_asset(&env, &cache, &position.asset);
         interest::global_sync(&env, &mut cache);
 
-        if position.position_type == AccountPositionType::Borrow {
-            // Socialize bad debt; use RAY precision for index adjustment.
-            let current_debt_ray =
-                cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
-            interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-            cache.borrowed = checked_sub_ray(
-                &env,
-                cache.borrowed,
-                Ray::from_raw(position.scaled_amount_ray),
-            );
-            position.scaled_amount_ray = 0;
-        } else if position.position_type == AccountPositionType::Deposit {
-            // Absorb dust into revenue.
-            let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-            cache.revenue = checked_add_ray(&env, cache.revenue, pos_scaled);
-            position.scaled_amount_ray = 0;
-        } else {
-            // Defensive panic: future enum variants must be handled
-            // explicitly instead of silently no-oping.
-            panic_with_error!(&env, GenericError::InvalidPositionType);
+        match side {
+            AccountPositionType::Borrow => {
+                // Socialize bad debt; use RAY precision for index adjustment.
+                let current_debt_ray =
+                    cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
+                interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
+                cache.borrowed = checked_sub_ray(
+                    &env,
+                    cache.borrowed,
+                    Ray::from_raw(position.scaled_amount_ray),
+                );
+                position.scaled_amount_ray = 0;
+            }
+            AccountPositionType::Deposit => {
+                // Absorb dust into revenue.
+                let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
+                cache.revenue = checked_add_ray(&env, cache.revenue, pos_scaled);
+                position.scaled_amount_ray = 0;
+            }
         }
 
         emit_market_update(&env, &cache, price_wad);
@@ -609,7 +591,7 @@ impl LiquidityPool {
         slope3: i128,
         mid_utilization: i128,
         optimal_utilization: i128,
-        reserve_factor: i128,
+        reserve_factor: u32,
     ) {
         verify_admin(&env);
 
@@ -631,7 +613,7 @@ impl LiquidityPool {
         if optimal_utilization >= RAY {
             panic_with_error!(&env, CollateralError::OptUtilTooHigh);
         }
-        if !(0..BPS).contains(&reserve_factor) {
+        if i128::from(reserve_factor) >= BPS {
             panic_with_error!(&env, CollateralError::InvalidReserveFactor);
         }
         // Monotone slope chain: base <= slope1 <= slope2 <= slope3 <= max.
@@ -830,10 +812,7 @@ mod tests {
 
         fn deposit_position(&self) -> AccountPosition {
             AccountPosition {
-                position_type: AccountPositionType::Deposit,
-                asset: self.asset.clone(),
                 scaled_amount_ray: 0,
-                account_id: 1,
                 liquidation_threshold_bps: 8000,
                 liquidation_bonus_bps: 500,
                 liquidation_fees_bps: 100,
@@ -843,10 +822,7 @@ mod tests {
 
         fn borrow_position(&self) -> AccountPosition {
             AccountPosition {
-                position_type: AccountPositionType::Borrow,
-                asset: self.asset.clone(),
                 scaled_amount_ray: 0,
-                account_id: 1,
                 liquidation_threshold_bps: 8000,
                 liquidation_bonus_bps: 500,
                 liquidation_fees_bps: 100,
@@ -1225,7 +1201,7 @@ mod tests {
 
         let idx_before = client.update_indexes(&0i128);
 
-        let seized = client.seize_position(&updated_borrow.position, &0i128);
+        let seized = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position, &0i128);
 
         assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
 
@@ -1252,7 +1228,7 @@ mod tests {
             state.borrowed_ray = 0;
         });
 
-        let _ = client.seize_position(&updated_borrow.position, &0i128);
+        let _ = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position, &0i128);
     }
 
     // -----------------------------------------------------------------------
@@ -1267,7 +1243,7 @@ mod tests {
         let updated = client.supply(&supply_pos, &0i128, &100_0000000i128);
 
         let revenue_before = client.protocol_revenue();
-        let seized = client.seize_position(&updated.position, &0i128);
+        let seized = client.seize_position(&AccountPositionType::Deposit, &updated.position, &0i128);
 
         assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
 
@@ -1322,7 +1298,7 @@ mod tests {
 
         let supply_pos = t.deposit_position();
         let oversized_supply = client.supply(&supply_pos, &0i128, &200_000_000_000_000i128);
-        let _ = client.seize_position(&oversized_supply.position, &0i128);
+        let _ = client.seize_position(&AccountPositionType::Deposit, &oversized_supply.position, &0i128);
 
         let claimed = client.claim_revenue(&0i128);
         let remaining_revenue = client.protocol_revenue();
@@ -1345,7 +1321,7 @@ mod tests {
 
         let supply_pos = t.deposit_position();
         let supplied = client.supply(&supply_pos, &0i128, &10_000_000_000i128);
-        let _ = client.seize_position(&supplied.position, &0i128);
+        let _ = client.seize_position(&AccountPositionType::Deposit, &supplied.position, &0i128);
         t.edit_state(|state| {
             state.supplied_ray = 1;
         });
@@ -1648,7 +1624,7 @@ mod tests {
         let new_s3 = RAY * 90 / 100;
         let new_mid = RAY * 40 / 100;
         let new_opt = RAY * 85 / 100;
-        let new_reserve = 2000i128;
+        let new_reserve: u32 = 2000;
 
         client.update_params(
             &new_max,
@@ -1737,10 +1713,12 @@ mod tests {
         );
     }
 
-    // Negative reserve_factor panics with InvalidReserveFactor.
+    // reserve_factor at the BPS ceiling panics with InvalidReserveFactor;
+    // the validator demands `< BPS`. (The previous "negative" case is
+    // unrepresentable now that the parameter is `u32`.)
     #[test]
     #[should_panic(expected = "Error(Contract, #119)")]
-    fn test_update_params_rejects_negative_reserve_factor() {
+    fn test_update_params_rejects_reserve_factor_at_bps() {
         let t = TestSetup::new();
         let client = t.client();
 
@@ -1752,7 +1730,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &(RAY * 8 / 10),
-            &-1i128,
+            &(BPS as u32),
         );
     }
 

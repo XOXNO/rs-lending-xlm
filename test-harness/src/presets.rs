@@ -30,10 +30,10 @@ pub struct MarketPreset {
 
 #[derive(Clone)]
 pub struct AssetConfigPreset {
-    pub loan_to_value_bps: i128,
-    pub liquidation_threshold_bps: i128,
-    pub liquidation_bonus_bps: i128,
-    pub liquidation_fees_bps: i128,
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
@@ -42,7 +42,7 @@ pub struct AssetConfigPreset {
     pub e_mode_enabled: bool,
     pub isolation_borrow_enabled: bool,
     pub isolation_debt_ceiling_usd_wad: i128,
-    pub flashloan_fee_bps: i128,
+    pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
 }
@@ -56,22 +56,22 @@ pub struct MarketParamsPreset {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    pub reserve_factor_bps: i128,
+    pub reserve_factor_bps: u32,
 }
 
 #[derive(Clone)]
 pub struct EModeCategoryPreset {
-    pub ltv: i128,
-    pub threshold: i128,
-    pub bonus: i128,
+    pub ltv: u32,
+    pub threshold: u32,
+    pub bonus: u32,
 }
 
 #[derive(Clone)]
 pub struct TolerancePreset {
-    pub first_upper_bps: i128,
-    pub first_lower_bps: i128,
-    pub last_upper_bps: i128,
-    pub last_lower_bps: i128,
+    pub first_upper_bps: u32,
+    pub first_lower_bps: u32,
+    pub last_upper_bps: u32,
+    pub last_lower_bps: u32,
 }
 
 // ---------------------------------------------------------------------------

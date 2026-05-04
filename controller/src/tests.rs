@@ -214,17 +214,19 @@ fn test_update_or_remove_position_stores_position() {
     t.env.as_contract(&t.contract, || {
         let (id, _) = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
         let position = AccountPosition {
-            position_type: AccountPositionType::Deposit,
-            asset: asset.clone(),
             scaled_amount_ray: 1_000_000,
-            account_id: id,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
             liquidation_fees_bps: 100,
             loan_to_value_bps: 7500,
         };
         let mut account = storage::get_account(&t.env, id);
-        update::update_or_remove_position(&mut account, &position);
+        update::update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &position,
+        );
         storage::set_account(&t.env, id, &account);
 
         // Check that the position map has the asset.
@@ -236,7 +238,12 @@ fn test_update_or_remove_position_stores_position() {
 
         // Store the same asset again; the position must not duplicate.
         let mut account = storage::get_account(&t.env, id);
-        update::update_or_remove_position(&mut account, &position);
+        update::update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &position,
+        );
         storage::set_account(&t.env, id, &account);
         let account = storage::get_account(&t.env, id);
         assert_eq!(account.supply_positions.len(), 1);
@@ -256,32 +263,36 @@ fn test_update_or_remove_position_zero() {
         let (id, _) = utils::create_account(&t.env, &owner, 0, PositionMode::Normal, false, None);
         // Store a position first.
         let position = AccountPosition {
-            position_type: AccountPositionType::Deposit,
-            asset: asset.clone(),
             scaled_amount_ray: 1_000_000,
-            account_id: id,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
             liquidation_fees_bps: 100,
             loan_to_value_bps: 7500,
         };
         let mut account = storage::get_account(&t.env, id);
-        update::update_or_remove_position(&mut account, &position);
+        update::update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &position,
+        );
         storage::set_account(&t.env, id, &account);
 
         // Now update with zero amount.
         let zero_position = AccountPosition {
-            position_type: AccountPositionType::Deposit,
-            asset: asset.clone(),
             scaled_amount_ray: 0,
-            account_id: id,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
             liquidation_fees_bps: 100,
             loan_to_value_bps: 7500,
         };
         let mut account = storage::get_account(&t.env, id);
-        update::update_or_remove_position(&mut account, &zero_position);
+        update::update_or_remove_position(
+            &mut account,
+            AccountPositionType::Deposit,
+            &asset,
+            &zero_position,
+        );
         storage::set_account(&t.env, id, &account);
 
         // Position should be removed.
@@ -387,16 +398,14 @@ fn test_add_e_mode_category_auto_increment() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let id1 = client.add_e_mode_category(&9700i128, &9800i128, &200i128);
+    let id1 = client.add_e_mode_category(&9700u32, &9800u32, &200u32);
     assert_eq!(id1, 1);
 
-    let id2 = client.add_e_mode_category(&9500i128, &9600i128, &300i128);
+    let id2 = client.add_e_mode_category(&9500u32, &9600u32, &300u32);
     assert_eq!(id2, 2);
 
     t.env.as_contract(&t.contract, || {
-        // Verify stored category.
         let cat = storage::get_emode_category(&t.env, id1);
-        assert_eq!(cat.category_id, 1);
         assert_eq!(cat.loan_to_value_bps, 9700);
         assert_eq!(cat.liquidation_threshold_bps, 9800);
         assert!(!cat.is_deprecated);
@@ -413,7 +422,7 @@ fn test_add_e_mode_category_bad_params() {
     let client = t.client();
 
     // threshold == ltv must fail.
-    client.add_e_mode_category(&9800i128, &9800i128, &200i128);
+    client.add_e_mode_category(&9800u32, &9800u32, &200u32);
 }
 
 // -----------------------------------------------------------------------
@@ -424,7 +433,7 @@ fn test_remove_e_mode_category() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let id = client.add_e_mode_category(&9700i128, &9800i128, &200i128);
+    let id = client.add_e_mode_category(&9700u32, &9800u32, &200u32);
     client.remove_e_mode_category(&id);
 
     t.env.as_contract(&t.contract, || {
@@ -443,7 +452,7 @@ fn test_add_asset_to_deprecated_e_mode() {
     let client = t.client();
     let asset = Address::generate(&t.env);
 
-    let id = client.add_e_mode_category(&9700i128, &9800i128, &200i128);
+    let id = client.add_e_mode_category(&9700u32, &9800u32, &200u32);
     client.remove_e_mode_category(&id);
 
     // Must fail: the category is deprecated.
@@ -504,16 +513,18 @@ fn test_position_limit_reaches_configured_max() {
         let mut account = storage::get_account(&t.env, id);
         for asset in [&asset1, &asset2] {
             let pos = AccountPosition {
-                position_type: AccountPositionType::Deposit,
-                asset: asset.clone(),
                 scaled_amount_ray: 1000,
-                account_id: id,
                 liquidation_threshold_bps: 8000,
                 liquidation_bonus_bps: 500,
                 liquidation_fees_bps: 100,
                 loan_to_value_bps: 7500,
             };
-            update::update_or_remove_position(&mut account, &pos);
+            update::update_or_remove_position(
+                &mut account,
+                AccountPositionType::Deposit,
+                asset,
+                &pos,
+            );
         }
         storage::set_account(&t.env, id, &account);
 

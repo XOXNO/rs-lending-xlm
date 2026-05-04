@@ -176,7 +176,7 @@ proptest! {
 
         // c. Reserves grew by exactly `fee`.
         let config = t.get_asset_config("USDC");
-        let expected_fee = amount_raw * config.flashloan_fee_bps / 10_000;
+        let expected_fee = amount_raw * i128::from(config.flashloan_fee_bps) / 10_000;
         let reserves_after = pool_client.reserves();
         prop_assert_eq!(
             reserves_after,

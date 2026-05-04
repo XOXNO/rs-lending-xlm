@@ -113,20 +113,18 @@ impl LendingTest {
             borrows
         };
 
-        for position in positions.iter() {
-            if position.asset == *asset {
-                let pool = self.resolve_market_by_asset(asset).pool.clone();
-                let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data();
-                let index = if position_type == POSITION_TYPE_DEPOSIT {
-                    sync.state.supply_index_ray
-                } else {
-                    sync.state.borrow_index_ray
-                };
-                let decimals = self.resolve_market_by_asset(asset).decimals;
-                return Ray::from_raw(position.scaled_amount_ray)
-                    .mul(&self.env, Ray::from_raw(index))
-                    .to_asset(decimals);
-            }
+        if let Some(position) = positions.get(asset.clone()) {
+            let pool = self.resolve_market_by_asset(asset).pool.clone();
+            let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data();
+            let index = if position_type == POSITION_TYPE_DEPOSIT {
+                sync.state.supply_index_ray
+            } else {
+                sync.state.borrow_index_ray
+            };
+            let decimals = self.resolve_market_by_asset(asset).decimals;
+            return Ray::from_raw(position.scaled_amount_ray)
+                .mul(&self.env, Ray::from_raw(index))
+                .to_asset(decimals);
         }
 
         0

@@ -356,10 +356,8 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
             storage::bump_shared(env, &ControllerKey::AssetEModes(asset.clone()));
         }
         for category_id in categories {
+            // Single ledger entry per category — params + member-asset map.
             storage::bump_shared(env, &ControllerKey::EModeCategory(category_id));
-            if storage::get_emode_asset(env, category_id, &asset).is_some() {
-                storage::bump_shared(env, &ControllerKey::EModeAssets(category_id));
-            }
         }
     }
 }

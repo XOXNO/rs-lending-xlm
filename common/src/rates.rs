@@ -47,11 +47,13 @@ pub fn calculate_deposit_rate(
     env: &Env,
     utilization: Ray,
     borrow_rate: Ray,
-    reserve_factor_bps: i128,
+    reserve_factor_bps: u32,
 ) -> Ray {
     if utilization == Ray::ZERO {
         return Ray::ZERO;
     }
+
+    let reserve_factor_bps = i128::from(reserve_factor_bps);
 
     // Defense-in-depth: upstream validation rejects `reserve_factor >= BPS`,
     // but clamp here so a mis-wired caller cannot drive `BPS -

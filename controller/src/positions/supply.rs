@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::events::{emit_update_position, UpdatePositionEvent};
+use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory, MarketIndex,
@@ -223,18 +223,14 @@ fn execute_deposit_plan(
 
 fn get_or_create_deposit_position(
     account: &Account,
-    account_id: u64,
     asset_config: &AssetConfig,
     asset: &Address,
 ) -> AccountPosition {
     account
         .supply_positions
         .get(asset.clone())
-        .unwrap_or_else(|| AccountPosition {
-            position_type: AccountPositionType::Deposit,
-            asset: asset.clone(),
+        .unwrap_or(AccountPosition {
             scaled_amount_ray: 0,
-            account_id,
             liquidation_threshold_bps: asset_config.liquidation_threshold_bps,
             liquidation_bonus_bps: asset_config.liquidation_bonus_bps,
             liquidation_fees_bps: asset_config.liquidation_fees_bps,
@@ -256,7 +252,7 @@ pub fn update_deposit_position(
     feed: &PriceFeed,
     cache: &mut ControllerCache,
 ) -> AccountPosition {
-    let mut position = get_or_create_deposit_position(account, account_id, asset_config, asset);
+    let mut position = get_or_create_deposit_position(account, asset_config, asset);
 
     // Refresh LTV, liquidation bonus, and liquidation fees from the latest
     // asset config. Do NOT refresh `liquidation_threshold_bps` here: only
@@ -292,7 +288,12 @@ pub fn update_deposit_position(
             action: symbol_short!("supply"),
             index: market_update.market_index.supply_index_ray,
             amount: market_update.credited_amount,
-            position: position.clone().into(),
+            position: EventAccountPosition::new(
+                AccountPositionType::Deposit,
+                asset.clone(),
+                account_id,
+                &position,
+            ),
             asset_price: Some(feed.price_wad),
             caller: Some(caller.clone()),
             account_attributes: Some((&*account).into()),
@@ -301,7 +302,7 @@ pub fn update_deposit_position(
 
     // Update the in-memory account. `process_supply` writes storage once at
     // the end of the batch.
-    update::update_or_remove_position(account, &position);
+    update::update_or_remove_position(account, AccountPositionType::Deposit, asset, &position);
 
     position
 }
@@ -326,7 +327,7 @@ fn update_market_position(
     let credited_amount = pull_supply_tokens(env, caller, asset, &pool_addr, amount);
 
     validate_supply_cap(env, cache, asset_config, asset, credited_amount, feed);
-    apply_pool_supply(env, position, feed, credited_amount)
+    apply_pool_supply(env, asset, position, feed, credited_amount)
 }
 
 fn pull_supply_tokens(
@@ -362,11 +363,12 @@ fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
 
 fn apply_pool_supply(
     env: &Env,
+    asset: &Address,
     position: &mut AccountPosition,
     feed: &PriceFeed,
     amount: i128,
 ) -> SupplyMarketUpdate {
-    let result = pool_supply_call(env, position.clone(), feed.price_wad, amount);
+    let result = pool_supply_call(env, asset, position.clone(), feed.price_wad, amount);
 
     *position = result.position;
 
@@ -380,11 +382,12 @@ crate::summarized!(
     crate::spec::summaries::pool::supply_summary,
     fn pool_supply_call(
         env: &Env,
+        asset: &Address,
         position: AccountPosition,
         price_wad: i128,
         amount: i128,
     ) -> common::types::PoolPositionMutation {
-        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        let pool_addr = storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr).supply(
             &position,
             &price_wad,
@@ -501,7 +504,12 @@ pub fn update_position_threshold(
         supply_positions,
         borrow_positions,
     };
-    update::update_or_remove_position(&mut account, &updated_pos);
+    update::update_or_remove_position(
+        &mut account,
+        AccountPositionType::Deposit,
+        asset,
+        &updated_pos,
+    );
 
     // Persist only the supply side; borrow stays as-is.
     storage::set_supply_positions(env, account_id, &account.supply_positions);
@@ -530,7 +538,12 @@ pub fn update_position_threshold(
             action: symbol_short!("param_upd"),
             index: market_index.supply_index_ray,
             amount: 0,
-            position: updated_pos.into(),
+            position: EventAccountPosition::new(
+                AccountPositionType::Deposit,
+                asset.clone(),
+                account_id,
+                &updated_pos,
+            ),
             asset_price: Some(feed.price_wad),
             caller: Some(controller_addr.clone()),
             account_attributes: Some((&account).into()),
@@ -634,18 +647,15 @@ mod tests {
         fn account_with_supply(
             &self,
             owner: Address,
-            ltv: i128,
-            bonus: i128,
-            fees: i128,
+            ltv: u32,
+            bonus: u32,
+            fees: u32,
         ) -> Account {
             let mut supply_positions = Map::new(&self.env);
             supply_positions.set(
                 self.asset.clone(),
                 AccountPosition {
-                    position_type: AccountPositionType::Deposit,
-                    asset: self.asset.clone(),
                     scaled_amount_ray: 1_0000000,
-                    account_id: 1,
                     liquidation_threshold_bps: 8_000,
                     liquidation_bonus_bps: bonus,
                     liquidation_fees_bps: fees,

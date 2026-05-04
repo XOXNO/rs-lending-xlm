@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::events::{emit_update_position, UpdatePositionEvent};
+use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
@@ -48,11 +48,11 @@ pub fn handle_create_borrow_strategy(
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = Bps::from_raw(debt_config.flashloan_fee_bps).apply_to(env, amount);
-    let borrow_position =
-        get_or_create_borrow_position(account, account_id, &debt_config, debt_token);
+    let borrow_position = get_or_create_borrow_position(account, &debt_config, debt_token);
 
     let result = pool_create_strategy_call(
         env,
+        debt_token,
         env.current_contract_address(),
         borrow_position,
         amount,
@@ -62,6 +62,8 @@ pub fn handle_create_borrow_strategy(
     record_borrow_update(
         env,
         account,
+        account_id,
+        debt_token,
         symbol_short!("multiply"),
         result.market_index.borrow_index_ray,
         result.actual_amount,
@@ -253,10 +255,11 @@ fn update_borrow_position(
     caller: &Address,
     feed: &PriceFeed,
 ) {
-    let borrow_position = get_or_create_borrow_position(account, account_id, asset_config, asset);
+    let borrow_position = get_or_create_borrow_position(account, asset_config, asset);
 
     let result = pool_borrow_call(
         env,
+        asset,
         caller.clone(),
         amount,
         borrow_position,
@@ -266,6 +269,8 @@ fn update_borrow_position(
     record_borrow_update(
         env,
         account,
+        account_id,
+        asset,
         symbol_short!("borrow"),
         result.market_index.borrow_index_ray,
         result.actual_amount,
@@ -279,12 +284,13 @@ crate::summarized!(
     crate::spec::summaries::pool::borrow_summary,
     fn pool_borrow_call(
         env: &Env,
+        asset: &Address,
         caller: Address,
         amount: i128,
         position: AccountPosition,
         price_wad: i128,
     ) -> common::types::PoolPositionMutation {
-        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        let pool_addr = storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr).borrow(
             &caller,
             &amount,
@@ -298,13 +304,14 @@ crate::summarized!(
     crate::spec::summaries::pool::create_strategy_summary,
     fn pool_create_strategy_call(
         env: &Env,
+        asset: &Address,
         caller: Address,
         position: AccountPosition,
         amount: i128,
         fee: i128,
         price_wad: i128,
     ) -> common::types::PoolStrategyMutation {
-        let pool_addr = storage::get_market_config(env, &position.asset).pool_address;
+        let pool_addr = storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr).create_strategy(
             &caller,
             &position,
@@ -319,6 +326,8 @@ crate::summarized!(
 fn record_borrow_update(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
+    asset: &Address,
     action: Symbol,
     index: i128,
     amount: i128,
@@ -332,13 +341,18 @@ fn record_borrow_update(
             action,
             index,
             amount,
-            position: position.clone().into(),
+            position: EventAccountPosition::new(
+                AccountPositionType::Borrow,
+                asset.clone(),
+                account_id,
+                &position,
+            ),
             asset_price: Some(price_wad),
             caller: Some(caller.clone()),
             account_attributes: Some((&*account).into()),
         },
     );
-    update::update_or_remove_position(account, &position);
+    update::update_or_remove_position(account, AccountPositionType::Borrow, asset, &position);
 }
 
 /// Increments the isolated-debt USD tracker by the USD value of `amount`.
@@ -383,18 +397,14 @@ pub fn handle_isolated_debt(
 
 fn get_or_create_borrow_position(
     account: &Account,
-    account_id: u64,
     borrow_asset_config: &AssetConfig,
     asset: &Address,
 ) -> AccountPosition {
     account
         .borrow_positions
         .get(asset.clone())
-        .unwrap_or_else(|| AccountPosition {
-            position_type: AccountPositionType::Borrow,
-            asset: asset.clone(),
+        .unwrap_or(AccountPosition {
             scaled_amount_ray: 0,
-            account_id,
             liquidation_threshold_bps: borrow_asset_config.liquidation_threshold_bps,
             liquidation_bonus_bps: borrow_asset_config.liquidation_bonus_bps,
             liquidation_fees_bps: borrow_asset_config.liquidation_fees_bps,
@@ -566,10 +576,7 @@ mod tests {
                 borrow_positions.set(
                     asset.clone(),
                     AccountPosition {
-                        position_type: AccountPositionType::Borrow,
-                        asset: asset.clone(),
                         scaled_amount_ray: 1_0000000,
-                        account_id: 1,
                         liquidation_threshold_bps: 8_000,
                         liquidation_bonus_bps: 500,
                         liquidation_fees_bps: 100,

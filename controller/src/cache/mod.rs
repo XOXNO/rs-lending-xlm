@@ -257,6 +257,17 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_controller(|| {
+            storage::set_emode_category(
+                &t.env,
+                7,
+                &common::types::EModeCategory {
+                    loan_to_value_bps: 9000,
+                    liquidation_threshold_bps: 9500,
+                    liquidation_bonus_bps: 200,
+                    is_deprecated: false,
+                    assets: soroban_sdk::Map::new(&t.env),
+                },
+            );
             let expected = EModeAssetConfig {
                 is_collateralizable: true,
                 is_borrowable: false,

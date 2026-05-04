@@ -5,7 +5,7 @@ use common::types::{
     LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
     POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
 use crate::{helpers, storage, Controller, ControllerArgs, ControllerClient};
@@ -39,7 +39,7 @@ impl Controller {
     pub fn get_account_positions(
         env: Env,
         account_id: u64,
-    ) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
+    ) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>) {
         get_account_positions(&env, account_id)
     }
 
@@ -122,10 +122,9 @@ crate::summarized!(
         let mut cache = ControllerCache::new_view(env);
         let mut total_collateral = Wad::ZERO;
 
-        for asset in supply.keys() {
-            let position = supply.get(asset).unwrap();
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in supply.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
 
             let value = helpers::position_value(
                 env,
@@ -154,10 +153,9 @@ crate::summarized!(
         let mut cache = ControllerCache::new_view(env);
         let mut total_borrow = Wad::ZERO;
 
-        for asset in borrow.keys() {
-            let position = borrow.get(asset).unwrap();
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in borrow.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
 
             let value = helpers::position_value(
                 env,
@@ -202,27 +200,21 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .to_asset(feed.asset_decimals)
 }
 
+/// Returns the supply and borrow position maps keyed by asset so the SDK
+/// receives the asset alongside the snapshot — the stored value no longer
+/// carries it.
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
-) -> (Vec<AccountPosition>, Vec<AccountPosition>) {
+) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>) {
     if try_get_account_meta(env, account_id).is_none() {
-        return (Vec::new(env), Vec::new(env));
+        return (Map::new(env), Map::new(env));
     }
 
-    let supply_map = storage::get_supply_positions(env, account_id);
-    let mut supply = Vec::new(env);
-    for asset in supply_map.keys() {
-        supply.push_back(supply_map.get(asset).unwrap());
-    }
-
-    let borrow_map = storage::get_borrow_positions(env, account_id);
-    let mut borrow = Vec::new(env);
-    for asset in borrow_map.keys() {
-        borrow.push_back(borrow_map.get(asset).unwrap());
-    }
-
-    (supply, borrow)
+    (
+        storage::get_supply_positions(env, account_id),
+        storage::get_borrow_positions(env, account_id),
+    )
 }
 
 pub fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
@@ -374,9 +366,9 @@ mod tests {
     use crate::ControllerClient;
     use common::constants::RAY;
     use common::types::{
-        Account, AccountPosition, AccountPositionType, AssetConfig, ExchangeSource, MarketConfig,
-        MarketParams, MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType,
-        PoolKey, PoolState, PositionMode, ReflectorAssetKind, ReflectorConfig,
+        Account, AccountPosition, AssetConfig, ExchangeSource, MarketConfig, MarketParams,
+        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey,
+        PoolState, PositionMode, ReflectorAssetKind, ReflectorConfig,
     };
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
     use soroban_sdk::{Address, Map, Symbol, Vec};
@@ -675,10 +667,7 @@ mod tests {
             borrow_positions.set(
                 t.asset_a.clone(),
                 AccountPosition {
-                    position_type: AccountPositionType::Borrow,
-                    asset: t.asset_a.clone(),
                     scaled_amount_ray: 5 * RAY, // 5 tokens in RAY-native
-                    account_id,
                     liquidation_threshold_bps: 8_000,
                     liquidation_bonus_bps: 500,
                     liquidation_fees_bps: 100,

@@ -102,7 +102,7 @@ impl LendingTest {
     // E-mode management
     // -----------------------------------------------------------------------
 
-    pub fn edit_e_mode_category(&self, category_id: u32, ltv: i128, threshold: i128, bonus: i128) {
+    pub fn edit_e_mode_category(&self, category_id: u32, ltv: u32, threshold: u32, bonus: u32) {
         self.ctrl_client()
             .edit_e_mode_category(&category_id, &ltv, &threshold, &bonus);
     }

@@ -63,7 +63,8 @@ pub struct MarketParams {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    pub reserve_factor_bps: i128,
+    /// Reserve factor in basis points. Bounded by `BPS` (10 000).
+    pub reserve_factor_bps: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
@@ -81,24 +82,38 @@ pub struct InterestRateModel {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    pub reserve_factor_bps: i128,
+    /// Reserve factor in basis points. Bounded by `BPS` (10 000).
+    pub reserve_factor_bps: u32,
 }
 
 // ---------------------------------------------------------------------------
 // Account position
 // ---------------------------------------------------------------------------
 
+/// Per-position snapshot stored as the value in
+/// `Map<Address, AccountPosition>` under
+/// `SupplyPositions(account_id)` / `BorrowPositions(account_id)`.
+///
+/// Context that the value omits is derived from where it lives:
+/// * `asset` — the enclosing map key.
+/// * `position_type` — the enclosing storage key (supply vs borrow).
+/// * `account_id` — the discriminant inside that storage key.
+///
+/// Event payloads carry these three explicitly via
+/// [`crate::events::EventAccountPosition::new`], filled in by the
+/// emit-site from local context.
+///
+/// The four risk-parameter fields are an open-time snapshot — see
+/// `feedback_account_position_snapshot.md`. They are bounded by
+/// `BPS` (10 000), so `u32` covers the full domain.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
-    pub position_type: AccountPositionType,
-    pub asset: Address,
     pub scaled_amount_ray: i128,
-    pub account_id: u64,
-    pub liquidation_threshold_bps: i128,
-    pub liquidation_bonus_bps: i128,
-    pub liquidation_fees_bps: i128,
-    pub loan_to_value_bps: i128,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
+    pub loan_to_value_bps: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,10 +123,11 @@ pub struct AccountPosition {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
-    pub loan_to_value_bps: i128,
-    pub liquidation_threshold_bps: i128,
-    pub liquidation_bonus_bps: i128,
-    pub liquidation_fees_bps: i128,
+    /// Risk parameters in basis points. Bounded by `BPS` (10 000).
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
     pub e_mode_enabled: bool,
@@ -119,8 +135,12 @@ pub struct AssetConfig {
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
     pub isolation_borrow_enabled: bool,
+    /// Isolation debt ceiling, WAD-scaled USD. `i128` — domain reaches
+    /// `1e27` for billion-dollar caps.
     pub isolation_debt_ceiling_usd_wad: i128,
-    pub flashloan_fee_bps: i128,
+    pub flashloan_fee_bps: u32,
+    /// Asset-unit caps. `i128` — high-decimal tokens push raw supply
+    /// past `u64`; `-1` / `i128::MAX` encodes "no cap".
     pub borrow_cap: i128,
     pub supply_cap: i128,
 }
@@ -186,14 +206,18 @@ pub struct AccountMeta {
 // E-Mode
 // ---------------------------------------------------------------------------
 
+/// One ledger entry per category, holding the params plus the member
+/// assets map. `category_id` is the storage-key discriminant
+/// (`ControllerKey::EModeCategory(u32)`) and is re-injected into event
+/// payloads by the emit-site.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeCategory {
-    pub category_id: u32,
-    pub loan_to_value_bps: i128,
-    pub liquidation_threshold_bps: i128,
-    pub liquidation_bonus_bps: i128,
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
     pub is_deprecated: bool,
+    pub assets: Map<Address, EModeAssetConfig>,
 }
 
 #[contracttype]
@@ -235,10 +259,10 @@ pub struct ReflectorConfig {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct OraclePriceFluctuation {
-    pub first_upper_ratio_bps: i128,
-    pub first_lower_ratio_bps: i128,
-    pub last_upper_ratio_bps: i128,
-    pub last_lower_ratio_bps: i128,
+    pub first_upper_ratio_bps: u32,
+    pub first_lower_ratio_bps: u32,
+    pub last_upper_ratio_bps: u32,
+    pub last_lower_ratio_bps: u32,
 }
 
 #[contracttype]
@@ -275,8 +299,8 @@ impl OracleProviderConfig {
 pub struct MarketOracleConfigInput {
     pub exchange_source: ExchangeSource,
     pub max_price_stale_seconds: u64,
-    pub first_tolerance_bps: i128,
-    pub last_tolerance_bps: i128,
+    pub first_tolerance_bps: u32,
+    pub last_tolerance_bps: u32,
     pub cex_oracle: Address,
     pub cex_asset_kind: ReflectorAssetKind,
     pub cex_symbol: Symbol,
@@ -633,8 +657,9 @@ pub enum ControllerKey {
     AccountMeta(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
+    /// Single ledger entry per category — params + member-asset map
+    /// inside the [`EModeCategory`] value. One TTL bump per category.
     EModeCategory(u32),
-    EModeAssets(u32),
     AssetEModes(Address),
     IsolatedDebt(Address),
     PoolsList(u32),

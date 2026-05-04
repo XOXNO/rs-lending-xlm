@@ -2,7 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPosition, MarketIndex, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
+    AccountPosition, AccountPositionType, MarketIndex, PoolPositionMutation, PoolStrategyMutation,
+    PoolSyncData,
 };
 use soroban_sdk::{contractclient, Address, BytesN, Env};
 
@@ -54,7 +55,12 @@ pub trait LiquidityPoolInterface {
         fee: i128,
         price_wad: i128,
     ) -> PoolStrategyMutation;
-    fn seize_position(env: Env, position: AccountPosition, price_wad: i128) -> AccountPosition;
+    fn seize_position(
+        env: Env,
+        side: AccountPositionType,
+        position: AccountPosition,
+        price_wad: i128,
+    ) -> AccountPosition;
     /// Pool transfers revenue to its owner (the controller), which then
     /// forwards to the protocol accumulator. The ABI takes no
     /// caller-supplied destination, and the pool stores no destination of
@@ -69,7 +75,7 @@ pub trait LiquidityPoolInterface {
         slope3: i128,
         mid_utilization: i128,
         optimal_utilization: i128,
-        reserve_factor: i128,
+        reserve_factor: u32,
     );
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn keepalive(env: Env);

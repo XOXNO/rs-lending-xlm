@@ -190,7 +190,7 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     if params.optimal_utilization_ray >= RAY {
         panic_with_error!(env, CollateralError::OptUtilTooHigh);
     }
-    if params.reserve_factor_bps < 0 || params.reserve_factor_bps >= BPS {
+    if i128::from(params.reserve_factor_bps) >= BPS {
         panic_with_error!(env, CollateralError::InvalidReserveFactor);
     }
 }
@@ -198,24 +198,20 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
 /// Validates asset risk parameters: LTV ordering, liquidation bounds, cap sentinels,
 /// isolation ceiling sign, and flash-loan fee bounds.
 pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
-    if config.loan_to_value_bps < 0 {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
-
     // Liquidation threshold must sit strictly above LTV and at or below
     // 100% so new debt cannot open in liquidatable territory and HF math
     // stays bounded.
-    if config.liquidation_threshold_bps <= config.loan_to_value_bps
-        || config.liquidation_threshold_bps > BPS
+    if i128::from(config.liquidation_threshold_bps) <= i128::from(config.loan_to_value_bps)
+        || i128::from(config.liquidation_threshold_bps) > BPS
     {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    if config.liquidation_bonus_bps < 0 || config.liquidation_bonus_bps > MAX_LIQUIDATION_BONUS {
+    if i128::from(config.liquidation_bonus_bps) > MAX_LIQUIDATION_BONUS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
-    if config.liquidation_fees_bps < 0 || config.liquidation_fees_bps > BPS {
+    if i128::from(config.liquidation_fees_bps) > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
 
@@ -231,12 +227,9 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     }
 
     // Shared validation for both `create_liquidity_pool` and
-    // `edit_asset_config`. A negative fee would have the pool pay
-    // receivers; a fee above `MAX_FLASHLOAN_FEE_BPS` exceeds the cap.
-    if config.flashloan_fee_bps < 0 {
-        panic_with_error!(env, FlashLoanError::NegativeFlashLoanFee);
-    }
-    if config.flashloan_fee_bps > MAX_FLASHLOAN_FEE_BPS {
+    // `edit_asset_config`. A fee above `MAX_FLASHLOAN_FEE_BPS` exceeds
+    // the cap.
+    if i128::from(config.flashloan_fee_bps) > MAX_FLASHLOAN_FEE_BPS {
         panic_with_error!(env, FlashLoanError::StrategyFeeExceeds);
     }
 }
@@ -256,7 +249,7 @@ mod tests {
 
     use super::*;
     use common::types::{
-        AccountPosition, AccountPositionType, AssetConfig, ExchangeSource, MarketConfig,
+        AccountPosition, AssetConfig, ExchangeSource, MarketConfig,
         MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionMode,
         ReflectorAssetKind,
     };
@@ -297,10 +290,7 @@ mod tests {
             supply_positions.set(
                 self.asset_a.clone(),
                 AccountPosition {
-                    position_type: AccountPositionType::Deposit,
-                    asset: self.asset_a.clone(),
                     scaled_amount_ray: 100,
-                    account_id: 1,
                     liquidation_threshold_bps: 8_000,
                     liquidation_bonus_bps: 500,
                     liquidation_fees_bps: 100,
@@ -408,33 +398,9 @@ mod tests {
         });
     }
 
-    // validate_asset_config enforces flashloan_fee_bps bounds for both
-    // create_liquidity_pool and edit_asset_config call sites.
-    #[test]
-    #[should_panic(expected = "Error(Contract, #411)")]
-    fn test_validate_asset_config_rejects_negative_flashloan_fee() {
-        let t = TestSetup::new();
-        t.as_contract(|| {
-            let cfg = AssetConfig {
-                loan_to_value_bps: 7_500,
-                liquidation_threshold_bps: 8_000,
-                liquidation_bonus_bps: 500,
-                liquidation_fees_bps: 100,
-                is_collateralizable: true,
-                is_borrowable: true,
-                e_mode_enabled: false,
-                is_isolated_asset: false,
-                is_siloed_borrowing: false,
-                is_flashloanable: true,
-                isolation_borrow_enabled: true,
-                isolation_debt_ceiling_usd_wad: 1_000_000,
-                flashloan_fee_bps: -1, // invalid: negative
-                borrow_cap: i128::MAX,
-                supply_cap: i128::MAX,
-            };
-            validate_asset_config(&t.env, &cfg);
-        });
-    }
+    // `flashloan_fee_bps` is `u32`, so the type system forbids a negative
+    // value at the call boundary; the runtime branch that previously
+    // rejected `< 0` no longer has a reachable counter-example.
 
     #[test]
     #[should_panic(expected = "Error(Contract, #409)")]

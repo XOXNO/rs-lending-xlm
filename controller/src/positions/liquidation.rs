@@ -2,7 +2,10 @@ use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
 use common::errors::CollateralError;
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::fp::{Bps, Ray, Wad};
-use common::types::{Account, AccountPosition, LiquidationResult, Payment, RepayEntry, SeizeEntry};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, LiquidationResult, Payment, RepayEntry,
+    SeizeEntry,
+};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
@@ -67,8 +70,22 @@ pub fn process_liquidation(
 
     validation::require_non_empty_payments(env, &result.repaid);
 
-    apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
-    apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
+    apply_liquidation_repayments(
+        env,
+        liquidator,
+        account_id,
+        &mut account,
+        &result.repaid,
+        &mut cache,
+    );
+    apply_liquidation_seizures(
+        env,
+        liquidator,
+        account_id,
+        &mut account,
+        &result.seized,
+        &mut cache,
+    );
 
     // Liquidation never mutates meta fields (owner, is_isolated, e_mode,
     // mode, isolated_asset). Flush only the two sides; each side write
@@ -98,6 +115,7 @@ fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventConte
 fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
+    account_id: u64,
     account: &mut Account,
     repaid: &Vec<RepayEntry>,
     cache: &mut ControllerCache,
@@ -113,6 +131,8 @@ fn apply_liquidation_repayments(
         repay::execute_repayment(
             env,
             account,
+            account_id,
+            &entry.asset,
             liquidation_event_context(liquidator, symbol_short!("liq_repay")),
             &position,
             entry.feed.price_wad,
@@ -125,6 +145,7 @@ fn apply_liquidation_repayments(
 fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
+    account_id: u64,
     account: &mut Account,
     seized: &Vec<SeizeEntry>,
     cache: &mut ControllerCache,
@@ -136,6 +157,8 @@ fn apply_liquidation_seizures(
         withdraw::execute_withdrawal(
             env,
             account,
+            account_id,
+            &entry.asset,
             liquidation_event_context(liquidator, symbol_short!("liq_seize")),
             entry.amount,
             &position,
@@ -497,15 +520,13 @@ fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
-    for asset in account.supply_positions.keys() {
-        let position = account.supply_positions.get(asset.clone()).unwrap();
-        seize_pool_position(env, cache, &position);
+    for (asset, position) in account.supply_positions.iter() {
+        seize_pool_position(env, cache, AccountPositionType::Deposit, &asset, &position);
     }
 
-    for asset in account.borrow_positions.keys() {
-        let position = account.borrow_positions.get(asset.clone()).unwrap();
-        repay::clear_position_isolated_debt(env, &position, account, cache);
-        seize_pool_position(env, cache, &position);
+    for (asset, position) in account.borrow_positions.iter() {
+        repay::clear_position_isolated_debt(env, &asset, &position, account, cache);
+        seize_pool_position(env, cache, AccountPositionType::Borrow, &asset, &position);
     }
 
     emit_clean_bad_debt(
@@ -520,21 +541,29 @@ fn execute_bad_debt_cleanup(
     positions::account::remove_account(env, account_id);
 }
 
-fn seize_pool_position(env: &Env, cache: &mut ControllerCache, position: &AccountPosition) {
-    let feed = cache.cached_price(&position.asset);
-    pool_seize_position_call(env, position.clone(), feed.price_wad);
+fn seize_pool_position(
+    env: &Env,
+    cache: &mut ControllerCache,
+    side: AccountPositionType,
+    asset: &Address,
+    position: &AccountPosition,
+) {
+    let feed = cache.cached_price(asset);
+    pool_seize_position_call(env, asset, side, position.clone(), feed.price_wad);
 }
 
 crate::summarized!(
     crate::spec::summaries::pool::seize_position_summary,
     fn pool_seize_position_call(
         env: &Env,
+        asset: &Address,
+        side: AccountPositionType,
         position: AccountPosition,
         price_wad: i128,
     ) -> AccountPosition {
-        let pool_addr = crate::storage::get_market_config(env, &position.asset).pool_address;
+        let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .seize_position(&position, &price_wad)
+            .seize_position(&side, &position, &price_wad)
     }
 );
 

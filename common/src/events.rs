@@ -86,6 +86,10 @@ impl From<ExchangeSource> for EventPricingMethod {
     }
 }
 
+/// Indexer-facing position payload. Carries the side, asset, and account
+/// id alongside the same risk-param snapshot held in
+/// [`AccountPosition`]. Bps fields use `u32` to match the storage width
+/// and decode as JS `number` on the indexer side.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountPosition {
@@ -93,30 +97,31 @@ pub struct EventAccountPosition {
     pub asset_id: Address,
     pub scaled_amount_ray: i128,
     pub account_nonce: u64,
-    pub liquidation_threshold_bps: i128,
-    pub liquidation_bonus_bps: i128,
-    pub liquidation_fees_bps: i128,
-    pub loan_to_value_bps: i128,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
+    pub loan_to_value_bps: u32,
 }
 
-impl From<&AccountPosition> for EventAccountPosition {
-    fn from(value: &AccountPosition) -> Self {
+impl EventAccountPosition {
+    /// Compose the event payload from the stored value plus the
+    /// emit-site context (side, asset, account id).
+    pub fn new(
+        side: AccountPositionType,
+        asset: Address,
+        account_id: u64,
+        position: &AccountPosition,
+    ) -> Self {
         Self {
-            position_type: value.position_type.into(),
-            asset_id: value.asset.clone(),
-            scaled_amount_ray: value.scaled_amount_ray,
-            account_nonce: value.account_id,
-            liquidation_threshold_bps: value.liquidation_threshold_bps,
-            liquidation_bonus_bps: value.liquidation_bonus_bps,
-            liquidation_fees_bps: value.liquidation_fees_bps,
-            loan_to_value_bps: value.loan_to_value_bps,
+            position_type: side.into(),
+            asset_id: asset,
+            scaled_amount_ray: position.scaled_amount_ray,
+            account_nonce: account_id,
+            liquidation_threshold_bps: position.liquidation_threshold_bps,
+            liquidation_bonus_bps: position.liquidation_bonus_bps,
+            liquidation_fees_bps: position.liquidation_fees_bps,
+            loan_to_value_bps: position.loan_to_value_bps,
         }
-    }
-}
-
-impl From<AccountPosition> for EventAccountPosition {
-    fn from(value: AccountPosition) -> Self {
-        Self::from(&value)
     }
 }
 
@@ -213,7 +218,7 @@ pub struct CreateMarketEvent {
     pub slope3: i128,
     pub mid_utilization: i128,
     pub optimal_utilization: i128,
-    pub reserve_factor: i128,
+    pub reserve_factor: u32,
     pub market_address: Address,
     pub config: AssetConfig,
 }
@@ -229,7 +234,7 @@ pub struct UpdateMarketParamsEvent {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    pub reserve_factor_bps: i128,
+    pub reserve_factor_bps: u32,
 }
 
 #[contractevent(topics = ["market", "state_update"])]
@@ -311,10 +316,36 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
+/// Indexer-facing category payload — carries the `category_id`
+/// discriminant alongside the params held in [`EModeCategory`]. The
+/// member-asset map is omitted; per-asset memberships are emitted via
+/// [`UpdateEModeAssetEvent`] / [`RemoveEModeAssetEvent`].
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EventEModeCategory {
+    pub category_id: u32,
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub is_deprecated: bool,
+}
+
+impl EventEModeCategory {
+    pub fn new(category_id: u32, category: &EModeCategory) -> Self {
+        Self {
+            category_id,
+            loan_to_value_bps: category.loan_to_value_bps,
+            liquidation_threshold_bps: category.liquidation_threshold_bps,
+            liquidation_bonus_bps: category.liquidation_bonus_bps,
+            is_deprecated: category.is_deprecated,
+        }
+    }
+}
+
 #[contractevent(topics = ["config", "emode_category"])]
 #[derive(Clone, Debug)]
 pub struct UpdateEModeCategoryEvent {
-    pub category: EModeCategory,
+    pub category: EventEModeCategory,
 }
 
 #[contractevent(topics = ["config", "emode_asset"])]
@@ -444,7 +475,7 @@ pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
 mod tests {
     use super::*;
     use crate::types::{
-        AssetConfig, EModeAssetConfig, EModeCategory, ExchangeSource, MarketConfig, MarketStatus,
+        AssetConfig, EModeAssetConfig, ExchangeSource, MarketConfig, MarketStatus,
         OracleProviderConfig, OracleType, PositionMode, ReflectorAssetKind,
     };
     use soroban_sdk::testutils::Address as _;
@@ -741,7 +772,7 @@ mod tests {
             emit_update_emode_category(
                 &env,
                 UpdateEModeCategoryEvent {
-                    category: EModeCategory {
+                    category: EventEModeCategory {
                         category_id: 1,
                         loan_to_value_bps: 9000,
                         liquidation_threshold_bps: 9500,

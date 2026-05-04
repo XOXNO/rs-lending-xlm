@@ -32,9 +32,9 @@ pub fn calculate_ltv_collateral_wad(
     supply_positions: &Map<Address, AccountPosition>,
 ) -> Wad {
     let mut ltv = Wad::ZERO;
-    for position in supply_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
+    for (asset, position) in supply_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
@@ -66,9 +66,9 @@ crate::summarized!(
 
         let mut weighted_collateral_total = Wad::ZERO;
 
-        for position in supply_positions.values() {
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in supply_positions.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
             let value = position_value(
                 env,
                 Ray::from_raw(position.scaled_amount_ray),
@@ -84,9 +84,9 @@ crate::summarized!(
         }
 
         let mut total_borrow = Wad::ZERO;
-        for position in borrow_positions.values() {
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in borrow_positions.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
             let value = position_value(
                 env,
                 Ray::from_raw(position.scaled_amount_ray),
@@ -147,9 +147,9 @@ crate::summarized!(
         let mut total_collateral = Wad::ZERO;
         let mut weighted_coll = Wad::ZERO;
 
-        for position in supply_positions.values() {
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in supply_positions.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
 
             let value = position_value(
                 env,
@@ -167,9 +167,9 @@ crate::summarized!(
         }
 
         let mut total_debt = Wad::ZERO;
-        for position in borrow_positions.values() {
-            let feed = cache.cached_price(&position.asset);
-            let market_index = cache.cached_market_index(&position.asset);
+        for (asset, position) in borrow_positions.iter() {
+            let feed = cache.cached_price(&asset);
+            let market_index = cache.cached_market_index(&asset);
 
             let value = position_value(
                 env,
@@ -222,7 +222,7 @@ pub fn calculate_linear_bonus_with_target(
 crate::summarized!(
     crate::spec::summaries::calculate_linear_bonus_summary,
     pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
-        let target_hf = Wad::from_raw(1_020_000_000_000_000_000);
+        let target_hf = Wad::from_raw(1_020_000_000_000_000_000i128);
         calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
     }
 );
@@ -241,7 +241,7 @@ pub fn estimate_liquidation_amount(
     proportion_seized: Wad,
     total_collateral: Wad,
 ) -> (Wad, Bps) {
-    let target_primary = Wad::from_raw(1_020_000_000_000_000_000);
+    let target_primary = Wad::from_raw(1_020_000_000_000_000_000i128);
     let bonus_primary =
         calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_primary);
     if let Some(d) = try_liquidation_at_target(
@@ -373,12 +373,13 @@ pub fn get_account_bonus_params(
     supply_positions: &Map<Address, AccountPosition>,
 ) -> (Bps, Bps) {
     let mut total_collateral = Wad::ZERO;
-    // Store (value_wad_raw, bonus_bps) as raw i128: Soroban Vec cannot hold Wad.
-    let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
+    // Store (value_wad_raw, bonus_bps) as raw integers: Soroban Vec
+    // cannot hold Wad / Bps wrappers directly.
+    let mut asset_values: Vec<(i128, u32)> = Vec::new(env);
 
-    for position in supply_positions.values() {
-        let feed = cache.cached_price(&position.asset);
-        let market_index = cache.cached_market_index(&position.asset);
+    for (asset, position) in supply_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
@@ -491,7 +492,7 @@ mod tests {
                 bonus,
                 Wad::from_raw(WAD / 2),
                 total_collateral,
-                Wad::from_raw(1_020_000_000_000_000_000),
+                Wad::from_raw(1_020_000_000_000_000_000i128),
             ),
             Some(expected_d_max)
         );

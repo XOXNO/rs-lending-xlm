@@ -6,8 +6,9 @@ use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 use common::events::{
     emit_approve_token_wasm, emit_remove_emode_asset, emit_update_asset_config,
     emit_update_asset_oracle, emit_update_emode_asset, emit_update_emode_category,
-    ApproveTokenWasmEvent, EventOracleProvider, RemoveEModeAssetEvent, UpdateAssetConfigEvent,
-    UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
+    ApproveTokenWasmEvent, EventEModeCategory, EventOracleProvider, RemoveEModeAssetEvent,
+    UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
+    UpdateEModeCategoryEvent,
 };
 use common::fp_core;
 #[cfg(test)]
@@ -53,12 +54,12 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn add_e_mode_category(env: Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
+    pub fn add_e_mode_category(env: Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
         add_e_mode_category(&env, ltv, threshold, bonus)
     }
 
     #[only_owner]
-    pub fn edit_e_mode_category(env: Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
+    pub fn edit_e_mode_category(env: Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
         edit_e_mode_category(&env, id, ltv, threshold, bonus);
     }
 
@@ -141,8 +142,8 @@ impl Controller {
         env: Env,
         caller: Address,
         asset: Address,
-        first_tolerance: i128,
-        last_tolerance: i128,
+        first_tolerance: u32,
+        last_tolerance: u32,
     ) {
         let _ = caller;
         edit_oracle_tolerance(&env, asset, first_tolerance, last_tolerance);
@@ -228,36 +229,46 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
 // E-Mode categories
 // ---------------------------------------------------------------------------
 
-pub fn add_e_mode_category(env: &Env, ltv: i128, threshold: i128, bonus: i128) -> u32 {
-    if ltv < 0 || threshold <= ltv || threshold > BPS {
+/// Validates an e-mode category's risk params against the global bps
+/// invariants. Lifts the `u32` inputs into `i128` once so the existing
+/// `BPS` / `MAX_LIQUIDATION_BONUS` i128 constants stay authoritative.
+fn validate_emode_params(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
+    let ltv_i = i128::from(ltv);
+    let threshold_i = i128::from(threshold);
+    let bonus_i = i128::from(bonus);
+    if threshold_i <= ltv_i || threshold_i > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus) {
+    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus_i) {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
+}
+
+pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
+    validate_emode_params(env, ltv, threshold, bonus);
 
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategory {
-        category_id: id,
         loan_to_value_bps: ltv,
         liquidation_threshold_bps: threshold,
         liquidation_bonus_bps: bonus,
         is_deprecated: false,
+        assets: soroban_sdk::Map::new(env),
     };
     storage::set_emode_category(env, id, &cat);
 
-    emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
+    emit_update_emode_category(
+        env,
+        UpdateEModeCategoryEvent {
+            category: EventEModeCategory::new(id, &cat),
+        },
+    );
 
     id
 }
 
-pub fn edit_e_mode_category(env: &Env, id: u32, ltv: i128, threshold: i128, bonus: i128) {
-    if ltv < 0 || threshold <= ltv || threshold > BPS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
-    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus) {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
+pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
+    validate_emode_params(env, ltv, threshold, bonus);
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     cat.loan_to_value_bps = ltv;
@@ -265,21 +276,27 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: i128, threshold: i128, bonu
     cat.liquidation_bonus_bps = bonus;
     storage::set_emode_category(env, id, &cat);
 
-    emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
+    emit_update_emode_category(
+        env,
+        UpdateEModeCategoryEvent {
+            category: EventEModeCategory::new(id, &cat),
+        },
+    );
 }
 
 pub fn remove_e_mode_category(env: &Env, id: u32) {
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     cat.is_deprecated = true;
+
+    // Snapshot the member set, clear it on the entry, then walk it to
+    // drop the per-asset reverse index entries. Accounts already pointing
+    // at this category wind down through the keeper path — `is_deprecated`
+    // stays set so `effective_asset_config` falls back to base values.
+    let members = cat.assets.clone();
+    cat.assets = soroban_sdk::Map::new(env);
     storage::set_emode_category(env, id, &cat);
 
-    // Walk the side map (one storage read) to clean every asset's reverse
-    // index, then drop the whole map in one storage op. The `is_deprecated`
-    // flag stays set: accounts already pointing at this category wind down
-    // through the keeper path, where `effective_asset_config` now returns
-    // base (non-e-mode) values because the per-asset overrides are gone.
-    let members = storage::get_emode_assets(env, id);
     for asset in members.keys() {
         let mut cats = storage::get_asset_emodes(env, &asset);
         if let Some(idx) = cats.iter().position(|cid| cid == id) {
@@ -298,9 +315,13 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
             }
         }
     }
-    storage::remove_emode_assets(env, id);
 
-    emit_update_emode_category(env, UpdateEModeCategoryEvent { category: cat });
+    emit_update_emode_category(
+        env,
+        UpdateEModeCategoryEvent {
+            category: EventEModeCategory::new(id, &cat),
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +432,14 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
 // Oracle configuration
 // ---------------------------------------------------------------------------
 
+/// Bps math is i128-backed; the inputs/outputs are bounded by `BPS +
+/// MAX_*_TOLERANCE` so the return values always fit in `u32` after the
+/// `i128` arithmetic settles. Convert at the boundary via this helper
+/// so the bps domain invariant is enforced in one place.
+fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
+    u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
+}
+
 fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
     let upper_bound = BPS
         .checked_add(tolerance)
@@ -421,26 +450,28 @@ fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
 
 fn validate_and_calculate_tolerances(
     env: &Env,
-    first_tolerance: i128,
-    last_tolerance: i128,
+    first_tolerance: u32,
+    last_tolerance: u32,
 ) -> OraclePriceFluctuation {
-    if !(MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first_tolerance) {
+    let first = i128::from(first_tolerance);
+    let last = i128::from(last_tolerance);
+    if !(MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first) {
         panic_with_error!(env, OracleError::BadFirstTolerance);
     }
-    if !(MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last_tolerance) {
+    if !(MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last) {
         panic_with_error!(env, OracleError::BadLastTolerance);
     }
 
-    validation::validate_oracle_bounds(env, first_tolerance, last_tolerance);
+    validation::validate_oracle_bounds(env, first, last);
 
-    let (first_upper, first_lower) = calculate_tolerance_range(env, first_tolerance);
-    let (last_upper, last_lower) = calculate_tolerance_range(env, last_tolerance);
+    let (first_upper, first_lower) = calculate_tolerance_range(env, first);
+    let (last_upper, last_lower) = calculate_tolerance_range(env, last);
 
     OraclePriceFluctuation {
-        first_upper_ratio_bps: first_upper,
-        first_lower_ratio_bps: first_lower,
-        last_upper_ratio_bps: last_upper,
-        last_lower_ratio_bps: last_lower,
+        first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),
+        first_lower_ratio_bps: bps_i128_to_u32(env, first_lower),
+        last_upper_ratio_bps: bps_i128_to_u32(env, last_upper),
+        last_lower_ratio_bps: bps_i128_to_u32(env, last_lower),
     }
 }
 
@@ -576,8 +607,8 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
 pub fn edit_oracle_tolerance(
     env: &Env,
     asset: Address,
-    first_tolerance: i128,
-    last_tolerance: i128,
+    first_tolerance: u32,
+    last_tolerance: u32,
 ) {
     let tolerance = validate_and_calculate_tolerances(env, first_tolerance, last_tolerance);
 
@@ -631,8 +662,8 @@ pub fn set_token_oracle(
     env: &Env,
     asset: Address,
     config: OracleProviderConfig,
-    first_tolerance: i128,
-    last_tolerance: i128,
+    first_tolerance: u32,
+    last_tolerance: u32,
 ) {
     let market = storage::get_market_config(env, &asset);
     let cfg = MarketOracleConfigInput {

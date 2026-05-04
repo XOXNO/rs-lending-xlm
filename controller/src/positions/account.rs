@@ -56,7 +56,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::types::{AccountPosition, AccountPositionType, PositionMode};
+    use common::types::{AccountPosition, PositionMode};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Map};
 
@@ -94,10 +94,7 @@ mod tests {
             supply_positions.set(
                 self.asset.clone(),
                 AccountPosition {
-                    position_type: AccountPositionType::Deposit,
-                    asset: self.asset.clone(),
                     scaled_amount_ray: 123,
-                    account_id: 1,
                     liquidation_threshold_bps: 8_000,
                     liquidation_bonus_bps: 500,
                     liquidation_fees_bps: 100,

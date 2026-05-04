@@ -28,8 +28,7 @@ use num_rational::BigRational;
 use num_traits::{Signed, ToPrimitive, Zero};
 
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
-use common::types::{AccountPositionType, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
-use soroban_sdk::Address;
+use common::types::{POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 
 use crate::context::LendingTest;
 
@@ -600,9 +599,7 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
     let (supplies, _borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefCollateralPosition> = Vec::new();
-    for (i, position) in supplies.iter().enumerate() {
-        let asset: Address = position.asset.clone();
-        debug_assert_eq!(position.position_type, AccountPositionType::Deposit);
+    for (i, (asset, position)) in supplies.iter().enumerate() {
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data();
         out.push(RefCollateralPosition {
@@ -610,9 +607,9 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
             supply_scaled_ray: br_from_i128(position.scaled_amount_ray),
             supply_index_ray: br_from_i128(sync.state.supply_index_ray),
             price_wad: br_from_i128(market.price_wad),
-            liq_threshold_bps: position.liquidation_threshold_bps,
-            liq_bonus_bps: position.liquidation_bonus_bps,
-            liq_fees_bps: position.liquidation_fees_bps,
+            liq_threshold_bps: i128::from(position.liquidation_threshold_bps),
+            liq_bonus_bps: i128::from(position.liquidation_bonus_bps),
+            liq_fees_bps: i128::from(position.liquidation_fees_bps),
             decimals: market.decimals,
         });
     }
@@ -631,9 +628,7 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     let (_supplies, borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefDebtPosition> = Vec::new();
-    for (i, position) in borrows.iter().enumerate() {
-        let asset: Address = position.asset.clone();
-        debug_assert_eq!(position.position_type, AccountPositionType::Borrow);
+    for (i, (asset, position)) in borrows.iter().enumerate() {
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data();
         out.push(RefDebtPosition {
