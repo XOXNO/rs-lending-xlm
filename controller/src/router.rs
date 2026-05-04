@@ -157,7 +157,11 @@ pub fn create_liquidity_pool(
         .with_current_contract(salt)
         .deploy_v2(wasm_hash, (env.current_contract_address(), params.clone()));
 
-    storage::set_isolated_debt(env, asset, 0);
+    // `IsolatedDebt(asset)` is created lazily on the first isolated
+    // borrow against this asset (see `handle_isolated_debt` →
+    // `cache.flush_isolated_debts`). Reads default to 0 via
+    // `storage::get_isolated_debt`'s `unwrap_or(0)`, so non-isolated
+    // markets never need a placeholder entry.
 
     // Market starts in PendingOracle; `configure_market_oracle` populates
     // the flat oracle fields and transitions to Active.
@@ -198,6 +202,13 @@ pub fn create_liquidity_pool(
             config: config.clone(),
         },
     );
+
+    // Approval is single-use: the gate at the top of this function
+    // verified the caller had pre-approved this asset; consume it now
+    // so the instance footprint doesn't accumulate stale approvals
+    // and any future `create_liquidity_pool` call requires a fresh
+    // admin review.
+    storage::set_token_approved(env, asset, false);
 
     pool_address
 }
@@ -349,7 +360,12 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         }
 
         storage::bump_shared(env, &ControllerKey::Market(asset.clone()));
-        storage::bump_shared(env, &ControllerKey::IsolatedDebt(asset.clone()));
+        // `IsolatedDebt(asset)` is created lazily on the first isolated
+        // borrow — non-isolated markets have no entry to bump.
+        let isolated_key = ControllerKey::IsolatedDebt(asset.clone());
+        if env.storage().persistent().has(&isolated_key) {
+            storage::bump_shared(env, &isolated_key);
+        }
 
         let categories = storage::get_asset_emodes(env, &asset);
         if !categories.is_empty() {

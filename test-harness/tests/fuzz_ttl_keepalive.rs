@@ -164,11 +164,19 @@ proptest! {
                 "Market({}) TTL too low: {} < {}", name, market_ttl, min_ttl
             );
 
-            let iso_ttl = persistent_ttl(&t, &ControllerKey::IsolatedDebt(addr.clone()));
-            prop_assert!(
-                iso_ttl >= min_ttl,
-                "IsolatedDebt({}) TTL too low: {} < {}", name, iso_ttl, min_ttl
-            );
+            // `IsolatedDebt(asset)` is created lazily by the first
+            // isolated borrow. The fuzz fixtures set up plain markets
+            // (no isolated borrowing), so the entry shouldn't exist —
+            // and the keepalive correctly skips bumping a non-entry.
+            // Assert TTL only when the entry is actually present.
+            let iso_key = ControllerKey::IsolatedDebt(addr.clone());
+            if persistent_has(&t, &iso_key) {
+                let iso_ttl = persistent_ttl(&t, &iso_key);
+                prop_assert!(
+                    iso_ttl >= min_ttl,
+                    "IsolatedDebt({}) TTL too low: {} < {}", name, iso_ttl, min_ttl
+                );
+            }
         }
     }
 }
