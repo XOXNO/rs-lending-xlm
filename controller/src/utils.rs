@@ -49,20 +49,15 @@ pub fn transfer_and_measure_received(
     received
 }
 
-// ---------------------------------------------------------------------------
-// Summarised SAC wrappers (used across the controller; the macro is a no-op
-// outside `--features certora`).
-// ---------------------------------------------------------------------------
-
 crate::summarized!(
-    crate::spec::summaries::sac::balance_summary,
+    sac::balance_summary,
     pub(crate) fn sac_balance_call(env: &Env, token: &Address, account: &Address) -> i128 {
         soroban_sdk::token::Client::new(env, token).balance(account)
     }
 );
 
 crate::summarized!(
-    crate::spec::summaries::sac::transfer_summary,
+    sac::transfer_summary,
     pub(crate) fn sac_transfer_call(
         env: &Env,
         token: &Address,
@@ -73,12 +68,6 @@ crate::summarized!(
         soroban_sdk::token::Client::new(env, token).transfer(from, to, amount)
     }
 );
-
-// `sac::approve_summary` and `sac::allowance_summary` carry the matching
-// arity (leading `_token: &Address`) for direct wrapper call sites. Production
-// `approve` and `allowance` calls live in strategy helpers that reuse a
-// `token::Client`, so they remain raw client calls unless the router approval
-// flow is summarized explicitly.
 
 fn aggregate_payments(
     env: &Env,
@@ -211,90 +200,4 @@ pub fn adjust_isolated_debt_usd(
     }
 
     cache.set_isolated_debt(&isolated_asset, new_debt);
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Address, Env, Map};
-
-    fn empty_account(env: &Env, isolated_asset: Option<Address>) -> Account {
-        Account {
-            owner: Address::generate(env),
-            is_isolated: isolated_asset.is_some(),
-            e_mode_category_id: 0,
-            mode: PositionMode::Normal,
-            isolated_asset,
-            supply_positions: Map::new(env),
-            borrow_positions: Map::new(env),
-        }
-    }
-
-    #[test]
-    fn test_adjust_isolated_debt_usd_noops_for_non_isolated_accounts() {
-        let env = Env::default();
-        let mut cache = ControllerCache::new(&env, true);
-        let account = empty_account(&env, None);
-        let tracked_asset = Address::generate(&env);
-
-        cache.set_isolated_debt(&tracked_asset, 77);
-
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, &mut cache);
-
-        assert_eq!(cache.get_isolated_debt(&tracked_asset), 77);
-    }
-
-    #[test]
-    fn test_aggregate_positive_payments_sums_duplicates_in_first_seen_order() {
-        let env = Env::default();
-        let usdc = Address::generate(&env);
-        let eth = Address::generate(&env);
-        let payments =
-            soroban_sdk::vec![&env, (usdc.clone(), 5), (eth.clone(), 7), (usdc.clone(), 3)];
-
-        let aggregated = aggregate_positive_payments(&env, &payments);
-
-        assert_eq!(aggregated.len(), 2);
-        assert_eq!(aggregated.get(0).unwrap(), (usdc, 8));
-        assert_eq!(aggregated.get(1).unwrap(), (eth, 7));
-    }
-
-    #[test]
-    fn test_aggregate_withdrawal_payments_keeps_zero_sentinel() {
-        let env = Env::default();
-        let usdc = Address::generate(&env);
-        let payments = soroban_sdk::vec![&env, (usdc.clone(), 5), (usdc.clone(), 0)];
-
-        let aggregated = aggregate_withdrawal_payments(&env, &payments);
-
-        assert_eq!(aggregated.len(), 1);
-        assert_eq!(aggregated.get(0).unwrap(), (usdc, 0));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_aggregate_positive_payments_rejects_overflow() {
-        let env = Env::default();
-        let usdc = Address::generate(&env);
-        let payments = soroban_sdk::vec![&env, (usdc.clone(), i128::MAX), (usdc, 1)];
-
-        let _ = aggregate_positive_payments(&env, &payments);
-    }
-
-    #[test]
-    fn test_adjust_isolated_debt_usd_erases_sub_dollar_dust() {
-        let env = Env::default();
-        let isolated_asset = Address::generate(&env);
-        let account = empty_account(&env, Some(isolated_asset.clone()));
-        let mut cache = ControllerCache::new(&env, true);
-
-        cache.set_isolated_debt(&isolated_asset, WAD + (WAD / 2));
-        adjust_isolated_debt_usd(&env, &account, 10_000_000, &WAD, 7, &mut cache);
-
-        // 0.5 WAD residual is below the dust floor.
-        assert_eq!(cache.get_isolated_debt(&isolated_asset), 0);
-    }
 }

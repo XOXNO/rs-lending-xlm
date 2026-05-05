@@ -75,7 +75,7 @@ pub fn process_flash_loan(
 }
 
 crate::summarized!(
-    crate::spec::summaries::pool::flash_loan_begin_summary,
+    pool::flash_loan_begin_summary,
     fn pool_flash_loan_begin_call(
         env: &Env,
         pool_addr: &Address,
@@ -87,7 +87,7 @@ crate::summarized!(
 );
 
 crate::summarized!(
-    crate::spec::summaries::pool::flash_loan_end_summary,
+    pool::flash_loan_end_summary,
     fn pool_flash_loan_end_call(
         env: &Env,
         pool_addr: &Address,

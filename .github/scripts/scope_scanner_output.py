@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Narrow soroban-scanner JSON output to the deployable crate surface.
 
-The scanner has to see the whole workspace (test-harness/, fuzz/, …) so
+The scanner has to see the whole workspace (verification/test-harness,
+verification/fuzz, …) so
 its symbol resolver can follow cross-crate references without recursing
 unboundedly — but findings from test or fuzz code are noise for an audit
 gate. This filter keeps only findings whose file path is under one of

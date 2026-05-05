@@ -8,12 +8,14 @@ target/
 
 # Certora prover debug output (regenerated on every prover run)
 **/.certora_internal/
+verification/certora/controller/results/*.md
 
-# Fuzz artifacts (mirrors fuzz/.gitignore)
-fuzz/corpus/
-fuzz/artifacts/
-fuzz/coverage/
-
+# Fuzz artifacts (mirrors verification/fuzz/.gitignore)
+verification/fuzz/corpus/
+verification/fuzz/artifacts/
+verification/fuzz/coverage/
+docs
+.zed
 # Claude Code runtime
 .claude/
 
@@ -39,6 +41,8 @@ lcov.info
 # IDE
 .vscode/
 .idea/
+.ruff_cache
+.certora-venv
 
 # OS
 .DS_Store

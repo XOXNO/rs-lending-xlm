@@ -1,0 +1,98 @@
+[package]
+name = "stellar-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Isolate from parent workspace at repo root.
+[workspace]
+
+[features]
+# Default does NOT pull in serde/sha2 — fuzz targets don't need them.
+# Enable `seed-corpus` only when building the `seed_corpus` host-side binary.
+default = []
+seed-corpus = ["dep:serde", "dep:serde_json", "dep:sha2"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+soroban-sdk = { version = "=26.0.0-rc.1", features = ["testutils"] }
+common = { path = "../../common" }
+controller = { path = "../../controller", features = ["testing"] }
+pool = { path = "../../pool" }
+test-harness = { path = "../test-harness", features = ["testing"] }
+
+# Optional: only compiled when `seed-corpus` feature is enabled.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+
+# NOTE: contract-level (Env-based) libFuzzer targets require
+# `--sanitizer=thread` on macOS (aarch64) — the default libFuzzer sancov
+# build fails to link the `stellar-access` cdylib variant. TSAN avoids the
+# cdylib path. See verification/fuzz/README.md.
+
+[patch.crates-io]
+stellar-access = { path = "../../vendor/openzeppelin/stellar-access" }
+stellar-contract-utils = { path = "../../vendor/openzeppelin/stellar-contract-utils" }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fp_math"
+path = "fuzz_targets/fp_math.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rates_and_index"
+path = "fuzz_targets/rates_and_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_e2e"
+path = "fuzz_targets/flow_e2e.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flow_strategy"
+path = "fuzz_targets/flow_strategy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fp_ops"
+path = "fuzz_targets/fp_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pool_native"
+path = "fuzz_targets/pool_native.rs"
+test = false
+doc = false
+bench = false
+
+## Host-side binary: seed libFuzzer corpora from `*/test_snapshots/**/*.json`.
+## NOT a fuzz target. Build with: `cargo run --bin seed_corpus --features seed-corpus`.
+[[bin]]
+name = "seed_corpus"
+path = "src/bin/seed_corpus.rs"
+test = false
+doc = false
+bench = false
+required-features = ["seed-corpus"]
+
+[profile.release]
+debug = 1

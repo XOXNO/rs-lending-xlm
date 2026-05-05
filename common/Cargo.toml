@@ -3,8 +3,18 @@ name = "common"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 soroban-sdk = { workspace = true }
+cvlr = { workspace = true, optional = true }
+cvlr-soroban = { workspace = true, optional = true }
+cvlr-soroban-macros = { workspace = true, optional = true }
+cvlr-soroban-derive = { workspace = true, optional = true }
+
+[features]
+certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

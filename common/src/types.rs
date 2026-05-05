@@ -540,6 +540,9 @@ pub struct AggregatorSwap {
     pub total_min_out: i128,
 }
 
+/// Backward-compatible name used by the Certora specs.
+pub type SwapSteps = AggregatorSwap;
+
 /// Full batch passed to `Router::batch_execute`. Internal — strategy
 /// endpoints take [`AggregatorSwap`] and the controller fills `sender`,
 /// `total_in`, and `referral_id = 0` (lending strategies never charge

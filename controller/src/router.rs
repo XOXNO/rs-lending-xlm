@@ -402,13 +402,8 @@ pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Summarised pool wrappers (used by router + helpers; the macro is a no-op
-// outside `--features certora`).
-// ---------------------------------------------------------------------------
-
 crate::summarized!(
-    crate::spec::summaries::pool::update_indexes_summary,
+    pool::update_indexes_summary,
     pub(crate) fn pool_update_indexes_call(
         env: &Env,
         pool_addr: &Address,
@@ -419,14 +414,14 @@ crate::summarized!(
 );
 
 crate::summarized!(
-    crate::spec::summaries::pool::claim_revenue_summary,
+    pool::claim_revenue_summary,
     pub(crate) fn pool_claim_revenue_call(env: &Env, pool_addr: &Address, price_wad: i128) -> i128 {
         pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(&price_wad)
     }
 );
 
 crate::summarized!(
-    crate::spec::summaries::pool::add_rewards_summary,
+    pool::add_rewards_summary,
     pub(crate) fn pool_add_rewards_call(
         env: &Env,
         pool_addr: &Address,

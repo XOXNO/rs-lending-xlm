@@ -192,7 +192,7 @@ pub fn execute_withdrawal(
 }
 
 crate::summarized!(
-    crate::spec::summaries::pool::withdraw_summary,
+    pool::withdraw_summary,
     fn pool_withdraw_call(
         env: &Env,
         asset: &Address,

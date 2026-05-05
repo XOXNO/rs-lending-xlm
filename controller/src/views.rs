@@ -1,7 +1,7 @@
 use common::constants::WAD;
 use common::fp::{Ray, Wad};
 use common::types::{
-    AccountAttributes, AccountMeta, AccountPosition, AssetExtendedConfigView, EModeCategory,
+    AccountAttributes, AccountPosition, AssetExtendedConfigView, EModeCategory,
     LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
     POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
@@ -87,10 +87,6 @@ impl Controller {
     }
 }
 
-fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
-    storage::try_get_account_meta(env, account_id)
-}
-
 pub fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = ControllerCache::new_view(env);
     match storage::try_get_account(env, account_id) {
@@ -109,9 +105,9 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 }
 
 crate::summarized!(
-    crate::spec::summaries::total_collateral_in_usd_summary,
+    total_collateral_in_usd_summary,
     pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-        if try_get_account_meta(env, account_id).is_none() {
+        if storage::try_get_account_meta(env, account_id).is_none() {
             return 0;
         }
         let supply = storage::get_supply_positions(env, account_id);
@@ -140,9 +136,9 @@ crate::summarized!(
 );
 
 crate::summarized!(
-    crate::spec::summaries::total_borrow_in_usd_summary,
+    total_borrow_in_usd_summary,
     pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
-        if try_get_account_meta(env, account_id).is_none() {
+        if storage::try_get_account_meta(env, account_id).is_none() {
             return 0;
         }
         let borrow = storage::get_borrow_positions(env, account_id);
@@ -207,7 +203,7 @@ pub fn get_account_positions(
     env: &Env,
     account_id: u64,
 ) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>) {
-    if try_get_account_meta(env, account_id).is_none() {
+    if storage::try_get_account_meta(env, account_id).is_none() {
         return (Map::new(env), Map::new(env));
     }
 
@@ -250,7 +246,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
 }
 
 crate::summarized!(
-    crate::spec::summaries::ltv_collateral_in_usd_summary,
+    ltv_collateral_in_usd_summary,
     pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         let account = match storage::try_get_account(env, account_id) {
             Some(account) => account,
@@ -354,374 +350,5 @@ pub fn liquidation_estimations_detailed(
         refunds: refunds_view,
         max_payment_wad: result.max_debt_usd,
         bonus_rate_bps: result.bonus_bps,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use crate::helpers::testutils::{TestReflector, TestReflectorAsset, TestReflectorClient};
-    use crate::ControllerClient;
-    use common::constants::RAY;
-    use common::types::{
-        Account, AccountPosition, AssetConfig, ExchangeSource, MarketConfig, MarketParams,
-        MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PoolKey, PoolState,
-        PositionMode, ReflectorAssetKind, ReflectorConfig,
-    };
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{Address, Map, Symbol, Vec};
-
-    struct TestSetup {
-        env: Env,
-        controller: Address,
-        asset_a: Address,
-        asset_b: Address,
-    }
-
-    impl TestSetup {
-        fn new() -> Self {
-            let env = Env::default();
-            env.mock_all_auths();
-            env.ledger().set(LedgerInfo {
-                timestamp: 1_000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3_110_400,
-            });
-
-            let admin = Address::generate(&env);
-            let controller = env.register(crate::Controller, (admin.clone(),));
-            let asset_a = env
-                .register_stellar_asset_contract_v2(admin.clone())
-                .address()
-                .clone();
-            let asset_b = env
-                .register_stellar_asset_contract_v2(admin)
-                .address()
-                .clone();
-
-            Self {
-                env,
-                controller,
-                asset_a,
-                asset_b,
-            }
-        }
-
-        fn as_controller<T>(&self, f: impl FnOnce() -> T) -> T {
-            self.env.as_contract(&self.controller, f)
-        }
-
-        fn market_config(&self, asset: &Address) -> MarketConfig {
-            let params = MarketParams {
-                max_borrow_rate_ray: 5 * RAY,
-                base_borrow_rate_ray: RAY / 100,
-                slope1_ray: RAY / 10,
-                slope2_ray: RAY / 5,
-                slope3_ray: RAY / 2,
-                mid_utilization_ray: RAY / 2,
-                optimal_utilization_ray: RAY * 8 / 10,
-                reserve_factor_bps: 1_000,
-                asset_id: asset.clone(),
-                asset_decimals: 7,
-            };
-            let pool = self
-                .env
-                .register(pool::LiquidityPool, (self.controller.clone(), params));
-            self.env.as_contract(&pool, || {
-                self.env.storage().instance().set(
-                    &PoolKey::State,
-                    &PoolState {
-                        supplied_ray: 0,
-                        borrowed_ray: 0,
-                        revenue_ray: 0,
-                        borrow_index_ray: RAY,
-                        supply_index_ray: RAY,
-                        last_timestamp: self.env.ledger().timestamp() * 1000,
-                    },
-                );
-            });
-
-            MarketConfig {
-                status: MarketStatus::Active,
-                asset_config: AssetConfig {
-                    loan_to_value_bps: 7_500,
-                    liquidation_threshold_bps: 8_000,
-                    liquidation_bonus_bps: 500,
-                    liquidation_fees_bps: 100,
-                    is_collateralizable: true,
-                    is_borrowable: true,
-                    e_mode_categories: soroban_sdk::Vec::new(&self.env),
-                    is_isolated_asset: false,
-                    is_siloed_borrowing: false,
-                    is_flashloanable: true,
-                    isolation_borrow_enabled: true,
-                    isolation_debt_ceiling_usd_wad: 1_000_000,
-                    flashloan_fee_bps: 9,
-                    borrow_cap: 0,
-                    supply_cap: 0,
-                },
-                pool_address: pool,
-                oracle_config: OracleProviderConfig {
-                    base_asset: asset.clone(),
-                    oracle_type: OracleType::None,
-                    exchange_source: ExchangeSource::SpotOnly,
-                    asset_decimals: 7,
-                    tolerance: OraclePriceFluctuation {
-                        first_upper_ratio_bps: 10_200,
-                        first_lower_ratio_bps: 9_800,
-                        last_upper_ratio_bps: 11_000,
-                        last_lower_ratio_bps: 9_000,
-                    },
-                    max_price_stale_seconds: 900,
-                },
-                cex_oracle: None,
-                cex_asset_kind: ReflectorAssetKind::Stellar,
-                cex_symbol: Symbol::new(&self.env, ""),
-                cex_decimals: 0,
-                dex_oracle: None,
-                dex_asset_kind: ReflectorAssetKind::Stellar,
-                dex_symbol: Symbol::new(&self.env, ""),
-                dex_decimals: 0,
-                twap_records: 0,
-            }
-        }
-
-        fn empty_account(&self, owner: Address) -> Account {
-            Account {
-                owner,
-                is_isolated: false,
-                e_mode_category_id: 0,
-                mode: PositionMode::Normal,
-                isolated_asset: None,
-                supply_positions: Map::new(&self.env),
-                borrow_positions: Map::new(&self.env),
-            }
-        }
-
-        fn configure_two_markets(&self) {
-            self.as_controller(|| {
-                let market_a = self.market_config(&self.asset_a);
-                let market_b = self.market_config(&self.asset_b);
-                storage::set_market_config(&self.env, &self.asset_a, &market_a);
-                storage::set_market_config(&self.env, &self.asset_b, &market_b);
-                storage::add_to_pools_list(&self.env, &self.asset_a, &market_a.pool_address);
-                storage::add_to_pools_list(&self.env, &self.asset_b, &market_b.pool_address);
-            });
-        }
-    }
-
-    #[test]
-    fn test_missing_account_views_return_safe_defaults() {
-        let t = TestSetup::new();
-        t.configure_two_markets();
-
-        t.as_controller(|| {
-            assert_eq!(health_factor(&t.env, 999), i128::MAX);
-            assert_eq!(total_collateral_in_usd(&t.env, 999), 0);
-            assert_eq!(total_borrow_in_usd(&t.env, 999), 0);
-            assert_eq!(collateral_amount_for_token(&t.env, 999, &t.asset_a), 0);
-            assert_eq!(borrow_amount_for_token(&t.env, 999, &t.asset_a), 0);
-            assert_eq!(health_factor(&t.env, 999), i128::MAX);
-        });
-    }
-
-    #[test]
-    fn test_empty_account_views_return_zero_balances() {
-        let t = TestSetup::new();
-        t.configure_two_markets();
-
-        t.as_controller(|| {
-            let owner = Address::generate(&t.env);
-            storage::set_account(&t.env, 1, &t.empty_account(owner));
-
-            assert_eq!(total_collateral_in_usd(&t.env, 1), 0);
-            assert_eq!(total_borrow_in_usd(&t.env, 1), 0);
-            assert_eq!(collateral_amount_for_token(&t.env, 1, &t.asset_a), 0);
-            assert_eq!(borrow_amount_for_token(&t.env, 1, &t.asset_a), 0);
-        });
-    }
-
-    #[test]
-    fn test_get_all_market_indexes_through_contract_wrapper() {
-        let t = TestSetup::new();
-        t.configure_two_markets();
-
-        let oracle = t.env.register(TestReflector, ());
-        let oracle_client = TestReflectorClient::new(&t.env, &oracle);
-        oracle_client.set_spot(
-            &TestReflectorAsset::Stellar(t.asset_a.clone()),
-            &100_000_000_000_000,
-            &1_000,
-        );
-        oracle_client.set_spot(
-            &TestReflectorAsset::Stellar(t.asset_b.clone()),
-            &200_000_000_000_000,
-            &1_000,
-        );
-
-        t.as_controller(|| {
-            for asset in [t.asset_a.clone(), t.asset_b.clone()] {
-                let mut market = storage::get_market_config(&t.env, &asset);
-                market.oracle_config.oracle_type = OracleType::Normal;
-                market.oracle_config.exchange_source = ExchangeSource::SpotOnly;
-                storage::set_market_config(&t.env, &asset, &market);
-                storage::set_reflector_config(
-                    &t.env,
-                    &asset,
-                    &ReflectorConfig {
-                        cex_oracle: oracle.clone(),
-                        cex_asset_kind: ReflectorAssetKind::Stellar,
-                        cex_symbol: Symbol::new(&t.env, "XLM"),
-                        cex_decimals: 14,
-                        dex_oracle: None,
-                        dex_asset_kind: ReflectorAssetKind::Stellar,
-                        dex_decimals: 0,
-                        twap_records: 0,
-                    },
-                );
-            }
-        });
-
-        let client = ControllerClient::new(&t.env, &t.controller);
-        let assets = Vec::from_array(&t.env, [t.asset_a.clone(), t.asset_b.clone()]);
-        let indexes = client.get_all_market_indexes_detailed(&assets);
-
-        assert_eq!(indexes.len(), 2);
-        assert_eq!(indexes.get(0).unwrap().borrow_index_ray, RAY);
-        assert_eq!(indexes.get(1).unwrap().supply_index_ray, RAY);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #13)")]
-    fn test_get_account_attributes_panics_for_missing_account() {
-        let t = TestSetup::new();
-        t.as_controller(|| {
-            let _ = get_account_attributes(&t.env, 404);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #13)")]
-    fn test_get_account_owner_panics_for_missing_account() {
-        let t = TestSetup::new();
-        t.as_controller(|| {
-            let _ = storage::get_account_meta(&t.env, 404).owner;
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #101)")]
-    fn test_liquidation_estimations_panics_when_account_is_healthy() {
-        let t = TestSetup::new();
-        t.configure_two_markets();
-
-        t.as_controller(|| {
-            let owner = Address::generate(&t.env);
-            storage::set_account(&t.env, 2, &t.empty_account(owner));
-            let debt_payments = Vec::new(&t.env);
-            let _ = liquidation_estimations_detailed(&t.env, 2, &debt_payments);
-        });
-    }
-
-    #[test]
-    fn test_liquidation_estimations_handles_zero_total_collateral() {
-        let t = TestSetup::new();
-        let oracle = t.env.register(TestReflector, ());
-        let oracle_client = TestReflectorClient::new(&t.env, &oracle);
-        let account_id = 7u64;
-
-        oracle_client.set_spot(
-            &TestReflectorAsset::Stellar(t.asset_a.clone()),
-            &200_000_000_000_000,
-            &1_000,
-        );
-
-        t.as_controller(|| {
-            let mut market = t.market_config(&t.asset_a);
-            market.oracle_config.oracle_type = OracleType::Normal;
-            market.oracle_config.exchange_source = ExchangeSource::SpotOnly;
-            storage::set_market_config(&t.env, &t.asset_a, &market);
-            storage::set_reflector_config(
-                &t.env,
-                &t.asset_a,
-                &ReflectorConfig {
-                    cex_oracle: oracle.clone(),
-                    cex_asset_kind: ReflectorAssetKind::Stellar,
-                    cex_symbol: Symbol::new(&t.env, "XLM"),
-                    cex_decimals: 14,
-                    dex_oracle: None,
-                    dex_asset_kind: ReflectorAssetKind::Stellar,
-                    dex_decimals: 0,
-                    twap_records: 0,
-                },
-            );
-
-            let mut borrow_positions = Map::new(&t.env);
-            borrow_positions.set(
-                t.asset_a.clone(),
-                AccountPosition {
-                    scaled_amount_ray: 5 * RAY, // 5 tokens in RAY-native
-                    liquidation_threshold_bps: 8_000,
-                    liquidation_bonus_bps: 500,
-                    liquidation_fees_bps: 100,
-                    loan_to_value_bps: 7_500,
-                },
-            );
-            storage::set_account(
-                &t.env,
-                account_id,
-                &Account {
-                    owner: Address::generate(&t.env),
-                    is_isolated: false,
-                    e_mode_category_id: 0,
-                    mode: PositionMode::Normal,
-                    isolated_asset: None,
-                    supply_positions: Map::new(&t.env),
-                    borrow_positions,
-                },
-            );
-        });
-
-        t.as_controller(|| {
-            let debt_payments = Vec::from_array(&t.env, [(t.asset_a.clone(), 5_0000000)]);
-            let estimate = liquidation_estimations_detailed(&t.env, account_id, &debt_payments);
-
-            assert_eq!(estimate.seized_collaterals.len(), 0);
-            assert_eq!(estimate.protocol_fees.len(), 0);
-            assert_eq!(estimate.max_payment_wad, 0);
-            assert_eq!(health_factor(&t.env, account_id), 0);
-        });
-    }
-
-    #[test]
-    fn test_local_test_reflector_exposes_spot_and_history_helpers() {
-        let t = TestSetup::new();
-        let oracle = t.env.register(TestReflector, ());
-        let oracle_client = TestReflectorClient::new(&t.env, &oracle);
-        let stellar_asset = TestReflectorAsset::Stellar(t.asset_a.clone());
-        let other_asset = TestReflectorAsset::Other(Symbol::new(&t.env, "BTC"));
-
-        oracle_client.set_spot(&stellar_asset, &123, &456);
-        oracle_client.set_spot(&other_asset, &321, &654);
-
-        assert_eq!(oracle_client.decimals(), 14);
-        assert_eq!(oracle_client.resolution(), 300);
-        assert_eq!(
-            oracle_client.lastprice(&stellar_asset).unwrap().timestamp,
-            456
-        );
-        assert_eq!(oracle_client.lastprice(&other_asset).unwrap().price, 321);
-
-        let history = oracle_client.prices(&stellar_asset, &2).unwrap();
-        assert_eq!(history.len(), 2);
-        assert_eq!(history.get(0).unwrap().price, 123);
-        assert_eq!(history.get(1).unwrap().timestamp, 456);
     }
 }

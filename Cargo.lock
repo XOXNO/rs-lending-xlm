@@ -307,6 +307,10 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "cvlr",
+ "cvlr-soroban",
+ "cvlr-soroban-derive",
+ "cvlr-soroban-macros",
  "soroban-sdk",
 ]
 
@@ -325,7 +329,6 @@ dependencies = [
  "cvlr-soroban",
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
- "pool",
  "pool-interface",
  "soroban-sdk",
  "stellar-access",
@@ -1271,6 +1274,10 @@ name = "pool"
 version = "0.1.0"
 dependencies = [
  "common",
+ "cvlr",
+ "cvlr-soroban",
+ "cvlr-soroban-derive",
+ "cvlr-soroban-macros",
  "soroban-sdk",
  "stellar-access",
  "stellar-contract-utils",

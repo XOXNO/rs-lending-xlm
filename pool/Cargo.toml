@@ -12,6 +12,13 @@ stellar-access = { workspace = true }
 stellar-contract-utils = { workspace = true }
 stellar-macros = { workspace = true }
 common = { path = "../common" }
+cvlr = { workspace = true, optional = true }
+cvlr-soroban = { workspace = true, optional = true }
+cvlr-soroban-macros = { workspace = true, optional = true }
+cvlr-soroban-derive = { workspace = true, optional = true }
+
+[features]
+certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive", "common/certora"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

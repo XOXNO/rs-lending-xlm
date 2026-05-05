@@ -48,6 +48,11 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
+    /// Divides two Ray values, rounding DOWN toward zero.
+    pub fn div_floor(self, env: &Env, other: Ray) -> Ray {
+        Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
+    }
+
     /// Divides by a plain integer with half-up rounding (for Taylor series).
     pub fn div_by_int(self, n: i128) -> Ray {
         Ray(fp_core::div_by_int_half_up(self.0, n))
@@ -156,6 +161,11 @@ impl Wad {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
     }
 
+    /// Converts a WAD-precision token amount or dimensionless ratio to RAY.
+    pub fn to_ray(self) -> Ray {
+        Ray(fp_core::rescale_half_up(self.0, WAD_DECIMALS, RAY_DECIMALS))
+    }
+
     pub fn min(self, other: Wad) -> Wad {
         if self.0 < other.0 {
             self
@@ -239,6 +249,11 @@ impl Bps {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)
     }
+
+    /// Applies a basis-point rate to a Ray value: `value * (bps / 10_000)`.
+    pub fn apply_to_ray(self, env: &Env, value: Ray) -> Ray {
+        Ray(fp_core::mul_div_half_up(env, value.raw(), self.0, BPS))
+    }
 }
 
 impl Add for Bps {
@@ -317,6 +332,18 @@ mod tests {
     }
 
     #[test]
+    fn test_ray_div_floor() {
+        let env = Env::default();
+        let amount = Ray::from_raw(105 * RAY / 100);
+        let ratio = Ray::from_raw(11 * RAY / 10);
+
+        assert_eq!(
+            amount.div_floor(&env, ratio).raw(),
+            954_545_454_545_454_545_454_545_454
+        );
+    }
+
+    #[test]
     fn test_ray_from_asset() {
         // 1.0 XLM (7 decimals) -> RAY.
         let r = Ray::from_asset(10_000_000, 7);
@@ -365,6 +392,12 @@ mod tests {
     }
 
     #[test]
+    fn test_wad_to_ray() {
+        let w = Wad::from_raw(WAD);
+        assert_eq!(w.to_ray().raw(), RAY);
+    }
+
+    #[test]
     fn test_wad_min_max() {
         let a = Wad::from_raw(10);
         let b = Wad::from_raw(20);
@@ -404,6 +437,13 @@ mod tests {
         let value = Wad::from_raw(100 * WAD);
         let weighted = threshold.apply_to_wad(&env, value);
         assert_eq!(weighted.raw(), 80 * WAD);
+    }
+
+    #[test]
+    fn test_bps_apply_to_ray() {
+        let env = Env::default();
+        let fee = Bps::from_raw(250).apply_to_ray(&env, Ray::from_raw(4 * RAY));
+        assert_eq!(fee.raw(), RAY / 10);
     }
 
     #[test]

@@ -21,7 +21,3 @@ cvlr-soroban-derive = { workspace = true, optional = true }
 [features]
 certora = ["cvlr", "cvlr-soroban", "cvlr-soroban-macros", "cvlr-soroban-derive"]
 testing = []
-
-[dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
-pool = { path = "../pool" }

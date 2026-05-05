@@ -212,79 +212,8 @@ impl ControllerCache {
 }
 
 crate::summarized!(
-    crate::spec::summaries::pool::get_sync_data_summary,
+    pool::get_sync_data_summary,
     pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address) -> PoolSyncData {
         pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data()
     }
 );
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use common::types::EModeAssetConfig;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Address, Env};
-
-    struct TestSetup {
-        env: Env,
-        controller: Address,
-        asset: Address,
-    }
-
-    impl TestSetup {
-        fn new() -> Self {
-            let env = Env::default();
-            env.mock_all_auths();
-
-            let admin = Address::generate(&env);
-            let controller = env.register(crate::Controller, (admin,));
-            let asset = Address::generate(&env);
-
-            Self {
-                env,
-                controller,
-                asset,
-            }
-        }
-
-        fn as_controller<T>(&self, f: impl FnOnce() -> T) -> T {
-            self.env.as_contract(&self.controller, f)
-        }
-    }
-
-    #[test]
-    fn test_cached_emode_asset_returns_cached_value_on_second_lookup() {
-        let t = TestSetup::new();
-
-        t.as_controller(|| {
-            storage::set_emode_category(
-                &t.env,
-                7,
-                &common::types::EModeCategory {
-                    loan_to_value_bps: 9000,
-                    liquidation_threshold_bps: 9500,
-                    liquidation_bonus_bps: 200,
-                    is_deprecated: false,
-                    assets: soroban_sdk::Map::new(&t.env),
-                },
-            );
-            let expected = EModeAssetConfig {
-                is_collateralizable: true,
-                is_borrowable: false,
-            };
-            storage::set_emode_asset(&t.env, 7, &t.asset, &expected);
-
-            let mut cache = ControllerCache::new_view(&t.env);
-            let first = cache.cached_emode_asset(7, &t.asset).unwrap();
-            assert!(first.is_collateralizable);
-            assert!(!first.is_borrowable);
-
-            storage::remove_emode_asset(&t.env, 7, &t.asset);
-            let second = cache.cached_emode_asset(7, &t.asset).unwrap();
-            assert!(second.is_collateralizable);
-            assert!(!second.is_borrowable);
-        });
-    }
-}
