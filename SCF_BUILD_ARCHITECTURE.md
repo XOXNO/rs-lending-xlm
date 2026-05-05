@@ -924,6 +924,12 @@ Repository-contained verification artifacts:
   `certora` Cargo feature.
 - Fixed-point and protocol invariants: `architecture/INVARIANTS.md`.
 - Vulnerability reporting policy: `SECURITY.md`.
+- Architecture Decision Records: `architecture/decisions/` — ADRs covering
+  the controller/pool boundary (ADR 0001), per-side scaled-balance
+  storage (0002), dual-source oracle with tolerance bands (0003), cache
+  permissiveness policy (0004), strategy aggregator validation (0005),
+  flash-loan balance-snapshot settlement (0006), bad-debt socialization
+  (0007), and isolation/e-mode coexistence (0008).
 
 Areas with high implementation complexity (entry points to trace when
 extending tests, fuzzing targets, or rules):

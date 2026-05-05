@@ -28,6 +28,10 @@ and formal-verification work. It is not a documentation site.
 - [Protocol invariants](./architecture/INVARIANTS.md) - fixed-point domains,
   accounting invariants, solvency rules, liquidation constraints, and security
   properties.
+- [Architecture decisions](./architecture/decisions/README.md) - ADRs for
+  load-bearing protocol design choices (controller/pool boundary, scaled
+  balances, oracle policy, flash loans, bad-debt socialization, e-mode and
+  isolation).
 - [Security policy](./SECURITY.md) - private vulnerability reporting process,
   scope, response timeline, and safe harbor.
 - [SCF build architecture](./SCF_BUILD_ARCHITECTURE.md) - grant-facing system
