@@ -23,7 +23,7 @@ REPO_MARKER = "/rs-lending-xlm/"
 
 
 def keep(path: str, mode: str) -> bool:
-    if REPO_MARKER not in path or "/test-harness/" in path:
+    if REPO_MARKER not in path or "/verification/test-harness/" in path:
         return False
     if mode == "controller":
         return "/controller/" in path or "/common/" in path

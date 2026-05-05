@@ -1,0 +1,29 @@
+[package]
+name = "test-harness"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+testing = ["controller/testing"]
+
+[dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+common = { path = "../../common" }
+controller = { path = "../../controller", features = ["testing"] }
+pool = { path = "../../pool" }
+# Exact rational arithmetic for the reference implementation used by the
+# liquidation differential fuzz harness (Phase B). Pulled in as a regular
+# dependency because `src/reference/` is part of the library, not a test-only
+# module (so it's also exercised by `cargo test --lib`).
+num-rational = { version = "0.4", default-features = false, features = ["std", "num-bigint-std"] }
+num-bigint = { version = "0.4", default-features = false, features = ["std"] }
+num-traits = { version = "0.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# Property-based testing for contract-level fuzz scenarios.
+# See tests/fuzz_*.rs for the harnesses. Configure run size via
+# `PROPTEST_CASES=N cargo test -p test-harness --test fuzz_supply_borrow_liquidate`.
+proptest = "1"

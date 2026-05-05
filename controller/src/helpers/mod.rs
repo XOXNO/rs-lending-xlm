@@ -4,9 +4,6 @@ use common::fp::{Bps, Ray, Wad};
 use common::types::AccountPosition;
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
-#[cfg(test)]
-pub mod testutils;
-
 use crate::cache::ControllerCache;
 
 // ---------------------------------------------------------------------------
@@ -53,7 +50,7 @@ pub fn calculate_ltv_collateral_wad(
 // ---------------------------------------------------------------------------
 
 crate::summarized!(
-    crate::spec::summaries::calculate_health_factor_summary,
+    calculate_health_factor_summary,
     pub fn calculate_health_factor(
         env: &Env,
         cache: &mut ControllerCache,
@@ -116,7 +113,7 @@ crate::summarized!(
 
 #[cfg(feature = "certora")]
 crate::summarized!(
-    crate::spec::summaries::calculate_health_factor_for_summary,
+    calculate_health_factor_for_summary,
     pub fn calculate_health_factor_for(
         env: &Env,
         cache: &mut ControllerCache,
@@ -137,7 +134,7 @@ crate::summarized!(
 // ---------------------------------------------------------------------------
 
 crate::summarized!(
-    crate::spec::summaries::calculate_account_totals_summary,
+    calculate_account_totals_summary,
     pub fn calculate_account_totals(
         env: &Env,
         cache: &mut ControllerCache,
@@ -220,7 +217,7 @@ pub fn calculate_linear_bonus_with_target(
 
 #[cfg(feature = "certora")]
 crate::summarized!(
-    crate::spec::summaries::calculate_linear_bonus_summary,
+    calculate_linear_bonus_summary,
     pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
         let target_hf = Wad::from_raw(1_020_000_000_000_000_000i128);
         calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
@@ -409,104 +406,4 @@ pub fn get_account_bonus_params(
         Bps::from_raw(weighted_bonus_sum),
         Bps::from_raw(MAX_LIQUIDATION_BONUS),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use soroban_sdk::{Address, Env, Map};
-
-    #[test]
-    fn test_calculate_health_factor_returns_max_without_borrows() {
-        let env = Env::default();
-        let mut cache = ControllerCache::new(&env, true);
-        let supply_positions: Map<Address, AccountPosition> = Map::new(&env);
-        let borrow_positions: Map<Address, AccountPosition> = Map::new(&env);
-
-        assert_eq!(
-            calculate_health_factor(&env, &mut cache, &supply_positions, &borrow_positions),
-            i128::MAX
-        );
-    }
-
-    #[test]
-    fn test_calculate_linear_bonus_with_target_returns_base_bonus_when_gap_is_non_positive() {
-        let env = Env::default();
-
-        assert_eq!(
-            calculate_linear_bonus_with_target(
-                &env,
-                Wad::from_raw(11 * WAD / 10),
-                Bps::from_raw(500),
-                Bps::from_raw(1_500),
-                Wad::from_raw(WAD),
-            ),
-            Bps::from_raw(500)
-        );
-    }
-
-    #[test]
-    fn test_estimate_liquidation_amount_falls_back_to_base_bonus_when_target_is_unreachable() {
-        let env = Env::default();
-        let total_debt = Wad::from_raw(100 * WAD);
-        let weighted_coll = Wad::from_raw(200 * WAD);
-        let proportion_seized = Wad::ONE;
-        let total_collateral = Wad::from_raw(100 * WAD);
-        let base_bonus = Bps::from_raw(500);
-
-        let (debt_to_repay, bonus) = estimate_liquidation_amount(
-            &env,
-            total_debt,
-            weighted_coll,
-            Wad::from_raw(9 * WAD / 10),
-            base_bonus,
-            Bps::from_raw(1_500),
-            proportion_seized,
-            total_collateral,
-        );
-
-        let one_plus_base = Wad::ONE + base_bonus.to_wad(&env);
-        let expected_d_max = total_collateral.div(&env, one_plus_base);
-
-        assert_eq!(bonus, base_bonus);
-        assert_eq!(debt_to_repay, expected_d_max);
-    }
-
-    #[test]
-    fn test_try_liquidation_at_target_caps_at_max_repay_when_target_is_already_met() {
-        let env = Env::default();
-        let total_debt = Wad::from_raw(100 * WAD);
-        let weighted_coll = Wad::from_raw(120 * WAD);
-        let bonus = Bps::from_raw(500);
-        let total_collateral = Wad::from_raw(150 * WAD);
-        let one_plus_bonus = Wad::ONE + bonus.to_wad(&env);
-        let expected_d_max = total_collateral.div(&env, one_plus_bonus).min(total_debt);
-
-        assert_eq!(
-            try_liquidation_at_target(
-                &env,
-                total_debt,
-                weighted_coll,
-                bonus,
-                Wad::from_raw(WAD / 2),
-                total_collateral,
-                Wad::from_raw(1_020_000_000_000_000_000i128),
-            ),
-            Some(expected_d_max)
-        );
-    }
-
-    #[test]
-    fn test_get_account_bonus_params_returns_protocol_max_for_empty_supply() {
-        let env = Env::default();
-        let mut cache = ControllerCache::new(&env, true);
-        let supply_positions: Map<Address, AccountPosition> = Map::new(&env);
-
-        assert_eq!(
-            get_account_bonus_params(&env, &mut cache, &supply_positions),
-            (Bps::from_raw(0), Bps::from_raw(MAX_LIQUIDATION_BONUS))
-        );
-    }
 }

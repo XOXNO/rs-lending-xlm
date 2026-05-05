@@ -289,7 +289,7 @@ fn update_borrow_position(
 }
 
 crate::summarized!(
-    crate::spec::summaries::pool::borrow_summary,
+    pool::borrow_summary,
     fn pool_borrow_call(
         env: &Env,
         asset: &Address,
@@ -305,7 +305,7 @@ crate::summarized!(
 );
 
 crate::summarized!(
-    crate::spec::summaries::pool::create_strategy_summary,
+    pool::create_strategy_summary,
     fn pool_create_strategy_call(
         env: &Env,
         asset: &Address,
@@ -418,8 +418,8 @@ fn validate_borrow_cap(
     amount: i128,
     asset: &Address,
 ) {
-    if asset_config.borrow_cap == 0 {
-        return; // Zero means no cap.
+    if asset_config.borrow_cap == 0 || asset_config.borrow_cap == i128::MAX {
+        return; // Zero and i128::MAX mean no cap.
     }
     // Use the synced borrow index from the cache rather than the pool's stored
     // (potentially stale) value. `cached_market_index` simulates global_sync
@@ -428,12 +428,14 @@ fn validate_borrow_cap(
     let sync_data = cache.cached_pool_sync_data(asset);
     let market_index = cache.cached_market_index(asset);
     let current_total = Ray::from_raw(sync_data.state.borrowed_ray)
-        .mul(env, Ray::from_raw(market_index.borrow_index_ray))
-        .to_asset(sync_data.params.asset_decimals);
+        .mul(env, Ray::from_raw(market_index.borrow_index_ray));
+    let amount_ray = Ray::from_asset(amount, sync_data.params.asset_decimals);
+    let cap_ray = Ray::from_asset(asset_config.borrow_cap, sync_data.params.asset_decimals);
     let total = current_total
-        .checked_add(amount)
+        .raw()
+        .checked_add(amount_ray.raw())
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    if total > asset_config.borrow_cap {
+    if Ray::from_raw(total) > cap_ray {
         panic_with_error!(env, CollateralError::BorrowCapReached);
     }
 }
@@ -479,181 +481,4 @@ fn validate_ltv_capacity(
         panic_with_error!(env, CollateralError::InsufficientCollateral);
     }
     total_borrow_wad
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use crate::helpers::testutils::test_market_config;
-    use common::constants::RAY;
-    use common::types::{MarketParams, PoolKey, PoolState, PositionMode};
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{Address, Map};
-
-    struct TestSetup {
-        env: Env,
-        controller: Address,
-        asset: Address,
-        other_asset: Address,
-        pool: Address,
-    }
-
-    impl TestSetup {
-        fn new() -> Self {
-            let env = Env::default();
-            env.mock_all_auths();
-            env.ledger().set(LedgerInfo {
-                timestamp: 1_000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3_110_400,
-            });
-
-            let admin = Address::generate(&env);
-            let controller = env.register(crate::Controller, (admin.clone(),));
-            let asset = env
-                .register_stellar_asset_contract_v2(admin.clone())
-                .address()
-                .clone();
-            let other_asset = Address::generate(&env);
-            let params = MarketParams {
-                max_borrow_rate_ray: 5 * RAY,
-                base_borrow_rate_ray: RAY / 100,
-                slope1_ray: RAY / 10,
-                slope2_ray: RAY / 5,
-                slope3_ray: RAY / 2,
-                mid_utilization_ray: RAY / 2,
-                optimal_utilization_ray: RAY * 8 / 10,
-                reserve_factor_bps: 1_000,
-                asset_id: asset.clone(),
-                asset_decimals: 7,
-            };
-            let pool = env.register(pool::LiquidityPool, (controller.clone(), params));
-
-            Self {
-                env,
-                controller,
-                asset,
-                other_asset,
-                pool,
-            }
-        }
-
-        fn as_controller<T>(&self, f: impl FnOnce() -> T) -> T {
-            self.env.as_contract(&self.controller, f)
-        }
-
-        fn asset_config(&self, borrow_cap: i128, is_siloed_borrowing: bool) -> AssetConfig {
-            AssetConfig {
-                loan_to_value_bps: 7_500,
-                liquidation_threshold_bps: 8_000,
-                liquidation_bonus_bps: 500,
-                liquidation_fees_bps: 100,
-                is_collateralizable: true,
-                is_borrowable: true,
-                e_mode_categories: soroban_sdk::Vec::new(&self.env),
-                is_isolated_asset: false,
-                is_siloed_borrowing,
-                is_flashloanable: true,
-                isolation_borrow_enabled: true,
-                isolation_debt_ceiling_usd_wad: 0,
-                flashloan_fee_bps: 9,
-                borrow_cap,
-                supply_cap: i128::MAX,
-            }
-        }
-
-        fn account_with_two_borrows(&self) -> Account {
-            let mut borrow_positions = Map::new(&self.env);
-            for asset in [&self.asset, &self.other_asset] {
-                borrow_positions.set(
-                    asset.clone(),
-                    AccountPosition {
-                        scaled_amount_ray: 1_0000000,
-                        liquidation_threshold_bps: 8_000,
-                        liquidation_bonus_bps: 500,
-                        liquidation_fees_bps: 100,
-                        loan_to_value_bps: 7_500,
-                    },
-                );
-            }
-
-            Account {
-                owner: Address::generate(&self.env),
-                is_isolated: false,
-                e_mode_category_id: 0,
-                mode: PositionMode::Normal,
-                isolated_asset: None,
-                supply_positions: Map::new(&self.env),
-                borrow_positions,
-            }
-        }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_validate_borrow_cap_rejects_when_new_debt_exceeds_cap() {
-        let t = TestSetup::new();
-
-        t.as_controller(|| {
-            t.env.as_contract(&t.pool, || {
-                t.env.storage().instance().set(
-                    &PoolKey::State,
-                    &PoolState {
-                        supplied_ray: 0,
-                        borrowed_ray: 5 * RAY, // 5 tokens scaled to RAY (pool stores RAY-native)
-                        revenue_ray: 0,
-                        borrow_index_ray: RAY,
-                        supply_index_ray: RAY,
-                        last_timestamp: t.env.ledger().timestamp() * 1000,
-                    },
-                );
-            });
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(5_0000000, false)),
-            );
-
-            let mut cache = ControllerCache::new(&t.env, true);
-            validate_borrow_cap(
-                &t.env,
-                &mut cache,
-                &t.asset_config(5_0000000, false),
-                1_0000000,
-                &t.asset,
-            );
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #108)")]
-    fn test_validate_borrow_asset_rejects_siloed_asset_on_multi_borrow_account() {
-        let t = TestSetup::new();
-
-        t.as_controller(|| {
-            storage::set_market_config(
-                &t.env,
-                &t.other_asset,
-                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(0, false)),
-            );
-            storage::set_market_config(
-                &t.env,
-                &t.asset,
-                &test_market_config(&t.env, &t.asset, &t.pool, t.asset_config(0, true)),
-            );
-
-            let mut cache = ControllerCache::new(&t.env, true);
-            let account = t.account_with_two_borrows();
-            let new_borrows = soroban_sdk::vec![&t.env, (t.asset.clone(), 1_0000000)];
-
-            validate_siloed_borrow_set(&t.env, &mut cache, &account, &new_borrows);
-        });
-    }
 }

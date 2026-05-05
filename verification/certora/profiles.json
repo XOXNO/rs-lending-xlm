@@ -1,0 +1,217 @@
+{
+    "profiles": {
+        "sanity": [
+            {
+                "conf": "verification/certora/common/confs/math.conf",
+                "args": [
+                    "--rule",
+                    "common_math_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/common/confs/rates.conf",
+                "args": [
+                    "--rule",
+                    "rates_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/pool/confs/integrity.conf",
+                "args": [
+                    "--rule",
+                    "pool_integrity_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/pool/confs/additivity.conf",
+                "args": [
+                    "--rule",
+                    "pool_additivity_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/positions.conf",
+                "args": [
+                    "--rule",
+                    "supply_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/health.conf",
+                "args": [
+                    "--rule",
+                    "hf_borrow_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/oracle.conf",
+                "args": [
+                    "--rule",
+                    "oracle_tolerance_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/flash_loan.conf",
+                "args": [
+                    "--rule",
+                    "flash_loan_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/liquidation-light.conf",
+                "args": [
+                    "--rule",
+                    "estimate_liquidation_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/emode.conf",
+                "args": [
+                    "--rule",
+                    "emode_supply_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/solvency.conf",
+                "args": [
+                    "--rule",
+                    "solvency_sanity_supply"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/strategy.conf",
+                "args": [
+                    "--rule",
+                    "multiply_sanity"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/aave-parity.conf",
+                "args": [
+                    "--rule",
+                    "controller_parity_reachability"
+                ]
+            }
+        ],
+        "fast": [
+            {
+                "conf": "verification/certora/common/confs/math.conf"
+            },
+            {
+                "conf": "verification/certora/common/confs/rates.conf"
+            },
+            {
+                "conf": "verification/certora/pool/confs/integrity.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/math.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/indexes.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/interest.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/positions.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/health.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/oracle.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/flash_loan.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/liquidation-light.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/emode.conf"
+            }
+        ],
+        "core": [
+            {
+                "conf": "verification/certora/pool/confs/summary-contract.conf"
+            },
+            {
+                "conf": "verification/certora/pool/confs/additivity.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/solvency.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/liquidation.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/isolation.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/strategy.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/boundary.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/aave-parity.conf"
+            }
+        ],
+        "critical": [
+            {
+                "conf": "verification/certora/pool/confs/summary-contract-critical.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/no-collateral-no-debt.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/controller-pool-consistency.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/global-solvency-heavy.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/liquidation-integrity-heavy.conf"
+            }
+        ],
+        "heavy": [
+            {
+                "conf": "verification/certora/pool/confs/summary-contract-critical.conf"
+            },
+            {
+                "conf": "verification/certora/pool/confs/additivity-heavy.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/no-collateral-no-debt.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/controller-pool-consistency.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/global-solvency-heavy.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/liquidation-integrity-heavy.conf"
+            }
+        ],
+        "manual": [
+            {
+                "profile": "core"
+            },
+            {
+                "profile": "heavy"
+            }
+        ],
+        "all": [
+            {
+                "profile": "fast"
+            },
+            {
+                "profile": "core"
+            },
+            {
+                "profile": "heavy"
+            }
+        ]
+    }
+}

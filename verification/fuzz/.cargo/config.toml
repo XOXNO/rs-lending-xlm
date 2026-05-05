@@ -1,0 +1,24 @@
+# Build config for `cargo fuzz coverage` on macOS.
+#
+# Why `-Cunsafe-allow-abi-mismatch=sanitizer`:
+#   On macOS we need `-Zsanitizer=thread` (see verification/fuzz/README.md) to link the
+#   stellar-access cdylib. Coverage also adds `-Cinstrument-coverage`, which
+#   pulls in `profiler_builtins`. cargo-fuzz passes `-Zbuild-std` without a
+#   value, which uses the default sysroot set — `profiler_builtins` gets
+#   rebuilt but without the sanitizer flag, causing:
+#
+#     error: `-Zsanitizer=thread` in this crate is incompatible with unset
+#     `-Zsanitizer` in dependency `profiler_builtins`
+#
+#   `profiler_builtins` is the profile-counter shim; it doesn't interact with
+#   the TSAN runtime, so the mismatch is benign. This flag tells rustc so.
+#
+# Scope: this config only applies under `verification/fuzz/` (cargo reads the nearest
+# config.toml walking up from the package root). The root workspace is
+# unaffected.
+
+[target.aarch64-apple-darwin]
+rustflags = ["-Cunsafe-allow-abi-mismatch=sanitizer"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-Cunsafe-allow-abi-mismatch=sanitizer"]

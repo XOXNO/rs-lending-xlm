@@ -4,6 +4,10 @@ mod cache;
 mod interest;
 mod views;
 
+#[cfg(feature = "certora")]
+#[path = "../../verification/certora/pool/spec/mod.rs"]
+pub mod spec;
+
 use cache::Cache;
 use common::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};

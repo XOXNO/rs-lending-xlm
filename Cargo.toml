@@ -1,6 +1,6 @@
 [workspace]
-members = ["common", "pool-interface", "pool", "controller", "test-harness"]
-exclude = ["fuzz", "vendor"]
+members = ["common", "pool-interface", "pool", "controller", "verification/test-harness"]
+exclude = ["verification/fuzz", "vendor"]
 resolver = "2"
 
 [workspace.dependencies]

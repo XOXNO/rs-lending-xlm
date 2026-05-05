@@ -1,8 +1,6 @@
 use super::bump_shared;
 use common::types::ControllerKey;
 use soroban_sdk::{Address, Env, Vec};
-#[cfg(test)]
-use {common::errors::GenericError, soroban_sdk::panic_with_error};
 
 /// Returns the asset addresses of every market the controller manages.
 /// Pool addresses are resolved via `MarketConfig.pool_address` so the
@@ -17,11 +15,6 @@ pub fn get_pools_list(env: &Env) -> Vec<Address> {
 /// Number of pools — `vec.len()` is authoritative; no separate
 /// `PoolsCount` entry is maintained. Exposed for test fixtures and any
 /// future enumeration entrypoint.
-#[cfg(test)]
-pub fn get_pools_count(env: &Env) -> u32 {
-    get_pools_list(env).len()
-}
-
 /// Bumps the single `PoolsList` entry. No-ops when no pools exist yet.
 pub fn bump_pools_list(env: &Env) {
     let key = ControllerKey::PoolsList;
@@ -42,11 +35,4 @@ pub fn add_to_pools_list(env: &Env, asset: &Address, _pool: &Address) {
     let key = ControllerKey::PoolsList;
     env.storage().persistent().set(&key, &list);
     bump_shared(env, &key);
-}
-
-#[cfg(test)]
-pub fn get_pools_list_entry(env: &Env, idx: u32) -> Address {
-    get_pools_list(env)
-        .get(idx)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolsListNotFound))
 }

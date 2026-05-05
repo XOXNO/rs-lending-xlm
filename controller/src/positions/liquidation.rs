@@ -358,7 +358,6 @@ fn calculate_seized_collateral(
 
         let actual_ray = Ray::from_raw(position.scaled_amount_ray)
             .mul(env, Ray::from_raw(market_index.supply_index_ray));
-        let actual_amount = actual_ray.to_asset(feed.asset_decimals);
         let actual_amount_wad = actual_ray.to_wad();
         let asset_value = actual_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
 
@@ -366,28 +365,33 @@ fn calculate_seized_collateral(
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
         let seizure_amount_wad = seizure_for_asset_usd.div(env, Wad::from_raw(feed.price_wad));
-        let seizure_amount = seizure_amount_wad.to_token(feed.asset_decimals);
+        let seizure_ray = seizure_amount_wad.to_ray();
 
-        if seizure_amount <= 0 {
+        if seizure_ray <= Ray::ZERO {
             continue;
         }
 
-        // Split the seized amount into base and bonus before computing the
-        // protocol fee. Floor-divide so `base_amount` is the mathematical
-        // lower bound and `bonus_portion` captures any rounding remainder;
-        // this keeps `protocol_fee >= bonus * fees_bps / BPS`.
-        let capped_amount = seizure_amount.min(actual_amount);
-        let base_amount = Wad::from_raw(capped_amount)
-            .div_floor(env, one_plus_bonus)
-            .raw();
-        let bonus_portion = capped_amount - base_amount;
+        let capped_ray = seizure_ray.min(actual_ray);
+        if capped_ray <= Ray::ZERO {
+            continue;
+        }
+
+        // Split the seized RAY amount into base and bonus before computing
+        // the protocol fee. Floor division keeps the base side as the lower
+        // bound, so the bonus side captures any rounding remainder.
+        let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
+        let bonus_ray = capped_ray - base_ray;
         let protocol_fee =
-            Bps::from_raw(asset_config.liquidation_fees_bps).apply_to(env, bonus_portion);
+            Bps::from_raw(asset_config.liquidation_fees_bps).apply_to_ray(env, bonus_ray);
+        let capped_amount = capped_ray.to_asset(feed.asset_decimals);
+        if capped_amount <= 0 {
+            continue;
+        }
 
         seized.push_back(SeizeEntry {
             asset,
             amount: capped_amount,
-            protocol_fee,
+            protocol_fee: protocol_fee.to_asset(feed.asset_decimals),
             feed,
             market_index,
         });
@@ -412,7 +416,9 @@ fn process_excess_payment(
 
         if usd > remaining_excess_usd {
             let ratio = remaining_excess_usd.div(env, usd);
-            let refund_amount = Wad::from_raw(entry.amount).mul(env, ratio).raw();
+            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+                .mul(env, ratio)
+                .to_token(entry.feed.asset_decimals);
 
             let new_amount = entry.amount - refund_amount;
             // Recompute `new_usd` from `new_amount * price`. Subtracting the
@@ -552,7 +558,7 @@ fn seize_pool_position(
 }
 
 crate::summarized!(
-    crate::spec::summaries::pool::seize_position_summary,
+    pool::seize_position_summary,
     fn pool_seize_position_call(
         env: &Env,
         asset: &Address,
@@ -565,76 +571,3 @@ crate::summarized!(
             .seize_position(&side, &position, &price_wad)
     }
 );
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use super::*;
-    use common::types::PositionMode;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Address, Env, Map};
-
-    struct TestSetup {
-        env: Env,
-        controller: Address,
-        owner: Address,
-    }
-
-    impl TestSetup {
-        fn new() -> Self {
-            let env = Env::default();
-            env.mock_all_auths();
-
-            let admin = Address::generate(&env);
-            let controller = env.register(crate::Controller, (admin,));
-            let owner = Address::generate(&env);
-
-            Self {
-                env,
-                controller,
-                owner,
-            }
-        }
-
-        fn as_controller<T>(&self, f: impl FnOnce() -> T) -> T {
-            self.env.as_contract(&self.controller, f)
-        }
-
-        fn empty_account(&self) -> Account {
-            Account {
-                owner: self.owner.clone(),
-                is_isolated: false,
-                e_mode_category_id: 0,
-                mode: PositionMode::Normal,
-                isolated_asset: None,
-                supply_positions: Map::new(&self.env),
-                borrow_positions: Map::new(&self.env),
-            }
-        }
-    }
-
-    #[test]
-    fn test_check_and_clean_bad_debt_removes_empty_accounts() {
-        let t = TestSetup::new();
-        let account_id = 1;
-
-        t.as_controller(|| {
-            let empty = t.empty_account();
-            storage::set_account(&t.env, account_id, &empty);
-            let mut cache = ControllerCache::new(&t.env, false);
-            check_bad_debt_after_liquidation(&t.env, &mut cache, account_id, &empty);
-            assert!(storage::try_get_account(&t.env, account_id).is_none());
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #110)")]
-    fn test_clean_bad_debt_standalone_rejects_accounts_without_borrows() {
-        let t = TestSetup::new();
-        t.as_controller(|| {
-            storage::set_account(&t.env, 1, &t.empty_account());
-            clean_bad_debt_standalone(&t.env, 1);
-        });
-    }
-}

@@ -47,6 +47,8 @@ RELEASE_DIR  := target/$(WASM_TARGET)/release
 OPTIMIZED_DIR := target/optimized
 DEPLOY_DIR := target/deploy
 COV_DIR := target/coverage
+TEST_HARNESS_DIR := verification/test-harness
+FUZZ_DIR := verification/fuzz
 
 # Contract crates (order matters for deployment)
 CONTRACTS := pool controller
@@ -164,12 +166,12 @@ coverage-controller:
 	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@backup="$(COV_DIR)/snapshots-backup"; \
 	restore_snapshots() { \
-		rm -rf test-harness/test_snapshots; \
-		mkdir -p test-harness/test_snapshots; \
-		cp -R "$$backup"/. test-harness/test_snapshots/; \
+		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
+		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/; \
 	}; \
 	rm -rf "$$backup" && mkdir -p "$$backup"; \
-	cp -R test-harness/test_snapshots/. "$$backup"/; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/; \
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
@@ -203,12 +205,12 @@ coverage-merged:
 	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@backup="$(COV_DIR)/snapshots-backup"; \
 	restore_snapshots() { \
-		rm -rf test-harness/test_snapshots; \
-		mkdir -p test-harness/test_snapshots; \
-		cp -R "$$backup"/. test-harness/test_snapshots/; \
+		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
+		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/; \
 	}; \
 	rm -rf "$$backup" && mkdir -p "$$backup"; \
-	cp -R test-harness/test_snapshots/. "$$backup"/; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/; \
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
@@ -278,28 +280,28 @@ endif
 fuzz:
 	@for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
-		cd fuzz && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ..; \
+		cd $(FUZZ_DIR) && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ../..; \
 	done
 
 ## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
 fuzz-contract:
 	@for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
-		cd fuzz && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ..; \
+		cd $(FUZZ_DIR) && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ../..; \
 	done
 
 ## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300
 fuzz-one:
-	@cd fuzz && cargo +nightly fuzz run $(TARGET) $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME)
+	@cd $(FUZZ_DIR) && cargo +nightly fuzz run $(TARGET) $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME)
 
 ## Build all fuzz targets (compile-only)
 fuzz-build:
-	@cd fuzz && cargo +nightly fuzz build $(FUZZ_FLAGS)
+	@cd $(FUZZ_DIR) && cargo +nightly fuzz build $(FUZZ_FLAGS)
 
-## Seed fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
+## Seed verification/fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
 ## a campaign to give libFuzzer realistic numeric entropy from the start.
 fuzz-seed-corpus:
-	@cd fuzz && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
+	@cd $(FUZZ_DIR) && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 
 # ---------------------------------------------------------------------------
 # Fuzz coverage (fast: corpus replay only, no active fuzzing)
@@ -324,12 +326,12 @@ endif
 ## Fast: coverage for function-level targets (fp_math, rates_and_index)
 fuzz-coverage:
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
-		./fuzz/coverage.sh $(FUZZ_TARGETS)
+		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS)
 
 ## All: adds contract-level targets — same flags, same cache, just more targets
 fuzz-coverage-all:
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
-		./fuzz/coverage.sh $(FUZZ_TARGETS) $(FUZZ_CONTRACT_TARGETS)
+		./$(FUZZ_DIR)/coverage.sh $(FUZZ_TARGETS) $(FUZZ_CONTRACT_TARGETS)
 
 ## Single target: make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]
 fuzz-coverage-one:
@@ -338,11 +340,11 @@ fuzz-coverage-one:
 		exit 1; \
 	fi
 	@$(FUZZ_COV_ENV) FUZZ_COV_TIME=$(FUZZ_COV_TIME) \
-		./fuzz/coverage.sh $(TARGET)
+		./$(FUZZ_DIR)/coverage.sh $(TARGET)
 
 ## Remove fuzz coverage artifacts (keeps the corpus)
 fuzz-coverage-clean:
-	@rm -rf $(COV_DIR)/fuzz fuzz/coverage
+	@rm -rf $(COV_DIR)/fuzz $(FUZZ_DIR)/coverage
 
 # ---------------------------------------------------------------------------
 # Contract-level property tests (proptest inside test-harness)

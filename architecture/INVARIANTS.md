@@ -1,323 +1,457 @@
-# Invariants
+# Protocol Invariants
 
-Algebraic invariants the protocol must uphold. Each entry lists: the claim, where
-it is enforced, where it is verified, and any bounded-rounding tolerance.
+This document summarizes the safety properties the lending protocol is expected
+to preserve at runtime. It is intended for auditors, researchers, integrators,
+and operators who need a concise map of how the protocol protects solvency,
+accounting, and oracle-dependent state.
 
-Citations:
-- Enforced: `file:symbol` (source of truth at runtime).
-- Verified: Certora rule module (`controller/certora/spec/*_rules.rs`),
-  fuzz target (`fuzz/fuzz_targets/*.rs`), or integration test.
+The implementation is the source of truth. References use module paths rather
+than line numbers so the document remains stable as the code evolves.
 
-The line between *enforced* (checked in code every call) and *aspirational*
-(documented property, not yet fully formalized) is preserved below.
+## Notation
 
-## 1. Fixed-Point Domains
+| Domain | Scale | Used for |
+|---|---:|---|
+| Asset-native | token decimals | Token transfers and user-entered amounts |
+| BPS | `10^4` | LTV, liquidation thresholds, fees, reserve factor, tolerances |
+| WAD | `10^18` | USD values, health factor, isolated debt, normalized prices |
+| RAY | `10^27` | Rates, indexes, scaled balances |
 
-**Statement.** Cross-domain arithmetic must explicitly rescale into the target
-domain before comparison or persistence. Domains:
-- asset-native units (per-token decimals)
-- `BPS = 10^4` (percentages: LTV, liquidation threshold, reserve factor, fees)
-- `WAD = 10^18` (USD values, health factor)
-- `RAY = 10^27` (indexes, rates, scaled balances)
+Evidence references:
 
-**Enforced.** `common::fp::Wad::from_token`, `common::fp_core::rescale_half_up`.
+- Runtime code: `common/src/*`, `pool/src/*`, `controller/src/*`
+- Certora rules: `verification/certora/{common,pool,controller}/spec/*_rules.rs`
+- Fuzz/property tests: `verification/fuzz/fuzz_targets/*`, `verification/test-harness/tests/*`
 
-**Verified.** `math_rules`, `fuzz_targets/fp_math.rs`.
+---
 
-**Example.** 7-decimal XLM `12_0000000` rescales to WAD as `12 * 10^18`.
+## 1. Numeric Model
 
-## 2. Rounding Discipline
+### 1.1 Fixed-Point Boundaries
 
-**Statement.** All fixed-point arithmetic uses half-up rounding unless the
-function explicitly states otherwise.
-- multiply: `(a * b + precision / 2) / precision`
-- divide:   `(a * precision + b / 2) / b`
+Values must be rescaled into the target domain before comparison, persistence,
+or transfer. Asset-native values cross into protocol math through token
+decimals. Prices and solvency are WAD. Rates and indexes are RAY.
 
-**Enforced.** `mul_half_up`, `div_half_up`, and signed variants in `common::fp_core`.
+| Runtime | Verification |
+|---|---|
+| `common::fp`, `common::fp_core`, `common::rates` | `math_rules`, `fp_math`, `fp_ops` |
 
-**Verified.** `math_rules`, `fuzz_targets/fp_math.rs`.
+### 1.2 Rounding
 
-**Tolerance.** Half-ULP at the target precision per operation.
+Fixed-point multiply/divide uses half-up rounding unless a call site explicitly
+requires floor or truncation.
 
-## 3. Scaled Balance Reconstruction
+```text
+mul(a, b, precision) = (a * b + precision / 2) / precision
+div(a, b, precision) = (a * precision + b / 2) / b
+```
 
-**Statement.** Positions store scaled amounts; actuals reconstruct as
-`scaled * index / RAY`.
-- `actual >= 0`
-- with scaled fixed, `index` increasing implies actual increasing (interest accrues in O(1) per market).
+Expected tolerance is at most half of one target-precision unit per operation.
 
-**Enforced.** Scaled storage in `pool/src/lib.rs` (supply/borrow paths); reconstruction
-in `pool/src/views.rs`.
+| Runtime | Verification |
+|---|---|
+| `common::fp_core::mul_div_half_up`, `Bps`, `Wad`, `Ray` | `math_rules`, `fp_math` |
 
-**Verified.** `index_rules`, `position_rules`, `fuzz_targets/rates_and_index.rs`.
+### 1.3 Scaled Balance Reconstruction
 
-**Tolerance.** Half-up rounding on each `scaled -> actual -> scaled` round-trip.
+Positions store scaled balances. Actual balances are reconstructed from the
+current market indexes.
 
-## 4. Pool State Identity: `revenue_ray <= supplied_ray`
+```text
+supply_actual = scaled_supply * supply_index / RAY
+borrow_actual = scaled_debt   * borrow_index / RAY
+```
 
-**Statement.** `0 <= revenue_ray <= supplied_ray`. Protocol revenue is a supply
-claim that appreciates with `supply_index`.
+With a fixed scaled amount, increasing indexes imply increasing actual balances.
 
-**Enforced.**
-- `add_protocol_revenue` (pool): increments both `revenue_ray` and `supplied_ray`.
-- Revenue claim path: burns scaled revenue from both proportionally.
-- `seize_position` on a `Deposit` position (`pool/src/lib.rs:441-446`): moves
-  scaled from user into `revenue_ray` without changing `supplied_ray`, because
-  the scaled was already counted in `supplied_ray`.
+| Runtime | Verification |
+|---|---|
+| `pool/src/lib.rs`, `pool/src/cache.rs`, `pool/src/views.rs`, `common::rates::scaled_to_original` | `index_rules`, `position_rules`, `rates_and_index` |
 
-**Verified.** `solvency_rules`, `fuzz_targets/flow_e2e.rs`.
+### 1.4 Borrow Index
 
-## 5. Interest Split Identity
+If elapsed time, utilization, and borrow rate are non-negative:
 
-**Statement.** On borrow-index accrual:
-- `accrued_interest = new_total_debt - old_total_debt`
-- `protocol_fee     = accrued_interest * reserve_factor_bps / BPS`
-- `supplier_rewards = accrued_interest - protocol_fee`
-- Identity: `accrued_interest = supplier_rewards + protocol_fee`.
+```text
+interest_factor >= RAY
+new_borrow_index >= old_borrow_index
+```
 
-**Enforced.** `pool/src/interest.rs` accrual pipeline.
+The borrow-rate model is bounded by `MAX_BORROW_RATE_RAY`. Pool accrual splits
+long idle periods into bounded chunks before applying compound interest.
 
-**Verified.** `interest_rules`, `fuzz_targets/rates_and_index.rs`.
+| Runtime | Verification |
+|---|---|
+| `common::rates`, `pool/src/interest.rs` | `index_rules`, `interest_rules`, `rates_and_index` |
 
-**Accrual pipeline.**
+### 1.5 Supply Index
+
+Outside bad-debt socialization, the supply index must not decrease.
+
+```text
+new_supply_index >= old_supply_index
+```
+
+The only permitted decrease is `apply_bad_debt_to_supply_index`. The result is
+floored at `SUPPLY_INDEX_FLOOR_RAW = 10^18` raw RAY. Revenue-accrual paths
+short-circuit at or below that floor.
+
+| Runtime | Verification |
+|---|---|
+| `common::rates::update_supply_index`, `pool/src/interest.rs`, `common/src/constants.rs` | `index_rules`, `interest_rules` |
+
+### 1.6 Empty-Market Utilization
+
+Utilization is:
+
+```text
+U = borrowed_actual / supplied_actual
+```
+
+When supplied value is zero, utilization is defined as zero.
+
+| Runtime | Verification |
+|---|---|
+| `pool/src/cache.rs`, `pool/src/views.rs`, `common::rates::utilization` | `interest_rules` |
+
+---
+
+## 2. Pool Accounting
+
+### 2.1 Interest Split
+
+Borrow-index accrual must preserve:
+
+```text
+accrued_interest = new_total_debt - old_total_debt
+protocol_fee     = accrued_interest * reserve_factor_bps / BPS
+supplier_rewards = accrued_interest - protocol_fee
+
+accrued_interest = supplier_rewards + protocol_fee
+```
+
+| Runtime | Verification |
+|---|---|
+| `common::rates::calculate_supplier_rewards`, `pool/src/interest.rs` | `interest_rules`, `rates_and_index` |
 
 ```mermaid
 flowchart LR
-    A["delta_ms = now - last_accrual"] --> B["U = borrowed*bidx / supplied*sidx"]
-    B --> C["r_annual = piecewise rate(U)"]
-    C --> D["r_per_ms = r_annual / MS_PER_YEAR"]
-    D --> E["factor = exp_Taylor8(r_per_ms * delta_ms)"]
-    E --> F["new_bidx = bidx * factor"]
-    F --> G["accrued = borrowed*(new_bidx - bidx)"]
-    G --> H["fee = accrued * reserve_factor_bps / BPS"]
-    G --> I["rewards = accrued - fee"]
-    I --> J["new_sidx = sidx * (1 + rewards / supplied*sidx)"]
-    H --> K["revenue_ray += fee / new_sidx<br/>supplied_ray += fee / new_sidx"]
+    A["elapsed time"] --> B["utilization"]
+    B --> C["borrow rate"]
+    C --> D["compound factor"]
+    D --> E["borrow index"]
+    E --> F["accrued interest"]
+    F --> G["supplier rewards"]
+    F --> H["protocol fee"]
+    G --> I["supply index"]
+    H --> J["revenue_ray"]
 ```
 
-Edge-to-rule mapping is in `MATH_REVIEW.md` §3.7.
+### 2.2 Revenue Bound
 
-## 6. Borrow Index Monotonicity
+Protocol revenue is represented as a scaled supply claim:
 
-**Statement.** If utilization, borrow rate, and elapsed time are all
-non-negative, then `interest_factor >= RAY` and
-`new_borrow_index >= old_borrow_index`.
+```text
+0 <= revenue_ray <= supplied_ray
+```
 
-**Enforced.** `common::rates::compound_interest` (8-term Taylor of
-`e^(rate*time)`); annual rate capped at `max_borrow_rate_ray` before per-ms
-conversion.
+Fees increase `revenue_ray` and `supplied_ray` together. Revenue appreciates
+with the supply index until claimed.
 
-**Verified.** `index_rules`, `interest_rules`, `fuzz_targets/rates_and_index.rs`.
+| Runtime | Verification |
+|---|---|
+| `pool/src/interest.rs`, `pool/src/lib.rs::claim_revenue`, `pool/src/lib.rs::seize_position` | `solvency_rules`, `flow_e2e` |
 
-## 7. Supply Index Monotonicity (Single Sanctioned Exception)
+### 2.3 Reserve Availability
 
-**Statement.** Outside bad-debt socialization,
-`new_supply_index >= old_supply_index`. The only sanctioned decrease is
-`apply_bad_debt_to_supply_index`.
+Outgoing liquidity must be bounded by current reserves. This applies to
+borrow, withdraw, strategy borrow legs, and flash-loan starts. Revenue claim is
+capped to the currently available reserves.
 
-**Enforced.** `pool/src/interest.rs`.
+| Runtime | Verification |
+|---|---|
+| `pool/src/cache.rs::has_reserves`, `pool/src/lib.rs`, controller borrow/withdraw/flash-loan paths | `boundary_rules`, `flash_loan_rules`, `flow_e2e` |
 
-**Safety floor.** `SUPPLY_INDEX_FLOOR_RAW = 10^18` (raw Ray), declared at
-`pool/src/interest.rs:14`. That is `10^-9` below nominal `1.0 RAY = 10^27`.
-Hence `supply_index_ray >= 10^18` always holds, preventing
-divide-by-near-zero in `amount / supply_index`.
+### 2.4 Revenue Claim
 
-**Paired silent-drop rule.** `add_protocol_revenue_ray`
-(`pool/src/interest.rs:63-75`) skips fee accrual when
-`supply_index < SUPPLY_INDEX_FLOOR_RAW`. The asset-decimal variant
-`add_protocol_revenue` (lines 49-59) does not mirror this guard; it is safe only
-because the floor clamp in `apply_bad_debt_to_supply_index` prevents the
-trigger condition from arising.
+Revenue claim cannot transfer more than current reserves. If reserves are below
+the realized treasury claim, the pool transfers the available amount and burns
+the proportional scaled revenue. The burn preserves `revenue_ray <= supplied_ray`.
 
-**Verified.** `index_rules`, `interest_rules`.
+| Runtime | Verification |
+|---|---|
+| `pool/src/lib.rs::claim_revenue`, `controller/src/router.rs::claim_revenue` | `solvency_rules`, `boundary_rules` |
 
-## 8. Utilization Definition At Empty Market
+### 2.5 Flash-Loan Repayment
 
-**Statement.** `U = borrowed_actual / supplied_actual`, with
-`U := 0` when `supplied_actual = 0`.
+A pool flash loan must end with:
 
-**Enforced.** `pool/src/interest.rs`, `pool/src/views.rs`.
+```text
+pool_balance_after >= pool_balance_before + fee
+```
 
-**Verified.** `interest_rules`.
+`flash_loan_begin` snapshots the pool balance before funds leave. `flash_loan_end`
+pulls `amount + fee` from the receiver and verifies the post-repayment balance.
 
-## 9. Health Factor
+| Runtime | Verification |
+|---|---|
+| `controller/src/flash_loan.rs`, `pool/src/lib.rs::flash_loan_begin`, `pool/src/lib.rs::flash_loan_end` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
 
-**Statement.** `HF = weighted_collateral / total_borrow` in USD WAD, where
-`weighted_collateral = Σ(collateral_value * liquidation_threshold_bps / BPS)`
-and `total_borrow = Σ(borrow_value)`.
-- With debt: `HF >= 1e18` solvent; `HF < 1e18` liquidatable.
-- Without debt: `HF = i128::MAX`.
+---
 
-**Enforced.** `controller/src/positions/liquidation.rs`, `controller/src/helpers/mod.rs`.
+## 3. Account Solvency
 
-**Verified.** `health_rules`, `solvency_rules`, `liquidation_rules`,
-`fuzz_targets/flow_e2e.rs`.
+### 3.1 Health Factor
 
-**Liquidation cascade.**
+Health factor is computed in USD WAD.
+
+```text
+weighted_collateral = Σ(collateral_value * liquidation_threshold_bps / BPS)
+total_borrow        = Σ(borrow_value)
+HF                  = weighted_collateral / total_borrow
+```
+
+Rules:
+
+- With debt, `HF >= 1.0 WAD` is solvent.
+- With debt, `HF < 1.0 WAD` is liquidatable.
+- With no debt, `HF = i128::MAX`.
+
+| Runtime | Verification |
+|---|---|
+| `controller/src/helpers/mod.rs`, borrow/withdraw/liquidation paths | `health_rules`, `solvency_rules`, `liquidation_rules`, `flow_e2e` |
+
+### 3.2 Borrow Admission
+
+New debt is bounded by LTV-weighted collateral.
+
+```text
+post_borrow_total_debt <= Σ(collateral_value * loan_to_value_bps / BPS)
+```
+
+LTV controls borrow admission. Liquidation threshold controls liquidation.
+Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
+
+| Runtime | Verification |
+|---|---|
+| `controller/src/positions/borrow.rs`, `controller/src/validation.rs` | `boundary_rules`, `position_rules` |
+
+### 3.3 Liquidation Progress
+
+Liquidation is available only below `1.0 WAD` health factor. The controller
+tries a primary target, then a fallback target, then a maximum-collateral path
+for unrecoverable accounts. The fallback path must not worsen account health.
+
+| Runtime | Verification |
+|---|---|
+| `controller/src/helpers/mod.rs`, `controller/src/positions/liquidation.rs`, `pool/src/lib.rs::seize_position` | `liquidation_rules`, `solvency_rules`, `fuzz_liquidation_differential` |
 
 ```mermaid
 flowchart TD
-    A["HF < 1.0 WAD ?"] -->|no| REV["revert HealthFactorTooHigh"]
-    A -->|yes| T102{"try target 1.02 WAD"}
-    T102 -->|feasible| D["d_ideal"]
-    T102 -->|infeasible| T101{"try target 1.01 WAD"}
-    T101 -->|feasible| D
-    T101 -->|infeasible| FB["fallback: d_max = total_coll / (1+base_bonus)<br/>regression guard: new_hf < old_hf"]
-    FB --> D
-    D --> REP["liquidator repays debt_to_repay"]
-    REP --> SEIZE["seize collateral per-asset:<br/>base + bonus + protocol_fee_on_bonus"]
-    SEIZE --> BAD{"debt > coll &amp; coll ≤ $5 ?"}
-    BAD -->|yes| SOCIAL["apply_bad_debt_to_supply_index<br/>floor supply_index ≥ 10^18 raw"]
-    BAD -->|no| OK["event + return"]
-    SOCIAL --> OK
+    A["HF < 1.0 WAD?"] -->|no| R["revert"]
+    A -->|yes| B["try 1.02 target"]
+    B -->|works| E["repay debt"]
+    B -->|does not work| C["try 1.01 target"]
+    C -->|works| E
+    C -->|does not work| D["max-collateral fallback"]
+    D --> E
+    E --> F["seize collateral + bonus"]
+    F --> G["protocol fee on bonus"]
+    G --> H{"bad-debt threshold met?"}
+    H -->|yes| I["socialize loss into supply index"]
+    H -->|no| J["persist account state"]
+    I --> J
 ```
 
-## 10. LTV Borrow Bound
+### 3.4 Isolation Debt
 
-**Statement.** `post_borrow_total_debt <= Σ(collateral_value * loan_to_value_bps / BPS)`.
-LTV controls borrow admission; liquidation threshold (§9) controls liquidation.
+For isolated collateral:
 
-**Enforced.** `controller/src/positions/borrow.rs`.
+```text
+0 <= isolated_debt_usd_wad <= isolation_debt_ceiling_usd_wad
+```
 
-**Verified.** `boundary_rules`, `position_rules`.
+The tracker is denominated in USD WAD. Borrow increments it. Repay and
+liquidation decrement it. Residual debt below `1 WAD` is rounded down to zero
+on decrement to avoid persistent dust.
 
-## 11. Isolation Debt
+| Runtime | Verification |
+|---|---|
+| `controller/src/positions/borrow.rs::handle_isolated_debt`, `controller/src/utils.rs::adjust_isolated_debt_usd`, `controller/src/cache/mod.rs` | `isolation_rules`, `fuzz_multi_asset_solvency` |
 
-**Statement.** For an isolated asset:
-- isolated debt is never negative
-- for new borrows, isolated debt is bounded by the configured debt ceiling
-- debt tracked in USD WAD; incremented on borrow, decremented on repay/liquidation, clamped at zero
+Note: dust removal is applied on decrement. This is conservative for ceiling
+enforcement. Any reuse of the isolated-debt tracker for settlement accounting
+requires a separate review.
 
-**Enforced.**
-- Increment: `handle_isolated_debt` (`controller/src/positions/borrow.rs:204-242`).
-- Decrement and clamp: `adjust_isolated_debt_usd` (`controller/src/utils.rs:61-92`).
+---
 
-**Dust rule.** If remaining debt is `0 < debt < 1 USD WAD`, the tracker is
-zeroed in `adjust_isolated_debt_usd`.
+## 4. Market and Oracle Configuration
 
-**Asymmetry (aspirational fix).** Dust erasure runs only on decrement. The
-increment path does not apply a symmetric rule. Borrow + full-repay cycles
-therefore ratchet the tracker downward by up to the sub-$1 residual per cycle.
-See `MATH_REVIEW.md` §5.1 for the proposed symmetric rule.
+### 4.1 Market Parameters
 
-**Verified.** `isolation_rules`.
+Market configuration must preserve:
 
-## 12. Claim Revenue Cap And Proportional Burn
+- `liquidation_threshold_bps > loan_to_value_bps`
+- `liquidation_threshold_bps <= BPS`
+- `liquidation_bonus_bps <= MAX_LIQUIDATION_BONUS`
+- `liquidation_fees_bps <= BPS`
+- `flashloan_fee_bps <= MAX_FLASHLOAN_FEE_BPS`
+- non-negative supply cap, borrow cap, and isolation debt ceiling
+- `reserve_factor_bps < BPS`
+- `0 < mid_utilization_ray < optimal_utilization_ray < RAY`
+- monotonic rate slopes bounded by `MAX_BORROW_RATE_RAY`
 
-**Statement.**
-- `claimed_amount <= current_reserves`
-- On partial claim (`reserves < treasury_actual`), pool transfers `reserves` and
-  burns a proportional slice of both totals (`pool/src/lib.rs:478-496`):
-  - `ratio = amount_to_transfer / treasury_actual`
-  - `scaled_to_burn = revenue_scaled * ratio`
-  - `revenue_ray  -= min(scaled_to_burn, revenue_ray)`
-  - `supplied_ray -= min(scaled_to_burn, supplied_ray)`
-- Preserves §4 (`revenue_ray <= supplied_ray`) and §13 (reserve cap).
+| Runtime | Verification |
+|---|---|
+| `controller/src/validation.rs`, `controller/src/config.rs`, `pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
 
-**Enforced.** `pool/src/lib.rs` claim path.
+### 4.2 Oracle Configuration
 
-**Verified.** `solvency_rules`, `boundary_rules`.
+For each active market:
 
-## 13. Reserve Availability
+- token decimals are read from the token contract
+- CEX oracle decimals are read from the CEX oracle
+- DEX oracle decimals are read when configured
+- required feeds must resolve during configuration
+- `twap_records <= 12`
+- stale-price window is within `[60, 86_400]` seconds
+- `first_tolerance_bps < last_tolerance_bps`
 
-**Statement.** Any outgoing transfer requiring liquidity must satisfy
-`current_reserves >= requested_amount`. Applies to withdrawals, borrows, and
-flash-loan starts.
+Required decimals are discovered on-chain, not supplied by operators.
 
-**Enforced.** `pool/src/lib.rs`; controller paths in
-`controller/src/positions/{withdraw,borrow}.rs` and
-`controller/src/flash_loan.rs`.
+| Runtime | Verification |
+|---|---|
+| `controller/src/config.rs`, `controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
 
-**Verified.** `boundary_rules`, `flash_loan_rules`,
-`fuzz_targets/flow_e2e.rs`.
+### 4.3 Price Resolution
 
-## 14. Market Oracle Configuration
+Supported modes:
 
-**Statement.** For each `MarketConfig`:
-1. token decimals are read from the token contract during configuration
-2. CEX oracle decimals are read from the CEX oracle during configuration
-3. DEX oracle decimals are read from the DEX oracle during configuration when DEX is configured
-4. unreadable required decimals revert configuration
-5. oracle-feed decimals are never inferred from token decimals
+- `SpotOnly`: development/testing path; rejected in non-testing market
+  configuration.
+- `SpotVsTwap`: CEX spot checked against CEX TWAP.
+- `DualOracle`: DEX spot checked against CEX TWAP; stale or unavailable DEX
+  data degrades to CEX TWAP.
 
-**Enforced.** `controller/src/config.rs`, `controller/src/oracle/mod.rs`.
+If both aggregator and safe prices are available:
 
-**Verified.** `oracle_rules`, `fuzz_targets/flow_e2e.rs`.
+1. Inside the first tolerance band, return the safe price.
+2. Inside the last tolerance band, return the midpoint.
+3. Outside the last tolerance band, strict paths revert and permissive paths
+   return the safe price.
 
-**Price resolution.**
+Future-dated oracle samples beyond the clock-skew window always revert.
+
+| Runtime | Verification |
+|---|---|
+| `controller/src/oracle/mod.rs`, `controller/src/cache/mod.rs` | `oracle_rules` |
 
 ```mermaid
 flowchart TD
-    TP["token_price(asset)"] --> SRC{"ExchangeSource"}
-    SRC -->|SpotOnly DEV| CEX["CEX spot only"]
-    SRC -->|DualOracle| DUAL["CEX TWAP + DEX spot"]
-    SRC -->|SpotVsTwap default| SVT["CEX spot + CEX TWAP"]
-    CEX --> FINAL["calculate_final_price(aggregator, safe)"]
-    DUAL --> FINAL
-    SVT --> FINAL
-    FINAL --> T1{"within first tolerance ?"}
-    T1 -->|yes| SAFE["return safe price"]
-    T1 -->|no| T2{"within last tolerance ?"}
-    T2 -->|yes| AVG["return (agg + safe) / 2<br/>truncating div"]
-    T2 -->|no| RISKY{"allow_unsafe_price ?<br/>(supply/repay only)"}
-    RISKY -->|yes| SAFE
-    RISKY -->|no| PANIC["panic: DeviationBreached"]
+    A["token_price(asset)"] --> B{"cache hit?"}
+    B -->|yes| Z["return cached feed"]
+    B -->|no| C{"market usable?"}
+    C -->|no| R1["revert"]
+    C -->|yes| D{"exchange source"}
+    D -->|SpotOnly| S["CEX spot"]
+    D -->|SpotVsTwap| T["CEX spot + CEX TWAP"]
+    D -->|DualOracle| U["CEX TWAP + optional DEX spot"]
+    S --> E["staleness and future checks"]
+    T --> E
+    U --> E
+    E --> F{"within first band?"}
+    F -->|yes| G["safe price"]
+    F -->|no| H{"within last band?"}
+    H -->|yes| I["midpoint"]
+    H -->|no| J{"permissive cache?"}
+    J -->|yes| G
+    J -->|no| R2["revert"]
+    G --> Z
+    I --> Z
 ```
 
-Tolerance bands live on `MarketConfig` in BPS:
-`first_tolerance_bps < last_tolerance_bps <= MAX_LAST_TOLERANCE (5000 bps)`.
+---
 
-## 15. Controller / Pool Separation
+## 5. Storage and Boundaries
 
-**Statement.** Controller runtime code may only assume the pool ABI, not pool
-internals. Controller depends on `pool-interface`, not the full pool crate at
-runtime.
+### 5.1 Controller and Pool Boundary
 
-**Enforced.** Crate topology; `controller/Cargo.toml` uses `pool-interface`.
+The controller depends on the pool ABI, not pool internals. Pools enforce owner
+authorization on mutating endpoints and do not make protocol-level risk
+decisions.
 
-**Verified.** Build-time dependency graph.
+| Runtime | Verification |
+|---|---|
+| `pool-interface/src/lib.rs`, `controller/Cargo.toml`, `pool/src/lib.rs::verify_admin` | build graph, controller-to-pool tests |
 
-## 16. Account Storage Canonical Index
+### 5.2 Account Storage
 
-**Statement.** `AccountMeta` is the canonical index of position keys for the
-account. Reading starts from meta; removal removes all listed positions and then
-meta; TTL bumps iterate through meta's asset lists.
+Account state is split into:
 
-**Enforced.** `controller/src/storage/mod.rs`.
+- `AccountMeta(account_id)`
+- `SupplyPositions(account_id): Map<Address, AccountPosition>`
+- `BorrowPositions(account_id): Map<Address, AccountPosition>`
 
-**Verified.** `position_rules`.
+The asset is the map key. The position side is the storage family.
+`AccountPosition` does not duplicate asset, account id, or side.
 
-## 17. Intentional Design Decisions
+Side-map writes remove empty maps and bump account metadata TTL when metadata
+exists. Account removal removes metadata and both side maps.
 
-These are design choices, not enforced invariants. They are documented so future
-changes do not accidentally reverse them.
+| Runtime | Verification |
+|---|---|
+| `controller/src/storage/account.rs` | `position_rules`, storage tests |
 
-- **Half-up rounding** instead of truncation: less directional bias, consistent
-  across multiply/divide flows.
-- **Revenue as scaled supply**: protocol revenue appreciates with supplier
-  balances until claimed, rather than sitting in a non-interest-bearing bucket.
-- **Flat oracle fields in `MarketConfig`**: one record reads and audits more
-  easily than a split storage layout.
-- **On-chain decimal discovery**: decimals are read from contracts during
-  setup; operator-supplied decimals are rejected as error-prone.
+### 5.3 TTL Maintenance
 
-## 18. Re-Verification Checklist After Math Changes
+Persistent account and shared protocol state require explicit TTL extension.
+Keeper keepalive paths cover shared market/e-mode state, account metadata and
+position maps, and pool instance state.
 
-Touching the rate model, index updates, liquidation math, isolation debt,
-revenue claim, or precision/rescaling logic requires re-verifying:
+| Runtime | Verification |
+|---|---|
+| `controller/src/storage/ttl.rs`, controller keepalive paths, `pool/src/lib.rs::keepalive` | `fuzz_ttl_keepalive` |
 
-1. `scaled -> actual -> scaled` consistency (§3)
-2. `accrued_interest = supplier_rewards + protocol_fee` (§5)
-3. `revenue_ray <= supplied_ray` (§4)
-4. `HF` transitions around `1.0 WAD` (§9)
-5. Reserve caps on borrow, withdraw, claim revenue (§12, §13)
-6. Isolated-debt clamping and dust erasure (§11)
-7. Bad-debt socialization cannot drive supply index below the raw `10^18` floor (§7)
+---
+
+## 6. Design Commitments
+
+These are intentional design choices. Changes to them require protocol review:
+
+- Half-up rounding is the default for fixed-point multiply/divide.
+- Protocol revenue is represented as scaled supply.
+- Token and oracle decimals are discovered on-chain during configuration.
+- Account storage is split by side to avoid loading unrelated positions.
+- Strategy routes are validated against controller commitments, not trusted
+  from an off-chain quote or router response alone.
+
+---
+
+## 7. Re-Verification Checklist
+
+Re-run the relevant tests, fuzz targets, and Certora rules after changes to:
+
+- fixed-point arithmetic, rate curves, or index updates
+- pool reserve accounting or protocol revenue accounting
+- liquidation, health-factor, or LTV admission logic
+- isolation debt accounting
+- oracle configuration or price resolution
+- account storage layout or TTL keepalive paths
+- controller-to-pool ABI signatures
+
+Minimum properties to re-check:
+
+- scaled-to-actual reconstruction
+- `revenue_ray <= supplied_ray`
+- interest split identity
+- health factor around `1.0 WAD`
+- borrow admission against LTV
+- isolated-debt ceiling and decrement behavior
+- supply-index floor during bad-debt socialization
+- reserve caps for borrow, withdraw, flash loan, and revenue claim
 
 ## Related Documents
 
-- [README.md](./README.md)
-- [ARCHITECTURE.md](./ARCHITECTURE.md)
-- [DEPLOYMENT.md](./DEPLOYMENT.md)
-- [MATH_REVIEW.md](./MATH_REVIEW.md) — rule-coverage audit and remediation plan
-  for the invariants on this page.
+- [README.md](../README.md)
+- [SECURITY.md](../SECURITY.md)
