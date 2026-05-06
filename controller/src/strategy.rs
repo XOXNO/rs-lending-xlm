@@ -258,6 +258,7 @@ pub fn process_swap_debt(
     new_debt_token: &Address,
     swap: &AggregatorSwap,
 ) {
+    caller.require_auth();
     validation::require_not_flash_loaning(env);
 
     if existing_debt_token == new_debt_token {
@@ -336,6 +337,7 @@ pub fn process_swap_collateral(
     new_collateral: &Address,
     swap: &AggregatorSwap,
 ) {
+    caller.require_auth();
     validation::require_not_flash_loaning(env);
 
     if current_collateral == new_collateral {
@@ -543,6 +545,7 @@ pub fn process_repay_debt_with_collateral(
     swap: &AggregatorSwap,
     close_position: bool,
 ) {
+    caller.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_amount_positive(env, collateral_amount);
     // Skip the slippage-floor check for the same-asset short-circuit (no

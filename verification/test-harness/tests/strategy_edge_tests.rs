@@ -56,6 +56,20 @@ fn flatten<T>(
     }
 }
 
+fn expect_host_auth_rejection<T, E>(
+    label: &str,
+    r: Result<Result<T, E>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+) where
+    T: core::fmt::Debug,
+    E: core::fmt::Debug,
+{
+    match r {
+        Err(_) => {}
+        Ok(Ok(v)) => panic!("{label} executed without auth: {v:?}"),
+        Ok(Err(e)) => panic!("{label} reached contract body without auth: {e:?}"),
+    }
+}
+
 fn supply_position_params(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
@@ -1468,6 +1482,67 @@ fn test_swap_debt_wrong_account_owner() {
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     };
     assert_contract_error(flat, errors::ACCOUNT_NOT_IN_MARKET);
+}
+
+// ---------------------------------------------------------------------------
+// test_strategy_entrypoints_reject_missing_owner_auth
+// Strategy flows must authenticate the account owner address, not just compare it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_strategy_entrypoints_reject_missing_owner_auth() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let alice = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let wbtc = t.resolve_asset("WBTC");
+    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+    let ctrl = t.ctrl_client();
+
+    expect_host_auth_rejection(
+        "swap_debt",
+        ctrl.set_auths(&no_auths).try_swap_debt(
+            &alice,
+            &account_id,
+            &eth,
+            &10_0000000i128,
+            &wbtc,
+            &steps,
+        ),
+    );
+    expect_host_auth_rejection(
+        "swap_collateral",
+        ctrl.set_auths(&no_auths).try_swap_collateral(
+            &alice,
+            &account_id,
+            &usdc,
+            &1_0000000i128,
+            &wbtc,
+            &steps,
+        ),
+    );
+    expect_host_auth_rejection(
+        "repay_debt_with_collateral",
+        ctrl.set_auths(&no_auths).try_repay_debt_with_collateral(
+            &alice,
+            &account_id,
+            &usdc,
+            &1_0000000i128,
+            &eth,
+            &steps,
+            &false,
+        ),
+    );
 }
 
 // ---------------------------------------------------------------------------
