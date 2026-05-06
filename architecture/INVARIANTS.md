@@ -5,8 +5,8 @@ to preserve at runtime. It is intended for auditors, researchers, integrators,
 and operators who need a concise map of how the protocol protects solvency,
 accounting, and oracle-dependent state.
 
-The implementation is the source of truth. References use module paths rather
-than line numbers so the document remains stable as the code evolves.
+Runtime behavior is defined by the Rust contracts. References use module paths
+rather than line numbers so the document remains stable as the code evolves.
 
 ## Notation
 
@@ -377,9 +377,10 @@ flowchart TD
 
 ### 5.1 Controller and Pool Boundary
 
-The controller depends on the pool ABI, not pool internals. Pools enforce owner
-authorization on mutating endpoints and do not make protocol-level risk
-decisions.
+The controller depends on the pool ABI, not pool internals. Pools are
+owner-gated: accounting and maintenance mutations enforce controller
+ownership, pool WASM upgrade is owner-gated, and pools do not make
+protocol-level risk decisions.
 
 | Runtime | Verification |
 |---|---|

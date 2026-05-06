@@ -35,9 +35,10 @@ Adopt a controller-and-pool topology:
   (`pool/src/lib.rs`, `pool/src/cache.rs`, `pool/src/interest.rs`).
 - The controller-to-pool ABI is the typed Soroban trait
   `LiquidityPoolInterface` (`pool-interface/src/lib.rs`).
-- Pools are owner-gated: every mutating pool entrypoint enforces controller
-  authorization through `verify_admin` (`pool/src/lib.rs`). Pools never call
-  oracles, routers, or other pools.
+- Pools are owner-gated. Mutating accounting and maintenance endpoints enforce
+  controller ownership through `verify_admin` (`pool/src/lib.rs`); pool WASM
+  upgrade is gated by `#[only_owner]`. Pools never call oracles, routers, or
+  other pools.
 - Pools are deployed deterministically by the controller (salt derived from
   the asset address) with the controller as owner and asset
   `MarketParams` as constructor input
@@ -89,4 +90,5 @@ Negative / accepted costs:
   Responsibilities).
 - `controller/src/router.rs::create_liquidity_pool`
 - `pool/src/lib.rs::verify_admin`
+- `pool/src/lib.rs::upgrade`
 - `pool-interface/src/lib.rs`

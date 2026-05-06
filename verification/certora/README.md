@@ -4,9 +4,8 @@ This directory contains the Certora Soroban verification surface for the
 lending protocol. It is organized by proof boundary: fixed-point libraries,
 pool accounting, controller safety, and shared summaries.
 
-The layout follows the same discipline used by mature lending protocol suites:
-prove low-level math separately, keep summaries explicit, split fast and heavy
-profiles, and run targeted configs for expensive properties instead of raising
+The suite separates low-level math, explicit summaries, fast and heavy
+profiles, and targeted configs for expensive properties instead of raising
 timeouts across the whole suite.
 
 ## Layout
@@ -130,7 +129,7 @@ Preview commands without dispatching:
 
 ## Targeted Runs
 
-Recommended audit sequence:
+Full assurance sequence:
 
 ```bash
 ./verification/certora/compile_all.sh
@@ -184,7 +183,7 @@ Current inventory:
 | Source `#[rule]` functions | 210 |
 | Profiles | 7 |
 
-The orphan/profile check should report:
+The orphan/profile check reports:
 
 ```text
 OK: 26 confs, 210 source rules, 7 profiles, zero orphans

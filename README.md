@@ -1,103 +1,100 @@
 # XOXNO Lending
 
-XOXNO Lending is a multi-asset lending protocol for Stellar/Soroban. The
-protocol uses a controller-and-pool architecture: the controller owns account
-state, risk checks, oracle validation, liquidations, and strategy entrypoints;
-each pool owns liquidity, indexes, scaled balances, and reserve accounting for
-one asset.
+[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/ci.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/ci.yml) ![Rust](https://img.shields.io/badge/Rust-1.93-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
 
-The repository is structured for protocol review, local development, testing,
-and formal-verification work. It is not a documentation site.
+XOXNO Lending is a multi-asset lending protocol for Stellar Soroban. It uses a
+controller-and-pool architecture: the controller owns account state, oracle
+validation, risk checks, liquidations, flash loans, and strategy entrypoints;
+each pool owns custody and accounting for exactly one listed asset.
 
-## Table of Contents
+This repository contains the Soroban contracts, deployment tooling,
+architecture records, and verification assets for the protocol.
 
-- [Documentation](#documentation)
-- [Architecture](#architecture)
-- [Design Model](#design-model)
-- [Repository Structure](#repository-structure)
-- [Dependencies](#dependencies)
-- [Quickstart](#quickstart)
-- [Development](#development)
-- [Verification](#verification)
-- [Security](#security)
-- [License](#license)
-- [Contributing](#contributing)
+> [!IMPORTANT]
+> The protocol is pre-audit. Mainnet launch is gated by the hardening policy in
+> [ADR 0009](./architecture/decisions/0009-mainnet-launch-hardening-and-operational-control.md)
+> and the acceptance matrix in
+> [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md).
 
-## Documentation
+## Quick Links
 
+- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md) - system topology,
+  contract boundaries, launch gates, and verification acceptance criteria.
 - [Protocol invariants](./architecture/INVARIANTS.md) - fixed-point domains,
-  accounting invariants, solvency rules, liquidation constraints, and security
-  properties.
-- [Architecture decisions](./architecture/decisions/README.md) - ADRs for
-  load-bearing protocol design choices (controller/pool boundary, scaled
-  balances, oracle policy, flash loans, bad-debt socialization, e-mode and
-  isolation).
-- [Security policy](./SECURITY.md) - private vulnerability reporting process,
-  scope, response timeline, and safe harbor.
-- [SCF build architecture](./SCF_BUILD_ARCHITECTURE.md) - grant-facing system
-  architecture and implementation context.
+  solvency rules, oracle constraints, and accounting invariants.
+- [Architecture decisions](./architecture/decisions/README.md) - ADRs for the
+  load-bearing design choices.
+- [Certora verification](./verification/certora/README.md) - proof domains,
+  profiles, and local prover commands.
+- [Security policy](./SECURITY.md) - private vulnerability reporting and safe
+  harbor.
 
-## Architecture
+## Architecture At A Glance
 
-The protocol separates user-facing risk coordination from asset-specific
-liquidity accounting.
+```mermaid
+flowchart LR
+    Users["Users / liquidators / integrators"] --> Controller["Controller"]
+    Owner["Owner + roles"] --> Controller
+    Controller ==>|"owner-gated calls"| PoolA["Pool: asset A"]
+    Controller ==>|"owner-gated calls"| PoolB["Pool: asset B"]
+    Controller --> Oracle["Reflector oracles"]
+    Controller --> Router["Aggregator router"]
+    PoolA --> TokenA["Token A"]
+    PoolB --> TokenB["Token B"]
+```
 
-- **Controller**: account lifecycle, position validation, oracle reads,
-  collateral/debt accounting, liquidations, isolated mode, e-mode, keeper
-  operations, and strategy orchestration.
-- **Pool**: one deployed pool per listed asset. Pools manage supply and borrow
-  indexes, scaled balances, liquidity transfers, flash-loan reserve checks,
-  bad-debt absorption, and protocol revenue accrual.
-- **Common**: shared fixed-point math, protocol types, events, errors, and
-  constants used by deployed contracts.
-- **Pool interface**: cross-contract ABI between controller and pools.
-- **Test harness**: end-to-end scenarios, mixed-decimal coverage, fuzz-style
-  property tests, and regression fixtures.
+- **Controller**: user-facing coordinator for accounts, market setup, risk,
+  liquidation, flash loans, and strategies.
+- **Pool**: one contract per listed asset; custody, indexes, reserves,
+  protocol revenue, rate updates, and flash-loan settlement.
+- **Common**: fixed-point math, constants, events, errors, and shared ABI
+  types.
+- **Pool interface**: typed Soroban trait used for controller-to-pool calls.
+- **Verification harnesses**: integration tests, property tests, fuzz targets,
+  and Certora specs.
 
 ## Design Model
 
-- **Scaled balance accounting**: user balances enter accounting in RAY
-  precision and are stored as scaled amounts against supply or borrow indexes.
-- **Price and solvency domain**: oracle prices, USD values, LTV, liquidation
-  thresholds, and health-factor calculations use WAD precision.
-- **Token boundary discipline**: asset-decimal conversion is reserved for token
-  transfers, refunds, events, and views.
-- **Risk modes**: accounts can operate in normal, isolated, or e-mode
-  configurations, with validation enforced by the controller.
-- **Liquidation model**: liquidations are health-factor gated, cap repayment by
-  actual debt, seize collateral proportionally, and charge protocol fees only
-  on the bonus portion.
-- **Revenue model**: protocol revenue accrues through pool-side scaled supply
-  accounting and is claimed through the controller to the configured
-  accumulator.
+- **Scaled balances**: supply and borrow positions are stored in RAY precision
+  against pool indexes; interest accrues by index movement, not account sweeps.
+- **Explicit numeric domains**: token-native amounts stay at the token
+  boundary; USD values and health factor use WAD; rates and indexes use RAY.
+- **Oracle policy**: risk-increasing flows use strict price validation;
+  selected risk-decreasing paths can use permissive cache modes.
+- **Risk modes**: normal, isolation mode, e-mode, and siloed borrowing are
+  enforced by the controller.
+- **Flash loans**: pools settle by balance snapshot and post-repayment balance
+  check, matching Soroban's invocation-scoped authorization model.
+- **Bad debt**: unrecoverable residual debt is socialized through the affected
+  pool's supply index with a numerical floor.
 
-## Repository Structure
+## Repository Map
 
 ```text
 rs-lending-xlm/
-├── common/           # Shared math, types, events, constants, and errors
-├── controller/       # Account, risk, oracle, liquidation, and strategy logic
-├── pool/             # Asset pool, indexes, liquidity, revenue, flash loans
-├── pool-interface/   # Cross-contract interface used by controller
-├── verification/     # Certora specs, integration harness, fuzzing, corpora
-├── architecture/     # Core invariants and protocol architecture material
-├── configs/          # Coverage scripts and deployment/config inputs
-└── vendor/           # Pinned local dependencies used by the workspace
+├── common/             # Shared math, types, events, constants, and errors
+├── controller/         # Accounts, risk, oracle, liquidation, strategy logic
+├── pool/               # Asset pool accounting, indexes, revenue, flash loans
+├── pool-interface/     # Cross-contract ABI used by the controller
+├── verification/       # Certora specs, test harness, fuzzing, corpora
+├── architecture/       # Invariants, ADRs, and architecture reference material
+├── configs/            # Market, network, and deployment configuration inputs
+└── vendor/             # Pinned local dependencies used during audit work
 ```
 
-## Dependencies
+## Requirements
 
-Required:
+Install the toolchain and contract tooling before building:
 
-- Rust toolchain from [rust-toolchain.toml](./rust-toolchain.toml).
-- Stellar CLI for Soroban contract builds and deployment commands.
-- `wasm32v1-none` support through the Stellar contract toolchain.
+- Rust from [rust-toolchain.toml](./rust-toolchain.toml).
+- Stellar CLI with Soroban contract support.
+- `wasm32v1-none`, installed through the configured Rust toolchain.
 
-Optional:
+Optional tools:
 
 - `cargo-llvm-cov` for coverage reports.
-- Certora Soroban tooling for prover runs.
-- `cargo-audit` and `cargo clippy` for local security and quality checks.
+- `cargo-fuzz` and nightly Rust for fuzz targets.
+- Certora Soroban tooling for formal-verification profiles.
 
 ## Quickstart
 
@@ -109,64 +106,82 @@ cargo test --workspace
 make build
 ```
 
-## Development
+Use `make help` to see the full command surface.
 
-```bash
-make build              # Build controller and pool WASM artifacts
-make optimize           # Optimize WASM artifacts for deployment
-cargo test --workspace  # Run the complete Rust test suite
-make test               # Run the integration harness serially
-make test-pool          # Run pool unit tests
-make fmt                # Format the workspace
-make clippy             # Run clippy checks
-make coverage-merged    # Generate merged controller, pool, and harness coverage
-```
+## Common Commands
 
-Deployment and operator commands are exposed through the Makefile. They require
-the Stellar CLI, configured network settings, and a funded signer.
+| Command | Purpose |
+| --- | --- |
+| `make build` | Build controller and pool WASM artifacts. |
+| `make optimize` | Build and optimize deployment WASM binaries. |
+| `cargo test --workspace` | Run the full Rust workspace test suite. |
+| `make test` | Run the Soroban integration harness serially. |
+| `make test-pool` | Run pool unit tests. |
+| `make fmt` | Format the workspace. |
+| `make clippy` | Run clippy with warnings denied. |
+| `make coverage-merged` | Generate merged controller, pool, and harness coverage. |
 
-## Verification
+## Verification And Audit
 
-The repository includes unit tests, integration scenarios, mixed-decimal
-coverage, fuzz-style property tests, and Certora specification sources.
+The repository contains layered verification:
 
-Recommended local checks before review:
+- Rust unit tests in production crates.
+- Soroban integration tests in `verification/test-harness`.
+- Property tests and fuzz targets in `verification/fuzz`.
+- Certora profiles for common math, pool accounting, controller risk logic,
+  oracle rules, flash loans, liquidation, isolation, strategies, and
+  controller-pool consistency.
+
+Baseline local checks:
 
 ```bash
 cargo test --workspace
-cargo check -p common -p pool -p controller
+make test
+make test-pool
 ./verification/certora/compile_all.sh
 ```
 
-Coverage reports can be generated with:
+Mainnet launch uses the stronger acceptance matrix in
+[SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#16-verification-surface).
+
+## Deployment And Operations
+
+Deployment is Makefile-driven and requires the Stellar CLI, configured network
+settings, and a funded signer:
 
 ```bash
-make coverage-merged
+make testnet deploy
+make testnet setup
+make testnet info
 ```
 
-Certora prover profiles and rule-authoring guidance are documented in
-[`verification/certora/README.md`](verification/certora/README.md).
+Operational commands follow the `make <network> <action>` pattern. Examples:
 
-The protocol is pre-audit. External audit artifacts will be linked from this
-repository once published.
+```bash
+make testnet pause
+make testnet updateIndexes USDC XLM
+make testnet getHealth 1
+SIGNER=ledger make mainnet setupAll
+```
+
+Mainnet authority, cap staging, and sustained-operation gates are defined in
+[ADR 0009](./architecture/decisions/0009-mainnet-launch-hardening-and-operational-control.md)
+and summarized in the architecture reference.
 
 ## Security
 
 Do not open public issues or pull requests for vulnerabilities. Report security
-issues privately to `security@xoxno.com`.
-
-See [SECURITY.md](./SECURITY.md) for scope, response timelines, safe harbor,
-and coordinated-disclosure policy.
+issues privately to `security@xoxno.com`; scope and safe-harbor terms are in
+[SECURITY.md](./SECURITY.md).
 
 ## License
 
 This repository is licensed under the
-[PolyForm Noncommercial 1.0.0](./LICENSE). Research, testing, security review,
-and contributions are permitted. Commercial use requires a written agreement
-with XOXNO; contact `license@xoxno.com`.
+[PolyForm Noncommercial 1.0.0](./LICENSE). Commercial use requires a written
+agreement with XOXNO.
 
 ## Contributing
 
-Contributions should preserve the protocol's accounting, authorization, oracle,
-and solvency invariants. Before opening a pull request, run the verification
-commands above and include any relevant risk, test, or migration notes.
+Protocol changes preserve the accounting, authorization, oracle, and solvency
+invariants documented in [architecture/INVARIANTS.md](./architecture/INVARIANTS.md)
+and include relevant verification output and launch-risk notes.

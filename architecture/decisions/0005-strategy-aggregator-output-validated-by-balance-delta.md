@@ -27,8 +27,8 @@ controller's own token balances before and after the call.
 
 ## Decision
 
-The controller is the source of truth for what crossed the boundary, not
-the router.
+The controller measures what crossed the router boundary instead of trusting
+router-reported amounts.
 
 **Pre-call shape validation** (`controller/src/strategy.rs::validate_aggregator_swap`):
 
@@ -43,7 +43,7 @@ the router.
 records its own balances of both the input and output tokens.
 
 **On-call binding**: the on-the-wire `BatchSwap.sender` is forced to the
-controller; `total_in` is the controller's authoritative input amount;
+controller; `total_in` is the controller's committed input amount;
 `referral_id = 0` disables router-side fee paths. The controller
 pre-authorizes a single input-token pull from itself.
 

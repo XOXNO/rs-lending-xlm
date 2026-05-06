@@ -94,8 +94,8 @@ Negative / accepted costs:
 - Suppliers carry the loss directly; this needs to be communicated as
   part of the protocol's user-facing risk disclosure.
 - The `BAD_DEBT_USD_THRESHOLD = $5` heuristic for triggering
-  socialization is a tunable; sensitivity should be reviewed in
-  audit.
+  socialization is a tunable; audit and launch review cover threshold
+  sensitivity.
 - The 90% single-step drop signal is informational; the pool does not
   self-pause.
 

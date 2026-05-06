@@ -1,13 +1,10 @@
 # XOXNO Lending — Architecture Reference
 
-This document describes the architecture implemented in this repository. It
-summarizes contract responsibilities, storage layout, risk checks, oracle
-validation, strategy and flash-loan flows, and operational boundaries without
-duplicating function-level documentation. The Rust source is the
-authoritative specification; module paths cited here are stable references
-into that source.
-
-Last reviewed against source: May 5, 2026.
+This document describes the architecture implemented in this repository:
+contract responsibilities, storage layout, risk checks, oracle validation,
+strategy and flash-loan flows, verification requirements, and operational
+boundaries. Module paths identify the implementation areas behind each
+architecture claim.
 
 ## 1. Summary
 
@@ -25,9 +22,10 @@ Soroban, implemented in Rust across four `no_std` crates:
 - `common`: shared fixed-point math (`fp`, `fp_core`), rate model (`rates`),
   constants, errors, events, and contract types.
 
-Pools are owner-gated: every mutating pool entrypoint enforces controller
-authorization through `ownable::enforce_owner_auth`. Pools do not call
-oracles, routers, or other pools.
+Pools are owner-gated. Mutating accounting and maintenance entrypoints enforce
+controller ownership through `verify_admin` /
+`ownable::enforce_owner_auth`; pool WASM upgrade is gated by `#[only_owner]`.
+Pools do not call oracles, routers, or other pools.
 
 ## 2. Design Constraints
 
@@ -39,8 +37,9 @@ Properties enforced in the current implementation:
   `controller/src/validation.rs`).
 - Users interact only with the controller. The controller calls pools through
   `pool_interface::LiquidityPoolClient`.
-- Pool mutating endpoints reject any caller other than the controller via
-  `verify_admin` (`pool/src/lib.rs`).
+- Pool mutating accounting and maintenance endpoints reject any caller other
+  than the controller via `verify_admin` (`pool/src/lib.rs`); pool WASM
+  upgrade uses the same owner relation through `#[only_owner]`.
 - An account can hold supply and borrow positions in multiple assets within
   per-account limits stored in `ControllerKey::PositionLimits`. Isolated and
   e-mode accounts apply additional asset and category constraints.
@@ -97,8 +96,9 @@ flowchart TB
 Boundaries enforced in code:
 
 - The controller is the only user-facing protocol contract.
-- Each pool is deployed by the controller and owned by it. Pool mutating
-  endpoints call `verify_admin`.
+- Each pool is deployed by the controller and owned by it. Mutating accounting
+  and maintenance endpoints call `verify_admin`; pool WASM upgrade is also
+  owner-gated through `#[only_owner]`.
 - Aggregator-router output is validated by balance-delta checks: the
   controller snapshots its token balances, authorizes a single pull of the
   committed input amount, and verifies on return that the output delta meets
@@ -158,7 +158,8 @@ Implemented in `pool/src/lib.rs`, `pool/src/cache.rs`, `pool/src/interest.rs`,
   `SUPPLY_INDEX_FLOOR_RAW`.
 - Updates rate-model parameters (`update_params`) after syncing accrued
   interest.
-- Upgrades pool WASM through `upgrade` when called by its owner.
+- Upgrades pool WASM through `upgrade` when called by its owner
+  (`#[only_owner]`).
 
 Pools store no account ownership, oracle configuration, e-mode state, or
 isolation rules.
@@ -418,9 +419,10 @@ The controller resolves prices through `oracle::token_price`
 
 - `SpotOnly`: development/testing path, rejected in non-`testing` builds at
   `configure_market_oracle`.
-- `SpotVsTwap`: CEX spot vs CEX TWAP from the same Reflector contract.
-- `DualOracle`: CEX TWAP vs DEX spot, where DEX unavailability falls back to
-  CEX TWAP.
+- `SpotVsTwap`: CEX spot vs CEX TWAP from the same Reflector contract,
+  providing same-provider temporal diversity.
+- `DualOracle`: CEX TWAP vs DEX spot, providing cross-source diversity where
+  DEX unavailability falls back to CEX TWAP.
 
 `configure_market_oracle` validates:
 
@@ -796,6 +798,11 @@ Constructor (`Controller::__constructor`):
 (`stellar_access::role_transfer`); `accept_ownership` synchronizes the
 access-control admin with the accepted owner.
 
+Mainnet launch requires a multi-party owner, no residual deployer authority,
+separated keeper/oracle/revenue roles, off-chain notice for non-emergency
+privileged changes, and immediate emergency pause authority. ADR 0009 defines
+the full launch-control policy.
+
 ```mermaid
 flowchart TB
     subgraph UserBoundary["User boundary"]
@@ -883,7 +890,8 @@ A non-exhaustive list of checks present in the code:
 
 - Controller starts paused after construction; `upgrade` auto-pauses.
 - `#[only_owner]` and `#[only_role]` macros gate operator endpoints.
-- Pool mutating endpoints call `verify_admin`.
+- Pool mutating accounting and maintenance endpoints call `verify_admin`;
+  pool WASM upgrade is owner-gated with `#[only_owner]`.
 - Token-listing allow-list (`ApprovedToken(asset)`) is consumed at market
   creation.
 - One deterministic pool per listed asset (salt = keccak256 of asset
@@ -906,53 +914,50 @@ A non-exhaustive list of checks present in the code:
 
 ## 16. Verification Surface
 
-Repository-contained verification artifacts:
+The repository contains unit tests, the `verification/test-harness/`
+integration suite, fuzz targets under `verification/fuzz/fuzz_targets/`,
+Certora profiles under `verification/certora/`, fixed-point and protocol
+invariants in `architecture/INVARIANTS.md`, vulnerability reporting in
+`SECURITY.md`, and ADRs under `architecture/decisions/`.
 
-- Rust unit tests in source modules (`#[cfg(test)]`) and the
-  `verification/test-harness/tests/` integration suite (`account_tests.rs`,
-  `admin_config_tests.rs`, `bad_debt_index_tests.rs`,
-  `bench_liquidate_max_positions.rs`, `borrow_tests.rs`,
-  `chaos_simulation_tests.rs`, `decimal_diversity_tests.rs`,
-  `emode_tests.rs`, `events_tests.rs`, `flash_loan_tests.rs`, …).
-- Fuzz targets under `verification/fuzz/fuzz_targets/`: `flow_e2e`, `flow_strategy`,
-  `fp_math`, `fp_ops`, `pool_native`, `rates_and_index`.
-- Certora verification under `verification/certora/`: `common/spec/` covers
-  fixed-point and rate math, `pool/spec/` covers pool accounting and
-  summary-contract proofs, `controller/spec/` covers account/risk/oracle
-  rules, `controller/harness/` holds verification-only wrappers, and
-  `shared/summaries/` holds external-call summaries reachable only behind the
-  `certora` Cargo feature.
-- Fixed-point and protocol invariants: `architecture/INVARIANTS.md`.
-- Vulnerability reporting policy: `SECURITY.md`.
-- Architecture Decision Records: `architecture/decisions/` — ADRs covering
-  the controller/pool boundary (ADR 0001), per-side scaled-balance
-  storage (0002), dual-source oracle with tolerance bands (0003), cache
-  permissiveness policy (0004), strategy aggregator validation (0005),
-  flash-loan balance-snapshot settlement (0006), bad-debt socialization
-  (0007), and isolation/e-mode coexistence (0008).
+For mainnet launch, these artifacts form the acceptance matrix. The release
+record pins the target commit, deployed contract addresses, command logs, and
+result status before public unpause.
 
-Areas with high implementation complexity (entry points to trace when
-extending tests, fuzzing targets, or rules):
+| Command / evidence | Purpose | Pass condition | Launch requirement | Result / status |
+| --- | --- | --- | --- | --- |
+| `cargo test --workspace` | Workspace unit and integration tests. | No test failures on the target commit. | Required before public unpause. | Target-commit log. |
+| `make test` | Serial Soroban test-harness suite. | All `verification/test-harness` tests pass with `--test-threads=1`. | Required before public unpause. | Target-commit log. |
+| `make test-pool` | Pool accounting unit tests. | Pool tests pass without ignored failure. | Required before public unpause. | Target-commit log. |
+| `make clippy` | Rust lint gate. | Clippy completes with warnings denied. | Required before public unpause. | Target-commit log. |
+| `make build` | Build controller and pool WASM artifacts. | WASM artifacts build for the target commit. | Required before deploy. | Artifact hashes. |
+| `make optimize` | Optimize deployment WASM artifacts. | Optimized WASM artifacts are produced and hash-pinned. | Required before deploy. | Optimized hashes. |
+| `make proptest PROPTEST_CASES=10000` | Contract-level property tests for auth, TTL, budget, strategy/flash-loan, liquidation, conservation, and multi-asset solvency. | All configured property tests pass at 10,000 cases. | Required before public unpause. | Target-commit log. |
+| `make fuzz FUZZ_TIME=300` | Function-level fuzz targets (`fp_math`, `fp_ops`, `pool_native`, `rates_and_index`, and related targets). | Every target completes 300 seconds without crash or new corpus failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
+| `make fuzz-contract FUZZ_TIME=300` | Contract-flow fuzz targets (`flow_e2e`, `flow_strategy`, and related targets). | Every target completes 300 seconds without crash or invariant failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
+| `./verification/certora/compile_all.sh` | Compile all Certora feature paths. | Common, pool, and controller `certora` feature builds pass. | Required before proof submission. | Compile log. |
+| `./verification/certora/run_profile.py sanity` | Non-vacuity and reachability smoke proofs. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
+| `./verification/certora/run_profile.py fast` | Stable CI proof profile for common math/rates, pool integrity, and controller light safety. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
+| `./verification/certora/run_profile.py critical` | Highest-signal accounting and safety proofs. | Profile completes without failed rules or documented launch-blocking counterexamples. | Required before public unpause. | Certora run links. |
+| `./verification/certora/run_profile.py manual` | Core plus heavy audit proof profile. | Profile completes, or any timeout/deferred rule is documented with risk acceptance and launch impact. | Required before cap increase beyond launch caps. | Certora run links and residual-risk notes. |
+| External audit closure | Independent review of the target branch. | Findings are fixed, accepted with rationale, or explicitly deferred from launch scope. | Required before public unpause. | Audit closure record. |
+| Testnet soak | Real deployment rehearsal. | 14 consecutive days with no unresolved P0/P1 incidents, no unexplained accounting drift, no stale TTL windows, and no oracle configuration drift. | Required before public unpause. | Monitoring summary. |
+| Pause drill | Operational response rehearsal. | Testnet pause rejects user mutations, required views/checks remain usable, and unpause restores operation. | Required before public unpause. | Runbook transcript. |
 
-- Liquidation math and bad-debt socialization
-  (`controller/src/positions/liquidation.rs`,
-  `pool/src/interest.rs::apply_bad_debt_to_supply_index`).
-- Oracle fallback selection and disabled-market repayment behavior
-  (`controller/src/oracle/mod.rs`,
-  `controller/src/cache/mod.rs`).
-- Strategy authorization, aggregator validation, and balance-delta gates
-  (`controller/src/strategy.rs`).
-- Isolation debt accounting under partial repay, liquidation, and
-  permissive pricing (`controller/src/positions/repay.rs`,
-  `controller/src/utils.rs`).
-- E-mode category deprecation and keeper-driven threshold updates
-  (`controller/src/config.rs`, `controller/src/positions/supply.rs`).
-- Pool revenue claim accounting under low-liquidity conditions
-  (`pool/src/lib.rs`, `pool/src/interest.rs`).
-- Flash-loan callback authorization and re-entry guard coverage
-  (`controller/src/flash_loan.rs`, `pool/src/lib.rs`).
-- Storage TTL behavior for accounts, shared state, and pools
-  (`controller/src/storage/ttl.rs`, `controller/src/router.rs`).
+Any failed command, unresolved P0/P1 incident, unexplained accounting drift,
+or launch-blocking audit finding prevents public unpause until the issue is
+resolved or explicitly deferred with documented risk acceptance and launch-impact
+analysis.
+
+The ADR index lists the accepted decision records that support this
+architecture.
+
+Areas with high implementation complexity remain the focus for extending
+tests, fuzzing targets, and rules: liquidation and bad-debt socialization,
+oracle fallback selection and disabled-market repayment, strategy router
+validation, isolation debt accounting, e-mode category deprecation,
+low-liquidity revenue claims, flash-loan callback authorization, and storage
+TTL behavior.
 
 ## 17. Deployment and Operations
 
@@ -962,20 +967,28 @@ deployed by the controller.
 
 ```mermaid
 flowchart LR
-    A["Build and optimize contracts"] --> B["Upload pool WASM"]
+    A["Build + optimize<br/>hash-pinned WASM"] --> B["Upload pool WASM"]
     B --> C["Deploy controller<br/>constructor pauses"]
-    C --> D["set_liquidity_pool_template"]
-    D --> E["set_aggregator"]
-    E --> F["set_accumulator"]
-    F --> G["grant_role(ORACLE), grant_role(REVENUE)"]
-    G --> H["approve_token_wasm(asset)"]
-    H --> I["create_liquidity_pool(asset, params, config)"]
-    I --> J["configure_market_oracle<br/>PendingOracle → Active"]
-    J --> K["edit_asset_config (optional)"]
-    K --> L["e-mode setup (optional)"]
-    L --> M["Smoke tests / monitoring"]
-    M --> N["unpause"]
+    C --> D["Configure template<br/>aggregator + accumulator"]
+    D --> E["Assign multisig owner<br/>and separated roles"]
+    E --> F["Create markets + oracles<br/>caps + e-mode while paused"]
+    F --> G["Verification matrix<br/>release evidence"]
+    G --> H["14-day testnet soak"]
+    H --> I["Monitoring live<br/>pause drill complete"]
+    I --> J["Capped mainnet unpause"]
+    J --> K["7-day capped operation"]
+    K --> L["Staged cap increases"]
 ```
+
+Mainnet launch gates are defined by ADR 0009. Initial launch exposure is
+capped at USD 250,000 total TVL, USD 100,000 total borrow, USD 100,000
+per-market supply, and USD 50,000 per-market borrow. Caps may increase only
+after a stage satisfies ADR 0009's 7-day incident-free review gate.
+
+Mainnet launch completion is verified beyond deployment checks: the target
+mainnet deployment must pass the verification matrix, satisfy ADR 0009 launch
+gates, unpause with initial caps enforced, and complete the 7-day capped
+mainnet operation window without unresolved launch-blocking incidents.
 
 Operational maintenance:
 
@@ -1029,7 +1042,7 @@ flowchart TD
 
 ## 19. Status
 
-The repository is pre-audit. Production deployment should be gated on
+The repository is pre-audit. Production deployment is gated on
 external audit completion, formal verification review against the target
-branch, deployment runbook validation, role-holder policy finalization,
+branch, deployment runbook validation, ADR 0009 launch-gate completion,
 oracle and asset-listing procedures, and incident-response procedures.

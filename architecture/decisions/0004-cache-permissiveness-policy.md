@@ -8,8 +8,8 @@
 ## Context
 
 ADR 0003 sets up a two-source oracle with tolerance bands. A second
-question follows: when the bands are exceeded or a feed is stale, what
-should the protocol do?
+question follows: when the bands are exceeded or a feed is stale, what is
+the protocol response?
 
 A symmetric "always revert" policy halts the protocol on any oracle
 hiccup, including risk-decreasing flows that the user could otherwise
@@ -97,8 +97,8 @@ Positive:
 Negative / accepted costs:
 
 - Two flags (`allow_unsafe_price`, `allow_disabled_market_price`)
-  produce four cache configurations; reviewers must internalize the
-  matrix above.
+  produce four cache configurations; the matrix above remains part of
+  the verification surface.
 - Permissive caches accept the safe price even when both sources have
   drifted in the same direction. The two-source design (ADR 0003)
   bounds this risk, and isolated debt opts out of the relaxation.

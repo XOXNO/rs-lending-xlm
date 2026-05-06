@@ -28,12 +28,14 @@ Resolve every price through `oracle::token_price`
 (`controller/src/oracle/mod.rs`), normalized to WAD, with the following
 shape:
 
-**Two source strategies.** Configured per market in `OracleProviderConfig`:
+**Two validation strategies.** Configured per market in
+`OracleProviderConfig`:
 
 - `SpotVsTwap` (default): CEX spot vs CEX TWAP from the same Reflector
-  contract.
-- `DualOracle`: CEX TWAP vs Stellar DEX spot. DEX unavailability degrades
-  to TWAP-only and never blocks the transaction.
+  contract. This gives temporal diversity inside one oracle provider.
+- `DualOracle`: CEX TWAP vs Stellar DEX spot. This gives source diversity
+  across CEX-derived and DEX-derived prices. DEX unavailability degrades to
+  TWAP-only and never blocks the transaction.
 - `SpotOnly`: development-only, rejected at `configure_market_oracle` in
   non-`testing` builds.
 
@@ -71,13 +73,16 @@ Future-dated oracles are always rejected (`controller/src/oracle/mod.rs:186`).
   be a load-bearing oracle gate.
 - **Custom oracle aggregator contract.** Rejected for launch: adds
   another upgradeable surface and another trust assumption. The chosen
-  design uses Reflector directly and validates source-to-source.
+  design uses Reflector directly and validates temporal or source diversity
+  according to the configured strategy.
 
 ## Consequences
 
 Positive:
 
-- Two independent feeds gate every risk-bearing decision.
+- Risk-bearing decisions are gated by either same-provider temporal diversity
+  (`SpotVsTwap`) or cross-source diversity (`DualOracle`), depending on market
+  configuration.
 - The midpoint band absorbs small honest deviations without halting the
   protocol.
 - DEX unavailability degrades gracefully under `DualOracle`.

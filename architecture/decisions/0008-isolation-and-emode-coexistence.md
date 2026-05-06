@@ -56,7 +56,7 @@ per-market reverse membership list.
   on `category_id == 0`, see `cached_emode_asset`).
 - A category is selected at account creation. Switching categories
   requires the account to be in a state compatible with the new
-  parameters; otherwise creating a new account is the operator path.
+  parameters; otherwise creating a new account is the supported path.
 - `remove_e_mode_category` flags the category deprecated, clears its
   asset map, and removes its id from each member market's reverse
   list. Deprecated categories remain readable; new activity is blocked.
@@ -99,11 +99,11 @@ Positive:
 Negative / accepted costs:
 
 - Two flags in `AccountMeta` (`is_isolated`, `isolated_asset`) plus a
-  category id and a mode field; reviewers must internalize their
-  interaction.
+  category id and a mode field; their interaction increases verification
+  and monitoring complexity.
 - Strict oracle pricing on isolated `repay` reduces the surface where
   permissive pricing would otherwise let users repay; this is
-  intentional but worth calling out in user docs.
+  intentional and belongs in protocol risk disclosures.
 - Category-asset membership has two storage faces (category-side map
   and per-market reverse list); both must stay consistent. The
   controller updates both in `add_asset_to_e_mode_category` /

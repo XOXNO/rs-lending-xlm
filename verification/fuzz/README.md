@@ -106,8 +106,8 @@ cargo +nightly fuzz tmin <target> artifacts/<target>/crash-<hash>
 ```
 
 Proptest regressions are different: files under
-`verification/test-harness/tests/*.proptest-regressions` should be committed.
-They replay minimized failing cases automatically.
+`verification/test-harness/tests/*.proptest-regressions` are committed so
+minimized failing cases replay automatically.
 
 ## Coverage
 
