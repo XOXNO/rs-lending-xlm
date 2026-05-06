@@ -280,23 +280,23 @@ endif
 fuzz:
 	@for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
-		cd $(FUZZ_DIR) && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ../..; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
 	done
 
 ## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
 fuzz-contract:
 	@for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
-		cd $(FUZZ_DIR) && cargo +nightly fuzz run $$t $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; cd ../..; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
 	done
 
 ## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300
 fuzz-one:
-	@cd $(FUZZ_DIR) && cargo +nightly fuzz run $(TARGET) $(FUZZ_FLAGS) -- -max_total_time=$(FUZZ_TIME)
+	@cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $(TARGET) -- -max_total_time=$(FUZZ_TIME)
 
 ## Build all fuzz targets (compile-only)
 fuzz-build:
-	@cd $(FUZZ_DIR) && cargo +nightly fuzz build $(FUZZ_FLAGS)
+	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
 
 ## Seed verification/fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
 ## a campaign to give libFuzzer realistic numeric entropy from the start.
