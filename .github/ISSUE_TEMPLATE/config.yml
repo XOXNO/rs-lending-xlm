@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/XOXNO/rs-lending-xlm/security/policy
+    about: Read the private reporting process and send reports to security@xoxno.com. Do not open public security issues.

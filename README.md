@@ -28,6 +28,9 @@ architecture records, and verification assets for the protocol.
   profiles, and local prover commands.
 - [Security policy](./SECURITY.md) - private vulnerability reporting and safe
   harbor.
+- [Contributing guide](./CONTRIBUTING.md) - local checks, change expectations,
+  and pull request requirements.
+- [Code of conduct](./CODE_OF_CONDUCT.md) - expected conduct and reporting.
 
 ## Architecture At A Glance
 
@@ -184,4 +187,5 @@ agreement with XOXNO.
 
 Protocol changes preserve the accounting, authorization, oracle, and solvency
 invariants documented in [architecture/INVARIANTS.md](./architecture/INVARIANTS.md)
-and include relevant verification output and launch-risk notes.
+and include relevant verification output and launch-risk notes. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) before opening issues or pull requests.

@@ -1,0 +1,59 @@
+name: Feature request
+description: Propose a protocol, tooling, verification, or documentation improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Controller
+        - Pool
+        - Pool interface
+        - Common library
+        - Verification
+        - Deployment or operations
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants and risk notes
+      description: List affected accounting, authorization, oracle, liquidation, flash-loan, or solvency invariants.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification expectations
+      description: Which tests, fuzz targets, Certora specs, or architecture documents should change?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I have searched existing issues for similar proposals.
+          required: true
+        - label: This request does not disclose a vulnerability.
+          required: true

@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible non-security bug
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report vulnerabilities here. Send security reports to security@xoxno.com as described in SECURITY.md.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include commands, inputs, market configuration, or test names when possible.
+      placeholder: |
+        1. Run ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include branch, commit, OS, Rust version, Stellar CLI version, and network if relevant.
+      placeholder: |
+        Commit:
+        OS:
+        rustc:
+        stellar:
+        Network:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Paste relevant logs, panic output, failing assertions, or transaction details.
+      render: text
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Describe the affected contract, workflow, invariant, or user action.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I have searched existing issues for duplicates.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
