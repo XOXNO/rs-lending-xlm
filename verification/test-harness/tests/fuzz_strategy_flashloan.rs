@@ -97,12 +97,12 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 // ---------------------------------------------------------------------------
 //
 // Under `without_auto_auth()` + an explicit MockAuth tree, drive the full
-// round trip (begin -> receiver callback -> end) and assert:
+// round trip (pool-owned callback and repayment pull) and assert:
 //   a. the call returns Ok.
 //   b. the reentrancy guard is cleared.
 //   c. pool reserves grew by exactly `fee` (the supplied pool is otherwise
-//      unchanged -- `flash_loan_end` pulls `amount + fee`, where `amount`
-//      replays the outgoing transfer from `begin` and `fee` is net-new).
+//      unchanged -- the pool pulls `amount + fee`, where `amount` replays the
+//      outgoing transfer and `fee` is net-new).
 // ---------------------------------------------------------------------------
 
 proptest! {

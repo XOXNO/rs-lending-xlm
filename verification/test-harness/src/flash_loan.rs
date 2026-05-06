@@ -1,4 +1,5 @@
 use common::types::ControllerKey;
+use flash_loan_receiver::FlashLoanTestReceiver;
 use soroban_sdk::{Address, Bytes};
 
 use crate::context::LendingTest;
@@ -15,6 +16,12 @@ impl LendingTest {
     /// Deploy a flash loan receiver that does NOT repay.
     pub fn deploy_bad_flash_loan_receiver(&self) -> Address {
         self.env.register(BadFlashLoanReceiver, ())
+    }
+
+    /// Deploy the standalone adversarial receiver contract used for strict
+    /// repayment and callback-mode tests.
+    pub fn deploy_adversarial_flash_loan_receiver(&self) -> Address {
+        self.env.register(FlashLoanTestReceiver, ())
     }
 
     /// Execute a flash loan.

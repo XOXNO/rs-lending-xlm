@@ -19,7 +19,7 @@
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
@@ -211,39 +211,28 @@ pub fn update_indexes_summary(_env: &Env, _pool_addr: &Address, _price_wad: i128
 ///     reachability rather than a return value.
 pub fn add_rewards_summary(_env: &Env, _pool_addr: &Address, _price_wad: i128, _amount: i128) {}
 
-/// Summary for `pool::LiquidityPool::flash_loan_begin`.
+/// Summary for `pool::LiquidityPool::flash_loan`.
 ///
 /// Modeled postconditions:
-///   * `amount >= 0`.
-///   * Reserves were sufficient at begin time.
-///   * Pre-balance snapshot is recorded in instance storage; any subsequent
-///     `flash_loan_end` will read it back.
-///
-/// Pure side-effect; no return value.
-pub fn flash_loan_begin_summary(
-    _env: &Env,
-    _pool_addr: &Address,
-    _amount: i128,
-    _receiver: &Address,
-) {
-}
-
-/// Summary for `pool::LiquidityPool::flash_loan_end`.
-///
-/// Modeled postconditions:
-///   * `amount >= 0`, `fee >= 0`.
-///   * The receiver returned at least `amount + fee`; a short repayment panics
-///     with `InvalidFlashloanRepay`.
+///   * `amount > 0`, `fee >= 0`, and `amount + fee` cannot overflow.
+///   * Reserves were sufficient at flash-loan time.
+///   * The receiver approved and returned exactly `amount + fee`; a short
+///     repayment panics with `InvalidFlashloanRepay`.
 ///   * `fee` is added to protocol revenue.
 ///
 /// Pure side-effect; no return value.
-pub fn flash_loan_end_summary(
+pub fn flash_loan_summary(
     _env: &Env,
     _pool_addr: &Address,
-    _amount: i128,
-    _fee: i128,
+    _initiator: &Address,
     _receiver: &Address,
+    amount: i128,
+    fee: i128,
+    _data: &Bytes,
 ) {
+    cvlr_assume!(amount > 0);
+    cvlr_assume!(fee >= 0);
+    cvlr_assume!(fee <= i128::MAX - amount);
 }
 
 /// Summary for `pool::LiquidityPool::create_strategy`.

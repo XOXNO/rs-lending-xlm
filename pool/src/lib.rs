@@ -21,15 +21,12 @@ use common::types::{
     AccountPosition, AccountPositionType, MarketIndex, MarketParams, PoolKey, PoolPositionMutation,
     PoolState, PoolStrategyMutation, PoolSyncData,
 };
+use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, symbol_short, token, Address, BytesN, Env, Symbol,
+    contract, contractimpl, panic_with_error, token, Address, Bytes, BytesN, Env, Executable,
+    IntoVal, Symbol, Vec,
 };
 
-/// Temporary instance-storage key used by flash_loan_begin / flash_loan_end
-/// to record the pool's pre-loan token balance and verify the post-repay
-/// balance is at least the pre-loan balance plus the fee. Written in `begin`;
-/// read and cleared in `end`.
-const FLASH_LOAN_PRE_BALANCE: Symbol = symbol_short!("FL_PREBAL");
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
@@ -54,6 +51,18 @@ fn require_nonneg_amount(env: &Env, amount: i128) {
     }
 }
 
+fn require_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+}
+
+fn require_wasm_receiver(env: &Env, receiver: &Address) {
+    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
+        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
+    }
+}
+
 fn checked_add_ray(env: &Env, a: Ray, b: Ray) -> Ray {
     if a.raw() < 0 || b.raw() < 0 {
         panic_with_error!(env, GenericError::MathOverflow);
@@ -74,6 +83,27 @@ fn checked_sub_ray(env: &Env, a: Ray, b: Ray) -> Ray {
             .checked_sub(b.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
     )
+}
+
+fn authorize_token_transfer_from(
+    env: &Env,
+    asset: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) {
+    let pool_addr = env.current_contract_address();
+    let token_transfer_from = InvokerContractAuthEntry::Contract(SubContractInvocation {
+        context: ContractContext {
+            contract: asset.clone(),
+            fn_name: Symbol::new(env, "transfer_from"),
+            args: (pool_addr, from.clone(), to.clone(), amount).into_val(env),
+        },
+        sub_invocations: Vec::new(env),
+    });
+    let mut auth_entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
+    auth_entries.push_back(token_transfer_from);
+    env.authorize_as_current_contract(auth_entries);
 }
 
 // Emit a market-state snapshot event.
@@ -375,35 +405,16 @@ impl LiquidityPool {
         cache.save();
     }
 
-    pub fn flash_loan_begin(env: Env, amount: i128, receiver: Address) {
+    pub fn flash_loan(
+        env: Env,
+        initiator: Address,
+        receiver: Address,
+        amount: i128,
+        fee: i128,
+        data: Bytes,
+    ) {
         verify_admin(&env);
-        require_nonneg_amount(&env, amount);
-
-        let mut cache = Cache::load(&env);
-        interest::global_sync(&env, &mut cache);
-
-        if !cache.has_reserves(amount) {
-            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
-        }
-
-        // Pool always operates on its own asset; never trust a caller-
-        // supplied address. Snapshot the pool balance before paying out so
-        // `flash_loan_end` can verify the post-repay delta covers
-        // `amount + fee`.
-        let tok = token::Client::new(&env, &cache.params.asset_id);
-        let pre_balance = tok.balance(&env.current_contract_address());
-        env.storage()
-            .instance()
-            .set(&FLASH_LOAN_PRE_BALANCE, &pre_balance);
-
-        tok.transfer(&env.current_contract_address(), &receiver, &amount);
-
-        cache.save();
-    }
-
-    pub fn flash_loan_end(env: Env, amount: i128, fee: i128, receiver: Address) {
-        verify_admin(&env);
-        require_nonneg_amount(&env, amount);
+        require_positive_amount(&env, amount);
 
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -412,28 +423,55 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::NegativeFlashLoanFee);
         }
 
-        // Pool always operates on its own asset; pull repayment from the receiver.
+        if !cache.has_reserves(amount) {
+            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
+        }
+        require_wasm_receiver(&env, &receiver);
+
+        // Pool always operates on its own asset; never trust a caller-supplied
+        // asset address. Snapshot the token balance locally so the callback
+        // cannot settle with a different asset or leave accounting skewed.
+        let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
+        let pre_balance = tok.balance(&pool_addr);
+        let expected_after_payout = pre_balance
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
         let total = amount
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        let pool_addr = env.current_contract_address();
-        tok.transfer(&receiver, &pool_addr, &total);
-
-        // Verify the repayment floor. Reject if the pre-balance snapshot is
-        // missing, which indicates `begin` was not called.
-        let pre_balance: i128 = env
-            .storage()
-            .instance()
-            .get(&FLASH_LOAN_PRE_BALANCE)
-            .unwrap_or_else(|| panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay));
-        env.storage().instance().remove(&FLASH_LOAN_PRE_BALANCE);
-
-        let balance_after = tok.balance(&env.current_contract_address());
-        let expected_balance = pre_balance
+        let expected_after_repay = pre_balance
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        if balance_after < expected_balance {
+
+        tok.transfer(&pool_addr, &receiver, &amount);
+
+        if tok.balance(&pool_addr) != expected_after_payout {
+            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
+        }
+
+        env.invoke_contract::<()>(
+            &receiver,
+            &Symbol::new(&env, "execute_flash_loan"),
+            (
+                initiator,
+                cache.params.asset_id.clone(),
+                amount,
+                fee,
+                pool_addr.clone(),
+                data,
+            )
+                .into_val(&env),
+        );
+
+        if tok.balance(&pool_addr) != expected_after_payout {
+            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
+        }
+
+        authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
+        tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
+
+        if tok.balance(&pool_addr) != expected_after_repay {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
 
@@ -749,7 +787,56 @@ mod tests {
     use common::types::AccountPosition;
     use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{token, Address, Env};
+    use soroban_sdk::{contract, contractimpl, token, Address, Bytes, Env};
+
+    #[contract]
+    pub struct PoolFlashLoanReceiver;
+
+    #[contract]
+    pub struct PoolNoRepayReceiver;
+
+    #[contractimpl]
+    impl PoolFlashLoanReceiver {
+        pub fn execute_flash_loan(
+            env: Env,
+            _initiator: Address,
+            asset: Address,
+            amount: i128,
+            fee: i128,
+            pool: Address,
+            _data: Bytes,
+        ) {
+            let total = amount
+                .checked_add(fee)
+                .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+            let expiration_ledger = env
+                .ledger()
+                .sequence()
+                .checked_add(1)
+                .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+
+            token::Client::new(&env, &asset).approve(
+                &env.current_contract_address(),
+                &pool,
+                &total,
+                &expiration_ledger,
+            );
+        }
+    }
+
+    #[contractimpl]
+    impl PoolNoRepayReceiver {
+        pub fn execute_flash_loan(
+            _env: Env,
+            _initiator: Address,
+            _asset: Address,
+            _amount: i128,
+            _fee: i128,
+            _pool: Address,
+            _data: Bytes,
+        ) {
+        }
+    }
 
     struct TestSetup {
         env: Env,
@@ -856,6 +943,21 @@ mod tests {
                 self.env.storage().instance().set(&PoolKey::State, &state);
             });
         }
+
+        fn state_snapshot(&self) -> PoolState {
+            self.env.as_contract(&self.pool, || {
+                self.env.storage().instance().get(&PoolKey::State).unwrap()
+            })
+        }
+    }
+
+    fn assert_pool_state_eq(left: &PoolState, right: &PoolState) {
+        assert_eq!(left.supplied_ray, right.supplied_ray);
+        assert_eq!(left.borrowed_ray, right.borrowed_ray);
+        assert_eq!(left.revenue_ray, right.revenue_ray);
+        assert_eq!(left.borrow_index_ray, right.borrow_index_ray);
+        assert_eq!(left.supply_index_ray, right.supply_index_ray);
+        assert_eq!(left.last_timestamp, right.last_timestamp);
     }
 
     // -----------------------------------------------------------------------
@@ -1107,7 +1209,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test: flash loan begin and end.
+    // Test: flash loan.
     // -----------------------------------------------------------------------
     #[test]
     fn test_flash_loan() {
@@ -1117,54 +1219,140 @@ mod tests {
         let supply_pos = t.deposit_position();
         client.supply(&supply_pos, &0i128, &10_000_000_000i128);
 
-        // Use admin as receiver, since mock_all_auths covers admin auth.
-        let receiver = t.admin.clone();
+        let receiver = t.env.register(PoolFlashLoanReceiver, ());
         let flash_amount = 100_0000000i128;
         let flash_fee = 1_0000000i128;
 
-        // Mint tokens to the receiver so they can repay (amount + fee).
+        // The pool will send `amount`; pre-fund only the fee.
         let token_admin_client = token::StellarAssetClient::new(&t.env, &t.asset);
-        token_admin_client.mint(&receiver, &(flash_amount + flash_fee));
-
-        // Begin: pool sends tokens to the receiver using its own asset_id.
-        client.flash_loan_begin(&flash_amount, &receiver);
+        token_admin_client.mint(&receiver, &flash_fee);
 
         let tok = token::Client::new(&t.env, &t.asset);
-        let receiver_balance = tok.balance(&receiver);
-        assert!(
-            receiver_balance >= flash_amount + flash_fee,
-            "receiver should have enough tokens for repayment"
-        );
-
-        // End: pull back amount + fee.
+        let pool_balance_before = tok.balance(&t.pool);
         let revenue_before = client.protocol_revenue();
-        client.flash_loan_end(&flash_amount, &flash_fee, &receiver);
+        client.flash_loan(
+            &t.admin,
+            &receiver,
+            &flash_amount,
+            &flash_fee,
+            &Bytes::new(&t.env),
+        );
         let revenue_after = client.protocol_revenue();
+        let pool_balance_after = tok.balance(&t.pool);
+
+        assert_eq!(pool_balance_after, pool_balance_before + flash_fee);
+        assert_eq!(revenue_after, revenue_before + flash_fee);
+    }
+
+    #[test]
+    fn test_flash_loan_rejects_zero_amount_at_pool() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let receiver = t.env.register(PoolFlashLoanReceiver, ());
+
+        let result =
+            client.try_flash_loan(&t.admin, &receiver, &0i128, &0i128, &Bytes::new(&t.env));
+
+        assert!(result.is_err(), "zero-amount pool flash loan must fail");
+    }
+
+    #[test]
+    fn test_flash_loan_rejects_non_contract_receiver_at_pool() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let receiver = Address::generate(&t.env);
+
+        let result = client.try_flash_loan(
+            &t.admin,
+            &receiver,
+            &1_0000000i128,
+            &0i128,
+            &Bytes::new(&t.env),
+        );
 
         assert!(
-            revenue_after > revenue_before,
-            "protocol revenue should increase from flash loan fee"
+            result.is_err(),
+            "pool must reject receivers that are not WASM contracts"
         );
+    }
+
+    #[test]
+    fn test_flash_loan_rejects_direct_non_owner_pool_call() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let receiver = t.env.register(PoolFlashLoanReceiver, ());
+        let attacker = Address::generate(&t.env);
+        let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+
+        let result = client.set_auths(&no_auths).try_flash_loan(
+            &attacker,
+            &receiver,
+            &1_0000000i128,
+            &0i128,
+            &Bytes::new(&t.env),
+        );
+
+        assert!(
+            result.is_err(),
+            "direct pool flash loan without owner/controller auth must fail"
+        );
+    }
+
+    #[test]
+    fn test_flash_loan_callback_failure_rolls_back_pool_state() {
+        let t = TestSetup::new();
+        let client = t.client();
+        let receiver = t.env.register(PoolNoRepayReceiver, ());
+        let tok = token::Client::new(&t.env, &t.asset);
+
+        let balance_before = tok.balance(&t.pool);
+        let revenue_before = client.protocol_revenue();
+        let state_before = t.state_snapshot();
+
+        let result = client.try_flash_loan(
+            &t.admin,
+            &receiver,
+            &1_0000000i128,
+            &1_000i128,
+            &Bytes::new(&t.env),
+        );
+
+        assert!(result.is_err(), "receiver that does not repay must fail");
+        assert_eq!(tok.balance(&t.pool), balance_before);
+        assert_eq!(client.protocol_revenue(), revenue_before);
+        assert_pool_state_eq(&t.state_snapshot(), &state_before);
     }
 
     #[test]
     #[should_panic(expected = "Error(Contract, #112)")]
-    fn test_flash_loan_begin_rejects_insufficient_liquidity() {
+    fn test_flash_loan_rejects_insufficient_liquidity() {
         let t = TestSetup::new();
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan_begin(&200_000_000_000_000i128, &receiver);
+        client.flash_loan(
+            &t.admin,
+            &receiver,
+            &200_000_000_000_000i128,
+            &0i128,
+            &Bytes::new(&t.env),
+        );
     }
 
     #[test]
     #[should_panic(expected = "Error(Contract, #411)")]
-    fn test_flash_loan_end_rejects_negative_fee() {
+    fn test_flash_loan_rejects_negative_fee() {
         let t = TestSetup::new();
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan_end(&1_0000000i128, &-1i128, &receiver);
+        client.flash_loan(
+            &t.admin,
+            &receiver,
+            &1_0000000i128,
+            &-1i128,
+            &Bytes::new(&t.env),
+        );
     }
 
     #[test]

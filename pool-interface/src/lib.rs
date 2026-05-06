@@ -5,7 +5,7 @@ use common::types::{
     AccountPosition, AccountPositionType, MarketIndex, PoolPositionMutation, PoolStrategyMutation,
     PoolSyncData,
 };
-use soroban_sdk::{contractclient, Address, BytesN, Env};
+use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
@@ -45,8 +45,14 @@ pub trait LiquidityPoolInterface {
     fn add_rewards(env: Env, price_wad: i128, amount: i128);
     /// Pool uses its own `params.asset_id` for the token transfer; the ABI
     /// takes no caller-supplied asset argument.
-    fn flash_loan_begin(env: Env, amount: i128, receiver: Address);
-    fn flash_loan_end(env: Env, amount: i128, fee: i128, receiver: Address);
+    fn flash_loan(
+        env: Env,
+        initiator: Address,
+        receiver: Address,
+        amount: i128,
+        fee: i128,
+        data: Bytes,
+    );
     fn create_strategy(
         env: Env,
         caller: Address,

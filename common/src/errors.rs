@@ -135,6 +135,7 @@ pub enum FlashLoanError {
     StrategyFeeExceeds = 409,
     InvalidBulkTicker = 410,
     NegativeFlashLoanFee = 411,
+    InvalidFlashloanReceiver = 412,
 }
 
 #[contracterror]

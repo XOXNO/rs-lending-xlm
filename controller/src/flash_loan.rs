@@ -1,7 +1,7 @@
 use common::errors::FlashLoanError;
 use common::events::{emit_flash_loan, FlashLoanEvent};
 use common::fp::Bps;
-use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, IntoVal, Symbol};
+use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, Executable};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -42,23 +42,15 @@ pub fn process_flash_loan(
     if !asset_config.is_flashloanable {
         panic_with_error!(env, FlashLoanError::FlashloanNotEnabled);
     }
+    require_wasm_receiver(env, receiver);
 
-    let fee = Bps::from_raw(asset_config.flashloan_fee_bps).apply_to(env, amount);
+    let fee = flash_loan_fee(env, asset_config.flashloan_fee_bps, amount);
     let pool_addr = cache.cached_pool_address(asset);
 
-    // Engage reentrancy guard for the duration of the callback.
+    // Engage reentrancy guard before the pool calls the receiver callback.
     storage::set_flash_loan_ongoing(env, true);
 
-    pool_flash_loan_begin_call(env, &pool_addr, amount, receiver);
-
-    // Callback signature: execute_flash_loan(initiator, asset, amount, fee, data).
-    env.invoke_contract::<()>(
-        receiver,
-        &Symbol::new(env, "execute_flash_loan"),
-        (caller.clone(), asset.clone(), amount, fee, data.clone()).into_val(env),
-    );
-
-    pool_flash_loan_end_call(env, &pool_addr, amount, fee, receiver);
+    pool_flash_loan_call(env, &pool_addr, caller, receiver, amount, fee, data);
 
     storage::set_flash_loan_ongoing(env, false);
 
@@ -74,28 +66,33 @@ pub fn process_flash_loan(
     );
 }
 
-crate::summarized!(
-    pool::flash_loan_begin_summary,
-    fn pool_flash_loan_begin_call(
-        env: &Env,
-        pool_addr: &Address,
-        amount: i128,
-        receiver: &Address,
-    ) {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).flash_loan_begin(&amount, receiver)
+fn require_wasm_receiver(env: &Env, receiver: &Address) {
+    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
+        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
     }
-);
+}
+
+fn flash_loan_fee(env: &Env, fee_bps: u32, amount: i128) -> i128 {
+    let fee = Bps::from_raw(fee_bps).apply_to(env, amount);
+    if fee_bps > 0 && fee == 0 {
+        1
+    } else {
+        fee
+    }
+}
 
 crate::summarized!(
-    pool::flash_loan_end_summary,
-    fn pool_flash_loan_end_call(
+    pool::flash_loan_summary,
+    fn pool_flash_loan_call(
         env: &Env,
         pool_addr: &Address,
+        initiator: &Address,
+        receiver: &Address,
         amount: i128,
         fee: i128,
-        receiver: &Address,
+        data: &Bytes,
     ) {
         pool_interface::LiquidityPoolClient::new(env, pool_addr)
-            .flash_loan_end(&amount, &fee, receiver)
+            .flash_loan(initiator, receiver, &amount, &fee, data)
     }
 );

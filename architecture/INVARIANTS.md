@@ -191,12 +191,13 @@ A pool flash loan must end with:
 pool_balance_after >= pool_balance_before + fee
 ```
 
-`flash_loan_begin` snapshots the pool balance before funds leave. `flash_loan_end`
-pulls `amount + fee` from the receiver and verifies the post-repayment balance.
+`pool.flash_loan` snapshots the pool balance before funds leave, calls the
+receiver callback, pulls `amount + fee` from the receiver, and verifies the
+post-repayment balance.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/flash_loan.rs`, `pool/src/lib.rs::flash_loan_begin`, `pool/src/lib.rs::flash_loan_end` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
+| `controller/src/flash_loan.rs`, `pool/src/lib.rs::flash_loan` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
 
 ---
 

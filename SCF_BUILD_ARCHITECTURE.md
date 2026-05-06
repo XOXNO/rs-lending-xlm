@@ -152,8 +152,9 @@ Implemented in `pool/src/lib.rs`, `pool/src/cache.rs`, `pool/src/interest.rs`,
   (`cache::has_reserves`).
 - Records protocol revenue as a scaled supply claim and updates the supply
   index accordingly.
-- Executes `flash_loan_begin`/`flash_loan_end` with a balance snapshot at
-  `FLASH_LOAN_PRE_BALANCE` and verifies post-repay balance ≥ pre-balance + fee.
+- Executes pool-owned `flash_loan`, snapshots the balance locally, calls the
+  receiver callback, pulls repayment, and verifies post-repay balance equals
+  pre-balance + fee.
 - Reduces the supply index on bad-debt socialization, floored at
   `SUPPLY_INDEX_FLOOR_RAW`.
 - Updates rate-model parameters (`update_params`) after syncing accrued
@@ -168,8 +169,8 @@ isolation rules.
 
 `pool-interface/src/lib.rs` defines the controller-to-pool ABI as the
 `LiquidityPoolInterface` trait. Mutating: `supply`, `borrow`, `withdraw`,
-`repay`, `update_indexes`, `add_rewards`, `flash_loan_begin`,
-`flash_loan_end`, `create_strategy`, `seize_position`, `claim_revenue`,
+`repay`, `update_indexes`, `add_rewards`, `flash_loan`, `create_strategy`,
+`seize_position`, `claim_revenue`,
 `update_params`, `upgrade`, `keepalive`. Read-only: `capital_utilisation`,
 `reserves`, `deposit_rate`, `borrow_rate`, `protocol_revenue`,
 `supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`.
@@ -693,13 +694,15 @@ sequenceDiagram
 
 - `caller.require_auth()`.
 - `require_market_active(asset)`, `is_flashloanable`, `amount > 0`.
+- Verifies `receiver` is a deployed Wasm contract.
 - Sets `FlashLoanOngoing = true`.
-- Pool transfers `amount` to `receiver` and writes a balance snapshot at
-  `FLASH_LOAN_PRE_BALANCE` (`pool/src/lib.rs::flash_loan_begin`).
-- The controller invokes `execute_flash_loan(initiator, asset, amount, fee,
-  data)` on `receiver`.
-- Pool pulls `amount + fee` from `receiver` and verifies `balance_after ≥
-  pre_balance + fee` (`flash_loan_end`).
+- Controller calls `pool.flash_loan(initiator, receiver, amount, fee, data)`.
+- Pool transfers `amount` to `receiver` after taking a local balance snapshot.
+- Pool invokes `execute_flash_loan(initiator, asset, amount, fee, pool, data)`
+  on `receiver`; `data` is opaque to the controller and pool.
+- The receiver authorizes the pool to pull `amount + fee`.
+- Pool pulls repayment from `receiver` and verifies post-repay balance equals
+  pre-balance + fee.
 - The fee is recorded as protocol revenue.
 - Controller clears `FlashLoanOngoing` and emits `FlashLoanEvent`.
 
@@ -717,14 +720,13 @@ sequenceDiagram
 
     I->>C: flash_loan(caller, asset, amount, receiver, data)
     C->>C: require_auth, active market, flashloanable, set FlashLoanOngoing
-    C->>P: flash_loan_begin(amount, receiver)
-    P->>P: global_sync, snapshot FL_PREBAL
+    C->>P: flash_loan(initiator, receiver, amount, fee, data)
+    P->>P: global_sync, local balance snapshot
     P->>T: transfer pool → receiver
-    C->>RC: execute_flash_loan(initiator, asset, amount, fee, data)
+    P->>RC: execute_flash_loan(initiator, asset, amount, fee, pool, data)
     RC->>RC: arbitrary logic + authorize pool repayment pull
-    C->>P: flash_loan_end(amount, fee, receiver)
-    P->>T: transfer receiver → pool, amount + fee
-    P->>P: balance_after ≥ FL_PREBAL + fee
+    P->>T: transfer_from receiver → pool, amount + fee
+    P->>P: balance_after == pre_balance + fee
     P-->>C: ok
     C->>C: clear FlashLoanOngoing, emit FlashLoanEvent
 ```
@@ -853,8 +855,7 @@ Soroban storage is partitioned by entry kind:
   `IsolatedDebt(asset)`.
 - **Persistent user**: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`.
-- **Pool Instance** (`PoolKey::Params`, `PoolKey::State`, plus the
-  transient `FL_PREBAL` symbol during flash loans).
+- **Pool Instance** (`PoolKey::Params`, `PoolKey::State`).
 
 TTL is bumped explicitly:
 
@@ -877,7 +878,6 @@ flowchart LR
     subgraph PoolStorage["Pool storage"]
         PS["Instance Params<br/>MarketParams"]
         ST["Instance State<br/>supplied_ray, borrowed_ray<br/>supply_index, borrow_index<br/>revenue_ray, last_timestamp"]
-        FL["Instance FL_PREBAL<br/>flash-loan balance checkpoint"]
     end
 
     I -->|"deploys via PoolTemplate"| PoolStorage

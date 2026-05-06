@@ -13,6 +13,7 @@
 #   make testnet deploy             Deploy all contracts to testnet
 #   make mainnet deploy             Deploy all contracts to mainnet
 #   make testnet upgradeController  Upgrade controller in-place on testnet
+#   make testnet upgradeAll         Upgrade pool template, controller, and all pools
 #   make testnet setup              Deploy + configure markets on testnet
 #   make mainnet setup              Deploy + configure markets on mainnet
 #
@@ -31,7 +32,8 @@ SHELL := /bin/bash
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
-        keygen deploy-testnet deploy-mainnet upgrade-controller _deploy \
+        keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-pools upgrade-all _deploy \
+        build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         configure-controller setup-testnet setup-mainnet _setup-markets create-market \
         update-indexes \
         info invoke invoke-id view view-id \
@@ -61,6 +63,9 @@ NETWORK     ?= testnet
 SIGNER      ?= deployer
 CONTRACT    ?= controller
 CONFIG_DIR  ?= configs
+FLASH_MARKET ?= XLM
+FLASH_LOAN_AMOUNT ?= 10000000
+FLASH_RECEIVER_FUND ?= 10000000
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
 # Stellar CLI source account flag
@@ -408,6 +413,198 @@ upgrade-controller: deploy-artifacts
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 		-- upgrade --new_wasm_hash $$HASH
 
+## Upload the latest pool WASM and set it as the controller's pool template.
+upgrade-pool-template: deploy-artifacts
+	@echo "=== Upgrading pool template on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
+		echo "Controller not found for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	stellar contract upload \
+		--wasm $(DEPLOY_DIR)/pool.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > /tmp/pool_upgrade_wasm_hash.txt; \
+	HASH=$$(cat /tmp/pool_upgrade_wasm_hash.txt); \
+	echo "Controller: $$CTRL"; \
+	echo "New pool template WASM hash: $$HASH"; \
+	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+		-- set_liquidity_pool_template --hash $$HASH; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+
+## Upgrade every configured pool to the latest pool template hash.
+upgrade-pools:
+	@echo "=== Upgrading pools on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
+		echo "Controller not found for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	HASH=$$(cat /tmp/pool_upgrade_wasm_hash.txt 2>/dev/null || jq -r ".\"$(NETWORK)\".pool_wasm_hash // empty" $(CONFIG_DIR)/networks.json); \
+	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
+		echo "Pool WASM hash not found. Run upgrade-pool-template first."; \
+		exit 1; \
+	fi; \
+	if [ ! -f $(CONFIG_DIR)/$(NETWORK)_markets.json ]; then \
+		echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; \
+		exit 1; \
+	fi; \
+	MARKETS=$$(jq -r '.markets[] | select(.asset_address != null and .asset_address != "") | "\(.name)|\(.asset_address)"' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	if [ -z "$$MARKETS" ]; then \
+		echo "No configured market asset addresses found for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	echo "Controller: $$CTRL"; \
+	echo "Pool WASM hash: $$HASH"; \
+	while IFS='|' read -r NAME ASSET; do \
+		[ -z "$$NAME" ] && continue; \
+		echo "Upgrading pool $$NAME ($$ASSET)..."; \
+		stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+			-- upgrade_pool --asset $$ASSET --new_wasm_hash $$HASH; \
+	done <<< "$$MARKETS"
+
+## Upload pool template, upgrade controller, then upgrade all configured pools.
+upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools
+
+## Build the flash-loan receiver test contract for network smoke testing.
+build-flash-loan-receiver:
+	@echo "Building flash-loan receiver..."
+	@stellar contract build --package flash-loan-receiver
+	@mkdir -p $(DEPLOY_DIR)
+	@if command -v stellar &>/dev/null; then \
+		stellar contract optimize \
+			--wasm $(RELEASE_DIR)/flash_loan_receiver.wasm \
+			--wasm-out $(DEPLOY_DIR)/flash-loan-receiver.wasm 2>/dev/null || \
+		cp $(RELEASE_DIR)/flash_loan_receiver.wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm; \
+	else \
+		cp $(RELEASE_DIR)/flash_loan_receiver.wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm; \
+	fi
+	@ls -lh $(DEPLOY_DIR)/flash-loan-receiver.wasm
+
+## Deploy the latest flash-loan receiver test contract and record its address.
+deploy-flash-loan-receiver: build-flash-loan-receiver
+	@echo "=== Deploying flash-loan receiver on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract deploy \
+		--wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) \
+		--alias flash-loan-receiver > /tmp/flash_loan_receiver_id.txt
+	@RECEIVER=$$(tail -n1 /tmp/flash_loan_receiver_id.txt); \
+	echo "Flash receiver: $$RECEIVER"; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].flash_loan_receiver = "'$$RECEIVER'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+
+## Fund the deployed flash-loan receiver with the selected market asset.
+fund-flash-loan-receiver:
+	@echo "=== Funding flash-loan receiver on $(NETWORK) ==="
+	@ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$RECEIVER" ]; then \
+		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$ASSET" ] || [ "$$ASSET" = "null" ]; then \
+		echo "Unknown FLASH_MARKET=$(FLASH_MARKET) for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	if [ -z "$$RECEIVER" ] || [ "$$RECEIVER" = "null" ]; then \
+		echo "Flash receiver not found. Run deploy-flash-loan-receiver first."; \
+		exit 1; \
+	fi; \
+	echo "Asset: $$ASSET ($(FLASH_MARKET))"; \
+	echo "Receiver: $$RECEIVER"; \
+	echo "Amount: $(FLASH_RECEIVER_FUND)"; \
+	stellar contract invoke --id $$ASSET $(SOURCE_FLAG) --network $(NETWORK) \
+		-- transfer --from $(SIGNER_ADDRESS) --to $$RECEIVER --amount $(FLASH_RECEIVER_FUND)
+
+## Run testnet flash-loan smoke cases against the deployed receiver.
+test-flash-loan-receiver:
+	@echo "=== Flash-loan receiver smoke test on $(NETWORK) ==="
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
+	fi; \
+	ASSET=$$(jq -r '.markets[] | select(.name == "$(FLASH_MARKET)") | .asset_address' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
+	RECEIVER=$$(stellar contract alias show flash-loan-receiver --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$RECEIVER" ]; then \
+		RECEIVER=$$(jq -r ".\"$(NETWORK)\".flash_loan_receiver // empty" $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
+		echo "Controller not found for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	if [ -z "$$ASSET" ] || [ "$$ASSET" = "null" ]; then \
+		echo "Unknown FLASH_MARKET=$(FLASH_MARKET) for $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	if [ -z "$$RECEIVER" ] || [ "$$RECEIVER" = "null" ]; then \
+		echo "Flash receiver not found. Run deploy-flash-loan-receiver first."; \
+		exit 1; \
+	fi; \
+	echo "Controller: $$CTRL"; \
+	echo "Receiver: $$RECEIVER"; \
+	echo "Asset: $$ASSET ($(FLASH_MARKET))"; \
+	echo "Loan amount: $(FLASH_LOAN_AMOUNT)"; \
+	run_data_case() { \
+		local name="$$1"; \
+		local expected="$$2"; \
+		local data="$$3"; \
+		local log; \
+		log="/tmp/flash_loan_$${name}.log"; \
+		echo "Running $$name (expected $$expected)..."; \
+		if stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+			-- flash_loan \
+			--caller $(SIGNER_ADDRESS) \
+			--asset $$ASSET \
+			--amount $(FLASH_LOAN_AMOUNT) \
+			--receiver $$RECEIVER \
+			--data $$data > "$$log" 2>&1; then \
+			if [ "$$expected" = "success" ]; then \
+				echo "PASS $$name"; \
+				tail -n 6 "$$log"; \
+			else \
+				echo "FAIL $$name unexpectedly succeeded"; \
+				cat "$$log"; \
+				exit 1; \
+			fi; \
+		else \
+			if [ "$$expected" = "failure" ]; then \
+				echo "PASS $$name rejected"; \
+				tail -n 8 "$$log"; \
+			else \
+				echo "FAIL $$name unexpectedly failed"; \
+				cat "$$log"; \
+				exit 1; \
+			fi; \
+		fi; \
+	}; \
+	run_case() { \
+		local mode="$$1"; \
+		local expected="$$2"; \
+		local data; \
+		data=$$(cargo run -q -p flash-loan-receiver --example encode_request -- "$$mode"); \
+		run_data_case "$$mode" "$$expected" "$$data"; \
+	}; \
+	run_case Success success; \
+	run_case NoRepay failure; \
+	run_case UnderRepay failure; \
+	run_case ReenterPoolFlashLoan failure; \
+	run_case ReenterControllerSupply failure; \
+	run_case Panic failure; \
+	run_data_case InvalidData failure 00; \
+	run_case Success success
+
 _deploy: deploy-artifacts
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -547,7 +744,8 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
-MAKEFILE_ACTIONS := deploy upgradeController setup
+MAKEFILE_ACTIONS := deploy upgradeController upgradePoolTemplate upgradePools upgradeAll \
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver setup
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -576,6 +774,12 @@ define NETWORK_DISPATCH
 			case "$$action" in \
 				deploy)             $(MAKE) --no-print-directory _deploy NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradePoolTemplate) $(MAKE) --no-print-directory upgrade-pool-template NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradePools)       $(MAKE) --no-print-directory upgrade-pools NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
+				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				setup)              $(MAKE) --no-print-directory _deploy configure-controller _setup-markets NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 			esac; \
 			exit 0 ;; \
@@ -662,6 +866,10 @@ help:
 	@echo "  make keygen                         Generate deployer key"
 	@echo "  make testnet deploy                 Deploy all contracts"
 	@echo "  make testnet upgradeController      Upgrade controller WASM in-place"
+	@echo "  make testnet upgradeAll             Upgrade pool template, controller, and all pools"
+	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
+	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
+	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
 	@echo "  make testnet setup                  Full setup (deploy + config + markets)"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""

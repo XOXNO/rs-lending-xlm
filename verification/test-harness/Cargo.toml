@@ -14,6 +14,7 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 common = { path = "../../common" }
 controller = { path = "../../controller", features = ["testing"] }
 pool = { path = "../../pool" }
+flash-loan-receiver = { path = "../../flash-loan-receiver" }
 # Exact rational arithmetic for the reference implementation used by the
 # liquidation differential fuzz harness (Phase B). Pulled in as a regular
 # dependency because `src/reference/` is part of the library, not a test-only

@@ -1,5 +1,12 @@
 [workspace]
-members = ["common", "pool-interface", "pool", "controller", "verification/test-harness"]
+members = [
+    "common",
+    "pool-interface",
+    "pool",
+    "controller",
+    "flash-loan-receiver",
+    "verification/test-harness",
+]
 exclude = ["verification/fuzz", "vendor"]
 resolver = "2"
 

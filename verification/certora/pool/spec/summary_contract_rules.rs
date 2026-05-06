@@ -1,6 +1,6 @@
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{AccountPosition, AccountPositionType, MarketParams, PoolKey, PoolState};
@@ -56,7 +56,7 @@ fn supply_satisfies_controller_summary_contract(
     cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
     seed(
         &e,
-        admin,
+        admin.clone(),
         asset,
         state(10 * RAY, 0, 0, e.ledger().timestamp()),
     );
@@ -81,7 +81,7 @@ fn borrow_satisfies_controller_summary_contract(
     cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
     seed(
         &e,
-        admin,
+        admin.clone(),
         asset,
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
@@ -108,7 +108,7 @@ fn withdraw_satisfies_controller_summary_contract(
     cvlr_assume!((1..=100 * RAY).contains(&scaled));
     seed(
         &e,
-        admin,
+        admin.clone(),
         asset,
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
@@ -211,7 +211,7 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
 }
 
 #[rule]
-fn flash_loan_end_satisfies_fee_domain(
+fn flash_loan_satisfies_fee_domain(
     e: Env,
     admin: Address,
     asset: Address,
@@ -223,12 +223,15 @@ fn flash_loan_end_satisfies_fee_domain(
     cvlr_assume!(fee >= 0 && fee <= amount);
     seed(
         &e,
-        admin,
+        admin.clone(),
         asset,
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
-    crate::LiquidityPool::flash_loan_begin(e.clone(), amount, receiver.clone());
-    crate::LiquidityPool::flash_loan_end(e, amount, fee, receiver);
+    let revenue_before = crate::LiquidityPool::protocol_revenue(e.clone());
+    crate::LiquidityPool::flash_loan(e.clone(), admin, receiver, amount, fee, Bytes::new(&e));
+    let revenue_after = crate::LiquidityPool::protocol_revenue(e);
+
+    cvlr_assert!(revenue_after == revenue_before + fee);
     cvlr_satisfy!(true);
 }

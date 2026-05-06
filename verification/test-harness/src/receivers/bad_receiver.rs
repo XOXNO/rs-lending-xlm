@@ -1,6 +1,6 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
-/// A mock flash loan receiver that does NOT repay -- for testing rejection.
+/// A mock flash loan receiver that does NOT approve repayment -- for testing rejection.
 #[contract]
 pub struct BadFlashLoanReceiver;
 
@@ -14,6 +14,7 @@ impl BadFlashLoanReceiver {
         _asset: Address,
         _amount: i128,
         _fee: i128,
+        _pool: Address,
         _data: Bytes,
     ) {
         // Intentionally does nothing -- repayment will fail.

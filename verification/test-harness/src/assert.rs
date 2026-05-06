@@ -76,6 +76,7 @@ pub mod errors {
     pub const FLASH_LOAN_ONGOING: u32 = 400;
     pub const FLASHLOAN_NOT_ENABLED: u32 = 401;
     pub const INVALID_FLASHLOAN_REPAY: u32 = 402;
+    pub const INVALID_FLASHLOAN_RECEIVER: u32 = 412;
     pub const SWAP_COLLATERAL_NO_ISO: u32 = 404;
     pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;
     pub const NO_DEBT_PAYMENTS: u32 = 407;
