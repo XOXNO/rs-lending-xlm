@@ -32,6 +32,16 @@ NETWORKS_FILE="$SCRIPT_DIR/networks.json"
 EMODES_FILE="$SCRIPT_DIR/emodes.json"
 MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}_markets.json"
 
+require_tool() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "ERROR: Missing required tool: $1" >&2
+        exit 1
+    fi
+}
+
+require_tool stellar
+require_tool jq
+
 # Source account flag
 SIGNER_ADDRESS=$(stellar keys public-key "$SIGNER" 2>/dev/null || stellar keys address "$SIGNER" 2>/dev/null || echo "$SIGNER")
 if [ "$SIGNER" = "ledger" ]; then
@@ -47,6 +57,37 @@ fi
 
 get_network_value() {
     jq -r ".\"$NETWORK\".\"$1\"" "$NETWORKS_FILE"
+}
+
+require_static_config() {
+    if [ ! -f "$NETWORKS_FILE" ]; then
+        echo "ERROR: Config file not found: $NETWORKS_FILE" >&2
+        exit 1
+    fi
+    if ! jq -e --arg network "$NETWORK" '.[$network] != null' "$NETWORKS_FILE" >/dev/null; then
+        echo "ERROR: Network '$NETWORK' not found in $NETWORKS_FILE" >&2
+        exit 1
+    fi
+    if [ ! -f "$MARKET_CONFIG_FILE" ]; then
+        echo "ERROR: Config file not found: $MARKET_CONFIG_FILE" >&2
+        exit 1
+    fi
+    if ! jq -e '.markets | type == "array" and length > 0' "$MARKET_CONFIG_FILE" >/dev/null; then
+        echo "ERROR: No configured markets in $MARKET_CONFIG_FILE" >&2
+        exit 1
+    fi
+    if ! jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' "$MARKET_CONFIG_FILE" >/dev/null; then
+        echo "ERROR: Every configured market must have name and asset_address in $MARKET_CONFIG_FILE" >&2
+        exit 1
+    fi
+    if [ ! -f "$EMODES_FILE" ]; then
+        echo "ERROR: Config file not found: $EMODES_FILE" >&2
+        exit 1
+    fi
+    if ! jq -e --arg network "$NETWORK" '.[$network] | type == "object"' "$EMODES_FILE" >/dev/null; then
+        echo "ERROR: E-mode config for '$NETWORK' not found in $EMODES_FILE" >&2
+        exit 1
+    fi
 }
 
 get_market_value() {
@@ -77,6 +118,16 @@ get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
 # Backward-compat alias for existing call sites — defaults to CEX oracle.
 get_oracle() { get_cex_oracle; }
 
+get_redstone_adapter() {
+    get_network_value "redstone_adapter_contract"
+}
+
+get_redstone_feed() {
+    local feed=$1
+    jq -r --arg network "$NETWORK" --arg feed "$feed" \
+        '.[$network].redstone_feeds[$feed] // empty' "$NETWORKS_FILE"
+}
+
 get_signer_address() {
     echo "$SIGNER_ADDRESS"
 }
@@ -97,6 +148,8 @@ get_contract_decimals() {
     invoke_view "$1" decimals | tail -n1
 }
 
+require_static_config
+
 # ---------------------------------------------------------------------------
 # List functions
 # ---------------------------------------------------------------------------
@@ -113,7 +166,12 @@ list_markets() {
 list_emode_categories() {
     echo "E-Mode categories (${NETWORK}):"
     if [ -f "$EMODES_FILE" ]; then
-        jq -r ".\"$NETWORK\" | to_entries[] | \"  \(.key): \(.value.name) — LTV=\(.value.ltv) Threshold=\(.value.liquidation_threshold) Bonus=\(.value.liquidation_bonus)\"" "$EMODES_FILE"
+        jq -r --arg network "$NETWORK" --slurpfile networks "$NETWORKS_FILE" '
+            .[$network] as $cats |
+            ($networks[0][$network].emode_category_ids // {}) as $ids |
+            $cats | to_entries[] |
+            "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — LTV=\(.value.ltv) Threshold=\(.value.liquidation_threshold) Bonus=\(.value.liquidation_bonus)"
+        ' "$EMODES_FILE"
     else
         echo "  No emodes config found: $EMODES_FILE"
     fi
@@ -181,6 +239,117 @@ add_emode_category() {
     echo "$onchain_id"
 }
 
+edit_emode_category() {
+    local config_category_id=$1
+    local onchain_id=$2
+
+    local name=$(get_emode_value "$config_category_id" ".name")
+    local ltv=$(get_emode_value "$config_category_id" ".ltv")
+    local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
+    local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
+    local ctrl=$(get_controller)
+
+    echo "Editing E-Mode category ${config_category_id} (${name}) on-chain id ${onchain_id}..."
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- edit_e_mode_category \
+        --id "$onchain_id" \
+        --ltv "$ltv" \
+        --threshold "$threshold" \
+        --bonus "$bonus"
+}
+
+get_mapped_emode_category_id() {
+    local config_category_id=$1
+    jq -r --arg network "$NETWORK" --arg config_id "$config_category_id" \
+        '.[$network].emode_category_ids[$config_id] // empty' "$NETWORKS_FILE"
+}
+
+persist_emode_category_id() {
+    local config_category_id=$1
+    local onchain_id=$2
+    local tmp
+    tmp=$(mktemp)
+    jq --arg network "$NETWORK" --arg config_id "$config_category_id" --argjson onchain_id "$onchain_id" \
+        '.[$network].emode_category_ids = (.[$network].emode_category_ids // {}) |
+         .[$network].emode_category_ids[$config_id] = $onchain_id' \
+        "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
+}
+
+fetch_emode_category_json() {
+    local onchain_id=$1
+    local ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- get_e_mode_category --category_id "$onchain_id"
+}
+
+emode_params_match_config() {
+    local category_json=$1
+    local config_category_id=$2
+    local ltv=$(get_emode_value "$config_category_id" ".ltv")
+    local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
+    local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
+
+    printf '%s' "$category_json" | jq -e \
+        --argjson ltv "$ltv" \
+        --argjson threshold "$threshold" \
+        --argjson bonus "$bonus" \
+        '.loan_to_value_bps == $ltv and
+         .liquidation_threshold_bps == $threshold and
+         .liquidation_bonus_bps == $bonus' >/dev/null
+}
+
+emode_is_deprecated() {
+    local category_json=$1
+    printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
+}
+
+ensure_emode_category() {
+    local config_category_id=$1
+    local mapped_id
+    local category_json
+
+    mapped_id=$(get_mapped_emode_category_id "$config_category_id")
+    if [ -n "$mapped_id" ] && [ "$mapped_id" != "null" ]; then
+        if category_json=$(fetch_emode_category_json "$mapped_id" 2>/dev/null); then
+            if emode_is_deprecated "$category_json"; then
+                echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
+            elif emode_params_match_config "$category_json" "$config_category_id"; then
+                echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
+                echo "$mapped_id"
+                return 0
+            else
+                edit_emode_category "$config_category_id" "$mapped_id"
+                echo "$mapped_id"
+                return 0
+            fi
+        else
+            echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is not readable; creating a replacement."
+        fi
+    fi
+
+    if category_json=$(fetch_emode_category_json "$config_category_id" 2>/dev/null); then
+        if emode_is_deprecated "$category_json"; then
+            echo "On-chain E-Mode id ${config_category_id} is deprecated; creating a new category."
+        elif emode_params_match_config "$category_json" "$config_category_id"; then
+            persist_emode_category_id "$config_category_id" "$config_category_id"
+            echo "E-Mode config ${config_category_id} matches existing on-chain id ${config_category_id}."
+            echo "$config_category_id"
+            return 0
+        else
+            echo "On-chain E-Mode id ${config_category_id} exists but does not match config; editing it."
+            edit_emode_category "$config_category_id" "$config_category_id"
+            persist_emode_category_id "$config_category_id" "$config_category_id"
+            echo "$config_category_id"
+            return 0
+        fi
+    fi
+
+    local onchain_id
+    onchain_id=$(add_emode_category "$config_category_id")
+    persist_emode_category_id "$config_category_id" "$onchain_id"
+    echo "$onchain_id"
+}
+
 add_asset_to_emode() {
     local category_id=$1
     local asset_name=$2
@@ -215,17 +384,68 @@ add_asset_to_emode() {
     echo "Asset ${asset_name} added to E-Mode category ${category_id}."
 }
 
+edit_asset_in_emode() {
+    local category_id=$1
+    local asset_name=$2
+    local config_category_id=${3:-$category_id}
+
+    local asset_address=$(get_market_value "$asset_name" "asset_address")
+    local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ctrl=$(get_controller)
+
+    echo "Editing asset ${asset_name} in E-Mode category ${category_id}..."
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- edit_asset_in_e_mode_category \
+        --asset "$asset_address" \
+        --category_id "$category_id" \
+        --can_collateral "$can_collateral" \
+        --can_borrow "$can_borrow"
+}
+
+ensure_asset_in_emode() {
+    local category_id=$1
+    local asset_name=$2
+    local config_category_id=${3:-$category_id}
+
+    local asset_address=$(get_market_value "$asset_name" "asset_address")
+    local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local category_json
+
+    if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
+        echo "ERROR: No asset address found for ${asset_name} in ${MARKET_CONFIG_FILE}"
+        exit 1
+    fi
+
+    category_json=$(fetch_emode_category_json "$category_id")
+    if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
+        if printf '%s' "$category_json" | jq -e \
+            --arg asset "$asset_address" \
+            --argjson can_collateral "$can_collateral" \
+            --argjson can_borrow "$can_borrow" \
+            '.assets[$asset].is_collateralizable == $can_collateral and
+             .assets[$asset].is_borrowable == $can_borrow' >/dev/null; then
+            echo "Asset ${asset_name} already configured in E-Mode category ${category_id}."
+        else
+            edit_asset_in_emode "$category_id" "$asset_name" "$config_category_id"
+        fi
+    else
+        add_asset_to_emode "$category_id" "$asset_name" "$config_category_id"
+    fi
+}
+
 setup_all_emodes() {
     echo "=== Setting up all E-Mode categories for ${NETWORK} ==="
     local categories=$(jq -r ".\"$NETWORK\" | keys[]" "$EMODES_FILE")
 
     for cat_id in $categories; do
         local onchain_id
-        onchain_id=$(add_emode_category "$cat_id")
+        onchain_id=$(ensure_emode_category "$cat_id" | tail -n1)
 
         local assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")
         for asset_name in $assets; do
-            add_asset_to_emode "$onchain_id" "$asset_name" "$cat_id"
+            ensure_asset_in_emode "$onchain_id" "$asset_name" "$cat_id"
         done
     done
     echo "=== All E-Mode categories configured ==="
@@ -468,7 +688,7 @@ borrow_position() {
     echo
 
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
-        -- borrow_batch \
+        -- borrow \
         --caller "$caller" \
         --account_id "$account_id" \
         --borrows "[[\"$asset_addr\", $amount_raw]]"
@@ -482,26 +702,9 @@ configure_market_oracle() {
     local asset_address=$(get_market_value "$market_name" "asset_address")
     local cfg_file
     cfg_file=$(mktemp)
-    jq -c "
-        .markets[] | select(.name == \"$market_name\") | {
-            exchange_source: .oracle.exchange_source,
-            max_price_stale_seconds: .oracle.max_price_stale_seconds,
-            first_tolerance_bps: .oracle.first_tolerance_bps,
-            last_tolerance_bps: .oracle.last_tolerance_bps,
-            cex_oracle: .reflector.cex_oracle,
-            cex_asset_kind: .reflector.cex_asset_kind,
-            cex_symbol: .reflector.cex_symbol,
-            dex_oracle: (.reflector.dex_oracle // null),
-            dex_asset_kind: .reflector.dex_asset_kind,
-            # Dead metadata when dex_oracle is null — send empty string so
-            # storage doesn't carry a misleading ticker for an unused leg.
-            dex_symbol: (if .reflector.dex_oracle == null
-                         then \"\"
-                         else (.reflector.dex_symbol // .reflector.cex_symbol)
-                         end),
-            twap_records: .reflector.twap_records
-        }
-    " "$MARKET_CONFIG_FILE" > "$cfg_file"
+    jq -c --arg market "$market_name" '
+        .markets[] | select(.name == $market) | .oracle
+    ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
     local ctrl=$(get_controller)
     local admin=$(get_signer_address)
@@ -607,9 +810,14 @@ show_info() {
     echo "Signer:     $(get_signer_address)"
     echo "Controller: ${ctrl_alias}"
     echo "Aggregator: ${agg_alias}"
+    echo "Configured Aggregator: $(get_network_value "aggregator")"
+    echo "Pool WASM Hash: $(get_network_value "pool_wasm_hash")"
+    echo "E-Mode ID Map: $(jq -c --arg network "$NETWORK" '.[$network].emode_category_ids // {}' "$NETWORKS_FILE")"
     echo "Reflector CEX: $(get_cex_oracle)"
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
+    echo "RedStone adapter: $(get_redstone_adapter)"
+    echo "RedStone feeds: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE")"
 }
 
 # ---------------------------------------------------------------------------
@@ -814,52 +1022,116 @@ query_reflector_twap_cmd() {
     invoke_view "$oracle" prices --asset "$asset_json" --records "$records"
 }
 
-# Compound view: reads a market's stored CEX (and DEX if set) oracle addresses
-# and dumps live data from each. This is what you want to verify DualOracle
-# wiring end-to-end without trusting your own JSON config.
-get_reflector_cmd() {
+query_redstone_cmd() {
+    local feed_id=$1
+    local adapter=${2:-$(get_redstone_adapter)}
+    if [ -z "$feed_id" ] || [ -z "$adapter" ] || [ "$adapter" = "null" ]; then
+        echo "Usage: $0 queryRedStone <feed_id> [adapter_contract]" >&2
+        exit 1
+    fi
+    local feed_ids_json
+    feed_ids_json=$(jq -nc --arg feed "$feed_id" '[$feed]')
+    echo "=== RedStone adapter (${adapter}) feed_id=${feed_id} ===" >&2
+    echo "read_price_data_for_feed:" >&2
+    invoke_view "$adapter" read_price_data_for_feed --feed_id "$feed_id"
+    echo "read_timestamp:" >&2
+    invoke_view "$adapter" read_timestamp --feed_id "$feed_id"
+    echo "read_prices:" >&2
+    invoke_view "$adapter" read_prices --feed_ids "$feed_ids_json"
+}
+
+oracle_union_tag() {
+    jq -r 'if type == "object" and has("tag") then .tag else keys_unsorted[0] end'
+}
+
+oracle_union_value() {
+    jq -c 'if type == "object" and has("values") then (.values[0] // null) else .[keys_unsorted[0]] end'
+}
+
+describe_reflector_asset() {
+    jq -r '
+        def tag: if type == "object" and has("tag") then .tag else keys_unsorted[0] end;
+        def value: if type == "object" and has("values") then (.values[0] // "") else .[keys_unsorted[0]] end;
+        "\(tag):\(value)"
+    '
+}
+
+describe_read_mode() {
+    jq -r '
+        def tag: if type == "object" and has("tag") then .tag else keys_unsorted[0] end;
+        def value: if type == "object" and has("values") then (.values[0] // 0) else (.[keys_unsorted[0]] // 0) end;
+        if tag == "Twap" then "Twap(" + (value | tostring) + ")" else tag end
+    '
+}
+
+describe_oracle_source() {
+    local label=$1
+    local source_json=$2
+    if [ -z "$source_json" ] || [ "$source_json" = "null" ]; then
+        echo "[${label}] not configured" >&2
+        return
+    fi
+
+    local tag body
+    tag=$(printf '%s' "$source_json" | oracle_union_tag)
+    body=$(printf '%s' "$source_json" | oracle_union_value)
+
+    case "$tag" in
+        Reflector)
+            local contract asset read_mode decimals resolution
+            contract=$(printf '%s' "$body" | jq -r '.contract // empty')
+            asset=$(printf '%s' "$body" | jq -c '.asset' | describe_reflector_asset)
+            read_mode=$(printf '%s' "$body" | jq -c '.read_mode' | describe_read_mode)
+            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
+            resolution=$(printf '%s' "$body" | jq -r '.resolution_seconds // "input"')
+            echo "[${label}] Reflector contract=${contract} asset=${asset} read_mode=${read_mode} decimals=${decimals} resolution=${resolution}" >&2
+            ;;
+        RedStone)
+            local contract feed_id decimals max_stale
+            contract=$(printf '%s' "$body" | jq -r '.contract // empty')
+            feed_id=$(printf '%s' "$body" | jq -r '.feed_id // empty')
+            decimals=$(printf '%s' "$body" | jq -r '.decimals // "input"')
+            max_stale=$(printf '%s' "$body" | jq -r '.max_stale_seconds // "input"')
+            echo "[${label}] RedStone contract=${contract} feed_id=${feed_id} decimals=${decimals} max_stale=${max_stale}" >&2
+            ;;
+        *)
+            echo "[${label}] unknown source: ${source_json}" >&2
+            ;;
+    esac
+}
+
+# Compound view: reads a market's stored Oracle V2 config and prints the
+# provider-agnostic primary/anchor wiring.
+get_oracle_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
     local ctrl=$(get_controller)
 
-    # Pull the raw MarketConfig once and cache.
     local mc_json
     mc_json=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         --send=no -- get_market_config --asset "$asset_address")
 
-    local cex_oracle cex_kind cex_symbol dex_oracle dex_kind dex_symbol twap_records
-    cex_oracle=$(echo "$mc_json" | jq -r '.cex_oracle // empty')
-    cex_kind=$(echo "$mc_json"   | jq -r '.cex_asset_kind')
-    cex_symbol=$(echo "$mc_json" | jq -r '.cex_symbol')
-    dex_oracle=$(echo "$mc_json" | jq -r '.dex_oracle // empty')
-    dex_kind=$(echo "$mc_json"   | jq -r '.dex_asset_kind')
-    dex_symbol=$(echo "$mc_json" | jq -r '.dex_symbol')
-    twap_records=$(echo "$mc_json" | jq -r '.twap_records')
+    local oracle_json primary_json anchor_json anchor_tag anchor_value
+    oracle_json=$(printf '%s' "$mc_json" | jq -c '.oracle_config // .')
+    primary_json=$(printf '%s' "$oracle_json" | jq -c '.primary')
+    anchor_json=$(printf '%s' "$oracle_json" | jq -c '.anchor // null')
+    anchor_tag=$(printf '%s' "$anchor_json" | oracle_union_tag 2>/dev/null || echo "None")
 
-    local cex_value="$cex_symbol"
-    [ "$cex_kind" = "0" ] && cex_value="$asset_address"
-    local dex_value="$dex_symbol"
-    [ "$dex_kind" = "0" ] && dex_value="$asset_address"
-    local cex_kind_str="other"
-    [ "$cex_kind" = "0" ] && cex_kind_str="stellar"
-    local dex_kind_str="other"
-    [ "$dex_kind" = "0" ] && dex_kind_str="stellar"
-
-    echo "=== Live Reflector view for ${market_name} (${asset_address}) ===" >&2
-    echo "[CEX leg]  ${cex_oracle} kind=${cex_kind_str} value=${cex_value}" >&2
-    if [ -n "$cex_oracle" ]; then
-        query_reflector_price_cmd "$cex_oracle" "$cex_kind_str" "$cex_value"
-        query_reflector_twap_cmd "$cex_oracle" "$cex_kind_str" "$cex_value" "$twap_records"
-    fi
-
-    if [ -n "$dex_oracle" ]; then
-        echo "[DEX leg]  ${dex_oracle} kind=${dex_kind_str} value=${dex_value}" >&2
-        query_reflector_price_cmd "$dex_oracle" "$dex_kind_str" "$dex_value"
-        query_reflector_twap_cmd "$dex_oracle" "$dex_kind_str" "$dex_value" "$twap_records"
+    echo "=== Oracle V2 config for ${market_name} (${asset_address}) ===" >&2
+    printf '%s\n' "$oracle_json" | jq .
+    describe_oracle_source "primary" "$primary_json"
+    if [ "$anchor_tag" = "Some" ]; then
+        anchor_value=$(printf '%s' "$anchor_json" | oracle_union_value)
+        describe_oracle_source "anchor" "$anchor_value"
     else
-        echo "[DEX leg]  not configured (dex_oracle=null) — market is SpotVsTwap-only" >&2
+        echo "[anchor] not configured" >&2
     fi
+}
+
+get_reflector_cmd() {
+    echo "getReflector is deprecated; showing generic Oracle V2 wiring." >&2
+    get_oracle_cmd "$1"
 }
 
 # ---------------------------------------------------------------------------
@@ -1069,6 +1341,17 @@ case "$1" in
     "queryReflectorTwap")
         query_reflector_twap_cmd "$2" "$3" "$4" "$5"
         ;;
+    "queryRedStone")
+        query_redstone_cmd "$2"
+        ;;
+    "getOracle")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 getOracle <market>" >&2
+            list_markets >&2
+            exit 1
+        fi
+        get_oracle_cmd "$2"
+        ;;
     "getReflector")
         if [ -z "$2" ]; then
             echo "Usage: $0 getReflector <market>" >&2
@@ -1088,20 +1371,20 @@ case "$1" in
         echo "  editAssetConfig <name>          Update asset risk params from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
-        echo "  setupAllMarkets                 Create, configure oracle, then enable all markets"
+        echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
         echo ""
         echo "E-Mode (writes):"
         echo "  listEModeCategories             List configured e-mode categories"
         echo "  addEModeCategory <id>           Create e-mode category from config"
         echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
-        echo "  setupAllEModes                  Create all e-modes from config"
+        echo "  setupAllEModes                  Idempotently configure e-modes; no deploy/unpause"
         echo ""
         echo "Protocol control (writes):"
         echo "  pause | unpause                 Pause/unpause protocol"
         echo "  grantRole <account> <role>      Grant KEEPER | REVENUE | ORACLE"
         echo "  revokeRole <account> <role>     Revoke role"
         echo "  setAggregator                   Set aggregator from networks.json"
-        echo "  setupAll                        Markets + E-Modes from config"
+        echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
         echo "  claimRevenueAll                 Claim revenue for every configured market"
         echo ""
@@ -1125,11 +1408,13 @@ case "$1" in
         echo "  getCollateral <id> <market>     Per-asset collateral amount"
         echo "  getBorrow <id> <market>         Per-asset borrow amount"
         echo ""
-        echo "Reflector probes (debug DualOracle wiring):"
-        echo "  getReflector <market>                                Live CEX + DEX data for a market"
+        echo "Oracle probes (debug Oracle V2 wiring):"
+        echo "  getOracle <market>                                   Stored primary + anchor config"
+        echo "  getReflector <market>                                Deprecated alias for getOracle"
         echo "  queryReflector <oracle>                              decimals + resolution"
         echo "  queryReflectorPrice <oracle> stellar|other <sym|sac> lastprice"
         echo "  queryReflectorTwap  <oracle> stellar|other <sym|sac> [records] prices history"
+        echo "  queryRedStone <feed_id> [adapter]                    RedStone multi-feed price data"
         echo ""
         echo "Examples:"
         echo "  NETWORK=testnet $0 getPrice USDC"

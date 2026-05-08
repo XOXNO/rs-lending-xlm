@@ -25,6 +25,7 @@ pub mod errors {
     // GenericError
     pub const ASSET_NOT_SUPPORTED: u32 = 1;
     pub const ASSET_ALREADY_SUPPORTED: u32 = 2;
+    pub const INVALID_TICKER: u32 = 3;
     pub const INVALID_ASSET: u32 = 6;
     pub const ASSETS_ARE_THE_SAME: u32 = 7;
     pub const WRONG_TOKEN: u32 = 8;
@@ -60,6 +61,8 @@ pub mod errors {
     pub const UNSAFE_PRICE: u32 = 205;
     pub const PRICE_FEED_STALE: u32 = 206;
     pub const BAD_FIRST_TOLERANCE: u32 = 207;
+    pub const REFLECTOR_HISTORY_EMPTY: u32 = 212;
+    pub const TWAP_INSUFFICIENT_OBSERVATIONS: u32 = 219;
     pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
     pub const ORACLE_NOT_CONFIGURED: u32 = 216;
 

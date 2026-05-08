@@ -5,6 +5,7 @@ use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, Executabl
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -36,7 +37,7 @@ pub fn process_flash_loan(
     validation::require_amount_positive(env, amount);
     validation::require_market_active(env, asset);
 
-    let mut cache = ControllerCache::new(env, true);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
 
     let asset_config = cache.cached_asset_config(asset);
     if !asset_config.is_flashloanable {

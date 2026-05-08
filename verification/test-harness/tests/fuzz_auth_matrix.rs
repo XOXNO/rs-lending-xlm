@@ -78,19 +78,8 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfig {
 }
 
 fn sample_oracle_cfg(t: &LendingTest) -> common::types::MarketOracleConfigInput {
-    common::types::MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotOnly,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: 100,
-        last_tolerance_bps: 200,
-        cex_oracle: t.mock_reflector.clone(),
-        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        cex_symbol: Symbol::new(&t.env, ""),
-        dex_oracle: None,
-        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        dex_symbol: Symbol::new(&t.env, ""),
-        twap_records: 3,
-    }
+    let asset = t.resolve_market("USDC").asset.clone();
+    test_harness::reflector_single_spot_config(&t.mock_reflector, &asset, 100, 200)
 }
 
 fn sample_position_limits() -> common::types::PositionLimits {

@@ -11,6 +11,7 @@ use stellar_macros::{only_role, when_not_paused};
 
 use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::positions;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -56,7 +57,7 @@ pub fn process_liquidation(
     // The side-map writes below bump account metadata TTLs, so an explicit
     // `bump_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     // Math phase: decide seizure and repayment amounts.
     //
@@ -488,7 +489,7 @@ fn check_bad_debt_after_liquidation(
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
     // reverts atomically, so no upfront `bump_account` keep-alive is needed.
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
     let account = storage::get_account(env, account_id);
 
     if account.borrow_positions.is_empty() {

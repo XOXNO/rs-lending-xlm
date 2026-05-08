@@ -97,7 +97,8 @@ fn hf_safe_after_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -122,7 +123,8 @@ fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128)
 
     crate::spec::compat::withdraw_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let total_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -152,7 +154,8 @@ fn liquidation_requires_unhealthy_account(
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
     // Pre-state: account is healthy (weighted collateral >= total debt).
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(pre_weighted.raw() >= pre_debt.raw());
@@ -184,14 +187,16 @@ fn supply_cannot_decrease_hf(e: Env, caller: Address, asset: Address, amount: i1
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(pre_weighted.raw() >= pre_debt.raw());
 
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache2 = crate::cache::ControllerCache::new(&e, false);
+    let mut cache2 =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let post_weighted = inline_weighted_collateral_wad(&e, &mut cache2, account_id);
     let post_debt = inline_total_borrow_wad(&e, &mut cache2, account_id);
 

@@ -5,20 +5,46 @@
       "name": "USDC",
       "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
       "decimals": 7,
-      "reflector": {
-        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-        "cex_asset_kind": 1,
-        "cex_symbol": "USDC",
-        "dex_oracle": null,
-        "dex_asset_kind": 0,
-        "dex_symbol": "",
-        "twap_records": 3
-      },
       "oracle": {
-        "exchange_source": 1,
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500
+        "last_tolerance_bps": 500,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "USDC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDC",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        }
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -51,20 +77,46 @@
       "name": "XLM",
       "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
       "decimals": 7,
-      "reflector": {
-        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-        "cex_asset_kind": 1,
-        "cex_symbol": "XLM",
-        "dex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-        "dex_asset_kind": 0,
-        "dex_symbol": "",
-        "twap_records": 3
-      },
       "oracle": {
-        "exchange_source": 3,
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500
+        "last_tolerance_bps": 500,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "XLM"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "XLM",
+                  "max_stale_seconds": 3600
+                }
+              ]
+            }
+          ]
+        }
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -97,20 +149,35 @@
       "name": "EURC",
       "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
       "decimals": 7,
-      "reflector": {
-        "cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-        "cex_asset_kind": 1,
-        "cex_symbol": "EURC",
-        "dex_oracle": null,
-        "dex_asset_kind": 0,
-        "dex_symbol": "",
-        "twap_records": 3
-      },
       "oracle": {
-        "exchange_source": 1,
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
-        "last_tolerance_bps": 500
+        "last_tolerance_bps": 500,
+        "strategy": 0,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "EURC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "None",
+          "values": null
+        }
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -143,20 +210,46 @@
       "name": "USTRY",
       "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
       "decimals": 7,
-      "reflector": {
-        "cex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-        "cex_asset_kind": 0,
-        "cex_symbol": "",
-        "dex_oracle": null,
-        "dex_asset_kind": 0,
-        "dex_symbol": "",
-        "twap_records": 3
-      },
       "oracle": {
-        "exchange_source": 1,
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 300,
-        "last_tolerance_bps": 800
+        "last_tolerance_bps": 800,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+              "asset": {
+                "tag": "Stellar",
+                "values": [
+                  "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USTRY",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        }
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -189,20 +282,46 @@
       "name": "CETES",
       "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
       "decimals": 7,
-      "reflector": {
-        "cex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-        "cex_asset_kind": 0,
-        "cex_symbol": "",
-        "dex_oracle": null,
-        "dex_asset_kind": 0,
-        "dex_symbol": "",
-        "twap_records": 3
-      },
       "oracle": {
-        "exchange_source": 1,
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 400,
-        "last_tolerance_bps": 1000
+        "last_tolerance_bps": 1000,
+        "strategy": 1,
+        "primary": {
+          "tag": "Reflector",
+          "values": [
+            {
+              "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+              "asset": {
+                "tag": "Stellar",
+                "values": [
+                  "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "CETES",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
+        }
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",

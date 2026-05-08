@@ -12,6 +12,7 @@ use soroban_sdk::{
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{
     positions::{borrow, emode, repay, supply, withdraw, EventContext},
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
@@ -181,7 +182,7 @@ pub fn process_multiply(
     );
 
     // Strict-price cache: strategy borrows are risk-increasing.
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     let collateral_config = cache.cached_asset_config(collateral_token);
     if !collateral_config.is_collateralizable {
@@ -269,7 +270,7 @@ pub fn process_swap_debt(
     validation::require_account_owner_match(env, &account, caller);
 
     // Strict-price cache: strategy borrows are risk-increasing.
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     validation::require_amount_positive(env, new_debt_amount);
     // Reject zero-floor swap requests at entry.
@@ -353,8 +354,12 @@ pub fn process_swap_collateral(
 
     // Debt-free collateral swaps are risk-neutral; the tightest oracle
     // tolerance is unnecessary when no outstanding borrows can be liquidated.
-    let allow_unsafe_price = account.borrow_positions.is_empty();
-    let mut cache = ControllerCache::new(env, allow_unsafe_price);
+    let policy = if account.borrow_positions.is_empty() {
+        OraclePolicy::RiskDecreasing
+    } else {
+        OraclePolicy::RiskIncreasing
+    };
+    let mut cache = ControllerCache::new(env, policy);
 
     validation::require_amount_positive(env, from_amount);
     // Reject zero-floor swap requests at entry.
@@ -561,7 +566,7 @@ pub fn process_repay_debt_with_collateral(
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     let (collateral_pos, debt_pos) =
         load_repay_with_collateral_positions(env, &account, collateral_token, debt_token);

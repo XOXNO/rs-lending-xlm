@@ -102,6 +102,9 @@ pub enum OracleError {
     InvalidPrice = 217,
     InvalidStalenessConfig = 218,
     TwapInsufficientObservations = 219,
+    InvalidOracleBase = 220,
+    InvalidOracleDecimals = 221,
+    InvalidOracleResolution = 222,
 }
 
 #[contracterror]

@@ -1,7 +1,10 @@
 extern crate std;
 
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
-use common::types::{InterestRateModel, MarketOracleConfigInput, ReflectorAssetKind};
+use common::types::{
+    InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
+    OracleSourceConfigInputOption, OracleStrategy,
+};
 use soroban_sdk::{vec, Address, Symbol};
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
@@ -176,18 +179,18 @@ fn test_validate_asset_config_accepts_flashloan_fee_at_cap() {
 // ---------------------------------------------------------------------------
 
 fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
-    MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotVsTwap,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: DEFAULT_TOLERANCE.first_upper_bps,
-        last_tolerance_bps: DEFAULT_TOLERANCE.last_upper_bps,
-        cex_oracle: t.mock_reflector.clone(),
-        cex_asset_kind: ReflectorAssetKind::Stellar,
-        cex_symbol: Symbol::new(&t.env, ""),
-        dex_oracle: None,
-        dex_asset_kind: ReflectorAssetKind::Stellar,
-        dex_symbol: Symbol::new(&t.env, ""),
-        twap_records: 3,
+    let asset = t.resolve_market("USDC").asset.clone();
+    test_harness::reflector_primary_anchor_config(
+        &t.mock_reflector,
+        &asset,
+        DEFAULT_TOLERANCE.first_upper_bps,
+        DEFAULT_TOLERANCE.last_upper_bps,
+    )
+}
+
+fn set_primary_reflector_read_mode(cfg: &mut MarketOracleConfigInput, read_mode: OracleReadMode) {
+    if let OracleSourceConfigInput::Reflector(ref mut source) = cfg.primary {
+        source.read_mode = read_mode;
     }
 }
 
@@ -225,12 +228,12 @@ fn test_configure_market_oracle_rejects_excessive_twap_records() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut cfg = base_oracle_config(&t);
-    cfg.twap_records = 13;
+    set_primary_reflector_read_mode(&mut cfg, OracleReadMode::Twap(13));
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }
 
-// config.rs:479 -- DualOracle without dex_oracle rejects InvalidExchangeSrc (#11).
+// PrimaryWithAnchor without an anchor rejects InvalidExchangeSrc (#11).
 #[test]
 #[should_panic(expected = "Error(Contract, #11)")]
 fn test_configure_market_oracle_rejects_dual_without_dex() {
@@ -238,8 +241,57 @@ fn test_configure_market_oracle_rejects_dual_without_dex() {
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
     let mut cfg = base_oracle_config(&t);
-    cfg.exchange_source = common::types::ExchangeSource::DualOracle;
-    cfg.dex_oracle = None;
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.anchor = OracleSourceConfigInputOption::None;
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_configure_market_oracle_rejects_non_usd_base() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client()
+        .set_base_other(&Symbol::new(&t.env, "EUR"));
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_configure_market_oracle_rejects_bad_reflector_decimals() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_decimals(&19);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_resolution(&0);
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #212)")]
+fn test_configure_market_oracle_rejects_missing_twap_history() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_twap_history_mode(&asset, &1);
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }

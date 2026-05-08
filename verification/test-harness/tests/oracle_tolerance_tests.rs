@@ -1,5 +1,10 @@
 extern crate std;
 
+use common::types::{
+    OracleAssetRef, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
+    ReflectorSourceConfig,
+};
+use soroban_sdk::Address;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
     LIQUIDATOR,
@@ -20,7 +25,33 @@ fn setup() -> LendingTest {
 /// Enable dual-source pricing so the controller compares aggregator and
 /// safe (TWAP) prices for tolerance checks.
 fn enable_dual_source(t: &LendingTest, asset_name: &str) {
-    t.set_exchange_source(asset_name, common::types::ExchangeSource::SpotVsTwap);
+    t.set_oracle_primary_anchor(asset_name);
+}
+
+fn set_dual_oracle_dex(t: &LendingTest, asset_name: &str, dex_oracle: Address) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller, || {
+        let key = common::types::ControllerKey::Market(asset.clone());
+        let mut market: common::types::MarketConfig =
+            t.env.storage().persistent().get(&key).unwrap();
+        market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
+        market.oracle_config.primary = match market.oracle_config.primary {
+            OracleSourceConfig::Reflector(mut source) => {
+                source.read_mode = OracleReadMode::Twap(3);
+                OracleSourceConfig::Reflector(source)
+            }
+            source => source,
+        };
+        market.oracle_config.anchor =
+            OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: dex_oracle,
+                asset: OracleAssetRef::Stellar(asset.clone()),
+                read_mode: OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+            }));
+        t.env.storage().persistent().set(&key, &market);
+    });
 }
 
 // ===========================================================================
@@ -122,7 +153,7 @@ fn test_unsafe_price_allows_supply() {
     // Aggregator: $1.00, Safe: $1.10 (10% deviation).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Supply still succeeds (allow_unsafe_price=true for supply). Use the
+    // Supply still succeeds under the risk-decreasing oracle policy. Use the
     // tracking `supply` helper so the new account is registered for the
     // post-state read; bare `try_supply` returns the new account_id without
     // tracking it.
@@ -146,7 +177,7 @@ fn test_unsafe_price_allows_repay() {
     // Deviate the ETH safe price beyond the second tolerance.
     t.set_safe_price("ETH", usd(2200), true, true); // 10% deviation
 
-    // Repay still succeeds with `allow_unsafe_price=true`. Snapshot debt
+    // Repay still succeeds under the permissive repay policy. Snapshot debt
     // before and after to verify the scaled borrow decreases.
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.repay(ALICE, "ETH", 1.0);
@@ -174,8 +205,8 @@ fn test_unsafe_price_blocks_borrow() {
     // Deviate the USDC safe price beyond the second tolerance (10% up).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Borrow fails: USDC (collateral) price is unsafe, and borrow uses
-    // allow_unsafe_price=false.
+    // Borrow fails: USDC (collateral) price is unsafe, and borrow uses the
+    // strict risk-increasing policy.
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
@@ -216,8 +247,8 @@ fn test_unsafe_price_blocks_withdraw_with_borrows() {
     // Deviate the USDC safe price beyond the second tolerance.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Withdraw fails when the user has borrows (risk-increasing,
-    // allow_unsafe_price=false).
+    // Withdraw fails when the user has borrows because it uses the strict
+    // risk-increasing policy.
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
@@ -242,7 +273,7 @@ fn withdraw_succeeds_under_oracle_deviation_when_no_debt() {
     // Push USDC safe price 10% above aggregator (beyond second tolerance of 5%).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // With no debt, the withdraw cache runs with allow_unsafe_price=true,
+    // With no debt, the withdraw cache uses the risk-decreasing policy,
     // and the post-loop health-factor gate short-circuits when no borrows
     // exist. Supply-only users must keep liveness during oracle deviation.
     let wallet_before = t.token_balance(ALICE, "USDC");
@@ -274,7 +305,7 @@ fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
     // Deviate USDC safe price beyond the second tolerance (10% > 5%).
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // With borrows present the cache runs with allow_unsafe_price=false;
+    // With borrows present the cache uses the strict risk-increasing policy;
     // resolving the collateral price must trip OracleError::UnsafePriceNotAllowed.
     let err = t
         .try_withdraw(ALICE, "USDC", 1_000.0)
@@ -313,7 +344,7 @@ fn test_unsafe_price_blocks_liquidation() {
     // Deviate the safe price beyond tolerance so liquidation is blocked.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Liquidation fails: allow_unsafe_price=false for liquidate.
+    // Liquidation fails under the strict risk-increasing policy.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
@@ -378,6 +409,69 @@ fn test_stale_price_blocks_withdraw_with_borrows() {
         result.is_err(),
         "withdraw with borrows should fail with stale price"
     );
+}
+
+#[test]
+fn test_missing_twap_history_blocks_strict_borrow() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &1);
+
+    let result = t.try_borrow(ALICE, "ETH", 10.0);
+    assert_contract_error(result, errors::REFLECTOR_HISTORY_EMPTY);
+}
+
+#[test]
+fn test_missing_twap_history_allows_permissive_supply_fallback() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &1);
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
+}
+
+#[test]
+fn test_primary_anchor_stale_anchor_blocks_strict_borrow() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    let dex_oracle = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_oracle);
+    let stale_ts = t.env.ledger().timestamp().saturating_sub(1_000);
+    dex_client.set_price_at(&usdc_asset, &usd(1), &stale_ts);
+    set_dual_oracle_dex(&t, "USDC", dex_oracle);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 10.0);
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
+}
+
+#[test]
+fn test_dual_oracle_future_dex_reverts() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    let dex_oracle = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_oracle);
+    let future_ts = t.env.ledger().timestamp() + 120;
+    dex_client.set_price_at(&usdc_asset, &usd(1), &future_ts);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    set_dual_oracle_dex(&t, "USDC", dex_oracle);
+
+    let result = t.try_borrow(ALICE, "ETH", 10.0);
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
 
 // ===========================================================================
@@ -681,8 +775,8 @@ fn test_second_tolerance_uses_average_price() {
 #[test]
 fn test_exchange_source_safe_only() {
     let mut t = setup();
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotVsTwap);
-    t.set_exchange_source("ETH", common::types::ExchangeSource::SpotVsTwap);
+    t.set_oracle_primary_anchor("USDC");
+    t.set_oracle_primary_anchor("ETH");
 
     // Set safe prices (used because exchange_source=1).
     t.set_safe_price("USDC", usd(1), true, true);
@@ -763,9 +857,9 @@ fn test_liquidation_dos_flash_crash() {
     // price and attempts to liquidate the underwater position.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 15_000.0);
 
-    // The protocol panics and reverts: liquidation uses
-    // allow_unsafe_price=false, and the 30% deviation between SPOT ($1400)
-    // and TWAP ($1950) exceeds second_tolerance, raising an OracleError.
+    // The protocol panics and reverts: liquidation uses the strict
+    // risk-increasing policy, and the 30% deviation between SPOT ($1400) and
+    // TWAP ($1950) exceeds second_tolerance, raising an OracleError.
     // This perfectly DoSes liquidations precisely when they matter most.
     assert!(
         result.is_err(),

@@ -273,9 +273,9 @@ Constraints enforced at listing or oracle configuration:
   `edit_asset_in_e_mode_category` / `remove_asset_from_e_mode`.
 - `ExchangeSource::SpotOnly` is rejected in non-`testing` builds at
   `configure_market_oracle`.
-- Disabled markets reject normal risk operations. The repay path and view
-  surface use the cache flag `allow_disabled_market_price = true` so they
-  remain reachable.
+- Disabled markets reject normal risk operations. The `Repay`,
+  `IsolatedRepay`, and `View` oracle policies keep the intended repay/read
+  paths reachable.
 
 ## 7. Market Configuration and Risk Parameters
 
@@ -438,23 +438,23 @@ The controller resolves prices through `oracle::token_price`
 - last tolerance in `[MIN_LAST_TOLERANCE, MAX_LAST_TOLERANCE]`,
 - `first_tolerance < last_tolerance`.
 
-Cache modes (`ControllerCache`, `controller/src/cache/mod.rs`) define how
-oracle results are gated:
+Oracle policies (`OraclePolicy`, `controller/src/oracle/policy.rs`) define
+how oracle results are gated:
 
-- **Strict** (`new(env, false)`): deviation outside the last band reverts;
-  staleness reverts. Used by `borrow`, `liquidate`, `multiply`, `swap_*`,
-  `repay_debt_with_collateral`, `update_account_threshold`.
-- **Permissive** (`new(env, true)`): deviation outside the last band falls
-  back to the safe price; staleness is bypassed. Used by `supply`,
-  `flash_loan`, `update_indexes`, `claim_revenue`, debt-free `withdraw`,
-  view paths, pool-parameter upgrade.
-- **Disabled-market permissive**
-  (`new_with_disabled_market_price(env, allow_unsafe)`): same as the prior
-  two but additionally allows pricing for `MarketStatus::Disabled` markets.
-  Used by `repay`. `allow_unsafe = !meta.is_isolated`: isolated accounts
-  use the strict deviation/staleness gates because the global isolated-debt
-  counter is updated in USD WAD.
-- **View** (`new_view`): both flags `true` for read-only entrypoints.
+- **RiskIncreasing**: deviation outside the last band reverts; stale sources
+  and missing TWAP history revert. Used by `borrow`, `liquidate`, risky
+  strategy paths, debt-backed `withdraw`, and `update_account_threshold`.
+- **RiskDecreasing**: deviation outside the last band falls back to the safe
+  price; stale sources and missing TWAP history may fall back only where the
+  source module allows it. Used by `supply`, `flash_loan`, `update_indexes`,
+  `claim_revenue`, and debt-free `withdraw`.
+- **Repay**: same permissive source handling as `RiskDecreasing`, plus
+  pricing remains available for `MarketStatus::Disabled` markets.
+- **IsolatedRepay**: disabled-market pricing stays available, but isolated
+  repay keeps strict stale/deviation/TWAP gates because the global
+  isolated-debt counter is updated in USD WAD.
+- **View**: read-only entrypoints use permissive pricing and can read
+  disabled markets.
 
 The future-timestamp guard (`check_not_future`, ±60 seconds clock skew) is
 unconditional and applies in every mode.
@@ -485,7 +485,7 @@ flowchart TD
     G -->|yes| H["Use safe price"]
     G -->|no| I{"Within last band?"}
     I -->|yes| J["Use midpoint"]
-    I -->|no| K{"allow_unsafe_price?"}
+    I -->|no| K{"Policy allows unsafe deviation?"}
     K -->|yes| H
     K -->|no| R3["Revert UnsafePriceNotAllowed"]
     H --> Z
@@ -540,7 +540,7 @@ from this skeleton.
 (`controller/src/positions/borrow.rs`):
 
 - Caller authorization and account-owner match.
-- Cache is strict (`new(env, false)`).
+- Cache uses `OraclePolicy::RiskIncreasing`.
 - Validates borrowability, LTV, borrow caps, position limits, siloed
   borrowing, e-mode, and isolation debt ceilings.
 - Pool checks reserve availability before transferring tokens.
@@ -554,10 +554,11 @@ from this skeleton.
 (`controller/src/positions/repay.rs`):
 
 - Any authenticated caller may repay any account.
-- Cache is `new_with_disabled_market_price(env, !meta.is_isolated)`: isolated
-  accounts use strict pricing because `IsolatedDebt(asset)` is decremented in
-  USD WAD; non-isolated accounts use permissive pricing and remain reachable
-  for `Disabled` markets.
+- Cache uses `OraclePolicy::IsolatedRepay` for isolated accounts and
+  `OraclePolicy::Repay` otherwise. Isolated accounts use strict pricing
+  because `IsolatedDebt(asset)` is decremented in USD WAD; non-isolated
+  accounts use permissive pricing and remain reachable for `Disabled`
+  markets.
 - Tokens are pulled into the pool with balance-delta accounting; the pool
   burns scaled debt and refunds overpayment.
 - Full repay does not delete the account; account deletion is reserved for

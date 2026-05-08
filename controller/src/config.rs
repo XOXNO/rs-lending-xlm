@@ -12,16 +12,12 @@ use common::events::{
 };
 use common::fp_core;
 use common::types::{
-    AssetConfig, EModeAssetConfig, EModeCategory, ExchangeSource, MarketOracleConfigInput,
-    MarketStatus, OraclePriceFluctuation, OracleProviderConfig, OracleType, PositionLimits,
-    ReflectorAssetKind,
+    AssetConfig, EModeAssetConfig, EModeCategory, MarketOracleConfigInput, MarketStatus,
+    OraclePriceFluctuation, PositionLimits,
 };
-use soroban_sdk::{
-    contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Executable,
-};
+use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable};
 use stellar_macros::{only_owner, only_role};
 
-use crate::oracle::reflector::{ReflectorAsset, ReflectorClient};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -468,61 +464,6 @@ fn validate_and_calculate_tolerances(
     }
 }
 
-fn validate_oracle_asset(env: &Env, asset: &Address) -> u32 {
-    let token_decimals = token::Client::new(env, asset)
-        .try_decimals()
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset))
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset));
-    if token::Client::new(env, asset).try_symbol().is_err() {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
-    token_decimals
-}
-
-fn resolve_oracle_decimals(
-    env: &Env,
-    asset: &Address,
-    config: &MarketOracleConfigInput,
-) -> (u32, u32, u32) {
-    if config.twap_records > 12 {
-        panic_with_error!(env, OracleError::InvalidOracleTokenType);
-    }
-    if config.exchange_source == ExchangeSource::DualOracle && config.dex_oracle.is_none() {
-        panic_with_error!(env, GenericError::InvalidExchangeSrc);
-    }
-
-    let asset_decimals = validate_oracle_asset(env, asset);
-    let reflector_asset = match config.cex_asset_kind {
-        ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
-        ReflectorAssetKind::Other => ReflectorAsset::Other(config.cex_symbol.clone()),
-    };
-
-    let cex_client = ReflectorClient::new(env, &config.cex_oracle);
-    let cex_decimals = cex_client.decimals();
-    if crate::oracle::reflector_lastprice_call(env, &config.cex_oracle, &reflector_asset).is_none()
-    {
-        panic_with_error!(env, GenericError::InvalidTicker);
-    }
-
-    // Probe the DEX feed with the operator-supplied dex_symbol and
-    // dex_asset_kind and reject unresolvable symbols at config time.
-    let dex_decimals = if let Some(dex_addr) = config.dex_oracle.clone() {
-        let dex_client = ReflectorClient::new(env, &dex_addr);
-        let dex_asset = match config.dex_asset_kind {
-            ReflectorAssetKind::Stellar => ReflectorAsset::Stellar(asset.clone()),
-            ReflectorAssetKind::Other => ReflectorAsset::Other(config.dex_symbol.clone()),
-        };
-        if crate::oracle::reflector_lastprice_call(env, &dex_addr, &dex_asset).is_none() {
-            panic_with_error!(env, GenericError::InvalidTicker);
-        }
-        dex_client.decimals()
-    } else {
-        0
-    };
-
-    (asset_decimals, cex_decimals, dex_decimals)
-}
-
 pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleConfigInput) {
     let mut market = match storage::try_get_market_config(env, &asset) {
         Some(m) => m,
@@ -536,63 +477,34 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         panic_with_error!(env, GenericError::PairNotActive);
     }
 
-    // `ExchangeSource::SpotOnly` has no tolerance, TWAP, or divergence
-    // check; forbid it in production builds so a compromised ORACLE key
-    // cannot weaken a live market to unprotected pricing. Test builds
-    // retain SpotOnly for coverage.
-    #[cfg(not(feature = "testing"))]
-    if matches!(config.exchange_source, ExchangeSource::SpotOnly) {
-        panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
-    }
-
     if config.max_price_stale_seconds < 60 || config.max_price_stale_seconds > 86_400 {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
     }
 
-    let (asset_decimals, cex_decimals, dex_decimals) =
-        resolve_oracle_decimals(env, &asset, &config);
+    let tolerance = validate_and_calculate_tolerances(
+        env,
+        config.first_tolerance_bps,
+        config.last_tolerance_bps,
+    );
+    let mut oracle_config =
+        crate::oracle::validation::validate_market_oracle_sources(env, &asset, &config, tolerance);
     // Persist token precision discovered from the asset contract. Under the
     // `testing` feature, preserve any synthetic precision seeded at market
     // creation because the integration harness uses Soroban's SAC helper
     // (fixed at 7 decimals).
-    let persisted_asset_decimals =
-        if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
-            market.oracle_config.asset_decimals
-        } else {
-            asset_decimals
-        };
+    if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
+        oracle_config.asset_decimals = market.oracle_config.asset_decimals;
+    }
 
-    let oracle_config = OracleProviderConfig {
-        base_asset: asset.clone(),
-        oracle_type: OracleType::Normal,
-        exchange_source: config.exchange_source,
-        asset_decimals: persisted_asset_decimals,
-        tolerance: validate_and_calculate_tolerances(
-            env,
-            config.first_tolerance_bps,
-            config.last_tolerance_bps,
-        ),
-        max_price_stale_seconds: config.max_price_stale_seconds,
-    };
-
-    market.oracle_config = oracle_config.clone();
+    market.oracle_config = oracle_config;
     market.status = MarketStatus::Active;
-    market.cex_oracle = Some(config.cex_oracle);
-    market.cex_asset_kind = config.cex_asset_kind;
-    market.cex_symbol = config.cex_symbol;
-    market.cex_decimals = cex_decimals;
-    market.dex_oracle = config.dex_oracle;
-    market.dex_asset_kind = config.dex_asset_kind;
-    market.dex_symbol = config.dex_symbol;
-    market.dex_decimals = dex_decimals;
-    market.twap_records = config.twap_records;
     storage::set_market_config(env, &asset, &market);
 
     emit_update_asset_oracle(
         env,
         UpdateAssetOracleEvent {
-            asset,
-            oracle: EventOracleProvider::from_market(env, &market),
+            asset: asset.clone(),
+            oracle: EventOracleProvider::from_market(env, &asset, &market),
         },
     );
 }
@@ -607,8 +519,8 @@ pub fn edit_oracle_tolerance(env: &Env, asset: Address, first_tolerance: u32, la
     emit_update_asset_oracle(
         env,
         UpdateAssetOracleEvent {
-            asset,
-            oracle: EventOracleProvider::from_market(env, &market),
+            asset: asset.clone(),
+            oracle: EventOracleProvider::from_market(env, &asset, &market),
         },
     );
 }

@@ -436,19 +436,12 @@ impl LendingTestBuilder {
                 // 2. Configure the market oracle in one shot.
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
 
-                let oracle_cfg = common::types::MarketOracleConfigInput {
-                    exchange_source: common::types::ExchangeSource::SpotVsTwap,
-                    max_price_stale_seconds: 900,
-                    first_tolerance_bps: DEFAULT_TOLERANCE.first_upper_bps,
-                    last_tolerance_bps: DEFAULT_TOLERANCE.last_upper_bps,
-                    cex_oracle: mock_reflector_address.clone(),
-                    cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-                    cex_symbol: Symbol::new(&env, ""),
-                    dex_oracle: None,
-                    dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-                    dex_symbol: Symbol::new(&env, ""),
-                    twap_records: 3,
-                };
+                let oracle_cfg = crate::helpers::reflector_primary_anchor_config(
+                    &mock_reflector_address,
+                    &asset_address,
+                    DEFAULT_TOLERANCE.first_upper_bps,
+                    DEFAULT_TOLERANCE.last_upper_bps,
+                );
                 ctrl.configure_market_oracle(&admin, &asset_address, &oracle_cfg);
             }
 

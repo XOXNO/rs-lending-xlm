@@ -1,6 +1,6 @@
 use crate::context::LendingTest;
 use crate::presets::TolerancePreset;
-use common::types::ExchangeSource;
+use common::types::{OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy};
 
 impl LendingTest {
     /// Set the oracle price for an asset. Use with usd(), usd_cents(), usd_frac().
@@ -56,20 +56,48 @@ impl LendingTest {
         mock_reflector.set_twap_price(&asset, &price_wad);
     }
 
-    /// Set the exchange source for an asset's oracle config.
-    ///
-    /// - `0` = aggregator only (default)
-    /// - `1` = safe price only
-    /// - `2+` = both aggregator and safe price (enables tolerance comparison)
-    pub fn set_exchange_source(&self, asset_name: &str, exchange_source: ExchangeSource) {
+    pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
-        // Read the consolidated MarketConfig, update oracle exchange_source, write back
         self.env.as_contract(&self.controller, || {
             let key = common::types::ControllerKey::Market(asset.clone());
             let mut market: common::types::MarketConfig =
                 self.env.storage().persistent().get(&key).unwrap();
-            market.oracle_config.exchange_source = exchange_source;
+            market.oracle_config.strategy = OracleStrategy::Single;
+            market.oracle_config.primary =
+                source_with_read_mode(&market.oracle_config.primary, OracleReadMode::Spot);
+            market.oracle_config.anchor = OracleSourceConfigOption::None;
             self.env.storage().persistent().set(&key, &market);
         });
+    }
+
+    pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
+        let asset = self.resolve_asset(asset_name);
+        self.env.as_contract(&self.controller, || {
+            let key = common::types::ControllerKey::Market(asset.clone());
+            let mut market: common::types::MarketConfig =
+                self.env.storage().persistent().get(&key).unwrap();
+            market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
+            market.oracle_config.primary =
+                source_with_read_mode(&market.oracle_config.primary, OracleReadMode::Twap(3));
+            market.oracle_config.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
+                &market.oracle_config.primary,
+                OracleReadMode::Spot,
+            ));
+            self.env.storage().persistent().set(&key, &market);
+        });
+    }
+}
+
+fn source_with_read_mode(
+    source: &OracleSourceConfig,
+    read_mode: OracleReadMode,
+) -> OracleSourceConfig {
+    match source {
+        OracleSourceConfig::Reflector(config) => {
+            let mut config = config.clone();
+            config.read_mode = read_mode;
+            OracleSourceConfig::Reflector(config)
+        }
+        OracleSourceConfig::RedStone(config) => OracleSourceConfig::RedStone(config.clone()),
     }
 }

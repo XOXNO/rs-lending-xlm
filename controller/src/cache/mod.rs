@@ -4,6 +4,7 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map};
 
+use crate::oracle::policy::OraclePolicy;
 use crate::storage;
 
 pub struct ControllerCache {
@@ -24,35 +25,19 @@ pub struct ControllerCache {
     isolated_debts: Map<Address, i128>,
 
     pub current_timestamp_ms: u64,
-    /// When `true`, the oracle bypasses both the deviation-tolerance gate and
-    /// the staleness gate (`oracle::check_staleness`). The clock-skew gate
-    /// (`check_not_future`) stays unconditional. Liquidation and
-    /// risk-increasing paths construct the cache with this set to `false`.
-    pub allow_unsafe_price: bool,
-    pub allow_disabled_market_price: bool,
+    pub oracle_policy: OraclePolicy,
 }
 
 impl ControllerCache {
-    pub fn new(env: &Env, allow_unsafe_price: bool) -> Self {
-        Self::build(env, allow_unsafe_price, false)
-    }
-
-    /// Permissive constructor used by repay (risk-decreasing) so a user with
-    /// funds in hand can save their position even during a Reflector outage
-    /// or while a market is `Disabled`.
-    pub fn new_with_disabled_market_price(env: &Env, allow_unsafe_price: bool) -> Self {
-        Self::build(env, allow_unsafe_price, true)
+    pub fn new(env: &Env, oracle_policy: OraclePolicy) -> Self {
+        Self::build(env, oracle_policy)
     }
 
     pub fn new_view(env: &Env) -> Self {
-        Self::build(env, true, true)
+        Self::build(env, OraclePolicy::View)
     }
 
-    pub(crate) fn build(
-        env: &Env,
-        allow_unsafe_price: bool,
-        allow_disabled_market_price: bool,
-    ) -> Self {
+    pub(crate) fn build(env: &Env, oracle_policy: OraclePolicy) -> Self {
         let current_timestamp_ms = env.ledger().timestamp() * 1000;
 
         ControllerCache {
@@ -64,8 +49,7 @@ impl ControllerCache {
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
             current_timestamp_ms,
-            allow_unsafe_price,
-            allow_disabled_market_price,
+            oracle_policy,
         }
     }
 

@@ -10,6 +10,7 @@ use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Sentinel passed to the pool to request a full-position withdrawal. The
@@ -56,8 +57,12 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
 
     validation::require_account_owner_match(env, &account, caller);
 
-    let allow_unsafe = account.borrow_positions.is_empty();
-    let mut cache = ControllerCache::new(env, allow_unsafe);
+    let policy = if account.borrow_positions.is_empty() {
+        OraclePolicy::RiskDecreasing
+    } else {
+        OraclePolicy::RiskIncreasing
+    };
+    let mut cache = ControllerCache::new(env, policy);
 
     let withdrawal_plan = utils::aggregate_withdrawal_payments(env, withdrawals);
     for (asset, amount) in withdrawal_plan {

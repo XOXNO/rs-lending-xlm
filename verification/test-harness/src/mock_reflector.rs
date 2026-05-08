@@ -6,7 +6,7 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Sep40Asset {
     Stellar(Address),
     Other(Symbol),
@@ -23,6 +23,10 @@ pub struct PriceData {
 pub enum MockKey {
     Spot(Address),
     Twap(Address),
+    Base,
+    Decimals,
+    Resolution,
+    TwapHistoryMode(Address),
 }
 
 #[contract]
@@ -33,25 +37,77 @@ impl MockReflector {
     /// Test helper: set price (WAD input is converted to 14-decimal storage
     /// so controller's rescale_to_wad() is fully exercised in tests).
     pub fn set_price(env: Env, asset: Address, price_wad: i128) {
+        let timestamp = env.ledger().timestamp();
+        Self::set_price_at(env, asset, price_wad, timestamp);
+    }
+
+    pub fn set_price_at(env: Env, asset: Address, price_wad: i128, timestamp: u64) {
         let price_14 = price_wad / 10_000; // WAD(18) -> 14 decimals
         env.storage()
             .temporary()
-            .set(&MockKey::Spot(asset), &(price_14, env.ledger().timestamp()));
+            .set(&MockKey::Spot(asset), &(price_14, timestamp));
     }
 
     /// Test helper: set a separate TWAP ("safe") price for tolerance testing.
     pub fn set_twap_price(env: Env, asset: Address, price_wad: i128) {
+        let timestamp = env.ledger().timestamp();
+        Self::set_twap_price_at(env, asset, price_wad, timestamp);
+    }
+
+    pub fn set_twap_price_at(env: Env, asset: Address, price_wad: i128, timestamp: u64) {
         let price_14 = price_wad / 10_000;
         env.storage()
             .temporary()
-            .set(&MockKey::Twap(asset), &(price_14, env.ledger().timestamp()));
+            .set(&MockKey::Twap(asset), &(price_14, timestamp));
     }
 
-    pub fn decimals(_env: Env) -> u32 {
-        14
+    pub fn set_base_other(env: Env, symbol: Symbol) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::Base, &Sep40Asset::Other(symbol));
     }
-    pub fn resolution(_env: Env) -> u32 {
-        300
+
+    pub fn set_base_stellar(env: Env, asset: Address) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::Base, &Sep40Asset::Stellar(asset));
+    }
+
+    pub fn set_decimals(env: Env, decimals: u32) {
+        env.storage().temporary().set(&MockKey::Decimals, &decimals);
+    }
+
+    pub fn set_resolution(env: Env, resolution: u32) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::Resolution, &resolution);
+    }
+
+    /// 0 = normal, 1 = None, 2 = empty, 3 = insufficient.
+    pub fn set_twap_history_mode(env: Env, asset: Address, mode: u32) {
+        env.storage()
+            .temporary()
+            .set(&MockKey::TwapHistoryMode(asset), &mode);
+    }
+
+    pub fn base(env: Env) -> Sep40Asset {
+        env.storage()
+            .temporary()
+            .get(&MockKey::Base)
+            .unwrap_or_else(|| Sep40Asset::Other(Symbol::new(&env, "USD")))
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::Decimals)
+            .unwrap_or(14)
+    }
+    pub fn resolution(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::Resolution)
+            .unwrap_or(300)
     }
 
     pub fn lastprice(env: Env, asset: Sep40Asset) -> Option<PriceData> {
@@ -69,13 +125,29 @@ impl MockReflector {
             Sep40Asset::Stellar(a) => a,
             _ => return None,
         };
+        let mode: u32 = env
+            .storage()
+            .temporary()
+            .get(&MockKey::TwapHistoryMode(addr.clone()))
+            .unwrap_or(0);
+        if mode == 1 {
+            return None;
+        }
+        if mode == 2 {
+            return Some(Vec::new(&env));
+        }
         let twap_pd = match env.storage().temporary().get(&MockKey::Twap(addr)) {
             Some((price, timestamp)) => PriceData { price, timestamp },
             None => Self::lastprice(env.clone(), asset)?,
         };
 
         let mut out = Vec::new(&env);
-        for _ in 0..records {
+        let len = if mode == 3 {
+            records.saturating_sub(2).max(1)
+        } else {
+            records
+        };
+        for _ in 0..len {
             out.push_back(twap_pd.clone());
         }
         Some(out)

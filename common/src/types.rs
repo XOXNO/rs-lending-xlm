@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Map, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Map, String, Symbol, Vec};
 
 /// Internal asset + amount pair used by controller operation helpers.
 /// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
@@ -30,23 +30,6 @@ pub enum PositionMode {
     Multiply = 1,
     Long = 2,
     Short = 3,
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum OracleType {
-    None = 0,
-    Normal = 1,
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum ExchangeSource {
-    SpotOnly = 0,
-    SpotVsTwap = 1,
-    DualOracle = 3,
 }
 
 // ---------------------------------------------------------------------------
@@ -233,36 +216,11 @@ pub struct EModeAssetConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Reflector oracle config enums
-// ---------------------------------------------------------------------------
-
-/// SEP-40 asset variant selector for Reflector oracle calls.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ReflectorAssetKind {
-    Stellar = 0,
-    Other = 1,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ReflectorConfig {
-    pub cex_oracle: Address,
-    pub cex_asset_kind: ReflectorAssetKind,
-    pub cex_symbol: Symbol,
-    pub cex_decimals: u32,
-    pub dex_oracle: Option<Address>,
-    pub dex_asset_kind: ReflectorAssetKind,
-    pub dex_decimals: u32,
-    pub twap_records: u32,
-}
-
-// ---------------------------------------------------------------------------
 // Oracle
 // ---------------------------------------------------------------------------
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OraclePriceFluctuation {
     pub first_upper_ratio_bps: u32,
     pub first_lower_ratio_bps: u32,
@@ -271,51 +229,195 @@ pub struct OraclePriceFluctuation {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
-pub struct OracleProviderConfig {
-    pub base_asset: Address,
-    pub oracle_type: OracleType,
-    pub exchange_source: ExchangeSource,
-    pub asset_decimals: u32,
-    pub tolerance: OraclePriceFluctuation,
-    pub max_price_stale_seconds: u64,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum OracleProviderKind {
+    ReflectorSep40 = 0,
+    RedStonePriceFeed = 1,
 }
 
-impl OracleProviderConfig {
-    pub fn default_for(asset: Address, decimals: u32) -> Self {
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleAssetRef {
+    Stellar(Address),
+    Symbol(Symbol),
+    String(String),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleReadMode {
+    Spot,
+    Twap(u32),
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum OracleStrategy {
+    Single = 0,
+    PrimaryWithAnchor = 1,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReflectorSourceConfigInput {
+    pub contract: Address,
+    pub asset: OracleAssetRef,
+    pub read_mode: OracleReadMode,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RedStoneSourceConfigInput {
+    pub contract: Address,
+    pub feed_id: String,
+    pub max_stale_seconds: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleSourceConfigInput {
+    Reflector(ReflectorSourceConfigInput),
+    RedStone(RedStoneSourceConfigInput),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleSourceConfigInputOption {
+    None,
+    Some(OracleSourceConfigInput),
+}
+
+impl OracleSourceConfigInputOption {
+    pub fn as_ref(&self) -> Option<&OracleSourceConfigInput> {
+        match self {
+            Self::None => None,
+            Self::Some(source) => Some(source),
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReflectorSourceConfig {
+    pub contract: Address,
+    pub asset: OracleAssetRef,
+    pub read_mode: OracleReadMode,
+    pub decimals: u32,
+    pub resolution_seconds: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RedStoneSourceConfig {
+    pub contract: Address,
+    pub feed_id: String,
+    pub decimals: u32,
+    pub max_stale_seconds: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleSourceConfig {
+    Reflector(ReflectorSourceConfig),
+    RedStone(RedStoneSourceConfig),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleSourceConfigOption {
+    None,
+    Some(OracleSourceConfig),
+}
+
+impl OracleSourceConfigOption {
+    pub fn as_ref(&self) -> Option<&OracleSourceConfig> {
+        match self {
+            Self::None => None,
+            Self::Some(source) => Some(source),
+        }
+    }
+}
+
+impl OracleSourceConfig {
+    pub fn provider_kind(&self) -> OracleProviderKind {
+        match self {
+            OracleSourceConfig::Reflector(_) => OracleProviderKind::ReflectorSep40,
+            OracleSourceConfig::RedStone(_) => OracleProviderKind::RedStonePriceFeed,
+        }
+    }
+
+    pub fn read_mode(&self) -> OracleReadMode {
+        match self {
+            OracleSourceConfig::Reflector(config) => config.read_mode.clone(),
+            OracleSourceConfig::RedStone(_) => OracleReadMode::Spot,
+        }
+    }
+
+    pub fn decimals(&self) -> u32 {
+        match self {
+            OracleSourceConfig::Reflector(config) => config.decimals,
+            OracleSourceConfig::RedStone(config) => config.decimals,
+        }
+    }
+
+    pub fn max_stale_seconds(&self, default_max_stale_seconds: u64) -> u64 {
+        match self {
+            OracleSourceConfig::Reflector(_) => default_max_stale_seconds,
+            OracleSourceConfig::RedStone(config) => config.max_stale_seconds,
+        }
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketOracleConfig {
+    pub asset_decimals: u32,
+    pub max_price_stale_seconds: u64,
+    pub tolerance: OraclePriceFluctuation,
+    pub strategy: OracleStrategy,
+    pub primary: OracleSourceConfig,
+    pub anchor: OracleSourceConfigOption,
+}
+
+impl MarketOracleConfig {
+    pub fn pending_for(asset: Address, decimals: u32) -> Self {
         Self {
-            base_asset: asset,
-            oracle_type: OracleType::None,
-            exchange_source: ExchangeSource::SpotOnly,
             asset_decimals: decimals,
+            max_price_stale_seconds: 0,
             tolerance: OraclePriceFluctuation {
                 first_upper_ratio_bps: 0,
                 first_lower_ratio_bps: 0,
                 last_upper_ratio_bps: 0,
                 last_lower_ratio_bps: 0,
             },
-            max_price_stale_seconds: 0,
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: asset.clone(),
+                asset: OracleAssetRef::Stellar(asset),
+                read_mode: OracleReadMode::Spot,
+                decimals,
+                resolution_seconds: 0,
+            }),
+            anchor: OracleSourceConfigOption::None,
         }
     }
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketOracleConfigInput {
-    pub exchange_source: ExchangeSource,
     pub max_price_stale_seconds: u64,
     pub first_tolerance_bps: u32,
     pub last_tolerance_bps: u32,
-    pub cex_oracle: Address,
-    pub cex_asset_kind: ReflectorAssetKind,
-    pub cex_symbol: Symbol,
-    pub dex_oracle: Option<Address>,
-    pub dex_asset_kind: ReflectorAssetKind,
-    /// DEX-side symbol passed to the DEX Reflector feed. The controller
-    /// probes `dex_client.lastprice(...)` at configuration time and rejects
-    /// unresolvable symbols with `OracleError::InvalidTicker`.
-    pub dex_symbol: Symbol,
-    pub twap_records: u32,
+    pub strategy: OracleStrategy,
+    pub primary: OracleSourceConfigInput,
+    pub anchor: OracleSourceConfigInputOption,
 }
 
 // ---------------------------------------------------------------------------
@@ -581,18 +683,7 @@ pub struct MarketConfig {
     pub status: MarketStatus,
     pub asset_config: AssetConfig,
     pub pool_address: Address,
-    pub oracle_config: OracleProviderConfig,
-    pub cex_oracle: Option<Address>,
-    pub cex_asset_kind: ReflectorAssetKind,
-    pub cex_symbol: Symbol,
-    pub cex_decimals: u32,
-    pub dex_oracle: Option<Address>,
-    pub dex_asset_kind: ReflectorAssetKind,
-    /// DEX-side symbol passed to the DEX Reflector feed. See
-    /// `MarketOracleConfigInput::dex_symbol`.
-    pub dex_symbol: Symbol,
-    pub dex_decimals: u32,
-    pub twap_records: u32,
+    pub oracle_config: MarketOracleConfig,
 }
 
 /// Per-account state read and written by user operations.

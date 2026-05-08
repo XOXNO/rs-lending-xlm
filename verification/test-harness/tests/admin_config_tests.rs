@@ -3,7 +3,7 @@ extern crate std;
 use common::constants::RAY;
 use common::types::InterestRateModel;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Symbol};
+use soroban_sdk::Address;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
     DEFAULT_TOLERANCE,
@@ -270,19 +270,7 @@ fn test_configure_market_oracle() {
     let asset = t.resolve_market("USDC").asset.clone();
     let new_oracle = t.mock_reflector.clone();
 
-    let config = common::types::MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotVsTwap,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
-        cex_oracle: new_oracle,
-        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
-        dex_oracle: None,
-        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
-        twap_records: 3,
-    };
+    let config = test_harness::reflector_primary_anchor_config(&new_oracle, &asset, 200, 500);
 
     t.mock_reflector_client().set_price(&asset, &1_0000000i128); // Dummy price for dry-run.
 
@@ -290,8 +278,13 @@ fn test_configure_market_oracle() {
     ctrl.configure_market_oracle(&t.admin(), &asset, &config);
 
     let market = ctrl.get_market_config(&asset);
-    assert_eq!(market.cex_oracle, Some(t.mock_reflector.clone()));
-    assert_eq!(market.twap_records, 3);
+    match market.oracle_config.primary {
+        common::types::OracleSourceConfig::Reflector(source) => {
+            assert_eq!(source.contract, t.mock_reflector);
+            assert_eq!(source.read_mode, common::types::OracleReadMode::Twap(3));
+        }
+        _ => panic!("expected Reflector primary source"),
+    }
     assert_eq!(
         (market.status as u32),
         1,
@@ -433,19 +426,8 @@ fn test_role_enforcement_oracle() {
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
-    let reflector = common::types::MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotVsTwap,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
-        cex_oracle: Address::generate(&t.env),
-        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
-        dex_oracle: None,
-        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
-        twap_records: 3,
-    };
+    let reflector =
+        test_harness::reflector_primary_anchor_config(&Address::generate(&t.env), &asset, 200, 500);
 
     let configure_result = match ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector) {
         Ok(res) => res.map_err(|e| e.into()),
@@ -480,24 +462,21 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    let reflector = common::types::MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotVsTwap,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
-        cex_oracle: t.mock_reflector.clone(),
-        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        cex_symbol: soroban_sdk::Symbol::new(&t.env, "USDC"),
-        dex_oracle: None,
-        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
-        twap_records: 2,
-    };
+    let mut reflector =
+        test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 200, 500);
+    if let common::types::OracleSourceConfigInput::Reflector(ref mut source) = reflector.primary {
+        source.read_mode = common::types::OracleReadMode::Twap(2);
+    }
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(&bob_addr, &asset, &reflector);
     let after_configure = ctrl.get_market_config(&asset);
-    assert_eq!(after_configure.cex_oracle, Some(t.mock_reflector.clone()));
-    assert_eq!(after_configure.twap_records, 2);
+    match after_configure.oracle_config.primary {
+        common::types::OracleSourceConfig::Reflector(source) => {
+            assert_eq!(source.contract, t.mock_reflector);
+            assert_eq!(source.read_mode, common::types::OracleReadMode::Twap(2));
+        }
+        _ => panic!("expected Reflector primary source"),
+    }
 
     ctrl.edit_oracle_tolerance(&bob_addr, &asset, &300, &600);
     let after_tolerance = ctrl.get_market_config(&asset);
@@ -574,19 +553,12 @@ fn test_market_initialization_cascade() {
     );
 
     // 2. Configure the full market oracle in one call.
-    let reflector_cfg = common::types::MarketOracleConfigInput {
-        exchange_source: common::types::ExchangeSource::SpotVsTwap,
-        max_price_stale_seconds: 900,
-        first_tolerance_bps: DEFAULT_TOLERANCE.first_upper_bps,
-        last_tolerance_bps: DEFAULT_TOLERANCE.last_upper_bps,
-        cex_oracle: t.mock_reflector.clone(),
-        cex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        cex_symbol: Symbol::new(&t.env, ""),
-        dex_oracle: None,
-        dex_asset_kind: common::types::ReflectorAssetKind::Stellar,
-        dex_symbol: soroban_sdk::Symbol::new(&t.env, ""),
-        twap_records: 3,
-    };
+    let reflector_cfg = test_harness::reflector_primary_anchor_config(
+        &t.mock_reflector,
+        &asset,
+        DEFAULT_TOLERANCE.first_upper_bps,
+        DEFAULT_TOLERANCE.last_upper_bps,
+    );
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(admin, &asset, &reflector_cfg);
 

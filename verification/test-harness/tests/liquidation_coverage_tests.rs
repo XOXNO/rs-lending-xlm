@@ -11,8 +11,8 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
         .with_market(eth_preset())
         .build();
 
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
-    t.set_exchange_source("ETH", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
+    t.set_oracle_single_spot("ETH");
 
     let alice = "alice_excess";
 
@@ -52,7 +52,7 @@ fn test_liquidation_zero_collateral_proportion() {
     t.supply(alice, "USDC", 100.0);
     t.borrow(alice, "ETH", 0.02); // ~$40
 
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
     t.set_price("USDC", 0);
 
     // Any price fetch for USDC panics with InvalidPrice.
@@ -66,8 +66,8 @@ fn test_liquidation_seize_proportional_dust_collateral() {
         .with_market(eth_preset())
         .build();
 
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
-    t.set_exchange_source("ETH", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
+    t.set_oracle_single_spot("ETH");
 
     let alice = "alice_dust";
 
@@ -95,8 +95,8 @@ fn test_liquidation_rejects_if_no_debt_repaid() {
         .with_market(eth_preset())
         .build();
 
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
-    t.set_exchange_source("ETH", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
+    t.set_oracle_single_spot("ETH");
     t.supply("alice_rej", "USDC", 100.0);
     t.borrow("alice_rej", "ETH", 0.03);
     t.set_price("USDC", usd_cents(50));
@@ -114,8 +114,8 @@ fn test_liquidation_multi_debt_capped() {
         .with_market(eth_preset())
         .build();
 
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
-    t.set_exchange_source("ETH", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
+    t.set_oracle_single_spot("ETH");
 
     let alice = "alice_multi";
 

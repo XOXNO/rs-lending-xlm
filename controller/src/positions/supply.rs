@@ -10,6 +10,7 @@ use stellar_macros::{only_role, when_not_paused};
 
 use super::{emode, update};
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 const THRESHOLD_UPDATE_MIN_HF: i128 = 1_050_000_000_000_000_000;
@@ -41,7 +42,7 @@ impl Controller {
 
         // Risk-adjusting path: a threshold tightening can tip a position into
         // liquidation, so oracle prices must stay within tight tolerance.
-        let mut cache = ControllerCache::new(&env, false);
+        let mut cache = ControllerCache::new(&env, OraclePolicy::RiskIncreasing);
 
         let base_config = cache.cached_asset_config(&asset);
         let price_feed = cache.cached_price(&asset);
@@ -92,7 +93,7 @@ pub fn process_supply(
     // still enforced per asset via `validate_isolated_collateral` and
     // `validate_e_mode_asset` below.
 
-    let mut cache = ControllerCache::new(env, true); // Supply is risk-decreasing.
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
 
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
 

@@ -1,12 +1,12 @@
 /// Oracle Invariant Rules
 ///
 /// Verifies the oracle subsystem's correctness with tightly pinned
-/// `(MarketStatus, ExchangeSource, allow_unsafe_price)` configurations to keep
+/// `(MarketStatus, OracleStrategy, OraclePolicy)` configurations to keep
 /// prover branch fan-out bounded:
-///   - Staleness rules pin `Active + SpotOnly + allow_unsafe_price=false` so
+///   - Staleness rules pin `Active + Single + RiskIncreasing` so
 ///     `token_price` traverses one configuration only (1 path instead of 36).
 ///   - Tolerance rules call `calculate_final_price` directly with a hand-built
-///     `OracleProviderConfig`. `calculate_final_price` is unsummarised, takes
+///     `OraclePriceFluctuation`. `calculate_final_price` is unsummarised, takes
 ///     scalar inputs, and traverses the tolerance branches without storage,
 ///     Reflector, or I256 cost. `is_within_anchor` is summarised to a nondet
 ///     bool for the same reason.
@@ -16,14 +16,15 @@
 use cvlr::macros::rule;
 use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{Address, Env};
 
 use common::constants::{
     MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
 };
 use common::types::{
-    AssetConfig, ExchangeSource, MarketConfig, MarketStatus, OraclePriceFluctuation,
-    OracleProviderConfig, OracleType, PriceFeed, ReflectorAssetKind,
+    AssetConfig, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
+    OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
+    OracleStrategy, PriceFeed, ReflectorSourceConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -35,25 +36,6 @@ use common::types::{
 /// values that no real Reflector feed produces.
 const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
 
-/// Builds a minimal `OracleProviderConfig` for direct `calculate_final_price`
-/// invocation. Tolerance fields are taken as parameters; everything else is a
-/// safe placeholder (none of which `calculate_final_price` reads beyond
-/// `tolerance`).
-fn provider_config_with_tolerance(
-    base_asset: Address,
-    exchange_source: ExchangeSource,
-    tolerance: OraclePriceFluctuation,
-) -> OracleProviderConfig {
-    OracleProviderConfig {
-        base_asset,
-        oracle_type: OracleType::Normal,
-        exchange_source,
-        asset_decimals: 7,
-        tolerance,
-        max_price_stale_seconds: 900,
-    }
-}
-
 /// Builds a `MarketConfig` to seed `cache.market_configs` directly. Bypasses
 /// storage so the rule pins one configuration without paying the
 /// `cached_market_config` storage-read fan-out.
@@ -61,9 +43,8 @@ fn pinned_market_config(
     env: &Env,
     asset: &Address,
     pool: &Address,
-    cex_oracle: Address,
+    oracle: Address,
     status: MarketStatus,
-    exchange_source: ExchangeSource,
 ) -> MarketConfig {
     MarketConfig {
         status,
@@ -85,25 +66,25 @@ fn pinned_market_config(
             supply_cap: 3_000_000,
         },
         pool_address: pool.clone(),
-        oracle_config: provider_config_with_tolerance(
-            asset.clone(),
-            exchange_source,
-            OraclePriceFluctuation {
+        oracle_config: MarketOracleConfig {
+            asset_decimals: 7,
+            max_price_stale_seconds: 900,
+            tolerance: OraclePriceFluctuation {
                 first_upper_ratio_bps: 10_200,
                 first_lower_ratio_bps: 9_800,
                 last_upper_ratio_bps: 11_000,
                 last_lower_ratio_bps: 9_000,
             },
-        ),
-        cex_oracle: Some(cex_oracle),
-        cex_asset_kind: ReflectorAssetKind::Stellar,
-        cex_symbol: Symbol::new(env, "X"),
-        cex_decimals: 14,
-        dex_oracle: None,
-        dex_asset_kind: ReflectorAssetKind::Stellar,
-        dex_symbol: Symbol::new(env, "X"),
-        dex_decimals: 14,
-        twap_records: 0,
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                contract: oracle,
+                asset: OracleAssetRef::Stellar(asset.clone()),
+                read_mode: OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+            }),
+            anchor: OracleSourceConfigOption::None,
+        },
     }
 }
 
@@ -115,32 +96,24 @@ fn pinned_market_config(
 /// whose timestamp is no further in the future than the cache clock plus the
 /// 60-second skew tolerance.
 ///
-/// **Pin:** `MarketStatus::Active`, `ExchangeSource::SpotOnly`,
-/// `allow_unsafe_price = false`. Storage fan-out is eliminated by writing the
+/// **Pin:** `MarketStatus::Active`, `OracleStrategy::Single`,
+/// `OraclePolicy::RiskIncreasing`. Storage fan-out is eliminated by writing the
 /// pinned config straight into `cache.market_configs`. Reflector returns are
-/// still havoced (no summary), but the staleness gate at oracle/mod.rs:182
-/// runs against `pd.timestamp` and the clock-skew gate runs against
-/// `feed.timestamp = now_secs`, so the post-condition holds by construction
-/// of the production code path.
+/// still havoced (no summary), but the staleness and clock-skew gates run
+/// against the source timestamp, so the post-condition holds when the
+/// production code path returns.
 #[rule]
-fn price_staleness_enforced(e: Env, asset: Address, pool: Address, cex_oracle: Address) {
-    let mut cache = crate::cache::ControllerCache::new(&e, /* allow_unsafe_price */ false);
+fn price_staleness_enforced(e: Env, asset: Address, pool: Address, oracle: Address) {
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
 
     // Pin the market config: writing into the cache map bypasses storage and
-    // collapses the (status x exchange_source x cex flags) fan-out.
-    let market = pinned_market_config(
-        &e,
-        &asset,
-        &pool,
-        cex_oracle,
-        MarketStatus::Active,
-        ExchangeSource::SpotOnly,
-    );
+    // collapses the status/source-strategy fan-out.
+    let market = pinned_market_config(&e, &asset, &pool, oracle, MarketStatus::Active);
     cache.market_configs.set(asset.clone(), market);
 
     // Production panics on a stale or future-dated feed; if it returns, the
-    // returned feed.timestamp is the cache clock (oracle/mod.rs:55), so the
-    // post-condition is bounded by construction.
+    // returned feed.timestamp has passed the source timestamp validation.
     let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
 
     let now_secs = cache.current_timestamp_ms / 1000;
@@ -161,7 +134,7 @@ fn price_staleness_enforced(e: Env, asset: Address, pool: Address, cex_oracle: A
 #[rule]
 fn first_tolerance_uses_safe_price(
     e: Env,
-    base_asset: Address,
+    _base_asset: Address,
     aggregator_price: i128,
     safe_price: i128,
     first_upper_bps: u32,
@@ -174,28 +147,25 @@ fn first_tolerance_uses_safe_price(
     cvlr_assume!(i128::from(first_lower_bps) >= MIN_FIRST_TOLERANCE);
     cvlr_assume!(i128::from(first_lower_bps) <= MAX_FIRST_TOLERANCE);
 
-    // Permissive cache (allow_unsafe_price = true) avoids any panic for
+    // Permissive risk-decreasing policy avoids any panic for
     // out-of-tolerance scenarios; this rule only exercises the first-band
     // branch return.
-    let cache = crate::cache::ControllerCache::new(&e, true);
-    let cfg = provider_config_with_tolerance(
-        base_asset,
-        ExchangeSource::SpotVsTwap,
-        OraclePriceFluctuation {
-            first_upper_ratio_bps: first_upper_bps,
-            first_lower_ratio_bps: first_lower_bps,
-            // Last band wide enough that "second-band-only" is reachable but
-            // not relevant here.
-            last_upper_ratio_bps: MAX_LAST_TOLERANCE as u32,
-            last_lower_ratio_bps: MIN_LAST_TOLERANCE as u32,
-        },
-    );
+    let cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
+    let tolerance = OraclePriceFluctuation {
+        first_upper_ratio_bps: first_upper_bps,
+        first_lower_ratio_bps: first_lower_bps,
+        // Last band wide enough that "second-band-only" is reachable but
+        // not relevant here.
+        last_upper_ratio_bps: MAX_LAST_TOLERANCE as u32,
+        last_lower_ratio_bps: MIN_LAST_TOLERANCE as u32,
+    };
 
     let final_price = crate::oracle::calculate_final_price(
         &cache,
         Some(aggregator_price),
         Some(safe_price),
-        &cfg,
+        &tolerance,
     );
 
     // The three reachable branches (first-band, second-band, out-of-band
@@ -225,13 +195,13 @@ fn first_tolerance_uses_safe_price(
 /// When the deviation falls inside the second band but outside the first,
 /// `calculate_final_price` returns `(aggregator + safe) / 2`.
 ///
-/// **Approach:** as Rule 2. Builds `OracleProviderConfig` locally, calls
+/// **Approach:** as Rule 2. Builds `OraclePriceFluctuation` locally, calls
 /// `calculate_final_price` directly. The post-condition is the integer
 /// midpoint property: the average lies between the two inputs.
 #[rule]
 fn second_tolerance_uses_average(
     e: Env,
-    base_asset: Address,
+    _base_asset: Address,
     aggregator_price: i128,
     safe_price: i128,
     first_upper_bps: u32,
@@ -252,23 +222,20 @@ fn second_tolerance_uses_average(
     cvlr_assume!(last_upper_bps >= first_upper_bps);
     cvlr_assume!(last_lower_bps >= first_lower_bps);
 
-    let cache = crate::cache::ControllerCache::new(&e, true);
-    let cfg = provider_config_with_tolerance(
-        base_asset,
-        ExchangeSource::SpotVsTwap,
-        OraclePriceFluctuation {
-            first_upper_ratio_bps: first_upper_bps,
-            first_lower_ratio_bps: first_lower_bps,
-            last_upper_ratio_bps: last_upper_bps,
-            last_lower_ratio_bps: last_lower_bps,
-        },
-    );
+    let cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
+    let tolerance = OraclePriceFluctuation {
+        first_upper_ratio_bps: first_upper_bps,
+        first_lower_ratio_bps: first_lower_bps,
+        last_upper_ratio_bps: last_upper_bps,
+        last_lower_ratio_bps: last_lower_bps,
+    };
 
     let final_price = crate::oracle::calculate_final_price(
         &cache,
         Some(aggregator_price),
         Some(safe_price),
-        &cfg,
+        &tolerance,
     );
 
     // Post-condition: when the second-band branch fires, the production code
@@ -292,7 +259,7 @@ fn second_tolerance_uses_average(
 // ---------------------------------------------------------------------------
 
 /// When the deviation exceeds the second tolerance band and the cache is
-/// permissive (`allow_unsafe_price = true`), `calculate_final_price` returns
+/// permissive (`OraclePolicy::RiskDecreasing`), `calculate_final_price` returns
 /// the safe price (oracle/mod.rs:148). The strict-mode panic gate at
 /// oracle/mod.rs:146 cannot be observed via assertion here -- the prover can
 /// pick the summarised `is_within_anchor` to return `true` and dodge the
@@ -300,7 +267,7 @@ fn second_tolerance_uses_average(
 #[rule]
 fn beyond_tolerance_permissive_returns_safe(
     e: Env,
-    base_asset: Address,
+    _base_asset: Address,
     aggregator_price: i128,
     safe_price: i128,
     first_upper_bps: u32,
@@ -320,23 +287,20 @@ fn beyond_tolerance_permissive_returns_safe(
     cvlr_assume!(i128::from(last_lower_bps) <= MAX_LAST_TOLERANCE);
 
     // Permissive cache: risk-decreasing ops (repay, views) opt in.
-    let cache = crate::cache::ControllerCache::new(&e, /* allow_unsafe_price */ true);
-    let cfg = provider_config_with_tolerance(
-        base_asset,
-        ExchangeSource::SpotVsTwap,
-        OraclePriceFluctuation {
-            first_upper_ratio_bps: first_upper_bps,
-            first_lower_ratio_bps: first_lower_bps,
-            last_upper_ratio_bps: last_upper_bps,
-            last_lower_ratio_bps: last_lower_bps,
-        },
-    );
+    let cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
+    let tolerance = OraclePriceFluctuation {
+        first_upper_ratio_bps: first_upper_bps,
+        first_lower_ratio_bps: first_lower_bps,
+        last_upper_ratio_bps: last_upper_bps,
+        last_lower_ratio_bps: last_lower_bps,
+    };
 
     let final_price = crate::oracle::calculate_final_price(
         &cache,
         Some(aggregator_price),
         Some(safe_price),
-        &cfg,
+        &tolerance,
     );
 
     // Across all three branches reachable under permissive mode, the return
@@ -369,7 +333,8 @@ fn beyond_tolerance_permissive_returns_safe(
 /// Reflector traversal.
 #[rule]
 fn price_cache_consistency(e: Env, asset: Address) {
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
 
     // Build a production-realistic feed and pre-populate the cache.
     let price_wad: i128 = nondet();
@@ -413,20 +378,14 @@ fn oracle_tolerance_sanity(e: Env) {
 
 /// Sanity: `token_price` is callable and can return a positive feed.
 ///
-/// **Pin:** `Active + SpotOnly`. The pinned market collapses the
-/// (status x exchange_source) fan-out from 9 paths to 1; the Reflector return
+/// **Pin:** `Active + Single`. The pinned market collapses the
+/// status and strategy fan-out to one path; the Reflector return
 /// remains havoced but is the only remaining nondet branch.
 #[rule]
-fn price_cache_sanity(e: Env, asset: Address, pool: Address, cex_oracle: Address) {
-    let mut cache = crate::cache::ControllerCache::new(&e, true);
-    let market = pinned_market_config(
-        &e,
-        &asset,
-        &pool,
-        cex_oracle,
-        MarketStatus::Active,
-        ExchangeSource::SpotOnly,
-    );
+fn price_cache_sanity(e: Env, asset: Address, pool: Address, oracle: Address) {
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
+    let market = pinned_market_config(&e, &asset, &pool, oracle, MarketStatus::Active);
     cache.market_configs.set(asset.clone(), market);
 
     let feed = crate::oracle::token_price::token_price(&mut cache, &asset);

@@ -9,6 +9,7 @@ use super::EventContext;
 
 use super::update;
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -36,9 +37,13 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     // (non-isolated) accounts have no such global accumulator, so a
     // permissive cache stays acceptable to keep repay reachable during
     // oracle degradation.
-    let allow_unsafe = !meta.is_isolated;
     let mut account = storage::account_from_parts(meta, Map::new(env), borrow_positions);
-    let mut cache = ControllerCache::new_with_disabled_market_price(env, allow_unsafe);
+    let policy = if account.is_isolated {
+        OraclePolicy::IsolatedRepay
+    } else {
+        OraclePolicy::Repay
+    };
+    let mut cache = ControllerCache::new(env, policy);
 
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan {

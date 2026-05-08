@@ -10,6 +10,7 @@ use stellar_macros::when_not_paused;
 
 use super::{emode, update};
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -95,7 +96,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
 
     validation::require_account_owner_match(env, &account, caller);
 
-    let mut cache = ControllerCache::new(env, false);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
     process_borrow_plan(env, caller, account_id, &mut account, borrows, &mut cache);
     validation::require_healthy_account(env, &mut cache, &account);
 

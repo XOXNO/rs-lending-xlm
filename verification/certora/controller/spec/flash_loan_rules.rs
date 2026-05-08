@@ -68,7 +68,8 @@ fn flash_loan_guard_cleared_after_completion(
     // Constrain the asset to a flashloanable, active market. Otherwise
     // `is_flashloanable` (flash_loan.rs:42-44) and `require_market_active`
     // (flash_loan.rs:37) panic before the guard is ever set.
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);
@@ -101,7 +102,8 @@ fn flash_loan_guard_cleared_sanity(
     cvlr_assume!(amount > 0);
     cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
 
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);

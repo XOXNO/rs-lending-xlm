@@ -229,7 +229,8 @@ fn multiply_requires_collateralizable(
     cvlr_assume!((1..=3).contains(&mode));
 
     // Assume collateral asset is NOT collateralizable
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let config = cache.cached_asset_config(&collateral_token);
     cvlr_assume!(!config.is_collateralizable);
 
@@ -605,7 +606,8 @@ fn repay_with_collateral_full_close_removes_account(
 /// reading the same `calculate_account_totals` triple production reads.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
-    let mut cache = crate::cache::ControllerCache::new(&e, false);
+    let mut cache =
+        crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
 
     // PositionNotFound short-circuit: production fast-fails when the account
     // has no borrows, which is not the path this rule covers.

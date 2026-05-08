@@ -13,9 +13,9 @@
 #   make testnet deploy             Deploy all contracts to testnet
 #   make mainnet deploy             Deploy all contracts to mainnet
 #   make testnet upgradeController  Upgrade controller in-place on testnet
-#   make testnet upgradeAll         Upgrade pool template, controller, and all pools
-#   make testnet setup              Deploy + configure markets on testnet
-#   make mainnet setup              Deploy + configure markets on mainnet
+#   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
+#   make testnet setup              Deploy + configure markets/e-modes, then unpause
+#   make mainnet setup              Deploy + configure markets/e-modes, then unpause
 #
 # Ledger signing:
 #   SIGNER=ledger make testnet deploy
@@ -33,6 +33,8 @@ SHELL := /bin/bash
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-pools upgrade-all _deploy \
+        _preflight-tools _preflight-network-config _preflight-setup _preflight-controller _preflight-pool-hash \
+        _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         configure-controller setup-testnet setup-mainnet _setup-markets create-market \
         update-indexes \
@@ -66,6 +68,9 @@ CONFIG_DIR  ?= configs
 FLASH_MARKET ?= XLM
 FLASH_LOAN_AMOUNT ?= 10000000
 FLASH_RECEIVER_FUND ?= 10000000
+POOL_WASM_HASH_FILE ?= /tmp/pool_wasm_hash.txt
+POOL_UPGRADE_WASM_HASH_FILE ?= /tmp/pool_upgrade_wasm_hash.txt
+CONTROLLER_WASM_HASH_FILE ?= /tmp/controller_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
 # Stellar CLI source account flag
@@ -387,6 +392,54 @@ keygen:
 	@echo "Deployer address:"
 	@stellar keys public-key deployer
 
+_preflight-tools:
+	@command -v stellar >/dev/null 2>&1 || { echo "Missing required tool: stellar"; exit 1; }
+	@command -v jq >/dev/null 2>&1 || { echo "Missing required tool: jq"; exit 1; }
+
+_preflight-network-config: _preflight-tools
+	@test -f $(CONFIG_DIR)/networks.json || { echo "Config file not found: $(CONFIG_DIR)/networks.json"; exit 1; }
+	@jq -e '.["$(NETWORK)"] != null' $(CONFIG_DIR)/networks.json >/dev/null || { echo "Network $(NETWORK) not found in $(CONFIG_DIR)/networks.json"; exit 1; }
+	@test -f $(CONFIG_DIR)/$(NETWORK)_markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
+	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)_markets.json"; exit 1; }
+	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)_markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
+	@test -f $(CONFIG_DIR)/emodes.json || { echo "Config file not found: $(CONFIG_DIR)/emodes.json"; exit 1; }
+	@jq -e '.["$(NETWORK)"] | type == "object"' $(CONFIG_DIR)/emodes.json >/dev/null || { echo "E-mode config for $(NETWORK) not found in $(CONFIG_DIR)/emodes.json"; exit 1; }
+
+_preflight-setup: _preflight-network-config
+	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
+		echo "Aggregator not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
+		exit 1; \
+	fi
+
+_preflight-controller: _preflight-network-config
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
+		echo "Controller not configured for $(NETWORK). Deploy first or set configs/networks.json."; \
+		exit 1; \
+	fi
+
+_preflight-pool-hash: _preflight-network-config
+	@HASH=$$(if [ -s $(POOL_WASM_HASH_FILE) ]; then cat $(POOL_WASM_HASH_FILE); else jq -r '.["$(NETWORK)"].pool_wasm_hash // empty' $(CONFIG_DIR)/networks.json; fi); \
+	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
+		echo "Pool WASM hash not found. Run deploy/upgrade-pool-template first or set configs/networks.json."; \
+		exit 1; \
+	fi
+
+_preflight-configure-controller: _preflight-setup _preflight-controller _preflight-pool-hash
+
+_preflight-upgrade-pools: _preflight-controller _preflight-pool-hash
+
+_post-setup-status:
+	@echo ""
+	@echo "=== Setup status ($(NETWORK)) ==="
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh info
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listMarkets
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh listEModeCategories
+
 ## Deploy all contracts to a network
 deploy-testnet: NETWORK=testnet
 deploy-testnet: _deploy
@@ -395,26 +448,29 @@ deploy-mainnet: NETWORK=mainnet
 deploy-mainnet: _deploy
 
 ## Upgrade the deployed controller contract in-place on the selected network.
-upgrade-controller: deploy-artifacts
+upgrade-controller: _preflight-controller deploy-artifacts
 	@echo "=== Upgrading controller on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) | tail -n1); \
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
 		echo "Controller alias not found on $(NETWORK)"; \
 		exit 1; \
 	fi; \
 	stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
-		--network $(NETWORK) > /tmp/controller_upgrade_wasm_hash.txt; \
-	HASH=$$(cat /tmp/controller_upgrade_wasm_hash.txt); \
+		--network $(NETWORK) > $(CONTROLLER_WASM_HASH_FILE); \
+	HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	echo "Controller: $$CTRL"; \
 	echo "New WASM hash: $$HASH"; \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 		-- upgrade --new_wasm_hash $$HASH
 
 ## Upload the latest pool WASM and set it as the controller's pool template.
-upgrade-pool-template: deploy-artifacts
+upgrade-pool-template: _preflight-controller deploy-artifacts
 	@echo "=== Upgrading pool template on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -428,8 +484,8 @@ upgrade-pool-template: deploy-artifacts
 	stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
-		--network $(NETWORK) > /tmp/pool_upgrade_wasm_hash.txt; \
-	HASH=$$(cat /tmp/pool_upgrade_wasm_hash.txt); \
+		--network $(NETWORK) > $(POOL_UPGRADE_WASM_HASH_FILE); \
+	HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	echo "Controller: $$CTRL"; \
 	echo "New pool template WASM hash: $$HASH"; \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
@@ -439,7 +495,7 @@ upgrade-pool-template: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 ## Upgrade every configured pool to the latest pool template hash.
-upgrade-pools:
+upgrade-pools: _preflight-upgrade-pools
 	@echo "=== Upgrading pools on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -450,7 +506,7 @@ upgrade-pools:
 		echo "Controller not found for $(NETWORK)"; \
 		exit 1; \
 	fi; \
-	HASH=$$(cat /tmp/pool_upgrade_wasm_hash.txt 2>/dev/null || jq -r ".\"$(NETWORK)\".pool_wasm_hash // empty" $(CONFIG_DIR)/networks.json); \
+	HASH=$$(if [ -s $(POOL_UPGRADE_WASM_HASH_FILE) ]; then cat $(POOL_UPGRADE_WASM_HASH_FILE); else jq -r ".\"$(NETWORK)\".pool_wasm_hash // empty" $(CONFIG_DIR)/networks.json; fi); \
 	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
 		echo "Pool WASM hash not found. Run upgrade-pool-template first."; \
 		exit 1; \
@@ -473,8 +529,8 @@ upgrade-pools:
 			-- upgrade_pool --asset $$ASSET --new_wasm_hash $$HASH; \
 	done <<< "$$MARKETS"
 
-## Upload pool template, upgrade controller, then upgrade all configured pools.
-upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools
+## Upload pool template, upgrade controller, upgrade all configured pools, then unpause.
+upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
 
 ## Build the flash-loan receiver test contract for network smoke testing.
 build-flash-loan-receiver:
@@ -623,27 +679,27 @@ _deploy: deploy-artifacts
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
-		--network $(NETWORK) > /tmp/pool_wasm_hash.txt
-	@echo "Pool WASM hash: $$(cat /tmp/pool_wasm_hash.txt)"
+		--network $(NETWORK) > $(POOL_WASM_HASH_FILE)
+	@echo "Pool WASM hash: $$(cat $(POOL_WASM_HASH_FILE))"
 	@echo ""
 	@# 3. Upload controller WASM explicitly so deploy references a network-installed hash.
 	@echo "3/4 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
-		--network $(NETWORK) > /tmp/controller_wasm_hash.txt
-	@echo "Controller WASM hash: $$(cat /tmp/controller_wasm_hash.txt)"
+		--network $(NETWORK) > $(CONTROLLER_WASM_HASH_FILE)
+	@echo "Controller WASM hash: $$(cat $(CONTROLLER_WASM_HASH_FILE))"
 	@echo ""
 	@# 4. Deploy Controller
 	@echo "4/4 Deploying Controller..."
 	@stellar contract deploy \
-		--wasm-hash $$(cat /tmp/controller_wasm_hash.txt) \
+		--wasm-hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) \
 		--alias controller \
 		-- --admin $(SIGNER_ADDRESS)
 	@CTRL_ID=$$(stellar contract alias show controller --network $(NETWORK)); \
-	POOL_HASH=$$(cat /tmp/pool_wasm_hash.txt); \
+	POOL_HASH=$$(cat $(POOL_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].pool_wasm_hash = "'$$POOL_HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
@@ -651,14 +707,25 @@ _deploy: deploy-artifacts
 	@echo "=== Deployment complete ==="
 	@echo "Aggregator:     $$(stellar contract alias show aggregator --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
 	@echo "Controller:     $$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
-	@echo "Pool WASM Hash: $$(cat /tmp/pool_wasm_hash.txt)"
+	@echo "Pool WASM Hash: $$(cat $(POOL_WASM_HASH_FILE))"
 
 ## Configure controller after deployment
-configure-controller:
+configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller on $(NETWORK) ==="
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator || echo "Warning: setAggregator failed, continuing..."
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	POOL_HASH=$$(cat /tmp/pool_wasm_hash.txt); \
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
+	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$CTRL" ]; then \
+		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
+		echo "Controller not configured for $(NETWORK). Deploy first or set configs/networks.json."; \
+		exit 1; \
+	fi; \
+	POOL_HASH=$$(if [ -s $(POOL_WASM_HASH_FILE) ]; then cat $(POOL_WASM_HASH_FILE); else jq -r '.["$(NETWORK)"].pool_wasm_hash // empty' $(CONFIG_DIR)/networks.json; fi); \
+	if [ -z "$$POOL_HASH" ] || [ "$$POOL_HASH" = "null" ]; then \
+		echo "Pool WASM hash not found. Run deploy/upgrade-pool-template first or set configs/networks.json."; \
+		exit 1; \
+	fi; \
 	echo "Setting pool template..."; \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 		-- set_liquidity_pool_template --hash $$POOL_HASH
@@ -673,10 +740,10 @@ configure-controller:
 ## Full setup: deploy + configure + create/configure markets and e-modes, then unpause.
 ## Constructor pauses the controller; the final unpause turns the protocol live.
 setup-testnet: NETWORK=testnet
-setup-testnet: deploy-testnet configure-controller _setup-markets _unpause-after-setup
+setup-testnet: _preflight-setup deploy-testnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
 setup-mainnet: NETWORK=mainnet
-setup-mainnet: deploy-mainnet configure-controller _setup-markets _unpause-after-setup
+setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
 _unpause-after-setup:
 	@echo "=== Unpausing $(NETWORK) controller ==="
@@ -689,7 +756,7 @@ _setup-markets:
 		echo "Create it based on configs/devnet_market_configs.json pattern."; \
 		exit 1; \
 	fi
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) ./configs/script.sh setupAll
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
 
 ## Create a single market (interactive)
 create-market:
@@ -780,12 +847,12 @@ define NETWORK_DISPATCH
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
-				setup)              $(MAKE) --no-print-directory _deploy configure-controller _setup-markets NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 			esac; \
 			exit 0 ;; \
 	esac; \
 	args="$(wordlist 3,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))"; \
-	NETWORK=$(1) SIGNER=$(SIGNER) ./configs/script.sh $$action $$args
+	NETWORK=$(1) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh $$action $$args
 endef
 
 testnet:
@@ -864,13 +931,14 @@ help:
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
 	@echo "  make keygen                         Generate deployer key"
+	@echo "  make setup-testnet                  Same as 'make testnet setup'"
 	@echo "  make testnet deploy                 Deploy all contracts"
 	@echo "  make testnet upgradeController      Upgrade controller WASM in-place"
-	@echo "  make testnet upgradeAll             Upgrade pool template, controller, and all pools"
+	@echo "  make testnet upgradeAll             Upgrade pool template, controller, all pools, then unpause"
 	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
 	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
 	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
-	@echo "  make testnet setup                  Full setup (deploy + config + markets)"
+	@echo "  make testnet setup                  Full setup (deploy + config + markets/e-modes + unpause)"
 	@echo "  make testnet info                   Show deployed contract IDs"
 	@echo ""
 	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
@@ -880,14 +948,14 @@ help:
 	@echo "    make testnet editAssetConfig USDC"
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet setupAllMarkets"
+	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"
 	@echo "    make testnet listMarkets"
 	@echo ""
 	@echo "  E-Mode (writes):"
 	@echo "    make testnet addEModeCategory 1"
 	@echo "    make testnet addAssetToEMode 1 USDC"
-	@echo "    make testnet setupAllEModes"
-	@echo "    make testnet setupAll"
+	@echo "    make testnet setupAllEModes        Configure e-modes only; does not deploy or unpause"
+	@echo "    make testnet setupAll              Configure markets/e-modes only; does not deploy or unpause"
 	@echo "    make testnet listEModeCategories"
 	@echo ""
 	@echo "  Positions (writes):"

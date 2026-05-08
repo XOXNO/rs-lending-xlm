@@ -1,8 +1,9 @@
-use soroban_sdk::{contractevent, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol};
 
 use crate::types::{
     Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig,
-    EModeCategory, ExchangeSource, MarketConfig, OraclePriceFluctuation, OracleType, PositionMode,
+    EModeCategory, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
+    OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
 };
 
 // ---------------------------------------------------------------------------
@@ -56,15 +57,6 @@ pub enum EventOracleType {
     Normal = 1,
 }
 
-impl From<OracleType> for EventOracleType {
-    fn from(value: OracleType) -> Self {
-        match value {
-            OracleType::None => Self::None,
-            OracleType::Normal => Self::Normal,
-        }
-    }
-}
-
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -76,12 +68,11 @@ pub enum EventPricingMethod {
     Mix = 4,
 }
 
-impl From<ExchangeSource> for EventPricingMethod {
-    fn from(value: ExchangeSource) -> Self {
+impl From<OracleStrategy> for EventPricingMethod {
+    fn from(value: OracleStrategy) -> Self {
         match value {
-            ExchangeSource::SpotOnly => Self::Instant,
-            ExchangeSource::SpotVsTwap => Self::Safe,
-            ExchangeSource::DualOracle => Self::Mix,
+            OracleStrategy::Single => Self::Instant,
+            OracleStrategy::PrimaryWithAnchor => Self::Mix,
         }
     }
 }
@@ -169,48 +160,141 @@ pub struct EventOracleProvider {
     pub base_token_id: Address,
     pub quote_token_id: Symbol,
     pub tolerance: OraclePriceFluctuation,
-    pub oracle_contract_address: Option<Address>,
     pub pricing_method: EventPricingMethod,
     pub oracle_type: EventOracleType,
-    pub exchange_source: u32,
+    pub strategy: u32,
     pub asset_decimals: u32,
-    pub onedex_pair_id: u32,
     pub max_price_stale_seconds: u64,
-    pub reflector_cex_oracle: Option<Address>,
-    pub reflector_cex_asset_kind: u32,
-    pub reflector_cex_symbol: Option<Symbol>,
-    pub reflector_cex_decimals: u32,
-    pub reflector_dex_oracle: Option<Address>,
-    pub reflector_dex_asset_kind: u32,
-    pub reflector_dex_decimals: u32,
-    pub reflector_twap_records: u32,
+    pub primary_provider: u32,
+    pub primary_contract: Address,
+    pub primary_asset: Option<Address>,
+    pub primary_symbol: Option<Symbol>,
+    pub primary_feed_id: Option<String>,
+    pub primary_read_mode: u32,
+    pub primary_twap_records: u32,
+    pub primary_decimals: u32,
+    pub primary_resolution_seconds: u32,
+    pub primary_max_stale_seconds: u64,
+    pub anchor_provider: Option<u32>,
+    pub anchor_contract: Option<Address>,
+    pub anchor_asset: Option<Address>,
+    pub anchor_symbol: Option<Symbol>,
+    pub anchor_feed_id: Option<String>,
+    pub anchor_read_mode: u32,
+    pub anchor_twap_records: u32,
+    pub anchor_decimals: u32,
+    pub anchor_resolution_seconds: u32,
+    pub anchor_max_stale_seconds: u64,
 }
 
 impl EventOracleProvider {
-    pub fn from_market(env: &Env, market: &MarketConfig) -> Self {
+    pub fn from_market(env: &Env, asset: &Address, market: &MarketConfig) -> Self {
+        let market_max_stale = market.oracle_config.max_price_stale_seconds;
+        let primary = EventOracleSource::from(&market.oracle_config.primary, market_max_stale);
+        let anchor = market
+            .oracle_config
+            .anchor
+            .as_ref()
+            .map(|source| EventOracleSource::from(source, market_max_stale));
+
         Self {
-            base_token_id: market.oracle_config.base_asset.clone(),
+            base_token_id: asset.clone(),
             quote_token_id: Symbol::new(env, "USD"),
             tolerance: market.oracle_config.tolerance.clone(),
-            oracle_contract_address: market.cex_oracle.clone(),
-            pricing_method: market.oracle_config.exchange_source.into(),
-            oracle_type: market.oracle_config.oracle_type.into(),
-            exchange_source: market.oracle_config.exchange_source as u32,
+            pricing_method: market.oracle_config.strategy.into(),
+            oracle_type: EventOracleType::Normal,
+            strategy: market.oracle_config.strategy as u32,
             asset_decimals: market.oracle_config.asset_decimals,
-            onedex_pair_id: 0,
             max_price_stale_seconds: market.oracle_config.max_price_stale_seconds,
-            reflector_cex_oracle: market.cex_oracle.clone(),
-            reflector_cex_asset_kind: market.cex_asset_kind.clone() as u32,
-            reflector_cex_symbol: market
-                .cex_oracle
+            primary_provider: primary.provider,
+            primary_contract: primary.contract,
+            primary_asset: primary.asset,
+            primary_symbol: primary.symbol,
+            primary_feed_id: primary.feed_id,
+            primary_read_mode: primary.read_mode,
+            primary_twap_records: primary.twap_records,
+            primary_decimals: primary.decimals,
+            primary_resolution_seconds: primary.resolution_seconds,
+            primary_max_stale_seconds: primary.max_stale_seconds,
+            anchor_provider: anchor.as_ref().map(|source| source.provider),
+            anchor_contract: anchor.as_ref().map(|source| source.contract.clone()),
+            anchor_asset: anchor.as_ref().and_then(|source| source.asset.clone()),
+            anchor_symbol: anchor.as_ref().and_then(|source| source.symbol.clone()),
+            anchor_feed_id: anchor.as_ref().and_then(|source| source.feed_id.clone()),
+            anchor_read_mode: anchor.as_ref().map(|source| source.read_mode).unwrap_or(0),
+            anchor_twap_records: anchor
                 .as_ref()
-                .map(|_| market.cex_symbol.clone()),
-            reflector_cex_decimals: market.cex_decimals,
-            reflector_dex_oracle: market.dex_oracle.clone(),
-            reflector_dex_asset_kind: market.dex_asset_kind.clone() as u32,
-            reflector_dex_decimals: market.dex_decimals,
-            reflector_twap_records: market.twap_records,
+                .map(|source| source.twap_records)
+                .unwrap_or(0),
+            anchor_decimals: anchor.as_ref().map(|source| source.decimals).unwrap_or(0),
+            anchor_resolution_seconds: anchor
+                .as_ref()
+                .map(|source| source.resolution_seconds)
+                .unwrap_or(0),
+            anchor_max_stale_seconds: anchor
+                .as_ref()
+                .map(|source| source.max_stale_seconds)
+                .unwrap_or(0),
         }
+    }
+}
+
+struct EventOracleSource {
+    provider: u32,
+    contract: Address,
+    asset: Option<Address>,
+    symbol: Option<Symbol>,
+    feed_id: Option<String>,
+    read_mode: u32,
+    twap_records: u32,
+    decimals: u32,
+    resolution_seconds: u32,
+    max_stale_seconds: u64,
+}
+
+impl EventOracleSource {
+    fn from(source: &OracleSourceConfig, market_max_stale_seconds: u64) -> Self {
+        match source {
+            OracleSourceConfig::Reflector(config) => {
+                let (asset, symbol, feed_id) = match &config.asset {
+                    OracleAssetRef::Stellar(asset) => (Some(asset.clone()), None, None),
+                    OracleAssetRef::Symbol(symbol) => (None, Some(symbol.clone()), None),
+                    OracleAssetRef::String(feed_id) => (None, None, Some(feed_id.clone())),
+                };
+                let (read_mode, twap_records) = read_mode_parts(&config.read_mode);
+                Self {
+                    provider: OracleProviderKind::ReflectorSep40 as u32,
+                    contract: config.contract.clone(),
+                    asset,
+                    symbol,
+                    feed_id,
+                    read_mode,
+                    twap_records,
+                    decimals: config.decimals,
+                    resolution_seconds: config.resolution_seconds,
+                    max_stale_seconds: market_max_stale_seconds,
+                }
+            }
+            OracleSourceConfig::RedStone(config) => Self {
+                provider: OracleProviderKind::RedStonePriceFeed as u32,
+                contract: config.contract.clone(),
+                asset: None,
+                symbol: None,
+                feed_id: Some(config.feed_id.clone()),
+                read_mode: 0,
+                twap_records: 0,
+                decimals: config.decimals,
+                resolution_seconds: 0,
+                max_stale_seconds: config.max_stale_seconds,
+            },
+        }
+    }
+}
+
+fn read_mode_parts(read_mode: &OracleReadMode) -> (u32, u32) {
+    match read_mode {
+        OracleReadMode::Spot => (0, 0),
+        OracleReadMode::Twap(records) => (1, *records),
     }
 }
 
@@ -478,8 +562,9 @@ pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
 mod tests {
     use super::*;
     use crate::types::{
-        AssetConfig, EModeAssetConfig, ExchangeSource, MarketConfig, MarketStatus,
-        OracleProviderConfig, OracleType, PositionMode, ReflectorAssetKind,
+        AssetConfig, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
+        OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
+        OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorSourceConfig,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{contract, vec, BytesN, Vec};
@@ -518,20 +603,39 @@ mod tests {
     }
 
     fn dummy_market_config(env: &Env) -> MarketConfig {
+        let asset = dummy_address(env);
+        let oracle = dummy_address(env);
         MarketConfig {
             status: MarketStatus::Active,
             asset_config: dummy_asset_config(env),
             pool_address: dummy_address(env),
-            oracle_config: OracleProviderConfig::default_for(dummy_address(env), 7),
-            cex_oracle: Some(dummy_address(env)),
-            cex_asset_kind: ReflectorAssetKind::Other,
-            cex_symbol: Symbol::new(env, "USD"),
-            cex_decimals: 14,
-            dex_oracle: None,
-            dex_asset_kind: ReflectorAssetKind::Stellar,
-            dex_symbol: Symbol::new(env, ""),
-            dex_decimals: 7,
-            twap_records: 12,
+            oracle_config: MarketOracleConfig {
+                asset_decimals: 7,
+                max_price_stale_seconds: 900,
+                tolerance: OraclePriceFluctuation {
+                    first_upper_ratio_bps: 10_200,
+                    first_lower_ratio_bps: 9_800,
+                    last_upper_ratio_bps: 10_500,
+                    last_lower_ratio_bps: 9_500,
+                },
+                strategy: OracleStrategy::PrimaryWithAnchor,
+                primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                    contract: oracle.clone(),
+                    asset: OracleAssetRef::Stellar(asset.clone()),
+                    read_mode: OracleReadMode::Twap(12),
+                    decimals: 14,
+                    resolution_seconds: 300,
+                }),
+                anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
+                    ReflectorSourceConfig {
+                        contract: oracle,
+                        asset: OracleAssetRef::Stellar(asset),
+                        read_mode: OracleReadMode::Spot,
+                        decimals: 7,
+                        resolution_seconds: 300,
+                    },
+                )),
+            },
         }
     }
 
@@ -584,14 +688,6 @@ mod tests {
     fn event_oracle_type_eq_and_from() {
         assert_eq!(EventOracleType::None, EventOracleType::None);
         assert_ne!(EventOracleType::None, EventOracleType::Normal);
-        assert_eq!(
-            EventOracleType::from(OracleType::None),
-            EventOracleType::None
-        );
-        assert_eq!(
-            EventOracleType::from(OracleType::Normal),
-            EventOracleType::Normal
-        );
     }
 
     #[test]
@@ -599,15 +695,11 @@ mod tests {
         assert_eq!(EventPricingMethod::None, EventPricingMethod::None);
         assert_ne!(EventPricingMethod::Safe, EventPricingMethod::Instant);
         assert_eq!(
-            EventPricingMethod::from(ExchangeSource::SpotOnly),
+            EventPricingMethod::from(OracleStrategy::Single),
             EventPricingMethod::Instant
         );
         assert_eq!(
-            EventPricingMethod::from(ExchangeSource::SpotVsTwap),
-            EventPricingMethod::Safe
-        );
-        assert_eq!(
-            EventPricingMethod::from(ExchangeSource::DualOracle),
+            EventPricingMethod::from(OracleStrategy::PrimaryWithAnchor),
             EventPricingMethod::Mix
         );
     }
@@ -659,12 +751,20 @@ mod tests {
     fn event_oracle_provider_from_market_builds_struct() {
         let env = Env::default();
         let market = dummy_market_config(&env);
-        let provider = EventOracleProvider::from_market(&env, &market);
-        assert_eq!(provider.reflector_cex_decimals, 14);
-        assert_eq!(provider.reflector_dex_decimals, 7);
-        assert_eq!(provider.reflector_twap_records, 12);
-        assert!(provider.reflector_cex_symbol.is_some());
-        assert!(provider.reflector_dex_oracle.is_none());
+        let asset = dummy_address(&env);
+        let provider = EventOracleProvider::from_market(&env, &asset, &market);
+        assert_eq!(
+            provider.primary_provider,
+            OracleProviderKind::ReflectorSep40 as u32
+        );
+        assert_eq!(provider.primary_decimals, 14);
+        assert_eq!(provider.primary_twap_records, 12);
+        assert_eq!(provider.primary_max_stale_seconds, 900);
+        assert!(provider.primary_asset.is_some());
+        assert_eq!(provider.anchor_decimals, 7);
+        assert_eq!(provider.anchor_twap_records, 0);
+        assert_eq!(provider.anchor_max_stale_seconds, 900);
+        assert!(provider.anchor_contract.is_some());
     }
 
     // ---------- emit_* helpers ----------
@@ -770,7 +870,7 @@ mod tests {
                 &env,
                 UpdateAssetOracleEvent {
                     asset: asset.clone(),
-                    oracle: EventOracleProvider::from_market(&env, &market),
+                    oracle: EventOracleProvider::from_market(&env, &asset, &market),
                 },
             );
 

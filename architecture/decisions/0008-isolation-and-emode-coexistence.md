@@ -36,10 +36,9 @@ per-market reverse membership list.
 - Borrows are limited to assets with `isolation_borrow_enabled = true`.
 - Total isolated debt is tracked in `ControllerKey::IsolatedDebt(asset)`
   in USD WAD. Borrowing increments; repay and liquidation decrement.
-- Isolated accounts opt into strict oracle pricing on `repay`
-  (`new_with_disabled_market_price(env, !meta.is_isolated)`, ADR 0004),
-  because the global counter would otherwise drift under permissive
-  pricing.
+- Isolated accounts opt into `OraclePolicy::IsolatedRepay` on `repay`
+  (ADR 0004), because the global counter would otherwise drift under
+  permissive pricing.
 - Isolated debt updates are batched in the cache and flushed once per
   controller op via `cache.flush_isolated_debts()`.
 

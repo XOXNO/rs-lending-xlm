@@ -23,41 +23,52 @@ accounting.
 
 ## Decision
 
-Centralize the policy in `ControllerCache` constructors
+Centralize the policy in `OraclePolicy`
+(`controller/src/oracle/policy.rs`) and pass it through `ControllerCache`
 (`controller/src/cache/mod.rs`):
 
-- `ControllerCache::new(env, allow_unsafe_price)` — base constructor.
-- `ControllerCache::new_with_disabled_market_price(env, allow_unsafe_price)`
-  — additionally allows pricing for `MarketStatus::Disabled` markets.
-- `ControllerCache::new_view(env)` — both flags `true`, used only by
-  read-only entrypoints.
+- `OraclePolicy::RiskIncreasing` — strict pricing for paths that can add
+  borrow risk or liquidate an account.
+- `OraclePolicy::RiskDecreasing` — permissive pricing for paths that reduce
+  risk or only move supply-side state.
+- `OraclePolicy::Repay` — permissive pricing plus disabled-market pricing for
+  normal repay.
+- `OraclePolicy::IsolatedRepay` — disabled-market pricing with strict
+  stale/deviation/TWAP gates for isolated repay.
+- `OraclePolicy::View` — read-only disabled-market/permissive pricing.
 
 Per-flow assignment (`controller/src/positions/*.rs`,
 `controller/src/strategy.rs`, `controller/src/flash_loan.rs`):
 
-| Flow                              | Cache mode                                                     |
-| --------------------------------- | -------------------------------------------------------------- |
-| `borrow`                          | strict (`new(env, false)`)                                     |
-| `liquidate`                       | strict                                                         |
-| `multiply`, `swap_*`              | strict                                                         |
-| `repay_debt_with_collateral`      | strict                                                         |
-| `update_account_threshold`        | strict                                                         |
-| `supply`                          | permissive (`new(env, true)`)                                  |
-| `flash_loan`                      | permissive                                                     |
-| `update_indexes`                  | permissive                                                     |
-| `claim_revenue`, `add_rewards`    | permissive                                                     |
-| `withdraw` (debt-free)            | permissive                                                     |
-| `withdraw` (with debt)            | strict                                                         |
-| `repay`                           | `new_with_disabled_market_price(env, !meta.is_isolated)`       |
-| views                             | `new_view`                                                     |
+| Flow                              | Oracle policy                      |
+| --------------------------------- | ---------------------------------- |
+| `borrow`                          | `RiskIncreasing`                   |
+| `liquidate`                       | `RiskIncreasing`                   |
+| `multiply`, `swap_*`              | `RiskIncreasing`                   |
+| `repay_debt_with_collateral`      | `RiskIncreasing`                   |
+| `update_account_threshold`        | `RiskIncreasing`                   |
+| `supply`                          | `RiskDecreasing`                   |
+| `flash_loan`                      | `RiskDecreasing`                   |
+| `update_indexes`                  | `RiskDecreasing`                   |
+| `claim_revenue`, `add_rewards`    | `RiskDecreasing`                   |
+| `withdraw` (debt-free)            | `RiskDecreasing`                   |
+| `withdraw` (with debt)            | `RiskIncreasing`                   |
+| `repay` (non-isolated)            | `Repay`                            |
+| `repay` (isolated)                | `IsolatedRepay`                    |
+| views                             | `View`                             |
 
-`allow_unsafe_price` controls two gates inside the oracle module:
+`OraclePolicy` controls the gates inside the oracle module:
 
 - **Deviation band** (`oracle::calculate_final_price`): outside the last
   band, strict caches revert (`OracleError::UnsafePriceNotAllowed`);
   permissive caches return the safe price.
-- **Staleness** (`oracle::check_staleness`): strict caches revert
+- **Staleness** (`oracle::sources`): strict policies revert
   (`OracleError::PriceFeedStale`); permissive caches accept the feed.
+- **Missing TWAP history** (`oracle::sources`): strict policies fail closed;
+  explicitly permissive policies may fall back where the source function has
+  a valid spot fallback.
+- **Disabled markets** (`oracle::token_price`): normal policies reject;
+  `Repay`, `IsolatedRepay`, and `View` allow pricing.
 
 The clock-skew gate (`check_not_future`, ±60s) is unconditional and
 applies in every mode.
@@ -96,9 +107,8 @@ Positive:
 
 Negative / accepted costs:
 
-- Two flags (`allow_unsafe_price`, `allow_disabled_market_price`)
-  produce four cache configurations; the matrix above remains part of
-  the verification surface.
+- Multiple policy variants remain part of the verification surface, but the
+  risk semantics are explicit instead of encoded as boolean combinations.
 - Permissive caches accept the safe price even when both sources have
   drifted in the same direction. The two-source design (ADR 0003)
   bounds this risk, and isolated debt opts out of the relaxation.
@@ -106,7 +116,8 @@ Negative / accepted costs:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing — cache modes).
-- `controller/src/cache/mod.rs::{new, new_with_disabled_market_price, new_view}`
-- `controller/src/oracle/mod.rs::{check_staleness, calculate_final_price}`
+- `controller/src/cache/mod.rs::{new, new_view}`
+- `controller/src/oracle/policy.rs`
+- `controller/src/oracle/{sources.rs,tolerance.rs}`
 - `controller/src/positions/repay.rs`
 - `controller/src/positions/withdraw.rs`

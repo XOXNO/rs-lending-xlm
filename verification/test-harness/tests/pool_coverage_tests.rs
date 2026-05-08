@@ -11,7 +11,7 @@ fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
     t.set_accumulator(&accumulator);
 
     // Bypass TWAP to avoid #211 (OracleError::NoAccumulator).
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly); // 0 = SPOT ONLY
+    t.set_oracle_single_spot("USDC"); // 0 = SPOT ONLY
 
     // 1. Supply some liquidity.
     t.supply(ALICE, "USDC", 1000.0);
@@ -74,7 +74,7 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
     t.set_accumulator(&accumulator);
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
 
     t.supply(ALICE, "USDC", 1000.0);
     t.borrow(ALICE, "USDC", 700.0);

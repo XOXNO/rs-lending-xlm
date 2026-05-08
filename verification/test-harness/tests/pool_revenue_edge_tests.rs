@@ -65,7 +65,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
 
     // SpotOnly bypasses the TWAP requirement during oracle reads triggered
     // by `claim_revenue` -> `update_market_with_price`.
-    t.set_exchange_source("USDC", common::types::ExchangeSource::SpotOnly);
+    t.set_oracle_single_spot("USDC");
 
     // Generate USDC revenue: Alice supplies + borrows USDC against her own
     // collateral, then time advances so interest accrues.

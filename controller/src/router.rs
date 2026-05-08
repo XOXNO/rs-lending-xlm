@@ -1,15 +1,14 @@
 use common::errors::{GenericError, OracleError};
 use common::events::{emit_create_market, CreateMarketEvent};
 use common::types::{
-    AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketParams, MarketStatus,
-    OracleProviderConfig, ReflectorAssetKind,
+    AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig, MarketParams,
+    MarketStatus,
 };
-use soroban_sdk::{
-    contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Symbol, Vec,
-};
+use soroban_sdk::{contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -19,7 +18,7 @@ impl Controller {
     pub fn update_indexes(env: Env, caller: Address, assets: Vec<Address>) {
         validation::require_not_flash_loaning(&env);
 
-        let mut cache = ControllerCache::new(&env, true);
+        let mut cache = ControllerCache::new(&env, OraclePolicy::RiskDecreasing);
         utils::sync_market_indexes(&env, &mut cache, &assets);
 
         storage::bump_pools_list(&env);
@@ -175,16 +174,7 @@ pub fn create_liquidity_pool(
         status: MarketStatus::PendingOracle,
         asset_config,
         pool_address: pool_address.clone(),
-        oracle_config: OracleProviderConfig::default_for(asset.clone(), params.asset_decimals),
-        cex_oracle: None,
-        cex_asset_kind: ReflectorAssetKind::Stellar,
-        cex_symbol: Symbol::new(env, ""),
-        cex_decimals: 0,
-        dex_oracle: None,
-        dex_asset_kind: ReflectorAssetKind::Stellar,
-        dex_symbol: Symbol::new(env, ""),
-        dex_decimals: 0,
-        twap_records: 0,
+        oracle_config: MarketOracleConfig::pending_for(asset.clone(), params.asset_decimals),
     };
     storage::set_market_config(env, asset, &market);
 
@@ -248,7 +238,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
 
-    let mut cache = ControllerCache::new(env, true);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     let feed = cache.cached_price(asset);
     pool_update_indexes_call(env, &market.pool_address, feed.price_wad);
 
@@ -290,7 +280,7 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     }
 
     // Safe-price cache: revenue claim cannot liquidate positions.
-    let mut cache = ControllerCache::new(env, true);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     let pool_addr = cache.cached_pool_address(asset);
     let feed = cache.cached_price(asset);
 
@@ -327,7 +317,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     validation::require_amount_positive(env, amount);
 
     // Safe-price cache: reward credit cannot liquidate positions.
-    let mut cache = ControllerCache::new(env, true);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     let pool_addr = cache.cached_pool_address(asset);
     let feed = cache.cached_price(asset);
 
