@@ -18,7 +18,12 @@ use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, Con
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
+    pub fn liquidate(
+        env: Env,
+        liquidator: Address,
+        account_id: u64,
+        debt_payments: Vec<(Address, i128)>,
+    ) {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
@@ -35,9 +40,9 @@ impl Controller {
 // Orchestration
 // ---------------------------------------------------------------------------
 
-/// Executes a liquidation: verifies HF < 1, computes seizure amounts with the dynamic bonus,
-/// repays debt from the liquidator, and seizes proportional collateral.
-/// Triggers automatic bad-debt cleanup when residual collateral falls below `BAD_DEBT_USD_THRESHOLD`.
+// Executes a liquidation: verifies HF < 1, computes seizure amounts with the dynamic bonus,
+// repays debt from the liquidator, and seizes proportional collateral.
+// Triggers automatic bad-debt cleanup when residual collateral falls below `BAD_DEBT_USD_THRESHOLD`.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -483,9 +488,9 @@ fn check_bad_debt_after_liquidation(
     }
 }
 
-/// Socializes the entire position as bad debt: seizes all collateral into protocol revenue
-/// and writes off all debt against the supply index. Callable by the KEEPER role.
-/// Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
+// Socializes the entire position as bad debt: seizes all collateral into protocol revenue
+// and writes off all debt against the supply index. Callable by the KEEPER role.
+// Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
     // reverts atomically, so no upfront `bump_account` keep-alive is needed.

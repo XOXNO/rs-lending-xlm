@@ -10,19 +10,19 @@ use crate::cache::ControllerCache;
 // Position value helpers (used by health factor, liquidation, views)
 // ---------------------------------------------------------------------------
 
-/// Computes the USD value of a position: `(scaled × index).to_wad() × price`.
+// Computes the USD value of a position: `(scaled × index).to_wad() × price`.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)
 }
 
-/// Returns `value × threshold_bps / BPS` — the liquidation-threshold-weighted collateral value.
+// Returns `value × threshold_bps / BPS` — the liquidation-threshold-weighted collateral value.
 pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad(env, value)
 }
 
-/// Sums the LTV-weighted USD value of all supply positions. Used as the borrow capacity ceiling.
+// Sums the LTV-weighted USD value of all supply positions. Used as the borrow capacity ceiling.
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut ControllerCache,
@@ -186,8 +186,8 @@ crate::summarized!(
 // Liquidation math helpers
 // ---------------------------------------------------------------------------
 
-/// Interpolates the liquidation bonus linearly from `base` to `max` based on how far
-/// `hf` is below `target`. Returns `base` when `hf ≥ target`.
+// Interpolates the liquidation bonus linearly from `base` to `max` based on how far
+// `hf` is below `target`. Returns `base` when `hf ≥ target`.
 pub fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -225,9 +225,9 @@ crate::summarized!(
 );
 
 #[allow(clippy::too_many_arguments)]
-/// Estimates the optimal debt repayment amount and bonus that restores HF toward the target.
-/// Tries the 1.02 target first; falls back to 1.01, then the base-bonus maximum-collateral path.
-/// Returns `(debt_to_repay_usd, bonus_bps)`.
+// Estimates the optimal debt repayment amount and bonus that restores HF toward the target.
+// Tries the 1.02 target first; falls back to 1.01, then the base-bonus maximum-collateral path.
+// Returns `(debt_to_repay_usd, bonus_bps)`.
 pub fn estimate_liquidation_amount(
     env: &Env,
     total_debt: Wad,
@@ -362,8 +362,8 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(total_debt))
 }
 
-/// Returns the collateral-value-weighted average liquidation bonus and the protocol maximum bonus.
-/// Returns `(0, MAX_LIQUIDATION_BONUS)` when there are no supply positions.
+// Returns the collateral-value-weighted average liquidation bonus and the protocol maximum bonus.
+// Returns `(0, MAX_LIQUIDATION_BONUS)` when there are no supply positions.
 pub fn get_account_bonus_params(
     env: &Env,
     cache: &mut ControllerCache,

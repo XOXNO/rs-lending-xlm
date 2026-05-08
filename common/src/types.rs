@@ -1,8 +1,8 @@
 use soroban_sdk::{contracttype, Address, Map, String, Symbol, Vec};
 
-/// Internal asset + amount pair used by controller operation helpers.
-/// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
-/// spec generator emits a tuple type instead of an undefined Rust alias.
+// Internal asset + amount pair used by controller operation helpers.
+// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
+// spec generator emits a tuple type instead of an undefined Rust alias.
 pub type Payment = (Address, i128);
 
 // ---------------------------------------------------------------------------
@@ -46,15 +46,15 @@ pub struct MarketParams {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    /// Reserve factor in basis points. Bounded by `BPS` (10 000).
+    // Reserve factor in basis points. Bounded by `BPS` (10 000).
     pub reserve_factor_bps: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
 
-/// Interest-rate model update payload. Separates the 8 mutable rate params
-/// from `asset_id`/`asset_decimals`, which the controller resolves from
-/// storage and never accepts from the caller.
+// Interest-rate model update payload. Separates the 8 mutable rate params
+// from `asset_id`/`asset_decimals`, which the controller resolves from
+// storage and never accepts from the caller.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct InterestRateModel {
@@ -65,7 +65,7 @@ pub struct InterestRateModel {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    /// Reserve factor in basis points. Bounded by `BPS` (10 000).
+    // Reserve factor in basis points. Bounded by `BPS` (10 000).
     pub reserve_factor_bps: u32,
 }
 
@@ -73,22 +73,22 @@ pub struct InterestRateModel {
 // Account position
 // ---------------------------------------------------------------------------
 
-/// Per-position snapshot stored as the value in
-/// `Map<Address, AccountPosition>` under
-/// `SupplyPositions(account_id)` / `BorrowPositions(account_id)`.
-///
-/// Context that the value omits is derived from where it lives:
-/// * `asset` — the enclosing map key.
-/// * `position_type` — the enclosing storage key (supply vs borrow).
-/// * `account_id` — the discriminant inside that storage key.
-///
-/// Event payloads carry these three explicitly via
-/// [`crate::events::EventAccountPosition::new`], filled in by the
-/// emit-site from local context.
-///
-/// The four risk-parameter fields are an open-time snapshot — see
-/// `feedback_account_position_snapshot.md`. They are bounded by
-/// `BPS` (10 000), so `u32` covers the full domain.
+// Per-position snapshot stored as the value in
+// `Map<Address, AccountPosition>` under
+// `SupplyPositions(account_id)` / `BorrowPositions(account_id)`.
+//
+// Context that the value omits is derived from where it lives:
+// * `asset` — the enclosing map key.
+// * `position_type` — the enclosing storage key (supply vs borrow).
+// * `account_id` — the discriminant inside that storage key.
+//
+// Event payloads carry these three explicitly via
+// [`crate::events::EventAccountPosition::new`], filled in by the
+// emit-site from local context.
+//
+// The four risk-parameter fields are an open-time snapshot — see
+// `feedback_account_position_snapshot.md`. They are bounded by
+// `BPS` (10 000), so `u32` covers the full domain.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
@@ -106,7 +106,7 @@ pub struct AccountPosition {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
-    /// Risk parameters in basis points. Bounded by `BPS` (10 000).
+    // Risk parameters in basis points. Bounded by `BPS` (10 000).
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
@@ -117,19 +117,19 @@ pub struct AssetConfig {
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
     pub isolation_borrow_enabled: bool,
-    /// Isolation debt ceiling, WAD-scaled USD. `i128` — domain reaches
-    /// `1e27` for billion-dollar caps.
+    // Isolation debt ceiling, WAD-scaled USD. `i128` — domain reaches
+    // `1e27` for billion-dollar caps.
     pub isolation_debt_ceiling_usd_wad: i128,
     pub flashloan_fee_bps: u32,
-    /// Asset-unit caps. `i128` — high-decimal tokens push raw supply
-    /// past `u64`; `-1` / `i128::MAX` encodes "no cap".
+    // Asset-unit caps. `i128` — high-decimal tokens push raw supply
+    // past `u64`; `-1` / `i128::MAX` encodes "no cap".
     pub borrow_cap: i128,
     pub supply_cap: i128,
-    /// E-mode category memberships for this asset. Empty when the asset
-    /// is not enrolled in any category — `has_emode()` returns false in
-    /// that state. Maintained by `add_asset_to_e_mode_category` /
-    /// `remove_asset_from_e_mode` / `remove_e_mode_category` so it
-    /// stays in sync with the per-category `EModeCategory.assets` map.
+    // E-mode category memberships for this asset. Empty when the asset
+    // is not enrolled in any category — `has_emode()` returns false in
+    // that state. Maintained by `add_asset_to_e_mode_category` /
+    // `remove_asset_from_e_mode` / `remove_e_mode_category` so it
+    // stays in sync with the per-category `EModeCategory.assets` map.
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -177,9 +177,9 @@ impl AccountAttributes {
     }
 }
 
-/// Slim account context. The supply and borrow position maps live under
-/// `ControllerKey::SupplyPositions` / `ControllerKey::BorrowPositions` and
-/// serve as their own asset index — no Vec is maintained here.
+// Slim account context. The supply and borrow position maps live under
+// `ControllerKey::SupplyPositions` / `ControllerKey::BorrowPositions` and
+// serve as their own asset index — no Vec is maintained here.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -194,10 +194,10 @@ pub struct AccountMeta {
 // E-Mode
 // ---------------------------------------------------------------------------
 
-/// One ledger entry per category, holding the params plus the member
-/// assets map. `category_id` is the storage-key discriminant
-/// (`ControllerKey::EModeCategory(u32)`) and is re-injected into event
-/// payloads by the emit-site.
+// One ledger entry per category, holding the params plus the member
+// assets map. `category_id` is the storage-key discriminant
+// (`ControllerKey::EModeCategory(u32)`) and is re-injected into event
+// payloads by the emit-site.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeCategory {
@@ -529,7 +529,7 @@ pub struct LiquidationEstimate {
     pub bonus_rate_bps: i128,
 }
 
-/// Named entry for a seized collateral asset produced by `execute_liquidation`.
+// Named entry for a seized collateral asset produced by `execute_liquidation`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
@@ -540,7 +540,7 @@ pub struct SeizeEntry {
     pub market_index: MarketIndex,
 }
 
-/// Named entry for a repaid debt asset produced by `execute_liquidation`.
+// Named entry for a repaid debt asset produced by `execute_liquidation`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct RepayEntry {
@@ -551,7 +551,7 @@ pub struct RepayEntry {
     pub market_index: MarketIndex,
 }
 
-/// Aggregate result of `execute_liquidation`.
+// Aggregate result of `execute_liquidation`.
 #[derive(Clone)]
 pub struct LiquidationResult {
     pub seized: Vec<SeizeEntry>,
@@ -578,8 +578,8 @@ pub struct LiquidationResult {
 // the bytes have to match across all three crates.
 // ---------------------------------------------------------------------------
 
-/// Which DEX/venue routes a given hop. Tag-only enum — every hop is
-/// dispatched on this discriminant inside the router contract.
+// Which DEX/venue routes a given hop. Tag-only enum — every hop is
+// dispatched on this discriminant inside the router contract.
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapVenue {
@@ -590,73 +590,73 @@ pub enum SwapVenue {
     StaticBridge,
 }
 
-/// Single hop in a path. `pool`, `token_in`, `token_out` are all Soroban
-/// `Address` values; Classic assets are pre-resolved to their SAC
-/// contract IDs by the off-chain builder.
+// Single hop in a path. `pool`, `token_in`, `token_out` are all Soroban
+// `Address` values; Classic assets are pre-resolved to their SAC
+// contract IDs by the off-chain builder.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapHop {
-    /// Fee in basis points (1 bps = 0.01%). Informational; the pool has
-    /// authority over actual fees applied.
+    // Fee in basis points (1 bps = 0.01%). Informational; the pool has
+    // authority over actual fees applied.
     pub fee_bps: u32,
-    /// Pool contract address (for Soroswap/Aquarius/Phoenix), LP account
-    /// (for NativeAmm), or zero bytes (for StaticBridge).
+    // Pool contract address (for Soroswap/Aquarius/Phoenix), LP account
+    // (for NativeAmm), or zero bytes (for StaticBridge).
     pub pool: Address,
     pub token_in: Address,
     pub token_out: Address,
     pub venue: SwapVenue,
 }
 
-/// One path in a (possibly multi-path) swap.
-///
-/// `split_ppm` is parts per million of the total input allocated to this
-/// path. The router computes per-path input as
-/// `total_in * split_ppm / 1_000_000`; the LAST path absorbs PPM rounding
-/// so the entire `total_in` is consumed and no dust is left on the
-/// sender. Within a path, output of hop N feeds hop N+1 directly — there
-/// are no per-hop or per-path amount fields. The single `total_min_out`
-/// guard at the router-batch level is the only slippage gate.
+// One path in a (possibly multi-path) swap.
+//
+// `split_ppm` is parts per million of the total input allocated to this
+// path. The router computes per-path input as
+// `total_in * split_ppm / 1_000_000`; the LAST path absorbs PPM rounding
+// so the entire `total_in` is consumed and no dust is left on the
+// sender. Within a path, output of hop N feeds hop N+1 directly — there
+// are no per-hop or per-path amount fields. The single `total_min_out`
+// guard at the router-batch level is the only slippage gate.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapPath {
     pub hops: Vec<SwapHop>,
-    /// Parts per million of the total input. `> 0`; sum across all paths
-    /// must equal `1_000_000`.
+    // Parts per million of the total input. `> 0`; sum across all paths
+    // must equal `1_000_000`.
     pub split_ppm: u32,
 }
 
-/// User-facing aggregator swap request. The controller wraps this in
-/// `BatchSwap` (filling `sender = current_contract_address` and
-/// `total_in = actual_withdrawn`) before dispatching to the router.
-/// Off-chain callers produce this directly from the indexer's quote
-/// response.
+// User-facing aggregator swap request. The controller wraps this in
+// `BatchSwap` (filling `sender = current_contract_address` and
+// `total_in = actual_withdrawn`) before dispatching to the router.
+// Off-chain callers produce this directly from the indexer's quote
+// response.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AggregatorSwap {
-    /// One or more paths that all converge on the same final
-    /// `token_out`. Each path's `split_ppm` declares its share of the
-    /// total input.
+    // One or more paths that all converge on the same final
+    // `token_out`. Each path's `split_ppm` declares its share of the
+    // total input.
     pub paths: Vec<SwapPath>,
-    /// Aggregate slippage floor across all paths. Computed off-chain
-    /// against quoted `amount_out * (1 - slippage)`. Must be > 0.
+    // Aggregate slippage floor across all paths. Computed off-chain
+    // against quoted `amount_out * (1 - slippage)`. Must be > 0.
     pub total_min_out: i128,
 }
 
-/// Backward-compatible name used by the Certora specs.
+// Backward-compatible name used by the Certora specs.
 pub type SwapSteps = AggregatorSwap;
 
-/// Full batch passed to `Router::batch_execute`. Internal — strategy
-/// endpoints take [`AggregatorSwap`] and the controller fills `sender`,
-/// `total_in`, and `referral_id = 0` (lending strategies never charge
-/// fees on user collateral / debt operations; the standalone swap UI
-/// is the path that uses non-zero `referral_id`).
+// Full batch passed to `Router::batch_execute`. Internal — strategy
+// endpoints take [`AggregatorSwap`] and the controller fills `sender`,
+// `total_in`, and `referral_id = 0` (lending strategies never charge
+// fees on user collateral / debt operations; the standalone swap UI
+// is the path that uses non-zero `referral_id`).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct BatchSwap {
     pub paths: Vec<SwapPath>,
-    /// Referral ID for fee attribution. `0` means no fee. Lending
-    /// strategies always pass `0`; only direct user→router swaps via
-    /// the standalone swap UI use a non-zero referral ID.
+    // Referral ID for fee attribution. `0` means no fee. Lending
+    // strategies always pass `0`; only direct user→router swaps via
+    // the standalone swap UI use a non-zero referral ID.
     pub referral_id: u64,
     pub sender: Address,
     pub total_in: i128,
@@ -667,7 +667,7 @@ pub struct BatchSwap {
 // Consolidated storage types
 // ---------------------------------------------------------------------------
 
-/// Market lifecycle status.
+// Market lifecycle status.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -686,7 +686,7 @@ pub struct MarketConfig {
     pub oracle_config: MarketOracleConfig,
 }
 
-/// Per-account state read and written by user operations.
+// Per-account state read and written by user operations.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -737,8 +737,8 @@ impl From<&AccountMeta> for AccountAttributes {
 // Storage key enums
 // ---------------------------------------------------------------------------
 
-/// Controller contract storage keys. Small integer fields use u32 because
-/// `#[contracttype]` enum variant data does not support u8.
+// Controller contract storage keys. Small integer fields use u32 because
+// `#[contracttype]` enum variant data does not support u8.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
@@ -756,17 +756,17 @@ pub enum ControllerKey {
     AccountMeta(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
-    /// Single ledger entry per category — params + member-asset map
-    /// inside the [`EModeCategory`] value. One TTL bump per category.
+    // Single ledger entry per category — params + member-asset map
+    // inside the [`EModeCategory`] value. One TTL bump per category.
     EModeCategory(u32),
     IsolatedDebt(Address),
-    /// Single ledger entry holding `Vec<Address>` (asset addresses).
-    /// Pool address per asset is resolved via [`MarketConfig::pool_address`];
-    /// no separate `PoolsCount` is kept (vec.len() is authoritative).
+    // Single ledger entry holding `Vec<Address>` (asset addresses).
+    // Pool address per asset is resolved via [`MarketConfig::pool_address`];
+    // no separate `PoolsCount` is kept (vec.len() is authoritative).
     PoolsList,
 }
 
-/// Pool storage keys, all Instance-scoped.
+// Pool storage keys, all Instance-scoped.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
@@ -774,7 +774,7 @@ pub enum PoolKey {
     State,
 }
 
-/// Mutable pool state held in a single Instance entry.
+// Mutable pool state held in a single Instance entry.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolState {

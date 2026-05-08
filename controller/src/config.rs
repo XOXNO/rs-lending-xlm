@@ -90,11 +90,6 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn remove_asset_e_mode_category(env: Env, asset: Address, category_id: u32) {
-        remove_asset_from_e_mode(&env, asset, category_id);
-    }
-
-    #[only_owner]
     pub fn approve_token_wasm(env: Env, token: Address) {
         storage::set_token_approved(&env, &token, true);
         let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
@@ -226,9 +221,9 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
 // E-Mode categories
 // ---------------------------------------------------------------------------
 
-/// Validates an e-mode category's risk params against the global bps
-/// invariants. Lifts the `u32` inputs into `i128` once so the existing
-/// `BPS` / `MAX_LIQUIDATION_BONUS` i128 constants stay authoritative.
+// Validates an e-mode category's risk params against the global bps
+// invariants. Lifts the `u32` inputs into `i128` once so the existing
+// `BPS` / `MAX_LIQUIDATION_BONUS` i128 constants stay authoritative.
 fn validate_emode_params(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv_i = i128::from(ltv);
     let threshold_i = i128::from(threshold);
@@ -421,10 +416,10 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
 // Oracle configuration
 // ---------------------------------------------------------------------------
 
-/// Bps math is i128-backed; the inputs/outputs are bounded by `BPS +
-/// MAX_*_TOLERANCE` so the return values always fit in `u32` after the
-/// `i128` arithmetic settles. Convert at the boundary via this helper
-/// so the bps domain invariant is enforced in one place.
+// Bps math is i128-backed; the inputs/outputs are bounded by `BPS +
+// MAX_*_TOLERANCE` so the return values always fit in `u32` after the
+// `i128` arithmetic settles. Convert at the boundary via this helper
+// so the bps domain invariant is enforced in one place.
 fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }

@@ -55,7 +55,7 @@ fn test_validate_bulk_isolation_rejects_isolated_first_asset_bulk() {
 // validate_interest_rate_model invariants
 // ---------------------------------------------------------------------------
 //
-// Driven via `upgrade_pool_params`, which calls `validate_interest_rate_model`
+// Driven via `upgrade_liquidity_pool_params`, which calls `validate_interest_rate_model`
 // directly with no other invariants in the way.
 
 fn baseline_irm() -> InterestRateModel {
@@ -79,7 +79,7 @@ fn test_validate_irm_rejects_negative_base_rate() {
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
     irm.base_borrow_rate_ray = -1;
-    t.ctrl_client().upgrade_pool_params(&asset, &irm);
+    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
 
 // validation.rs:185 -- mid_utilization_ray <= 0 rejects InvalidUtilRange (#117).
@@ -90,7 +90,7 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
     irm.mid_utilization_ray = 0;
-    t.ctrl_client().upgrade_pool_params(&asset, &irm);
+    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
 
 // validation.rs:188 -- optimal_utilization_ray <= mid_utilization_ray rejects #117.
@@ -101,7 +101,7 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
     irm.optimal_utilization_ray = irm.mid_utilization_ray;
-    t.ctrl_client().upgrade_pool_params(&asset, &irm);
+    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
 
 // validation.rs:191 -- optimal_utilization_ray >= RAY rejects OptUtilTooHigh (#118).
@@ -112,7 +112,7 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
     irm.optimal_utilization_ray = RAY;
-    t.ctrl_client().upgrade_pool_params(&asset, &irm);
+    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
 
 // validation.rs (reserve_factor) -- reserve_factor_bps >= BPS rejects
@@ -124,7 +124,7 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     let asset = t.resolve_market("USDC").asset.clone();
     let mut irm = baseline_irm();
     irm.reserve_factor_bps = BPS as u32;
-    t.ctrl_client().upgrade_pool_params(&asset, &irm);
+    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
 
 // ---------------------------------------------------------------------------

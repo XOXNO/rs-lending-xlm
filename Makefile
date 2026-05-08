@@ -713,6 +713,7 @@ _deploy: deploy-artifacts
 configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller on $(NETWORK) ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAccumulator
 	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$CTRL" ]; then \
 		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
@@ -794,7 +795,7 @@ create-market:
 # passing positional args verbatim. Adding a new verb = add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setupAll setupAllMarkets setupAllEModes \
-                  setAggregator pause unpause info \
+                  setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
                   claimRevenueAll
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig configureMarketOracle \

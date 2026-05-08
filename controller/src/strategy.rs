@@ -18,11 +18,11 @@ use crate::{
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
 };
 
-/// Wire-format client for `stellar-router-contract::Router`. Soroban
-/// auth-chains the controller's `current_contract_address` into the
-/// router's `sender.require_auth()` automatically — no SEP-41 approve
-/// dance required, the router pulls each path's `amount_in` directly
-/// via `token.transfer(sender, router, amount)`.
+// Wire-format client for `stellar-router-contract::Router`. Soroban
+// auth-chains the controller's `current_contract_address` into the
+// router's `sender.require_auth()` automatically — no SEP-41 approve
+// dance required, the router pulls each path's `amount_in` directly
+// via `token.transfer(sender, router, amount)`.
 mod aggregator {
     use common::types::BatchSwap;
     use soroban_sdk::contractclient;
@@ -135,9 +135,9 @@ impl Controller {
 // Multiply (Leverage)
 // ---------------------------------------------------------------------------
 
-/// Opens a leveraged position: borrows `debt_to_flash_loan` via the pool flash strategy,
-/// swaps to `collateral_token`, and deposits the proceeds. Accepts an optional initial payment
-/// to increase collateral or reduce the required flash-loan amount.
+// Opens a leveraged position: borrows `debt_to_flash_loan` via the pool flash strategy,
+// swaps to `collateral_token`, and deposits the proceeds. Accepts an optional initial payment
+// to increase collateral or reduce the required flash-loan amount.
 pub fn process_multiply(
     env: &Env,
     caller: &Address,
@@ -247,9 +247,9 @@ pub fn process_multiply(
 // Swap Debt
 // ---------------------------------------------------------------------------
 
-/// Swaps an existing debt position to a new token: borrows the target token via
-/// the pool flash strategy, swaps through the aggregator, and repays the source
-/// debt.
+// Swaps an existing debt position to a new token: borrows the target token via
+// the pool flash strategy, swaps through the aggregator, and repays the source
+// debt.
 pub fn process_swap_debt(
     env: &Env,
     caller: &Address,
@@ -327,8 +327,8 @@ pub fn process_swap_debt(
 // Swap Collateral
 // ---------------------------------------------------------------------------
 
-/// Swaps existing collateral to a different token: withdraws `from_amount`, swaps through
-/// the aggregator, and re-deposits the proceeds as the new collateral.
+// Swaps existing collateral to a different token: withdraws `from_amount`, swaps through
+// the aggregator, and re-deposits the proceeds as the new collateral.
 pub fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -474,10 +474,10 @@ fn swap_tokens(
     )
 }
 
-/// Reject batches whose shape doesn't match the strategy's
-/// `(token_in, amount_in, token_out)` commitment. Cheap fast-fail before
-/// invoking the router so the panic site stays inside the controller —
-/// cleaner error attribution and no router gas spent on a doomed batch.
+// Reject batches whose shape doesn't match the strategy's
+// `(token_in, amount_in, token_out)` commitment. Cheap fast-fail before
+// invoking the router so the panic site stays inside the controller —
+// cleaner error attribution and no router gas spent on a doomed batch.
 fn validate_aggregator_swap(
     env: &Env,
     swap: &AggregatorSwap,
@@ -538,8 +538,8 @@ fn validate_aggregator_swap(
 // Repay Debt With Collateral
 // ---------------------------------------------------------------------------
 
-/// Withdraws collateral, swaps it to the debt token via the aggregator, and repays debt.
-/// When `close_position` is true, withdraws all remaining collateral to the caller after repayment.
+// Withdraws collateral, swaps it to the debt token via the aggregator, and repays debt.
+// When `close_position` is true, withdraws all remaining collateral to the caller after repayment.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -643,11 +643,11 @@ fn snapshot_swap_balances(
     }
 }
 
-/// Invoke the router's `batch_execute` under the re-entry guard. The
-/// guard reuses the flash-loan flag: a misbehaving router that calls
-/// back into any mutating controller endpoint trips the mutator's
-/// `require_not_flash_loaning` and panics. The flag is FALSE on entry
-/// because strategies never run inside a flash loan.
+// Invoke the router's `batch_execute` under the re-entry guard. The
+// guard reuses the flash-loan flag: a misbehaving router that calls
+// back into any mutating controller endpoint trips the mutator's
+// `require_not_flash_loaning` and panics. The flag is FALSE on entry
+// because strategies never run inside a flash loan.
 fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
@@ -658,17 +658,17 @@ fn call_router_with_reentrancy_guard(
     storage::set_flash_loan_ongoing(env, false);
 }
 
-/// Authorizes the router to pull `total_in` of the input token from the
-/// controller in a single SAC transfer.
-///
-/// The router pulls the entire `total_in` once at the start of
-/// `batch_execute` and slices it across paths from its own vault. Pool-router
-/// transfers inside individual hops have the router as the direct caller, so
-/// Soroban's direct-caller attestation covers them.
-///
-/// `authorize_as_current_contract` consumes the entries for a single
-/// downstream invocation, so this must be called immediately before
-/// `router.batch_execute(...)`.
+// Authorizes the router to pull `total_in` of the input token from the
+// controller in a single SAC transfer.
+//
+// The router pulls the entire `total_in` once at the start of
+// `batch_execute` and slices it across paths from its own vault. Pool-router
+// transfers inside individual hops have the router as the direct caller, so
+// Soroban's direct-caller attestation covers them.
+//
+// `authorize_as_current_contract` consumes the entries for a single
+// downstream invocation, so this must be called immediately before
+// `router.batch_execute(...)`.
 fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
     let first_hop = batch.paths.get(0).unwrap().hops.get(0).unwrap();
     let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
@@ -689,10 +689,10 @@ fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwa
     env.authorize_as_current_contract(entries);
 }
 
-/// Rejects router input-token spend above the controller's committed amount.
-///
-/// Underspend is allowed because the output-side minimum remains the slippage
-/// guard and leftover input stays on the controller.
+// Rejects router input-token spend above the controller's committed amount.
+//
+// Underspend is allowed because the output-side minimum remains the slippage
+// guard and leftover input stays on the controller.
 fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -1017,8 +1017,8 @@ fn withdraw_collateral_to_controller(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// Persists account state, re-checks HF with a fresh price cache, and flushes isolated-debt.
-/// Deletes the account when all positions close on an owner-initiated full exit.
+// Persists account state, re-checks HF with a fresh price cache, and flushes isolated-debt.
+// Deletes the account when all positions close on an owner-initiated full exit.
 pub fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -1061,8 +1061,8 @@ pub fn strategy_finalize(
     cache.flush_isolated_debts();
 }
 
-/// Withdraws the full balance of every supply position to `destination`.
-/// Used by `process_repay_debt_with_collateral` for the close-position leg.
+// Withdraws the full balance of every supply position to `destination`.
+// Used by `process_repay_debt_with_collateral` for the close-position leg.
 pub fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -1102,8 +1102,8 @@ pub fn execute_withdraw_all(
     }
 }
 
-/// Pre-flight guard for swap_collateral: rejects isolated assets, deprecated e-mode,
-/// non-collateralizable targets, and position limit violations before any token moves.
+// Pre-flight guard for swap_collateral: rejects isolated assets, deprecated e-mode,
+// non-collateralizable targets, and position limit violations before any token moves.
 pub fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut ControllerCache,

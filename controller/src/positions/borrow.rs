@@ -16,14 +16,14 @@ use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, Con
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<Payment>) {
+    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>) {
         borrow_batch(&env, &caller, account_id, &borrows);
     }
 }
 
-/// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
-/// isolated-debt ceiling, flashes the debt via `pool::create_strategy`, and emits the event.
-/// Returns the net amount received after the pool deducts the strategy flash fee.
+// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
+// isolated-debt ceiling, flashes the debt via `pool::create_strategy`, and emits the event.
+// Returns the net amount received after the pool deducts the strategy flash fee.
 pub fn handle_create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
@@ -80,11 +80,11 @@ pub fn handle_create_borrow_strategy(
 // Batch entry point
 // ---------------------------------------------------------------------------
 
-/// Processes a batch of borrows: validates LTV collateral, enforces position limits,
-/// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
-///
-/// Storage I/O: 1 meta read + 1 supply-side read (LTV) + 1 borrow-side
-/// read + 1 borrow-side write. The supply side and meta are not mutated.
+// Processes a batch of borrows: validates LTV collateral, enforces position limits,
+// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
+//
+// Storage I/O: 1 meta read + 1 supply-side read (LTV) + 1 borrow-side
+// read + 1 borrow-side write. The supply side and meta are not mutated.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -109,9 +109,9 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
 // process_borrow_plan -- reusable borrow flow
 // ---------------------------------------------------------------------------
 
-/// Processes a borrow batch on `account`: aggregates duplicate assets,
-/// preflights the batch before pool mutation, then calls the pool once per
-/// unique asset.
+// Processes a borrow batch on `account`: aggregates duplicate assets,
+// preflights the batch before pool mutation, then calls the pool once per
+// unique asset.
 pub fn process_borrow_plan(
     env: &Env,
     caller: &Address,
@@ -355,9 +355,9 @@ fn record_borrow_update(
     update::update_or_remove_position(account, AccountPositionType::Borrow, asset, &position);
 }
 
-/// Increments the isolated-debt USD tracker by the USD value of `amount`.
-/// Panics with `DebtCeilingReached` when the new total would exceed the isolation debt ceiling.
-/// No-ops for non-isolated accounts.
+// Increments the isolated-debt USD tracker by the USD value of `amount`.
+// Panics with `DebtCeilingReached` when the new total would exceed the isolation debt ceiling.
+// No-ops for non-isolated accounts.
 pub fn handle_isolated_debt(
     env: &Env,
     cache: &mut ControllerCache,

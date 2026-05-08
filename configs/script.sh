@@ -636,6 +636,25 @@ set_aggregator() {
     echo "Aggregator configured on Controller."
 }
 
+set_accumulator() {
+    echo "Configuring Accumulator for ${NETWORK}..."
+    local accumulator=$(jq -r ".\"$NETWORK\".accumulator // .\"$NETWORK\".aggregator" "$NETWORKS_FILE")
+
+    if [ -z "$accumulator" ] || [ "$accumulator" = "null" ] || [ "$accumulator" = "" ]; then
+        echo "ERROR: No accumulator or aggregator address found for ${NETWORK} in ${NETWORKS_FILE}"
+        exit 1
+    fi
+
+    local ctrl=$(get_controller)
+    echo "  Accumulator Address: ${accumulator}"
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_accumulator \
+        --addr "$accumulator"
+
+    echo "Accumulator configured on Controller."
+}
+
 # ---------------------------------------------------------------------------
 # Position helpers (supply / borrow)
 #
@@ -703,7 +722,23 @@ configure_market_oracle() {
     local cfg_file
     cfg_file=$(mktemp)
     jq -c --arg market "$market_name" '
-        .markets[] | select(.name == $market) | .oracle
+        def cli_union:
+            if type == "object" and has("tag") and has("values") then
+                if .values == null or .values == [] then
+                    .tag
+                elif (.values | type) == "array" and (.values | length) == 1 then
+                    {(.tag): (.values[0] | cli_union)}
+                else
+                    {(.tag): (.values | map(cli_union))}
+                end
+            elif type == "object" then
+                with_entries(.value |= cli_union)
+            elif type == "array" then
+                map(cli_union)
+            else
+                .
+            end;
+        .markets[] | select(.name == $market) | .oracle | cli_union
     ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
     local ctrl=$(get_controller)
@@ -1220,6 +1255,9 @@ case "$1" in
     "setAggregator")
         set_aggregator
         ;;
+    "setAccumulator")
+        set_accumulator
+        ;;
     "supply")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>]" >&2
@@ -1384,6 +1422,7 @@ case "$1" in
         echo "  grantRole <account> <role>      Grant KEEPER | REVENUE | ORACLE"
         echo "  revokeRole <account> <role>     Revoke role"
         echo "  setAggregator                   Set aggregator from networks.json"
+        echo "  setAccumulator                  Set accumulator from networks.json or aggregator fallback"
         echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
         echo "  claimRevenueAll                 Claim revenue for every configured market"

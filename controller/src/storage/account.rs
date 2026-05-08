@@ -63,10 +63,10 @@ fn meta_from_account(account: &Account) -> AccountMeta {
     }
 }
 
-/// Builds an `Account` from a meta and pre-loaded side maps. Either side
-/// may be empty when the caller only loaded one side and expects inner
-/// helpers to consume only that side; helpers that touch both sides at a
-/// math gate must load the other side explicitly.
+// Builds an `Account` from a meta and pre-loaded side maps. Either side
+// may be empty when the caller only loaded one side and expects inner
+// helpers to consume only that side; helpers that touch both sides at a
+// math gate must load the other side explicitly.
 pub fn account_from_parts(
     meta: AccountMeta,
     supply_positions: Map<Address, AccountPosition>,
@@ -110,8 +110,8 @@ pub fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
-/// Writes meta when it differs; always extends meta TTL so the
-/// account stays alive even on no-op upserts.
+// Writes meta when it differs; always extends meta TTL so the
+// account stays alive even on no-op upserts.
 pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     let key = account_meta_key(account_id);
     let persistent = env.storage().persistent();
@@ -147,14 +147,14 @@ pub fn get_borrow_positions(env: &Env, account_id: u64) -> Map<Address, AccountP
     read_side_map(env, account_id, POSITION_TYPE_BORROW)
 }
 
-/// Single flush for the supply side. Removes the side key when the map is
-/// empty; otherwise writes + bumps the side TTL. Use this when a batch
-/// loaded the side map once, mutated in memory, and wants one final write.
+// Single flush for the supply side. Removes the side key when the map is
+// empty; otherwise writes + bumps the side TTL. Use this when a batch
+// loaded the side map once, mutated in memory, and wants one final write.
 pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_DEPOSIT, map);
 }
 
-/// Symmetric flush for the borrow side.
+// Symmetric flush for the borrow side.
 pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_BORROW, map);
 }
@@ -172,9 +172,9 @@ pub fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     try_get_account_meta(env, account_id).map(|meta| account_from_meta(env, account_id, &meta))
 }
 
-/// Compose-and-flush helper. Writes meta, supply map, and borrow map to
-/// match `account` exactly. Used by entry points that mutate both sides
-/// and want one final flush.
+// Compose-and-flush helper. Writes meta, supply map, and borrow map to
+// match `account` exactly. Used by entry points that mutate both sides
+// and want one final flush.
 pub fn set_account(env: &Env, account_id: u64, account: &Account) {
     let meta = meta_from_account(account);
     set_account_meta(env, account_id, &meta);
@@ -192,7 +192,7 @@ pub fn set_account(env: &Env, account_id: u64, account: &Account) {
     );
 }
 
-/// Removes meta + both side maps. Idempotent.
+// Removes meta + both side maps. Idempotent.
 pub fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&account_meta_key(account_id));
@@ -200,7 +200,7 @@ pub fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&side_key(account_id, POSITION_TYPE_BORROW));
 }
 
-/// Keeps meta + both side maps alive without mutating them.
+// Keeps meta + both side maps alive without mutating them.
 pub fn bump_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let meta_key = account_meta_key(account_id);

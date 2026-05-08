@@ -15,15 +15,15 @@ use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerCl
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
 }
 
-/// Processes a repayment batch. Any caller may repay any account.
-///
-/// Storage I/O: 1 meta read + 1 borrow-side read + 1 borrow-side write.
-/// The supply side is never touched.
+// Processes a repayment batch. Any caller may repay any account.
+//
+// Storage I/O: 1 meta read + 1 borrow-side read + 1 borrow-side write.
+// The supply side is never touched.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -100,7 +100,7 @@ fn process_single_repay(
     );
 }
 
-/// Executes the pool repay leg and records the account-side mutation.
+// Executes the pool repay leg and records the account-side mutation.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_repayment(
     env: &Env,
@@ -164,7 +164,7 @@ pub fn execute_repayment(
     result
 }
 
-/// Decrements isolated debt by the full current value of `position`.
+// Decrements isolated debt by the full current value of `position`.
 pub fn clear_position_isolated_debt(
     env: &Env,
     asset: &Address,

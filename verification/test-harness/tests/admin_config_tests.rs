@@ -210,7 +210,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
 
     // Just over the cap (`2 * RAY + 1`). Validator must panic with
     // `InvalidBorrowParams`.
-    let result = ctrl.try_upgrade_pool_params(
+    let result = ctrl.try_upgrade_liquidity_pool_params(
         &asset,
         &InterestRateModel {
             max_borrow_rate_ray: 2 * RAY + 1,

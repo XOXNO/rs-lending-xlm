@@ -53,18 +53,8 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn upgrade_pool_params(env: Env, asset: Address, params: InterestRateModel) {
-        upgrade_liquidity_pool_params(&env, &asset, &params);
-    }
-
-    #[only_owner]
     pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
         upgrade_liquidity_pool_params(&env, &asset, &params);
-    }
-
-    #[only_owner]
-    pub fn upgrade_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
-        upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
     }
 
     #[only_owner]
@@ -106,8 +96,8 @@ fn validate_market_creation(
     validation::validate_interest_rate_model(env, params);
 }
 
-/// Deploys a liquidity pool for `asset` from the stored WASM template and
-/// persists the resulting market config. The controller owns the pool.
+// Deploys a liquidity pool for `asset` from the stored WASM template and
+// persists the resulting market config. The controller owns the pool.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
@@ -212,9 +202,9 @@ pub fn create_liquidity_pool(
 // Pool upgrades
 // ---------------------------------------------------------------------------
 
-/// Upgrades a pool's interest-rate model in place. Indexes are synced at
-/// the current oracle price before the new parameters are applied so
-/// accrued interest rolls into the stored indexes.
+// Upgrades a pool's interest-rate model in place. Indexes are synced at
+// the current oracle price before the new parameters are applied so
+// accrued interest rolls into the stored indexes.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     validation::require_asset_supported(env, asset);
 
@@ -254,7 +244,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     );
 }
 
-/// Upgrades the pool contract's WASM code.
+// Upgrades the pool contract's WASM code.
 pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
     validation::require_asset_supported(env, asset);
 
@@ -267,11 +257,11 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
 // Revenue management
 // ---------------------------------------------------------------------------
 
-/// Claims accrued protocol revenue from a single pool. The pool transfers
-/// the claimed amount to its owner (this controller); the controller then
-/// forwards to the configured accumulator. Both transfers must succeed in
-/// the same transaction or the whole claim reverts (no try/catch on either
-/// hop), so partial state is impossible.
+// Claims accrued protocol revenue from a single pool. The pool transfers
+// the claimed amount to its owner (this controller); the controller then
+// forwards to the configured accumulator. Both transfers must succeed in
+// the same transaction or the whole claim reverts (no try/catch on either
+// hop), so partial state is impossible.
 fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     validation::require_asset_supported(env, asset);
 
@@ -300,7 +290,7 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
     amount
 }
 
-/// Claims accrued protocol revenue from multiple pools in one call.
+// Claims accrued protocol revenue from multiple pools in one call.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     for i in 0..assets.len() {
@@ -310,8 +300,8 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
     results
 }
 
-/// Transfers reward tokens from the caller into the pool and bumps the
-/// pool's supply index to distribute the rewards to suppliers.
+// Transfers reward tokens from the caller into the pool and bumps the
+// pool's supply index to distribute the rewards to suppliers.
 pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
     validation::require_asset_supported(env, asset);
     validation::require_amount_positive(env, amount);

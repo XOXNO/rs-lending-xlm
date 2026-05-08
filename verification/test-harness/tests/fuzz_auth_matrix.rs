@@ -200,11 +200,6 @@ proptest! {
         expect_rejected("remove_asset_from_e_mode", || {
             ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
         }).unwrap();
-        expect_rejected("remove_asset_e_mode_category", || {
-            ctrl.set_auths(&no_auths)
-                .try_remove_asset_e_mode_category(&usdc, &category_id)
-        }).unwrap();
-
         // approve_token_wasm / revoke_token_wasm (only_owner)
         expect_rejected("approve_token_wasm", || {
             ctrl.set_auths(&no_auths).try_approve_token_wasm(&usdc)
@@ -213,12 +208,9 @@ proptest! {
             ctrl.set_auths(&no_auths).try_revoke_token_wasm(&usdc)
         }).unwrap();
 
-        // upgrade / upgrade_pool / upgrade_pool_params (only_owner)
+        // upgrade / upgrade_liquidity_pool / upgrade_liquidity_pool_params (only_owner)
         expect_rejected("upgrade", || {
             ctrl.set_auths(&no_auths).try_upgrade(&dummy_bytes_n(&env, seed))
-        }).unwrap();
-        expect_rejected("upgrade_pool", || {
-            ctrl.set_auths(&no_auths).try_upgrade_pool(&usdc, &dummy_bytes_n(&env, seed))
         }).unwrap();
         expect_rejected("upgrade_liquidity_pool", || {
             ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool(
@@ -236,9 +228,6 @@ proptest! {
             optimal_utilization_ray: 0,
             reserve_factor_bps: 0,
         };
-        expect_rejected("upgrade_pool_params", || {
-            ctrl.set_auths(&no_auths).try_upgrade_pool_params(&usdc, &zero_model)
-        }).unwrap();
         expect_rejected("upgrade_liquidity_pool_params", || {
             ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
         }).unwrap();

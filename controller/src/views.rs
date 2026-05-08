@@ -73,7 +73,7 @@ impl Controller {
     pub fn liquidation_estimations_detailed(
         env: Env,
         account_id: u64,
-        debt_payments: Vec<Payment>,
+        debt_payments: Vec<(Address, i128)>,
     ) -> LiquidationEstimate {
         liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }
@@ -196,9 +196,9 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .to_asset(feed.asset_decimals)
 }
 
-/// Returns the supply and borrow position maps keyed by asset so the SDK
-/// receives the asset alongside the snapshot — the stored value no longer
-/// carries it.
+// Returns the supply and borrow position maps keyed by asset so the SDK
+// receives the asset alongside the snapshot — the stored value no longer
+// carries it.
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,

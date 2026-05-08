@@ -13,25 +13,25 @@ use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-/// Sentinel passed to the pool to request a full-position withdrawal. The
-/// pool clamps any value `>= current_supply_actual` to the post-accrual
-/// balance, so `i128::MAX` is the canonical "withdraw all" signal.
+// Sentinel passed to the pool to request a full-position withdrawal. The
+// pool clamps any value `>= current_supply_actual` to the post-accrual
+// balance, so `i128::MAX` is the canonical "withdraw all" signal.
 const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<Payment>) {
+    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>) {
         process_withdraw(&env, &caller, account_id, &withdrawals);
     }
 }
 
-/// Processes a withdrawal batch and removes the account when all positions close.
-///
-/// Storage I/O:
-///   * debt-free: 1 meta read + 1 supply-side read + 1 supply-side write
-///     (or full account close if both sides become empty).
-///   * with debt: + 1 borrow-side read for the post-batch HF gate.
+// Processes a withdrawal batch and removes the account when all positions close.
+//
+// Storage I/O:
+//   * debt-free: 1 meta read + 1 supply-side read + 1 supply-side write
+//     (or full account close if both sides become empty).
+//   * with debt: + 1 borrow-side read for the post-batch HF gate.
 pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -135,9 +135,9 @@ fn process_single_withdrawal(
     );
 }
 
-/// Executes the pool withdrawal leg and records the account-side mutation.
-/// `ctx.caller` receives tokens from the pool; `ctx.event_caller` is the
-/// user address emitted for indexers.
+// Executes the pool withdrawal leg and records the account-side mutation.
+// `ctx.caller` receives tokens from the pool; `ctx.event_caller` is the
+// user address emitted for indexers.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,

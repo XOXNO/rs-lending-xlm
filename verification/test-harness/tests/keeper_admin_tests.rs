@@ -7,7 +7,7 @@
 //!     per-asset bumps inside `keepalive_shared_state` and `keepalive_pools`;
 //!   - skip-on-missing branches hit the `!has_market_config` early-continue
 //!     in both loops by appending an unregistered asset address;
-//!   - `upgrade_pool` is exercised against a known-good wasm hash;
+//!   - `upgrade_liquidity_pool` is exercised against a known-good wasm hash;
 //!   - `TemplateEmpty` is reached on a freshly-registered controller that has
 //!     no pool template set;
 //!   - the deprecated-eMode reject runs the full `add -> remove -> supply`
@@ -76,7 +76,7 @@ fn test_keepalive_shared_state_bumps_emode_keys() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
+// 3. upgrade_liquidity_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
 // ---------------------------------------------------------------------------
 
@@ -96,7 +96,8 @@ fn test_upgrade_pool_admin_path() {
     // Drive the admin-gated upgrade entry point with the controller's own
     // template hash, producing a no-op upgrade without altering pool behavior.
     let asset = t.resolve_asset("USDC");
-    t.ctrl_client().upgrade_pool(&asset, &template_hash);
+    t.ctrl_client()
+        .upgrade_liquidity_pool(&asset, &template_hash);
 }
 
 // ---------------------------------------------------------------------------

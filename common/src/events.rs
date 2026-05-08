@@ -77,10 +77,10 @@ impl From<OracleStrategy> for EventPricingMethod {
     }
 }
 
-/// Indexer-facing position payload. Carries the side, asset, and account
-/// id alongside the same risk-param snapshot held in
-/// [`AccountPosition`]. Bps fields use `u32` to match the storage width
-/// and decode as JS `number` on the indexer side.
+// Indexer-facing position payload. Carries the side, asset, and account
+// id alongside the same risk-param snapshot held in
+// [`AccountPosition`]. Bps fields use `u32` to match the storage width
+// and decode as JS `number` on the indexer side.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountPosition {
@@ -95,8 +95,8 @@ pub struct EventAccountPosition {
 }
 
 impl EventAccountPosition {
-    /// Compose the event payload from the stored value plus the
-    /// emit-site context (side, asset, account id).
+    // Compose the event payload from the stored value plus the
+    // emit-site context (side, asset, account id).
     pub fn new(
         side: AccountPositionType,
         asset: Address,
@@ -116,10 +116,10 @@ impl EventAccountPosition {
     }
 }
 
-/// Indexer-facing snapshot of [`AccountMeta`]. `owner` is the canonical
-/// account owner — indexers use this as the authoritative source for
-/// the position doc's `address` field, since the event-level `caller`
-/// can be the controller itself on strategy-internal supply legs.
+// Indexer-facing snapshot of [`AccountMeta`]. `owner` is the canonical
+// account owner — indexers use this as the authoritative source for
+// the position doc's `address` field, since the event-level `caller`
+// can be the controller itself on strategy-internal supply legs.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountAttributes {
@@ -345,31 +345,31 @@ pub struct UpdateMarketStateEvent {
 #[contractevent(topics = ["position", "update"])]
 #[derive(Clone, Debug)]
 pub struct UpdatePositionEvent {
-    /// Discriminator for the controller flow that produced this event.
-    /// Balance-mutating entrypoints share the `["position","update"]` topic;
-    /// indexers use this field to distinguish actions. Values are lowercase
-    /// symbols of at most nine bytes so they fit in `Symbol::short`.
-    ///
-    ///   Plain flows:
-    ///     - `supply`     - supply position update
-    ///     - `borrow`     - borrow position update
-    ///     - `withdraw`   - withdrawal position update
-    ///     - `repay`      - repayment position update
-    ///
-    ///   Admin / aggregated:
-    ///     - `param_upd`  - keeper risk-parameter propagation
-    ///     - `multiply`   - strategy borrow leg
-    ///
-    ///   Liquidation:
-    ///     - `liq_repay`  - liquidator repays debtor debt
-    ///     - `liq_seize`  - liquidator seizes debtor collateral
-    ///
-    ///   Strategy flows:
-    ///     - `sw_debt_r`  - `process_swap_debt`   (repay leg, source debt)
-    ///     - `sw_col_wd`  - `process_swap_collateral` (withdraw leg)
-    ///     - `rp_col_wd`  - `process_repay_debt_with_collateral` (withdraw leg)
-    ///     - `rp_col_r`   - `process_repay_debt_with_collateral` (repay leg)
-    ///     - `close_wd`   - `execute_withdraw_all` (close-position leg)
+    // Discriminator for the controller flow that produced this event.
+    // Balance-mutating entrypoints share the `["position","update"]` topic;
+    // indexers use this field to distinguish actions. Values are lowercase
+    // symbols of at most nine bytes so they fit in `Symbol::short`.
+    //
+    //   Plain flows:
+    //     - `supply`     - supply position update
+    //     - `borrow`     - borrow position update
+    //     - `withdraw`   - withdrawal position update
+    //     - `repay`      - repayment position update
+    //
+    //   Admin / aggregated:
+    //     - `param_upd`  - keeper risk-parameter propagation
+    //     - `multiply`   - strategy borrow leg
+    //
+    //   Liquidation:
+    //     - `liq_repay`  - liquidator repays debtor debt
+    //     - `liq_seize`  - liquidator seizes debtor collateral
+    //
+    //   Strategy flows:
+    //     - `sw_debt_r`  - `process_swap_debt`   (repay leg, source debt)
+    //     - `sw_col_wd`  - `process_swap_collateral` (withdraw leg)
+    //     - `rp_col_wd`  - `process_repay_debt_with_collateral` (withdraw leg)
+    //     - `rp_col_r`   - `process_repay_debt_with_collateral` (repay leg)
+    //     - `close_wd`   - `execute_withdraw_all` (close-position leg)
     pub action: Symbol,
     pub index: i128,
     pub amount: i128,
@@ -403,10 +403,10 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-/// Indexer-facing category payload — carries the `category_id`
-/// discriminant alongside the params held in [`EModeCategory`]. The
-/// member-asset map is omitted; per-asset memberships are emitted via
-/// [`UpdateEModeAssetEvent`] / [`RemoveEModeAssetEvent`].
+// Indexer-facing category payload — carries the `category_id`
+// discriminant alongside the params held in [`EModeCategory`]. The
+// member-asset map is omitted; per-asset memberships are emitted via
+// [`UpdateEModeAssetEvent`] / [`RemoveEModeAssetEvent`].
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventEModeCategory {

@@ -10,14 +10,14 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::{helpers, storage};
 
-/// Panics with `AssetNotSupported` when `asset` has no market config.
+// Panics with `AssetNotSupported` when `asset` has no market config.
 pub fn require_asset_supported(env: &Env, asset: &Address) {
     if !storage::has_market_config(env, asset) {
         panic_with_error!(env, GenericError::AssetNotSupported);
     }
 }
 
-/// Panics with `PairNotActive` when the market status is not `Active`.
+// Panics with `PairNotActive` when the market status is not `Active`.
 pub fn require_market_active(env: &Env, asset: &Address) {
     let market = storage::get_market_config(env, asset);
     if market.status != MarketStatus::Active {
@@ -25,44 +25,44 @@ pub fn require_market_active(env: &Env, asset: &Address) {
     }
 }
 
-/// Panics with `AccountNotInMarket` when `caller` is not the account owner.
-/// Does not call `require_auth`; use this when the caller was authenticated at
-/// the endpoint boundary.
+// Panics with `AccountNotInMarket` when `caller` is not the account owner.
+// Does not call `require_auth`; use this when the caller was authenticated at
+// the endpoint boundary.
 pub fn require_account_owner_match(env: &Env, account: &Account, caller: &Address) {
     if account.owner != *caller {
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 }
 
-/// Panics with `FlashLoanOngoing` when a flash loan is already in progress.
+// Panics with `FlashLoanOngoing` when a flash loan is already in progress.
 pub fn require_not_flash_loaning(env: &Env) {
     if storage::is_flash_loan_ongoing(env) {
         panic_with_error!(env, FlashLoanError::FlashLoanOngoing);
     }
 }
 
-/// Panics with `AmountMustBePositive` when `amount ≤ 0`.
+// Panics with `AmountMustBePositive` when `amount ≤ 0`.
 pub fn require_amount_positive(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 }
 
-/// Panics with `InvalidPayments` when a payment-like batch is empty.
+// Panics with `InvalidPayments` when a payment-like batch is empty.
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     if payments.is_empty() {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
 }
 
-/// Panics with `InvalidPayments` when credited balance exceeds the sent amount.
+// Panics with `InvalidPayments` when credited balance exceeds the sent amount.
 pub fn require_credit_not_above_sent(env: &Env, sent: i128, received: i128) {
     if received > sent {
         panic_with_error!(env, GenericError::InvalidPayments);
     }
 }
 
-/// Panics with `InsufficientCollateral` when an account with debt has HF < 1.
+// Panics with `InsufficientCollateral` when an account with debt has HF < 1.
 pub fn require_healthy_account(
     env: &Env,
     cache: &mut crate::cache::ControllerCache,
@@ -83,17 +83,17 @@ pub fn require_healthy_account(
     }
 }
 
-/// Pre-flight bulk-isolation guard for supply batches.
-///
-/// An isolated account, or a batch whose first asset is isolated, must carry
-/// exactly one collateral. Catching this up-front avoids running any
-/// `token.transfer` or pool call before reverting on iteration 2 (Soroban
-/// would still revert atomically, but the work is wasted).
-///
-/// Symmetric with [`validate_bulk_position_limits`] in placement and naming;
-/// the cache is threaded in because the first asset's `AssetConfig` is
-/// fetched here AND reused inside the per-asset loop, so reading once and
-/// memoizing is cheaper than two storage reads.
+// Pre-flight bulk-isolation guard for supply batches.
+//
+// An isolated account, or a batch whose first asset is isolated, must carry
+// exactly one collateral. Catching this up-front avoids running any
+// `token.transfer` or pool call before reverting on iteration 2 (Soroban
+// would still revert atomically, but the work is wasted).
+//
+// Symmetric with [`validate_bulk_position_limits`] in placement and naming;
+// the cache is threaded in because the first asset's `AssetConfig` is
+// fetched here AND reused inside the per-asset loop, so reading once and
+// memoizing is cheaper than two storage reads.
 pub fn validate_bulk_isolation(
     env: &Env,
     account: &Account,
@@ -110,8 +110,8 @@ pub fn validate_bulk_isolation(
     }
 }
 
-/// Panics with `PositionLimitExceeded` when the batch would push the account over its
-/// supply or borrow position cap. Deduplicates assets before comparing against the limit.
+// Panics with `PositionLimitExceeded` when the batch would push the account over its
+// supply or borrow position cap. Deduplicates assets before comparing against the limit.
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
@@ -161,8 +161,8 @@ pub fn validate_bulk_position_limits(
     }
 }
 
-/// Validates interest-rate model parameters: monotone slopes, utilization ordering,
-/// reserve factor bounds, and the Taylor-envelope cap on `max_borrow_rate`.
+// Validates interest-rate model parameters: monotone slopes, utilization ordering,
+// reserve factor bounds, and the Taylor-envelope cap on `max_borrow_rate`.
 pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     if params.base_borrow_rate_ray < 0
         || params.slope1_ray < params.base_borrow_rate_ray
@@ -195,8 +195,8 @@ pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
     }
 }
 
-/// Validates asset risk parameters: LTV ordering, liquidation bounds, cap sentinels,
-/// isolation ceiling sign, and flash-loan fee bounds.
+// Validates asset risk parameters: LTV ordering, liquidation bounds, cap sentinels,
+// isolation ceiling sign, and flash-loan fee bounds.
 pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     // Liquidation threshold must sit strictly above LTV and at or below
     // 100% so new debt cannot open in liquidatable territory and HF math
@@ -234,7 +234,7 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
     }
 }
 
-/// Panics with `BadAnchorTolerances` when `last ≤ first`.
+// Panics with `BadAnchorTolerances` when `last ≤ first`.
 pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
     if last <= first {
         panic_with_error!(env, OracleError::BadAnchorTolerances);

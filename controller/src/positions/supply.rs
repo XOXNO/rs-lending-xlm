@@ -23,7 +23,7 @@ impl Controller {
         caller: Address,
         account_id: u64,
         e_mode_category: u32,
-        assets: Vec<Payment>,
+        assets: Vec<(Address, i128)>,
     ) -> u64 {
         process_supply(&env, &caller, account_id, e_mode_category, &assets)
     }
@@ -69,11 +69,11 @@ impl Controller {
 // Endpoint entry
 // ---------------------------------------------------------------------------
 
-/// Entry point for supply: validates, creates the account when `account_id == 0`,
-/// and processes the deposit batch. Returns the resolved `account_id`.
-///
-/// Storage I/O: 1 meta read + 1 supply-side read + 1 supply-side write.
-/// The borrow side is never touched.
+// Entry point for supply: validates, creates the account when `account_id == 0`,
+// and processes the deposit batch. Returns the resolved `account_id`.
+//
+// Storage I/O: 1 meta read + 1 supply-side read + 1 supply-side write.
+// The borrow side is never touched.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -104,11 +104,11 @@ pub fn process_supply(
     acct_id
 }
 
-/// Returns the resolved account id and a mutable account snapshot.
-///
-/// New accounts are returned from the created snapshot. Existing accounts load
-/// metadata and supply positions only because supply does not consume borrow
-/// positions.
+// Returns the resolved account id and a mutable account snapshot.
+//
+// New accounts are returned from the created snapshot. Existing accounts load
+// metadata and supply positions only because supply does not consume borrow
+// positions.
 fn resolve_supply_account(
     env: &Env,
     caller: &Address,
@@ -133,9 +133,9 @@ fn resolve_supply_account(
 // process_deposit -- reusable supply flow
 // ---------------------------------------------------------------------------
 
-/// Processes a deposit batch on `account`: aggregates duplicate assets,
-/// preflights the batch before token movement, then calls the pool once per
-/// unique asset using balance-delta accounting.
+// Processes a deposit batch on `account`: aggregates duplicate assets,
+// preflights the batch before token movement, then calls the pool once per
+// unique asset using balance-delta accounting.
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -237,8 +237,8 @@ fn get_or_create_deposit_position(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Updates the deposit position with the latest risk parameters and calls the pool to record the supply.
-/// Refreshes LTV, bonus, and fees from `asset_config`; the liquidation threshold is keeper-only.
+// Updates the deposit position with the latest risk parameters and calls the pool to record the supply.
+// Refreshes LTV, bonus, and fees from `asset_config`; the liquidation threshold is keeper-only.
 pub fn update_deposit_position(
     env: &Env,
     account_id: u64,
@@ -426,9 +426,9 @@ fn current_supplied_ray(env: &Env, cache: &mut ControllerCache, asset: &Address)
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Keeper-driven propagation of updated risk parameters to a specific account's supply position.
-/// When `has_risks` is true (threshold tightening), enforces a 5% HF buffer to prevent
-/// immediate liquidation after the update.
+// Keeper-driven propagation of updated risk parameters to a specific account's supply position.
+// When `has_risks` is true (threshold tightening), enforces a 5% HF buffer to prevent
+// immediate liquidation after the update.
 pub fn update_position_threshold(
     env: &Env,
     account_id: u64,

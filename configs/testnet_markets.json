@@ -183,6 +183,150 @@
         "borrow_cap": "10000000000000000000000000",
         "supply_cap": "10000000000000000000000000"
       }
+    },
+    {
+      "name": "BTC",
+      "asset_address": "CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW",
+      "decimals": 7,
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 300,
+        "last_tolerance_bps": 1000,
+        "strategy": 1,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CD4KFB23CQLJ47RIPESVBTQ444R75M6QVEZULWXHHFYYZT7SS2VGXOPW",
+              "feed_id": "BTC",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "Reflector",
+              "values": [
+                {
+                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+                  "asset": {
+                    "tag": "Symbol",
+                    "values": [
+                      "BTC"
+                    ]
+                  },
+                  "read_mode": {
+                    "tag": "Twap",
+                    "values": [
+                      3
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "2000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "1500000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": 1500
+      },
+      "asset_config": {
+        "loan_to_value_bps": 6500,
+        "liquidation_threshold_bps": 7000,
+        "liquidation_bonus_bps": 700,
+        "liquidation_fees_bps": 100,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": 9,
+        "borrow_cap": "100000000000000000000",
+        "supply_cap": "100000000000000000000"
+      }
+    },
+    {
+      "name": "ETH",
+      "asset_address": "CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ",
+      "decimals": 7,
+      "oracle": {
+        "max_price_stale_seconds": 3600,
+        "first_tolerance_bps": 300,
+        "last_tolerance_bps": 1000,
+        "strategy": 1,
+        "primary": {
+          "tag": "RedStone",
+          "values": [
+            {
+              "contract": "CD4KFB23CQLJ47RIPESVBTQ444R75M6QVEZULWXHHFYYZT7SS2VGXOPW",
+              "feed_id": "ETH",
+              "max_stale_seconds": 86400
+            }
+          ]
+        },
+        "anchor": {
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "Reflector",
+              "values": [
+                {
+                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+                  "asset": {
+                    "tag": "Symbol",
+                    "values": [
+                      "ETH"
+                    ]
+                  },
+                  "read_mode": {
+                    "tag": "Twap",
+                    "values": [
+                      3
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "market_params": {
+        "max_borrow_rate_ray": "2000000000000000000000000000",
+        "base_borrow_rate_ray": "10000000000000000000000000",
+        "slope1_ray": "40000000000000000000000000",
+        "slope2_ray": "100000000000000000000000000",
+        "slope3_ray": "1500000000000000000000000000",
+        "mid_utilization_ray": "500000000000000000000000000",
+        "optimal_utilization_ray": "800000000000000000000000000",
+        "reserve_factor_bps": 1500
+      },
+      "asset_config": {
+        "loan_to_value_bps": 6500,
+        "liquidation_threshold_bps": 7000,
+        "liquidation_bonus_bps": 700,
+        "liquidation_fees_bps": 100,
+        "is_collateralizable": true,
+        "is_borrowable": true,
+        "is_flashloanable": true,
+        "is_isolated_asset": false,
+        "is_siloed_borrowing": false,
+        "isolation_borrow_enabled": false,
+        "isolation_debt_ceiling_usd_wad": "0",
+        "flashloan_fee_bps": 9,
+        "borrow_cap": "10000000000000000000000",
+        "supply_cap": "10000000000000000000000"
+      }
     }
   ]
 }
