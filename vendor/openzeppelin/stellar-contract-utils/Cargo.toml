@@ -38,7 +38,7 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies.soroban-sdk]
-version = "=26.0.0-rc.1"
+version = "=26.0.0"
 features = ["experimental_spec_shaking_v2"]
 
 [dev-dependencies.hex-literal]
@@ -48,7 +48,7 @@ version = "1.0.0"
 version = "1"
 
 [dev-dependencies.soroban-sdk]
-version = "=26.0.0-rc.1"
+version = "=26.0.0"
 features = [
     "experimental_spec_shaking_v2",
     "testutils",

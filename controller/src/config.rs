@@ -145,7 +145,11 @@ impl Controller {
     }
 }
 
-fn require_contract_address(env: &Env, addr: &Address, error: impl Into<soroban_sdk::Error>) {
+fn require_contract_address(
+    env: &Env,
+    addr: &Address,
+    error: impl Into<soroban_sdk::Error> + soroban_sdk::SpecShakingMarker,
+) {
     if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
         panic_with_error!(env, error);
     }

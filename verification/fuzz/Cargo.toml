@@ -19,7 +19,7 @@ seed-corpus = ["dep:serde", "dep:serde_json", "dep:sha2"]
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-soroban-sdk = { version = "=26.0.0-rc.1", features = ["testutils"] }
+soroban-sdk = { version = "=26.0.0", features = ["testutils"] }
 common = { path = "../../common" }
 controller = { path = "../../controller", features = ["testing"] }
 pool = { path = "../../pool" }
