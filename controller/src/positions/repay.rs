@@ -1,5 +1,4 @@
 use common::errors::{CollateralError, GenericError};
-use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::Ray;
 use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
@@ -63,6 +62,8 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     // stays as it was on disk.
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
+    cache.emit_position_batch(account_id, &account);
+    cache.emit_market_batch();
 }
 
 fn process_single_repay(
@@ -82,7 +83,11 @@ fn process_single_repay(
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound));
     let actual_received = transfer_repayment_to_pool(env, caller, asset, amount, cache);
 
-    let feed = cache.cached_price(asset);
+    let price_wad = if account.is_isolated {
+        cache.cached_price(asset).price_wad
+    } else {
+        0
+    };
     let _ = execute_repayment(
         env,
         account,
@@ -94,7 +99,7 @@ fn process_single_repay(
             action: symbol_short!("repay"),
         },
         &position,
-        feed.price_wad,
+        price_wad,
         actual_received,
         cache,
     );
@@ -105,7 +110,7 @@ fn process_single_repay(
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
+    _account_id: u64,
     asset: &Address,
     ctx: EventContext,
     position: &AccountPosition,
@@ -119,13 +124,10 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
-    let result = pool_repay_call(
-        env,
-        asset,
-        caller.clone(),
-        amount,
-        position.clone(),
-        price_wad,
+    let result = pool_repay_call(env, asset, caller.clone(), amount, position.clone());
+    cache.record_market_update_with_price(
+        &result.market_state,
+        if price_wad > 0 { Some(price_wad) } else { None },
     );
 
     update::update_or_remove_position(
@@ -134,31 +136,26 @@ pub fn execute_repayment(
         asset,
         &result.position,
     );
-    let feed = cache.cached_price(asset);
-    adjust_isolated_debt_for_repay(
-        env,
-        account,
-        cache,
+    if account.is_isolated {
+        let feed = cache.cached_price(asset);
+        adjust_isolated_debt_for_repay(
+            env,
+            account,
+            cache,
+            result.actual_amount,
+            price_wad,
+            feed.asset_decimals,
+        );
+    }
+    let _ = event_caller;
+    cache.record_position_update(
+        action,
+        AccountPositionType::Borrow,
+        asset,
+        result.market_index.borrow_index_ray,
         result.actual_amount,
-        price_wad,
-        feed.asset_decimals,
-    );
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action,
-            index: result.market_index.borrow_index_ray,
-            amount: result.actual_amount,
-            position: EventAccountPosition::new(
-                AccountPositionType::Borrow,
-                asset.clone(),
-                account_id,
-                &result.position,
-            ),
-            asset_price: Some(price_wad),
-            caller: Some(event_caller),
-            account_attributes: Some((&*account).into()),
-        },
+        &result.position,
+        if price_wad > 0 { Some(price_wad) } else { None },
     );
 
     result
@@ -251,10 +248,8 @@ crate::summarized!(
         caller: Address,
         amount: i128,
         position: AccountPosition,
-        price_wad: i128,
     ) -> PoolPositionMutation {
         let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .repay(&caller, &amount, &position, &price_wad)
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).repay(&caller, &amount, &position)
     }
 );

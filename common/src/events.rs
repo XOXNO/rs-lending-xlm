@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol};
+use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
     Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig,
@@ -328,55 +328,69 @@ pub struct UpdateMarketParamsEvent {
     pub reserve_factor_bps: u32,
 }
 
-#[contractevent(topics = ["market", "state_update"])]
+#[contractevent(topics = ["market", "batch_state_update"])]
 #[derive(Clone, Debug)]
-pub struct UpdateMarketStateEvent {
-    pub asset: Address,
-    pub timestamp: u64,
-    pub supply_index_ray: i128,
-    pub borrow_index_ray: i128,
-    pub reserves_ray: i128,
-    pub supplied_ray: i128,
-    pub borrowed_ray: i128,
-    pub revenue_ray: i128,
-    pub asset_price_wad: i128,
+pub struct UpdateMarketStateBatchEvent {
+    pub updates: Vec<crate::types::MarketStateSnapshot>,
 }
 
-#[contractevent(topics = ["position", "update"])]
+#[contracttype]
 #[derive(Clone, Debug)]
-pub struct UpdatePositionEvent {
-    // Discriminator for the controller flow that produced this event.
-    // Balance-mutating entrypoints share the `["position","update"]` topic;
-    // indexers use this field to distinguish actions. Values are lowercase
-    // symbols of at most nine bytes so they fit in `Symbol::short`.
+pub struct EventPositionDelta {
+    // Discriminator for the controller flow that produced this item. Values
+    // are lowercase symbols of at most nine bytes so they fit in
+    // `Symbol::short`.
     //
-    //   Plain flows:
-    //     - `supply`     - supply position update
-    //     - `borrow`     - borrow position update
-    //     - `withdraw`   - withdrawal position update
-    //     - `repay`      - repayment position update
-    //
-    //   Admin / aggregated:
-    //     - `param_upd`  - keeper risk-parameter propagation
-    //     - `multiply`   - strategy borrow leg
-    //
-    //   Liquidation:
-    //     - `liq_repay`  - liquidator repays debtor debt
-    //     - `liq_seize`  - liquidator seizes debtor collateral
-    //
-    //   Strategy flows:
-    //     - `sw_debt_r`  - `process_swap_debt`   (repay leg, source debt)
-    //     - `sw_col_wd`  - `process_swap_collateral` (withdraw leg)
-    //     - `rp_col_wd`  - `process_repay_debt_with_collateral` (withdraw leg)
-    //     - `rp_col_r`   - `process_repay_debt_with_collateral` (repay leg)
-    //     - `close_wd`   - `execute_withdraw_all` (close-position leg)
+    // Plain: `supply`, `borrow`, `withdraw`, `repay`.
+    // Admin / aggregated: `param_upd`, `multiply`.
+    // Liquidation: `liq_repay`, `liq_seize`.
+    // Strategy: `sw_debt_r`, `sw_col_wd`, `rp_col_wd`, `rp_col_r`, `close_wd`.
     pub action: Symbol,
-    pub index: i128,
+    pub position_type: u32,
+    pub asset: Address,
+    pub scaled_amount_ray: i128,
+    pub index_ray: i128,
     pub amount: i128,
-    pub position: EventAccountPosition,
-    pub asset_price: Option<i128>,
-    pub caller: Option<Address>,
-    pub account_attributes: Option<EventAccountAttributes>,
+    pub asset_price_wad: Option<i128>,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
+    pub loan_to_value_bps: u32,
+}
+
+impl EventPositionDelta {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        action: Symbol,
+        position_type: AccountPositionType,
+        asset: Address,
+        index_ray: i128,
+        amount: i128,
+        position: &AccountPosition,
+        asset_price_wad: Option<i128>,
+    ) -> Self {
+        Self {
+            action,
+            position_type: position_type as u32,
+            asset,
+            scaled_amount_ray: position.scaled_amount_ray,
+            index_ray,
+            amount,
+            asset_price_wad,
+            liquidation_threshold_bps: position.liquidation_threshold_bps,
+            liquidation_bonus_bps: position.liquidation_bonus_bps,
+            liquidation_fees_bps: position.liquidation_fees_bps,
+            loan_to_value_bps: position.loan_to_value_bps,
+        }
+    }
+}
+
+#[contractevent(topics = ["position", "batch_update"])]
+#[derive(Clone, Debug)]
+pub struct UpdatePositionBatchEvent {
+    pub account_id: u64,
+    pub account_attributes: EventAccountAttributes,
+    pub updates: Vec<EventPositionDelta>,
 }
 
 #[contractevent(topics = ["position", "flash_loan"])]
@@ -474,15 +488,6 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
-#[contractevent(topics = ["pool", "insolvent"])]
-#[derive(Clone, Debug)]
-pub struct PoolInsolventEvent {
-    pub asset: Address,
-    pub bad_debt_ratio_bps: i128,
-    pub old_supply_index_ray: i128,
-    pub new_supply_index_ray: i128,
-}
-
 #[contractevent(topics = ["config", "approve_token_wasm"])]
 #[derive(Clone, Debug)]
 pub struct ApproveTokenWasmEvent {
@@ -502,11 +507,11 @@ pub fn emit_update_market_params(env: &Env, event: UpdateMarketParamsEvent) {
     event.publish(env);
 }
 
-pub fn emit_update_market_state(env: &Env, event: UpdateMarketStateEvent) {
+pub fn emit_update_market_state_batch(env: &Env, event: UpdateMarketStateBatchEvent) {
     event.publish(env);
 }
 
-pub fn emit_update_position(env: &Env, event: UpdatePositionEvent) {
+pub fn emit_update_position_batch(env: &Env, event: UpdatePositionBatchEvent) {
     event.publish(env);
 }
 
@@ -543,10 +548,6 @@ pub fn emit_clean_bad_debt(env: &Env, event: CleanBadDebtEvent) {
 }
 
 pub fn emit_initial_multiply_payment(env: &Env, event: InitialMultiplyPaymentEvent) {
-    event.publish(env);
-}
-
-pub fn emit_pool_insolvent(env: &Env, event: PoolInsolventEvent) {
     event.publish(env);
 }
 
@@ -809,41 +810,51 @@ mod tests {
                 },
             );
 
-            emit_update_market_state(
+            let mut market_updates = Vec::new(&env);
+            market_updates.push_back(crate::types::MarketStateSnapshot {
+                asset: asset.clone(),
+                timestamp: 0,
+                supply_index_ray: 0,
+                borrow_index_ray: 0,
+                reserves_ray: 0,
+                supplied_ray: 0,
+                borrowed_ray: 0,
+                revenue_ray: 0,
+                asset_price_wad: None,
+            });
+            emit_update_market_state_batch(
                 &env,
-                UpdateMarketStateEvent {
-                    asset: asset.clone(),
-                    timestamp: 0,
-                    supply_index_ray: 0,
-                    borrow_index_ray: 0,
-                    reserves_ray: 0,
-                    supplied_ray: 0,
-                    borrowed_ray: 0,
-                    revenue_ray: 0,
-                    asset_price_wad: 0,
+                UpdateMarketStateBatchEvent {
+                    updates: market_updates,
                 },
             );
 
-            let pos = EventAccountPosition {
-                position_type: EventAccountPositionType::Deposit,
-                asset_id: asset.clone(),
+            let mut position_updates = Vec::new(&env);
+            position_updates.push_back(EventPositionDelta {
+                action: soroban_sdk::symbol_short!("supply"),
+                position_type: EventAccountPositionType::Deposit as u32,
+                asset: asset.clone(),
                 scaled_amount_ray: 0,
-                account_nonce: 1,
+                index_ray: 0,
+                amount: 0,
+                asset_price_wad: None,
                 liquidation_threshold_bps: 0,
                 liquidation_bonus_bps: 0,
                 liquidation_fees_bps: 0,
                 loan_to_value_bps: 0,
-            };
-            emit_update_position(
+            });
+            emit_update_position_batch(
                 &env,
-                UpdatePositionEvent {
-                    action: soroban_sdk::symbol_short!("supply"),
-                    index: 0,
-                    amount: 0,
-                    position: pos,
-                    asset_price: None,
-                    caller: Some(caller.clone()),
-                    account_attributes: None,
+                UpdatePositionBatchEvent {
+                    account_id: 1,
+                    account_attributes: EventAccountAttributes {
+                        owner: caller.clone(),
+                        is_isolated_position: false,
+                        e_mode_category_id: 0,
+                        mode: EventPositionMode::None,
+                        isolated_token: None,
+                    },
+                    updates: position_updates,
                 },
             );
 
@@ -931,16 +942,6 @@ mod tests {
                     amount: 0,
                     usd_value_wad: 0,
                     account_id: 1,
-                },
-            );
-
-            emit_pool_insolvent(
-                &env,
-                PoolInsolventEvent {
-                    asset: asset.clone(),
-                    bad_debt_ratio_bps: 0,
-                    old_supply_index_ray: 0,
-                    new_supply_index_ray: 0,
                 },
             );
 

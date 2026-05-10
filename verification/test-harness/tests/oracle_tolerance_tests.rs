@@ -354,7 +354,7 @@ fn test_unsafe_price_blocks_liquidation() {
 // ===========================================================================
 
 #[test]
-fn test_stale_price_blocks_supply() {
+fn test_stale_price_allows_supply_without_price_read() {
     let mut t = setup();
 
     // Supply first while the price is fresh.
@@ -364,19 +364,11 @@ fn test_stale_price_blocks_supply() {
     // refreshing prices.
     t.advance_time_no_refresh(1000);
 
-    // Supply also fails with a stale price because the oracle adapter's
-    // mock storage entry expired on `advance_time_no_refresh`, so
-    // `lastprice` returns `None` -> `OracleError::NoLastPrice`. Pin the
-    // precise contract code so failures for unrelated reasons surface clearly.
-    let err = t
-        .try_supply(ALICE, "USDC", 1_000.0)
-        .expect_err("supply should fail under stale-mock conditions");
-    assert_eq!(
-        err,
-        soroban_sdk::Error::from_contract_error(210),
-        "expected OracleError::NoLastPrice (210), got {:?}",
-        err
-    );
+    // Supply is a risk-decreasing path and V2 emits no per-position oracle
+    // price for pure supply analytics. Stale prices are still covered by the
+    // strict borrow/withdraw/liquidation tests below.
+    t.try_supply(ALICE, "USDC", 1_000.0)
+        .expect("supply should not require a fresh oracle price");
 }
 
 #[test]

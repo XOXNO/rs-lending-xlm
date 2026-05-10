@@ -1,5 +1,4 @@
-use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::events::{emit_pool_insolvent, PoolInsolventEvent};
+use common::constants::{MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
 use common::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest, update_borrow_index,
@@ -107,10 +106,9 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
 ///   `amount / supply_index` conversions; the revenue-accrual paths
 ///   additionally short-circuit when `index <= floor` so a near-zero index
 ///   cannot blow up `fee / supply_index`.
-/// - If the proposed reduction would drop the index by more than 90% in a
-///   single call, emits `PoolInsolventEvent` for external monitoring. The
-///   pool does not pause itself; the reduction still applies, clamped to the
-///   floor, so existing math stays consistent.
+/// - The pool does not pause itself when the reduction is severe; the
+///   controller emits the bad-debt cleanup event and market batch snapshot,
+///   so off-chain monitoring can derive the supply-index impact there.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 
@@ -128,30 +126,7 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let reduction_factor = remaining.div(&cache.env, total_supplied_value);
     let new_supply_index = cache.supply_index.mul(&cache.env, reduction_factor);
 
-    let old_index_raw = cache.supply_index.raw();
     let new_index_raw = new_supply_index.raw();
-
-    // Insolvency signal: a drop of more than 90% in a single bad-debt event.
-    // If the candidate index falls below one tenth of the prior index, emit a
-    // controller-consumable risk event.
-    // The pool itself has no status field to pause writes.
-    if new_index_raw < old_index_raw / 10 {
-        // bad_debt_ratio_bps = min(bad_debt / total_supplied, 100%) * BPS.
-        let ratio_ray = capped.div(&cache.env, total_supplied_value);
-        // ratio_ray is in [0, RAY]; convert to BPS (0..=BPS):
-        // bps = ratio_ray * BPS / RAY.
-        let bad_debt_ratio_bps = ratio_ray.raw() / (RAY / BPS);
-
-        emit_pool_insolvent(
-            &cache.env,
-            PoolInsolventEvent {
-                asset: cache.params.asset_id.clone(),
-                bad_debt_ratio_bps,
-                old_supply_index_ray: old_index_raw,
-                new_supply_index_ray: new_index_raw,
-            },
-        );
-    }
 
     // Floor at SUPPLY_INDEX_FLOOR_RAW to keep downstream math conditioned.
     cache.supply_index = if new_index_raw < SUPPLY_INDEX_FLOOR_RAW {
@@ -337,9 +312,9 @@ mod tests {
     }
 
     // When bad_debt > total_supplied, the cap clamps the debt and triggers
-    // the insolvency branch and floor clamp.
+    // the floor clamp.
     #[test]
-    fn test_apply_bad_debt_caps_at_total_supply_and_triggers_insolvency() {
+    fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
         let t = TestSetup::new();
         t.as_contract(|| {
             let mut cache = t.fresh_cache(PoolState {
@@ -352,7 +327,7 @@ mod tests {
             });
 
             // bad_debt > total_supplied -> capped path + >90% reduction
-            // emits the event and clamps the new index (~0) to the floor.
+            // clamps the new index (~0) to the floor.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from_raw(100 * RAY));
 
             assert_eq!(
@@ -363,10 +338,10 @@ mod tests {
         });
     }
 
-    // A >90% reduction emits PoolInsolventEvent without requiring the debt
-    // to exceed total supply; a 91% bad-debt event suffices.
+    // A >90% reduction still applies and can be observed through the
+    // controller's market batch snapshot.
     #[test]
-    fn test_apply_bad_debt_emits_insolvent_event_on_severe_reduction() {
+    fn test_apply_bad_debt_applies_severe_reduction() {
         let t = TestSetup::new();
         t.as_contract(|| {
             // supply_index high enough that a 91% drop still leaves the new
@@ -392,7 +367,7 @@ mod tests {
         });
     }
 
-    // A mild (<90%) reduction emits no event and skips the floor clamp.
+    // A mild (<90%) reduction skips the floor clamp.
     #[test]
     fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
         let t = TestSetup::new();
@@ -407,12 +382,11 @@ mod tests {
             });
             let old_index = cache.supply_index.raw();
 
-            // 10% of total supply: index drops ~10%, well above floor and
-            // below the insolvency trigger.
+            // 10% of total supply: index drops ~10% and stays well above floor.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from_raw(100 * RAY));
 
             let new_index = cache.supply_index.raw();
-            assert!(new_index > old_index / 10, "should not trigger insolvency");
+            assert!(new_index > old_index / 10, "should be a mild reduction");
             assert!(new_index > SUPPLY_INDEX_FLOOR_RAW, "should be above floor");
             assert!(new_index < old_index, "should be reduced");
         });

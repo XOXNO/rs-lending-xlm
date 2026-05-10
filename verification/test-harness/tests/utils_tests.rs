@@ -1,8 +1,14 @@
 extern crate std;
 
 use common::constants::WAD;
+use common::types::ControllerKey;
 
 use test_harness::{eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE};
+
+fn persistent_has(t: &LendingTest, key: &ControllerKey) -> bool {
+    t.env
+        .as_contract(&t.controller, || t.env.storage().persistent().has(key))
+}
 
 // ---------------------------------------------------------------------------
 // 1. test_isolated_debt_non_isolated_account
@@ -66,6 +72,10 @@ fn test_isolated_debt_dust_erasure() {
         "isolated debt should be 0 after full repay (dust erasure), got {}",
         debt_after_repay
     );
+    assert!(
+        !persistent_has(&t, &ControllerKey::IsolatedDebt(t.resolve_asset("ETH"))),
+        "zero isolated debt should remove the shared IsolatedDebt entry"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +113,10 @@ fn test_isolated_debt_over_repay_clamps() {
         debt_after, 0,
         "debt should be 0 after full repay, got {}",
         debt_after
+    );
+    assert!(
+        !persistent_has(&t, &ControllerKey::IsolatedDebt(t.resolve_asset("ETH"))),
+        "full isolated repay should remove the shared IsolatedDebt entry"
     );
 }
 

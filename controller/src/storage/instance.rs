@@ -125,13 +125,19 @@ pub fn increment_emode_category_id(env: &Env) -> u32 {
 
 pub fn is_flash_loan_ongoing(env: &Env) -> bool {
     env.storage()
-        .instance()
+        .temporary()
         .get(&ControllerKey::FlashLoanOngoing)
         .unwrap_or(false)
 }
 
 pub fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
-    env.storage()
-        .instance()
-        .set(&ControllerKey::FlashLoanOngoing, &ongoing);
+    if ongoing {
+        env.storage()
+            .temporary()
+            .set(&ControllerKey::FlashLoanOngoing, &true);
+    } else {
+        env.storage()
+            .temporary()
+            .remove(&ControllerKey::FlashLoanOngoing);
+    }
 }

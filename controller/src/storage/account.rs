@@ -1,4 +1,4 @@
-use super::bump_user;
+use super::renew_user_key;
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, ControllerKey, POSITION_TYPE_BORROW,
@@ -38,29 +38,19 @@ fn write_side_map(
         persistent.remove(&key);
     } else {
         persistent.set(&key, map);
-        bump_user(env, &key);
+        renew_user_key(env, &key);
     }
     // Any side write keeps AccountMeta alive at least as long as the most
     // recent user-side activity; without this the meta key could expire
     // independently of live position data and orphan the account.
     let meta_key = account_meta_key(account_id);
     if persistent.has(&meta_key) {
-        bump_user(env, &meta_key);
+        renew_user_key(env, &meta_key);
     }
 }
 
 fn account_meta_key(account_id: u64) -> ControllerKey {
     ControllerKey::AccountMeta(account_id)
-}
-
-fn meta_from_account(account: &Account) -> AccountMeta {
-    AccountMeta {
-        owner: account.owner.clone(),
-        is_isolated: account.is_isolated,
-        e_mode_category_id: account.e_mode_category_id,
-        mode: account.mode,
-        isolated_asset: account.isolated_asset.clone(),
-    }
 }
 
 // Builds an `Account` from a meta and pre-loaded side maps. Either side
@@ -118,7 +108,7 @@ pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     if persistent.get::<_, AccountMeta>(&key).as_ref() != Some(meta) {
         persistent.set(&key, meta);
     }
-    bump_user(env, &key);
+    renew_user_key(env, &key);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,26 +162,6 @@ pub fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     try_get_account_meta(env, account_id).map(|meta| account_from_meta(env, account_id, &meta))
 }
 
-// Compose-and-flush helper. Writes meta, supply map, and borrow map to
-// match `account` exactly. Used by entry points that mutate both sides
-// and want one final flush.
-pub fn set_account(env: &Env, account_id: u64, account: &Account) {
-    let meta = meta_from_account(account);
-    set_account_meta(env, account_id, &meta);
-    write_side_map(
-        env,
-        account_id,
-        POSITION_TYPE_DEPOSIT,
-        &account.supply_positions,
-    );
-    write_side_map(
-        env,
-        account_id,
-        POSITION_TYPE_BORROW,
-        &account.borrow_positions,
-    );
-}
-
 // Removes meta + both side maps. Idempotent.
 pub fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
@@ -200,19 +170,20 @@ pub fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&side_key(account_id, POSITION_TYPE_BORROW));
 }
 
-// Keeps meta + both side maps alive without mutating them.
-pub fn bump_account(env: &Env, account_id: u64) {
+// Keeps meta + both side maps alive without mutating them. This is the only
+// renewal helper intended for user-owned account storage.
+pub fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let meta_key = account_meta_key(account_id);
     if persistent.has(&meta_key) {
-        bump_user(env, &meta_key);
+        renew_user_key(env, &meta_key);
     }
     let supply_key = side_key(account_id, POSITION_TYPE_DEPOSIT);
     if persistent.has(&supply_key) {
-        bump_user(env, &supply_key);
+        renew_user_key(env, &supply_key);
     }
     let borrow_key = side_key(account_id, POSITION_TYPE_BORROW);
     if persistent.has(&borrow_key) {
-        bump_user(env, &borrow_key);
+        renew_user_key(env, &borrow_key);
     }
 }

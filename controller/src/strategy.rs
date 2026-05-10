@@ -1059,6 +1059,8 @@ pub fn strategy_finalize(
     // repay_debt_with_collateral) skip the cap check.
 
     cache.flush_isolated_debts();
+    cache.emit_position_batch(account_id, account);
+    cache.emit_market_batch();
 }
 
 // Withdraws the full balance of every supply position to `destination`.

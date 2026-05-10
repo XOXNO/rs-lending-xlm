@@ -2,8 +2,9 @@
 //!
 //! The controller exposes three KEEPER-gated endpoints that extend Soroban
 //! storage TTLs:
-//!   * `keepalive_shared_state(assets)` -- bumps per-market keys
-//!     (`Market`, `IsolatedDebt`, `AssetEModes`, `EModeCategory`, `EModeAsset`).
+//!   * `keepalive_shared_state(assets)` -- renews protocol-owned shared keys
+//!     (`Market`, positive `IsolatedDebt`, `EModeCategory`, `PoolsList`) plus
+//!     the controller instance.
 //!   * `keepalive_accounts(ids)` -- bumps `AccountMeta` and every
 //!     `SupplyPosition` / `BorrowPosition` key for that account.
 //!   * `keepalive_pools(assets)` -- forwards to `pool.keepalive()`, bumping
@@ -24,12 +25,12 @@ extern crate std;
 
 use std::string::{String, ToString};
 
-use common::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER};
+use common::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE};
 use common::types::ControllerKey;
 use proptest::prelude::*;
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::Address;
-use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest};
+use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE};
 
 const USERS: &[&str] = &["alice", "bob", "carol", "dave", "eve"];
 const ASSETS: &[&str] = &["USDC", "ETH", "WBTC"];
@@ -56,12 +57,105 @@ fn pool_instance_ttl(t: &LendingTest, pool: &Address) -> u32 {
         .as_contract(pool, || t.env.storage().instance().get_ttl())
 }
 
+fn controller_instance_ttl(t: &LendingTest) -> u32 {
+    t.env
+        .as_contract(&t.controller, || t.env.storage().instance().get_ttl())
+}
+
 fn build_ctx() -> LendingTest {
     LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market(wbtc_preset())
         .build()
+}
+
+#[test]
+fn test_fresh_supply_does_not_renew_controller_instance_ttl() {
+    let mut t = build_ctx();
+    t.advance_time(days(151));
+
+    let pre_ttl = controller_instance_ttl(&t);
+    assert!(
+        pre_ttl < TTL_THRESHOLD_INSTANCE,
+        "test setup should age controller instance below threshold; got {}",
+        pre_ttl
+    );
+
+    t.supply(ALICE, "USDC", 100.0);
+
+    let post_ttl = controller_instance_ttl(&t);
+    assert_eq!(
+        post_ttl, pre_ttl,
+        "fresh account supply must not renew controller instance TTL"
+    );
+}
+
+#[test]
+fn test_pool_supply_does_not_renew_pool_instance_ttl() {
+    let mut t = build_ctx();
+    t.advance_time(days(151));
+
+    let pool = t.resolve_market("USDC").pool.clone();
+    let pre_ttl = pool_instance_ttl(&t, &pool);
+    assert!(
+        pre_ttl < TTL_THRESHOLD_INSTANCE,
+        "test setup should age pool instance below threshold; got {}",
+        pre_ttl
+    );
+
+    t.supply(ALICE, "USDC", 100.0);
+
+    let post_ttl = pool_instance_ttl(&t, &pool);
+    assert_eq!(
+        post_ttl, pre_ttl,
+        "user-driven pool mutation must not renew pool instance TTL"
+    );
+}
+
+#[test]
+fn test_keepalive_shared_removes_zero_isolated_debt_entry() {
+    let t = build_ctx();
+    let asset = t.resolve_asset("USDC");
+    let key = ControllerKey::IsolatedDebt(asset.clone());
+
+    t.env.as_contract(&t.controller, || {
+        t.env.storage().persistent().set(&key, &0i128);
+    });
+    assert!(persistent_has(&t, &key));
+
+    let mut assets = soroban_sdk::Vec::new(&t.env);
+    assets.push_back(asset);
+    t.ctrl_client().keepalive_shared_state(&t.keeper, &assets);
+
+    assert!(
+        !persistent_has(&t, &key),
+        "keeper shared keepalive should remove legacy zero IsolatedDebt entries"
+    );
+}
+
+#[test]
+fn test_keepalive_shared_renews_positive_isolated_debt_entry() {
+    let t = build_ctx();
+    let asset = t.resolve_asset("USDC");
+    let key = ControllerKey::IsolatedDebt(asset.clone());
+
+    t.env.as_contract(&t.controller, || {
+        t.env.storage().persistent().set(&key, &1i128);
+    });
+
+    let mut assets = soroban_sdk::Vec::new(&t.env);
+    assets.push_back(asset);
+    t.ctrl_client().keepalive_shared_state(&t.keeper, &assets);
+
+    let min_ttl = TTL_BUMP_SHARED.saturating_sub(1);
+    let iso_ttl = persistent_ttl(&t, &key);
+    assert!(
+        iso_ttl >= min_ttl,
+        "positive IsolatedDebt TTL too low: {} < {}",
+        iso_ttl,
+        min_ttl
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -233,8 +327,8 @@ proptest! {
 // SupplyPosition entry may remain, and AccountMeta.supply_assets must not
 // contain the asset.
 //
-// The property verifies the controller storage layer where `bump_account`
-// iterates `meta.supply_assets`. If an orphan exists, keepalive can skip the
+// The property verifies the controller storage layer where account keepalive
+// renews the side maps. If an orphan exists, keepalive can skip the
 // key while it remains persisted, allowing expiry to break invariants.
 // ---------------------------------------------------------------------------
 

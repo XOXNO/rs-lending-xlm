@@ -54,7 +54,7 @@ proptest! {
         let mut t = build_ctx_with_budget();
 
         // Create accounts without any supply (cheap setup; keepalive still
-        // exercises the per-id path through `try_get_account` + `bump_user`).
+        // exercises the per-id path through `try_get_account` + user-key renewal).
         // create_account generates synthetic IDs and only bumps the
         // AccountNonce -- very cheap.
         let mut ids = SVec::<u64>::new(&t.env);

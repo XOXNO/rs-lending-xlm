@@ -58,8 +58,8 @@
         "isolation_borrow_enabled": false,
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
-        "borrow_cap": "10000000000000000000000000",
-        "supply_cap": "10000000000000000000000000"
+        "borrow_cap": "100000000000000",
+        "supply_cap": "100000000000000"
       }
     },
     {
@@ -119,8 +119,8 @@
         "isolation_borrow_enabled": false,
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
-        "borrow_cap": "65497408416584149531705809",
-        "supply_cap": "65497408416584149531705809"
+        "borrow_cap": "654974084165841",
+        "supply_cap": "654974084165841"
       }
     },
     {
@@ -180,8 +180,8 @@
         "isolation_borrow_enabled": false,
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
-        "borrow_cap": "10000000000000000000000000",
-        "supply_cap": "10000000000000000000000000"
+        "borrow_cap": "100000000000000",
+        "supply_cap": "100000000000000"
       }
     },
     {
@@ -252,8 +252,8 @@
         "isolation_borrow_enabled": false,
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
-        "borrow_cap": "100000000000000000000",
-        "supply_cap": "100000000000000000000"
+        "borrow_cap": "1000000000",
+        "supply_cap": "1000000000"
       }
     },
     {
@@ -324,8 +324,8 @@
         "isolation_borrow_enabled": false,
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
-        "borrow_cap": "10000000000000000000000",
-        "supply_cap": "10000000000000000000000"
+        "borrow_cap": "100000000000",
+        "supply_cap": "100000000000"
       }
     }
   ]

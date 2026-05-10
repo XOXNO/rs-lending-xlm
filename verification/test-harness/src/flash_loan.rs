@@ -71,10 +71,17 @@ impl LendingTest {
     /// Set the flash loan ongoing flag directly (escape hatch for reentrancy tests).
     pub fn set_flash_loan_ongoing(&self, ongoing: bool) {
         self.env.as_contract(&self.controller, || {
-            self.env
-                .storage()
-                .instance()
-                .set(&ControllerKey::FlashLoanOngoing, &ongoing);
+            if ongoing {
+                self.env
+                    .storage()
+                    .temporary()
+                    .set(&ControllerKey::FlashLoanOngoing, &true);
+            } else {
+                self.env
+                    .storage()
+                    .temporary()
+                    .remove(&ControllerKey::FlashLoanOngoing);
+            }
         });
     }
 }

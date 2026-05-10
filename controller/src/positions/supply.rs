@@ -1,6 +1,4 @@
 use common::errors::{CollateralError, GenericError};
-use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
-use common::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory, MarketIndex,
     Payment, PriceFeed, POSITION_TYPE_DEPOSIT,
@@ -100,6 +98,8 @@ pub fn process_supply(
     // Supply mutates only the supply side; meta and borrow side stay as-is
     // on disk.
     storage::set_supply_positions(env, acct_id, &account.supply_positions);
+    cache.emit_position_batch(acct_id, &account);
+    cache.emit_market_batch();
 
     acct_id
 }
@@ -203,7 +203,6 @@ fn execute_deposit_plan(
 ) {
     for (asset, amount_in) in assets {
         let asset_config = emode::effective_asset_config(env, account, &asset, cache, e_mode);
-        let feed = cache.cached_price(&asset);
 
         update_deposit_position(
             env,
@@ -213,7 +212,6 @@ fn execute_deposit_plan(
             amount_in,
             &asset_config,
             caller,
-            &feed,
             cache,
         );
     }
@@ -241,13 +239,12 @@ fn get_or_create_deposit_position(
 // Refreshes LTV, bonus, and fees from `asset_config`; the liquidation threshold is keeper-only.
 pub fn update_deposit_position(
     env: &Env,
-    account_id: u64,
+    _account_id: u64,
     account: &mut Account,
     asset: &Address,
     amount: i128,
     asset_config: &AssetConfig,
     caller: &Address,
-    feed: &PriceFeed,
     cache: &mut ControllerCache,
 ) -> AccountPosition {
     let mut position = get_or_create_deposit_position(account, asset_config, asset);
@@ -275,27 +272,18 @@ pub fn update_deposit_position(
         amount,
         asset_config,
         caller,
-        feed,
     );
 
     // Event (supply uses supply_index_ray). The pool synced indexes and
     // returned the exact market index used for this mutation.
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action: symbol_short!("supply"),
-            index: market_update.market_index.supply_index_ray,
-            amount: market_update.credited_amount,
-            position: EventAccountPosition::new(
-                AccountPositionType::Deposit,
-                asset.clone(),
-                account_id,
-                &position,
-            ),
-            asset_price: Some(feed.price_wad),
-            caller: Some(caller.clone()),
-            account_attributes: Some((&*account).into()),
-        },
+    cache.record_position_update(
+        symbol_short!("supply"),
+        AccountPositionType::Deposit,
+        asset,
+        market_update.market_index.supply_index_ray,
+        market_update.credited_amount,
+        &position,
+        None,
     );
 
     // Update the in-memory account. `process_supply` writes storage once at
@@ -318,14 +306,19 @@ fn update_market_position(
     amount: i128,
     asset_config: &AssetConfig,
     caller: &Address,
-    feed: &PriceFeed,
 ) -> SupplyMarketUpdate {
     let pool_addr = cache.cached_pool_address(asset);
 
     let credited_amount = pull_supply_tokens(env, caller, asset, &pool_addr, amount);
 
-    validate_supply_cap(env, cache, asset_config, asset, credited_amount);
-    apply_pool_supply(env, asset, position, feed, credited_amount)
+    apply_pool_supply(
+        env,
+        cache,
+        asset,
+        position,
+        credited_amount,
+        asset_config.supply_cap,
+    )
 }
 
 fn pull_supply_tokens(
@@ -361,14 +354,16 @@ fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
 
 fn apply_pool_supply(
     env: &Env,
+    cache: &mut ControllerCache,
     asset: &Address,
     position: &mut AccountPosition,
-    feed: &PriceFeed,
     amount: i128,
+    supply_cap: i128,
 ) -> SupplyMarketUpdate {
-    let result = pool_supply_call(env, asset, position.clone(), feed.price_wad, amount);
+    let result = pool_supply_call(env, asset, position.clone(), amount, supply_cap);
 
     *position = result.position;
+    cache.record_market_update(&result.market_state);
 
     SupplyMarketUpdate {
         market_index: result.market_index,
@@ -382,48 +377,17 @@ crate::summarized!(
         env: &Env,
         asset: &Address,
         position: AccountPosition,
-        price_wad: i128,
         amount: i128,
+        supply_cap: i128,
     ) -> common::types::PoolPositionMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .supply(&position, &price_wad, &amount)
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).supply(
+            &position,
+            &amount,
+            &supply_cap,
+        )
     }
 );
-
-fn validate_supply_cap(
-    env: &Env,
-    cache: &mut ControllerCache,
-    asset_config: &AssetConfig,
-    asset: &Address,
-    amount: i128,
-) {
-    if asset_config.supply_cap <= 0 || asset_config.supply_cap == i128::MAX {
-        return;
-    }
-    let sync_data = cache.cached_pool_sync_data(asset);
-    let current_total = current_supplied_ray(env, cache, asset);
-    let amount_ray = Ray::from_asset(amount, sync_data.params.asset_decimals);
-    let cap_ray = Ray::from_asset(asset_config.supply_cap, sync_data.params.asset_decimals);
-    let total = current_total
-        .raw()
-        .checked_add(amount_ray.raw())
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    if Ray::from_raw(total) > cap_ray {
-        panic_with_error!(env, CollateralError::SupplyCapReached);
-    }
-}
-
-fn current_supplied_ray(env: &Env, cache: &mut ControllerCache, asset: &Address) -> Ray {
-    // Use the synced supply index from the cache rather than the pool's stored
-    // (potentially stale) value. `cached_market_index` simulates global_sync
-    // forward to the current timestamp so cap enforcement is exact across
-    // accrual gaps and same-tx multi-payment loops.
-    let sync_data = cache.cached_pool_sync_data(asset);
-    let market_index = cache.cached_market_index(asset);
-    Ray::from_raw(sync_data.state.supplied_ray)
-        .mul(env, Ray::from_raw(market_index.supply_index_ray))
-}
 
 #[allow(clippy::too_many_arguments)]
 // Keeper-driven propagation of updated risk parameters to a specific account's supply position.
@@ -435,7 +399,7 @@ pub fn update_position_threshold(
     asset: &Address,
     has_risks: bool,
     asset_config: &mut AssetConfig,
-    controller_addr: &Address,
+    _controller_addr: &Address,
     feed: &PriceFeed,
     cache: &mut ControllerCache,
 ) {
@@ -458,7 +422,7 @@ pub fn update_position_threshold(
         soroban_sdk::Map::new(env)
     };
 
-    storage::bump_account(env, account_id);
+    storage::renew_user_account(env, account_id);
 
     // Apply the per-account e-mode override. `ensure_e_mode_not_deprecated`
     // is deliberately NOT called: the keeper must propagate updated
@@ -521,24 +485,17 @@ pub fn update_position_threshold(
         }
     }
 
-    // Emit a position update event with amount = 0; no deposit or withdraw
+    // Record a position update with amount = 0; no deposit or withdraw
     // occurred, only a parameter change.
     let market_index = cache.cached_market_index(asset);
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action: symbol_short!("param_upd"),
-            index: market_index.supply_index_ray,
-            amount: 0,
-            position: EventAccountPosition::new(
-                AccountPositionType::Deposit,
-                asset.clone(),
-                account_id,
-                &updated_pos,
-            ),
-            asset_price: Some(feed.price_wad),
-            caller: Some(controller_addr.clone()),
-            account_attributes: Some((&account).into()),
-        },
+    cache.record_position_update(
+        symbol_short!("param_upd"),
+        AccountPositionType::Deposit,
+        asset,
+        market_index.supply_index_ray,
+        0,
+        &updated_pos,
+        Some(feed.price_wad),
     );
+    cache.emit_position_batch(account_id, &account);
 }

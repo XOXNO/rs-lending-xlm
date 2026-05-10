@@ -3,7 +3,8 @@ extern crate std;
 use common::constants::WAD;
 
 use test_harness::{
-    eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
+    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    BOB, STABLECOIN_EMODE,
 };
 
 // ---------------------------------------------------------------------------
@@ -223,4 +224,30 @@ fn test_account_owner_verified() {
         result.is_err() || result.unwrap().is_err(),
         "BOB should not be able to withdraw from ALICE's account"
     );
+}
+
+#[test]
+fn test_renew_account_requires_owner() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.find_account_id(ALICE).unwrap();
+
+    let bob = t.get_or_create_user(BOB);
+    let result = t.ctrl_client().try_renew_account(&bob, &account_id);
+    let mapped: Result<(), soroban_sdk::Error> = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(mapped, errors::ACCOUNT_NOT_IN_MARKET);
+}
+
+#[test]
+fn test_renew_account_owner_succeeds() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.find_account_id(ALICE).unwrap();
+
+    let alice = t.get_or_create_user(ALICE);
+    t.ctrl_client().renew_account(&alice, &account_id);
 }

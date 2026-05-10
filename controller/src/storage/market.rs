@@ -1,4 +1,4 @@
-use super::bump_shared;
+use super::renew_protocol_shared_key;
 use common::errors::GenericError;
 use common::types::{ControllerKey, MarketConfig};
 use soroban_sdk::{panic_with_error, Address, Env};
@@ -14,7 +14,7 @@ pub fn get_market_config(env: &Env, asset: &Address) -> MarketConfig {
 pub fn set_market_config(env: &Env, asset: &Address, config: &MarketConfig) {
     let key = ControllerKey::Market(asset.clone());
     env.storage().persistent().set(&key, config);
-    bump_shared(env, &key);
+    renew_protocol_shared_key(env, &key);
 }
 
 pub fn has_market_config(env: &Env, asset: &Address) -> bool {

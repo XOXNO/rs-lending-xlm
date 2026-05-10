@@ -11,15 +11,12 @@ pub mod spec;
 use cache::Cache;
 use common::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use common::events::{
-    emit_update_market_params, emit_update_market_state, UpdateMarketParamsEvent,
-    UpdateMarketStateEvent,
-};
 use common::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
-    AccountPosition, AccountPositionType, MarketIndex, MarketParams, PoolKey, PoolPositionMutation,
-    PoolState, PoolStrategyMutation, PoolSyncData,
+    AccountPosition, AccountPositionType, MarketIndex, MarketParams, MarketStateSnapshot,
+    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStrategyMutation,
+    PoolSyncData,
 };
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -63,6 +60,12 @@ fn require_wasm_receiver(env: &Env, receiver: &Address) {
     }
 }
 
+fn renew_pool_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
 fn checked_add_ray(env: &Env, a: Ray, b: Ray) -> Ray {
     if a.raw() < 0 || b.raw() < 0 {
         panic_with_error!(env, GenericError::MathOverflow);
@@ -83,6 +86,42 @@ fn checked_sub_ray(env: &Env, a: Ray, b: Ray) -> Ray {
             .checked_sub(b.raw())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
     )
+}
+
+fn cap_is_enabled(cap: i128) -> bool {
+    cap > 0 && cap != i128::MAX
+}
+
+fn require_nonnegative_cap(env: &Env, cap: i128) {
+    if cap < 0 {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+}
+
+fn enforce_supply_cap(env: &Env, cache: &Cache, next_supplied: Ray, supply_cap: i128) {
+    require_nonnegative_cap(env, supply_cap);
+    if !cap_is_enabled(supply_cap) {
+        return;
+    }
+
+    let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
+    let next_total = next_supplied.mul(env, cache.supply_index);
+    if next_total > cap_ray {
+        panic_with_error!(env, CollateralError::SupplyCapReached);
+    }
+}
+
+fn enforce_borrow_cap(env: &Env, cache: &Cache, next_borrowed: Ray, borrow_cap: i128) {
+    require_nonnegative_cap(env, borrow_cap);
+    if !cap_is_enabled(borrow_cap) {
+        return;
+    }
+
+    let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
+    let next_total = next_borrowed.mul(env, cache.borrow_index);
+    if next_total > cap_ray {
+        panic_with_error!(env, CollateralError::BorrowCapReached);
+    }
 }
 
 fn authorize_token_transfer_from(
@@ -106,24 +145,27 @@ fn authorize_token_transfer_from(
     env.authorize_as_current_contract(auth_entries);
 }
 
-// Emit a market-state snapshot event.
-fn emit_market_update(env: &Env, cache: &Cache, price_wad: i128) {
+fn market_index(cache: &Cache) -> MarketIndex {
+    MarketIndex {
+        borrow_index_ray: cache.borrow_index.raw(),
+        supply_index_ray: cache.supply_index.raw(),
+    }
+}
+
+fn market_snapshot(_env: &Env, cache: &Cache) -> MarketStateSnapshot {
     let reserves = cache.get_reserves_for(&cache.params.asset_id);
 
-    emit_update_market_state(
-        env,
-        UpdateMarketStateEvent {
-            asset: cache.params.asset_id.clone(),
-            timestamp: cache.current_timestamp,
-            supply_index_ray: cache.supply_index.raw(),
-            borrow_index_ray: cache.borrow_index.raw(),
-            reserves_ray: reserves,
-            supplied_ray: cache.supplied.raw(),
-            borrowed_ray: cache.borrowed.raw(),
-            revenue_ray: cache.revenue.raw(),
-            asset_price_wad: price_wad,
-        },
-    );
+    MarketStateSnapshot {
+        asset: cache.params.asset_id.clone(),
+        timestamp: cache.current_timestamp,
+        supply_index_ray: cache.supply_index.raw(),
+        borrow_index_ray: cache.borrow_index.raw(),
+        reserves_ray: reserves,
+        supplied_ray: cache.supplied.raw(),
+        borrowed_ray: cache.borrowed.raw(),
+        revenue_ray: cache.revenue.raw(),
+        asset_price_wad: None,
+    }
 }
 
 #[contractimpl]
@@ -155,8 +197,8 @@ impl LiquidityPool {
     pub fn supply(
         env: Env,
         mut position: AccountPosition,
-        price_wad: i128,
         amount: i128,
+        supply_cap: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
@@ -164,21 +206,21 @@ impl LiquidityPool {
         interest::global_sync(&env, &mut cache);
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
+        let next_supplied = checked_add_ray(&env, cache.supplied, scaled_amount);
+        enforce_supply_cap(&env, &cache, next_supplied, supply_cap);
         position.scaled_amount_ray = position
             .scaled_amount_ray
             .checked_add(scaled_amount.raw())
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.supplied = checked_add_ray(&env, cache.supplied, scaled_amount);
+        cache.supplied = next_supplied;
 
-        let market_index = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
         PoolPositionMutation {
             position,
             market_index,
+            market_state,
             actual_amount: amount,
         }
     }
@@ -188,7 +230,7 @@ impl LiquidityPool {
         caller: Address,
         amount: i128,
         mut position: AccountPosition,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
@@ -200,25 +242,25 @@ impl LiquidityPool {
         }
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
+        let next_borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
+        enforce_borrow_cap(&env, &cache, next_borrowed, borrow_cap);
         position.scaled_amount_ray = position
             .scaled_amount_ray
             .checked_add(scaled_debt.raw())
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
+        cache.borrowed = next_borrowed;
 
         // Transfer tokens to the borrower.
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount);
 
-        let market_index = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
         PoolPositionMutation {
             position,
             market_index,
+            market_state,
             actual_amount: amount,
         }
     }
@@ -230,7 +272,6 @@ impl LiquidityPool {
         mut position: AccountPosition,
         is_liquidation: bool,
         protocol_fee: i128,
-        price_wad: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
         // `amount == i128::MAX` is the "withdraw all" sentinel from the
@@ -291,15 +332,13 @@ impl LiquidityPool {
             tok.transfer(&env.current_contract_address(), &caller, &net_transfer);
         }
 
-        let market_index = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
         PoolPositionMutation {
             position,
             market_index,
+            market_state,
             actual_amount: gross_amount,
         }
     }
@@ -309,7 +348,6 @@ impl LiquidityPool {
         caller: Address,
         amount: i128,
         mut position: AccountPosition,
-        price_wad: i128,
     ) -> PoolPositionMutation {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
@@ -355,35 +393,28 @@ impl LiquidityPool {
         }
 
         let actual_applied = amount.min(current_debt);
-        let market_index = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
         PoolPositionMutation {
             position,
             market_index,
+            market_state,
             actual_amount: actual_applied,
         }
     }
 
-    pub fn update_indexes(env: Env, price_wad: i128) -> MarketIndex {
+    pub fn update_indexes(env: Env) -> MarketStateSnapshot {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        let result = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-
-        emit_market_update(&env, &cache, price_wad);
+        let result = market_snapshot(&env, &cache);
         cache.save();
         result
     }
 
-    pub fn add_rewards(env: Env, price_wad: i128, amount: i128) {
+    pub fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
@@ -401,8 +432,9 @@ impl LiquidityPool {
         cache.supply_index =
             update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
 
-        emit_market_update(&env, &cache, price_wad);
+        let result = market_snapshot(&env, &cache);
         cache.save();
+        result
     }
 
     pub fn flash_loan(
@@ -412,7 +444,7 @@ impl LiquidityPool {
         amount: i128,
         fee: i128,
         data: Bytes,
-    ) {
+    ) -> MarketStateSnapshot {
         verify_admin(&env);
         require_positive_amount(&env, amount);
 
@@ -478,8 +510,9 @@ impl LiquidityPool {
         // Record the fee as protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
 
-        emit_market_update(&env, &cache, 0);
+        let result = market_snapshot(&env, &cache);
         cache.save();
+        result
     }
 
     pub fn create_strategy(
@@ -488,7 +521,7 @@ impl LiquidityPool {
         mut position: AccountPosition,
         amount: i128,
         fee: i128,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> PoolStrategyMutation {
         verify_admin(&env);
         require_nonneg_amount(&env, amount);
@@ -504,11 +537,13 @@ impl LiquidityPool {
         }
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
+        let next_borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
+        enforce_borrow_cap(&env, &cache, next_borrowed, borrow_cap);
         position.scaled_amount_ray = position
             .scaled_amount_ray
             .checked_add(scaled_debt.raw())
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
+        cache.borrowed = next_borrowed;
 
         // Fee goes to protocol revenue.
         interest::add_protocol_revenue(&mut cache, fee);
@@ -519,15 +554,13 @@ impl LiquidityPool {
         let tok = token::Client::new(&env, &cache.params.asset_id);
         tok.transfer(&env.current_contract_address(), &caller, &amount_to_send);
 
-        let market_index = MarketIndex {
-            borrow_index_ray: cache.borrow_index.raw(),
-            supply_index_ray: cache.supply_index.raw(),
-        };
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
         PoolStrategyMutation {
             position,
             market_index,
+            market_state,
             actual_amount: amount,
             amount_received: amount_to_send,
         }
@@ -537,8 +570,7 @@ impl LiquidityPool {
         env: Env,
         side: AccountPositionType,
         mut position: AccountPosition,
-        price_wad: i128,
-    ) -> AccountPosition {
+    ) -> PoolPositionMutation {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -564,20 +596,29 @@ impl LiquidityPool {
             }
         }
 
-        emit_market_update(&env, &cache, price_wad);
+        let market_index = market_index(&cache);
+        let market_state = market_snapshot(&env, &cache);
         cache.save();
-        position
+        PoolPositionMutation {
+            position,
+            market_index,
+            market_state,
+            actual_amount: 0,
+        }
     }
 
-    pub fn claim_revenue(env: Env, price_wad: i128) -> i128 {
+    pub fn claim_revenue(env: Env) -> PoolAmountMutation {
         verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
         if cache.revenue == Ray::ZERO {
-            emit_market_update(&env, &cache, price_wad);
+            let market_state = market_snapshot(&env, &cache);
             cache.save();
-            return 0;
+            return PoolAmountMutation {
+                market_state,
+                actual_amount: 0,
+            };
         }
         if cache.revenue.raw() < 0
             || cache.supplied.raw() < 0
@@ -606,7 +647,7 @@ impl LiquidityPool {
             // Checks-effects-interactions: commit state before the external
             // token call so a malicious token contract that re-enters cannot
             // observe stale `revenue` and recurse a second claim.
-            emit_market_update(&env, &cache, price_wad);
+            let market_state = market_snapshot(&env, &cache);
             cache.save();
 
             // Revenue routes to the pool owner (the controller), which then
@@ -616,12 +657,18 @@ impl LiquidityPool {
                 .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
             let tok = token::Client::new(&env, &cache.params.asset_id);
             tok.transfer(&env.current_contract_address(), &owner, &amount_to_transfer);
+            PoolAmountMutation {
+                market_state,
+                actual_amount: amount_to_transfer,
+            }
         } else {
-            emit_market_update(&env, &cache, price_wad);
+            let market_state = market_snapshot(&env, &cache);
             cache.save();
+            PoolAmountMutation {
+                market_state,
+                actual_amount: 0,
+            }
         }
-
-        amount_to_transfer
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -693,21 +740,6 @@ impl LiquidityPool {
         params.reserve_factor_bps = reserve_factor;
 
         env.storage().instance().set(&PoolKey::Params, &params);
-
-        emit_update_market_params(
-            &env,
-            UpdateMarketParamsEvent {
-                asset: params.asset_id,
-                max_borrow_rate_ray: max_borrow_rate,
-                base_borrow_rate_ray: base_borrow_rate,
-                slope1_ray: slope1,
-                slope2_ray: slope2,
-                slope3_ray: slope3,
-                mid_utilization_ray: mid_utilization,
-                optimal_utilization_ray: optimal_utilization,
-                reserve_factor_bps: reserve_factor,
-            },
-        );
     }
 
     #[only_owner]
@@ -717,9 +749,7 @@ impl LiquidityPool {
 
     pub fn keepalive(env: Env) {
         verify_admin(&env);
-        env.storage()
-            .instance()
-            .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+        renew_pool_instance(&env);
     }
 
     // -----------------------------------------------------------------------
@@ -971,7 +1001,7 @@ mod tests {
         let pos = t.deposit_position();
         let amount = 10_000_000_000i128;
 
-        let updated = client.supply(&pos, &0i128, &amount);
+        let updated = client.supply(&pos, &amount, &i128::MAX);
 
         assert!(
             updated.position.scaled_amount_ray > 0,
@@ -992,7 +1022,7 @@ mod tests {
 
         // Supply first.
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         // Borrow.
         let borrower = Address::generate(&t.env);
@@ -1000,7 +1030,7 @@ mod tests {
         let borrow_amount = 100_0000000i128;
 
         let reserves_before = client.reserves();
-        let updated = client.borrow(&borrower, &borrow_amount, &borrow_pos, &0i128);
+        let updated = client.borrow(&borrower, &borrow_amount, &borrow_pos, &i128::MAX);
 
         assert!(
             updated.position.scaled_amount_ray > 0,
@@ -1015,6 +1045,50 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Error(Contract, #105)")]
+    fn test_supply_cap_enforced_after_pool_sync() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let pos = t.deposit_position();
+        let amount = 10_000_000_000i128;
+
+        client.supply(&pos, &amount, &(amount - 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #106)")]
+    fn test_borrow_cap_enforced_after_pool_sync() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supply_pos = t.deposit_position();
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
+
+        let borrower = Address::generate(&t.env);
+        let borrow_pos = t.borrow_position();
+        let borrow_amount = 100_0000000i128;
+
+        client.borrow(&borrower, &borrow_amount, &borrow_pos, &(borrow_amount - 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #106)")]
+    fn test_strategy_borrow_cap_enforced_after_pool_sync() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supply_pos = t.deposit_position();
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
+
+        let caller = Address::generate(&t.env);
+        let pos = t.borrow_position();
+        let amount = 100_0000000i128;
+
+        client.create_strategy(&caller, &pos, &amount, &0i128, &(amount - 1));
+    }
+
+    #[test]
     #[should_panic(expected = "Error(Contract, #112)")]
     fn test_borrow_rejects_when_reserves_are_insufficient() {
         let t = TestSetup::new();
@@ -1022,7 +1096,7 @@ mod tests {
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
 
-        let _ = client.borrow(&borrower, &200_000_000_000_000i128, &borrow_pos, &0i128);
+        let _ = client.borrow(&borrower, &200_000_000_000_000i128, &borrow_pos, &i128::MAX);
     }
 
     // -----------------------------------------------------------------------
@@ -1035,7 +1109,7 @@ mod tests {
 
         let pos = t.deposit_position();
         let supply_amount = 10_000_000_000i128;
-        let updated_pos = client.supply(&pos, &0i128, &supply_amount);
+        let updated_pos = client.supply(&pos, &supply_amount, &i128::MAX);
 
         let user = Address::generate(&t.env);
         let tok = token::Client::new(&t.env, &t.asset);
@@ -1047,7 +1121,6 @@ mod tests {
             &withdraw_amount,
             &updated_pos.position,
             &false,
-            &0i128,
             &0i128,
         );
 
@@ -1069,7 +1142,7 @@ mod tests {
         let client = t.client();
 
         let pos = t.deposit_position();
-        let updated_pos = client.supply(&pos, &0i128, &10_000_000i128);
+        let updated_pos = client.supply(&pos, &10_000_000i128, &i128::MAX);
         let user = Address::generate(&t.env);
 
         let _ = client.withdraw(
@@ -1078,7 +1151,6 @@ mod tests {
             &updated_pos.position,
             &true,
             &2_0000000i128,
-            &0i128,
         );
     }
 
@@ -1089,11 +1161,11 @@ mod tests {
         let client = t.client();
 
         let pos = t.deposit_position();
-        let updated_pos = client.supply(&pos, &0i128, &10_000_000_000i128);
+        let updated_pos = client.supply(&pos, &10_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        client.borrow(&borrower, &99_999_990_000_000i128, &borrow_pos, &0i128);
+        client.borrow(&borrower, &99_999_990_000_000i128, &borrow_pos, &i128::MAX);
 
         let user = Address::generate(&t.env);
         let _ = client.withdraw(
@@ -1101,7 +1173,6 @@ mod tests {
             &10_000_000_000i128,
             &updated_pos.position,
             &false,
-            &0i128,
             &0i128,
         );
     }
@@ -1113,20 +1184,13 @@ mod tests {
         let client = t.client();
 
         let pos = t.deposit_position();
-        let updated_pos = client.supply(&pos, &0i128, &10_000_000_000i128);
+        let updated_pos = client.supply(&pos, &10_000_000_000i128, &i128::MAX);
         t.edit_state(|state| {
             state.supplied_ray = 1;
         });
 
         let user = Address::generate(&t.env);
-        let _ = client.withdraw(
-            &user,
-            &i128::MAX,
-            &updated_pos.position,
-            &false,
-            &0i128,
-            &0i128,
-        );
+        let _ = client.withdraw(&user, &i128::MAX, &updated_pos.position, &false, &0i128);
     }
 
     // -----------------------------------------------------------------------
@@ -1138,17 +1202,17 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 
         assert!(updated_borrow.position.scaled_amount_ray > 0);
 
         // Repay the exact amount; no overpayment, since no time has passed.
         let repay_amount = 100_0000000i128;
-        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position, &0i128);
+        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position);
 
         assert_eq!(final_pos.actual_amount, repay_amount);
         assert!(
@@ -1163,14 +1227,14 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 
         let repay_amount = 200_0000000i128;
-        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position, &0i128);
+        let final_pos = client.repay(&borrower, &repay_amount, &updated_borrow.position);
 
         assert_eq!(final_pos.actual_amount, 100_0000000i128);
         assert_eq!(final_pos.position.scaled_amount_ray, 0);
@@ -1185,18 +1249,18 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        client.borrow(&borrower, &10_000_000_000i128, &borrow_pos, &0i128);
+        client.borrow(&borrower, &10_000_000_000i128, &borrow_pos, &i128::MAX);
 
-        let initial_indexes = client.update_indexes(&0i128);
+        let initial_indexes = client.update_indexes();
 
         // Advance time by ~1 year.
         t.advance_time(31_556_926);
 
-        let new_indexes = client.update_indexes(&0i128);
+        let new_indexes = client.update_indexes();
 
         assert!(
             new_indexes.borrow_index_ray > initial_indexes.borrow_index_ray,
@@ -1217,7 +1281,7 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &10_000_000_000i128);
+        client.supply(&supply_pos, &10_000_000_000i128, &i128::MAX);
 
         let receiver = t.env.register(PoolFlashLoanReceiver, ());
         let flash_amount = 100_0000000i128;
@@ -1363,7 +1427,7 @@ mod tests {
         let caller = Address::generate(&t.env);
         let pos = t.borrow_position();
 
-        let _ = client.create_strategy(&caller, &pos, &1_0000000i128, &2_0000000i128, &0i128);
+        let _ = client.create_strategy(&caller, &pos, &1_0000000i128, &2_0000000i128, &i128::MAX);
     }
 
     #[test]
@@ -1374,7 +1438,7 @@ mod tests {
         let caller = Address::generate(&t.env);
         let pos = t.borrow_position();
 
-        let _ = client.create_strategy(&caller, &pos, &200_000_000_000_000i128, &0i128, &0i128);
+        let _ = client.create_strategy(&caller, &pos, &200_000_000_000_000i128, &0i128, &i128::MAX);
     }
 
     // -----------------------------------------------------------------------
@@ -1386,23 +1450,22 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 
-        let idx_before = client.update_indexes(&0i128);
+        let idx_before = client.update_indexes();
 
-        let seized = client.seize_position(
-            &AccountPositionType::Borrow,
-            &updated_borrow.position,
-            &0i128,
+        let seized = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position);
+
+        assert_eq!(
+            seized.position.scaled_amount_ray, 0,
+            "position should be zeroed"
         );
 
-        assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
-
-        let idx_after = client.update_indexes(&0i128);
+        let idx_after = client.update_indexes();
         assert!(
             idx_after.supply_index_ray <= idx_before.supply_index_ray,
             "supply index should decrease or stay same after bad debt"
@@ -1416,20 +1479,16 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
         t.edit_state(|state| {
             state.borrowed_ray = 0;
         });
 
-        let _ = client.seize_position(
-            &AccountPositionType::Borrow,
-            &updated_borrow.position,
-            &0i128,
-        );
+        let _ = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position);
     }
 
     // -----------------------------------------------------------------------
@@ -1441,13 +1500,15 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        let updated = client.supply(&supply_pos, &0i128, &100_0000000i128);
+        let updated = client.supply(&supply_pos, &100_0000000i128, &i128::MAX);
 
         let revenue_before = client.protocol_revenue();
-        let seized =
-            client.seize_position(&AccountPositionType::Deposit, &updated.position, &0i128);
+        let seized = client.seize_position(&AccountPositionType::Deposit, &updated.position);
 
-        assert_eq!(seized.scaled_amount_ray, 0, "position should be zeroed");
+        assert_eq!(
+            seized.position.scaled_amount_ray, 0,
+            "position should be zeroed"
+        );
 
         let revenue_after = client.protocol_revenue();
         assert!(
@@ -1465,23 +1526,23 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        client.borrow(&borrower, &10_000_000_000i128, &borrow_pos, &0i128);
+        client.borrow(&borrower, &10_000_000_000i128, &borrow_pos, &i128::MAX);
 
         // Advance time to accrue interest.
         t.advance_time(31_556_926);
 
         // Sync indexes to accrue revenue.
-        client.update_indexes(&0i128);
+        client.update_indexes();
 
         let revenue = client.protocol_revenue();
         if revenue > 0 {
             let tok = token::Client::new(&t.env, &t.asset);
             let admin_balance_before = tok.balance(&t.admin);
-            let claimed = client.claim_revenue(&0i128);
+            let claimed = client.claim_revenue().actual_amount;
             let admin_balance_after = tok.balance(&t.admin);
 
             if claimed > 0 {
@@ -1499,14 +1560,10 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        let oversized_supply = client.supply(&supply_pos, &0i128, &200_000_000_000_000i128);
-        let _ = client.seize_position(
-            &AccountPositionType::Deposit,
-            &oversized_supply.position,
-            &0i128,
-        );
+        let oversized_supply = client.supply(&supply_pos, &200_000_000_000_000i128, &i128::MAX);
+        let _ = client.seize_position(&AccountPositionType::Deposit, &oversized_supply.position);
 
-        let claimed = client.claim_revenue(&0i128);
+        let claimed = client.claim_revenue().actual_amount;
         let remaining_revenue = client.protocol_revenue();
 
         assert!(
@@ -1526,13 +1583,13 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        let supplied = client.supply(&supply_pos, &0i128, &10_000_000_000i128);
-        let _ = client.seize_position(&AccountPositionType::Deposit, &supplied.position, &0i128);
+        let supplied = client.supply(&supply_pos, &10_000_000_000i128, &i128::MAX);
+        let _ = client.seize_position(&AccountPositionType::Deposit, &supplied.position);
         t.edit_state(|state| {
             state.supplied_ray = 1;
         });
 
-        let _ = client.claim_revenue(&0i128);
+        let _ = client.claim_revenue();
     }
 
     #[test]
@@ -1637,7 +1694,7 @@ mod tests {
         assert_eq!(util, 0, "utilization should be zero initially");
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &10_000_000_000i128);
+        client.supply(&supply_pos, &10_000_000_000i128, &i128::MAX);
 
         let supplied = client.supplied_amount();
         assert!(
@@ -1650,7 +1707,7 @@ mod tests {
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 
         let borrowed = client.borrowed_amount();
         assert!(borrowed > 0, "borrowed_amount should be positive");
@@ -1689,7 +1746,7 @@ mod tests {
 
         let pos = t.deposit_position();
         let supply_amount = 10_000_000_000i128;
-        let updated_pos = client.supply(&pos, &0i128, &supply_amount);
+        let updated_pos = client.supply(&pos, &supply_amount, &i128::MAX);
 
         let revenue_before = client.protocol_revenue();
 
@@ -1699,7 +1756,7 @@ mod tests {
 
         let gross = 10_000_000_000_i128;
         let fee = 10_000_000_i128;
-        let final_pos = client.withdraw(&user, &gross, &updated_pos.position, &true, &fee, &0i128);
+        let final_pos = client.withdraw(&user, &gross, &updated_pos.position, &true, &fee);
 
         let user_balance_after = tok.balance(&user);
         assert_eq!(
@@ -1722,17 +1779,17 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 
         // Advance time to accrue interest so current_debt > initial.
         t.advance_time(60);
 
         let partial = 10_0000000i128;
-        let final_pos = client.repay(&borrower, &partial, &updated_borrow.position, &0i128);
+        let final_pos = client.repay(&borrower, &partial, &updated_borrow.position);
 
         assert_eq!(
             final_pos.actual_amount, partial,
@@ -1755,13 +1812,13 @@ mod tests {
         let client = t.client();
 
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
-        let idx_before = client.update_indexes(&0i128);
+        let idx_before = client.update_indexes();
 
-        client.add_rewards(&0i128, &1_000_000_000i128);
+        client.add_rewards(&1_000_000_000i128);
 
-        let idx_after = client.update_indexes(&0i128);
+        let idx_after = client.update_indexes();
         assert!(
             idx_after.supply_index_ray > idx_before.supply_index_ray,
             "supply index should increase after add_rewards"
@@ -1776,7 +1833,7 @@ mod tests {
 
         // Supply reserves so create_strategy can transfer.
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &50_000_000_000i128);
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
 
         let caller = Address::generate(&t.env);
         let pos = t.borrow_position();
@@ -1786,7 +1843,7 @@ mod tests {
 
         let amount = 100_0000000i128;
         let fee = 1_0000000i128;
-        let result = client.create_strategy(&caller, &pos, &amount, &fee, &0i128);
+        let result = client.create_strategy(&caller, &pos, &amount, &fee, &i128::MAX);
 
         assert_eq!(result.actual_amount, amount);
         assert_eq!(result.amount_received, amount - fee);
@@ -1812,7 +1869,7 @@ mod tests {
         let client = t.client();
 
         // No supply, no accrual; revenue is zero.
-        let claimed = client.claim_revenue(&0i128);
+        let claimed = client.claim_revenue().actual_amount;
         assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
     }
 
@@ -1872,10 +1929,10 @@ mod tests {
         // Downstream sanity: with the base rate still 1% but higher slopes,
         // the borrow rate at 50% utilization must reflect the updated slope1.
         let supply_pos = t.deposit_position();
-        client.supply(&supply_pos, &0i128, &10_000_000_000i128);
+        client.supply(&supply_pos, &10_000_000_000i128, &i128::MAX);
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
-        let _ = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &0i128);
+        let _ = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
     }
 
     // Slope ordering violation (slope3 < slope2) panics with InvalidBorrowParams.

@@ -1,8 +1,13 @@
-use common::events::{emit_update_debt_ceiling, UpdateDebtCeilingEvent};
-use common::types::{
-    AssetConfig, EModeAssetConfig, MarketConfig, MarketIndex, PoolSyncData, PriceFeed,
+use common::events::{
+    emit_update_debt_ceiling, emit_update_market_state_batch, emit_update_position_batch,
+    EventPositionDelta, UpdateDebtCeilingEvent, UpdateMarketStateBatchEvent,
+    UpdatePositionBatchEvent,
 };
-use soroban_sdk::{Address, Env, Map};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig, MarketConfig,
+    MarketIndex, MarketStateSnapshot, PoolSyncData, PriceFeed,
+};
+use soroban_sdk::{Address, Env, Map, Symbol, Vec};
 
 use crate::oracle::policy::OraclePolicy;
 use crate::storage;
@@ -23,6 +28,10 @@ pub struct ControllerCache {
 
     // --- Isolated-debt write accumulator ---
     isolated_debts: Map<Address, i128>,
+
+    // --- Hot event write accumulators ---
+    position_updates: Vec<EventPositionDelta>,
+    market_updates: Vec<MarketStateSnapshot>,
 
     pub current_timestamp_ms: u64,
     pub oracle_policy: OraclePolicy,
@@ -48,6 +57,8 @@ impl ControllerCache {
             pool_sync_data: Map::new(env),
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
+            position_updates: Vec::new(env),
+            market_updates: Vec::new(env),
             current_timestamp_ms,
             oracle_policy,
         }
@@ -123,6 +134,79 @@ impl ControllerCache {
         let index = crate::oracle::update_asset_index(self, asset);
         self.market_indexes.set(asset.clone(), index.clone());
         index
+    }
+
+    pub fn record_market_update(&mut self, update: &MarketStateSnapshot) {
+        self.record_market_update_with_price(update, None);
+    }
+
+    pub fn record_market_update_with_price(
+        &mut self,
+        update: &MarketStateSnapshot,
+        asset_price_wad: Option<i128>,
+    ) {
+        let mut update = update.clone();
+        if asset_price_wad.is_some() {
+            update.asset_price_wad = asset_price_wad;
+        }
+        self.market_indexes.set(
+            update.asset.clone(),
+            MarketIndex {
+                borrow_index_ray: update.borrow_index_ray,
+                supply_index_ray: update.supply_index_ray,
+            },
+        );
+        self.market_updates.push_back(update);
+    }
+
+    pub fn emit_market_batch(&mut self) {
+        if self.market_updates.is_empty() {
+            return;
+        }
+        emit_update_market_state_batch(
+            &self.env,
+            UpdateMarketStateBatchEvent {
+                updates: self.market_updates.clone(),
+            },
+        );
+        self.market_updates = Vec::new(&self.env);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_position_update(
+        &mut self,
+        action: Symbol,
+        position_type: AccountPositionType,
+        asset: &Address,
+        index_ray: i128,
+        amount: i128,
+        position: &AccountPosition,
+        asset_price_wad: Option<i128>,
+    ) {
+        self.position_updates.push_back(EventPositionDelta::new(
+            action,
+            position_type,
+            asset.clone(),
+            index_ray,
+            amount,
+            position,
+            asset_price_wad,
+        ));
+    }
+
+    pub fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
+        if self.position_updates.is_empty() {
+            return;
+        }
+        emit_update_position_batch(
+            &self.env,
+            UpdatePositionBatchEvent {
+                account_id,
+                account_attributes: account.into(),
+                updates: self.position_updates.clone(),
+            },
+        );
+        self.position_updates = Vec::new(&self.env);
     }
 
     // -------------------------------------------------------------------

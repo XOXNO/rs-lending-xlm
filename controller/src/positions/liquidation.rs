@@ -60,7 +60,7 @@ pub fn process_liquidation(
     }
 
     // The side-map writes below bump account metadata TTLs, so an explicit
-    // `bump_account` keep-alive call here is redundant.
+    // `renew_user_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
@@ -103,6 +103,8 @@ pub fn process_liquidation(
     check_bad_debt_after_liquidation(env, &mut cache, account_id, &account);
 
     cache.flush_isolated_debts();
+    cache.emit_position_batch(account_id, &account);
+    cache.emit_market_batch();
 }
 
 // ---------------------------------------------------------------------------
@@ -493,7 +495,7 @@ fn check_bad_debt_after_liquidation(
 // Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
-    // reverts atomically, so no upfront `bump_account` keep-alive is needed.
+    // reverts atomically, so no upfront `renew_user_account` keep-alive is needed.
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
     let account = storage::get_account(env, account_id);
 
@@ -521,6 +523,8 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         total_debt_usd.raw(),
         total_collateral_usd.raw(),
     );
+    cache.flush_isolated_debts();
+    cache.emit_market_batch();
 }
 
 fn execute_bad_debt_cleanup(
@@ -560,7 +564,8 @@ fn seize_pool_position(
     position: &AccountPosition,
 ) {
     let feed = cache.cached_price(asset);
-    pool_seize_position_call(env, asset, side, position.clone(), feed.price_wad);
+    let result = pool_seize_position_call(env, asset, side, position.clone());
+    cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
 }
 
 crate::summarized!(
@@ -570,10 +575,8 @@ crate::summarized!(
         asset: &Address,
         side: AccountPositionType,
         position: AccountPosition,
-        price_wad: i128,
-    ) -> AccountPosition {
+    ) -> common::types::PoolPositionMutation {
         let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .seize_position(&side, &position, &price_wad)
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).seize_position(&side, &position)
     }
 );

@@ -51,9 +51,11 @@ pub fn process_flash_loan(
     // Engage reentrancy guard before the pool calls the receiver callback.
     storage::set_flash_loan_ongoing(env, true);
 
-    pool_flash_loan_call(env, &pool_addr, caller, receiver, amount, fee, data);
+    let state = pool_flash_loan_call(env, &pool_addr, caller, receiver, amount, fee, data);
 
     storage::set_flash_loan_ongoing(env, false);
+    cache.record_market_update(&state);
+    cache.emit_market_batch();
 
     emit_flash_loan(
         env,
@@ -92,7 +94,7 @@ crate::summarized!(
         amount: i128,
         fee: i128,
         data: &Bytes,
-    ) {
+    ) -> common::types::MarketStateSnapshot {
         pool_interface::LiquidityPoolClient::new(env, pool_addr)
             .flash_loan(initiator, receiver, &amount, &fee, data)
     }

@@ -1,4 +1,4 @@
-use common::types::{Account, PositionMode};
+use common::types::{Account, AccountMeta, PositionMode};
 use soroban_sdk::{Address, Env, Map};
 
 use super::emode;
@@ -20,11 +20,6 @@ pub fn create_account(
     emode::active_e_mode_category(env, e_mode_category);
 
     let account_id = storage::increment_account_nonce(env);
-    // The account nonce lives in instance storage; bump instance TTL on
-    // every account creation so a long quiet period between governance
-    // keepalives cannot let the nonce entry archive (which would reset
-    // the next id back to 1 and collide with existing accounts).
-    storage::bump_instance(env);
     let account = Account {
         owner: owner.clone(),
         is_isolated,
@@ -34,7 +29,17 @@ pub fn create_account(
         supply_positions: Map::new(env),
         borrow_positions: Map::new(env),
     };
-    storage::set_account(env, account_id, &account);
+    storage::set_account_meta(
+        env,
+        account_id,
+        &AccountMeta {
+            owner: owner.clone(),
+            is_isolated,
+            e_mode_category_id: e_mode_category,
+            mode,
+            isolated_asset: account.isolated_asset.clone(),
+        },
+    );
 
     (account_id, account)
 }

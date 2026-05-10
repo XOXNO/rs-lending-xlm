@@ -523,11 +523,11 @@ upgrade-pools: _preflight-upgrade-pools
 	echo "Controller: $$CTRL"; \
 	echo "Pool WASM hash: $$HASH"; \
 	while IFS='|' read -r NAME ASSET; do \
-		[ -z "$$NAME" ] && continue; \
-		echo "Upgrading pool $$NAME ($$ASSET)..."; \
-		stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-			-- upgrade_pool --asset $$ASSET --new_wasm_hash $$HASH; \
-	done <<< "$$MARKETS"
+			[ -z "$$NAME" ] && continue; \
+			echo "Upgrading pool $$NAME ($$ASSET)..."; \
+			stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+				-- upgrade_liquidity_pool --asset $$ASSET --new_wasm_hash $$HASH; \
+		done <<< "$$MARKETS"
 
 ## Upload pool template, upgrade controller, upgrade all configured pools, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status

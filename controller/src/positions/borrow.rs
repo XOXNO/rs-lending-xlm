@@ -1,5 +1,4 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
@@ -45,7 +44,6 @@ pub fn handle_create_borrow_strategy(
 
     let price_feed = cache.cached_price(debt_token);
 
-    validate_borrow_cap(env, cache, &debt_config, amount, debt_token);
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = Bps::from_raw(debt_config.flashloan_fee_bps).apply_to(env, amount);
@@ -58,8 +56,9 @@ pub fn handle_create_borrow_strategy(
         borrow_position,
         amount,
         flash_fee,
-        price_feed.price_wad,
+        debt_config.borrow_cap,
     );
+    cache.record_market_update_with_price(&result.market_state, Some(price_feed.price_wad));
     record_borrow_update(
         env,
         account,
@@ -71,6 +70,7 @@ pub fn handle_create_borrow_strategy(
         result.position,
         price_feed.price_wad,
         caller,
+        cache,
     );
 
     result.amount_received
@@ -103,6 +103,8 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     // Borrow only mutates the borrow side; supply and meta stay untouched.
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
+    cache.emit_position_batch(account_id, &account);
+    cache.emit_market_batch();
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +192,6 @@ fn prepare_borrow_plan(
         let feed = cache.cached_price(&asset);
         total_borrowed_wad =
             validate_ltv_capacity(env, ltv_collateral, total_borrowed_wad, amount, &feed);
-        validate_borrow_cap(env, cache, &asset_config, amount, &asset);
         handle_isolated_debt(env, cache, account, amount, &feed);
     }
 }
@@ -249,6 +250,8 @@ fn execute_borrow_plan(
             &asset_config,
             caller,
             &feed,
+            asset_config.borrow_cap,
+            cache,
         );
     }
 }
@@ -263,6 +266,8 @@ fn update_borrow_position(
     asset_config: &AssetConfig,
     caller: &Address,
     feed: &PriceFeed,
+    borrow_cap: i128,
+    cache: &mut ControllerCache,
 ) {
     let borrow_position = get_or_create_borrow_position(account, asset_config, asset);
 
@@ -272,8 +277,9 @@ fn update_borrow_position(
         caller.clone(),
         amount,
         borrow_position,
-        feed.price_wad,
+        borrow_cap,
     );
+    cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
 
     record_borrow_update(
         env,
@@ -286,6 +292,7 @@ fn update_borrow_position(
         result.position,
         feed.price_wad,
         caller,
+        cache,
     );
 }
 
@@ -297,11 +304,15 @@ crate::summarized!(
         caller: Address,
         amount: i128,
         position: AccountPosition,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> common::types::PoolPositionMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .borrow(&caller, &amount, &position, &price_wad)
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).borrow(
+            &caller,
+            &amount,
+            &position,
+            &borrow_cap,
+        )
     }
 );
 
@@ -314,11 +325,16 @@ crate::summarized!(
         position: AccountPosition,
         amount: i128,
         fee: i128,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> common::types::PoolStrategyMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr)
-            .create_strategy(&caller, &position, &amount, &fee, &price_wad)
+        pool_interface::LiquidityPoolClient::new(env, &pool_addr).create_strategy(
+            &caller,
+            &position,
+            &amount,
+            &fee,
+            &borrow_cap,
+        )
     }
 );
 
@@ -334,23 +350,19 @@ fn record_borrow_update(
     position: AccountPosition,
     price_wad: i128,
     caller: &Address,
+    cache: &mut ControllerCache,
 ) {
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action,
-            index,
-            amount,
-            position: EventAccountPosition::new(
-                AccountPositionType::Borrow,
-                asset.clone(),
-                account_id,
-                &position,
-            ),
-            asset_price: Some(price_wad),
-            caller: Some(caller.clone()),
-            account_attributes: Some((&*account).into()),
-        },
+    let _ = env;
+    let _ = account_id;
+    let _ = caller;
+    cache.record_position_update(
+        action,
+        AccountPositionType::Borrow,
+        asset,
+        index,
+        amount,
+        &position,
+        Some(price_wad),
     );
     update::update_or_remove_position(account, AccountPositionType::Borrow, asset, &position);
 }
@@ -410,35 +422,6 @@ fn get_or_create_borrow_position(
             liquidation_fees_bps: borrow_asset_config.liquidation_fees_bps,
             loan_to_value_bps: borrow_asset_config.loan_to_value_bps,
         })
-}
-
-fn validate_borrow_cap(
-    env: &Env,
-    cache: &mut ControllerCache,
-    asset_config: &AssetConfig,
-    amount: i128,
-    asset: &Address,
-) {
-    if asset_config.borrow_cap == 0 || asset_config.borrow_cap == i128::MAX {
-        return; // Zero and i128::MAX mean no cap.
-    }
-    // Use the synced borrow index from the cache rather than the pool's stored
-    // (potentially stale) value. `cached_market_index` simulates global_sync
-    // forward to the current timestamp so cap enforcement is exact across
-    // accrual gaps and same-tx multi-payment loops.
-    let sync_data = cache.cached_pool_sync_data(asset);
-    let market_index = cache.cached_market_index(asset);
-    let current_total = Ray::from_raw(sync_data.state.borrowed_ray)
-        .mul(env, Ray::from_raw(market_index.borrow_index_ray));
-    let amount_ray = Ray::from_asset(amount, sync_data.params.asset_decimals);
-    let cap_ray = Ray::from_asset(asset_config.borrow_cap, sync_data.params.asset_decimals);
-    let total = current_total
-        .raw()
-        .checked_add(amount_ray.raw())
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    if Ray::from_raw(total) > cap_ray {
-        panic_with_error!(env, CollateralError::BorrowCapReached);
-    }
 }
 
 fn current_borrowed_wad(

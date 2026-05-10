@@ -1,5 +1,4 @@
 use common::errors::{CollateralError, GenericError};
-use common::events::{emit_update_position, EventAccountPosition, UpdatePositionEvent};
 use common::types::{
     Account, AccountPosition, AccountPositionType, ControllerKey, Payment, PoolPositionMutation,
 };
@@ -86,6 +85,8 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         // only for health-factor validation.
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
+    cache.emit_position_batch(account_id, &account);
+    cache.emit_market_batch();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -157,7 +158,6 @@ pub fn execute_withdrawal(
         event_caller,
         action,
     } = ctx;
-    let _ = cache;
     let result = pool_withdraw_call(
         env,
         asset,
@@ -166,8 +166,8 @@ pub fn execute_withdrawal(
         position.clone(),
         is_liquidation,
         protocol_fee,
-        price_wad,
     );
+    cache.record_market_update_with_price(&result.market_state, Some(price_wad));
     update::update_or_remove_position(
         account,
         AccountPositionType::Deposit,
@@ -175,22 +175,17 @@ pub fn execute_withdrawal(
         &result.position,
     );
 
-    emit_update_position(
-        env,
-        UpdatePositionEvent {
-            action,
-            index: result.market_index.supply_index_ray,
-            amount: result.actual_amount,
-            position: EventAccountPosition::new(
-                AccountPositionType::Deposit,
-                asset.clone(),
-                account_id,
-                &result.position,
-            ),
-            asset_price: Some(price_wad),
-            caller: Some(event_caller),
-            account_attributes: Some((&*account).into()),
-        },
+    let _ = env;
+    let _ = account_id;
+    let _ = event_caller;
+    cache.record_position_update(
+        action,
+        AccountPositionType::Deposit,
+        asset,
+        result.market_index.supply_index_ray,
+        result.actual_amount,
+        &result.position,
+        Some(price_wad),
     );
 
     result
@@ -206,7 +201,6 @@ crate::summarized!(
         position: AccountPosition,
         is_liquidation: bool,
         protocol_fee: i128,
-        price_wad: i128,
     ) -> PoolPositionMutation {
         let pool_addr = storage::get_market_config(env, asset).pool_address;
         pool_interface::LiquidityPoolClient::new(env, &pool_addr).withdraw(
@@ -215,7 +209,6 @@ crate::summarized!(
             &position,
             &is_liquidation,
             &protocol_fee,
-            &price_wad,
         )
     }
 );

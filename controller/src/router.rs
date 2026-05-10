@@ -1,5 +1,7 @@
 use common::errors::{GenericError, OracleError};
-use common::events::{emit_create_market, CreateMarketEvent};
+use common::events::{
+    emit_create_market, emit_update_market_params, CreateMarketEvent, UpdateMarketParamsEvent,
+};
 use common::types::{
     AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig, MarketParams,
     MarketStatus,
@@ -20,8 +22,11 @@ impl Controller {
 
         let mut cache = ControllerCache::new(&env, OraclePolicy::RiskDecreasing);
         utils::sync_market_indexes(&env, &mut cache, &assets);
+        cache.emit_market_batch();
+    }
 
-        storage::bump_pools_list(&env);
+    pub fn renew_account(env: Env, caller: Address, account_id: u64) {
+        renew_account(&env, &caller, account_id);
     }
 
     #[only_role(caller, "KEEPER")]
@@ -170,7 +175,7 @@ pub fn create_liquidity_pool(
 
     // Track in the pools list for enumeration.
     storage::add_to_pools_list(env, asset, &pool_address);
-    storage::bump_instance(env);
+    storage::renew_controller_instance(env);
 
     emit_create_market(
         env,
@@ -229,8 +234,9 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
 
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
-    let feed = cache.cached_price(asset);
-    pool_update_indexes_call(env, &market.pool_address, feed.price_wad);
+    let state = pool_update_indexes_call(env, &market.pool_address);
+    cache.record_market_update(&state);
+    cache.emit_market_batch();
 
     pool_client.update_params(
         &params.max_borrow_rate_ray,
@@ -241,6 +247,21 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
         &params.mid_utilization_ray,
         &params.optimal_utilization_ray,
         &params.reserve_factor_bps,
+    );
+
+    emit_update_market_params(
+        env,
+        UpdateMarketParamsEvent {
+            asset: asset.clone(),
+            max_borrow_rate_ray: params.max_borrow_rate_ray,
+            base_borrow_rate_ray: params.base_borrow_rate_ray,
+            slope1_ray: params.slope1_ray,
+            slope2_ray: params.slope2_ray,
+            slope3_ray: params.slope3_ray,
+            mid_utilization_ray: params.mid_utilization_ray,
+            optimal_utilization_ray: params.optimal_utilization_ray,
+            reserve_factor_bps: params.reserve_factor_bps,
+        },
     );
 }
 
@@ -262,19 +283,22 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
 // forwards to the configured accumulator. Both transfers must succeed in
 // the same transaction or the whole claim reverts (no try/catch on either
 // hop), so partial state is impossible.
-fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
+fn claim_revenue_for_asset_with_cache(
+    env: &Env,
+    asset: &Address,
+    cache: &mut ControllerCache,
+) -> i128 {
     validation::require_asset_supported(env, asset);
 
     if !storage::has_accumulator(env) {
         panic_with_error!(env, OracleError::NoAccumulator);
     }
 
-    // Safe-price cache: revenue claim cannot liquidate positions.
-    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     let pool_addr = cache.cached_pool_address(asset);
-    let feed = cache.cached_price(asset);
 
-    let amount = pool_claim_revenue_call(env, &pool_addr, feed.price_wad);
+    let result = pool_claim_revenue_call(env, &pool_addr);
+    cache.record_market_update(&result.market_state);
+    let amount = result.actual_amount;
 
     if amount > 0 {
         let accumulator = storage::get_accumulator(env);
@@ -293,23 +317,29 @@ fn claim_revenue_for_asset(env: &Env, asset: &Address) -> i128 {
 // Claims accrued protocol revenue from multiple pools in one call.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     for i in 0..assets.len() {
         let asset = assets.get(i).unwrap();
-        results.push_back(claim_revenue_for_asset(env, &asset));
+        let amount = claim_revenue_for_asset_with_cache(env, &asset, &mut cache);
+        results.push_back(amount);
     }
+    cache.emit_market_batch();
     results
 }
 
 // Transfers reward tokens from the caller into the pool and bumps the
 // pool's supply index to distribute the rewards to suppliers.
-pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
+pub fn add_reward(
+    env: &Env,
+    caller: &Address,
+    asset: &Address,
+    amount: i128,
+    cache: &mut ControllerCache,
+) {
     validation::require_asset_supported(env, asset);
     validation::require_amount_positive(env, amount);
 
-    // Safe-price cache: reward credit cannot liquidate positions.
-    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     let pool_addr = cache.cached_pool_address(asset);
-    let feed = cache.cached_price(asset);
 
     let actual_received = utils::transfer_and_measure_received(
         env,
@@ -320,14 +350,17 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128) {
         GenericError::AmountMustBePositive,
     );
 
-    pool_add_rewards_call(env, &pool_addr, feed.price_wad, actual_received);
+    let state = pool_add_rewards_call(env, &pool_addr, actual_received);
+    cache.record_market_update(&state);
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     for i in 0..rewards.len() {
         let (asset, amount) = rewards.get(i).unwrap();
-        add_reward(env, caller, &asset, amount);
+        add_reward(env, caller, &asset, amount, &mut cache);
     }
+    cache.emit_market_batch();
 }
 
 // ---------------------------------------------------------------------------
@@ -335,8 +368,10 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<
 // ---------------------------------------------------------------------------
 
 pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
-    storage::bump_instance(env);
-    storage::bump_pools_list(env);
+    storage::renew_controller_instance(env);
+    storage::renew_pools_list(env);
+
+    let mut emode_categories = soroban_sdk::Vec::new(env);
 
     for i in 0..assets.len() {
         let asset = assets.get(i).unwrap();
@@ -345,29 +380,41 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
             None => continue,
         };
 
-        storage::bump_shared(env, &ControllerKey::Market(asset.clone()));
-        // `IsolatedDebt(asset)` is created lazily on the first isolated
-        // borrow — non-isolated markets have no entry to bump.
-        let isolated_key = ControllerKey::IsolatedDebt(asset.clone());
-        if env.storage().persistent().has(&isolated_key) {
-            storage::bump_shared(env, &isolated_key);
-        }
+        storage::renew_protocol_shared_key(env, &ControllerKey::Market(asset.clone()));
+        storage::renew_isolated_debt_if_positive(env, &asset);
 
         // E-mode memberships live on the asset's MarketConfig — already
-        // loaded above, so iterate without an extra storage read.
+        // loaded above. Dedupe category ids so one keeper call renews each
+        // category at most once even when many assets share it.
         for category_id in market.asset_config.e_mode_categories.iter() {
-            storage::bump_shared(env, &ControllerKey::EModeCategory(category_id));
+            if !emode_categories.contains(category_id) {
+                emode_categories.push_back(category_id);
+            }
         }
+    }
+
+    for category_id in emode_categories {
+        storage::renew_protocol_shared_key(env, &ControllerKey::EModeCategory(category_id));
     }
 }
 
 pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
     for i in 0..account_ids.len() {
         let account_id = account_ids.get(i).unwrap();
-        // `bump_account` per-key `has` checks already make missing accounts a
+        // `renew_user_account` per-key `has` checks already make missing accounts a
         // no-op, so a separate existence read up front is wasted I/O.
-        storage::bump_account(env, account_id);
+        storage::renew_user_account(env, account_id);
     }
+}
+
+pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
+    caller.require_auth();
+    let meta = storage::get_account_meta(env, account_id);
+    if meta.owner != *caller {
+        panic_with_error!(env, GenericError::AccountNotInMarket);
+    }
+
+    storage::renew_user_account(env, account_id);
 }
 
 pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
@@ -387,16 +434,18 @@ crate::summarized!(
     pub(crate) fn pool_update_indexes_call(
         env: &Env,
         pool_addr: &Address,
-        price_wad: i128,
-    ) -> common::types::MarketIndex {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes(&price_wad)
+    ) -> common::types::MarketStateSnapshot {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes()
     }
 );
 
 crate::summarized!(
     pool::claim_revenue_summary,
-    pub(crate) fn pool_claim_revenue_call(env: &Env, pool_addr: &Address, price_wad: i128) -> i128 {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(&price_wad)
+    pub(crate) fn pool_claim_revenue_call(
+        env: &Env,
+        pool_addr: &Address,
+    ) -> common::types::PoolAmountMutation {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue()
     }
 );
 
@@ -405,9 +454,8 @@ crate::summarized!(
     pub(crate) fn pool_add_rewards_call(
         env: &Env,
         pool_addr: &Address,
-        price_wad: i128,
         amount: i128,
-    ) {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(&price_wad, &amount)
+    ) -> common::types::MarketStateSnapshot {
+        pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(&amount)
     }
 );

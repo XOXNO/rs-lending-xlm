@@ -15,7 +15,7 @@ use soroban_sdk::{Address, Symbol};
 pub(crate) struct EventContext {
     // Pool-call authority — the address whose tokens are moved.
     pub caller: Address,
-    // Originator recorded in the emitted `UpdatePositionEvent`. Differs from
+    // Originator recorded in the emitted position batch item. Differs from
     // `caller` in strategy flows where the controller is the intermediate
     // token recipient but the real initiator should appear in the log.
     pub event_caller: Address,

@@ -25,8 +25,11 @@ pub fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<
     aggregate_payments(env, payments, true)
 }
 
-// Transfers `asset` from `from` to `to` and returns the positive balance
-// increase observed at `to`.
+// Transfers `asset` from `from` to `to` and returns the credited amount.
+//
+// Listed assets are standard non-fee, non-rebasing tokens. Avoiding
+// balance-delta accounting removes two token balance reads from every inbound
+// transfer hot path.
 pub fn transfer_and_measure_received(
     env: &Env,
     asset: &Address,
@@ -35,26 +38,12 @@ pub fn transfer_and_measure_received(
     amount: i128,
     balance_decrease_error: GenericError,
 ) -> i128 {
-    let balance_before = sac_balance_call(env, asset, to);
-
+    if amount <= 0 {
+        panic_with_error!(env, balance_decrease_error);
+    }
     sac_transfer_call(env, asset, from, to, &amount);
-
-    let received = sac_balance_call(env, asset, to)
-        .checked_sub(balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, balance_decrease_error));
-    if received <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
-
-    received
+    amount
 }
-
-crate::summarized!(
-    sac::balance_summary,
-    pub(crate) fn sac_balance_call(env: &Env, token: &Address, account: &Address) -> i128 {
-        soroban_sdk::token::Client::new(env, token).balance(account)
-    }
-);
 
 crate::summarized!(
     sac::transfer_summary,
@@ -157,10 +146,10 @@ pub fn create_account_for_first_asset(
 pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
-        let index = crate::router::pool_update_indexes_call(env, &pool_addr, 0);
+        let state = crate::router::pool_update_indexes_call(env, &pool_addr);
         // Refresh the in-memory cache so subsequent reads in this transaction
         // use the persisted index.
-        cache.market_indexes.set(asset.clone(), index);
+        cache.record_market_update(&state);
     }
 }
 

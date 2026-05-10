@@ -135,7 +135,7 @@ fn validate_source(
 }
 
 fn validate_max_stale(env: &Env, max_stale: u64) {
-    if max_stale < 60 || max_stale > 86_400 {
+    if !(60..=86_400).contains(&max_stale) {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
     }
 }

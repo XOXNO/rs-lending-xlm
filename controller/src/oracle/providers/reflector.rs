@@ -62,29 +62,54 @@ fn read_twap(
     max_stale: u64,
     required: bool,
 ) -> Option<OracleObservation> {
-    let spot = read_spot(cache, config, required)?;
     if records == 0 {
-        return twap_fallback_or_panic(cache, spot, OracleError::TwapInsufficientObservations);
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            None,
+            OracleError::TwapInsufficientObservations,
+        );
     }
 
     let env = cache.env();
     let asset = to_reflector_asset(env, &config.asset);
     let Some(history) = reflector_prices_call(env, &config.contract, &asset, records) else {
-        return twap_fallback_or_panic(cache, spot, OracleError::ReflectorHistoryEmpty);
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            None,
+            OracleError::ReflectorHistoryEmpty,
+        );
     };
     if history.is_empty() {
-        return twap_fallback_or_panic(cache, spot, OracleError::ReflectorHistoryEmpty);
-    }
-    if history.len() < min_twap_observations(records) {
-        return twap_fallback_or_panic(cache, spot, OracleError::TwapInsufficientObservations);
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            None,
+            OracleError::ReflectorHistoryEmpty,
+        );
     }
 
     let mut sum: i128 = 0;
     let mut oldest_ts = u64::MAX;
+    let mut newest_valid: Option<OracleObservation> = None;
+    let mut has_invalid_price = false;
     for pd in history.iter() {
         check_not_future_at(env, cache.current_timestamp_ms / 1000, pd.timestamp);
         if pd.price <= 0 {
-            return twap_fallback_or_panic(cache, spot, OracleError::InvalidPrice);
+            has_invalid_price = true;
+            continue;
+        }
+        let candidate =
+            observation_from_price_data(env, &pd, config.decimals, OracleReadMode::Spot);
+        if newest_valid
+            .as_ref()
+            .is_none_or(|current| candidate.observed_at > current.observed_at)
+        {
+            newest_valid = Some(candidate);
         }
         sum = sum
             .checked_add(pd.price)
@@ -94,8 +119,34 @@ fn read_twap(
         }
     }
 
+    if has_invalid_price {
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            newest_valid,
+            OracleError::InvalidPrice,
+        );
+    }
+
+    if history.len() < min_twap_observations(records) {
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            newest_valid,
+            OracleError::TwapInsufficientObservations,
+        );
+    }
+
     if is_stale(cache.current_timestamp_ms / 1000, oldest_ts, max_stale) {
-        return twap_fallback_or_panic(cache, spot, OracleError::PriceFeedStale);
+        return twap_fallback_or_panic(
+            cache,
+            config,
+            required,
+            newest_valid,
+            OracleError::PriceFeedStale,
+        );
     }
 
     let raw_price = sum / history.len() as i128;
@@ -112,14 +163,36 @@ fn read_twap(
 
 fn twap_fallback_or_panic(
     cache: &ControllerCache,
-    spot: OracleObservation,
+    config: &ReflectorSourceConfig,
+    required: bool,
+    fallback: Option<OracleObservation>,
     err: OracleError,
 ) -> Option<OracleObservation> {
     if cache.oracle_policy.allows_missing_twap_fallback() {
-        Some(spot)
+        fallback.or_else(|| read_spot_from_env(cache.env(), config, required))
     } else {
         panic_with_error!(cache.env(), err);
     }
+}
+
+fn read_spot_from_env(
+    env: &Env,
+    config: &ReflectorSourceConfig,
+    required: bool,
+) -> Option<OracleObservation> {
+    let asset = to_reflector_asset(env, &config.asset);
+    let Some(pd) = reflector_lastprice_call(env, &config.contract, &asset) else {
+        if required {
+            panic_with_error!(env, OracleError::NoLastPrice);
+        }
+        return None;
+    };
+    Some(observation_from_price_data(
+        env,
+        &pd,
+        config.decimals,
+        OracleReadMode::Spot,
+    ))
 }
 
 fn observation_from_price_data(

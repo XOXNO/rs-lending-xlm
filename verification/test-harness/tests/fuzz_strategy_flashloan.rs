@@ -86,7 +86,7 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
     t.env.as_contract(&t.controller, || {
         !t.env
             .storage()
-            .instance()
+            .temporary()
             .get::<_, bool>(&common::types::ControllerKey::FlashLoanOngoing)
             .unwrap_or(false)
     })

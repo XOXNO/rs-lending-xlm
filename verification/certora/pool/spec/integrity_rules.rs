@@ -91,7 +91,7 @@ fn supply_preserves_nonnegative_state(e: Env, admin: Address, asset: Address, am
     );
 
     let before = position(RAY);
-    let result = crate::LiquidityPool::supply(e.clone(), before.clone(), RAY, amount);
+    let result = crate::LiquidityPool::supply(e.clone(), before.clone(), amount, i128::MAX);
     let state = read_state(&e);
 
     cvlr_assert!(result.actual_amount == amount);
@@ -120,7 +120,7 @@ fn borrow_preserves_nonnegative_state(
     );
 
     let before = position(0);
-    let result = crate::LiquidityPool::borrow(e.clone(), caller, amount, before.clone(), RAY);
+    let result = crate::LiquidityPool::borrow(e.clone(), caller, amount, before.clone(), i128::MAX);
     let state = read_state(&e);
 
     cvlr_assert!(result.actual_amount == amount);
@@ -150,7 +150,7 @@ fn withdraw_never_creates_negative_position(
     );
 
     let before = position(scaled_before);
-    let result = crate::LiquidityPool::withdraw(e.clone(), caller, amount, before, false, 0, RAY);
+    let result = crate::LiquidityPool::withdraw(e.clone(), caller, amount, before, false, 0);
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);
 }
@@ -174,7 +174,7 @@ fn repay_never_creates_negative_debt(
     );
 
     let before = position(scaled_before);
-    let result = crate::LiquidityPool::repay(e.clone(), caller, amount, before, RAY);
+    let result = crate::LiquidityPool::repay(e.clone(), caller, amount, before);
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);
@@ -219,9 +219,8 @@ fn seize_position_zeroes_scaled_amount(
         e,
         AccountPositionType::Borrow,
         position(scaled_before),
-        RAY,
     );
-    cvlr_assert!(after.scaled_amount_ray == 0);
+    cvlr_assert!(after.position.scaled_amount_ray == 0);
 }
 
 #[rule]

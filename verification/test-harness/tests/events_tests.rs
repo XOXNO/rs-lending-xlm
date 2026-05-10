@@ -2,10 +2,32 @@ extern crate std;
 
 use common::constants::WAD;
 
-use soroban_sdk::testutils::Events;
+use soroban_sdk::{
+    testutils::{ContractEvents, Events},
+    xdr::{ContractEventBody, ScVal},
+};
 use std::format;
 
-use test_harness::{days, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
+use test_harness::{
+    days, eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset,
+    LendingTest, ALICE, LIQUIDATOR,
+};
+
+fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            match (body.topics.first(), body.topics.get(1)) {
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
+                    a.0.to_string() == first && b.0.to_string() == second
+                }
+                _ => false,
+            }
+        })
+        .count()
+}
 
 // ---------------------------------------------------------------------------
 // All event tests verify that operations emit events.
@@ -26,6 +48,55 @@ fn test_supply_emits_events() {
     t.supply(ALICE, "USDC", 10_000.0);
     let count = t.env.events().all().events().len();
     assert!(count > 0, "supply should emit events, got {}", count);
+}
+
+#[test]
+fn test_bulk_supply_emits_single_position_and_market_batch() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .with_market(xlm_preset())
+        .build();
+
+    t.supply_bulk(
+        ALICE,
+        &[
+            ("USDC", 1_000.0),
+            ("USDT", 1_000.0),
+            ("ETH", 1.0),
+            ("WBTC", 0.1),
+            ("XLM", 1_000.0),
+        ],
+    );
+
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "bulk supply should emit one position batch"
+    );
+    assert_eq!(
+        count_topic(&events, "market", "batch_state_update"),
+        1,
+        "bulk supply should emit one market batch"
+    );
+    assert_eq!(
+        count_topic(&events, "position", "update"),
+        0,
+        "legacy position:update must not be emitted"
+    );
+    assert_eq!(
+        count_topic(&events, "market", "state_update"),
+        0,
+        "legacy market:state_update must not be emitted"
+    );
+    assert_eq!(
+        events.events().len(),
+        7,
+        "bulk supply should emit five token transfers plus two batch events"
+    );
 }
 
 #[test]

@@ -28,9 +28,18 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
     t.env.as_contract(&t.controller, || {
         !t.env
             .storage()
-            .instance()
+            .temporary()
             .get::<_, bool>(&ControllerKey::FlashLoanOngoing)
             .unwrap_or(false)
+    })
+}
+
+fn flash_guard_absent_from_instance(t: &LendingTest) -> bool {
+    t.env.as_contract(&t.controller, || {
+        !t.env
+            .storage()
+            .instance()
+            .has(&ControllerKey::FlashLoanOngoing)
     })
 }
 
@@ -106,6 +115,10 @@ fn test_flash_loan_success_under_non_root_auth() {
         result.is_ok(),
         "flash loan with good receiver must succeed under non-root auth mock: {:?}",
         result
+    );
+    assert!(
+        flash_guard_absent_from_instance(&t),
+        "flash-loan guard must not persist in controller instance storage"
     );
 }
 

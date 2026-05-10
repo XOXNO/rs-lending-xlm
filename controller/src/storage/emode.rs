@@ -1,4 +1,4 @@
-use super::bump_shared;
+use super::renew_protocol_shared_key;
 use common::errors::EModeError;
 use common::types::{ControllerKey, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{panic_with_error, Address, Env};
@@ -25,7 +25,7 @@ pub fn try_get_emode_category(env: &Env, id: u32) -> Option<EModeCategory> {
 pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategory) {
     let key = category_key(id);
     env.storage().persistent().set(&key, cat);
-    bump_shared(env, &key);
+    renew_protocol_shared_key(env, &key);
 }
 
 // ---------------------------------------------------------------------------

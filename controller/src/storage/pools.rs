@@ -1,4 +1,4 @@
-use super::bump_shared;
+use super::renew_protocol_shared_key;
 use common::types::ControllerKey;
 use soroban_sdk::{Address, Env, Vec};
 
@@ -16,10 +16,10 @@ pub fn get_pools_list(env: &Env) -> Vec<Address> {
 // `PoolsCount` entry is maintained. Exposed for test fixtures and any
 // future enumeration entrypoint.
 // Bumps the single `PoolsList` entry. No-ops when no pools exist yet.
-pub fn bump_pools_list(env: &Env) {
+pub fn renew_pools_list(env: &Env) {
     let key = ControllerKey::PoolsList;
     if env.storage().persistent().has(&key) {
-        bump_shared(env, &key);
+        renew_protocol_shared_key(env, &key);
     }
 }
 
@@ -34,5 +34,5 @@ pub fn add_to_pools_list(env: &Env, asset: &Address, _pool: &Address) {
     list.push_back(asset.clone());
     let key = ControllerKey::PoolsList;
     env.storage().persistent().set(&key, &list);
-    bump_shared(env, &key);
+    renew_protocol_shared_key(env, &key);
 }

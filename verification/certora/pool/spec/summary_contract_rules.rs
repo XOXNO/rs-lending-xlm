@@ -62,7 +62,7 @@ fn supply_satisfies_controller_summary_contract(
     );
 
     let before = position(RAY);
-    let result = crate::LiquidityPool::supply(e, before.clone(), RAY, amount);
+    let result = crate::LiquidityPool::supply(e, before.clone(), amount, i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -87,7 +87,7 @@ fn borrow_satisfies_controller_summary_contract(
     );
 
     let before = position(0);
-    let result = crate::LiquidityPool::borrow(e, caller, amount, before.clone(), RAY);
+    let result = crate::LiquidityPool::borrow(e, caller, amount, before.clone(), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -114,7 +114,7 @@ fn withdraw_satisfies_controller_summary_contract(
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::withdraw(e, caller, amount, before.clone(), false, 0, RAY);
+    let result = crate::LiquidityPool::withdraw(e, caller, amount, before.clone(), false, 0);
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount || result.position.scaled_amount_ray == 0);
@@ -141,7 +141,7 @@ fn repay_satisfies_controller_summary_contract(
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::repay(e, caller, amount, before.clone(), RAY);
+    let result = crate::LiquidityPool::repay(e, caller, amount, before.clone());
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
@@ -168,7 +168,8 @@ fn create_strategy_satisfies_controller_summary_contract(
     );
 
     let before = position(0);
-    let result = crate::LiquidityPool::create_strategy(e, caller, before.clone(), amount, fee, RAY);
+    let result =
+        crate::LiquidityPool::create_strategy(e, caller, before.clone(), amount, fee, i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.amount_received == amount - fee);
@@ -193,8 +194,8 @@ fn seize_position_satisfies_controller_summary_contract(
     );
 
     let result =
-        crate::LiquidityPool::seize_position(e, AccountPositionType::Borrow, position(scaled), RAY);
-    cvlr_assert!(result.scaled_amount_ray == 0);
+        crate::LiquidityPool::seize_position(e, AccountPositionType::Borrow, position(scaled));
+    cvlr_assert!(result.position.scaled_amount_ray == 0);
 }
 
 #[rule]
@@ -206,7 +207,7 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
         state(100 * RAY, 0, RAY, e.ledger().timestamp()),
     );
 
-    let amount = crate::LiquidityPool::claim_revenue(e, RAY);
+    let amount = crate::LiquidityPool::claim_revenue(e).actual_amount;
     cvlr_assert!(amount >= 0);
 }
 

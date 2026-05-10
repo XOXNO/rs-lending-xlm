@@ -59,13 +59,13 @@ pub const ONE_DAY_LEDGERS: u32 = 17_280;
 // Tiered storage TTLs (ledger counts)
 // ---------------------------------------------------------------------------
 
-pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
+pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 30; // ~30 days
 pub const TTL_BUMP_INSTANCE: u32 = ONE_DAY_LEDGERS * 180; // ~180 days (Soroban max)
 
 pub const TTL_THRESHOLD_SHARED: u32 = ONE_DAY_LEDGERS * 30; // ~30 days
-pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
+pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * 180; // ~180 days
 
-pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * 100; // ~100 days
+pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * 30; // ~30 days
 pub const TTL_BUMP_USER: u32 = ONE_DAY_LEDGERS * 120; // ~120 days
 
 pub const TTL_THRESHOLD: u32 = TTL_THRESHOLD_INSTANCE;

@@ -2,8 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPosition, AccountPositionType, MarketIndex, PoolPositionMutation, PoolStrategyMutation,
-    PoolSyncData,
+    AccountPosition, AccountPositionType, MarketStateSnapshot, PoolAmountMutation,
+    PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 
@@ -12,15 +12,15 @@ pub trait LiquidityPoolInterface {
     fn supply(
         env: Env,
         position: AccountPosition,
-        price_wad: i128,
         amount: i128,
+        supply_cap: i128,
     ) -> PoolPositionMutation;
     fn borrow(
         env: Env,
         caller: Address,
         amount: i128,
         position: AccountPosition,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> PoolPositionMutation;
     fn withdraw(
         env: Env,
@@ -29,20 +29,15 @@ pub trait LiquidityPoolInterface {
         position: AccountPosition,
         is_liquidation: bool,
         protocol_fee: i128,
-        price_wad: i128,
     ) -> PoolPositionMutation;
-    /// Parameter order matches `borrow`: `(caller, amount, position,
-    /// price_wad)`. Keeping the two i128 arguments in identical positions
-    /// across both endpoints prevents caller-side argument swaps.
     fn repay(
         env: Env,
         caller: Address,
         amount: i128,
         position: AccountPosition,
-        price_wad: i128,
     ) -> PoolPositionMutation;
-    fn update_indexes(env: Env, price_wad: i128) -> MarketIndex;
-    fn add_rewards(env: Env, price_wad: i128, amount: i128);
+    fn update_indexes(env: Env) -> MarketStateSnapshot;
+    fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot;
     /// Pool uses its own `params.asset_id` for the token transfer; the ABI
     /// takes no caller-supplied asset argument.
     fn flash_loan(
@@ -52,26 +47,25 @@ pub trait LiquidityPoolInterface {
         amount: i128,
         fee: i128,
         data: Bytes,
-    );
+    ) -> MarketStateSnapshot;
     fn create_strategy(
         env: Env,
         caller: Address,
         position: AccountPosition,
         amount: i128,
         fee: i128,
-        price_wad: i128,
+        borrow_cap: i128,
     ) -> PoolStrategyMutation;
     fn seize_position(
         env: Env,
         side: AccountPositionType,
         position: AccountPosition,
-        price_wad: i128,
-    ) -> AccountPosition;
+    ) -> PoolPositionMutation;
     /// Pool transfers revenue to its owner (the controller), which then
     /// forwards to the protocol accumulator. The ABI takes no
     /// caller-supplied destination, and the pool stores no destination of
     /// its own; ownership is the routing anchor.
-    fn claim_revenue(env: Env, price_wad: i128) -> i128;
+    fn claim_revenue(env: Env) -> PoolAmountMutation;
     fn update_params(
         env: Env,
         max_borrow_rate: i128,

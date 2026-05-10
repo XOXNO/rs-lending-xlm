@@ -454,6 +454,20 @@ pub struct MarketIndex {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct MarketStateSnapshot {
+    pub asset: Address,
+    pub timestamp: u64,
+    pub supply_index_ray: i128,
+    pub borrow_index_ray: i128,
+    pub reserves_ray: i128,
+    pub supplied_ray: i128,
+    pub borrowed_ray: i128,
+    pub revenue_ray: i128,
+    pub asset_price_wad: Option<i128>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct MarketIndexView {
     pub asset: Address,
     pub supply_index_ray: i128,
@@ -478,6 +492,7 @@ pub struct AssetExtendedConfigView {
 pub struct PoolPositionMutation {
     pub position: AccountPosition,
     pub market_index: MarketIndex,
+    pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
 }
 
@@ -486,8 +501,16 @@ pub struct PoolPositionMutation {
 pub struct PoolStrategyMutation {
     pub position: AccountPosition,
     pub market_index: MarketIndex,
+    pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
     pub amount_received: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolAmountMutation {
+    pub market_state: MarketStateSnapshot,
+    pub actual_amount: i128,
 }
 
 #[contracttype]
@@ -749,6 +772,8 @@ pub enum ControllerKey {
     AccountNonce,
     PositionLimits,
     LastEModeCategoryId,
+    // Reentrancy guard key. Kept in this enum for stable contracttype
+    // encoding, but stored in temporary storage rather than instance storage.
     FlashLoanOngoing,
 
     // Persistent-scoped
