@@ -8,7 +8,7 @@ use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes, update_borrow_index, update_supply_index, utilization,
 };
-use crate::types::MarketParams;
+use crate::types::{MarketParams, PoolState, PoolSyncData};
 
 fn valid_params(asset: Address) -> MarketParams {
     MarketParams {
@@ -159,16 +159,18 @@ fn simulate_indexes_no_time_noop(
     cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
     cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
 
-    let index = simulate_update_indexes(
-        &e,
-        timestamp,
-        timestamp,
-        Ray::from_raw(borrowed),
-        Ray::from_raw(borrow_index),
-        Ray::from_raw(supplied),
-        Ray::from_raw(supply_index),
-        &valid_params(asset),
-    );
+    let sync = PoolSyncData {
+        params: valid_params(asset),
+        state: PoolState {
+            supplied_ray: supplied,
+            borrowed_ray: borrowed,
+            revenue_ray: 0,
+            borrow_index_ray: borrow_index,
+            supply_index_ray: supply_index,
+            last_timestamp: timestamp,
+        },
+    };
+    let index = simulate_update_indexes(&e, timestamp, &sync);
 
     cvlr_assert!(index.borrow_index_ray == borrow_index);
     cvlr_assert!(index.supply_index_ray == supply_index);

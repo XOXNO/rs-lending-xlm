@@ -32,7 +32,7 @@ use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes,
 };
-use common::types::MarketParams;
+use common::types::{MarketParams, PoolState, PoolSyncData};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{Address, Env};
 
@@ -308,16 +308,18 @@ fuzz_target!(|i: In| {
     // floor. simulate_update_indexes uses `current_timestamp - last_timestamp`
     // for accrual, so feeding (delta_ms, 0) mirrors the clamp above exactly.
     let old_index_raw = Ray::ONE.raw();
-    let new_idx = simulate_update_indexes(
-        &env,
-        delta_ms,
-        0,
-        Ray::from_raw(borrowed_raw),
-        Ray::ONE,
-        Ray::from_raw(supplied_raw),
-        Ray::ONE,
-        &params,
-    );
+    let sync = PoolSyncData {
+        params: params.clone(),
+        state: PoolState {
+            supplied_ray: supplied_raw,
+            borrowed_ray: borrowed_raw,
+            revenue_ray: 0,
+            borrow_index_ray: Ray::ONE.raw(),
+            supply_index_ray: Ray::ONE.raw(),
+            last_timestamp: 0,
+        },
+    };
+    let new_idx = simulate_update_indexes(&env, delta_ms, &sync);
 
     // Monotonic non-decrease: indices only grow across a positive time step.
     assert!(

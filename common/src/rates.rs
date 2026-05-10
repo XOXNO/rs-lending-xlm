@@ -2,7 +2,7 @@ use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
 use crate::fp::{Bps, Ray};
-use crate::types::MarketParams;
+use crate::types::{MarketParams, PoolSyncData};
 
 /// Computes the per-millisecond borrow rate from current utilization and market parameters.
 /// Selects the appropriate slope segment (`base → slope1 → slope2 → slope3`) based on
@@ -158,50 +158,51 @@ pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
 }
 
-#[allow(clippy::too_many_arguments)]
-/// Simulates interest accrual from `last_timestamp` to `current_timestamp` without
-/// mutating pool state. Used by the controller to read fresh indexes in view calls.
+/// Simulates interest accrual from `sync.state.last_timestamp` to `current_timestamp`
+/// without mutating pool state. Used by the controller to read fresh indexes in view
+/// calls and HF/LTV math without paying for a cross-contract write.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,
-    last_timestamp: u64,
-    borrowed: Ray,
-    current_borrowed_index: Ray,
-    supplied: Ray,
-    current_supply_index: Ray,
-    params: &MarketParams,
+    sync: &PoolSyncData,
 ) -> crate::types::MarketIndex {
-    let delta_ms = current_timestamp.saturating_sub(last_timestamp);
+    let state = &sync.state;
+    let current_borrowed_index = Ray::from_raw(state.borrow_index_ray);
+    let current_supply_index = Ray::from_raw(state.supply_index_ray);
+    let delta_ms = current_timestamp.saturating_sub(state.last_timestamp);
 
-    if delta_ms > 0 {
-        let borrowed_original = scaled_to_original(env, borrowed, current_borrowed_index);
-        let supplied_original = scaled_to_original(env, supplied, current_supply_index);
-        let util = utilization(env, borrowed_original, supplied_original);
-        let borrow_rate = calculate_borrow_rate(env, util, params);
-        let interest_factor = compound_interest(env, borrow_rate, delta_ms);
-
-        let new_borrow_index = update_borrow_index(env, current_borrowed_index, interest_factor);
-
-        let (supplier_rewards, _) = calculate_supplier_rewards(
-            env,
-            params,
-            borrowed,
-            new_borrow_index,
-            current_borrowed_index,
-        );
-
-        let new_supply_index =
-            update_supply_index(env, supplied, current_supply_index, supplier_rewards);
-
-        crate::types::MarketIndex {
-            supply_index_ray: new_supply_index.raw(),
-            borrow_index_ray: new_borrow_index.raw(),
-        }
-    } else {
-        crate::types::MarketIndex {
+    if delta_ms == 0 {
+        return crate::types::MarketIndex {
             supply_index_ray: current_supply_index.raw(),
             borrow_index_ray: current_borrowed_index.raw(),
-        }
+        };
+    }
+
+    let borrowed = Ray::from_raw(state.borrowed_ray);
+    let supplied = Ray::from_raw(state.supplied_ray);
+
+    let borrowed_original = scaled_to_original(env, borrowed, current_borrowed_index);
+    let supplied_original = scaled_to_original(env, supplied, current_supply_index);
+    let util = utilization(env, borrowed_original, supplied_original);
+    let borrow_rate = calculate_borrow_rate(env, util, &sync.params);
+    let interest_factor = compound_interest(env, borrow_rate, delta_ms);
+
+    let new_borrow_index = update_borrow_index(env, current_borrowed_index, interest_factor);
+
+    let (supplier_rewards, _) = calculate_supplier_rewards(
+        env,
+        &sync.params,
+        borrowed,
+        new_borrow_index,
+        current_borrowed_index,
+    );
+
+    let new_supply_index =
+        update_supply_index(env, supplied, current_supply_index, supplier_rewards);
+
+    crate::types::MarketIndex {
+        supply_index_ray: new_supply_index.raw(),
+        borrow_index_ray: new_borrow_index.raw(),
     }
 }
 

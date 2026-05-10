@@ -7,7 +7,6 @@ mod tolerance;
 pub(crate) mod validation;
 
 use common::errors::{GenericError, OracleError};
-use common::fp::Ray;
 use common::rates::simulate_update_indexes;
 use common::types::{MarketIndex, MarketStatus, PriceFeed};
 use soroban_sdk::{panic_with_error, Address};
@@ -72,15 +71,6 @@ crate::summarized!(
     pub fn update_asset_index(cache: &mut ControllerCache, asset: &Address) -> MarketIndex {
         let env = cache.env().clone();
         let sync_data = cache.cached_pool_sync_data(asset);
-        simulate_update_indexes(
-            &env,
-            cache.current_timestamp_ms,
-            sync_data.state.last_timestamp,
-            Ray::from_raw(sync_data.state.borrowed_ray),
-            Ray::from_raw(sync_data.state.borrow_index_ray),
-            Ray::from_raw(sync_data.state.supplied_ray),
-            Ray::from_raw(sync_data.state.supply_index_ray),
-            &sync_data.params,
-        )
+        simulate_update_indexes(&env, cache.current_timestamp_ms, &sync_data)
     }
 );
