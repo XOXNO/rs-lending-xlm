@@ -104,7 +104,7 @@ mod tests {
                 .address()
                 .clone();
             let params = MarketParams {
-                max_borrow_rate_ray: 5 * RAY,
+                max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
                 slope1_ray: RAY / 10,
                 slope2_ray: RAY / 5,

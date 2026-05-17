@@ -98,7 +98,7 @@ fn validate_market_creation(
     }
 
     validation::validate_asset_config(env, config);
-    params.rate_model_view().verify(env);
+    params.verify_rate_model(env);
 }
 
 // Deploys a liquidity pool for `asset` from the stored WASM template and

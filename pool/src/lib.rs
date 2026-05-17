@@ -42,6 +42,8 @@ pub struct LiquidityPool;
 #[contractimpl]
 impl LiquidityPool {
     pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
+        params.verify_rate_model(&env);
+
         ownable::set_owner(&env, &admin);
 
         env.storage().instance().set(&PoolKey::Params, &params);
@@ -629,6 +631,35 @@ mod tests {
         assert_eq!(left.last_timestamp, right.last_timestamp);
     }
 
+    fn flatten_contract_result<T>(
+        result: Result<
+            Result<T, soroban_sdk::ConversionError>,
+            Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+        >,
+    ) -> Result<T, soroban_sdk::Error> {
+        match result {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(err)) => panic!("contract call succeeded but output conversion failed: {err:?}"),
+            Err(invoke) => {
+                Err(invoke.expect("expected contract error, got host-level InvokeError"))
+            }
+        }
+    }
+
+    fn assert_contract_error<T: core::fmt::Debug>(
+        result: Result<T, soroban_sdk::Error>,
+        expected_code: u32,
+    ) {
+        match result {
+            Ok(value) => panic!("expected contract error {expected_code}, got Ok({value:?})"),
+            Err(err) => assert_eq!(
+                err,
+                soroban_sdk::Error::from_contract_error(expected_code),
+                "unexpected contract error"
+            ),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Test: supply increases supplied_ray and returns the updated position.
     // -----------------------------------------------------------------------
@@ -684,7 +715,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #105)")]
     fn test_supply_cap_enforced_after_pool_sync() {
         let t = TestSetup::new();
         let client = t.client();
@@ -692,11 +722,14 @@ mod tests {
         let pos = t.deposit_position();
         let amount = 10_000_000_000i128;
 
-        client.supply(&pos, &amount, &(amount - 1));
+        let result = flatten_contract_result(client.try_supply(&pos, &amount, &(amount - 1)));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::SupplyCapReached as u32,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #106)")]
     fn test_borrow_cap_enforced_after_pool_sync() {
         let t = TestSetup::new();
         let client = t.client();
@@ -708,11 +741,19 @@ mod tests {
         let borrow_pos = t.borrow_position();
         let borrow_amount = 100_0000000i128;
 
-        client.borrow(&borrower, &borrow_amount, &borrow_pos, &(borrow_amount - 1));
+        let result = flatten_contract_result(client.try_borrow(
+            &borrower,
+            &borrow_amount,
+            &borrow_pos,
+            &(borrow_amount - 1),
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::BorrowCapReached as u32,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #106)")]
     fn test_strategy_borrow_cap_enforced_after_pool_sync() {
         let t = TestSetup::new();
         let client = t.client();
@@ -724,18 +765,36 @@ mod tests {
         let pos = t.borrow_position();
         let amount = 100_0000000i128;
 
-        client.create_strategy(&caller, &pos, &amount, &0i128, &(amount - 1));
+        let result = flatten_contract_result(client.try_create_strategy(
+            &caller,
+            &pos,
+            &amount,
+            &0i128,
+            &(amount - 1),
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::BorrowCapReached as u32,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #112)")]
     fn test_borrow_rejects_when_reserves_are_insufficient() {
         let t = TestSetup::new();
         let client = t.client();
         let borrower = Address::generate(&t.env);
         let borrow_pos = t.borrow_position();
 
-        let _ = client.borrow(&borrower, &200_000_000_000_000i128, &borrow_pos, &i128::MAX);
+        let result = flatten_contract_result(client.try_borrow(
+            &borrower,
+            &200_000_000_000_000i128,
+            &borrow_pos,
+            &i128::MAX,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InsufficientLiquidity as u32,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -775,7 +834,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #115)")]
     fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
         let t = TestSetup::new();
         let client = t.client();
@@ -784,17 +842,20 @@ mod tests {
         let updated_pos = client.supply(&pos, &10_000_000i128, &i128::MAX);
         let user = Address::generate(&t.env);
 
-        let _ = client.withdraw(
+        let result = flatten_contract_result(client.try_withdraw(
             &user,
             &1_0000000i128,
             &updated_pos.position,
             &true,
             &2_0000000i128,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::WithdrawLessThanFee as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #112)")]
     fn test_withdraw_rejects_when_reserves_are_insufficient() {
         let t = TestSetup::new();
         let client = t.client();
@@ -807,17 +868,20 @@ mod tests {
         client.borrow(&borrower, &99_999_990_000_000i128, &borrow_pos, &i128::MAX);
 
         let user = Address::generate(&t.env);
-        let _ = client.withdraw(
+        let result = flatten_contract_result(client.try_withdraw(
             &user,
             &10_000_000_000i128,
             &updated_pos.position,
             &false,
             &0i128,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InsufficientLiquidity as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #33)")]
     fn test_withdraw_rejects_supplied_accounting_underflow() {
         let t = TestSetup::new();
         let client = t.client();
@@ -829,7 +893,14 @@ mod tests {
         });
 
         let user = Address::generate(&t.env);
-        let _ = client.withdraw(&user, &i128::MAX, &updated_pos.position, &false, &0i128);
+        let result = flatten_contract_result(client.try_withdraw(
+            &user,
+            &i128::MAX,
+            &updated_pos.position,
+            &false,
+            &0i128,
+        ));
+        assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
     }
 
     // -----------------------------------------------------------------------
@@ -953,10 +1024,18 @@ mod tests {
         let client = t.client();
         let receiver = t.env.register(PoolFlashLoanReceiver, ());
 
-        let result =
-            client.try_flash_loan(&t.admin, &receiver, &0i128, &0i128, &Bytes::new(&t.env));
+        let result = flatten_contract_result(client.try_flash_loan(
+            &t.admin,
+            &receiver,
+            &0i128,
+            &0i128,
+            &Bytes::new(&t.env),
+        ));
 
-        assert!(result.is_err(), "zero-amount pool flash loan must fail");
+        assert_contract_error(
+            result,
+            common::errors::GenericError::AmountMustBePositive as u32,
+        );
     }
 
     #[test]
@@ -965,17 +1044,17 @@ mod tests {
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        let result = client.try_flash_loan(
+        let result = flatten_contract_result(client.try_flash_loan(
             &t.admin,
             &receiver,
             &1_0000000i128,
             &0i128,
             &Bytes::new(&t.env),
-        );
+        ));
 
-        assert!(
-            result.is_err(),
-            "pool must reject receivers that are not WASM contracts"
+        assert_contract_error(
+            result,
+            common::errors::FlashLoanError::InvalidFlashloanReceiver as u32,
         );
     }
 
@@ -1027,57 +1106,81 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #112)")]
     fn test_flash_loan_rejects_insufficient_liquidity() {
         let t = TestSetup::new();
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan(
+        let result = flatten_contract_result(client.try_flash_loan(
             &t.admin,
             &receiver,
             &200_000_000_000_000i128,
             &0i128,
             &Bytes::new(&t.env),
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InsufficientLiquidity as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #14)")]
     fn test_flash_loan_rejects_negative_fee() {
         let t = TestSetup::new();
         let client = t.client();
         let receiver = Address::generate(&t.env);
 
-        client.flash_loan(
+        let result = flatten_contract_result(client.try_flash_loan(
             &t.admin,
             &receiver,
             &1_0000000i128,
             &-1i128,
             &Bytes::new(&t.env),
+        ));
+        assert_contract_error(
+            result,
+            common::errors::GenericError::AmountMustBePositive as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #409)")]
     fn test_create_strategy_rejects_fee_greater_than_amount() {
         let t = TestSetup::new();
         let client = t.client();
         let caller = Address::generate(&t.env);
         let pos = t.borrow_position();
 
-        let _ = client.create_strategy(&caller, &pos, &1_0000000i128, &2_0000000i128, &i128::MAX);
+        let result = flatten_contract_result(client.try_create_strategy(
+            &caller,
+            &pos,
+            &1_0000000i128,
+            &2_0000000i128,
+            &i128::MAX,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::FlashLoanError::StrategyFeeExceeds as u32,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #112)")]
     fn test_create_strategy_rejects_insufficient_liquidity() {
         let t = TestSetup::new();
         let client = t.client();
         let caller = Address::generate(&t.env);
         let pos = t.borrow_position();
 
-        let _ = client.create_strategy(&caller, &pos, &200_000_000_000_000i128, &0i128, &i128::MAX);
+        let result = flatten_contract_result(client.try_create_strategy(
+            &caller,
+            &pos,
+            &200_000_000_000_000i128,
+            &0i128,
+            &i128::MAX,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InsufficientLiquidity as u32,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1112,7 +1215,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #33)")]
     fn test_seize_position_rejects_borrowed_accounting_underflow() {
         let t = TestSetup::new();
         let client = t.client();
@@ -1127,7 +1229,10 @@ mod tests {
             state.borrowed_ray = 0;
         });
 
-        let _ = client.seize_position(&AccountPositionType::Borrow, &updated_borrow.position);
+        let result = flatten_contract_result(
+            client.try_seize_position(&AccountPositionType::Borrow, &updated_borrow.position),
+        );
+        assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
     }
 
     // -----------------------------------------------------------------------
@@ -1216,7 +1321,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #33)")]
     fn test_claim_revenue_rejects_revenue_above_supplied() {
         let t = TestSetup::new();
         let client = t.client();
@@ -1228,16 +1332,16 @@ mod tests {
             state.supplied_ray = 1;
         });
 
-        let _ = client.claim_revenue();
+        let result = flatten_contract_result(client.try_claim_revenue());
+        assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #117)")]
     fn test_update_params_rejects_invalid_utilization_range() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1246,16 +1350,19 @@ mod tests {
             &(RAY * 8 / 10),
             &(RAY * 8 / 10),
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidUtilRange as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #118)")]
     fn test_update_params_rejects_optimal_utilization_above_one() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1264,16 +1371,19 @@ mod tests {
             &(RAY / 2),
             &RAY,
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::OptUtilTooHigh as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #119)")]
     fn test_update_params_rejects_invalid_reserve_factor() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1282,16 +1392,19 @@ mod tests {
             &(RAY / 2),
             &(RAY * 8 / 10),
             &10_000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidReserveFactor as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #116)")]
     fn test_update_params_rejects_negative_base_rate() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &-1i128,
             &(RAY / 10),
@@ -1300,16 +1413,19 @@ mod tests {
             &(RAY / 2),
             &(RAY * 8 / 10),
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidBorrowParams as u32,
         );
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #116)")]
     fn test_update_params_rejects_max_rate_not_above_base_rate() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(RAY / 100),
             &(RAY / 100),
             &(RAY / 10),
@@ -1318,6 +1434,10 @@ mod tests {
             &(RAY / 2),
             &(RAY * 8 / 10),
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidBorrowParams as u32,
         );
     }
 
@@ -1650,13 +1770,12 @@ mod tests {
 
     // Slope ordering violation (slope3 < slope2) panics with InvalidBorrowParams.
     #[test]
-    #[should_panic(expected = "Error(Contract, #116)")]
     fn test_update_params_rejects_invalid_slope_ordering() {
         let t = TestSetup::new();
         let client = t.client();
 
         // slope3 < slope2: invalid.
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1665,17 +1784,20 @@ mod tests {
             &(RAY / 2),
             &(RAY * 8 / 10),
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidBorrowParams as u32,
         );
     }
 
     // mid_utilization == 0 panics with InvalidUtilRange.
     #[test]
-    #[should_panic(expected = "Error(Contract, #117)")]
     fn test_update_params_rejects_mid_utilization_zero() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1684,18 +1806,21 @@ mod tests {
             &0i128,
             &(RAY * 8 / 10),
             &1000,
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidUtilRange as u32,
         );
     }
 
     // reserve_factor at the BPS ceiling panics with InvalidReserveFactor;
     // the validator requires `< BPS`.
     #[test]
-    #[should_panic(expected = "Error(Contract, #119)")]
     fn test_update_params_rejects_reserve_factor_at_bps() {
         let t = TestSetup::new();
         let client = t.client();
 
-        client.update_params(
+        let result = flatten_contract_result(client.try_update_params(
             &(2 * RAY),
             &(RAY / 100),
             &(RAY / 10),
@@ -1704,7 +1829,34 @@ mod tests {
             &(RAY / 2),
             &(RAY * 8 / 10),
             &(BPS as u32),
+        ));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::InvalidReserveFactor as u32,
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #116)")]
+    fn test_constructor_rejects_invalid_rate_model() {
+        let env = Env::default();
+        test_support::init_ledger(&env);
+
+        let admin = Address::generate(&env);
+        let params = MarketParams {
+            max_borrow_rate_ray: RAY,
+            base_borrow_rate_ray: -1,
+            slope1_ray: RAY * 4 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 80 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            reserve_factor_bps: 1000,
+            asset_id: Address::generate(&env),
+            asset_decimals: 7,
+        };
+
+        let _ = env.register(LiquidityPool, (admin, params));
     }
 
     // Verifies keepalive bumps the instance TTL by at least TTL_THRESHOLD_INSTANCE.

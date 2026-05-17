@@ -71,6 +71,13 @@ impl MarketParams {
             reserve_factor_bps: self.reserve_factor_bps,
         }
     }
+
+    /// Validates the interest-rate model fields embedded in this market.
+    /// Asset identity and token-decimal checks are context-dependent and stay
+    /// with the caller that has the expected asset/token contract available.
+    pub fn verify_rate_model(&self, env: &Env) {
+        self.rate_model_view().verify(env);
+    }
 }
 
 // Interest-rate model update payload. Separates the 8 mutable rate params
