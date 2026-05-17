@@ -9,9 +9,10 @@
 //! to and from the `i128` fields required by `#[contracttype]` structs.
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
-use soroban_sdk::Env;
+use soroban_sdk::{panic_with_error, Env};
 
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
+use crate::errors::GenericError;
 use crate::fp_core;
 
 // ===========================================================================
@@ -79,6 +80,23 @@ impl Ray {
             asset_decimals,
             RAY_DECIMALS,
         ))
+    }
+
+    /// Subtraction that enforces the non-negative-result invariant.
+    /// `Ray` wraps a signed `i128`, so plain `-` happily produces negatives
+    /// (e.g. `1 - 1000 = -999`) without overflowing — that breaks invariants
+    /// like "supplied balances stay non-negative". This helper surfaces such
+    /// cases as a typed `MathOverflow` contract error.
+    pub fn checked_sub(self, env: &Env, rhs: Ray) -> Ray {
+        if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
+            panic_with_error!(env, GenericError::MathOverflow);
+        }
+        Ray(self.0 - rhs.0)
+    }
+
+    /// In-place form of [`checked_sub`]. Same sign-invariant guarantees.
+    pub fn checked_sub_assign(&mut self, env: &Env, rhs: Ray) {
+        *self = self.checked_sub(env, rhs);
     }
 }
 

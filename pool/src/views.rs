@@ -1,8 +1,9 @@
 use common::errors::GenericError;
-use common::fp::Ray;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParams, PoolKey, PoolState};
 use soroban_sdk::{panic_with_error, Env};
+
+use crate::cache::Cache;
 
 /// Loads the current pool state; panics with `PoolNotInitialized` when absent.
 pub fn load_state(env: &Env) -> PoolState {
@@ -22,22 +23,7 @@ pub fn load_params(env: &Env) -> MarketParams {
 
 /// Returns the current capital utilization ratio in RAY precision.
 pub fn capital_utilisation(env: &Env) -> i128 {
-    let state = load_state(env);
-
-    let total_supplied = Ray::from_raw(state.supplied_ray)
-        .mul(env, Ray::from_raw(state.supply_index_ray))
-        .raw();
-    let total_borrowed = Ray::from_raw(state.borrowed_ray)
-        .mul(env, Ray::from_raw(state.borrow_index_ray))
-        .raw();
-
-    if total_supplied == 0 {
-        0
-    } else {
-        Ray::from_raw(total_borrowed)
-            .div(env, Ray::from_raw(total_supplied))
-            .raw()
-    }
+    Cache::load(env).calculate_utilization().raw()
 }
 
 /// Returns the pool's on-chain token reserve balance in asset decimals.
@@ -49,44 +35,34 @@ pub fn reserves(env: &Env) -> i128 {
 
 /// Returns the current deposit APR in RAY precision.
 pub fn deposit_rate(env: &Env) -> i128 {
-    let params = load_params(env);
-    let util = Ray::from_raw(capital_utilisation(env));
-    let borrow_rate_val = calculate_borrow_rate(env, util, &params);
-    calculate_deposit_rate(env, util, borrow_rate_val, params.reserve_factor_bps).raw()
+    let cache = Cache::load(env);
+    let util = cache.calculate_utilization();
+    let borrow = calculate_borrow_rate(env, util, &cache.params);
+    calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor_bps).raw()
 }
 
 /// Returns the current borrow APR in RAY precision.
 pub fn borrow_rate(env: &Env) -> i128 {
-    let params = load_params(env);
-    let util = Ray::from_raw(capital_utilisation(env));
-    calculate_borrow_rate(env, util, &params).raw()
+    let cache = Cache::load(env);
+    calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
 /// Returns the total accrued protocol revenue in asset decimals.
 pub fn protocol_revenue(env: &Env) -> i128 {
-    let state = load_state(env);
-    let params = load_params(env);
-    let actual_ray =
-        Ray::from_raw(state.revenue_ray).mul(env, Ray::from_raw(state.supply_index_ray));
-    actual_ray.to_asset(params.asset_decimals)
+    let c = Cache::load(env);
+    c.calculate_original_supply(c.revenue)
 }
 
 /// Returns the total supplied amount in **asset decimals** (user-facing).
 pub fn supplied_amount(env: &Env) -> i128 {
-    let state = load_state(env);
-    let params = load_params(env);
-    let actual_ray =
-        Ray::from_raw(state.supplied_ray).mul(env, Ray::from_raw(state.supply_index_ray));
-    actual_ray.to_asset(params.asset_decimals)
+    let c = Cache::load(env);
+    c.calculate_original_supply(c.supplied)
 }
 
 /// Returns the total borrowed amount in **asset decimals** (user-facing).
 pub fn borrowed_amount(env: &Env) -> i128 {
-    let state = load_state(env);
-    let params = load_params(env);
-    let actual_ray =
-        Ray::from_raw(state.borrowed_ray).mul(env, Ray::from_raw(state.borrow_index_ray));
-    actual_ray.to_asset(params.asset_decimals)
+    let c = Cache::load(env);
+    c.calculate_original_borrow(c.borrowed)
 }
 
 /// Returns elapsed milliseconds since the last interest accrual.
@@ -101,10 +77,11 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::test_support::init_ledger;
     use common::constants::RAY;
     use common::fp::Ray;
     use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address};
 
     struct TestSetup {
@@ -119,17 +96,7 @@ mod tests {
         fn new() -> Self {
             let env = Env::default();
             env.mock_all_auths();
-
-            env.ledger().set(LedgerInfo {
-                timestamp: 1_000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3_110_400,
-            });
+            init_ledger(&env);
 
             let admin = Address::generate(&env);
             let asset = env

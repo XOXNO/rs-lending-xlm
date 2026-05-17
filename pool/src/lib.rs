@@ -1,172 +1,43 @@
 #![no_std]
-#![allow(clippy::too_many_arguments)]
 mod cache;
 mod interest;
+mod utils;
 mod views;
+
+#[cfg(test)]
+mod test_support;
 
 #[cfg(feature = "certora")]
 #[path = "../../verification/certora/pool/spec/mod.rs"]
 pub mod spec;
 
 use cache::Cache;
-use common::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
-use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::constants::RAY;
+#[cfg(test)]
+use common::constants::TTL_THRESHOLD_INSTANCE;
+use common::errors::{FlashLoanError, GenericError};
 use common::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
-    AccountPosition, AccountPositionType, MarketIndex, MarketParams, MarketStateSnapshot,
+    AccountPosition, AccountPositionType, InterestRateModel, MarketParams, MarketStateSnapshot,
     PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStrategyMutation,
     PoolSyncData,
 };
-use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, Address, Bytes, BytesN, Env, Executable,
-    IntoVal, Symbol, Vec,
+    contract, contractimpl, panic_with_error, token, Address, Bytes, BytesN, Env, IntoVal, Symbol,
 };
 
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
+use utils::{
+    apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, enforce_borrow_cap,
+    enforce_supply_cap, renew_pool_instance, require_nonneg_amount, require_positive_amount,
+    require_wasm_receiver,
+};
+
 #[contract]
 pub struct LiquidityPool;
-
-// ---------------------------------------------------------------------------
-// Admin verification
-// ---------------------------------------------------------------------------
-
-fn verify_admin(env: &Env) {
-    ownable::enforce_owner_auth(env);
-}
-
-/// Reject negative amounts at every mutating pool ABI. The controller
-/// validates sign at user entrypoints; this guard prevents a controller
-/// upgrade that omits a `require_amount_positive` check from reaching the
-/// pool's phantom-collateral path.
-fn require_nonneg_amount(env: &Env, amount: i128) {
-    if amount < 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
-}
-
-fn require_positive_amount(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
-}
-
-fn require_wasm_receiver(env: &Env, receiver: &Address) {
-    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
-        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
-    }
-}
-
-fn renew_pool_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
-}
-
-fn checked_add_ray(env: &Env, a: Ray, b: Ray) -> Ray {
-    if a.raw() < 0 || b.raw() < 0 {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
-    Ray::from_raw(
-        a.raw()
-            .checked_add(b.raw())
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    )
-}
-
-fn checked_sub_ray(env: &Env, a: Ray, b: Ray) -> Ray {
-    if a.raw() < 0 || b.raw() < 0 || b.raw() > a.raw() {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
-    Ray::from_raw(
-        a.raw()
-            .checked_sub(b.raw())
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
-    )
-}
-
-fn cap_is_enabled(cap: i128) -> bool {
-    cap > 0 && cap != i128::MAX
-}
-
-fn require_nonnegative_cap(env: &Env, cap: i128) {
-    if cap < 0 {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
-}
-
-fn enforce_supply_cap(env: &Env, cache: &Cache, next_supplied: Ray, supply_cap: i128) {
-    require_nonnegative_cap(env, supply_cap);
-    if !cap_is_enabled(supply_cap) {
-        return;
-    }
-
-    let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
-    let next_total = next_supplied.mul(env, cache.supply_index);
-    if next_total > cap_ray {
-        panic_with_error!(env, CollateralError::SupplyCapReached);
-    }
-}
-
-fn enforce_borrow_cap(env: &Env, cache: &Cache, next_borrowed: Ray, borrow_cap: i128) {
-    require_nonnegative_cap(env, borrow_cap);
-    if !cap_is_enabled(borrow_cap) {
-        return;
-    }
-
-    let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
-    let next_total = next_borrowed.mul(env, cache.borrow_index);
-    if next_total > cap_ray {
-        panic_with_error!(env, CollateralError::BorrowCapReached);
-    }
-}
-
-fn authorize_token_transfer_from(
-    env: &Env,
-    asset: &Address,
-    from: &Address,
-    to: &Address,
-    amount: i128,
-) {
-    let pool_addr = env.current_contract_address();
-    let token_transfer_from = InvokerContractAuthEntry::Contract(SubContractInvocation {
-        context: ContractContext {
-            contract: asset.clone(),
-            fn_name: Symbol::new(env, "transfer_from"),
-            args: (pool_addr, from.clone(), to.clone(), amount).into_val(env),
-        },
-        sub_invocations: Vec::new(env),
-    });
-    let mut auth_entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
-    auth_entries.push_back(token_transfer_from);
-    env.authorize_as_current_contract(auth_entries);
-}
-
-fn market_index(cache: &Cache) -> MarketIndex {
-    MarketIndex {
-        borrow_index_ray: cache.borrow_index.raw(),
-        supply_index_ray: cache.supply_index.raw(),
-    }
-}
-
-fn market_snapshot(_env: &Env, cache: &Cache) -> MarketStateSnapshot {
-    let reserves = cache.get_reserves_for(&cache.params.asset_id);
-
-    MarketStateSnapshot {
-        asset: cache.params.asset_id.clone(),
-        timestamp: cache.current_timestamp,
-        supply_index_ray: cache.supply_index.raw(),
-        borrow_index_ray: cache.borrow_index.raw(),
-        reserves_ray: reserves,
-        supplied_ray: cache.supplied.raw(),
-        borrowed_ray: cache.borrowed.raw(),
-        revenue_ray: cache.revenue.raw(),
-        asset_price_wad: None,
-    }
-}
 
 #[contractimpl]
 impl LiquidityPool {
@@ -194,37 +65,28 @@ impl LiquidityPool {
     // Admin-only mutating endpoints
     // -----------------------------------------------------------------------
 
+    #[only_owner]
     pub fn supply(
         env: Env,
         mut position: AccountPosition,
         amount: i128,
         supply_cap: i128,
     ) -> PoolPositionMutation {
-        verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
         let scaled_amount = cache.calculate_scaled_supply(amount);
-        let next_supplied = checked_add_ray(&env, cache.supplied, scaled_amount);
-        enforce_supply_cap(&env, &cache, next_supplied, supply_cap);
-        position.scaled_amount_ray = position
-            .scaled_amount_ray
-            .checked_add(scaled_amount.raw())
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.supplied = next_supplied;
+        enforce_supply_cap(&env, &cache, scaled_amount, supply_cap);
+        position.scaled_amount_ray += scaled_amount.raw();
+        cache.supplied += scaled_amount;
 
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.position_mutation(position, amount);
         cache.save();
-        PoolPositionMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: amount,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn borrow(
         env: Env,
         caller: Address,
@@ -232,39 +94,26 @@ impl LiquidityPool {
         mut position: AccountPosition,
         borrow_cap: i128,
     ) -> PoolPositionMutation {
-        verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        if !cache.has_reserves(amount) {
-            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
-        }
+        cache.require_reserves(amount);
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
-        let next_borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
-        enforce_borrow_cap(&env, &cache, next_borrowed, borrow_cap);
-        position.scaled_amount_ray = position
-            .scaled_amount_ray
-            .checked_add(scaled_debt.raw())
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.borrowed = next_borrowed;
+        enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
+        position.scaled_amount_ray += scaled_debt.raw();
+        cache.borrowed += scaled_debt;
 
         // Transfer tokens to the borrower.
-        let tok = token::Client::new(&env, &cache.params.asset_id);
-        tok.transfer(&env.current_contract_address(), &caller, &amount);
+        cache.transfer_out(&caller, amount);
 
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.position_mutation(position, amount);
         cache.save();
-        PoolPositionMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: amount,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -273,7 +122,6 @@ impl LiquidityPool {
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation {
-        verify_admin(&env);
         // `amount == i128::MAX` is the "withdraw all" sentinel from the
         // controller; any other negative value is rejected here.
         require_nonneg_amount(&env, amount);
@@ -281,162 +129,79 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        // Gross withdrawal: cap at the position's current value.
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-        let current_supply_actual = cache.calculate_original_supply(pos_scaled);
-        let (scaled_withdrawal, gross_amount) = if amount >= current_supply_actual {
-            (pos_scaled, current_supply_actual)
-        } else {
-            let scaled = cache.calculate_scaled_supply(amount);
-            // Dust-lock guard: if the residual scaled amount would round to
-            // zero asset tokens, treat the call as a full withdrawal so the
-            // user leaves no permanently-stuck dust behind. Credit the user
-            // the full `current_supply_actual` (not the smaller requested
-            // `amount`) — the entire scaled position is being burned, so the
-            // sub-unit residual otherwise vanishes into the protocol.
-            let remaining_scaled = checked_sub_ray(&env, pos_scaled, scaled);
-            let remaining_actual = cache.calculate_original_supply(remaining_scaled);
-            if remaining_actual == 0 {
-                (pos_scaled, current_supply_actual)
-            } else {
-                (scaled, amount)
-            }
-        };
+        let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, pos_scaled);
 
-        // Apply the liquidation fee if applicable.
-        let mut net_transfer = gross_amount;
-        if is_liquidation && protocol_fee > 0 {
-            if net_transfer < protocol_fee {
-                panic_with_error!(&env, CollateralError::WithdrawLessThanFee);
-            }
-            net_transfer -= protocol_fee;
-            interest::add_protocol_revenue(&mut cache, protocol_fee);
-        }
+        let net_transfer =
+            apply_liquidation_fee(&env, &mut cache, gross_amount, is_liquidation, protocol_fee);
 
-        // Verify reserves after fee deduction.
-        if !cache.has_reserves(net_transfer) {
-            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
-        }
+        cache.require_reserves(net_transfer);
 
-        cache.supplied = checked_sub_ray(&env, cache.supplied, scaled_withdrawal);
-        position.scaled_amount_ray = checked_sub_ray(
-            &env,
-            Ray::from_raw(position.scaled_amount_ray),
-            scaled_withdrawal,
-        )
-        .raw();
+        cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
+        position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_withdrawal).raw();
 
-        // Transfer tokens to the caller.
-        if net_transfer > 0 {
-            let tok = token::Client::new(&env, &cache.params.asset_id);
-            tok.transfer(&env.current_contract_address(), &caller, &net_transfer);
-        }
+        cache.transfer_out(&caller, net_transfer);
 
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.position_mutation(position, gross_amount);
         cache.save();
-        PoolPositionMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: gross_amount,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn repay(
         env: Env,
         caller: Address,
         amount: i128,
         mut position: AccountPosition,
     ) -> PoolPositionMutation {
-        verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
         let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-        let current_debt = cache.calculate_original_borrow(pos_scaled);
+        let (scaled_repay, overpayment) = cache.resolve_repay(amount, pos_scaled);
 
-        let (scaled_repay, overpayment) = if amount >= current_debt {
-            let over = amount - current_debt;
-            (pos_scaled, over)
-        } else {
-            let scaled = cache.calculate_scaled_borrow(amount);
-            (scaled, 0i128)
-        };
+        position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_repay).raw();
+        cache.borrowed.checked_sub_assign(&env, scaled_repay);
 
-        // Checked subtraction on the per-account scaled balance. The partial
-        // branch above derives `scaled_repay = calculate_scaled_borrow(amount)`
-        // with half-up rounding; round-trip monotonicity normally bounds it
-        // by `pos_scaled`, but an adversarial combination of `borrow_index`
-        // and asset decimals could push it 1 ulp over. Without this guard the
-        // signed `i128 -= i128` would yield a negative scaled balance that
-        // bypasses `update_or_remove_position`'s `== 0` gate and surface as
-        // huge positive debt on the next read.
-        if scaled_repay.raw() > position.scaled_amount_ray {
-            panic_with_error!(&env, GenericError::MathOverflow);
-        }
-        position.scaled_amount_ray -= scaled_repay.raw();
-        // Checked subtraction: a `scaled_repay > cache.borrowed` underflow
-        // signals phantom-liquidity (per-account scaled debt exceeds the
-        // pool's tracked total). Surface immediately rather than silently
-        // floor at zero.
-        if scaled_repay.raw() > cache.borrowed.raw() {
-            panic_with_error!(&env, GenericError::MathOverflow);
-        }
-        cache.borrowed = checked_sub_ray(&env, cache.borrowed, scaled_repay);
+        cache.transfer_out(&caller, overpayment);
 
-        // Refund any overpayment.
-        if overpayment > 0 {
-            let tok = token::Client::new(&env, &cache.params.asset_id);
-            tok.transfer(&env.current_contract_address(), &caller, &overpayment);
-        }
-
-        let actual_applied = amount.min(current_debt);
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.position_mutation(position, amount - overpayment);
         cache.save();
-        PoolPositionMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: actual_applied,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn update_indexes(env: Env) -> MarketStateSnapshot {
-        verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        let result = market_snapshot(&env, &cache);
+        let result = cache.market_snapshot();
         cache.save();
         result
     }
 
+    #[only_owner]
     pub fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot {
-        verify_admin(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
-        interest::global_sync(&env, &mut cache);
-        // Reject reward credits when no supply exists. `update_supply_index`
-        // short-circuits on `supplied == ZERO`, so rewards would otherwise
-        // land in the pool's token balance without being tracked.
+
         if cache.supplied == Ray::ZERO {
             panic_with_error!(&env, GenericError::NoSuppliersToReward);
         }
 
-        // amount is in asset decimals; upscale to RAY for consistency with
-        // RAY-native supplied and supply_index.
+        interest::global_sync(&env, &mut cache);
+
         let amount_ray = Ray::from_asset(amount, cache.params.asset_decimals);
         cache.supply_index =
             update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
 
-        let result = market_snapshot(&env, &cache);
+        let result = cache.market_snapshot();
         cache.save();
         result
     }
 
+    #[only_owner]
     pub fn flash_loan(
         env: Env,
         initiator: Address,
@@ -445,19 +210,13 @@ impl LiquidityPool {
         fee: i128,
         data: Bytes,
     ) -> MarketStateSnapshot {
-        verify_admin(&env);
         require_positive_amount(&env, amount);
+        require_nonneg_amount(&env, fee);
 
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        if fee < 0 {
-            panic_with_error!(&env, FlashLoanError::NegativeFlashLoanFee);
-        }
-
-        if !cache.has_reserves(amount) {
-            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
-        }
+        cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
         // Pool always operates on its own asset; never trust a caller-supplied
@@ -466,21 +225,11 @@ impl LiquidityPool {
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
-        let expected_after_payout = pre_balance
-            .checked_sub(amount)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        let total = amount
-            .checked_add(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        let expected_after_repay = pre_balance
-            .checked_add(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let expected_after_payout = pre_balance - amount;
+        let total = amount + fee;
+        let expected_after_repay = pre_balance + fee;
 
         tok.transfer(&pool_addr, &receiver, &amount);
-
-        if tok.balance(&pool_addr) != expected_after_payout {
-            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
-        }
 
         env.invoke_contract::<()>(
             &receiver,
@@ -496,6 +245,9 @@ impl LiquidityPool {
                 .into_val(&env),
         );
 
+        // After the callback, the balance must still match the post-payout
+        // expectation — the callback must not unilaterally repay or otherwise
+        // mutate the pool's token balance.
         if tok.balance(&pool_addr) != expected_after_payout {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
@@ -508,13 +260,15 @@ impl LiquidityPool {
         }
 
         // Record the fee as protocol revenue.
-        interest::add_protocol_revenue(&mut cache, fee);
+        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
 
-        let result = market_snapshot(&env, &cache);
+        let result = cache.market_snapshot();
         cache.save();
         result
     }
 
+    #[only_owner]
     pub fn create_strategy(
         env: Env,
         caller: Address,
@@ -523,55 +277,43 @@ impl LiquidityPool {
         fee: i128,
         borrow_cap: i128,
     ) -> PoolStrategyMutation {
-        verify_admin(&env);
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
-        let mut cache = Cache::load(&env);
-        interest::global_sync(&env, &mut cache);
 
         if fee > amount {
             panic_with_error!(&env, FlashLoanError::StrategyFeeExceeds);
         }
-        if !cache.has_reserves(amount) {
-            panic_with_error!(&env, CollateralError::InsufficientLiquidity);
-        }
+
+        let mut cache = Cache::load(&env);
+        cache.require_reserves(amount);
+
+        interest::global_sync(&env, &mut cache);
 
         let scaled_debt = cache.calculate_scaled_borrow(amount);
-        let next_borrowed = checked_add_ray(&env, cache.borrowed, scaled_debt);
-        enforce_borrow_cap(&env, &cache, next_borrowed, borrow_cap);
-        position.scaled_amount_ray = position
-            .scaled_amount_ray
-            .checked_add(scaled_debt.raw())
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.borrowed = next_borrowed;
+        enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
+        position.scaled_amount_ray += scaled_debt.raw();
+        cache.borrowed += scaled_debt;
 
         // Fee goes to protocol revenue.
-        interest::add_protocol_revenue(&mut cache, fee);
+        let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
+        interest::add_protocol_revenue_ray(&mut cache, fee_ray);
 
         let amount_to_send = amount - fee;
 
         // Send the net amount to the controller.
-        let tok = token::Client::new(&env, &cache.params.asset_id);
-        tok.transfer(&env.current_contract_address(), &caller, &amount_to_send);
+        cache.transfer_out(&caller, amount_to_send);
 
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.strategy_mutation(position, amount, amount_to_send);
         cache.save();
-        PoolStrategyMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: amount,
-            amount_received: amount_to_send,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn seize_position(
         env: Env,
         side: AccountPositionType,
         mut position: AccountPosition,
     ) -> PoolPositionMutation {
-        verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -581,97 +323,47 @@ impl LiquidityPool {
                 let current_debt_ray =
                     cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
                 interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
-                cache.borrowed = checked_sub_ray(
-                    &env,
-                    cache.borrowed,
-                    Ray::from_raw(position.scaled_amount_ray),
-                );
+                cache
+                    .borrowed
+                    .checked_sub_assign(&env, Ray::from_raw(position.scaled_amount_ray));
                 position.scaled_amount_ray = 0;
             }
             AccountPositionType::Deposit => {
                 // Absorb dust into revenue.
-                let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-                cache.revenue = checked_add_ray(&env, cache.revenue, pos_scaled);
+                cache.revenue += Ray::from_raw(position.scaled_amount_ray);
                 position.scaled_amount_ray = 0;
             }
         }
 
-        let market_index = market_index(&cache);
-        let market_state = market_snapshot(&env, &cache);
+        let mutation = cache.position_mutation(position, 0);
         cache.save();
-        PoolPositionMutation {
-            position,
-            market_index,
-            market_state,
-            actual_amount: 0,
-        }
+        mutation
     }
 
+    #[only_owner]
     pub fn claim_revenue(env: Env) -> PoolAmountMutation {
-        verify_admin(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        if cache.revenue == Ray::ZERO {
-            let market_state = market_snapshot(&env, &cache);
-            cache.save();
-            return PoolAmountMutation {
-                market_state,
-                actual_amount: 0,
-            };
-        }
-        if cache.revenue.raw() < 0
-            || cache.supplied.raw() < 0
-            || cache.revenue.raw() > cache.supplied.raw()
-        {
-            panic_with_error!(&env, GenericError::MathOverflow);
-        }
+        let amount_to_transfer = cache.burn_claimable_revenue();
 
-        let current_reserves = cache.get_reserves_for(&cache.params.asset_id);
-        let treasury_actual = cache.calculate_original_supply(cache.revenue);
-        let amount_to_transfer = current_reserves.min(treasury_actual);
+        // Checks-effects-interactions: commit state before the external token
+        // call so a malicious token re-entry cannot observe stale revenue.
+        let mutation = cache.amount_mutation(amount_to_transfer);
+        cache.save();
 
         if amount_to_transfer > 0 {
-            // Burn the proportional scaled revenue share.
-            let scaled_to_burn = if amount_to_transfer >= treasury_actual {
-                cache.revenue
-            } else {
-                let ratio =
-                    Ray::from_raw(amount_to_transfer).div(&env, Ray::from_raw(treasury_actual));
-                cache.revenue.mul(&env, ratio)
-            };
-
-            cache.revenue = checked_sub_ray(&env, cache.revenue, scaled_to_burn);
-            cache.supplied = checked_sub_ray(&env, cache.supplied, scaled_to_burn);
-
-            // Checks-effects-interactions: commit state before the external
-            // token call so a malicious token contract that re-enters cannot
-            // observe stale `revenue` and recurse a second claim.
-            let market_state = market_snapshot(&env, &cache);
-            cache.save();
-
-            // Revenue routes to the pool owner (the controller), which then
-            // forwards to the protocol accumulator. Pool never trusts a
-            // caller-supplied destination and never stores one.
+            // Revenue routes to the pool owner (the controller); pool never
+            // trusts a caller-supplied destination.
             let owner = ownable::get_owner(&env)
                 .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
-            let tok = token::Client::new(&env, &cache.params.asset_id);
-            tok.transfer(&env.current_contract_address(), &owner, &amount_to_transfer);
-            PoolAmountMutation {
-                market_state,
-                actual_amount: amount_to_transfer,
-            }
-        } else {
-            let market_state = market_snapshot(&env, &cache);
-            cache.save();
-            PoolAmountMutation {
-                market_state,
-                actual_amount: 0,
-            }
+            cache.transfer_out(&owner, amount_to_transfer);
         }
+        mutation
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[only_owner]
     pub fn update_params(
         env: Env,
         max_borrow_rate: i128,
@@ -683,63 +375,23 @@ impl LiquidityPool {
         optimal_utilization: i128,
         reserve_factor: u32,
     ) {
-        verify_admin(&env);
-
-        // Sync interest to current timestamp before changing the rate model.
+        // Sync interest at the old rate model before changing it.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
         cache.save();
 
-        // Mirrors `validation::validate_interest_rate_model` in the controller.
-        if base_borrow_rate < 0 || slope1 < 0 || slope2 < 0 || slope3 < 0 {
-            panic_with_error!(&env, CollateralError::InvalidBorrowParams);
-        }
-        if mid_utilization <= 0 {
-            panic_with_error!(&env, CollateralError::InvalidUtilRange);
-        }
-        if optimal_utilization <= mid_utilization {
-            panic_with_error!(&env, CollateralError::InvalidUtilRange);
-        }
-        if optimal_utilization >= RAY {
-            panic_with_error!(&env, CollateralError::OptUtilTooHigh);
-        }
-        if i128::from(reserve_factor) >= BPS {
-            panic_with_error!(&env, CollateralError::InvalidReserveFactor);
-        }
-        // Monotone slope chain: base <= slope1 <= slope2 <= slope3 <= max.
-        if slope1 < base_borrow_rate
-            || slope2 < slope1
-            || slope3 < slope2
-            || max_borrow_rate < slope3
-        {
-            panic_with_error!(&env, CollateralError::InvalidBorrowParams);
-        }
-        if max_borrow_rate <= base_borrow_rate {
-            panic_with_error!(&env, CollateralError::InvalidBorrowParams);
-        }
-        // Mirror the controller-side `validate_interest_rate_model` cap:
-        // `max_borrow_rate_ray` must stay inside the compound-interest Taylor
-        // envelope (per-chunk `x <= 2 RAY`).
-        if max_borrow_rate > MAX_BORROW_RATE_RAY {
-            panic_with_error!(&env, CollateralError::InvalidBorrowParams);
-        }
-
-        let mut params: MarketParams = env
-            .storage()
-            .instance()
-            .get(&PoolKey::Params)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
-
-        params.max_borrow_rate_ray = max_borrow_rate;
-        params.base_borrow_rate_ray = base_borrow_rate;
-        params.slope1_ray = slope1;
-        params.slope2_ray = slope2;
-        params.slope3_ray = slope3;
-        params.mid_utilization_ray = mid_utilization;
-        params.optimal_utilization_ray = optimal_utilization;
-        params.reserve_factor_bps = reserve_factor;
-
-        env.storage().instance().set(&PoolKey::Params, &params);
+        let model = InterestRateModel {
+            max_borrow_rate_ray: max_borrow_rate,
+            base_borrow_rate_ray: base_borrow_rate,
+            slope1_ray: slope1,
+            slope2_ray: slope2,
+            slope3_ray: slope3,
+            mid_utilization_ray: mid_utilization,
+            optimal_utilization_ray: optimal_utilization,
+            reserve_factor_bps: reserve_factor,
+        };
+        model.verify(&env);
+        apply_rate_model(&env, &model);
     }
 
     #[only_owner]
@@ -747,8 +399,8 @@ impl LiquidityPool {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
+    #[only_owner]
     pub fn keepalive(env: Env) {
-        verify_admin(&env);
         renew_pool_instance(&env);
     }
 
@@ -813,7 +465,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use common::constants::RAY;
+    use common::constants::{BPS, RAY};
     use common::types::AccountPosition;
     use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
@@ -887,17 +539,7 @@ mod tests {
                 .clone();
             let asset_decimals = 7u32;
 
-            // Set initial ledger timestamp (seconds).
-            env.ledger().set(LedgerInfo {
-                timestamp: 1000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3110400,
-            });
+            test_support::init_ledger(&env);
 
             let params = MarketParams {
                 max_borrow_rate_ray: RAY,
@@ -1404,7 +1046,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #411)")]
+    #[should_panic(expected = "Error(Contract, #14)")]
     fn test_flash_loan_rejects_negative_fee() {
         let t = TestSetup::new();
         let client = t.client();
@@ -1772,6 +1414,80 @@ mod tests {
         assert_eq!(final_pos.actual_amount, gross);
     }
 
+    // is_liquidation=true with protocol_fee=0 must skip the fee branch
+    // entirely (no revenue accrual) and behave like a regular withdraw.
+    #[test]
+    fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let pos = t.deposit_position();
+        let supply_amount = 10_000_000_000i128;
+        let updated_pos = client.supply(&pos, &supply_amount, &i128::MAX);
+
+        let revenue_before = client.protocol_revenue();
+        let user = Address::generate(&t.env);
+        let tok = token::Client::new(&t.env, &t.asset);
+        let user_balance_before = tok.balance(&user);
+
+        let gross = 1_000_000_000_i128;
+        let final_pos = client.withdraw(&user, &gross, &updated_pos.position, &true, &0i128);
+
+        assert_eq!(tok.balance(&user) - user_balance_before, gross);
+        assert_eq!(client.protocol_revenue(), revenue_before);
+        assert_eq!(final_pos.actual_amount, gross);
+    }
+
+    // No-op repay with amount=0 leaves position and pool state untouched.
+    #[test]
+    fn test_repay_zero_amount_is_no_op() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let supply_pos = t.deposit_position();
+        client.supply(&supply_pos, &50_000_000_000i128, &i128::MAX);
+
+        let borrower = Address::generate(&t.env);
+        let borrow_pos = t.borrow_position();
+        let updated_borrow = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
+        let scaled_before = updated_borrow.position.scaled_amount_ray;
+        let state_before = t.state_snapshot();
+
+        let result = client.repay(&borrower, &0i128, &updated_borrow.position);
+
+        assert_eq!(result.actual_amount, 0);
+        assert_eq!(result.position.scaled_amount_ray, scaled_before);
+        assert_pool_state_eq(&t.state_snapshot(), &state_before);
+    }
+
+    // Add-rewards with zero amount is accepted (require_nonneg_amount, not
+    // require_positive_amount) and is a pure index no-op.
+    #[test]
+    fn test_add_rewards_zero_amount_is_no_op() {
+        let t = TestSetup::new();
+        let client = t.client();
+
+        let pos = t.deposit_position();
+        client.supply(&pos, &10_000_000_000i128, &i128::MAX);
+
+        let snapshot_before = t.state_snapshot();
+        let result = client.add_rewards(&0i128);
+
+        assert_eq!(result.supply_index_ray, snapshot_before.supply_index_ray);
+    }
+
+    // Direct unit test for the `Ray::checked_sub` underflow guard surfaced
+    // at the public ABI through `cache.supplied` / `position.scaled_amount_ray`.
+    // The integration tests exercise the panic path; this asserts the
+    // happy-path subtraction returns the expected value.
+    #[test]
+    fn test_ray_checked_sub_happy_path() {
+        let env = Env::default();
+        let a = Ray::from_raw(5 * RAY);
+        let b = Ray::from_raw(2 * RAY);
+        assert_eq!(a.checked_sub(&env, b), Ray::from_raw(3 * RAY));
+    }
+
     // Partial repay reduces scaled debt without closing the position.
     #[test]
     fn test_repay_partial_amount() {
@@ -2001,7 +1717,7 @@ mod tests {
         let client = t.client();
 
         // Admin-authorized call succeeds. `env.mock_all_auths()` covers the
-        // `verify_admin` gate. The host auto-records the auth requirement,
+        // `#[only_owner]` gate. The host auto-records the auth requirement,
         // proving the endpoint calls `ownable::enforce_owner_auth`.
         client.keepalive();
 
@@ -2025,16 +1741,7 @@ mod tests {
     #[should_panic]
     fn test_keepalive_rejects_non_admin() {
         let env = Env::default();
-        env.ledger().set(LedgerInfo {
-            timestamp: 1000,
-            protocol_version: 26,
-            sequence_number: 100,
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 10,
-            min_persistent_entry_ttl: 10,
-            max_entry_ttl: 3110400,
-        });
+        test_support::init_ledger(&env);
 
         let admin = Address::generate(&env);
         let asset_address = env

@@ -39,7 +39,7 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 }
 
 fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
-    let util = Ray::from_raw(cache.calculate_utilization());
+    let util = cache.calculate_utilization();
     let borrow_rate = calculate_borrow_rate(env, util, &cache.params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
 
@@ -63,26 +63,8 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
-/// Converts a fee in **asset decimals** to RAY-scaled supply tokens.
-/// Used for fees that arrive as token amounts (liquidation protocol_fee,
-/// flash loan fee).
-pub fn add_protocol_revenue(cache: &mut Cache, fee_amount: i128) {
-    if fee_amount <= 0 {
-        return;
-    }
-    // Skip accrual when the supply index is at or near the safety floor:
-    // dividing by a near-zero index produces astronomical scaled amounts.
-    if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
-        return;
-    }
-    let fee_scaled = Ray::from_asset(fee_amount, cache.params.asset_decimals)
-        .div(&cache.env, cache.supply_index);
-    cache.revenue += fee_scaled;
-    cache.supplied += fee_scaled;
-}
-
-/// Converts a fee already in **RAY** to scaled supply tokens.
-/// Used for fees computed internally (interest accrual).
+/// Converts a fee in **RAY** to scaled supply tokens and accrues it as protocol revenue.
+/// Callers holding asset-decimal amounts must convert with `Ray::from_asset` first.
 pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
@@ -126,11 +108,11 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let reduction_factor = remaining.div(&cache.env, total_supplied_value);
     let new_supply_index = cache.supply_index.mul(&cache.env, reduction_factor);
 
-    let new_index_raw = new_supply_index.raw();
+    let floor_index = Ray::from_raw(SUPPLY_INDEX_FLOOR_RAW);
 
     // Floor at SUPPLY_INDEX_FLOOR_RAW to keep downstream math conditioned.
-    cache.supply_index = if new_index_raw < SUPPLY_INDEX_FLOOR_RAW {
-        Ray::from_raw(SUPPLY_INDEX_FLOOR_RAW)
+    cache.supply_index = if new_supply_index < floor_index {
+        floor_index
     } else {
         new_supply_index
     };
@@ -145,9 +127,10 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::test_support::init_ledger;
     use common::constants::RAY;
     use common::types::{MarketParams, PoolKey, PoolState};
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env};
 
     struct TestSetup {
@@ -159,16 +142,7 @@ mod tests {
         fn new() -> Self {
             let env = Env::default();
             env.mock_all_auths();
-            env.ledger().set(LedgerInfo {
-                timestamp: 1_000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3_110_400,
-            });
+            init_ledger(&env);
 
             let admin = Address::generate(&env);
             let params = MarketParams {
@@ -196,31 +170,6 @@ mod tests {
             self.env.storage().instance().set(&PoolKey::State, &state);
             Cache::load(&self.env)
         }
-    }
-
-    // Non-positive fees are no-ops.
-    #[test]
-    fn test_add_protocol_revenue_zero_fee_is_noop() {
-        let t = TestSetup::new();
-        t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
-                supplied_ray: 100 * RAY,
-                borrowed_ray: 0,
-                revenue_ray: 0,
-                borrow_index_ray: RAY,
-                supply_index_ray: RAY,
-                last_timestamp: 0,
-            });
-            let (rev_before, supp_before) = (cache.revenue, cache.supplied);
-
-            add_protocol_revenue(&mut cache, 0);
-            assert_eq!(cache.revenue, rev_before);
-            assert_eq!(cache.supplied, supp_before);
-
-            add_protocol_revenue(&mut cache, -100);
-            assert_eq!(cache.revenue, rev_before);
-            assert_eq!(cache.supplied, supp_before);
-        });
     }
 
     // Zero RAY fee is a no-op.
@@ -261,31 +210,6 @@ mod tests {
             let (rev_before, supp_before) = (cache.revenue, cache.supplied);
 
             add_protocol_revenue_ray(&mut cache, Ray::from_raw(1_000_000));
-
-            assert_eq!(cache.revenue, rev_before);
-            assert_eq!(cache.supplied, supp_before);
-        });
-    }
-
-    // The floor guard applies to the asset-decimal fee path (liquidation,
-    // flash-loan, and strategy fees) -- all run after global_sync, which
-    // can clamp the supply index.
-    #[test]
-    fn test_add_protocol_revenue_skips_when_supply_index_below_floor() {
-        let t = TestSetup::new();
-        t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
-                supplied_ray: 100 * RAY,
-                borrowed_ray: 0,
-                revenue_ray: 0,
-                borrow_index_ray: RAY,
-                supply_index_ray: SUPPLY_INDEX_FLOOR_RAW - 1,
-                last_timestamp: 0,
-            });
-            let (rev_before, supp_before) = (cache.revenue, cache.supplied);
-
-            // Non-zero asset-denominated fee -- would explode without the guard.
-            add_protocol_revenue(&mut cache, 1_000_000);
 
             assert_eq!(cache.revenue, rev_before);
             assert_eq!(cache.supplied, supp_before);

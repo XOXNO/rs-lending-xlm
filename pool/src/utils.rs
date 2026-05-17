@@ -1,0 +1,136 @@
+use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::fp::Ray;
+use common::types::{InterestRateModel, MarketParams, PoolKey};
+use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
+use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec};
+
+use crate::cache::Cache;
+use crate::interest;
+
+/// Reject negative amounts at every mutating pool ABI. The controller
+/// validates sign at user entrypoints; this guard prevents a controller
+/// upgrade that omits a `require_amount_positive` check from reaching the
+/// pool's phantom-collateral path.
+pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
+    if amount < 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+}
+
+pub(crate) fn require_positive_amount(env: &Env, amount: i128) {
+    if amount <= 0 {
+        panic_with_error!(env, GenericError::AmountMustBePositive);
+    }
+}
+
+pub(crate) fn require_wasm_receiver(env: &Env, receiver: &Address) {
+    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
+        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
+    }
+}
+
+pub(crate) fn renew_pool_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
+/// Caps with `cap <= 0` or `cap == i128::MAX` are treated as disabled.
+/// Negative values short-circuit here rather than panicking — the controller
+/// is the sole producer of caps and validates them upstream.
+pub(crate) fn cap_is_enabled(cap: i128) -> bool {
+    cap > 0 && cap != i128::MAX
+}
+
+/// Rejects the addition if it would push total supplied above `supply_cap`
+/// (in asset decimals). No-op when the cap is disabled.
+pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, supply_cap: i128) {
+    if !cap_is_enabled(supply_cap) {
+        return;
+    }
+
+    let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
+    let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
+    if next_total > cap_ray {
+        panic_with_error!(env, CollateralError::SupplyCapReached);
+    }
+}
+
+/// Rejects the addition if it would push total borrowed above `borrow_cap`
+/// (in asset decimals). No-op when the cap is disabled.
+pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, borrow_cap: i128) {
+    if !cap_is_enabled(borrow_cap) {
+        return;
+    }
+
+    let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
+    let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
+    if next_total > cap_ray {
+        panic_with_error!(env, CollateralError::BorrowCapReached);
+    }
+}
+
+/// Loads `MarketParams`, applies the new rate-model fields, and saves.
+/// Assumes the caller has already validated `m` (via `m.verify(env)`) and
+/// accrued interest.
+pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
+    let mut params: MarketParams = env
+        .storage()
+        .instance()
+        .get(&PoolKey::Params)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+
+    params.max_borrow_rate_ray = m.max_borrow_rate_ray;
+    params.base_borrow_rate_ray = m.base_borrow_rate_ray;
+    params.slope1_ray = m.slope1_ray;
+    params.slope2_ray = m.slope2_ray;
+    params.slope3_ray = m.slope3_ray;
+    params.mid_utilization_ray = m.mid_utilization_ray;
+    params.optimal_utilization_ray = m.optimal_utilization_ray;
+    params.reserve_factor_bps = m.reserve_factor_bps;
+
+    env.storage().instance().set(&PoolKey::Params, &params);
+}
+
+/// Deducts the liquidation `protocol_fee` from `gross_amount` and accrues it
+/// as protocol revenue. No-op when not a liquidation or fee is zero.
+/// Panics with `WithdrawLessThanFee` if the gross doesn't cover the fee.
+pub(crate) fn apply_liquidation_fee(
+    env: &Env,
+    cache: &mut Cache,
+    gross_amount: i128,
+    is_liquidation: bool,
+    protocol_fee: i128,
+) -> i128 {
+    if !is_liquidation || protocol_fee == 0 {
+        return gross_amount;
+    }
+    if gross_amount < protocol_fee {
+        panic_with_error!(env, CollateralError::WithdrawLessThanFee);
+    }
+    let fee_ray = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
+    interest::add_protocol_revenue_ray(cache, fee_ray);
+    gross_amount - protocol_fee
+}
+
+pub(crate) fn authorize_token_transfer_from(
+    env: &Env,
+    asset: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) {
+    let pool_addr = env.current_contract_address();
+    let token_transfer_from = InvokerContractAuthEntry::Contract(SubContractInvocation {
+        context: ContractContext {
+            contract: asset.clone(),
+            fn_name: Symbol::new(env, "transfer_from"),
+            args: (pool_addr, from.clone(), to.clone(), amount).into_val(env),
+        },
+        sub_invocations: Vec::new(env),
+    });
+    let mut auth_entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
+    auth_entries.push_back(token_transfer_from);
+    env.authorize_as_current_contract(auth_entries);
+}

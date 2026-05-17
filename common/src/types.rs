@@ -1,4 +1,7 @@
-use soroban_sdk::{contracttype, Address, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, panic_with_error, Address, Env, Map, String, Symbol, Vec};
+
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
+use crate::errors::CollateralError;
 
 // Internal asset + amount pair used by controller operation helpers.
 // Public contract entrypoints spell this as `(Address, i128)` so the Soroban
@@ -52,6 +55,24 @@ pub struct MarketParams {
     pub asset_decimals: u32,
 }
 
+impl MarketParams {
+    /// Extracts the rate-model fields as an `InterestRateModel`. Use to
+    /// validate an existing `MarketParams` via `model.verify(env)` without
+    /// duplicating field plumbing.
+    pub fn rate_model_view(&self) -> InterestRateModel {
+        InterestRateModel {
+            max_borrow_rate_ray: self.max_borrow_rate_ray,
+            base_borrow_rate_ray: self.base_borrow_rate_ray,
+            slope1_ray: self.slope1_ray,
+            slope2_ray: self.slope2_ray,
+            slope3_ray: self.slope3_ray,
+            mid_utilization_ray: self.mid_utilization_ray,
+            optimal_utilization_ray: self.optimal_utilization_ray,
+            reserve_factor_bps: self.reserve_factor_bps,
+        }
+    }
+}
+
 // Interest-rate model update payload. Separates the 8 mutable rate params
 // from `asset_id`/`asset_decimals`, which the controller resolves from
 // storage and never accepts from the caller.
@@ -67,6 +88,43 @@ pub struct InterestRateModel {
     pub optimal_utilization_ray: i128,
     // Reserve factor in basis points. Bounded by `BPS` (10 000).
     pub reserve_factor_bps: u32,
+}
+
+impl InterestRateModel {
+    /// Validates rate-model invariants: non-negative components, monotone
+    /// slope chain (`base <= s1 <= s2 <= s3 <= max`), strict `base < max`,
+    /// `0 < mid < optimal < RAY`, `reserve_factor < BPS`, and the Taylor-
+    /// envelope cap on `max_borrow_rate_ray`. Shared by the controller
+    /// (caller-side check) and the pool (defense-in-depth on the ABI).
+    pub fn verify(&self, env: &Env) {
+        if self.base_borrow_rate_ray < 0
+            || self.slope1_ray < self.base_borrow_rate_ray
+            || self.slope2_ray < self.slope1_ray
+            || self.slope3_ray < self.slope2_ray
+            || self.max_borrow_rate_ray < self.slope3_ray
+        {
+            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+        }
+        if self.max_borrow_rate_ray <= self.base_borrow_rate_ray {
+            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+        }
+        // Compound-interest Taylor envelope cap: per-chunk `x <= 2 RAY`.
+        if self.max_borrow_rate_ray > MAX_BORROW_RATE_RAY {
+            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+        }
+        if self.mid_utilization_ray <= 0 {
+            panic_with_error!(env, CollateralError::InvalidUtilRange);
+        }
+        if self.optimal_utilization_ray <= self.mid_utilization_ray {
+            panic_with_error!(env, CollateralError::InvalidUtilRange);
+        }
+        if self.optimal_utilization_ray >= RAY {
+            panic_with_error!(env, CollateralError::OptUtilTooHigh);
+        }
+        if i128::from(self.reserve_factor_bps) >= BPS {
+            panic_with_error!(env, CollateralError::InvalidReserveFactor);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

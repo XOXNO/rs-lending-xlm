@@ -137,7 +137,6 @@ pub enum FlashLoanError {
     MultiplyExtraSteps = 408,
     StrategyFeeExceeds = 409,
     InvalidBulkTicker = 410,
-    NegativeFlashLoanFee = 411,
     InvalidFlashloanReceiver = 412,
 }
 

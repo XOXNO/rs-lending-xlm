@@ -1,10 +1,7 @@
-use common::constants::{
-    BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, RAY, WAD,
-};
+use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
-    Account, AssetConfig, MarketParams, MarketStatus, Payment, POSITION_TYPE_BORROW,
-    POSITION_TYPE_DEPOSIT,
+    Account, AssetConfig, MarketStatus, Payment, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
@@ -158,40 +155,6 @@ pub fn validate_bulk_position_limits(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     if total_positions > max_allowed {
         panic_with_error!(env, CollateralError::PositionLimitExceeded);
-    }
-}
-
-// Validates interest-rate model parameters: monotone slopes, utilization ordering,
-// reserve factor bounds, and the Taylor-envelope cap on `max_borrow_rate`.
-pub fn validate_interest_rate_model(env: &Env, params: &MarketParams) {
-    if params.base_borrow_rate_ray < 0
-        || params.slope1_ray < params.base_borrow_rate_ray
-        || params.slope2_ray < params.slope1_ray
-        || params.slope3_ray < params.slope2_ray
-        || params.max_borrow_rate_ray < params.slope3_ray
-    {
-        panic_with_error!(env, CollateralError::InvalidBorrowParams);
-    }
-
-    // Keep `max_borrow_rate_ray` inside the compound-interest Taylor envelope
-    // (per-chunk `x <= 2 RAY`). At 100 % utilization across a full
-    // `MAX_COMPOUND_DELTA_MS` chunk, a higher cap drifts above the documented
-    // `< 0.01 %` accuracy bound.
-    if params.max_borrow_rate_ray > MAX_BORROW_RATE_RAY {
-        panic_with_error!(env, CollateralError::InvalidBorrowParams);
-    }
-
-    if params.mid_utilization_ray <= 0 {
-        panic_with_error!(env, CollateralError::InvalidUtilRange);
-    }
-    if params.optimal_utilization_ray <= params.mid_utilization_ray {
-        panic_with_error!(env, CollateralError::InvalidUtilRange);
-    }
-    if params.optimal_utilization_ray >= RAY {
-        panic_with_error!(env, CollateralError::OptUtilTooHigh);
-    }
-    if i128::from(params.reserve_factor_bps) >= BPS {
-        panic_with_error!(env, CollateralError::InvalidReserveFactor);
     }
 }
 

@@ -1,6 +1,9 @@
 use common::errors::GenericError;
 use common::fp::Ray;
-use common::types::{MarketParams, PoolKey, PoolState};
+use common::types::{
+    AccountPosition, MarketIndex, MarketParams, MarketStateSnapshot, PoolAmountMutation, PoolKey,
+    PoolPositionMutation, PoolState, PoolStrategyMutation,
+};
 use soroban_sdk::{panic_with_error, Env};
 
 pub struct Cache {
@@ -17,7 +20,8 @@ pub struct Cache {
 
 impl Cache {
     /// Loads pool params and state from instance storage.
-    /// Initializes all indexes to 1 and balances to zero when no state entry exists yet.
+    /// Panics with `PoolNotInitialized` if either entry is missing — both are written
+    /// together in `__constructor`, so absence indicates an uninitialized or corrupted pool.
     pub fn load(env: &Env) -> Self {
         let params: MarketParams = env
             .storage()
@@ -25,31 +29,22 @@ impl Cache {
             .get(&PoolKey::Params)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
-        let state: Option<PoolState> = env.storage().instance().get(&PoolKey::State);
-        let time_ms = env.ledger().timestamp() * 1000;
-        match state {
-            Some(s) => Cache {
-                env: env.clone(),
-                supplied: Ray::from_raw(s.supplied_ray),
-                borrowed: Ray::from_raw(s.borrowed_ray),
-                revenue: Ray::from_raw(s.revenue_ray),
-                borrow_index: Ray::from_raw(s.borrow_index_ray),
-                supply_index: Ray::from_raw(s.supply_index_ray),
-                last_timestamp: s.last_timestamp,
-                current_timestamp: time_ms,
-                params,
-            },
-            None => Cache {
-                env: env.clone(),
-                supplied: Ray::ZERO,
-                borrowed: Ray::ZERO,
-                revenue: Ray::ZERO,
-                borrow_index: Ray::ONE,
-                supply_index: Ray::ONE,
-                last_timestamp: 0,
-                current_timestamp: time_ms,
-                params,
-            },
+        let s: PoolState = env
+            .storage()
+            .instance()
+            .get(&PoolKey::State)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+
+        Cache {
+            env: env.clone(),
+            supplied: Ray::from_raw(s.supplied_ray),
+            borrowed: Ray::from_raw(s.borrowed_ray),
+            revenue: Ray::from_raw(s.revenue_ray),
+            borrow_index: Ray::from_raw(s.borrow_index_ray),
+            supply_index: Ray::from_raw(s.supply_index_ray),
+            last_timestamp: s.last_timestamp,
+            current_timestamp: env.ledger().timestamp() * 1000,
+            params,
         }
     }
 
@@ -72,17 +67,17 @@ impl Cache {
     // -----------------------------------------------------------------------
 
     /// Returns utilization as `(borrowed × borrow_index) / (supplied × supply_index)` in RAY.
-    /// Returns 0 when total supply or the product is zero.
-    pub fn calculate_utilization(&self) -> i128 {
+    /// Returns `Ray::ZERO` when total supply or the product is zero.
+    pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
-            return 0;
+            return Ray::ZERO;
         }
         let total_borrowed = self.borrowed.mul(&self.env, self.borrow_index);
         let total_supplied = self.supplied.mul(&self.env, self.supply_index);
         if total_supplied == Ray::ZERO {
-            return 0;
+            return Ray::ZERO;
         }
-        total_borrowed.div(&self.env, total_supplied).raw()
+        total_borrowed.div(&self.env, total_supplied)
     }
 
     /// Returns `true` when the pool's on-chain token balance covers `amount`.
@@ -91,10 +86,34 @@ impl Cache {
         reserves >= amount
     }
 
+    /// Panics with `InsufficientLiquidity` when the pool's on-chain balance
+    /// does not cover `amount`. Convenience wrapper used at every outbound
+    /// transfer site (borrow, withdraw, flash_loan, create_strategy).
+    pub fn require_reserves(&self, amount: i128) {
+        if !self.has_reserves(amount) {
+            panic_with_error!(
+                self.env,
+                common::errors::CollateralError::InsufficientLiquidity
+            );
+        }
+    }
+
     /// Queries the pool contract's current on-chain balance of `asset`.
     pub fn get_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
         let token = soroban_sdk::token::Client::new(&self.env, asset);
         token.balance(&self.env.current_contract_address())
+    }
+
+    /// Sends `amount` of the pool's asset from the pool to `recipient`.
+    /// No-op when `amount <= 0` so callers don't need to guard outbound transfers
+    /// that may legitimately resolve to zero (dust burns, full fee absorption,
+    /// no-overpayment repays).
+    pub fn transfer_out(&self, recipient: &soroban_sdk::Address, amount: i128) {
+        if amount <= 0 {
+            return;
+        }
+        let tok = soroban_sdk::token::Client::new(&self.env, &self.params.asset_id);
+        tok.transfer(&self.env.current_contract_address(), recipient, &amount);
     }
 
     /// Converts an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
@@ -127,6 +146,125 @@ impl Cache {
             .mul(&self.env, self.borrow_index)
             .to_asset(self.params.asset_decimals)
     }
+
+    /// Resolves a requested withdraw `amount` against a position's scaled balance.
+    /// Returns `(scaled_to_burn, gross_asset_amount)`. Three cases:
+    /// - `amount` covers (or exceeds) the position → full withdraw at current value
+    /// - partial withdraw whose residual rounds to zero asset tokens → treat as
+    ///   full to avoid permanently-stuck dust; credit the full current value,
+    ///   not the smaller requested amount
+    /// - regular partial → use the requested amount and its scaled form
+    pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        let current_supply_actual = self.calculate_original_supply(pos_scaled);
+        if amount >= current_supply_actual {
+            return (pos_scaled, current_supply_actual);
+        }
+        let scaled = self.calculate_scaled_supply(amount);
+        let remaining_actual = self.calculate_original_supply(pos_scaled - scaled);
+        if remaining_actual == 0 {
+            (pos_scaled, current_supply_actual)
+        } else {
+            (scaled, amount)
+        }
+    }
+
+    /// Burns the share of protocol revenue that can be paid out from current
+    /// on-chain reserves and returns that asset-decimal amount. Caps at
+    /// `current_reserves`: if the treasury value exceeds available liquidity,
+    /// only the reserve-covered share is burned and the rest stays as future
+    /// revenue. Returns `0` when there is nothing to pay out.
+    pub fn burn_claimable_revenue(&mut self) -> i128 {
+        let reserves = self.get_reserves_for(&self.params.asset_id);
+        let treasury_actual = self.calculate_original_supply(self.revenue);
+        let amount = reserves.min(treasury_actual);
+        if amount <= 0 {
+            return amount.max(0);
+        }
+        let scaled_to_burn = if amount >= treasury_actual {
+            self.revenue
+        } else {
+            let ratio = Ray::from_raw(amount).div(&self.env, Ray::from_raw(treasury_actual));
+            self.revenue.mul(&self.env, ratio)
+        };
+        self.revenue.checked_sub_assign(&self.env, scaled_to_burn);
+        self.supplied.checked_sub_assign(&self.env, scaled_to_burn);
+        amount
+    }
+
+    /// Resolves a requested repay `amount` against a position's scaled debt.
+    /// Returns `(scaled_to_burn, overpayment_in_asset_decimals)`. Overpayment is
+    /// non-zero only when `amount` exceeds the post-accrual debt; partial
+    /// repays return `(scaled_for_amount, 0)`.
+    pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        let current_debt = self.calculate_original_borrow(pos_scaled);
+        if amount >= current_debt {
+            (pos_scaled, amount - current_debt)
+        } else {
+            (self.calculate_scaled_borrow(amount), 0)
+        }
+    }
+
+    /// Snapshot of the current borrow/supply indexes for controller-side reuse.
+    pub fn market_index(&self) -> MarketIndex {
+        MarketIndex {
+            borrow_index_ray: self.borrow_index.raw(),
+            supply_index_ray: self.supply_index.raw(),
+        }
+    }
+
+    /// Full market snapshot at the current cache state. Reads live reserves
+    /// from the token contract.
+    pub fn market_snapshot(&self) -> MarketStateSnapshot {
+        MarketStateSnapshot {
+            asset: self.params.asset_id.clone(),
+            timestamp: self.current_timestamp,
+            supply_index_ray: self.supply_index.raw(),
+            borrow_index_ray: self.borrow_index.raw(),
+            reserves_ray: self.get_reserves_for(&self.params.asset_id),
+            supplied_ray: self.supplied.raw(),
+            borrowed_ray: self.borrowed.raw(),
+            revenue_ray: self.revenue.raw(),
+            asset_price_wad: None,
+        }
+    }
+
+    /// Builds the standard position mutation returned by supply/borrow/withdraw/repay/seize.
+    pub fn position_mutation(
+        &self,
+        position: AccountPosition,
+        actual_amount: i128,
+    ) -> PoolPositionMutation {
+        PoolPositionMutation {
+            position,
+            market_index: self.market_index(),
+            market_state: self.market_snapshot(),
+            actual_amount,
+        }
+    }
+
+    /// Builds the mutation returned by claim_revenue.
+    pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
+        PoolAmountMutation {
+            market_state: self.market_snapshot(),
+            actual_amount,
+        }
+    }
+
+    /// Builds the mutation returned by create_strategy.
+    pub fn strategy_mutation(
+        &self,
+        position: AccountPosition,
+        actual_amount: i128,
+        amount_received: i128,
+    ) -> PoolStrategyMutation {
+        PoolStrategyMutation {
+            position,
+            market_index: self.market_index(),
+            market_state: self.market_snapshot(),
+            actual_amount,
+            amount_received,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -134,8 +272,9 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::test_support::init_ledger;
     use common::constants::RAY;
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Address;
 
     struct TestSetup {
@@ -148,16 +287,7 @@ mod tests {
         fn new() -> Self {
             let env = Env::default();
             env.mock_all_auths();
-            env.ledger().set(LedgerInfo {
-                timestamp: 1_000,
-                protocol_version: 26,
-                sequence_number: 100,
-                network_id: Default::default(),
-                base_reserve: 10,
-                min_temp_entry_ttl: 10,
-                min_persistent_entry_ttl: 10,
-                max_entry_ttl: 3_110_400,
-            });
+            init_ledger(&env);
 
             let admin = Address::generate(&env);
             let params = MarketParams {
@@ -187,21 +317,13 @@ mod tests {
     }
 
     #[test]
-    fn test_load_uses_neutral_defaults_when_state_is_missing() {
+    #[should_panic(expected = "Error(Contract, #")]
+    fn test_load_panics_when_state_is_missing() {
         let t = TestSetup::new();
 
         t.as_contract(|| {
             t.env.storage().instance().remove(&PoolKey::State);
-            let cache = Cache::load(&t.env);
-
-            assert_eq!(cache.supplied, Ray::ZERO);
-            assert_eq!(cache.borrowed, Ray::ZERO);
-            assert_eq!(cache.revenue, Ray::ZERO);
-            assert_eq!(cache.borrow_index, Ray::ONE);
-            assert_eq!(cache.supply_index, Ray::ONE);
-            assert_eq!(cache.last_timestamp, 0);
-            assert_eq!(cache.current_timestamp, 1_000_000);
-            assert_eq!(cache.params.asset_id, t.params.asset_id);
+            let _ = Cache::load(&t.env);
         });
     }
 
@@ -222,7 +344,142 @@ mod tests {
                 params: t.params.clone(),
             };
 
-            assert_eq!(cache.calculate_utilization(), 0);
+            assert_eq!(cache.calculate_utilization(), Ray::ZERO);
+        });
+    }
+
+    // Helper to build a fully-controlled cache for unit-level tests.
+    fn cache_with(
+        env: &Env,
+        params: MarketParams,
+        supplied: i128,
+        borrowed: i128,
+        revenue: i128,
+        supply_index: i128,
+        borrow_index: i128,
+    ) -> Cache {
+        Cache {
+            env: env.clone(),
+            supplied: Ray::from_raw(supplied),
+            borrowed: Ray::from_raw(borrowed),
+            revenue: Ray::from_raw(revenue),
+            borrow_index: Ray::from_raw(borrow_index),
+            supply_index: Ray::from_raw(supply_index),
+            last_timestamp: 0,
+            current_timestamp: 1_000_000,
+            params,
+        }
+    }
+
+    #[test]
+    fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let cache = cache_with(&t.env, t.params.clone(), 0, 5 * RAY, 0, RAY, RAY);
+            assert_eq!(cache.calculate_utilization(), Ray::ZERO);
+        });
+    }
+
+    #[test]
+    fn test_calculate_utilization_returns_ratio_at_normal_state() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // 5 borrowed against 10 supplied at index 1 -> 50% utilization.
+            let cache = cache_with(&t.env, t.params.clone(), 10 * RAY, 5 * RAY, 0, RAY, RAY);
+            assert_eq!(cache.calculate_utilization(), Ray::from_raw(RAY / 2));
+        });
+    }
+
+    #[test]
+    fn test_resolve_repay_partial_returns_zero_overpayment() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // current_debt = 1 asset unit; partial repay of 0 (no debt cleared).
+            let cache = cache_with(&t.env, t.params.clone(), 0, 10i128.pow(20), 0, RAY, RAY);
+            let pos_scaled = Ray::from_raw(10i128.pow(20));
+            let (scaled, overpayment) = cache.resolve_repay(0, pos_scaled);
+            assert_eq!(scaled, Ray::ZERO);
+            assert_eq!(overpayment, 0);
+        });
+    }
+
+    #[test]
+    fn test_resolve_repay_full_returns_positive_overpayment() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // current_debt = 1; pay 5 -> overpayment = 4, burn full position.
+            let cache = cache_with(&t.env, t.params.clone(), 0, 10i128.pow(20), 0, RAY, RAY);
+            let pos_scaled = Ray::from_raw(10i128.pow(20));
+            let (scaled, overpayment) = cache.resolve_repay(5, pos_scaled);
+            assert_eq!(scaled, pos_scaled);
+            assert_eq!(overpayment, 4);
+        });
+    }
+
+    #[test]
+    fn test_resolve_withdrawal_full_when_amount_exceeds_position() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // Position = 1 asset unit; request 100 -> full withdraw.
+            let cache = cache_with(&t.env, t.params.clone(), 10i128.pow(20), 0, 0, RAY, RAY);
+            let pos_scaled = Ray::from_raw(10i128.pow(20));
+            let (scaled, gross) = cache.resolve_withdrawal(100, pos_scaled);
+            assert_eq!(scaled, pos_scaled);
+            assert_eq!(gross, 1);
+        });
+    }
+
+    #[test]
+    fn test_resolve_withdrawal_partial_returns_requested_amount() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // Position = 5 asset units; request 2 -> partial.
+            let supplied = 5 * 10i128.pow(20);
+            let cache = cache_with(&t.env, t.params.clone(), supplied, 0, 0, RAY, RAY);
+            let pos_scaled = Ray::from_raw(supplied);
+            let (scaled, gross) = cache.resolve_withdrawal(2, pos_scaled);
+            assert_eq!(scaled.raw(), 2 * 10i128.pow(20));
+            assert_eq!(gross, 2);
+        });
+    }
+
+    #[test]
+    fn test_market_index_reflects_current_indexes() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let cache = cache_with(&t.env, t.params.clone(), 0, 0, 0, 2 * RAY, 3 * RAY);
+            let idx = cache.market_index();
+            assert_eq!(idx.supply_index_ray, 2 * RAY);
+            assert_eq!(idx.borrow_index_ray, 3 * RAY);
+        });
+    }
+
+    // Note: `amount_mutation` / `burn_claimable_revenue` aren't unit-tested
+    // here because both call `get_reserves_for` (live token balance read),
+    // and this module's `TestSetup` uses a generated address rather than a
+    // registered Stellar Asset Contract. Both are exercised via lib.rs
+    // ABI-level tests (`test_claim_revenue*`).
+
+    // Sub-tests for `Ray::checked_sub_assign` are covered by withdraw/seize
+    // panic tests at the ABI layer, but a direct unit test gives a faster
+    // failure signal when the helper is touched.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #33)")]
+    fn test_ray_checked_sub_assign_panics_on_underflow() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let mut a = Ray::from_raw(RAY);
+            a.checked_sub_assign(&t.env, Ray::from_raw(2 * RAY));
+        });
+    }
+
+    #[test]
+    fn test_ray_checked_sub_assign_normal_case() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let mut a = Ray::from_raw(5 * RAY);
+            a.checked_sub_assign(&t.env, Ray::from_raw(2 * RAY));
+            assert_eq!(a, Ray::from_raw(3 * RAY));
         });
     }
 }

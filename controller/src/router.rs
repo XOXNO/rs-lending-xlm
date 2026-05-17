@@ -98,7 +98,7 @@ fn validate_market_creation(
     }
 
     validation::validate_asset_config(env, config);
-    validation::validate_interest_rate_model(env, params);
+    params.rate_model_view().verify(env);
 }
 
 // Deploys a liquidity pool for `asset` from the stored WASM template and
@@ -215,21 +215,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     let market = storage::get_market_config(env, asset);
 
-    validation::validate_interest_rate_model(
-        env,
-        &MarketParams {
-            max_borrow_rate_ray: params.max_borrow_rate_ray,
-            base_borrow_rate_ray: params.base_borrow_rate_ray,
-            slope1_ray: params.slope1_ray,
-            slope2_ray: params.slope2_ray,
-            slope3_ray: params.slope3_ray,
-            mid_utilization_ray: params.mid_utilization_ray,
-            optimal_utilization_ray: params.optimal_utilization_ray,
-            reserve_factor_bps: params.reserve_factor_bps,
-            asset_id: asset.clone(),
-            asset_decimals: market.oracle_config.asset_decimals,
-        },
-    );
+    params.verify(env);
 
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
 
