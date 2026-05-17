@@ -19,9 +19,8 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// Loads pool params and state from instance storage.
-    /// Panics with `PoolNotInitialized` if either entry is missing — both are written
-    /// together in `__constructor`, so absence indicates an uninitialized or corrupted pool.
+    /// Loads params + state from instance storage. Panics `PoolNotInitialized`
+    /// if either is missing — both are set together in `__constructor`.
     pub fn load(env: &Env) -> Self {
         let params: MarketParams = env
             .storage()
@@ -48,7 +47,7 @@ impl Cache {
         }
     }
 
-    /// Persists the current cache values to instance storage.
+    /// Writes the current cache fields back to instance storage.
     pub fn save(&self) {
         let state = PoolState {
             supplied_ray: self.supplied.raw(),
@@ -62,12 +61,8 @@ impl Cache {
         self.env.storage().instance().set(&PoolKey::State, &state);
     }
 
-    // -----------------------------------------------------------------------
-    // Helper methods
-    // -----------------------------------------------------------------------
-
-    /// Returns utilization as `(borrowed × borrow_index) / (supplied × supply_index)` in RAY.
-    /// Returns `Ray::ZERO` when total supply or the product is zero.
+    /// Utilization in RAY: `(borrowed × borrow_index) / (supplied × supply_index)`.
+    /// Returns `Ray::ZERO` when supply is zero or the product underflows.
     pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
@@ -80,15 +75,13 @@ impl Cache {
         total_borrowed.div(&self.env, total_supplied)
     }
 
-    /// Returns `true` when the pool's on-chain token balance covers `amount`.
+    /// `true` if the pool's on-chain balance covers `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
         let reserves = self.get_reserves_for(&self.params.asset_id);
         reserves >= amount
     }
 
-    /// Panics with `InsufficientLiquidity` when the pool's on-chain balance
-    /// does not cover `amount`. Convenience wrapper used at every outbound
-    /// transfer site (borrow, withdraw, flash_loan, create_strategy).
+    /// Panics `InsufficientLiquidity` when on-chain balance can't cover `amount`.
     pub fn require_reserves(&self, amount: i128) {
         if !self.has_reserves(amount) {
             panic_with_error!(
@@ -98,16 +91,14 @@ impl Cache {
         }
     }
 
-    /// Queries the pool contract's current on-chain balance of `asset`.
+    /// Pool's live on-chain balance of `asset`.
     pub fn get_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
         let token = soroban_sdk::token::Client::new(&self.env, asset);
         token.balance(&self.env.current_contract_address())
     }
 
-    /// Sends `amount` of the pool's asset from the pool to `recipient`.
-    /// No-op when `amount <= 0` so callers don't need to guard outbound transfers
-    /// that may legitimately resolve to zero (dust burns, full fee absorption,
-    /// no-overpayment repays).
+    /// Transfers `amount` of the pool's asset to `recipient`. No-op on
+    /// `amount <= 0` (covers dust burns, full fee absorption, zero overpayment).
     pub fn transfer_out(&self, recipient: &soroban_sdk::Address, amount: i128) {
         if amount <= 0 {
             return;
@@ -116,44 +107,44 @@ impl Cache {
         tok.transfer(&self.env.current_contract_address(), recipient, &amount);
     }
 
-    /// Converts an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Asset-decimal amount → RAY scaled: `from_asset(amount) / supply_index`.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.supply_index)
     }
 
-    /// Converts an asset-decimal amount to a RAY-scaled value: `rescale(amount, dec, 27) / index`.
+    /// Asset-decimal amount → RAY scaled: `from_asset(amount) / borrow_index`.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    /// Recovers the actual amount in RAY precision: `scaled * index` (stays in RAY).
+    /// Scaled → actual in RAY (stays in 27-decimal precision): `scaled * borrow_index`.
     pub fn calculate_original_borrow_ray(&self, scaled: Ray) -> Ray {
         scaled.mul(&self.env, self.borrow_index)
     }
 
-    /// Recovers the actual amount in asset decimals for token transfers.
+    /// Scaled → actual in asset decimals (for token transfers).
     pub fn calculate_original_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Recovers the actual amount in asset decimals for token transfers.
+    /// Scaled → actual in asset decimals (for token transfers).
     pub fn calculate_original_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    /// Resolves a requested withdraw `amount` against a position's scaled balance.
-    /// Returns `(scaled_to_burn, gross_asset_amount)`. Three cases:
-    /// - `amount` covers (or exceeds) the position → full withdraw at current value
-    /// - partial withdraw whose residual rounds to zero asset tokens → treat as
-    ///   full to avoid permanently-stuck dust; credit the full current value,
-    ///   not the smaller requested amount
-    /// - regular partial → use the requested amount and its scaled form
+    /// Picks `(scaled_to_burn, gross_asset_amount)` for a withdraw of `amount`:
+    /// full when `amount >= current`, full when partial residual rounds to 0
+    /// (dust-lock avoids stuck dust), else the requested partial.
+    ///
+    /// The dust-lock branch is mathematically unreachable in a clean single
+    /// call (half-up rounding makes the windows non-overlapping by 1 ulp); it
+    /// only fires when `pos_scaled` carries drift from many prior cycles.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.calculate_original_supply(pos_scaled);
         if amount >= current_supply_actual {
@@ -168,11 +159,9 @@ impl Cache {
         }
     }
 
-    /// Burns the share of protocol revenue that can be paid out from current
-    /// on-chain reserves and returns that asset-decimal amount. Caps at
-    /// `current_reserves`: if the treasury value exceeds available liquidity,
-    /// only the reserve-covered share is burned and the rest stays as future
-    /// revenue. Returns `0` when there is nothing to pay out.
+    /// Burns the reserve-covered share of protocol revenue and returns the
+    /// payable asset-decimal amount. Treasury above reserves stays as future
+    /// revenue; returns `0` when nothing is payable.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
         let reserves = self.get_reserves_for(&self.params.asset_id);
         let treasury_actual = self.calculate_original_supply(self.revenue);
@@ -191,10 +180,9 @@ impl Cache {
         amount
     }
 
-    /// Resolves a requested repay `amount` against a position's scaled debt.
-    /// Returns `(scaled_to_burn, overpayment_in_asset_decimals)`. Overpayment is
-    /// non-zero only when `amount` exceeds the post-accrual debt; partial
-    /// repays return `(scaled_for_amount, 0)`.
+    /// Picks `(scaled_to_burn, overpayment)` for a repay of `amount`. Full
+    /// burn + positive overpayment when `amount >= current_debt`, else partial
+    /// burn with zero overpayment.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_debt = self.calculate_original_borrow(pos_scaled);
         if amount >= current_debt {
@@ -204,7 +192,7 @@ impl Cache {
         }
     }
 
-    /// Snapshot of the current borrow/supply indexes for controller-side reuse.
+    /// Current borrow/supply indexes for the controller event stream.
     pub fn market_index(&self) -> MarketIndex {
         MarketIndex {
             borrow_index_ray: self.borrow_index.raw(),
@@ -212,8 +200,8 @@ impl Cache {
         }
     }
 
-    /// Full market snapshot at the current cache state. Reads live reserves
-    /// from the token contract.
+    /// Full market snapshot at current cache state; reads live reserves from
+    /// the token contract.
     pub fn market_snapshot(&self) -> MarketStateSnapshot {
         MarketStateSnapshot {
             asset: self.params.asset_id.clone(),
@@ -228,7 +216,7 @@ impl Cache {
         }
     }
 
-    /// Builds the standard position mutation returned by supply/borrow/withdraw/repay/seize.
+    /// Mutation returned by supply / borrow / withdraw / repay / seize_position.
     pub fn position_mutation(
         &self,
         position: AccountPosition,
@@ -242,7 +230,7 @@ impl Cache {
         }
     }
 
-    /// Builds the mutation returned by claim_revenue.
+    /// Mutation returned by claim_revenue.
     pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
         PoolAmountMutation {
             market_state: self.market_snapshot(),
@@ -250,7 +238,7 @@ impl Cache {
         }
     }
 
-    /// Builds the mutation returned by create_strategy.
+    /// Mutation returned by create_strategy.
     pub fn strategy_mutation(
         &self,
         position: AccountPosition,

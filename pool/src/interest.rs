@@ -8,16 +8,14 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-/// Cap on compound interval per `global_sync` call. The 8-term Taylor
-/// expansion in `compound_interest` holds only for
-/// `x = rate * delta_ms / MS_PER_YEAR <= 2`; capping `delta_ms` at one year
-/// and iterating keeps `x <= annual_rate` (bounded by `max_borrow_rate`)
-/// and avoids i128 overflow in `x_pow8`.
+/// Per-chunk cap. `compound_interest`'s 8-term Taylor expansion holds only
+/// for `x = rate * delta_ms / MS_PER_YEAR <= 2`; one year keeps `x` bounded
+/// by `max_borrow_rate` and avoids i128 overflow in `x_pow8`.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
-/// Accrues interest on the pool state from `last_timestamp` to `current_timestamp`.
-/// Iterates in `MAX_COMPOUND_DELTA_MS` chunks to keep the Taylor series within its
-/// documented accuracy envelope. No-ops when `delta_ms` is zero.
+/// Accrues interest from `last_timestamp` to `current_timestamp`, iterating
+/// in `MAX_COMPOUND_DELTA_MS` chunks to stay inside the Taylor envelope.
+/// No-op when `delta_ms == 0`.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
     let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
@@ -25,9 +23,6 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
         return;
     }
 
-    // Iterate compound interest in bounded chunks so a market idle for
-    // multiple years cannot push `x` into the Taylor degradation /
-    // overflow regime. Each chunk fully commits its own sub-accrual.
     let mut remaining = total_delta_ms;
     while remaining > 0 {
         let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
@@ -59,18 +54,16 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     cache.borrow_index = new_borrow_index;
     cache.supply_index = new_supply_index;
 
-    // Protocol fee is already in RAY from rates math.
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
-/// Converts a fee in **RAY** to scaled supply tokens and accrues it as protocol revenue.
-/// Callers holding asset-decimal amounts must convert with `Ray::from_asset` first.
+/// Accrues a RAY-denominated fee to protocol revenue. Asset-decimal callers
+/// must convert via `Ray::from_asset` first. Skips when `supply_index` is at
+/// or below the floor (division would blow up).
 pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
     }
-    // Skip revenue accrual when supply_index is at or near the safety floor:
-    // dividing by a near-zero index produces astronomical scaled amounts.
     if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
@@ -79,18 +72,13 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     cache.supplied += fee_scaled;
 }
 
-/// Reduces the supply index to socialize uncollectable debt.
+/// Socialises uncollectable debt by reducing the supply index.
 ///
-/// Safety:
-/// - The resulting index is floored at `SUPPLY_INDEX_FLOOR_RAW` (10^18 raw Ray,
-///   = 10^-9 decimal). Dropping to zero would make
-///   `cache.supply_index.raw() == 0`, which divides-by-zero in downstream
-///   `amount / supply_index` conversions; the revenue-accrual paths
-///   additionally short-circuit when `index <= floor` so a near-zero index
-///   cannot blow up `fee / supply_index`.
-/// - The pool does not pause itself when the reduction is severe; the
-///   controller emits the bad-debt cleanup event and market batch snapshot,
-///   so off-chain monitoring can derive the supply-index impact there.
+/// The new index is floored at `SUPPLY_INDEX_FLOOR_RAW` (10^-9 decimal):
+/// a zero index divides-by-zero in `amount / supply_index` conversions, and
+/// revenue accrual short-circuits when `index <= floor`. The pool does not
+/// auto-pause on severe reductions; the controller emits the cleanup event
+/// and market snapshot for off-chain monitoring.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 
@@ -110,7 +98,6 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
 
     let floor_index = Ray::from_raw(SUPPLY_INDEX_FLOOR_RAW);
 
-    // Floor at SUPPLY_INDEX_FLOOR_RAW to keep downstream math conditioned.
     cache.supply_index = if new_supply_index < floor_index {
         floor_index
     } else {

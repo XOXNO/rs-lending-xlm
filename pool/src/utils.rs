@@ -8,10 +8,8 @@ use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, V
 use crate::cache::Cache;
 use crate::interest;
 
-/// Reject negative amounts at every mutating pool ABI. The controller
-/// validates sign at user entrypoints; this guard prevents a controller
-/// upgrade that omits a `require_amount_positive` check from reaching the
-/// pool's phantom-collateral path.
+/// Defends the pool's phantom-collateral path: rejects negatives at every
+/// mutating ABI in case a controller upgrade drops its own sign check.
 pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
     if amount < 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
@@ -36,15 +34,14 @@ pub(crate) fn renew_pool_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Caps with `cap <= 0` or `cap == i128::MAX` are treated as disabled.
-/// Negative values short-circuit here rather than panicking — the controller
-/// is the sole producer of caps and validates them upstream.
+/// `cap <= 0` or `cap == i128::MAX` means "disabled". Negative caps come
+/// from the controller (sole producer) and are validated upstream.
 pub(crate) fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
-/// Rejects the addition if it would push total supplied above `supply_cap`
-/// (in asset decimals). No-op when the cap is disabled.
+/// Panics `SupplyCapReached` when adding `scaled_delta` would breach
+/// `supply_cap` (asset decimals). No-op if the cap is disabled.
 pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, supply_cap: i128) {
     if !cap_is_enabled(supply_cap) {
         return;
@@ -57,8 +54,8 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, su
     }
 }
 
-/// Rejects the addition if it would push total borrowed above `borrow_cap`
-/// (in asset decimals). No-op when the cap is disabled.
+/// Panics `BorrowCapReached` when adding `scaled_delta` would breach
+/// `borrow_cap` (asset decimals). No-op if the cap is disabled.
 pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, borrow_cap: i128) {
     if !cap_is_enabled(borrow_cap) {
         return;
@@ -71,9 +68,8 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
     }
 }
 
-/// Loads `MarketParams`, applies the new rate-model fields, and saves.
-/// Assumes the caller has already validated `m` (via `m.verify(env)`) and
-/// accrued interest.
+/// Writes `m`'s rate-model fields into stored `MarketParams`. Caller must
+/// have validated (`m.verify(env)`) and accrued interest first.
 pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     let mut params: MarketParams = env
         .storage()
@@ -93,9 +89,9 @@ pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     env.storage().instance().set(&PoolKey::Params, &params);
 }
 
-/// Deducts the liquidation `protocol_fee` from `gross_amount` and accrues it
-/// as protocol revenue. No-op when not a liquidation or fee is zero.
-/// Panics with `WithdrawLessThanFee` if the gross doesn't cover the fee.
+/// Deducts the liquidation `protocol_fee` from `gross_amount`, accrues it
+/// as revenue, and returns the net. No-op on `!is_liquidation` or zero fee.
+/// Panics `WithdrawLessThanFee` if the gross can't cover the fee.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,
