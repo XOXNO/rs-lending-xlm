@@ -5,7 +5,9 @@ use common::types::{Account, Payment, PositionMode};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
-use crate::storage;
+use crate::cross_contract::pool::pool_update_indexes_call;
+use crate::cross_contract::sac::sac_transfer_call;
+use crate::{storage, validation};
 
 pub use crate::positions::account::{create_account, remove_account};
 
@@ -45,19 +47,6 @@ pub fn transfer_and_measure_received(
     amount
 }
 
-crate::summarized!(
-    sac::transfer_summary,
-    pub(crate) fn sac_transfer_call(
-        env: &Env,
-        token: &Address,
-        from: &Address,
-        to: &Address,
-        amount: &i128,
-    ) {
-        soroban_sdk::token::Client::new(env, token).transfer(from, to, amount)
-    }
-);
-
 fn aggregate_payments(
     env: &Env,
     payments: &Vec<Payment>,
@@ -78,7 +67,7 @@ fn aggregate_payments(
 
     let mut result = Vec::new(env);
     for asset in order {
-        let amount = totals.get(asset.clone()).unwrap();
+        let amount = validation::expect_invariant(env, totals.get(asset.clone()));
         result.push_back((asset, amount));
     }
 
@@ -118,7 +107,7 @@ pub fn create_account_for_first_asset(
     e_mode_category: u32,
     assets: &Vec<Payment>,
 ) -> (u64, Account) {
-    let (first_asset, _) = assets.get(0).unwrap();
+    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
     let first_config = storage::get_market_config(env, &first_asset).asset_config;
     let is_isolated = first_config.is_isolated_asset;
     let isolated_asset = if is_isolated {
@@ -146,7 +135,7 @@ pub fn create_account_for_first_asset(
 pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
-        let state = crate::router::pool_update_indexes_call(env, &pool_addr);
+        let state = pool_update_indexes_call(env, &pool_addr);
         // Refresh the in-memory cache so subsequent reads in this transaction
         // use the persisted index.
         cache.record_market_update(&state);

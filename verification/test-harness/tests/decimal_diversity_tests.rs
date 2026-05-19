@@ -193,6 +193,7 @@ fn test_tiny_amounts_18dec() {
     let mut t = LendingTest::new()
         .with_market(dai_18dec())
         .with_market(usdc_6dec())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Supply 0.000001 DAI (1 microDAI = 10^12 raw units at 18 decimals).

@@ -4,7 +4,10 @@ use common::errors::{GenericError, OracleError};
 use common::types::{OracleProviderKind, OracleReadMode, RedStoneSourceConfig};
 use soroban_sdk::{contractclient, contracttype, panic_with_error, Env, Error, String, U256};
 
-use super::super::observation::{check_not_future_at, normalize_positive_price, OracleObservation};
+use super::super::observation::{
+    check_not_future_at, millis_to_seconds, normalize_positive_price, u256_to_i128,
+    OracleObservation,
+};
 use crate::cache::ControllerCache;
 
 #[contracttype]
@@ -68,20 +71,4 @@ fn observation_from_price_data(
         provider: OracleProviderKind::RedStonePriceFeed,
         read_mode: OracleReadMode::Spot,
     }
-}
-
-fn u256_to_i128(env: &Env, value: &U256) -> i128 {
-    let Some(raw) = value.to_u128() else {
-        panic_with_error!(env, GenericError::MathOverflow);
-    };
-    if raw > i128::MAX as u128 {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
-    raw as i128
-}
-
-fn millis_to_seconds(env: &Env, timestamp_ms: u64) -> u64 {
-    timestamp_ms
-        .checked_div(1000)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }

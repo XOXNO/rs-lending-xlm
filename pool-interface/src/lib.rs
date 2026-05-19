@@ -75,6 +75,7 @@ pub trait LiquidityPoolInterface {
         slope3: i128,
         mid_utilization: i128,
         optimal_utilization: i128,
+        max_utilization: i128,
         reserve_factor: u32,
     );
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);

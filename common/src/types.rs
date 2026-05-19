@@ -49,6 +49,12 @@ pub struct MarketParams {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
+    // Hard ceiling on `borrowed / supplied`. Must satisfy
+    // `optimal_utilization_ray <= max_utilization_ray <= RAY`.
+    // Enforced post-state by borrow / withdraw / flash-loan in the
+    // pool; reserves enough liquidity for liquidation seizure even at
+    // peak utilization.
+    pub max_utilization_ray: i128,
     // Reserve factor in basis points. Bounded by `BPS` (10 000).
     pub reserve_factor_bps: u32,
     pub asset_id: Address,
@@ -68,6 +74,7 @@ impl MarketParams {
             slope3_ray: self.slope3_ray,
             mid_utilization_ray: self.mid_utilization_ray,
             optimal_utilization_ray: self.optimal_utilization_ray,
+            max_utilization_ray: self.max_utilization_ray,
             reserve_factor_bps: self.reserve_factor_bps,
         }
     }
@@ -93,6 +100,8 @@ pub struct InterestRateModel {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
+    // Hard utilization ceiling — see `MarketParams::max_utilization_ray`.
+    pub max_utilization_ray: i128,
     // Reserve factor in basis points. Bounded by `BPS` (10 000).
     pub reserve_factor_bps: u32,
 }
@@ -127,6 +136,13 @@ impl InterestRateModel {
         }
         if self.optimal_utilization_ray >= RAY {
             panic_with_error!(env, CollateralError::OptUtilTooHigh);
+        }
+        // `max_utilization_ray` must sit at or above the optimal
+        // kink (so the IR curve's slope2 region is at least partially
+        // reachable) and at or below 100 %.
+        if self.max_utilization_ray < self.optimal_utilization_ray || self.max_utilization_ray > RAY
+        {
+            panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
         if i128::from(self.reserve_factor_bps) >= BPS {
             panic_with_error!(env, CollateralError::InvalidReserveFactor);
@@ -190,6 +206,14 @@ pub struct AssetConfig {
     // past `u64`; `-1` / `i128::MAX` encodes "no cap".
     pub borrow_cap: i128,
     pub supply_cap: i128,
+    // Per-position dust floors in WAD-USD. Borrow / repay / withdraw /
+    // Strategy paths reject any state where a single position's USD
+    // value is in the open interval `(0, floor)`. Closing to zero is
+    // always allowed; liquidation expands to a full close on residue
+    // via `helpers::estimate_liquidation_amount`. Validated to be
+    // `>= MIN_DUST_FLOOR_WAD` at admin time.
+    pub min_collat_floor_usd_wad: i128,
+    pub min_debt_floor_usd_wad: i128,
     // E-mode category memberships for this asset. Empty when the asset
     // is not enrolled in any category — `has_emode()` returns false in
     // that state. Maintained by `add_asset_to_e_mode_category` /
@@ -448,6 +472,15 @@ pub struct MarketOracleConfig {
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfig,
     pub anchor: OracleSourceConfigOption,
+    // Per-market circuit breaker against catastrophic oracle outputs.
+    // A read whose resolved Wad-price falls outside
+    // `[min_sanity_price_wad, max_sanity_price_wad]` reverts with
+    // `OracleError::SanityBoundViolated`. Sentinel: when
+    // `max_sanity_price_wad == 0` the bound is disabled — intended
+    // for test setups only; production deployments must set both
+    // bounds per asset.
+    pub min_sanity_price_wad: i128,
+    pub max_sanity_price_wad: i128,
 }
 
 impl MarketOracleConfig {
@@ -470,6 +503,8 @@ impl MarketOracleConfig {
                 resolution_seconds: 0,
             }),
             anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: 0,
+            max_sanity_price_wad: 0,
         }
     }
 }
@@ -483,6 +518,10 @@ pub struct MarketOracleConfigInput {
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfigInput,
     pub anchor: OracleSourceConfigInputOption,
+    // See `MarketOracleConfig::min_sanity_price_wad` / `max_sanity_price_wad`.
+    // Sentinel `max_sanity_price_wad == 0` disables the bound (tests only).
+    pub min_sanity_price_wad: i128,
+    pub max_sanity_price_wad: i128,
 }
 
 // ---------------------------------------------------------------------------

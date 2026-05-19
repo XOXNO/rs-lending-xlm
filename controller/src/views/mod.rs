@@ -1,5 +1,5 @@
 use common::constants::WAD;
-use common::fp::{Ray, Wad};
+use common::fp::Ray;
 use common::types::{
     AccountAttributes, AccountPosition, AssetExtendedConfigView, EModeCategory,
     LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
@@ -7,8 +7,18 @@ use common::types::{
 };
 use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 
+#[cfg(not(feature = "certora"))]
+mod aggregates;
+#[cfg(feature = "certora")]
+#[path = "../../../verification/certora/controller/harness/views/aggregates.rs"]
+mod aggregates;
+
+pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
+
 use crate::cache::ControllerCache;
-use crate::{helpers, storage, Controller, ControllerArgs, ControllerClient};
+use crate::oracle::{price_components, token_price};
+use crate::positions::liquidation::execute_liquidation;
+use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -104,67 +114,6 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
     health_factor(env, account_id) < WAD
 }
 
-crate::summarized!(
-    total_collateral_in_usd_summary,
-    pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-        if storage::try_get_account_meta(env, account_id).is_none() {
-            return 0;
-        }
-        let supply = storage::get_supply_positions(env, account_id);
-        if supply.is_empty() {
-            return 0;
-        }
-
-        let mut cache = ControllerCache::new_view(env);
-        let mut total_collateral = Wad::ZERO;
-
-        for (asset, position) in supply.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-
-            let value = helpers::position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.supply_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
-            total_collateral += value;
-        }
-
-        total_collateral.raw()
-    }
-);
-
-crate::summarized!(
-    total_borrow_in_usd_summary,
-    pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
-        if storage::try_get_account_meta(env, account_id).is_none() {
-            return 0;
-        }
-        let borrow = storage::get_borrow_positions(env, account_id);
-        if borrow.is_empty() {
-            return 0;
-        }
-
-        let mut cache = ControllerCache::new_view(env);
-        let mut total_borrow = Wad::ZERO;
-
-        for (asset, position) in borrow.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-
-            let value = helpers::position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.borrow_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
-            total_borrow += value;
-        }
-
-        total_borrow.raw()
-    }
-);
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let position = match storage::try_get_position(env, account_id, POSITION_TYPE_DEPOSIT, asset) {
@@ -245,17 +194,6 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     weighted_coll.raw()
 }
 
-crate::summarized!(
-    ltv_collateral_in_usd_summary,
-    pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
-        let account = match storage::try_get_account(env, account_id) {
-            Some(account) => account,
-            None => return 0,
-        };
-        let mut cache = ControllerCache::new_view(env);
-        helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
-    }
-);
 
 // ---------------------------------------------------------------------------
 // Market index views
@@ -266,9 +204,9 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
     let mut result = Vec::new(env);
 
     for i in 0..assets.len() {
-        let asset = assets.get(i).unwrap();
+        let asset = validation::expect_invariant(env, assets.get(i));
         let market = cache.cached_market_config(&asset);
-        let final_price = crate::oracle::token_price(&mut cache, &asset).price_wad;
+        let final_price = token_price(&mut cache, &asset).price_wad;
         result.push_back(AssetExtendedConfigView {
             asset,
             pool_address: market.pool_address,
@@ -284,22 +222,23 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
     let mut result = Vec::new(env);
 
     for i in 0..assets.len() {
-        let asset = assets.get(i).unwrap();
+        let asset = validation::expect_invariant(env, assets.get(i));
         let index = cache.cached_market_index(&asset);
-        let (aggregator_price, safe_price, final_price, within_first, within_second) =
-            crate::oracle::price_components(&mut cache, &asset);
-        let safe_price_wad = safe_price.unwrap_or(final_price);
-        let aggregator_price_wad = aggregator_price.unwrap_or(final_price);
+        let components = price_components(&mut cache, &asset);
+        let safe_price_wad = components.safe_price_wad.unwrap_or(components.final_price_wad);
+        let aggregator_price_wad = components
+            .aggregator_price_wad
+            .unwrap_or(components.final_price_wad);
 
         result.push_back(MarketIndexView {
             asset,
             supply_index_ray: index.supply_index_ray,
             borrow_index_ray: index.borrow_index_ray,
-            price_wad: final_price,
+            price_wad: components.final_price_wad,
             safe_price_wad,
             aggregator_price_wad,
-            within_first_tolerance: within_first,
-            within_second_tolerance: within_second,
+            within_first_tolerance: components.within_first_tolerance,
+            within_second_tolerance: components.within_second_tolerance,
         });
     }
 
@@ -317,7 +256,7 @@ pub fn liquidation_estimations_detailed(
 ) -> LiquidationEstimate {
     let mut cache = ControllerCache::new_view(env);
     let account = storage::get_account(env, account_id);
-    let result = crate::positions::liquidation::execute_liquidation(
+    let result = execute_liquidation(
         env,
         &account,
         debt_payments,
@@ -327,7 +266,7 @@ pub fn liquidation_estimations_detailed(
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
     for i in 0..result.seized.len() {
-        let entry = result.seized.get(i).unwrap();
+        let entry = validation::expect_invariant(env, result.seized.get(i));
         seized_collaterals.push_back(PaymentTuple {
             asset: entry.asset.clone(),
             amount: entry.amount,
@@ -340,7 +279,7 @@ pub fn liquidation_estimations_detailed(
 
     let mut refunds_view = Vec::new(env);
     for i in 0..result.refunds.len() {
-        let (asset, amount) = result.refunds.get(i).unwrap();
+        let (asset, amount) = validation::expect_invariant(env, result.refunds.get(i));
         refunds_view.push_back(PaymentTuple { asset, amount });
     }
 

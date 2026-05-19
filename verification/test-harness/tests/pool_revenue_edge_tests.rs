@@ -15,7 +15,9 @@
 
 extern crate std;
 
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+};
 
 // ---------------------------------------------------------------------------
 // 1. add_rewards on a market drained back to zero suppliers
@@ -28,7 +30,9 @@ use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 #[test]
 #[should_panic(expected = "Error(Contract, #37)")]
 fn test_add_rewards_rejects_after_full_withdrawal() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets().build();
 
     // Alice supplies, then withdraws her entire position. No borrows happen,
     // so all scaled supply belongs to Alice and `withdraw_all` returns the
@@ -55,6 +59,8 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     // Set up the controller's accumulator so `claim_revenue` is permitted.
@@ -127,4 +133,57 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
         0,
         "reserves remain zero after a no-op claim"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 3. claim_revenue blocked when burning the last supply would leave debt
+// ---------------------------------------------------------------------------
+
+/// `burn_claimable_revenue` decrements both `cache.revenue` and
+/// `cache.supplied` by the revenue's scaled share. If the previous final
+/// supplier has already withdrawn (leaving only the protocol-revenue
+/// share as `supplied`), the burn would land at `supplied == 0` while
+/// `borrowed > 0` — the same insolvent post-state the withdraw path
+/// guards against. Pins that the symmetric guard in `claim_revenue`
+/// rejects this state and the revenue stays parked until borrowers exit.
+#[test]
+fn test_claim_revenue_blocked_when_post_state_insolvent() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
+        .build();
+
+    // Accumulator + spot-only oracle for the revenue claim path.
+    let accumulator = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    t.set_accumulator(&accumulator);
+    t.set_oracle_single_spot("USDC");
+
+    // ALICE supplies USDC; BOB borrows USDC against ETH collateral so
+    // `cache.borrowed` stays positive across ALICE's withdrawal.
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.supply(BOB, "ETH", 10.0);
+    t.borrow(BOB, "USDC", 500.0);
+
+    // Accrue interest so revenue scales up to a non-trivial share of
+    // `cache.supplied`.
+    t.advance_time(31_536_000); // 1 year
+    t.update_indexes_for(&["USDC"]);
+    let revenue_pre = t.snapshot_revenue("USDC");
+    assert!(revenue_pre > 0, "fixture must accrue revenue");
+
+    // ALICE fully withdraws. Post-state: cache.supplied = revenue's
+    // scaled share (positive, so the withdraw-side solvency guard
+    // passes), borrowed > 0.
+    t.withdraw_all(ALICE, "USDC");
+
+    // claim_revenue would burn the remaining `supplied` (the revenue
+    // share) and land at `(supplied = 0, borrowed > 0)`. The symmetric
+    // solvency guard must reject this and leave the revenue parked
+    // until borrowers exit.
+    let result = t.try_claim_revenue("USDC");
+    assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
 }

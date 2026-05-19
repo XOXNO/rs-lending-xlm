@@ -1,61 +1,30 @@
-use common::errors::{GenericError, OracleError};
-use common::types::{OracleAssetRef, OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
-use soroban_sdk::{panic_with_error, Env};
+//! TWAP read via Reflector's `prices` entry point. Aggregates the
+//! window into an integer-mean price (rounded toward zero), gates the
+//! result on staleness + minimum-observations, and falls back to a
+//! spot read when policy allows.
 
-use super::super::observation::{
+use common::errors::{GenericError, OracleError};
+use common::types::{OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
+use soroban_sdk::panic_with_error;
+
+use crate::cache::ControllerCache;
+use crate::oracle::observation::{
     check_not_future_at, is_stale, normalize_positive_price, OracleObservation,
 };
-use super::super::reflector::{
-    reflector_lastprice_call, reflector_prices_call, ReflectorAsset, ReflectorPriceData,
-};
-use crate::cache::ControllerCache;
+use crate::oracle::reflector::reflector_prices_call;
 
-pub(crate) fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
-    match asset {
-        OracleAssetRef::Stellar(address) => ReflectorAsset::Stellar(address.clone()),
-        OracleAssetRef::Symbol(symbol) => ReflectorAsset::Other(symbol.clone()),
-        OracleAssetRef::String(_) => panic_with_error!(env, OracleError::InvalidOracleTokenType),
-    }
-}
+use super::{observation_from_price_data, spot::read_spot, to_reflector_asset};
 
+// Minimum non-missing observations a TWAP read must surface to be trusted.
+// `ceil(records / 2)` — a partial Reflector outage returning half the
+// requested history is still usable. Stricter would let a single-point
+// hiccup DoS every consumer; looser would let a TWAP be skewed by very few
+// samples.
 pub(crate) fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(1, records.div_ceil(2))
 }
 
-pub(crate) fn read_reflector_source(
-    cache: &mut ControllerCache,
-    config: &ReflectorSourceConfig,
-    max_stale: u64,
-    required: bool,
-) -> Option<OracleObservation> {
-    match config.read_mode {
-        OracleReadMode::Spot => read_spot(cache, config, required),
-        OracleReadMode::Twap(records) => read_twap(cache, config, records, max_stale, required),
-    }
-}
-
-fn read_spot(
-    cache: &mut ControllerCache,
-    config: &ReflectorSourceConfig,
-    required: bool,
-) -> Option<OracleObservation> {
-    let env = cache.env();
-    let asset = to_reflector_asset(env, &config.asset);
-    let Some(pd) = reflector_lastprice_call(env, &config.contract, &asset) else {
-        if required {
-            panic_with_error!(env, OracleError::NoLastPrice);
-        }
-        return None;
-    };
-    Some(observation_from_price_data(
-        env,
-        &pd,
-        config.decimals,
-        config.read_mode.clone(),
-    ))
-}
-
-fn read_twap(
+pub(crate) fn read_twap(
     cache: &mut ControllerCache,
     config: &ReflectorSourceConfig,
     records: u32,
@@ -149,6 +118,13 @@ fn read_twap(
         );
     }
 
+    // Euclidean integer division rounds toward zero. With the per-record
+    // `i128` headroom (price ≤ 10^36, records ≤ 12) this rounds the TWAP
+    // *down*. That's protocol-conservative for collateral valuation
+    // (smaller seize) but slightly aggressive for debt valuation (smaller
+    // debt → easier-looking HF). The chosen direction is collateral-side
+    // because that is the dominant use; debt-side callers that need
+    // upward-rounding should compute it explicitly at the call site.
     let raw_price = sum / history.len() as i128;
     Some(OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
@@ -161,6 +137,10 @@ fn read_twap(
     })
 }
 
+// When TWAP fails, the policy chooses between a graceful fallback
+// (spot or newest-valid observation in the window) and a hard panic.
+// Liquidation-time reads typically forbid the fallback to deny brief
+// outages from masking under-water positions; routine reads allow it.
 fn twap_fallback_or_panic(
     cache: &ControllerCache,
     config: &ReflectorSourceConfig,
@@ -169,46 +149,24 @@ fn twap_fallback_or_panic(
     err: OracleError,
 ) -> Option<OracleObservation> {
     if cache.oracle_policy.allows_missing_twap_fallback() {
-        fallback.or_else(|| read_spot_from_env(cache.env(), config, required))
+        fallback.or_else(|| read_spot(cache.env(), config, required))
     } else {
         panic_with_error!(cache.env(), err);
     }
 }
 
-fn read_spot_from_env(
-    env: &Env,
-    config: &ReflectorSourceConfig,
-    required: bool,
-) -> Option<OracleObservation> {
-    let asset = to_reflector_asset(env, &config.asset);
-    let Some(pd) = reflector_lastprice_call(env, &config.contract, &asset) else {
-        if required {
-            panic_with_error!(env, OracleError::NoLastPrice);
-        }
-        return None;
-    };
-    Some(observation_from_price_data(
-        env,
-        &pd,
-        config.decimals,
-        OracleReadMode::Spot,
-    ))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn observation_from_price_data(
-    env: &Env,
-    pd: &ReflectorPriceData,
-    decimals: u32,
-    read_mode: OracleReadMode,
-) -> OracleObservation {
-    check_not_future_at(env, env.ledger().timestamp(), pd.timestamp);
-    OracleObservation {
-        price_wad: normalize_positive_price(env, pd.price, decimals),
-        raw_price: pd.price,
-        raw_decimals: decimals,
-        observed_at: pd.timestamp,
-        published_at: None,
-        provider: OracleProviderKind::ReflectorSep40,
-        read_mode,
+    // `min_twap_observations` clamps small `records` to 1 (so a 1-sample
+    // window doesn't require zero samples), and rounds up otherwise.
+    #[test]
+    fn test_min_twap_observations_clamps_and_rounds_up() {
+        assert_eq!(min_twap_observations(0), 1);
+        assert_eq!(min_twap_observations(1), 1);
+        assert_eq!(min_twap_observations(2), 1);
+        assert_eq!(min_twap_observations(3), 2);
+        assert_eq!(min_twap_observations(12), 6);
     }
 }

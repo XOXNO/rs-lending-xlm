@@ -30,6 +30,7 @@ fn test_update_indexes_refreshes_rates() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Supply + borrow to create utilization.
@@ -59,6 +60,7 @@ fn test_clean_bad_debt_removes_positions() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Alice supplies small USDC and borrows ETH near the limit.
@@ -88,6 +90,7 @@ fn test_clean_bad_debt_rejects_healthy() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Alice with a healthy position.
@@ -109,6 +112,7 @@ fn test_clean_bad_debt_rejects_above_threshold() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Alice supplies significant collateral and borrows near the limit.
@@ -129,6 +133,56 @@ fn test_clean_bad_debt_rejects_above_threshold() {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. test_clean_bad_debt_succeeds_under_oracle_deviation
+// ---------------------------------------------------------------------------
+//
+// Standalone bad-debt cleanup used to build a `RiskIncreasing` oracle
+// cache, which would revert under primary/anchor deviation — exactly
+// when small unprofitable bad-debt accounts most need the keeper
+// backstop. The fix uses `OraclePolicy::Liquidation` (matching the
+// inline post-liquidation cleanup), tolerating anchor deviation and
+// resolving to the live aggregator price so cleanup proceeds.
+#[test]
+fn test_clean_bad_debt_succeeds_under_oracle_deviation() {
+    use test_harness::TIGHT_TOLERANCE;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // Tight tolerance so a small primary/anchor gap counts as
+    // deviation.
+    t.set_oracle_tolerance("USDC", TIGHT_TOLERANCE);
+
+    // Set up the bad-debt position: tiny collateral, much larger
+    // debt. Mirror `test_clean_bad_debt_removes_positions`.
+    t.supply(ALICE, "USDC", 10.0);
+    t.borrow(ALICE, "ETH", 0.003);
+
+    // Crash the aggregator price (live spot) so collateral falls
+    // below the $5 threshold.
+    t.set_price("USDC", usd_cents(1));
+
+    // Skew the TWAP/safe source so primary and anchor disagree — a
+    // `RiskIncreasing` cache would have reverted on the unsafe-
+    // deviation read. (`can_be_liquidated` is a view path that uses
+    // `OraclePolicy::View` and the safe source, so it would NOT see
+    // Alice as liquidatable here — but the standalone cleanup path
+    // does use the live aggregator under the new `Liquidation`
+    // policy.)
+    t.set_safe_price("USDC", usd_cents(100), false, false);
+
+    // With the `Liquidation` policy now used by
+    // `clean_bad_debt_standalone`, anchor deviation is tolerated and
+    // the live aggregator price (USDC = $0.01) drives the bad-debt
+    // accounting. The cleanup must proceed and zero out the position.
+    t.clean_bad_debt_for(ALICE);
+    t.assert_no_positions(ALICE);
+}
+
+// ---------------------------------------------------------------------------
 // 5. test_update_account_threshold_safe
 // ---------------------------------------------------------------------------
 
@@ -137,6 +191,7 @@ fn test_update_account_threshold_safe() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
@@ -171,6 +226,7 @@ fn test_update_account_threshold_risky() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 100_000.0);
@@ -204,6 +260,7 @@ fn test_update_account_threshold_rejects_low_hf() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Supply and borrow near the limit so HF stays close to 1.0.
@@ -235,6 +292,7 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
         .with_market(usdc_preset())
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)
+        .with_dust_disabled_all_markets()
         .build();
 
     let account_id = t.create_emode_account(ALICE, 1);
@@ -258,7 +316,8 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
 
 #[test]
 fn test_keeper_role_required() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     // Create BOB without the KEEPER role.
     let bob_addr = t.get_or_create_user(BOB);

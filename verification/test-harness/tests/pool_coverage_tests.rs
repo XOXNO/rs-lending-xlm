@@ -68,6 +68,7 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     let accumulator = t

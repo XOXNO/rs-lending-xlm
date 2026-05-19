@@ -34,6 +34,8 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
     let slope3_ray: i128 = cvlr::nondet::nondet();
     let mid_utilization_ray: i128 = cvlr::nondet::nondet();
     let optimal_utilization_ray: i128 = cvlr::nondet::nondet();
+    let max_utilization_ray: i128 = cvlr::nondet::nondet();
+    cvlr_assume!(max_utilization_ray >= optimal_utilization_ray && max_utilization_ray <= RAY);
     let max_borrow_rate_ray: i128 = cvlr::nondet::nondet();
     let reserve_factor_bps: u32 = cvlr::nondet::nondet();
     let asset_id = e.current_contract_address();
@@ -73,6 +75,7 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
         slope3_ray,
         mid_utilization_ray,
         optimal_utilization_ray,
+        max_utilization_ray,
         max_borrow_rate_ray,
         reserve_factor_bps,
         asset_id,

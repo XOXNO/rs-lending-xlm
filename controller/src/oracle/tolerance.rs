@@ -38,7 +38,16 @@ pub(crate) fn calculate_final_price(
                 if !cache.oracle_policy.allows_unsafe_deviation() {
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }
-                safe_price
+                // Liquidation must follow live market state, not the
+                // slower-moving anchor — pricing collateral at TWAP during a
+                // genuine crash would leave the borrower healthy on paper
+                // and DoS liquidations (see `OraclePolicy::Liquidation`
+                // doc-comment).
+                if cache.oracle_policy.prefers_aggregator_on_deviation() {
+                    agg_price
+                } else {
+                    safe_price
+                }
             }
         }
         (Some(agg_price), None) => agg_price,
@@ -49,25 +58,25 @@ pub(crate) fn calculate_final_price(
     }
 }
 
-crate::summarized!(
-    is_within_anchor_summary,
-    pub(crate) fn is_within_anchor(
-        env: &Env,
-        aggregator: i128,
-        safe: i128,
-        upper_bound_ratio: u32,
-        lower_bound_ratio: u32,
-    ) -> bool {
-        if aggregator == 0 {
-            return false;
-        }
-        let ratio_ray = Ray::from_raw(safe)
-            .div(env, Ray::from_raw(aggregator))
-            .raw();
-        let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4);
-        let upper = i128::from(upper_bound_ratio);
-        let lower = i128::from(lower_bound_ratio);
-
-        ratio_bps <= upper && ratio_bps >= lower
+// Tests whether `ratio = safe / aggregator` (in bps) sits inside
+// `[lower_bound_ratio, upper_bound_ratio]`. `aggregator == 0` returns
+// false because the ratio is undefined.
+pub(crate) fn is_within_anchor(
+    env: &Env,
+    aggregator: i128,
+    safe: i128,
+    upper_bound_ratio: u32,
+    lower_bound_ratio: u32,
+) -> bool {
+    if aggregator == 0 {
+        return false;
     }
-);
+    let ratio_ray = Ray::from_raw(safe)
+        .div(env, Ray::from_raw(aggregator))
+        .raw();
+    let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4);
+    let upper = i128::from(upper_bound_ratio);
+    let lower = i128::from(lower_bound_ratio);
+
+    ratio_bps <= upper && ratio_bps >= lower
+}

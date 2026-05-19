@@ -13,6 +13,7 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::positions::dust::require_no_dust_after;
 use crate::{
     positions::{borrow, emode, repay, supply, withdraw, EventContext},
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
@@ -505,7 +506,7 @@ fn validate_aggregator_swap(
     let mut sum_ppm: u32 = 0;
     let n = swap.paths.len();
     for i in 0..n {
-        let path = swap.paths.get(i).unwrap();
+        let path = validation::expect_invariant(env, swap.paths.get(i));
         if path.hops.is_empty() {
             panic_with_error!(env, GenericError::InvalidPayments);
         }
@@ -516,11 +517,12 @@ fn validate_aggregator_swap(
             .checked_add(path.split_ppm)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidPayments));
 
-        let first_hop = path.hops.get(0).unwrap();
+        let first_hop = validation::expect_invariant(env, path.hops.get(0));
         if first_hop.token_in != *token_in {
             panic_with_error!(env, GenericError::WrongToken);
         }
-        let last_hop = path.hops.get(path.hops.len() - 1).unwrap();
+        let last_hop =
+            validation::expect_invariant(env, path.hops.get(path.hops.len() - 1));
         if last_hop.token_out != *token_out {
             panic_with_error!(env, GenericError::WrongToken);
         }
@@ -670,7 +672,8 @@ fn call_router_with_reentrancy_guard(
 // downstream invocation, so this must be called immediately before
 // `router.batch_execute(...)`.
 fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
-    let first_hop = batch.paths.get(0).unwrap().hops.get(0).unwrap();
+    let first_path = validation::expect_invariant(env, batch.paths.get(0));
+    let first_hop = validation::expect_invariant(env, first_path.hops.get(0));
     let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
             contract: first_hop.token_in.clone(),
@@ -1049,9 +1052,17 @@ pub fn strategy_finalize(
         storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     }
 
-    // Re-check HF with a fresh price cache after the leveraged mutation.
-    cache.clean_prices_cache();
+    // Re-check HF (against liquidation threshold) and LTV (against
+    // borrow capacity) with a fresh price cache after the leveraged
+    // mutation. LTV must be re-checked on every collateral-reducing
+    // or debt-shifting path so a strategy cannot exit the call above
+    // the configured LTV ceiling.
+    cache.prices_cache = soroban_sdk::Map::new(env);
+    validation::require_within_ltv(env, cache, account);
     validation::require_healthy_account(env, cache, account);
+    // Strategy paths can leave sub-floor residue on either side; the
+    // per-asset dust floor is enforced on every position post-finalize.
+    require_no_dust_after(env, cache, account);
 
     // Borrow-position-cap enforcement lives at each strategy entrypoint
     // that actually opens debt (multiply, swap_debt) — mirrors `borrow_batch`'s
@@ -1075,7 +1086,7 @@ pub fn execute_withdraw_all(
     // Collect keys to avoid borrowing issues during mutation.
     let deposit_keys: Vec<Address> = account.supply_positions.keys();
     for i in 0..deposit_keys.len() {
-        let asset = deposit_keys.get(i).unwrap();
+        let asset = validation::expect_invariant(env, deposit_keys.get(i));
         if let Some(pos) = account.supply_positions.get(asset.clone()) {
             let feed = cache.cached_price(&asset);
             let market_index = cache.cached_market_index(&asset);
@@ -1123,7 +1134,7 @@ pub fn validate_swap_new_collateral_preflight(
         panic_with_error!(env, EModeError::MixIsolatedCollateral);
     }
     emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
-    emode::validate_e_mode_asset(env, account.e_mode_category_id, new_collateral, true);
+    emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, new_collateral, true);
 
     if !config.is_collateralizable {
         panic_with_error!(env, CollateralError::NotCollateral);

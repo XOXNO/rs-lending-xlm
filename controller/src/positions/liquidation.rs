@@ -1,5 +1,5 @@
 use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
-use common::errors::CollateralError;
+use common::errors::{CollateralError, GenericError};
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::fp::{Bps, Ray, Wad};
 use common::types::{
@@ -9,9 +9,11 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
+use super::dust::require_no_dust_after;
 use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::pool_seize_position_call;
 use crate::positions;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -53,16 +55,32 @@ pub fn process_liquidation(
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, debt_payments);
 
+    // Self-liquidation is rejected. A user paying themselves the
+    // liquidation bonus only moves debt around inside the same
+    // account without reducing protocol risk, while consuming a
+    // bonus that would otherwise compensate an external liquidator.
+    let account_meta = storage::get_account_meta(env, account_id);
+    if account_meta.owner == *liquidator {
+        panic_with_error!(env, GenericError::AccountNotInMarket);
+    }
+
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
+    // Liquidation reduces protocol exposure, so blocking it on oracle
+    // disagreement converts a recoverable price-uncertainty event
+    // into bad debt eaten by lenders. The `Liquidation` policy still
+    // requires fresh, dual-sourced prices but resolves disagreements
+    // to the aggregator (live market) rather than the slow-moving
+    // anchor.
+    let mut cache = ControllerCache::new(env, OraclePolicy::Liquidation);
+
     for (asset, _) in debt_payment_plan.iter() {
-        validation::require_asset_supported(env, &asset);
+        validation::require_asset_supported(env, &mut cache, &asset);
     }
 
     // The side-map writes below bump account metadata TTLs, so an explicit
     // `renew_user_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
-    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     // Math phase: decide seizure and repayment amounts.
     //
@@ -92,6 +110,31 @@ pub fn process_liquidation(
         &result.seized,
         &mut cache,
     );
+
+    // Per-position dust gate. The aggregate dust check in
+    // `expand_to_full_close_on_dust_residue` works against account-
+    // level totals, so a single asset's residue can still land sub-
+    // floor while the aggregate looks healthy. The shared dust helper
+    // iterates every supply / borrow position and reverts on any
+    // open-interval `(0, floor)` value.
+    //
+    // Skip when the account already qualifies for bad-debt
+    // socialization (mirrors `check_bad_debt_after_liquidation`).
+    // Bad-debt cleanup zeroes the supply index for the affected
+    // reserve, which collapses any sub-floor residue to ≈ 0 — running
+    // the dust gate first would block a legitimate cleanup path.
+    let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
+        env,
+        &mut cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
+    let will_socialize =
+        post_total_debt > post_total_coll && post_total_coll <= bad_debt_threshold;
+    if !will_socialize {
+        require_no_dust_after(env, &mut cache, &account);
+    }
 
     // Liquidation never mutates meta fields (owner, is_isolated, e_mode,
     // mode, isolated_asset). Flush only the two sides; each side write
@@ -128,13 +171,13 @@ fn apply_liquidation_repayments(
     cache: &mut ControllerCache,
 ) {
     for i in 0..repaid.len() {
-        let entry = repaid.get(i).unwrap();
+        let entry = validation::expect_invariant(env, repaid.get(i));
 
         let pool_addr = cache.cached_pool_address(&entry.asset);
         let token = soroban_sdk::token::Client::new(env, &entry.asset);
         token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position = account.borrow_positions.get(entry.asset.clone()).unwrap();
+        let position = validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone()));
         repay::execute_repayment(
             env,
             account,
@@ -158,9 +201,9 @@ fn apply_liquidation_seizures(
     cache: &mut ControllerCache,
 ) {
     for i in 0..seized.len() {
-        let entry = seized.get(i).unwrap();
+        let entry = validation::expect_invariant(env, seized.get(i));
 
-        let position = account.supply_positions.get(entry.asset.clone()).unwrap();
+        let position = validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone()));
         withdraw::execute_withdrawal(
             env,
             account,
@@ -208,7 +251,7 @@ pub(crate) fn execute_liquidation(
     let (total_debt_payment_usd, repaid_tokens) =
         calculate_repayment_amounts(env, debt_payments, account, &mut refunds, cache);
 
-    let (max_debt_to_repay_usd, _seizure_usd, bonus) = calculate_liquidation_amounts(
+    let (mut max_debt_to_repay_usd, _seizure_usd, bonus) = calculate_liquidation_amounts(
         env,
         total_debt,
         total_collateral,
@@ -217,6 +260,28 @@ pub(crate) fn execute_liquidation(
         bonus_params,
         Wad::from_raw(hf),
         total_debt_payment_usd,
+    );
+
+    // If the optimal partial liquidation would leave a residue below
+    // the configured dust floor on either side, expand to a full
+    // close so the residue is erased rather than left as
+    // un-liquidatable bad debt.
+    //
+    // The expansion may only consume what the liquidator has already
+    // provided: raising `max_debt_to_repay_usd` past
+    // `total_debt_payment_usd` would price the seizure as if the
+    // liquidator repaid more than they actually did, an over-seizure
+    // bug. Pass the payment ceiling so the helper clamps before
+    // raising the target.
+    expand_to_full_close_on_dust_residue(
+        env,
+        cache,
+        account,
+        total_debt,
+        total_collateral,
+        bonus,
+        total_debt_payment_usd,
+        &mut max_debt_to_repay_usd,
     );
 
     let seized_collaterals = calculate_seized_collateral(
@@ -274,7 +339,7 @@ fn calculate_repayment_amounts(
     let merged = utils::aggregate_positive_payments(env, raw_payments);
 
     for i in 0..merged.len() {
-        let (asset, amount) = merged.get(i).unwrap();
+        let (asset, amount) = validation::expect_invariant(env, merged.get(i));
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
@@ -308,6 +373,94 @@ fn calculate_repayment_amounts(
     }
 
     (total_repaid_usd, repaid_tokens)
+}
+
+// Returns the per-account dust floors (max across the supply side and
+// across the borrow side respectively). The "max" rule is conservative:
+// if any market in the position requires a $20 floor while the rest
+// require $10, the whole account is governed by $20. Returns `(0, 0)`
+// when both sides are empty.
+fn account_dust_floors(cache: &mut ControllerCache, account: &Account) -> (i128, i128) {
+    let mut min_collat: i128 = 0;
+    for asset in account.supply_positions.keys() {
+        let f = cache.cached_asset_config(&asset).min_collat_floor_usd_wad;
+        if f > min_collat {
+            min_collat = f;
+        }
+    }
+    let mut min_debt: i128 = 0;
+    for asset in account.borrow_positions.keys() {
+        let f = cache.cached_asset_config(&asset).min_debt_floor_usd_wad;
+        if f > min_debt {
+            min_debt = f;
+        }
+    }
+    (min_collat, min_debt)
+}
+
+// If a partial liquidation of `*repay_usd` debt at `bonus` rate would
+// leave either:
+//   * residual debt in `(0, min_debt_floor)`, or
+//   * residual collateral in `(0, min_collat_floor)`,
+// expand `*repay_usd` to `total_debt` so the position closes
+// entirely. Existing per-asset seizure clamping handles the asset-
+// side cap; the bad-debt socialization path
+// (`check_bad_debt_after_liquidation`) is unchanged and fires on the
+// resulting residue when applicable.
+fn expand_to_full_close_on_dust_residue(
+    env: &Env,
+    cache: &mut ControllerCache,
+    account: &Account,
+    total_debt: Wad,
+    total_collateral: Wad,
+    bonus: Bps,
+    // Upper bound on what the liquidator has actually delivered. Dust
+    // expansion may never price seizure beyond this amount — otherwise
+    // the liquidator would get full-close collateral for a partial
+    // payment.
+    payment_ceiling_usd: Wad,
+    repay_usd: &mut Wad,
+) {
+    let (min_collat_floor, min_debt_floor) = account_dust_floors(cache, account);
+
+    let one_plus_bonus = Wad::ONE + bonus.to_wad(env);
+    let seizure_usd = repay_usd.mul(env, one_plus_bonus);
+
+    let residual_debt = if *repay_usd >= total_debt {
+        Wad::ZERO
+    } else {
+        total_debt - *repay_usd
+    };
+    let residual_collateral = if seizure_usd >= total_collateral {
+        Wad::ZERO
+    } else {
+        total_collateral - seizure_usd
+    };
+
+    let leaves_debt_dust =
+        residual_debt > Wad::ZERO && residual_debt.raw() < min_debt_floor;
+    let leaves_collat_dust =
+        residual_collateral > Wad::ZERO && residual_collateral.raw() < min_collat_floor;
+
+    if !(leaves_debt_dust || leaves_collat_dust) {
+        return;
+    }
+
+    // Full close is only safe when the liquidator has covered the
+    // entire debt — otherwise the post-state still leaves sub-floor
+    // residue on at least one side. Two cases:
+    //
+    //   1. Payment covers total debt → expand to a real full close.
+    //      Per-asset seizure capping clamps any overshoot.
+    //   2. Payment is short → no partial expansion is dust-safe.
+    //      Reject with `DustResidueNotAllowed`; the liquidator must
+    //      either pay the full debt or pick an amount that doesn't
+    //      trip the floor.
+    if payment_ceiling_usd >= total_debt {
+        *repay_usd = total_debt;
+    } else {
+        panic_with_error!(env, CollateralError::DustResidueNotAllowed);
+    }
 }
 
 fn calculate_liquidation_amounts(
@@ -418,7 +571,7 @@ fn process_excess_payment(
 
     while remaining_excess_usd > Wad::ZERO && !repaid_tokens.is_empty() {
         let current_index = repaid_tokens.len() - 1;
-        let entry = repaid_tokens.get(current_index).unwrap();
+        let entry = validation::expect_invariant(env, repaid_tokens.get(current_index));
 
         let usd = Wad::from_raw(entry.usd_wad);
 
@@ -496,7 +649,14 @@ fn check_bad_debt_after_liquidation(
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
     // reverts atomically, so no upfront `renew_user_account` keep-alive is needed.
-    let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
+    //
+    // Bad-debt cleanup is risk-reducing — blocking it on oracle deviation
+    // trades a recoverable price-uncertainty event for permanent bad debt.
+    // Use the same `Liquidation` policy as `process_liquidation`'s inline
+    // cleanup path so the standalone keeper call doesn't revert through
+    // the backstop in exactly the oracle conditions that make small bad-
+    // debt accounts unprofitable for liquidators to clear.
+    let mut cache = ControllerCache::new(env, OraclePolicy::Liquidation);
     let account = storage::get_account(env, account_id);
 
     if account.borrow_positions.is_empty() {
@@ -564,19 +724,8 @@ fn seize_pool_position(
     position: &AccountPosition,
 ) {
     let feed = cache.cached_price(asset);
-    let result = pool_seize_position_call(env, asset, side, position.clone());
+    let pool_addr = cache.cached_pool_address(asset);
+    let result = pool_seize_position_call(env, &pool_addr, side, position.clone());
     cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
 }
 
-crate::summarized!(
-    pool::seize_position_summary,
-    fn pool_seize_position_call(
-        env: &Env,
-        asset: &Address,
-        side: AccountPositionType,
-        position: AccountPosition,
-    ) -> common::types::PoolPositionMutation {
-        let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).seize_position(&side, &position)
-    }
-);

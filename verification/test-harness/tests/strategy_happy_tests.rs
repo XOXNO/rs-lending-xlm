@@ -583,6 +583,10 @@ fn test_multiply_two_users() {
         .with_market(eth_preset())
         .build();
 
+    // Seed supplier-side ETH liquidity so the second strategy borrow is
+    // checked against real supplied liquidity, not only the first flash fee.
+    t.supply("liquidity_provider", "ETH", 10.0);
+
     // Alice: borrow 1 ETH, receive 3000 USDC.
     t.fund_router("USDC", 3000.0);
     // Alice borrows 1.0 ETH minus 9bps flash fee.

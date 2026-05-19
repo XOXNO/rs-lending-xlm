@@ -26,7 +26,15 @@ fn test_claim_revenue_after_interest() {
         .with_market(eth_preset())
         .build();
 
-    // Set up: supply and borrow to generate interest.
+    // BOB provides ETH liquidity so the borrow is backed by a real
+    // supplier. Without this the ETH pool sits at `cache.supplied = 0`
+    // after Alice's borrow — the new claim_revenue solvency guard
+    // (parity with the withdraw-side donation-bypass fix) would then
+    // reject the claim because burning revenue would leave the pool
+    // at `(supplied = 0, borrowed > 0)`.
+    t.supply(BOB, "ETH", 100.0);
+
+    // Set up: Alice supplies USDC and borrows against ETH liquidity.
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
@@ -67,6 +75,10 @@ fn test_claim_revenue_routes_through_controller_to_accumulator() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
+
+    // BOB provides ETH liquidity (real supplier backs Alice's borrow);
+    // see `test_claim_revenue_after_interest` for rationale.
+    t.supply(BOB, "ETH", 100.0);
 
     // Generate interest revenue on ETH.
     t.supply(ALICE, "USDC", 100_000.0);
@@ -121,6 +133,10 @@ fn test_claim_revenue_after_liquidation() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
+
+    // BOB provides ETH liquidity (real supplier backs Alice's borrow);
+    // see `test_claim_revenue_after_interest` for rationale.
+    t.supply(BOB, "ETH", 100.0);
 
     // Alice supplies and borrows near the limit.
     t.supply(ALICE, "USDC", 10_000.0);

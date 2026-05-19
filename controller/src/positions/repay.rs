@@ -6,9 +6,11 @@ use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
+use super::dust::require_no_dust_after;
 use super::update;
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::pool_repay_call;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -56,6 +58,12 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
             &mut cache,
         );
     }
+
+    // Partial repay leaving sub-floor debt is rejected. The caller
+    // must either repay enough to stay above the floor or repay in
+    // full (full repay sets `scaled_amount_ray == 0`, the closed
+    // sentinel).
+    require_no_dust_after(env, &mut cache, &account);
 
     // Full repay does not delete the account; only owner withdraw/close flows
     // may burn account storage. Meta is never mutated by repay; supply side
@@ -124,7 +132,8 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
-    let result = pool_repay_call(env, asset, caller.clone(), amount, position.clone());
+    let pool_addr = cache.cached_pool_address(asset);
+    let result = pool_repay_call(env, &pool_addr, caller.clone(), amount, position.clone());
     cache.record_market_update_with_price(
         &result.market_state,
         if price_wad > 0 { Some(price_wad) } else { None },
@@ -240,16 +249,3 @@ fn adjust_isolated_debt_for_repay(
     }
 }
 
-crate::summarized!(
-    pool::repay_summary,
-    fn pool_repay_call(
-        env: &Env,
-        asset: &Address,
-        caller: Address,
-        amount: i128,
-        position: AccountPosition,
-    ) -> PoolPositionMutation {
-        let pool_addr = crate::storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).repay(&caller, &amount, &position)
-    }
-);

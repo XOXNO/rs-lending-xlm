@@ -7,6 +7,25 @@
 //! These types are **computation-only**; they never reach on-chain storage.
 //! At serialization boundaries, use `from_raw()` / `.raw()` to convert
 //! to and from the `i128` fields required by `#[contracttype]` structs.
+//!
+//! # Arithmetic overflow contract
+//!
+//! Two surfaces are available for add / sub:
+//!
+//!   * Trait operators (`+`, `+=`, `-`, `-=`) — overflow produces a
+//!     host-level `.expect(...)` panic (string message, no contract
+//!     error code). Use only in paths where overflow is structurally
+//!     impossible — typically accumulations of bounded values like
+//!     supply / borrow totals dominated by the protocol's caps.
+//!   * `checked_add(env, rhs)` / `checked_sub(env, rhs)` — panic with
+//!     `GenericError::MathOverflow`. Use in any path that touches
+//!     user-controlled values, accruing indexes, or anywhere a fuzzer
+//!     needs to distinguish expected overflow from an unexpected
+//!     host-level trap.
+//!
+//! The trait `*` and `/` operators are not implemented — multiplication
+//! and division always require `Env` and route through the env-aware
+//! `mul` / `div` / `div_floor` methods.
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
@@ -97,6 +116,24 @@ impl Ray {
     /// In-place form of [`checked_sub`]. Same sign-invariant guarantees.
     pub fn checked_sub_assign(&mut self, env: &Env, rhs: Ray) {
         *self = self.checked_sub(env, rhs);
+    }
+
+    /// Env-aware checked addition. Use in any production path where
+    /// overflow is not structurally impossible — panics with a typed
+    /// `GenericError::MathOverflow` instead of the host-level abort that
+    /// the [`Add`] trait would produce. The trait `+` is retained for
+    /// hot paths where overflow is provably impossible (e.g. accumulating
+    /// position values bounded by the protocol's total cap).
+    pub fn checked_add(self, env: &Env, rhs: Ray) -> Ray {
+        Ray(self
+            .0
+            .checked_add(rhs.0)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
+    }
+
+    /// In-place form of [`checked_add`].
+    pub fn checked_add_assign(&mut self, env: &Env, rhs: Ray) {
+        *self = self.checked_add(env, rhs);
     }
 }
 
@@ -199,6 +236,35 @@ impl Wad {
             other
         }
     }
+
+    /// Env-aware checked addition. Same contract as
+    /// [`Ray::checked_add`] — typed `MathOverflow` instead of a host
+    /// panic when the trait `+` would overflow.
+    pub fn checked_add(self, env: &Env, rhs: Wad) -> Wad {
+        Wad(self
+            .0
+            .checked_add(rhs.0)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
+    }
+
+    /// In-place form of [`checked_add`].
+    pub fn checked_add_assign(&mut self, env: &Env, rhs: Wad) {
+        *self = self.checked_add(env, rhs);
+    }
+
+    /// Env-aware checked subtraction that rejects underflow (negative
+    /// result). Matches the [`Ray::checked_sub`] convention.
+    pub fn checked_sub(self, env: &Env, rhs: Wad) -> Wad {
+        if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
+            panic_with_error!(env, GenericError::MathOverflow);
+        }
+        Wad(self.0 - rhs.0)
+    }
+
+    /// In-place form of [`checked_sub`].
+    pub fn checked_sub_assign(&mut self, env: &Env, rhs: Wad) {
+        *self = self.checked_sub(env, rhs);
+    }
 }
 
 impl Add for Wad {
@@ -271,6 +337,23 @@ impl Bps {
     /// Applies a basis-point rate to a Ray value: `value * (bps / 10_000)`.
     pub fn apply_to_ray(self, env: &Env, value: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, value.raw(), self.0, BPS))
+    }
+
+    /// Env-aware checked addition. Same contract as
+    /// [`Ray::checked_add`] / [`Wad::checked_add`].
+    pub fn checked_add(self, env: &Env, rhs: Bps) -> Bps {
+        Bps(self
+            .0
+            .checked_add(rhs.0)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
+    }
+
+    /// Env-aware checked subtraction that rejects underflow.
+    pub fn checked_sub(self, env: &Env, rhs: Bps) -> Bps {
+        if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
+            panic_with_error!(env, GenericError::MathOverflow);
+        }
+        Bps(self.0 - rhs.0)
     }
 }
 
@@ -484,5 +567,390 @@ mod tests {
         assert!(Ray::ZERO < Ray::ONE);
         assert!(Wad::ZERO < Wad::ONE);
         assert!(Bps::from_raw(5000) < Bps::ONE);
+    }
+
+    // -----------------------------------------------------------------
+    // Coverage for assign-operator overloads and edge-case helpers that
+    // the main math tests don't exercise.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_ray_add_assign() {
+        let mut x = Ray::from_raw(RAY);
+        x += Ray::from_raw(RAY / 2);
+        assert_eq!(x.raw(), RAY + RAY / 2);
+    }
+
+    #[test]
+    fn test_ray_sub_assign() {
+        let mut x = Ray::from_raw(RAY);
+        x -= Ray::from_raw(RAY / 4);
+        assert_eq!(x.raw(), RAY - RAY / 4);
+    }
+
+    #[test]
+    fn test_ray_checked_sub_ok() {
+        let env = Env::default();
+        let a = Ray::from_raw(10 * RAY);
+        let b = Ray::from_raw(3 * RAY);
+        assert_eq!(a.checked_sub(&env, b).raw(), 7 * RAY);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_ray_checked_sub_underflow_panics() {
+        let env = Env::default();
+        // 3 - 10 would produce a negative; checked_sub rejects.
+        let a = Ray::from_raw(3 * RAY);
+        let b = Ray::from_raw(10 * RAY);
+        let _ = a.checked_sub(&env, b);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_ray_checked_sub_rejects_negative_self() {
+        let env = Env::default();
+        let _ = Ray::from_raw(-1).checked_sub(&env, Ray::from_raw(0));
+    }
+
+    #[test]
+    fn test_ray_checked_sub_assign() {
+        let env = Env::default();
+        let mut x = Ray::from_raw(10 * RAY);
+        x.checked_sub_assign(&env, Ray::from_raw(4 * RAY));
+        assert_eq!(x.raw(), 6 * RAY);
+    }
+
+    #[test]
+    fn test_ray_from_asset_high_decimals() {
+        // Exercise the upscale branch of `Ray::from_asset`.
+        let r = Ray::from_asset(1, 0);
+        assert_eq!(r.raw(), RAY);
+    }
+
+    #[test]
+    fn test_wad_add_assign_ok() {
+        let mut w = Wad::from_raw(WAD);
+        w += Wad::from_raw(WAD / 2);
+        assert_eq!(w.raw(), WAD + WAD / 2);
+    }
+
+    #[test]
+    fn test_wad_sub_assign() {
+        let mut w = Wad::from_raw(WAD);
+        w -= Wad::from_raw(WAD / 3);
+        assert_eq!(w.raw(), WAD - WAD / 3);
+    }
+
+    #[test]
+    fn test_wad_max_chooses_other_when_self_smaller() {
+        // `a < b` so `a.max(b)` returns `b` (the else branch).
+        let a = Wad::from_raw(1);
+        let b = Wad::from_raw(2);
+        assert_eq!(a.max(b), b);
+    }
+
+    #[test]
+    fn test_wad_min_chooses_other_when_self_larger() {
+        let a = Wad::from_raw(10);
+        let b = Wad::from_raw(5);
+        assert_eq!(a.min(b), b);
+    }
+
+    #[test]
+    fn test_wad_div_floor_rounds_down() {
+        let env = Env::default();
+        // 1 / 3 in WAD: half-up rounds to 0.333…3 but floor rounds toward
+        // zero — both produce the same result for positive inputs with
+        // remainder < 0.5 of the divisor. Use a value where the rounding
+        // direction matters.
+        let a = Wad::from_raw(2 * WAD); // 2.0
+        let b = Wad::from_raw(3 * WAD); // 3.0
+        // Exact: 0.666…7 (half-up) vs 0.666…6 (floor).
+        let half_up = a.div(&env, b).raw();
+        let floor = a.div_floor(&env, b).raw();
+        assert!(floor < half_up, "div_floor must round strictly down for 2/3");
+    }
+
+    #[test]
+    fn test_bps_add_assign() {
+        let mut b = Bps::from_raw(5000);
+        b += Bps::from_raw(2000);
+        assert_eq!(b.raw(), 7000);
+    }
+
+    #[test]
+    fn test_bps_sub_assign() {
+        let mut b = Bps::from_raw(5000);
+        b -= Bps::from_raw(1500);
+        assert_eq!(b.raw(), 3500);
+    }
+
+    #[test]
+    fn test_bps_sub() {
+        let a = Bps::from_raw(7500);
+        let b = Bps::from_raw(2500);
+        assert_eq!((a - b).raw(), 5000);
+    }
+
+    // -----------------------------------------------------------------
+    // Adversarial / edge-case coverage for the typed wrappers.
+    // -----------------------------------------------------------------
+
+    // Ray::mul at the exact-half boundary. With `(a * b + RAY/2) / RAY`,
+    // a value whose remainder is exactly `RAY/2` rounds up. Construct
+    // `a = 1, b = RAY/2 + 1` so the product is `RAY/2 + 1` and the
+    // exact division equals 0.500…01 → rounds to 1 (last ulp).
+    #[test]
+    fn test_ray_mul_rounds_half_up() {
+        let env = Env::default();
+        // 0.5 RAY * 0.5 RAY = 0.25 RAY; remainder is below the half
+        // tie-breaker. Use 0.5 RAY * 1 RAY = 0.5 RAY exactly.
+        let half = Ray::from_raw(RAY / 2);
+        let one = Ray::ONE;
+        assert_eq!(half.mul(&env, one).raw(), RAY / 2);
+        // 0.5 RAY * 0.5 RAY = 0.25 RAY (= RAY/4).
+        assert_eq!(half.mul(&env, half).raw(), RAY / 4);
+    }
+
+    // Ray::div by zero — propagates host I256 divide-by-zero panic.
+    #[test]
+    #[should_panic]
+    fn test_ray_div_by_zero_panics() {
+        let env = Env::default();
+        let _ = Ray::ONE.div(&env, Ray::ZERO);
+    }
+
+    // Ray::mul overflow: with i128::MAX in both operands the intermediate
+    // I256 holds the product but the post-`/RAY` result still overflows
+    // i128 → `MathOverflow`.
+    #[test]
+    #[should_panic]
+    fn test_ray_mul_overflow_panics() {
+        let env = Env::default();
+        let _ = Ray::from_raw(i128::MAX).mul(&env, Ray::from_raw(i128::MAX));
+    }
+
+    // Ray::checked_sub between equal values returns Zero, not panic.
+    #[test]
+    fn test_ray_checked_sub_equal_returns_zero() {
+        let env = Env::default();
+        let a = Ray::from_raw(123 * RAY);
+        assert_eq!(a.checked_sub(&env, a), Ray::ZERO);
+    }
+
+    // Ray::from_asset with decimals == 27 is an identity (RAY_DECIMALS).
+    #[test]
+    fn test_ray_from_asset_at_ray_decimals_is_identity() {
+        let r = Ray::from_asset(12345, 27);
+        assert_eq!(r.raw(), 12345);
+    }
+
+    // Ray::Sub allows producing a negative result (the unchecked form).
+    // Documented behaviour: consumers needing the non-negative invariant
+    // must use `checked_sub`.
+    #[test]
+    fn test_ray_unchecked_sub_can_produce_negative() {
+        let a = Ray::from_raw(RAY);
+        let b = Ray::from_raw(2 * RAY);
+        assert_eq!((a - b).raw(), -RAY);
+    }
+
+    // Wad::div by zero — same propagation path as Ray.
+    #[test]
+    #[should_panic]
+    fn test_wad_div_by_zero_panics() {
+        let env = Env::default();
+        let _ = Wad::ONE.div(&env, Wad::ZERO);
+    }
+
+    // Wad::mul half-up boundary: 0.5 WAD * 0.5 WAD = 0.25 WAD exact.
+    #[test]
+    fn test_wad_mul_no_rounding_when_exact() {
+        let env = Env::default();
+        let half = Wad::from_raw(WAD / 2);
+        assert_eq!(half.mul(&env, half).raw(), WAD / 4);
+    }
+
+    // Wad::Sub overflow path (i128::MIN - 1). Plain `-` operator wraps
+    // without panic; checked variants are only on `Ray`. Pin the
+    // behaviour explicitly: Wad's Sub is unchecked.
+    #[test]
+    fn test_wad_unchecked_sub_can_produce_negative() {
+        let a = Wad::from_raw(WAD);
+        let b = Wad::from_raw(3 * WAD);
+        assert_eq!((a - b).raw(), -2 * WAD);
+    }
+
+    // Wad::min / max with equal operands: the `else` branch fires, so
+    // `min` and `max` both return `other` (the rhs).
+    #[test]
+    fn test_wad_min_max_equal_operands() {
+        let a = Wad::from_raw(42);
+        let b = Wad::from_raw(42);
+        // Per impl, equal → returns `other` (the rhs) for both.
+        assert_eq!(a.min(b), b);
+        assert_eq!(a.max(b), b);
+    }
+
+    // Wad::max strictly-greater branch — `self > other` returns `self`.
+    // The existing `test_wad_min_max` covers self < other; this covers
+    // the symmetric `self > other` direction.
+    #[test]
+    fn test_wad_max_returns_self_when_strictly_greater() {
+        let a = Wad::from_raw(100);
+        let b = Wad::from_raw(10);
+        assert_eq!(a.max(b), a);
+        assert_eq!(b.min(a), b);
+    }
+
+    // Env-aware checked add / sub coverage. The trait `+` panics with a
+    // string; these new methods panic with `GenericError::MathOverflow`.
+
+    #[test]
+    fn test_ray_checked_add_ok() {
+        let env = Env::default();
+        let a = Ray::from_raw(RAY);
+        let b = Ray::from_raw(RAY / 2);
+        assert_eq!(a.checked_add(&env, b).raw(), RAY + RAY / 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_ray_checked_add_overflow_panics() {
+        let env = Env::default();
+        let _ = Ray::from_raw(i128::MAX).checked_add(&env, Ray::from_raw(1));
+    }
+
+    #[test]
+    fn test_wad_checked_add_ok() {
+        let env = Env::default();
+        assert_eq!(
+            Wad::from_raw(WAD)
+                .checked_add(&env, Wad::from_raw(WAD))
+                .raw(),
+            2 * WAD
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wad_checked_add_overflow_panics() {
+        let env = Env::default();
+        let _ = Wad::from_raw(i128::MAX).checked_add(&env, Wad::from_raw(1));
+    }
+
+    #[test]
+    fn test_wad_checked_sub_ok() {
+        let env = Env::default();
+        let a = Wad::from_raw(3 * WAD);
+        let b = Wad::from_raw(WAD);
+        assert_eq!(a.checked_sub(&env, b).raw(), 2 * WAD);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wad_checked_sub_underflow_panics() {
+        let env = Env::default();
+        let _ = Wad::from_raw(1).checked_sub(&env, Wad::from_raw(2));
+    }
+
+    #[test]
+    fn test_bps_checked_add_ok() {
+        let env = Env::default();
+        let a = Bps::from_raw(5_000);
+        let b = Bps::from_raw(2_500);
+        assert_eq!(a.checked_add(&env, b).raw(), 7_500);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bps_checked_add_overflow_panics() {
+        let env = Env::default();
+        let _ = Bps::from_raw(i128::MAX).checked_add(&env, Bps::from_raw(1));
+    }
+
+    #[test]
+    fn test_bps_checked_sub_ok() {
+        let env = Env::default();
+        let a = Bps::from_raw(7_500);
+        let b = Bps::from_raw(2_500);
+        assert_eq!(a.checked_sub(&env, b).raw(), 5_000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bps_checked_sub_underflow_panics() {
+        let env = Env::default();
+        let _ = Bps::from_raw(100).checked_sub(&env, Bps::from_raw(500));
+    }
+
+    // Wad::from_token at decimals == 18 is identity (WAD_DECIMALS).
+    #[test]
+    fn test_wad_from_token_at_wad_decimals_is_identity() {
+        let w = Wad::from_token(98765, 18);
+        assert_eq!(w.raw(), 98765);
+    }
+
+    // Wad::to_token downscale rounding tie-breaker: 0.5 in the target's
+    // smallest unit rounds up to 1.
+    #[test]
+    fn test_wad_to_token_half_unit_rounds_up() {
+        // 1.5 micro-USDC in WAD → 6 decimals: `1_500_000_000_000` at 18d
+        // = 1.5 * 10^-6 of a unit → rounds to 2 at 6 decimals.
+        let half = Wad::from_raw(1_500_000_000_000i128);
+        assert_eq!(half.to_token(6), 2);
+    }
+
+    // Bps::apply_to at 0 % returns zero. At 100 % (BPS) returns the
+    // input unchanged.
+    #[test]
+    fn test_bps_apply_to_boundaries() {
+        let env = Env::default();
+        let amount = 1_000_000i128;
+        assert_eq!(Bps::from_raw(0).apply_to(&env, amount), 0);
+        assert_eq!(Bps::ONE.apply_to(&env, amount), amount);
+    }
+
+    // Bps::apply_to_wad and apply_to_ray at 100 % return the input.
+    #[test]
+    fn test_bps_apply_to_wad_and_ray_at_one_returns_input() {
+        let env = Env::default();
+        let w = Wad::from_raw(123 * WAD);
+        let r = Ray::from_raw(456 * RAY);
+        assert_eq!(Bps::ONE.apply_to_wad(&env, w).raw(), w.raw());
+        assert_eq!(Bps::ONE.apply_to_ray(&env, r).raw(), r.raw());
+    }
+
+    // Bps overflow at the conversion boundary: 10000 BPS = WAD ratio.
+    // bps > BPS produces a ratio > 1, which is a misuse but the math
+    // doesn't panic — just produces a larger Wad. Pin the behaviour.
+    #[test]
+    fn test_bps_to_wad_above_one_does_not_panic() {
+        let env = Env::default();
+        // 20_000 BPS = 2.0 in WAD.
+        assert_eq!(Bps::from_raw(20_000).to_wad(&env).raw(), 2 * WAD);
+    }
+
+    // Ray::div_by_int with negative dividend rounds away from zero.
+    #[test]
+    fn test_ray_div_by_int_negative_rounds_away_from_zero() {
+        // Ray(-7) / 2 → -4 (i.e., -3.5 rounds to -4).
+        let x = Ray::from_raw(-7);
+        assert_eq!(x.div_by_int(2).raw(), -4);
+    }
+
+    // Ray::div_floor with positive remainder truncates toward zero. The
+    // existing test pins one ratio; this one pins the floor-vs-half
+    // divergence explicitly.
+    #[test]
+    fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
+        let env = Env::default();
+        let a = Ray::from_raw(2 * RAY);
+        let b = Ray::from_raw(3 * RAY);
+        let half_up = a.div(&env, b).raw();
+        let floor = a.div_floor(&env, b).raw();
+        // 2/3 in RAY: half_up rounds the 0.666…7 up, floor leaves 0.666…6.
+        assert_eq!(half_up - floor, 1, "div and div_floor must differ by 1 ulp on a half-remainder");
     }
 }

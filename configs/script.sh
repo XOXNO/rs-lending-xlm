@@ -545,6 +545,32 @@ edit_asset_config() {
     echo "Asset config updated for ${market_name}."
 }
 
+# Push the JSON's `market_params` (rate model + max_utilization_ray +
+# reserve_factor) onto the pool via the controller's
+# `upgrade_liquidity_pool_params` route. Use after changing any
+# rate / utilization-ceiling field in the markets JSON.
+update_market_params() {
+    local market_name=$1
+
+    echo "Updating market params for ${market_name}..."
+
+    local asset_address=$(get_market_value "$market_name" "asset_address")
+    # Strip `asset_id` / `asset_decimals` — those are controller-resolved
+    # and the InterestRateModel struct does not carry them.
+    local params=$(jq -c \
+        ".markets[] | select(.name == \"$market_name\") | .market_params" \
+        "$MARKET_CONFIG_FILE")
+
+    local ctrl=$(get_controller)
+
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+        -- upgrade_liquidity_pool_params \
+        --asset "$asset_address" \
+        --params "$params"
+
+    echo "Market params updated for ${market_name}."
+}
+
 update_indexes() {
     if [ $# -eq 0 ]; then
         echo "Usage: $0 updateIndexes <market_name> [market_name...]" >&2
@@ -717,6 +743,30 @@ configure_market_oracle() {
     local market_name=$1
 
     echo "Configuring market oracle for ${market_name}..."
+
+    # Preflight: every oracle config must carry sanity bounds. On mainnet
+    # the `(0, 0)` disabled-sentinel is rejected — that combination is for
+    # test setups only. (Codex adversarial-review #4.)
+    local missing=$(jq -r --arg m "$market_name" '
+        .markets[] | select(.name == $m) | .oracle |
+        (if has("min_sanity_price_wad") and has("max_sanity_price_wad")
+            then "" else "missing min_sanity_price_wad / max_sanity_price_wad" end)
+    ' "$MARKET_CONFIG_FILE")
+    if [ -n "$missing" ]; then
+        echo "ERROR: $market_name oracle config $missing" >&2
+        exit 1
+    fi
+    if [ "$NETWORK" = "mainnet" ]; then
+        local zero=$(jq -r --arg m "$market_name" '
+            .markets[] | select(.name == $m) | .oracle |
+            (if (.min_sanity_price_wad == "0" and .max_sanity_price_wad == "0")
+                then "yes" else "no" end)
+        ' "$MARKET_CONFIG_FILE")
+        if [ "$zero" = "yes" ]; then
+            echo "ERROR: $market_name uses (0, 0) sanity-bound sentinel on mainnet" >&2
+            exit 1
+        fi
+    fi
 
     local asset_address=$(get_market_value "$market_name" "asset_address")
     local cfg_file
@@ -1214,6 +1264,14 @@ case "$1" in
             exit 1
         fi
         edit_asset_config "$2"
+        ;;
+    "updateMarketParams")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 updateMarketParams <market_name>"
+            list_markets
+            exit 1
+        fi
+        update_market_params "$2"
         ;;
     "configureMarketOracle")
         if [ -z "$2" ]; then

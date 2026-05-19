@@ -23,9 +23,12 @@
 //! largest empirical benchmark the existing harness supports without
 //! adding new market presets.
 //!
-//! For 32/32 (the contract-level cap from `set_position_limits`), the
-//! harness needs additional preset assets before this benchmark can cover
-//! the absolute cap.
+//! Coverage gap: the contract-level cap is `POSITION_LIMIT_MAX = 10`
+//! (controller/src/config.rs, lowered from 32 in Codex review #3). Reaching
+//! 10/10 requires five additional preset markets. Until those exist the
+//! `test_position_limit_cap_matches_bench` test below asserts the gap is
+//! explicit — if `POSITION_LIMIT_MAX` is raised, this test fails until the
+//! preset set is widened.
 
 extern crate std;
 
@@ -146,4 +149,32 @@ fn bench_liquidate_5_supply_5_borrow_within_default_budget() {
             });
         }
     }
+}
+
+// Guard rail for the coverage gap: this bench only exercises 5 supply / 5
+// borrow positions, but the controller-level cap is 10. If the cap is ever
+// raised past the preset count, this test fails so the operator must
+// either: (a) widen the preset set and bump the bench, or (b) revert the
+// cap. Refer to controller/src/config.rs `POSITION_LIMIT_MAX`.
+#[test]
+fn test_position_limit_cap_matches_bench_coverage() {
+    let t = build_ctx();
+    let limits = t.get_position_limits();
+    let max_proven = 5u32;
+    assert!(
+        limits.max_supply_positions <= max_proven,
+        "bench coverage is {}/{}; controller permits {}/{} — extend the preset set before raising the cap",
+        max_proven,
+        max_proven,
+        limits.max_supply_positions,
+        limits.max_borrow_positions
+    );
+    assert!(
+        limits.max_borrow_positions <= max_proven,
+        "bench coverage is {}/{}; controller permits {}/{} — extend the preset set before raising the cap",
+        max_proven,
+        max_proven,
+        limits.max_supply_positions,
+        limits.max_borrow_positions
+    );
 }

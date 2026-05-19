@@ -10,6 +10,8 @@ use common::types::{
 use soroban_sdk::{Address, Env, Map, Symbol, Vec};
 
 use crate::oracle::policy::OraclePolicy;
+use crate::oracle::{token_price, update_asset_index};
+use crate::cross_contract::pool::fetch_pool_sync_data;
 use crate::storage;
 
 pub struct ControllerCache {
@@ -69,27 +71,19 @@ impl ControllerCache {
     }
 
     // -------------------------------------------------------------------
-    // Prices (single cache -- oracle module resolves tolerance internally)
+    // Prices
     // -------------------------------------------------------------------
-
-    pub fn try_get_price(&self, asset: &Address) -> Option<PriceFeed> {
-        self.prices_cache.get(asset.clone())
-    }
-
-    pub fn set_price(&mut self, asset: &Address, feed: &PriceFeed) {
-        self.prices_cache.set(asset.clone(), feed.clone());
-    }
+    //
+    // `prices_cache` is `pub`; the oracle composition path
+    // (`oracle::price::token_price`) writes / probes it directly. The
+    // single high-level entry point lives here.
 
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
-        crate::oracle::token_price(self, asset)
-    }
-
-    pub fn clean_prices_cache(&mut self) {
-        self.prices_cache = Map::new(&self.env);
+        token_price(self, asset)
     }
 
     // -------------------------------------------------------------------
-    // Market config (consolidated)
+    // Market config
     // -------------------------------------------------------------------
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
@@ -131,7 +125,7 @@ impl ControllerCache {
         // — every mutating pool op already calls `cache.save()` which bumps
         // instance TTL for that pool. Read-only / unrelated assets fetched
         // here for HF/LTV math receive no side-effect TTL bump.
-        let index = crate::oracle::update_asset_index(self, asset);
+        let index = update_asset_index(self, asset);
         self.market_indexes.set(asset.clone(), index.clone());
         index
     }
@@ -266,7 +260,16 @@ impl ControllerCache {
 
     pub fn flush_isolated_debts(&self) {
         for asset in self.isolated_debts.keys() {
-            let value = self.isolated_debts.get(asset.clone()).unwrap();
+            // `keys()` is in lock-step with the underlying map, so `get`
+            // cannot return `None`. Surface a typed `InternalError`
+            // rather than `.unwrap()` so a future map-invariant break
+            // is categorizable instead of an opaque host panic.
+            let value = self
+                .isolated_debts
+                .get(asset.clone())
+                .unwrap_or_else(|| {
+                    soroban_sdk::panic_with_error!(&self.env, common::errors::GenericError::InternalError)
+                });
             storage::set_isolated_debt(&self.env, &asset, value);
             emit_update_debt_ceiling(
                 &self.env,
@@ -279,9 +282,3 @@ impl ControllerCache {
     }
 }
 
-crate::summarized!(
-    pool::get_sync_data_summary,
-    pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address) -> PoolSyncData {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data()
-    }
-);

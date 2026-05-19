@@ -256,6 +256,31 @@ impl LendingTestBuilder {
         self
     }
 
+    /// Disables the dust floor on every market in the test by setting both
+    /// `min_collat_floor_usd_wad` and `min_debt_floor_usd_wad` to the `0`/`0`
+    /// sentinel. Use for precision / math / bad-debt tests that intentionally
+    /// exercise sub-$10 positions and would otherwise revert with
+    /// `DustResidueNotAllowed`. Production deployments must never set this.
+    pub fn with_dust_disabled_all_markets(mut self) -> Self {
+        for pm in &mut self.pending_markets {
+            pm.config.min_collat_floor_usd_wad = 0;
+            pm.config.min_debt_floor_usd_wad = 0;
+        }
+        self
+    }
+
+    /// Lifts the per-market `max_utilization_ray` ceiling to 100 % (effectively
+    /// disabled). Use for revenue / bad-debt / accounting tests that
+    /// deliberately push utilization near or above the default 95 % cap and
+    /// would otherwise revert with `UtilizationAboveMax`. Production
+    /// deployments must keep the cap below 100 %.
+    pub fn with_max_utilization_disabled_all_markets(mut self) -> Self {
+        for pm in &mut self.pending_markets {
+            pm.params.max_utilization_ray = common::constants::RAY;
+        }
+        self
+    }
+
     /// Opt in to Soroban's default budget and resource limits.
     ///
     /// By default `build()` calls `reset_unlimited()` + `disable_resource_limits()`

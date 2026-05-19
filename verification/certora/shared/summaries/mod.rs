@@ -110,51 +110,8 @@ pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address
 }
 
 // ---------------------------------------------------------------------------
-// Health-factor and account-totals summaries
+// Account-totals summary
 // ---------------------------------------------------------------------------
-
-/// "Summary" for `crate::helpers::calculate_health_factor` -- delegates to
-/// the unsummarised production body preserved by `apply_summary!` in the
-/// `calculate_health_factor` sub-module.
-///
-/// Why delegate instead of nondet: a free-nondet draw makes any
-/// `hf_after >= hf_before` rule vacuously refutable -- the prover picks
-/// independent values for the two sides. Bounding by input shape (empty
-/// borrows -> MAX, empty supply with debt -> 0) handles the edge cases but
-/// leaves the central case (both maps non-empty) free, which still admits
-/// the same vacuity for the rules that matter most. Delegating to the real
-/// implementation guarantees function purity (same inputs in the same proof
-/// -> same output) and forces the prover to verify the real arithmetic.
-///
-/// Cost: heavier per rule because weighted-USD math remains in the
-/// verification path. Benefit: the real implementation is exercised and the
-/// summary cannot drift from production arithmetic.
-pub fn calculate_health_factor_summary(
-    env: &Env,
-    cache: &mut ControllerCache,
-    supply_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
-    borrow_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
-) -> i128 {
-    crate::helpers::calculate_health_factor::calculate_health_factor(
-        env,
-        cache,
-        supply_positions,
-        borrow_positions,
-    )
-}
-
-#[cfg(feature = "certora")]
-/// "Summary" for `crate::helpers::calculate_health_factor_for` -- delegates
-/// to the unsummarised production body for the same reason as
-/// `calculate_health_factor_summary`. Calling the real implementation
-/// preserves function purity across repeated calls in the same proof.
-pub fn calculate_health_factor_for_summary(
-    env: &Env,
-    cache: &mut ControllerCache,
-    account_id: u64,
-) -> i128 {
-    crate::helpers::calculate_health_factor_for::calculate_health_factor_for(env, cache, account_id)
-}
 
 /// Summary for `crate::helpers::calculate_account_totals`.
 ///

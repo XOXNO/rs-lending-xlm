@@ -600,6 +600,8 @@ mod tests {
             flashloan_fee_bps: 9,
             borrow_cap: 0,
             supply_cap: 0,
+            min_collat_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
         }
     }
 
@@ -636,6 +638,8 @@ mod tests {
                         resolution_seconds: 300,
                     },
                 )),
+                min_sanity_price_wad: 0,
+                max_sanity_price_wad: 0,
             },
         }
     }

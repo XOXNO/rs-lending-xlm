@@ -292,6 +292,7 @@ fn test_bad_debt_index_decrease_exact() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Use a large supply base so the index change is measurable.

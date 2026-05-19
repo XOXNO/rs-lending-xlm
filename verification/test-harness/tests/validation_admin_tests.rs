@@ -67,6 +67,7 @@ fn baseline_irm() -> InterestRateModel {
         slope3_ray: RAY * 150 / 100,
         mid_utilization_ray: RAY * 50 / 100,
         optimal_utilization_ray: RAY * 80 / 100,
+        max_utilization_ray: RAY * 95 / 100,
         reserve_factor_bps: 1000,
     }
 }

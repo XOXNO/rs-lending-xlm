@@ -7,6 +7,7 @@ use super::providers;
 use super::tolerance::{calculate_final_price, is_within_anchor};
 use crate::cache::ControllerCache;
 
+#[cfg_attr(feature = "certora", allow(dead_code))]
 pub(crate) struct ResolvedOraclePrice {
     pub price_wad: i128,
     pub timestamp: u64,
@@ -21,6 +22,7 @@ pub(crate) struct ResolvedOracleComponents {
     pub within_second_tolerance: bool,
 }
 
+#[cfg_attr(feature = "certora", allow(dead_code))]
 pub(crate) fn resolve_price(
     cache: &mut ControllerCache,
     config: &MarketOracleConfig,

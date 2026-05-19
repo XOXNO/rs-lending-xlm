@@ -6,9 +6,11 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
+use super::dust::require_no_dust_after;
 use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::pool_supply_call;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 const THRESHOLD_UPDATE_MIN_HF: i128 = 1_050_000_000_000_000_000;
@@ -36,11 +38,11 @@ impl Controller {
         account_ids: Vec<u64>,
     ) {
         validation::require_not_flash_loaning(&env);
-        validation::require_asset_supported(&env, &asset);
 
         // Risk-adjusting path: a threshold tightening can tip a position into
         // liquidation, so oracle prices must stay within tight tolerance.
         let mut cache = ControllerCache::new(&env, OraclePolicy::RiskIncreasing);
+        validation::require_asset_supported(&env, &mut cache, &asset);
 
         let base_config = cache.cached_asset_config(&asset);
         let price_feed = cache.cached_price(&asset);
@@ -94,6 +96,12 @@ pub fn process_supply(
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
 
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
+
+    // A first-time supplier whose deposit lands under the per-asset
+    // floor is rejected so the position cannot open as dust. Existing
+    // positions already above the floor are unaffected because supply
+    // only increases their value.
+    require_no_dust_after(env, &mut cache, &account);
 
     // Supply mutates only the supply side; meta and borrow side stay as-is
     // on disk.
@@ -176,12 +184,11 @@ fn prepare_deposit_plan(
     // input would still mis-account fee-on-transfer assets and adds one
     // `current_supplied_amount` cross-contract read per asset.
     for (asset, _) in assets {
-        validation::require_asset_supported(env, &asset);
-        validation::require_market_active(env, &asset);
+        validation::require_market_active(env, cache, &asset);
 
         let asset_config = emode::effective_asset_config(env, account, &asset, cache, e_mode);
 
-        emode::validate_e_mode_asset(env, account.e_mode_category_id, &asset, true);
+        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset, true);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
 
         if !asset_config.can_supply() {
@@ -360,7 +367,8 @@ fn apply_pool_supply(
     amount: i128,
     supply_cap: i128,
 ) -> SupplyMarketUpdate {
-    let result = pool_supply_call(env, asset, position.clone(), amount, supply_cap);
+    let pool_addr = cache.cached_pool_address(asset);
+    let result = pool_supply_call(env, &pool_addr, position.clone(), amount, supply_cap);
 
     *position = result.position;
     cache.record_market_update(&result.market_state);
@@ -370,24 +378,6 @@ fn apply_pool_supply(
         credited_amount: amount,
     }
 }
-
-crate::summarized!(
-    pool::supply_summary,
-    fn pool_supply_call(
-        env: &Env,
-        asset: &Address,
-        position: AccountPosition,
-        amount: i128,
-        supply_cap: i128,
-    ) -> common::types::PoolPositionMutation {
-        let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).supply(
-            &position,
-            &amount,
-            &supply_cap,
-        )
-    }
-);
 
 #[allow(clippy::too_many_arguments)]
 // Keeper-driven propagation of updated risk parameters to a specific account's supply position.

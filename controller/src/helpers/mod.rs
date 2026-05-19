@@ -5,6 +5,7 @@ use common::types::AccountPosition;
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
+use crate::validation;
 
 // ---------------------------------------------------------------------------
 // Position value helpers (used by health factor, liquidation, views)
@@ -49,138 +50,114 @@ pub fn calculate_ltv_collateral_wad(
 // Health factor calculation
 // ---------------------------------------------------------------------------
 
-crate::summarized!(
-    calculate_health_factor_summary,
-    pub fn calculate_health_factor(
-        env: &Env,
-        cache: &mut ControllerCache,
-        supply_positions: &Map<Address, AccountPosition>,
-        borrow_positions: &Map<Address, AccountPosition>,
-    ) -> i128 {
-        if borrow_positions.is_empty() {
-            return i128::MAX; // No debt means infinite HF.
-        }
-
-        let mut weighted_collateral_total = Wad::ZERO;
-
-        for (asset, position) in supply_positions.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-            let value = position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.supply_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
-
-            weighted_collateral_total += weighted_collateral(
-                env,
-                value,
-                Bps::from_raw(position.liquidation_threshold_bps),
-            );
-        }
-
-        let mut total_borrow = Wad::ZERO;
-        for (asset, position) in borrow_positions.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-            let value = position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.borrow_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
-
-            total_borrow += value;
-        }
-
-        if total_borrow == Wad::ZERO {
-            return i128::MAX;
-        }
-
-        // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
-        // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
-        // collateral the numerator can exceed i128; treating overflow as infinite
-        // HF keeps the account usable instead of locking it behind a panic.
-        let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
-        let wad = soroban_sdk::I256::from_i128(env, WAD);
-        let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
-        let numerator = w.mul(&wad);
-        let result = numerator.div(&tb);
-        result.to_i128().unwrap_or(i128::MAX)
+pub fn calculate_health_factor(
+    env: &Env,
+    cache: &mut ControllerCache,
+    supply_positions: &Map<Address, AccountPosition>,
+    borrow_positions: &Map<Address, AccountPosition>,
+) -> i128 {
+    if borrow_positions.is_empty() {
+        return i128::MAX; // No debt means infinite HF.
     }
-);
 
-#[cfg(feature = "certora")]
-crate::summarized!(
-    calculate_health_factor_for_summary,
-    pub fn calculate_health_factor_for(
-        env: &Env,
-        cache: &mut ControllerCache,
-        account_id: u64,
-    ) -> i128 {
-        let account = crate::storage::get_account(env, account_id);
-        calculate_health_factor(
+    let mut weighted_collateral_total = Wad::ZERO;
+
+    for (asset, position) in supply_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
+        let value = position_value(
             env,
-            cache,
-            &account.supply_positions,
-            &account.borrow_positions,
-        )
+            Ray::from_raw(position.scaled_amount_ray),
+            Ray::from_raw(market_index.supply_index_ray),
+            Wad::from_raw(feed.price_wad),
+        );
+
+        weighted_collateral_total += weighted_collateral(
+            env,
+            value,
+            Bps::from_raw(position.liquidation_threshold_bps),
+        );
     }
-);
+
+    let mut total_borrow = Wad::ZERO;
+    for (asset, position) in borrow_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
+        let value = position_value(
+            env,
+            Ray::from_raw(position.scaled_amount_ray),
+            Ray::from_raw(market_index.borrow_index_ray),
+            Wad::from_raw(feed.price_wad),
+        );
+
+        total_borrow += value;
+    }
+
+    if total_borrow == Wad::ZERO {
+        return i128::MAX;
+    }
+
+    // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
+    // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
+    // collateral the numerator can exceed i128; treating overflow as infinite
+    // HF keeps the account usable instead of locking it behind a panic.
+    let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
+    let wad = soroban_sdk::I256::from_i128(env, WAD);
+    let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
+    let numerator = w.mul(&wad);
+    let result = numerator.div(&tb);
+    result.to_i128().unwrap_or(i128::MAX)
+}
 
 // ---------------------------------------------------------------------------
 // Account totals (extracted from liquidation -- shared with views)
 // ---------------------------------------------------------------------------
 
-crate::summarized!(
-    calculate_account_totals_summary,
-    pub fn calculate_account_totals(
-        env: &Env,
-        cache: &mut ControllerCache,
-        supply_positions: &Map<Address, AccountPosition>,
-        borrow_positions: &Map<Address, AccountPosition>,
-    ) -> (Wad, Wad, Wad) {
-        let mut total_collateral = Wad::ZERO;
-        let mut weighted_coll = Wad::ZERO;
+pub fn calculate_account_totals(
+    env: &Env,
+    cache: &mut ControllerCache,
+    supply_positions: &Map<Address, AccountPosition>,
+    borrow_positions: &Map<Address, AccountPosition>,
+) -> (Wad, Wad, Wad) {
+    let mut total_collateral = Wad::ZERO;
+    let mut weighted_coll = Wad::ZERO;
 
-        for (asset, position) in supply_positions.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
+    for (asset, position) in supply_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
 
-            let value = position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.supply_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
+        let value = position_value(
+            env,
+            Ray::from_raw(position.scaled_amount_ray),
+            Ray::from_raw(market_index.supply_index_ray),
+            Wad::from_raw(feed.price_wad),
+        );
 
-            total_collateral += value;
-            weighted_coll += weighted_collateral(
-                env,
-                value,
-                Bps::from_raw(position.liquidation_threshold_bps),
-            );
-        }
-
-        let mut total_debt = Wad::ZERO;
-        for (asset, position) in borrow_positions.iter() {
-            let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-
-            let value = position_value(
-                env,
-                Ray::from_raw(position.scaled_amount_ray),
-                Ray::from_raw(market_index.borrow_index_ray),
-                Wad::from_raw(feed.price_wad),
-            );
-
-            total_debt += value;
-        }
-
-        (total_collateral, total_debt, weighted_coll)
+        total_collateral += value;
+        weighted_coll += weighted_collateral(
+            env,
+            value,
+            Bps::from_raw(position.liquidation_threshold_bps),
+        );
     }
-);
+
+    let mut total_debt = Wad::ZERO;
+    for (asset, position) in borrow_positions.iter() {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
+
+        let value = position_value(
+            env,
+            Ray::from_raw(position.scaled_amount_ray),
+            Ray::from_raw(market_index.borrow_index_ray),
+            Wad::from_raw(feed.price_wad),
+        );
+
+        total_debt += value;
+    }
+
+    (total_collateral, total_debt, weighted_coll)
+}
 
 // ---------------------------------------------------------------------------
 // Liquidation math helpers
@@ -214,15 +191,6 @@ pub fn calculate_linear_bonus_with_target(
 
     Bps::from_raw(bonus.raw().min(MAX_LIQUIDATION_BONUS))
 }
-
-#[cfg(feature = "certora")]
-crate::summarized!(
-    calculate_linear_bonus_summary,
-    pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
-        let target_hf = Wad::from_raw(1_020_000_000_000_000_000i128);
-        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_hf)
-    }
-);
 
 #[allow(clippy::too_many_arguments)]
 // Estimates the optimal debt repayment amount and bonus that restores HF toward the target.
@@ -395,7 +363,7 @@ pub fn get_account_bonus_params(
 
     let mut weighted_bonus_sum: i128 = 0;
     for i in 0..asset_values.len() {
-        let (value_raw, bonus_bps) = asset_values.get(i).unwrap();
+        let (value_raw, bonus_bps) = validation::expect_invariant(env, asset_values.get(i));
         let weight = Wad::from_raw(value_raw).div(env, total_collateral);
         weighted_bonus_sum = weighted_bonus_sum
             .checked_add(weight.mul(env, Wad::from_raw(bonus_bps)).raw())

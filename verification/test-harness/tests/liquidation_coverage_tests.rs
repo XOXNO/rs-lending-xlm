@@ -64,6 +64,8 @@ fn test_liquidation_seize_proportional_dust_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     t.set_oracle_single_spot("USDC");

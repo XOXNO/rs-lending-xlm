@@ -19,6 +19,7 @@ fn setup() -> LendingTest {
     LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build()
 }
 
@@ -321,7 +322,14 @@ fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
 }
 
 #[test]
-fn test_unsafe_price_blocks_liquidation() {
+fn test_unsafe_price_does_not_block_liquidation() {
+    // Liquidation must NOT hard-block on anchor deviation. The
+    // `OraclePolicy::Liquidation` variant tolerates spot-vs-anchor
+    // disagreement and resolves to the aggregator (live market) price so
+    // liquidations track the real market state. Pre-fix this same scenario
+    // panicked with `OracleError::UnsafePriceNotAllowed` and DoSed
+    // liquidators (Codex adversarial-review #1; see
+    // audit-research/STELLAR_AUDIT_FINDINGS.md §4.5).
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -341,12 +349,20 @@ fn test_unsafe_price_blocks_liquidation() {
     // Confirm liquidatable.
     assert!(t.can_be_liquidated(ALICE), "Alice should be liquidatable");
 
-    // Deviate the safe price beyond tolerance so liquidation is blocked.
+    // Top up the liquidator so the seize path can actually pay.
+    t.supply(LIQUIDATOR, "ETH", 5.0);
+
+    // Deviate the USDC safe price beyond tolerance. Pre-fix this panicked
+    // with UNSAFE_PRICE; post-fix the liquidation proceeds using the
+    // aggregator (USDC=$1) which is the live market reading.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
-    // Liquidation fails under the strict risk-increasing policy.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::UNSAFE_PRICE);
+    assert!(
+        result.is_ok(),
+        "liquidation must proceed under anchor deviation, got {:?}",
+        result
+    );
 }
 
 // ===========================================================================
@@ -709,6 +725,7 @@ fn test_edit_asset_in_e_mode_category() {
         .with_market(eth_preset())
         .with_emode(1, test_harness::STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)
+        .with_dust_disabled_all_markets()
         .build();
 
     // Initially: can_collateral=true, can_borrow=true.
@@ -812,7 +829,19 @@ fn test_mixed_tolerance_states() {
 // ===========================================================================
 
 #[test]
-fn test_liquidation_dos_flash_crash() {
+fn test_liquidation_succeeds_under_flash_crash() {
+    // Regression for Codex adversarial-review finding #1 (see
+    // audit-research/STELLAR_AUDIT_FINDINGS.md §4.5). When the spot price
+    // and the slower-moving anchor disagree beyond the second tolerance
+    // (the canonical flash-crash signature), pre-fix `process_liquidation`
+    // ran under `OraclePolicy::RiskIncreasing` and hard-reverted with
+    // `OracleError::UnsafePriceNotAllowed`. Underwater accounts became
+    // un-liquidatable exactly when liquidations matter most, transferring
+    // the loss to lenders as bad debt.
+    //
+    // Post-fix the policy is `OraclePolicy::Liquidation`: it still requires
+    // fresh, dual-sourced prices but resolves anchor deviation to the
+    // aggregator (live market) so liquidations track real market state.
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -837,25 +866,26 @@ fn test_liquidation_dos_flash_crash() {
     // ==========================================
     // The flash crash
     // ==========================================
-    // The spot price of ETH drops sharply to 1400 USD (a 30% drop). TWAP
-    // moves slowly and stays at 1950 USD.
+    // Spot ETH crashes to $1400 (a 30% drop). The anchor (TWAP) is slow and
+    // still reads $1950. The deviation exceeds the second tolerance.
     t.set_price("ETH", usd(1400));
     t.set_safe_price("ETH", usd(1950), true, true);
 
     // Give the liquidator some USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
-    // The liquidator sees Alice's health factor falling below 1 on the spot
-    // price and attempts to liquidate the underwater position.
-    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 15_000.0);
+    // The liquidator attempts a partial liquidation.
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 5_000.0);
 
-    // The protocol panics and reverts: liquidation uses the strict
-    // risk-increasing policy, and the 30% deviation between SPOT ($1400) and
-    // TWAP ($1950) exceeds second_tolerance, raising an OracleError.
-    // This perfectly DoSes liquidations precisely when they matter most.
+    // Post-fix: liquidation succeeds against the spot price. This is the
+    // borrower-painful but lender-protective choice — the alternative is
+    // bad debt that lenders absorb. Defenses against spot manipulation rely
+    // on the sanity-bound circuit breaker and the liquidator's own profit
+    // motive, not on hard-blocking the call.
     assert!(
-        result.is_err(),
-        "Liquidation was perfectly DOSed by the oracle safety bands!"
+        result.is_ok(),
+        "liquidation must proceed during a flash crash, got {:?}",
+        result
     );
 }
 
@@ -932,4 +962,65 @@ fn test_liquidation_collateral_extraction_via_averaging() {
         "Liquidator successfully extracted excess collateral via averaging exploit: {}",
         received_collateral
     );
+}
+
+// ===========================================================================
+// 13. Sanity-bound circuit breaker
+// ===========================================================================
+//
+// Slender M-7 / STELLAR_AUDIT_FINDINGS.md §4.2: a per-market absolute
+// floor/ceiling must reject obviously-wrong oracle outputs (whether from a
+// genuine feed bug or a brief spot manipulation under the `Liquidation`
+// policy). Sentinel `max_sanity_price_wad == 0` keeps the check disabled for
+// the rest of the test corpus; this test opts in by writing tight bounds
+// directly to storage.
+
+fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller, || {
+        let key = common::types::ControllerKey::Market(asset.clone());
+        let mut market: common::types::MarketConfig =
+            t.env.storage().persistent().get(&key).unwrap();
+        market.oracle_config.min_sanity_price_wad = min_wad;
+        market.oracle_config.max_sanity_price_wad = max_wad;
+        t.env.storage().persistent().set(&key, &market);
+    });
+}
+
+#[test]
+fn test_sanity_bound_blocks_price_above_ceiling() {
+    let mut t = setup();
+    // Default ETH price is $2,000. Cap at $1,500 → reads must revert.
+    set_sanity_bounds(&t, "ETH", usd(100), usd(1_500));
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
+}
+
+#[test]
+fn test_sanity_bound_blocks_price_below_floor() {
+    let mut t = setup();
+    // Default ETH price is $2,000. Floor at $3,000 → reads must revert.
+    set_sanity_bounds(&t, "ETH", usd(3_000), usd(10_000));
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
+}
+
+// Disabled-bounds state is no longer reachable through the normal
+// config flow (`validate_sanity_bounds` rejects `0 < min < max`
+// violations at admin time), but direct storage tampering remains a
+// theoretical attack surface. The runtime read path defends against
+// it by treating `max == 0` as a sanity-violation panic. This pins
+// that behaviour.
+#[test]
+fn test_sanity_bound_tampered_zero_state_rejected_at_runtime() {
+    let mut t = setup();
+    set_sanity_bounds(&t, "ETH", 0, 0);
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }

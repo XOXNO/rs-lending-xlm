@@ -1,5 +1,6 @@
 pub mod account;
 pub mod borrow;
+pub mod dust;
 pub mod emode;
 pub mod liquidation;
 pub mod repay;

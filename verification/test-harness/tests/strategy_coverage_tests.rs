@@ -9,6 +9,8 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     // Bob supplies 1M USDC to fill the pool.
@@ -48,16 +50,22 @@ fn test_strategy_multiply_supply_cap_reached() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     // Bob supplies 1M USDC.
     t.supply(BOB, "USDC", 1_000_000.0);
 
-    // Set the USDC supply cap to 1,010,000 tokens (7 decimals).
+    // Set the USDC supply cap to 1,010,000 tokens (7 decimals). Preserves
+    // the dust-disabled sentinel from `with_dust_disabled_all_markets()` so
+    // Alice's deliberately-tiny 5 USDC seed position survives the new gate.
     t.ctrl_client().edit_asset_config(
         &t.resolve_asset("USDC"),
         &AssetConfig {
             supply_cap: 10_100_000_000_000,
+            min_collat_floor_usd_wad: 0,
+            min_debt_floor_usd_wad: 0,
             ..usdc_preset().config.to_asset_config(&t.env)
         },
     );
@@ -98,6 +106,8 @@ fn test_strategy_multiply_unsupported_category() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .with_max_utilization_disabled_all_markets()
         .build();
 
     t.supply("alice", "USDC", 10.0);

@@ -10,7 +10,8 @@ use test_harness::{
 
 #[test]
 fn test_withdraw_partial() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw(ALICE, "USDC", 3_000.0);
@@ -33,7 +34,8 @@ fn test_withdraw_partial() {
 
 #[test]
 fn test_withdraw_full_with_zero_amount() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
@@ -64,6 +66,7 @@ fn test_withdraw_multiple_assets() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -88,6 +91,7 @@ fn test_withdraw_rejects_position_not_found() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -106,6 +110,7 @@ fn test_withdraw_rejects_exceeding_hf() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     // Supply $10k, borrow $3500 ETH (1.75 ETH): near LTV.
@@ -124,7 +129,8 @@ fn test_withdraw_rejects_exceeding_hf() {
 
 #[test]
 fn test_withdraw_allowed_without_borrows() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -142,7 +148,8 @@ fn test_withdraw_allowed_without_borrows() {
 
 #[test]
 fn test_withdraw_rejects_during_flash_loan() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_flash_loan_ongoing(true);
@@ -157,7 +164,8 @@ fn test_withdraw_rejects_during_flash_loan() {
 
 #[test]
 fn test_withdraw_rejects_when_paused() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.pause();
@@ -175,6 +183,7 @@ fn test_withdraw_removes_position_when_empty() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
         .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -194,7 +203,8 @@ fn test_withdraw_removes_position_when_empty() {
 
 #[test]
 fn test_withdraw_cleans_up_empty_account() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
@@ -215,7 +225,8 @@ fn test_withdraw_cleans_up_empty_account() {
 
 #[test]
 fn test_withdraw_full_amount_returned() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -239,7 +250,8 @@ fn test_withdraw_full_amount_returned() {
 
 #[test]
 fn test_withdraw_raw_precision() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().with_market(usdc_preset())
+        .with_dust_disabled_all_markets().build();
 
     // Supply 1000 USDC raw units.
     let supply_amount = 1000i128;
@@ -255,4 +267,75 @@ fn test_withdraw_raw_precision() {
         "remaining supply should be ~500, got {}",
         remaining
     );
+}
+
+// ---------------------------------------------------------------------------
+// 13. test_withdraw_rejects_when_above_ltv_but_hf_ok
+// ---------------------------------------------------------------------------
+//
+// Regression for the Slender C-1 class (see
+// `audit-research/STELLAR_AUDIT_FINDINGS.md` §4.4 and §2.1): borrow gates on
+// the LTV-weighted collateral, but withdraw historically only re-checked the
+// liquidation-threshold health factor. A user can borrow up to the LTV cap and
+// then withdraw a sliver of collateral — HF stays above 1.0 (threshold is
+// strictly above LTV by `validate_asset_config`) but the live position is
+// above the configured LTV ceiling, eroding the safety buffer that LTV is
+// supposed to enforce.
+//
+// USDC preset: LTV 75 % / threshold 80 %. Borrow exactly $7,500 of ETH
+// against $10,000 USDC — LTV-binding, HF ≈ 1.067. A 1-USDC withdraw must
+// revert with `InsufficientCollateral` even though HF would still be > 1.
+
+#[test]
+fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // Supply $10k USDC. Borrow exactly at LTV: 7,500 / 2,000 = 3.75 ETH.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.75);
+
+    // HF must be strictly above 1 — withdraw historically only saw this.
+    let hf = t.health_factor(ALICE);
+    assert!(
+        hf > 1.0,
+        "HF must be above 1 to expose the LTV-vs-HF gap, got {}",
+        hf
+    );
+
+    // A tiny withdraw must now revert because the post-state would be above
+    // LTV. Pre-fix this passed silently (HF stays above 1).
+    let result = t.try_withdraw(ALICE, "USDC", 1.0);
+    assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
+}
+
+// ---------------------------------------------------------------------------
+// 14. test_withdraw_allowed_with_ltv_headroom
+// ---------------------------------------------------------------------------
+//
+// Positive companion to test 13: when the borrow is below the LTV ceiling, a
+// withdraw inside the headroom must succeed. Confirms the new LTV gate is
+// strict-but-not-overzealous.
+
+#[test]
+fn test_withdraw_allowed_with_ltv_headroom() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // Supply $10k USDC. Borrow 1 ETH = $2k → LTV-weighted = $7,500,
+    // borrowed = $2,000, headroom = $5,500.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    // Withdrawing $1k USDC drops LTV-weighted to ~$6,750 — still well above
+    // $2k debt. Must succeed.
+    t.withdraw(ALICE, "USDC", 1_000.0);
+
+    t.assert_supply_near(ALICE, "USDC", 9_000.0, 1.0);
 }

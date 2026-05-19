@@ -27,6 +27,14 @@ pub const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
 /// and `clean_bad_debt_standalone`.
 pub const BAD_DEBT_USD_THRESHOLD: i128 = 5 * WAD;
 
+/// Absolute minimum per-position dust floor. Every market's
+/// `AssetConfig::{min_collat_floor_usd_wad, min_debt_floor_usd_wad}`
+/// must be at least this value (validated at admin time). Below the
+/// floor, dust positions accumulate as un-liquidatable bad debt
+/// because the bonus a liquidator would earn cannot cover transaction
+/// cost. Stored in WAD precision (1 USD = 10^18); $10 is the floor.
+pub const MIN_DUST_FLOOR_WAD: i128 = 10 * WAD;
+
 /// Maximum permitted flash-loan fee, in BPS. 500 = 5%. Validated at both
 /// `create_liquidity_pool` (via `validate_asset_config`) and `edit_asset_config`.
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;

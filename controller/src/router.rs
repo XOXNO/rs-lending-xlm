@@ -11,6 +11,8 @@ use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::{pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call};
+use crate::cross_contract::sac::sac_transfer_call;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -82,6 +84,14 @@ impl Controller {
     }
 }
 
+// Domain bounds mirroring the oracle path
+// (`oracle::observation::MIN/MAX_ORACLE_DECIMALS`). Floor of 1 because
+// 0-decimal assets destroy all sub-unit precision in `Wad::from_token`;
+// ceiling of 18 because that is the Wad domain. Without these, a
+// 25-decimal SAC would silently underflow scaling math.
+const MIN_ASSET_DECIMALS: u32 = 1;
+const MAX_ASSET_DECIMALS: u32 = 18;
+
 fn validate_market_creation(
     env: &Env,
     asset: &Address,
@@ -94,6 +104,10 @@ fn validate_market_creation(
     }
     #[cfg(not(feature = "testing"))]
     if params.asset_decimals != _token_decimals {
+        panic_with_error!(env, GenericError::InvalidAsset);
+    }
+
+    if !(MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&params.asset_decimals) {
         panic_with_error!(env, GenericError::InvalidAsset);
     }
 
@@ -110,12 +124,15 @@ pub fn create_liquidity_pool(
     config: &AssetConfig,
 ) -> Address {
     // Asset must be a valid token contract (probes decimals and symbol).
+    // SEP-41 `try_*` returns `Result<Result<T, Conv>, Result<Err, Invoke>>`;
+    // both layers collapse to the same `InvalidAsset` so callers see one
+    // canonical error.
     let token_client = token::Client::new(env, asset);
-    let token_decimals = token_client
-        .try_decimals()
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset))
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset));
-    if token_client.try_symbol().is_err() {
+    let token_decimals = match token_client.try_decimals() {
+        Ok(Ok(d)) => d,
+        _ => panic_with_error!(env, GenericError::InvalidAsset),
+    };
+    if !matches!(token_client.try_symbol(), Ok(Ok(_))) {
         panic_with_error!(env, GenericError::InvalidAsset);
     }
 
@@ -211,16 +228,16 @@ pub fn create_liquidity_pool(
 // the current oracle price before the new parameters are applied so
 // accrued interest rolls into the stored indexes.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
-    validation::require_asset_supported(env, asset);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
+    validation::require_asset_supported(env, &mut cache, asset);
 
-    let market = storage::get_market_config(env, asset);
+    let pool_addr = cache.cached_pool_address(asset);
 
     params.verify(env);
 
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
+    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
 
-    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
-    let state = pool_update_indexes_call(env, &market.pool_address);
+    let state = pool_update_indexes_call(env, &pool_addr);
     cache.record_market_update(&state);
     cache.emit_market_batch();
 
@@ -232,6 +249,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
         &params.slope3_ray,
         &params.mid_utilization_ray,
         &params.optimal_utilization_ray,
+        &params.max_utilization_ray,
         &params.reserve_factor_bps,
     );
 
@@ -253,10 +271,10 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
 // Upgrades the pool contract's WASM code.
 pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
-    validation::require_asset_supported(env, asset);
-
-    let market = storage::get_market_config(env, asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(env, &market.pool_address);
+    let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
+    validation::require_asset_supported(env, &mut cache, asset);
+    let pool_addr = cache.cached_pool_address(asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     pool_client.upgrade(&new_wasm_hash);
 }
 
@@ -274,7 +292,7 @@ fn claim_revenue_for_asset_with_cache(
     asset: &Address,
     cache: &mut ControllerCache,
 ) -> i128 {
-    validation::require_asset_supported(env, asset);
+    validation::require_asset_supported(env, cache, asset);
 
     if !storage::has_accumulator(env) {
         panic_with_error!(env, OracleError::NoAccumulator);
@@ -288,7 +306,7 @@ fn claim_revenue_for_asset_with_cache(
 
     if amount > 0 {
         let accumulator = storage::get_accumulator(env);
-        utils::sac_transfer_call(
+        sac_transfer_call(
             env,
             asset,
             &env.current_contract_address(),
@@ -305,7 +323,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
     let mut results = soroban_sdk::Vec::new(env);
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     for i in 0..assets.len() {
-        let asset = assets.get(i).unwrap();
+        let asset = validation::expect_invariant(env, assets.get(i));
         let amount = claim_revenue_for_asset_with_cache(env, &asset, &mut cache);
         results.push_back(amount);
     }
@@ -322,7 +340,7 @@ pub fn add_reward(
     amount: i128,
     cache: &mut ControllerCache,
 ) {
-    validation::require_asset_supported(env, asset);
+    validation::require_asset_supported(env, cache, asset);
     validation::require_amount_positive(env, amount);
 
     let pool_addr = cache.cached_pool_address(asset);
@@ -343,7 +361,7 @@ pub fn add_reward(
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     for i in 0..rewards.len() {
-        let (asset, amount) = rewards.get(i).unwrap();
+        let (asset, amount) = validation::expect_invariant(env, rewards.get(i));
         add_reward(env, caller, &asset, amount, &mut cache);
     }
     cache.emit_market_batch();
@@ -360,7 +378,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     let mut emode_categories = soroban_sdk::Vec::new(env);
 
     for i in 0..assets.len() {
-        let asset = assets.get(i).unwrap();
+        let asset = validation::expect_invariant(env, assets.get(i));
         let market = match storage::try_get_market_config(env, &asset) {
             Some(m) => m,
             None => continue,
@@ -386,7 +404,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
 
 pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
     for i in 0..account_ids.len() {
-        let account_id = account_ids.get(i).unwrap();
+        let account_id = validation::expect_invariant(env, account_ids.get(i));
         // `renew_user_account` per-key `has` checks already make missing accounts a
         // no-op, so a separate existence read up front is wasted I/O.
         storage::renew_user_account(env, account_id);
@@ -405,7 +423,7 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
 
 pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     for i in 0..assets.len() {
-        let asset = assets.get(i).unwrap();
+        let asset = validation::expect_invariant(env, assets.get(i));
         if !storage::has_market_config(env, &asset) {
             continue;
         }
@@ -415,33 +433,3 @@ pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     }
 }
 
-crate::summarized!(
-    pool::update_indexes_summary,
-    pub(crate) fn pool_update_indexes_call(
-        env: &Env,
-        pool_addr: &Address,
-    ) -> common::types::MarketStateSnapshot {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes()
-    }
-);
-
-crate::summarized!(
-    pool::claim_revenue_summary,
-    pub(crate) fn pool_claim_revenue_call(
-        env: &Env,
-        pool_addr: &Address,
-    ) -> common::types::PoolAmountMutation {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue()
-    }
-);
-
-crate::summarized!(
-    pool::add_rewards_summary,
-    pub(crate) fn pool_add_rewards_call(
-        env: &Env,
-        pool_addr: &Address,
-        amount: i128,
-    ) -> common::types::MarketStateSnapshot {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(&amount)
-    }
-);

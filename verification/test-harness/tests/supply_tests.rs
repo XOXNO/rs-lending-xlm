@@ -346,7 +346,10 @@ fn test_supply_emode_rejects_non_category_asset() {
 
 #[test]
 fn test_supply_raw_precision() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     // Supply exactly 1 unit (smallest: 1 with 7 decimals = 0.0000001 USDC).
     let raw_amount = 1i128;

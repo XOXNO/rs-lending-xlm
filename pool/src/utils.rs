@@ -84,9 +84,51 @@ pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     params.slope3_ray = m.slope3_ray;
     params.mid_utilization_ray = m.mid_utilization_ray;
     params.optimal_utilization_ray = m.optimal_utilization_ray;
+    params.max_utilization_ray = m.max_utilization_ray;
     params.reserve_factor_bps = m.reserve_factor_bps;
 
     env.storage().instance().set(&PoolKey::Params, &params);
+}
+
+/// Hard utilization ceiling. Called post-state by `borrow`,
+/// `withdraw`, and the strategy-liability path so any operation that
+/// would push `borrowed / supplied` above `max_utilization_ray`
+/// reverts. Utilization is undefined when supplied is zero, so the
+/// empty-pool case short-circuits.
+pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
+    if cache.supplied == Ray::ZERO {
+        return;
+    }
+    // Cap at RAY (100 %) is the "effectively disabled" sentinel —
+    // utilization can exceed RAY only when the pool is insolvent
+    // (`borrowed > supplied`), which is a separate failure mode the
+    // ceiling can't fix. Production deployments must keep this strictly
+    // below RAY (validated at admin time by `InterestRateModel::verify`).
+    if cache.params.max_utilization_ray >= common::constants::RAY {
+        return;
+    }
+    // Use the index-aware utilization
+    // (`borrowed * borrow_index / (supplied * supply_index)`).
+    // Comparing scaled values alone misses index drift: after interest
+    // accrues, real utilization can exceed the cap while the scaled
+    // ratio still looks compliant.
+    let utilization = cache.calculate_utilization();
+    if utilization.raw() > cache.params.max_utilization_ray {
+        panic_with_error!(env, CollateralError::UtilizationAboveMax);
+    }
+}
+
+/// Withdraw-specific post-state guard. Rejects a withdrawal that
+/// would leave the pool with `supplied == 0 && borrowed > 0` — the
+/// "donation-backed last-supplier exit" attack: a direct token
+/// donation to the pool address inflates the live SAC balance so the
+/// reserve check on the final supplier's withdrawal passes even
+/// though outstanding debt remains, leaving an insolvent pool whose
+/// utilization views report zero.
+pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
+    if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
+        panic_with_error!(env, CollateralError::UtilizationAboveMax);
+    }
 }
 
 /// Deducts the liquidation `protocol_fee` from `gross_amount`, accrues it

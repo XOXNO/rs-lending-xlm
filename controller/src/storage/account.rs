@@ -47,6 +47,22 @@ fn write_side_map(
     if persistent.has(&meta_key) {
         renew_user_key(env, &meta_key);
     }
+    // Also renew the counterpart side if it exists. Without this, a
+    // borrower who repeatedly mutates only one side (e.g. supplies
+    // collateral while borrow positions stay untouched) would let the
+    // untouched-side key age out and get archived while the account
+    // is still active. Every side-only entrypoint (`borrow`, `repay`)
+    // and bulk entrypoint flows through this function, so renewing
+    // the counterpart here covers every state-changing path.
+    let other_type = if position_type == POSITION_TYPE_DEPOSIT {
+        POSITION_TYPE_BORROW
+    } else {
+        POSITION_TYPE_DEPOSIT
+    };
+    let other_key = side_key(account_id, other_type);
+    if persistent.has(&other_key) {
+        renew_user_key(env, &other_key);
+    }
 }
 
 fn account_meta_key(account_id: u64) -> ControllerKey {

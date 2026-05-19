@@ -18,6 +18,7 @@ fn valid_params(asset: Address) -> MarketParams {
         slope3_ray: RAY / 2,
         mid_utilization_ray: RAY / 2,
         optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
         max_borrow_rate_ray: MAX_BORROW_RATE_RAY,
         reserve_factor_bps: 1_000,
         asset_id: asset,

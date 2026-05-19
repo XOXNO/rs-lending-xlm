@@ -7,9 +7,11 @@ use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
+use super::dust::require_no_dust_after;
 use super::update;
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::pool_withdraw_call;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 // Sentinel passed to the pool to request a full-position withdrawal. The
@@ -76,7 +78,17 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         );
     }
 
+    // HF (liquidation threshold) is the solvency gate; LTV is the
+    // looser capacity gate. Borrow enforces LTV, so every collateral-
+    // reducing path must re-check LTV too — otherwise a user could
+    // borrow at LTV then withdraw collateral down to HF≈1.0 and end
+    // above the configured LTV ceiling.
+    validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
+    // Withdraw that would leave a sub-floor collateral residue is
+    // rejected; the user must withdraw the full remaining balance
+    // (the `0` / `i128::MAX` sentinels) instead.
+    require_no_dust_after(env, &mut cache, &account);
 
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
@@ -158,9 +170,10 @@ pub fn execute_withdrawal(
         event_caller,
         action,
     } = ctx;
+    let pool_addr = cache.cached_pool_address(asset);
     let result = pool_withdraw_call(
         env,
-        asset,
+        &pool_addr,
         caller.clone(),
         amount,
         position.clone(),
@@ -191,24 +204,3 @@ pub fn execute_withdrawal(
     result
 }
 
-crate::summarized!(
-    pool::withdraw_summary,
-    fn pool_withdraw_call(
-        env: &Env,
-        asset: &Address,
-        caller: Address,
-        amount: i128,
-        position: AccountPosition,
-        is_liquidation: bool,
-        protocol_fee: i128,
-    ) -> PoolPositionMutation {
-        let pool_addr = storage::get_market_config(env, asset).pool_address;
-        pool_interface::LiquidityPoolClient::new(env, &pool_addr).withdraw(
-            &caller,
-            &amount,
-            &position,
-            &is_liquidation,
-            &protocol_fee,
-        )
-    }
-);

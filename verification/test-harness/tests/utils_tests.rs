@@ -48,6 +48,7 @@ fn test_isolated_debt_dust_erasure() {
         .with_market_config("USDC", |cfg| {
             cfg.isolation_borrow_enabled = true;
         })
+        .with_dust_disabled_all_markets()
         .build();
 
     t.create_isolated_account(ALICE, "ETH");

@@ -94,7 +94,7 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
 ///   * `market_index` satisfies the global index invariants after accrual.
 pub fn supply_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     position: AccountPosition,
     amount: i128,
     _supply_cap: i128,
@@ -105,7 +105,7 @@ pub fn supply_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index,
@@ -124,7 +124,7 @@ pub fn supply_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn borrow_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     _caller: Address,
     amount: i128,
     position: AccountPosition,
@@ -136,7 +136,7 @@ pub fn borrow_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index,
@@ -157,7 +157,7 @@ pub fn borrow_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn withdraw_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     _caller: Address,
     amount: i128,
     position: AccountPosition,
@@ -175,7 +175,7 @@ pub fn withdraw_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index,
@@ -197,7 +197,7 @@ pub fn withdraw_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn repay_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     _caller: Address,
     amount: i128,
     position: AccountPosition,
@@ -213,7 +213,7 @@ pub fn repay_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index,
@@ -282,7 +282,7 @@ pub fn flash_loan_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn create_strategy_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     _caller: Address,
     position: AccountPosition,
     amount: i128,
@@ -303,7 +303,7 @@ pub fn create_strategy_summary(
     cvlr_assume!(fee <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolStrategyMutation {
         position: new_position,
         market_index,
@@ -329,14 +329,14 @@ pub fn create_strategy_summary(
 ///     `borrow_index_ray >= RAY`.
 pub fn seize_position_summary(
     _env: &Env,
-    asset: &Address,
+    pool_addr: &Address,
     _side: AccountPositionType,
     position: AccountPosition,
 ) -> PoolPositionMutation {
     let mut zeroed = position.clone();
     zeroed.scaled_amount_ray = 0;
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
+    let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: zeroed,
         market_index,
@@ -402,6 +402,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     let slope3_ray: i128 = nondet();
     let mid_utilization_ray: i128 = nondet();
     let optimal_utilization_ray: i128 = nondet();
+    let max_utilization_ray: i128 = nondet();
     let reserve_factor_bps: u32 = nondet();
     cvlr_assume!(i128::from(reserve_factor_bps) < common::constants::BPS);
     let asset_decimals: u32 = nondet();
@@ -417,6 +418,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
             slope3_ray,
             mid_utilization_ray,
             optimal_utilization_ray,
+            max_utilization_ray,
             reserve_factor_bps,
             asset_id,
             asset_decimals,

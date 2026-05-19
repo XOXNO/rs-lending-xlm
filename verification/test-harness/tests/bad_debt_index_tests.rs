@@ -29,16 +29,21 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     (idx.supply_index_ray, idx.borrow_index_ray)
 }
 
+fn setup() -> LendingTest {
+    LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build()
+}
+
 // ---------------------------------------------------------------------------
 // 1. Supply index decreases after bad debt socialization
 // ---------------------------------------------------------------------------
 
 #[test]
 fn test_bad_debt_decreases_supply_index() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     // Bob supplies ETH and will absorb the bad-debt loss.
     t.supply(BOB, "ETH", 100.0);
@@ -85,10 +90,7 @@ fn test_bad_debt_decreases_supply_index() {
 
 #[test]
 fn test_bad_debt_loss_distributed_proportionally() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     // Bob holds 75% and Carol 25% of the ETH supply.
     t.supply(BOB, "ETH", 75.0);
@@ -142,10 +144,7 @@ fn test_bad_debt_loss_distributed_proportionally() {
 
 #[test]
 fn test_bad_debt_index_floored_at_safety_floor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     // Very small supply with large relative bad debt.
     t.supply(BOB, "ETH", 0.01); // Tiny ETH supply ($20).
@@ -177,10 +176,7 @@ fn test_bad_debt_index_floored_at_safety_floor() {
 
 #[test]
 fn test_supply_index_recovers_after_bad_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10.0);
@@ -219,10 +215,7 @@ fn test_supply_index_recovers_after_bad_debt() {
 
 #[test]
 fn test_keeper_clean_bad_debt_decreases_supply_index() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     t.supply(BOB, "ETH", 100.0);
 
@@ -259,10 +252,7 @@ fn test_keeper_clean_bad_debt_decreases_supply_index() {
 
 #[test]
 fn test_bad_debt_does_not_affect_borrow_index() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10.0);
@@ -294,10 +284,7 @@ fn test_bad_debt_does_not_affect_borrow_index() {
 
 #[test]
 fn test_bad_debt_reduction_matches_formula() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = setup();
 
     // Large supply keeps the bad-debt effect measurable but small.
     t.supply(BOB, "ETH", 1000.0); // $2M supply.

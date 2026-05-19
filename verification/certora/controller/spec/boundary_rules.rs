@@ -40,6 +40,7 @@ fn boundary_test_params(env: &Env) -> MarketParams {
         slope3_ray: RAY * 80 / 100,              // 80%
         mid_utilization_ray: RAY * 50 / 100,     // 50%
         optimal_utilization_ray: RAY * 80 / 100, // 80%
+        max_utilization_ray: RAY * 95 / 100,     // 95%
         max_borrow_rate_ray: RAY,                // 100%
         reserve_factor_bps: 1000,                // 10%
         asset_id: env.current_contract_address(),

@@ -100,6 +100,9 @@ impl LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
+        // Max-utilization ceiling — checked post-state so a borrow
+        // that would tip the pool past the cap reverts.
+        utils::require_utilization_below_max(&env, &cache);
 
         cache.transfer_out(&caller, amount);
 
@@ -134,6 +137,16 @@ impl LiquidityPool {
 
         cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
         position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_withdrawal).raw();
+        // Max-utilization ceiling — post-state. Skipped on liquidation
+        // seize because the protocol must always be able to liquidate
+        // (the seize is a side effect of debt removal in the same flow,
+        // not a discretionary withdrawal). The solvency guard fires
+        // unconditionally on withdraw to catch the donation-backed
+        // last-supplier-exit pattern.
+        if !is_liquidation {
+            utils::require_utilization_below_max(&env, &cache);
+        }
+        utils::require_solvent_withdraw_state(&env, &cache);
 
         cache.transfer_out(&caller, net_transfer);
 
@@ -290,6 +303,8 @@ impl LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
+        // Max-utilization ceiling — post-state. Same rule as plain borrow.
+        utils::require_utilization_below_max(&env, &cache);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
@@ -348,6 +363,15 @@ impl LiquidityPool {
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 
+        // `burn_claimable_revenue` decrements `cache.supplied` by the
+        // revenue's scaled share. If the previous final supplier had
+        // already withdrawn (leaving only the protocol-revenue share as
+        // `supplied`), the burn can land at `supplied == 0` while
+        // `borrowed > 0` — symmetric to the donation-backed last-
+        // supplier exit the withdraw path guards against. Reject the
+        // same insolvent post-state here.
+        utils::require_solvent_withdraw_state(&env, &cache);
+
         // CEI: commit state before the external token call so a re-entry
         // can't observe stale revenue and recurse a claim.
         let mutation = cache.amount_mutation(amount_to_transfer);
@@ -374,6 +398,7 @@ impl LiquidityPool {
         slope3: i128,
         mid_utilization: i128,
         optimal_utilization: i128,
+        max_utilization: i128,
         reserve_factor: u32,
     ) {
         // Accrue at the old rate model before applying the new one.
@@ -389,6 +414,10 @@ impl LiquidityPool {
             slope3_ray: slope3,
             mid_utilization_ray: mid_utilization,
             optimal_utilization_ray: optimal_utilization,
+            // Threaded through the ABI so governance can tighten or
+            // loosen the utilization ceiling without resetting it on
+            // every rate-model adjustment.
+            max_utilization_ray: max_utilization,
             reserve_factor_bps: reserve_factor,
         };
         model.verify(&env);
@@ -548,6 +577,10 @@ mod tests {
                 slope3_ray: RAY * 80 / 100,
                 mid_utilization_ray: RAY * 50 / 100,
                 optimal_utilization_ray: RAY * 80 / 100,
+                // Disabled (RAY sentinel) for pool unit tests — these
+                // exercise accounting invariants, not the utilization
+                // ceiling. Harness integration tests cover the ceiling.
+                max_utilization_ray: RAY,
                 reserve_factor_bps: 1000,
                 asset_id: asset_address.clone(),
                 asset_decimals,
@@ -852,6 +885,37 @@ mod tests {
         assert_contract_error(
             result,
             common::errors::CollateralError::WithdrawLessThanFee as u32,
+        );
+    }
+
+    // Covers the post-state utilization gate. The `TestSetup` default cap is
+    // RAY (disabled) so the rest of the unit suite doesn't trip; this test
+    // sets a 50 % cap to exercise both branches.
+    #[test]
+    fn test_borrow_above_max_utilization_panics() {
+        let t = TestSetup::new();
+        t.edit_state(|s| {
+            // Pre-seed supplied so utilization is defined.
+            s.supplied_ray = 100_000_000_000_000;
+            s.borrowed_ray = 0;
+        });
+        // Tighten the cap to 50 %.
+        t.env.as_contract(&t.pool, || {
+            let mut params: MarketParams =
+                t.env.storage().instance().get(&PoolKey::Params).unwrap();
+            params.max_utilization_ray = RAY / 2;
+            t.env.storage().instance().set(&PoolKey::Params, &params);
+        });
+
+        let client = t.client();
+        let borrower = Address::generate(&t.env);
+        let pos = t.borrow_position();
+        // Borrow > 50 % of supplied → revert with UtilizationAboveMax.
+        let result =
+            flatten_contract_result(client.try_borrow(&borrower, &60_000i128, &pos, &i128::MAX));
+        assert_contract_error(
+            result,
+            common::errors::CollateralError::UtilizationAboveMax as u32,
         );
     }
 
@@ -1349,6 +1413,7 @@ mod tests {
             &RAY,
             &(RAY * 8 / 10),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1370,6 +1435,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &RAY,
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1391,6 +1457,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &10_000,
         ));
         assert_contract_error(
@@ -1412,6 +1479,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1433,6 +1501,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1730,6 +1799,7 @@ mod tests {
             &new_s3,
             &new_mid,
             &new_opt,
+            &(RAY * 95 / 100),
             &new_reserve,
         );
 
@@ -1783,6 +1853,7 @@ mod tests {
             &(RAY / 5),
             &(RAY / 2),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1805,6 +1876,7 @@ mod tests {
             &RAY,
             &0i128,
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &1000,
         ));
         assert_contract_error(
@@ -1828,6 +1900,7 @@ mod tests {
             &RAY,
             &(RAY / 2),
             &(RAY * 8 / 10),
+            &(RAY * 95 / 100),
             &(BPS as u32),
         ));
         assert_contract_error(
@@ -1851,6 +1924,7 @@ mod tests {
             slope3_ray: RAY * 80 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: RAY * 95 / 100,
             reserve_factor_bps: 1000,
             asset_id: Address::generate(&env),
             asset_decimals: 7,
@@ -1905,6 +1979,7 @@ mod tests {
             slope3_ray: RAY * 80 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: RAY * 95 / 100,
             reserve_factor_bps: 1000,
             asset_id: asset_address,
             asset_decimals: 7,

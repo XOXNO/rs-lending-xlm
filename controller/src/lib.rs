@@ -1,23 +1,15 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-#[cfg(feature = "certora")]
-#[path = "../../verification/certora/controller/harness/summarized.rs"]
-mod summarized;
-
-#[cfg(not(feature = "certora"))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! summarized {
-    ($($summary:ident)::+, $($body:tt)*) => {
-        $($body)*
-    };
-}
-
 mod access;
 pub(crate) mod cache;
 mod config;
+pub(crate) mod cross_contract;
 mod flash_loan;
+#[cfg(not(feature = "certora"))]
+pub(crate) mod helpers;
+#[cfg(feature = "certora")]
+#[path = "../../verification/certora/controller/harness/helpers.rs"]
 pub(crate) mod helpers;
 pub(crate) mod oracle;
 pub(crate) mod positions;

@@ -286,6 +286,7 @@ mod tests {
                 slope3_ray: RAY / 2,
                 mid_utilization_ray: RAY / 2,
                 optimal_utilization_ray: RAY * 8 / 10,
+                max_utilization_ray: RAY * 95 / 100,
                 reserve_factor_bps: 1_000,
                 asset_id: Address::generate(&env),
                 asset_decimals: 7,

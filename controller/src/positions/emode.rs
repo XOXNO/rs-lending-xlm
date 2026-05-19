@@ -52,23 +52,44 @@ pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig
 
 // Returns the e-mode membership config for `asset` in category `e_mode_id`.
 // Panics with `EModeCategoryNotFound` when the asset is not a member of the category.
-pub fn token_e_mode_config(env: &Env, e_mode_id: u32, asset: &Address) -> Option<EModeAssetConfig> {
+//
+// Both reads (`market_config` reverse-index + `emode_asset` lookup)
+// go through `cache` so a per-asset loop only hits storage once per
+// asset; subsequent calls in the same transaction are free.
+pub fn token_e_mode_config(
+    env: &Env,
+    cache: &mut ControllerCache,
+    e_mode_id: u32,
+    asset: &Address,
+) -> Option<EModeAssetConfig> {
     if e_mode_id == 0 {
         return None;
     }
 
     // Reverse-index check: the asset's MarketConfig records every
-    // category it's enrolled in, so a missing entry rejects the call
-    // before the heavier per-category lookup.
-    let market = match storage::try_get_market_config(env, asset) {
+    // category it's enrolled in. Read straight from the cache map so a
+    // missing market surfaces as `EModeCategoryNotFound` (the cached
+    // getter would surface it as `AssetNotSupported`).
+    let market = match cache.market_configs.get(asset.clone()) {
         Some(m) => m,
-        None => panic_with_error!(env, EModeError::EModeCategoryNotFound),
+        None => {
+            // Fall through to storage for the cache-miss case, but keep
+            // the e-mode-specific error code if the market truly doesn't
+            // exist.
+            match crate::storage::try_get_market_config(env, asset) {
+                Some(m) => {
+                    cache.market_configs.set(asset.clone(), m.clone());
+                    m
+                }
+                None => panic_with_error!(env, EModeError::EModeCategoryNotFound),
+            }
+        }
     };
     if !market.asset_config.e_mode_categories.contains(e_mode_id) {
         panic_with_error!(env, EModeError::EModeCategoryNotFound);
     }
 
-    let config = storage::get_emode_asset(env, e_mode_id, asset);
+    let config = cache.cached_emode_asset(e_mode_id, asset);
     if config.is_none() {
         panic_with_error!(env, EModeError::EModeCategoryNotFound);
     }
@@ -109,12 +130,18 @@ pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>)
 
 // Panics with `NotCollateral` or `AssetNotBorrowable` when the asset's e-mode membership
 // disallows the requested operation. `is_supply = true` checks collateralizability; `false` checks borrowability.
-pub fn validate_e_mode_asset(env: &Env, e_mode_category_id: u32, asset: &Address, is_supply: bool) {
+pub fn validate_e_mode_asset(
+    env: &Env,
+    cache: &mut ControllerCache,
+    e_mode_category_id: u32,
+    asset: &Address,
+    is_supply: bool,
+) {
     if e_mode_category_id == 0 {
         return;
     }
 
-    let config = token_e_mode_config(env, e_mode_category_id, asset);
+    let config = token_e_mode_config(env, cache, e_mode_category_id, asset);
     match config {
         None => {}
         Some(cfg) => {

@@ -35,6 +35,13 @@ pub mod errors {
     pub const INVALID_PAYMENTS: u32 = 16;
     pub const ACCOUNT_MODE_MISMATCH: u32 = 25;
     pub const INTERNAL_ERROR: u32 = 34;
+    pub const INVALID_POSITION_LIMITS: u32 = 36;
+    pub const SANITY_BOUND_VIOLATED: u32 = 223;
+    pub const INVALID_SANITY_BOUNDS: u32 = 224;
+    pub const DUST_FLOOR_TOO_LOW: u32 = 125;
+    pub const DUST_RESIDUE_NOT_ALLOWED: u32 = 126;
+    pub const UTILIZATION_ABOVE_MAX: u32 = 127;
+    pub const INVALID_UTIL_RANGE: u32 = 117;
     pub const CONTRACT_PAUSED: u32 = 1000; // Pausable enforced pause
 
     // CollateralError

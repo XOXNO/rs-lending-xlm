@@ -64,6 +64,8 @@ fn pinned_market_config(
             flashloan_fee_bps: 9,
             borrow_cap: 2_000_000,
             supply_cap: 3_000_000,
+            min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
         },
         pool_address: pool.clone(),
         oracle_config: MarketOracleConfig {
@@ -84,6 +86,8 @@ fn pinned_market_config(
                 resolution_seconds: 300,
             }),
             anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: 0,
+            max_sanity_price_wad: 0,
         },
     }
 }
@@ -114,7 +118,7 @@ fn price_staleness_enforced(e: Env, asset: Address, pool: Address, oracle: Addre
 
     // Production panics on a stale or future-dated feed; if it returns, the
     // returned feed.timestamp has passed the source timestamp validation.
-    let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
+    let feed = crate::oracle::token_price(&mut cache, &asset);
 
     let now_secs = cache.current_timestamp_ms / 1000;
     cvlr_assert!(feed.timestamp <= now_secs + 60); // 60-s clock-skew envelope
@@ -349,9 +353,9 @@ fn price_cache_consistency(e: Env, asset: Address) {
         asset_decimals,
         timestamp,
     };
-    cache.set_price(&asset, &seeded);
+    cache.prices_cache.set(asset.clone(), seeded.clone());
 
-    let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
+    let feed = crate::oracle::token_price(&mut cache, &asset);
 
     // The cache short-circuit must return the seeded feed unchanged.
     cvlr_assert!(feed.price_wad == seeded.price_wad);
@@ -372,7 +376,7 @@ fn oracle_tolerance_sanity(e: Env) {
     cvlr_assume!(agg > 0 && agg <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe > 0 && safe <= MAX_REALISTIC_PRICE);
 
-    let within = crate::oracle::is_within_anchor::is_within_anchor(&e, agg, safe, 200, 200);
+    let within = crate::oracle::is_within_anchor(&e, agg, safe, 200, 200);
     cvlr_satisfy!(within);
 }
 
@@ -388,6 +392,6 @@ fn price_cache_sanity(e: Env, asset: Address, pool: Address, oracle: Address) {
     let market = pinned_market_config(&e, &asset, &pool, oracle, MarketStatus::Active);
     cache.market_configs.set(asset.clone(), market);
 
-    let feed = crate::oracle::token_price::token_price(&mut cache, &asset);
+    let feed = crate::oracle::token_price(&mut cache, &asset);
     cvlr_satisfy!(feed.price_wad > 0);
 }

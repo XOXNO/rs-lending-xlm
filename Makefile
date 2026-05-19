@@ -170,9 +170,10 @@ miri-common:
 coverage: coverage-merged
 
 coverage-controller:
-	@echo "Running controller coverage (controller unit tests + test-harness)..."
+	@echo "Running controller coverage (common + controller unit tests + test-harness)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
+	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@backup="$(COV_DIR)/snapshots-backup"; \
 	restore_snapshots() { \
@@ -208,9 +209,10 @@ coverage-pool:
 	@echo "  $(COV_DIR)/pool-report.md"
 
 coverage-merged:
-	@echo "Running merged coverage (controller + pool + test-harness)..."
+	@echo "Running merged coverage (common + controller + pool + test-harness)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
+	@cargo llvm-cov test -p common --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov test -p pool --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@cargo llvm-cov test -p controller --lib --no-report $(COV_IGNORE) 2>&1 | tail -5
 	@backup="$(COV_DIR)/snapshots-backup"; \
@@ -798,7 +800,8 @@ SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
                   claimRevenueAll
-POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig configureMarketOracle \
+POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams \
+                             configureMarketOracle \
                              getPrice getMarket getIndex getIsolatedDebt \
                              getReflector
 POSITIONAL_ID_ACTIONS := addEModeCategory getEMode
@@ -947,6 +950,7 @@ help:
 	@echo "  Markets (writes):"
 	@echo "    make testnet createMarket USDC"
 	@echo "    make testnet editAssetConfig USDC"
+	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet updateIndexes USDC XLM"
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"

@@ -41,32 +41,23 @@ pub trait ReflectorOracle {
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
-crate::summarized!(
-    reflector::base_summary,
-    pub(crate) fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
-        ReflectorClient::new(env, oracle).base()
-    }
-);
+pub(crate) fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
+    ReflectorClient::new(env, oracle).base()
+}
 
-crate::summarized!(
-    reflector::lastprice_summary,
-    pub(crate) fn reflector_lastprice_call(
-        env: &Env,
-        oracle: &Address,
-        asset: &ReflectorAsset,
-    ) -> Option<ReflectorPriceData> {
-        ReflectorClient::new(env, oracle).lastprice(asset)
-    }
-);
+pub(crate) fn reflector_lastprice_call(
+    env: &Env,
+    oracle: &Address,
+    asset: &ReflectorAsset,
+) -> Option<ReflectorPriceData> {
+    ReflectorClient::new(env, oracle).lastprice(asset)
+}
 
-crate::summarized!(
-    reflector::prices_summary,
-    pub(crate) fn reflector_prices_call(
-        env: &Env,
-        oracle: &Address,
-        asset: &ReflectorAsset,
-        records: u32,
-    ) -> Option<Vec<ReflectorPriceData>> {
-        ReflectorClient::new(env, oracle).prices(asset, &records)
-    }
-);
+pub(crate) fn reflector_prices_call(
+    env: &Env,
+    oracle: &Address,
+    asset: &ReflectorAsset,
+    records: u32,
+) -> Option<Vec<ReflectorPriceData>> {
+    ReflectorClient::new(env, oracle).prices(asset, &records)
+}

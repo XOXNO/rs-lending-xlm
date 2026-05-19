@@ -6,6 +6,7 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
+use crate::cross_contract::pool::pool_flash_loan_call;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -35,9 +36,9 @@ pub fn process_flash_loan(
 
     validation::require_not_flash_loaning(env);
     validation::require_amount_positive(env, amount);
-    validation::require_market_active(env, asset);
 
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
+    validation::require_market_active(env, &mut cache, asset);
 
     let asset_config = cache.cached_asset_config(asset);
     if !asset_config.is_flashloanable {
@@ -84,18 +85,3 @@ fn flash_loan_fee(env: &Env, fee_bps: u32, amount: i128) -> i128 {
     }
 }
 
-crate::summarized!(
-    pool::flash_loan_summary,
-    fn pool_flash_loan_call(
-        env: &Env,
-        pool_addr: &Address,
-        initiator: &Address,
-        receiver: &Address,
-        amount: i128,
-        fee: i128,
-        data: &Bytes,
-    ) -> common::types::MarketStateSnapshot {
-        pool_interface::LiquidityPoolClient::new(env, pool_addr)
-            .flash_loan(initiator, receiver, &amount, &fee, data)
-    }
-);

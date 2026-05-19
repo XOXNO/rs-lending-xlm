@@ -73,6 +73,52 @@ fn test_set_position_limits() {
     assert_eq!(limits.max_borrow_positions, 6);
 }
 
+// Boundary regression for the Slender C-3 / Blend BL-001 resource-limit DoS
+// class (see audit-research/STELLAR_AUDIT_FINDINGS.md §4.4). The hard cap on
+// per-account positions must match the budget bench at
+// `bench_liquidate_max_positions.rs`; raising it without re-running the bench
+// re-introduces the un-liquidatable-position attack surface.
+#[test]
+fn test_set_position_limits_rejects_above_cap() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+
+    // 10/10 is the documented ceiling and must be accepted.
+    t.set_position_limits(10, 10);
+
+    // 11 on either side exceeds the budget-proven envelope.
+    assert_invalid_position_limits(&t, 11, 10);
+    assert_invalid_position_limits(&t, 10, 11);
+    // The previous-cap value (32) must also be rejected post-fix.
+    assert_invalid_position_limits(&t, 32, 32);
+    // Zero on either side stays rejected (existing invariant).
+    assert_invalid_position_limits(&t, 0, 5);
+    assert_invalid_position_limits(&t, 5, 0);
+}
+
+fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
+    let limits = common::types::PositionLimits {
+        max_supply_positions: supply,
+        max_borrow_positions: borrow,
+    };
+    let result = t.ctrl_client().try_set_position_limits(&limits);
+    let expected = soroban_sdk::Error::from_contract_error(errors::INVALID_POSITION_LIMITS);
+    match result {
+        Ok(_) => panic!(
+            "set_position_limits({}, {}) should have been rejected",
+            supply, borrow
+        ),
+        Err(Ok(err)) => assert_eq!(
+            err, expected,
+            "set_position_limits({}, {}): expected INVALID_POSITION_LIMITS, got {:?}",
+            supply, borrow, err
+        ),
+        Err(Err(invoke_err)) => panic!(
+            "set_position_limits({}, {}) failed with host error {:?}",
+            supply, borrow, invoke_err
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 4. test_pause_blocks_operations
 // ---------------------------------------------------------------------------
@@ -146,6 +192,7 @@ fn test_upgrade_pool_params() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: common::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -180,6 +227,7 @@ fn test_upgrade_liquidity_pool_params_alias() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: common::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -220,6 +268,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: common::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -246,6 +295,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: common::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );

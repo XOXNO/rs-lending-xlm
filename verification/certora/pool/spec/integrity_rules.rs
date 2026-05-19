@@ -255,6 +255,7 @@ fn update_params_keeps_rate_domain(
         slope3,
         RAY / 2,
         RAY * 8 / 10,
+        RAY * 95 / 100,
         (BPS / 10) as u32,
     );
 

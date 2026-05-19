@@ -44,6 +44,8 @@ pub struct AssetConfigPreset {
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
+    pub min_collat_floor_usd_wad: i128,
+    pub min_debt_floor_usd_wad: i128,
 }
 
 #[derive(Clone)]
@@ -55,6 +57,7 @@ pub struct MarketParamsPreset {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
+    pub max_utilization_ray: i128,
     pub reserve_factor_bps: u32,
 }
 
@@ -92,6 +95,10 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     flashloan_fee_bps: 9,
     borrow_cap: 0, // 0 = no cap (tests that need caps override per-market)
     supply_cap: 0, // 0 = no cap
+    // $10 floor (= `MIN_DUST_FLOOR_WAD`). Production deployments may raise
+    // per asset; the validator rejects any value below this.
+    min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+    min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
@@ -104,6 +111,9 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     slope3_ray: RAY * 150 / 100,
     mid_utilization_ray: RAY * 50 / 100,
     optimal_utilization_ray: RAY * 80 / 100,
+    // 95 % utilization ceiling — sits at or above `optimal` and below
+    // `RAY`. Markets may tighten per asset class.
+    max_utilization_ray: RAY * 95 / 100,
     reserve_factor_bps: 1000,
 };
 
@@ -227,6 +237,8 @@ impl AssetConfigPreset {
             flashloan_fee_bps: self.flashloan_fee_bps,
             borrow_cap: self.borrow_cap,
             supply_cap: self.supply_cap,
+            min_collat_floor_usd_wad: self.min_collat_floor_usd_wad,
+            min_debt_floor_usd_wad: self.min_debt_floor_usd_wad,
             // Memberships are populated via `add_asset_to_e_mode_category`,
             // never at preset → market construction time.
             e_mode_categories: soroban_sdk::Vec::new(env),
@@ -248,6 +260,7 @@ impl MarketParamsPreset {
             slope3_ray: self.slope3_ray,
             mid_utilization_ray: self.mid_utilization_ray,
             optimal_utilization_ray: self.optimal_utilization_ray,
+            max_utilization_ray: self.max_utilization_ray,
             reserve_factor_bps: self.reserve_factor_bps,
             asset_id: asset.clone(),
             asset_decimals: decimals,

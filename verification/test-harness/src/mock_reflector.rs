@@ -83,7 +83,9 @@ impl MockReflector {
             .set(&MockKey::Resolution, &resolution);
     }
 
-    /// 0 = normal, 1 = None, 2 = empty, 3 = insufficient.
+    /// 0 = normal, 1 = None, 2 = empty, 3 = insufficient,
+    /// 4 = invalid-price (one entry has price <= 0),
+    /// 5 = stale (oldest timestamp is far in the past).
     pub fn set_twap_history_mode(env: Env, asset: Address, mode: u32) {
         env.storage()
             .temporary()
@@ -147,8 +149,19 @@ impl MockReflector {
         } else {
             records
         };
-        for _ in 0..len {
-            out.push_back(twap_pd.clone());
+        for i in 0..len {
+            let mut entry = twap_pd.clone();
+            // Mode 4: poison the first entry with a non-positive price so
+            // the reader's `has_invalid_price` path fires.
+            if mode == 4 && i == 0 {
+                entry.price = 0;
+            }
+            // Mode 5: backdate the oldest entry so the staleness check in
+            // `read_twap` rejects the whole window.
+            if mode == 5 && i == 0 {
+                entry.timestamp = 1;
+            }
+            out.push_back(entry);
         }
         Some(out)
     }

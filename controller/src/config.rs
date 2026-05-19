@@ -18,6 +18,8 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable};
 use stellar_macros::{only_owner, only_role};
 
+use crate::oracle::validation::validate_market_oracle_sources;
+
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -208,13 +210,29 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
 // Position limits
 // ---------------------------------------------------------------------------
 
+// Hard upper bound on per-account position counts. The cap exists to
+// keep liquidation iteration within Soroban's default tx budget: at
+// liquidation time the engine walks every position on the account
+// twice (debt + collateral side) and a too-large cap pushes the worst-
+// case liquidation past the gas envelope, which would brick
+// liquidations for the affected accounts and accumulate bad debt.
+//
+// The budget bench at
+// `verification/test-harness/tests/bench_liquidate_max_positions.rs`
+// validates 5/5 against the default tx budget (5 is the current full
+// preset set). 10 leaves headroom for future preset growth without
+// entering an un-budgeted region; raising it requires extending the
+// bench harness with additional preset markets first.
+const POSITION_LIMIT_MAX: u32 = 10;
+
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    // Reject 0 (would brick supply/borrow for every user) and > 32 (would
-    // let liquidation iteration exhaust gas).
+    // Reject 0 (would brick supply/borrow for every user) and any value
+    // above the budget-proven ceiling (would let liquidation iteration
+    // exhaust gas and brick liquidations for affected accounts).
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
-        || limits.max_supply_positions > 32
-        || limits.max_borrow_positions > 32
+        || limits.max_supply_positions > POSITION_LIMIT_MAX
+        || limits.max_borrow_positions > POSITION_LIMIT_MAX
     {
         panic_with_error!(env, GenericError::InvalidPositionLimits);
     }
@@ -486,7 +504,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         config.last_tolerance_bps,
     );
     let mut oracle_config =
-        crate::oracle::validation::validate_market_oracle_sources(env, &asset, &config, tolerance);
+        validate_market_oracle_sources(env, &asset, &config, tolerance);
     // Persist token precision discovered from the asset contract. Under the
     // `testing` feature, preserve any synthetic precision seeded at market
     // creation because the integration harness uses Soroban's SAC helper

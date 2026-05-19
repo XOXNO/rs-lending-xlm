@@ -76,6 +76,9 @@ pub enum CollateralError {
     CannotCloseWithRemainingDebt = 122,
     PoolInsolvent = 123,
     PoolPaused = 124,
+    DustFloorTooLow = 125,
+    DustResidueNotAllowed = 126,
+    UtilizationAboveMax = 127,
 }
 
 #[contracterror]
@@ -105,6 +108,8 @@ pub enum OracleError {
     InvalidOracleBase = 220,
     InvalidOracleDecimals = 221,
     InvalidOracleResolution = 222,
+    SanityBoundViolated = 223,
+    InvalidSanityBounds = 224,
 }
 
 #[contracterror]

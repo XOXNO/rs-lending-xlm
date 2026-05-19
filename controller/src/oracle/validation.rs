@@ -4,17 +4,19 @@ use common::types::{
     OracleSourceConfig, OracleSourceConfigInput, OracleStrategy, RedStoneSourceConfig,
     ReflectorSourceConfig,
 };
-use soroban_sdk::{panic_with_error, token, Address, Env, U256};
+use soroban_sdk::{panic_with_error, token, Address, Env};
 
-use super::observation::{normalize_positive_price, validate_timestamp};
+use super::observation::{
+    millis_to_seconds, normalize_positive_price, u256_to_i128, validate_timestamp,
+    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
+    MIN_PRICE_STALE_SECONDS,
+};
 use super::providers::redstone::{RedStonePriceData, RedStonePriceFeedClient, REDSTONE_DECIMALS};
 use super::providers::reflector::{min_twap_observations, to_reflector_asset};
 use super::reflector::{
     reflector_base_call, reflector_lastprice_call, reflector_prices_call, ReflectorAsset,
     ReflectorClient, ReflectorPriceData,
 };
-
-const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub(crate) fn validate_market_oracle_sources(
     env: &Env,
@@ -23,13 +25,14 @@ pub(crate) fn validate_market_oracle_sources(
     tolerance: OraclePriceFluctuation,
 ) -> MarketOracleConfig {
     validate_oracle_config_shape(env, config);
+    validate_max_stale(env, config.max_price_stale_seconds);
+    validate_sanity_bounds(env, config.min_sanity_price_wad, config.max_sanity_price_wad);
 
     let asset_decimals = validate_oracle_asset(env, asset);
-    let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
+    let primary = validate_source(env, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
         Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
             env,
-            asset,
             anchor,
             config.max_price_stale_seconds,
         )),
@@ -43,32 +46,48 @@ pub(crate) fn validate_market_oracle_sources(
         strategy: config.strategy,
         primary,
         anchor,
+        min_sanity_price_wad: config.min_sanity_price_wad,
+        max_sanity_price_wad: config.max_sanity_price_wad,
     }
 }
 
+// `PrimaryWithAnchor` requires an anchor; `Single` rejects one. A single
+// boolean equality keeps the invariant obvious.
 fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
-    if config.strategy == OracleStrategy::PrimaryWithAnchor && config.anchor.is_none() {
-        panic_with_error!(env, GenericError::InvalidExchangeSrc);
-    }
-    if config.strategy == OracleStrategy::Single && !config.anchor.is_none() {
+    let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
+    let has_anchor = !config.anchor.is_none();
+    if needs_anchor != has_anchor {
         panic_with_error!(env, GenericError::InvalidExchangeSrc);
     }
 }
 
 fn validate_oracle_asset(env: &Env, asset: &Address) -> u32 {
-    let token_decimals = token::Client::new(env, asset)
-        .try_decimals()
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset))
-        .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidAsset));
+    let token_decimals = unwrap_token_call(
+        env,
+        token::Client::new(env, asset).try_decimals().map(|r| r.ok()),
+    );
     if token::Client::new(env, asset).try_symbol().is_err() {
         panic_with_error!(env, GenericError::InvalidAsset);
     }
     token_decimals
 }
 
+// SEP-41 `try_*` returns `Result<Result<T, ConversionError>, InvokeError>`.
+// Flatten both layers to a single `InvalidAsset` so callers see one
+// canonical error instead of the previous double-unwrap chain that read
+// like a bug (former S3 finding).
+fn unwrap_token_call<T>(
+    env: &Env,
+    result: Result<Option<T>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+) -> T {
+    match result {
+        Ok(Some(value)) => value,
+        _ => panic_with_error!(env, GenericError::InvalidAsset),
+    }
+}
+
 fn validate_source(
     env: &Env,
-    _asset: &Address,
     source: &OracleSourceConfigInput,
     max_stale: u64,
 ) -> OracleSourceConfig {
@@ -135,8 +154,18 @@ fn validate_source(
 }
 
 fn validate_max_stale(env: &Env, max_stale: u64) {
-    if !(60..=86_400).contains(&max_stale) {
+    if !(MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS).contains(&max_stale) {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
+    }
+}
+
+// Every market must carry meaningful sanity bounds: the runtime
+// circuit-breaker in `oracle::price::token_price` is the protocol's
+// last absolute defense against catastrophic feed values, and it has
+// no off-switch in production. Require `0 < min < max`.
+fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
+    if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
+        panic_with_error!(env, OracleError::InvalidSanityBounds);
     }
 }
 
@@ -148,7 +177,7 @@ fn validate_usd_base(env: &Env, oracle: &Address) {
 }
 
 fn validate_decimals(env: &Env, decimals: u32) {
-    if decimals > MAX_ORACLE_DECIMALS {
+    if !(MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&decimals) {
         panic_with_error!(env, OracleError::InvalidOracleDecimals);
     }
 }
@@ -157,7 +186,7 @@ fn validate_twap_records(env: &Env, records: u32) {
     if records == 0 {
         panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
-    if records > 12 {
+    if records > MAX_TWAP_RECORDS {
         panic_with_error!(env, OracleError::InvalidOracleTokenType);
     }
 }
@@ -203,18 +232,4 @@ fn validate_redstone_feed(env: &Env, pd: &RedStonePriceData, max_stale: u64, dec
         millis_to_seconds(env, pd.write_timestamp),
         max_stale,
     );
-}
-
-fn u256_to_i128(env: &Env, value: &U256) -> i128 {
-    let Some(raw) = value.to_u128() else {
-        panic_with_error!(env, GenericError::MathOverflow);
-    };
-    if raw > i128::MAX as u128 {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
-    raw as i128
-}
-
-fn millis_to_seconds(_env: &Env, timestamp_ms: u64) -> u64 {
-    timestamp_ms / 1000
 }
