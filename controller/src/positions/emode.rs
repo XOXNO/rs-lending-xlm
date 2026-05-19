@@ -5,7 +5,6 @@ use soroban_sdk::{panic_with_error, Address, Env};
 use crate::cache::ControllerCache;
 use crate::storage;
 
-
 // Boosts risk parameters via e-mode.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
@@ -106,7 +105,6 @@ pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>)
     }
 }
 
-
 // Validates e-mode membership.
 pub fn validate_e_mode_asset(
     env: &Env,
@@ -132,7 +130,6 @@ pub fn validate_e_mode_asset(
         }
     }
 }
-
 
 // Enforces isolated collateral exclusivity.
 pub fn validate_isolated_collateral(

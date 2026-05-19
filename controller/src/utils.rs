@@ -11,8 +11,6 @@ use crate::{storage, validation};
 
 pub use crate::positions::account::{create_account, remove_account};
 
-
-
 // Deduplicates and sums payments.
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
@@ -86,8 +84,6 @@ fn aggregate_payment_amount(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-
-
 // Creates account for supply entry point.
 pub fn create_account_for_first_asset(
     env: &Env,
@@ -113,8 +109,6 @@ pub fn create_account_for_first_asset(
     )
 }
 
-
-
 // Syncs market indexes and cache.
 pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
@@ -124,8 +118,6 @@ pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<
         cache.record_market_update(&state);
     }
 }
-
-
 
 // Decrements isolated debt tracker.
 pub fn adjust_isolated_debt_usd(

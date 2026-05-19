@@ -114,7 +114,6 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
     health_factor(env, account_id) < WAD
 }
 
-
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let position = match storage::try_get_position(env, account_id, POSITION_TYPE_DEPOSIT, asset) {
         Some(position) => position,
@@ -192,9 +191,6 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     weighted_coll.raw()
 }
 
-
-
-
 pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetExtendedConfigView> {
     let mut cache = ControllerCache::new_view(env);
     let mut result = Vec::new(env);
@@ -221,7 +217,9 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
         let asset = validation::expect_invariant(env, assets.get(i));
         let index = cache.cached_market_index(&asset);
         let components = price_components(&mut cache, &asset);
-        let safe_price_wad = components.safe_price_wad.unwrap_or(components.final_price_wad);
+        let safe_price_wad = components
+            .safe_price_wad
+            .unwrap_or(components.final_price_wad);
         let aggregator_price_wad = components
             .aggregator_price_wad
             .unwrap_or(components.final_price_wad);
@@ -241,8 +239,6 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
     result
 }
 
-
-
 pub fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -250,12 +246,7 @@ pub fn liquidation_estimations_detailed(
 ) -> LiquidationEstimate {
     let mut cache = ControllerCache::new_view(env);
     let account = storage::get_account(env, account_id);
-    let result = execute_liquidation(
-        env,
-        &account,
-        debt_payments,
-        &mut cache,
-    );
+    let result = execute_liquidation(env, &account, debt_payments, &mut cache);
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);

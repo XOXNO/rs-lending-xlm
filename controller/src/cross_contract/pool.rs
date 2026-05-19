@@ -6,7 +6,6 @@ use common::types::{
 };
 use soroban_sdk::{Address, Bytes, Env};
 
-
 pub(crate) fn pool_supply_call(
     env: &Env,
     pool_addr: &Address,
@@ -88,7 +87,6 @@ pub(crate) fn pool_seize_position_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(&side, &position)
 }
 
-
 pub(crate) fn pool_flash_loan_call(
     env: &Env,
     pool_addr: &Address,
@@ -98,9 +96,8 @@ pub(crate) fn pool_flash_loan_call(
     fee: i128,
     data: &Bytes,
 ) -> MarketStateSnapshot {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).flash_loan(
-        initiator, receiver, &amount, &fee, data,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr)
+        .flash_loan(initiator, receiver, &amount, &fee, data)
 }
 
 pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address) -> MarketStateSnapshot {

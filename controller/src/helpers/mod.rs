@@ -7,7 +7,6 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 use crate::cache::ControllerCache;
 use crate::validation;
 
-
 // USD value of a position.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
@@ -42,7 +41,6 @@ pub fn calculate_ltv_collateral_wad(
     }
     ltv
 }
-
 
 pub fn calculate_health_factor(
     env: &Env,
@@ -99,7 +97,6 @@ pub fn calculate_health_factor(
     result.to_i128().unwrap_or(i128::MAX)
 }
 
-
 pub fn calculate_account_totals(
     env: &Env,
     cache: &mut ControllerCache,
@@ -145,7 +142,6 @@ pub fn calculate_account_totals(
 
     (total_collateral, total_debt, weighted_coll)
 }
-
 
 // Interpolates liquidation bonus linearly from base to max.
 pub fn calculate_linear_bonus_with_target(

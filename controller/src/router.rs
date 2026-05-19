@@ -10,9 +10,11 @@ use soroban_sdk::{contractimpl, panic_with_error, token, xdr::ToXdr, Address, By
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
-use crate::cross_contract::pool::{pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call};
+use crate::cross_contract::pool::{
+    pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call,
+};
 use crate::cross_contract::sac::sac_transfer_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -186,8 +188,6 @@ pub fn create_liquidity_pool(
     pool_address
 }
 
-
-
 // Upgrades pool interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
@@ -239,8 +239,6 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
     let pool_client = pool_interface::LiquidityPoolClient::new(env, &pool_addr);
     pool_client.upgrade(&new_wasm_hash);
 }
-
-
 
 // Claims pool revenue.
 fn claim_revenue_for_asset_with_cache(
@@ -322,8 +320,6 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<
     cache.emit_market_batch();
 }
 
-
-
 pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     storage::renew_controller_instance(env);
     storage::renew_pools_list(env);
@@ -382,4 +378,3 @@ pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         pool_client.keepalive();
     }
 }
-

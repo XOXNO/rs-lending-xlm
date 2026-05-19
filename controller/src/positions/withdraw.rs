@@ -10,8 +10,8 @@ use super::EventContext;
 use super::dust::require_no_dust_after;
 use super::update;
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_withdraw_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 // Sentinel for full-position withdraw.
@@ -184,4 +184,3 @@ pub fn execute_withdrawal(
 
     result
 }
-

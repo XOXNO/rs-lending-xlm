@@ -3,8 +3,6 @@ use common::errors::EModeError;
 use common::types::{ControllerKey, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{panic_with_error, Address, Env};
 
-
-
 fn category_key(id: u32) -> ControllerKey {
     ControllerKey::EModeCategory(id)
 }
@@ -25,8 +23,6 @@ pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategory) {
     env.storage().persistent().set(&key, cat);
     renew_protocol_shared_key(env, &key);
 }
-
-
 
 pub fn get_emode_asset(env: &Env, category_id: u32, asset: &Address) -> Option<EModeAssetConfig> {
     try_get_emode_category(env, category_id).and_then(|cat| cat.assets.get(asset.clone()))

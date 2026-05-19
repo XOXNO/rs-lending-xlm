@@ -10,8 +10,8 @@ use stellar_macros::when_not_paused;
 use super::dust::require_no_dust_after;
 use super::{emode, update};
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
+use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -76,8 +76,6 @@ pub fn handle_create_borrow_strategy(
     result.amount_received
 }
 
-
-
 // Processes borrow batch.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
@@ -102,8 +100,6 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
 }
-
-
 
 // Processes borrow plan on account.
 pub fn process_borrow_plan(

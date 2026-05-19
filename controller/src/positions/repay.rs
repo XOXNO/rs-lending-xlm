@@ -9,8 +9,8 @@ use super::EventContext;
 use super::dust::require_no_dust_after;
 use super::update;
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_repay_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -235,4 +235,3 @@ fn adjust_isolated_debt_for_repay(
         );
     }
 }
-

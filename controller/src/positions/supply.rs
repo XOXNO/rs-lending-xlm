@@ -9,8 +9,8 @@ use stellar_macros::{only_role, when_not_paused};
 use super::dust::require_no_dust_after;
 use super::{emode, update};
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_supply_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 const THRESHOLD_UPDATE_MIN_HF: i128 = 1_050_000_000_000_000_000;
@@ -64,7 +64,6 @@ impl Controller {
     }
 }
 
-
 // Processes supply batch.
 pub fn process_supply(
     env: &Env,
@@ -116,7 +115,6 @@ fn resolve_supply_account(
         (account_id, account)
     }
 }
-
 
 // Processes deposit batch on account.
 pub fn process_deposit(

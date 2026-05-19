@@ -116,33 +116,33 @@ impl Cache {
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    // Converts scaled borrow to actual in RAY.
-    pub fn calculate_original_borrow_ray(&self, scaled: Ray) -> Ray {
-        scaled.mul(&self.env, self.borrow_index)
-    }
-
     // Converts scaled supply to asset decimals.
-    pub fn calculate_original_supply(&self, scaled: Ray) -> i128 {
+    pub fn unscale_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
     // Converts scaled borrow to asset decimals.
-    pub fn calculate_original_borrow(&self, scaled: Ray) -> i128 {
+    pub fn unscale_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset(self.params.asset_decimals)
     }
 
+    // Converts scaled borrow to actual in RAY.
+    pub fn unscale_borrow_ray(&self, scaled: Ray) -> Ray {
+        scaled.mul(&self.env, self.borrow_index)
+    }
+
     // Resolves withdrawal amounts.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
-        let current_supply_actual = self.calculate_original_supply(pos_scaled);
+        let current_supply_actual = self.unscale_supply(pos_scaled);
         if amount >= current_supply_actual {
             return (pos_scaled, current_supply_actual);
         }
         let scaled = self.calculate_scaled_supply(amount);
-        let remaining_actual = self.calculate_original_supply(pos_scaled - scaled);
+        let remaining_actual = self.unscale_supply(pos_scaled - scaled);
         if remaining_actual == 0 {
             (pos_scaled, current_supply_actual)
         } else {
@@ -153,7 +153,7 @@ impl Cache {
     // Burns reserve-covered protocol revenue.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
         let reserves = self.get_reserves_for(&self.params.asset_id);
-        let treasury_actual = self.calculate_original_supply(self.revenue);
+        let treasury_actual = self.unscale_supply(self.revenue);
         let amount = reserves.min(treasury_actual);
         if amount <= 0 {
             return amount.max(0);
@@ -171,7 +171,7 @@ impl Cache {
 
     // Resolves repayment amounts.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
-        let current_debt = self.calculate_original_borrow(pos_scaled);
+        let current_debt = self.unscale_borrow(pos_scaled);
         if amount >= current_debt {
             (pos_scaled, amount - current_debt)
         } else {

@@ -128,8 +128,6 @@ impl Controller {
     }
 }
 
-
-
 // Opens leveraged position.
 pub fn process_multiply(
     env: &Env,
@@ -235,8 +233,6 @@ pub fn process_multiply(
     account_id
 }
 
-
-
 // Swaps debt position to new token.
 pub fn process_swap_debt(
     env: &Env,
@@ -309,8 +305,6 @@ pub fn process_swap_debt(
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
-
-
 
 // Swaps collateral to different token.
 pub fn process_swap_collateral(
@@ -390,8 +384,6 @@ pub fn process_swap_collateral(
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
-
-
 
 fn swap_tokens(
     env: &Env,
@@ -495,8 +487,7 @@ fn validate_aggregator_swap(
         if first_hop.token_in != *token_in {
             panic_with_error!(env, GenericError::WrongToken);
         }
-        let last_hop =
-            validation::expect_invariant(env, path.hops.get(path.hops.len() - 1));
+        let last_hop = validation::expect_invariant(env, path.hops.get(path.hops.len() - 1));
         if last_hop.token_out != *token_out {
             panic_with_error!(env, GenericError::WrongToken);
         }
@@ -509,8 +500,6 @@ fn validate_aggregator_swap(
         panic_with_error!(env, GenericError::InvalidPayments);
     }
 }
-
-
 
 // Repays debt with swapped collateral.
 pub fn process_repay_debt_with_collateral(
@@ -587,8 +576,6 @@ pub fn process_repay_debt_with_collateral(
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
-
-
 
 fn controller_event_context(env: &Env, caller: &Address, action: Symbol) -> EventContext {
     EventContext {

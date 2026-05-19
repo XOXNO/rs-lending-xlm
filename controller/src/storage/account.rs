@@ -6,8 +6,6 @@ use common::types::{
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map};
 
-
-
 fn side_key(account_id: u64, position_type: u32) -> ControllerKey {
     if position_type == POSITION_TYPE_DEPOSIT {
         ControllerKey::SupplyPositions(account_id)
@@ -86,8 +84,6 @@ fn account_from_meta(env: &Env, account_id: u64, meta: &AccountMeta) -> Account 
     }
 }
 
-
-
 pub fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     env.storage()
         .persistent()
@@ -109,8 +105,6 @@ pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     renew_user_key(env, &key);
 }
 
-
-
 pub fn try_get_position(
     env: &Env,
     account_id: u64,
@@ -120,8 +114,6 @@ pub fn try_get_position(
     let map = read_side_map(env, account_id, position_type);
     map.get(asset.clone())
 }
-
-
 
 pub fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPosition> {
     read_side_map(env, account_id, POSITION_TYPE_DEPOSIT)
@@ -138,8 +130,6 @@ pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, Accou
 pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_BORROW, map);
 }
-
-
 
 pub fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)

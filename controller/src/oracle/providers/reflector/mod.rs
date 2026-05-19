@@ -7,9 +7,7 @@ use common::errors::OracleError;
 use common::types::{OracleAssetRef, OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
 use soroban_sdk::{panic_with_error, Env};
 
-use super::super::observation::{
-    check_not_future_at, normalize_positive_price, OracleObservation,
-};
+use super::super::observation::{check_not_future_at, normalize_positive_price, OracleObservation};
 use super::super::reflector::{ReflectorAsset, ReflectorPriceData};
 use crate::cache::ControllerCache;
 

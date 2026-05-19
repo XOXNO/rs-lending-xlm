@@ -50,19 +50,19 @@ pub fn borrow_rate(env: &Env) -> i128 {
 // Accrued protocol revenue in asset decimals.
 pub fn protocol_revenue(env: &Env) -> i128 {
     let c = Cache::load(env);
-    c.calculate_original_supply(c.revenue)
+    c.unscale_supply(c.revenue)
 }
 
 // Total supplied in asset decimals.
 pub fn supplied_amount(env: &Env) -> i128 {
     let c = Cache::load(env);
-    c.calculate_original_supply(c.supplied)
+    c.unscale_supply(c.supplied)
 }
 
 // Total borrowed in asset decimals.
 pub fn borrowed_amount(env: &Env) -> i128 {
     let c = Cache::load(env);
-    c.calculate_original_borrow(c.borrowed)
+    c.unscale_borrow(c.borrowed)
 }
 
 // Milliseconds elapsed since last accrual.

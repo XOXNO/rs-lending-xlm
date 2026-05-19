@@ -26,7 +26,11 @@ pub(crate) fn validate_market_oracle_sources(
 ) -> MarketOracleConfig {
     validate_oracle_config_shape(env, config);
     validate_max_stale(env, config.max_price_stale_seconds);
-    validate_sanity_bounds(env, config.min_sanity_price_wad, config.max_sanity_price_wad);
+    validate_sanity_bounds(
+        env,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
+    );
 
     let asset_decimals = validate_oracle_asset(env, asset);
     let primary = validate_source(env, &config.primary, config.max_price_stale_seconds);
@@ -51,7 +55,6 @@ pub(crate) fn validate_market_oracle_sources(
     }
 }
 
-
 fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();
@@ -63,14 +66,15 @@ fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
 fn validate_oracle_asset(env: &Env, asset: &Address) -> u32 {
     let token_decimals = unwrap_token_call(
         env,
-        token::Client::new(env, asset).try_decimals().map(|r| r.ok()),
+        token::Client::new(env, asset)
+            .try_decimals()
+            .map(|r| r.ok()),
     );
     if token::Client::new(env, asset).try_symbol().is_err() {
         panic_with_error!(env, GenericError::InvalidAsset);
     }
     token_decimals
 }
-
 
 fn unwrap_token_call<T>(
     env: &Env,

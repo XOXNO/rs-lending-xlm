@@ -22,12 +22,8 @@
 mod __prod;
 
 pub use __prod::{
-    calculate_health_factor,
-    calculate_ltv_collateral_wad,
-    estimate_liquidation_amount,
-    get_account_bonus_params,
-    position_value,
-    weighted_collateral,
+    calculate_health_factor, calculate_ltv_collateral_wad, estimate_liquidation_amount,
+    get_account_bonus_params, position_value, weighted_collateral,
 };
 
 use common::fp::{Bps, Wad};

@@ -1,4 +1,6 @@
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD, WAD};
+use common::constants::{
+    BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD, WAD,
+};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::types::{
     Account, AssetConfig, MarketStatus, Payment, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
@@ -57,11 +59,7 @@ pub fn require_credit_not_above_sent(env: &Env, sent: i128, received: i128) {
     }
 }
 
-pub fn require_healthy_account(
-    env: &Env,
-    cache: &mut ControllerCache,
-    account: &Account,
-) {
+pub fn require_healthy_account(env: &Env, cache: &mut ControllerCache, account: &Account) {
     if account.borrow_positions.is_empty() {
         return;
     }
@@ -77,11 +75,7 @@ pub fn require_healthy_account(
     }
 }
 
-pub fn require_within_ltv(
-    env: &Env,
-    cache: &mut ControllerCache,
-    account: &Account,
-) {
+pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Account) {
     if account.borrow_positions.is_empty() {
         return;
     }
@@ -198,8 +192,7 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
         panic_with_error!(env, FlashLoanError::StrategyFeeExceeds);
     }
 
-    let dust_disabled = config.min_collat_floor_usd_wad == 0
-        && config.min_debt_floor_usd_wad == 0;
+    let dust_disabled = config.min_collat_floor_usd_wad == 0 && config.min_debt_floor_usd_wad == 0;
     if !dust_disabled
         && (config.min_collat_floor_usd_wad < MIN_DUST_FLOOR_WAD
             || config.min_debt_floor_usd_wad < MIN_DUST_FLOOR_WAD)

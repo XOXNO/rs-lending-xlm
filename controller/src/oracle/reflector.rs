@@ -1,6 +1,4 @@
-
 use soroban_sdk::{contractclient, contracttype, Address, Env, Symbol, Vec};
-
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -9,7 +7,6 @@ pub enum ReflectorAsset {
     Other(Symbol),
 }
 
-
 #[contracttype]
 #[derive(Clone)]
 pub struct ReflectorPriceData {
@@ -17,8 +14,8 @@ pub struct ReflectorPriceData {
     pub timestamp: u64,
 }
 
-
 #[contractclient(name = "ReflectorClient")]
+#[allow(dead_code)]
 pub trait ReflectorOracle {
     fn base(env: Env) -> ReflectorAsset;
 

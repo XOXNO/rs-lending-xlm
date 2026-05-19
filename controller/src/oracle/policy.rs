@@ -25,12 +25,48 @@ impl Allowances {
         use OraclePolicy::*;
         match p {
             //                            disabled stale  unsafe   twap   prefer_agg
-            RiskIncreasing => Allowances { disabled_market: false, stale_source: false, unsafe_deviation: false, missing_twap_fallback: false, prefer_aggregator_on_deviation: false },
-            RiskDecreasing => Allowances { disabled_market: false, stale_source: true,  unsafe_deviation: true,  missing_twap_fallback: true,  prefer_aggregator_on_deviation: false },
-            Repay          => Allowances { disabled_market: true,  stale_source: true,  unsafe_deviation: true,  missing_twap_fallback: true,  prefer_aggregator_on_deviation: false },
-            IsolatedRepay  => Allowances { disabled_market: true,  stale_source: false, unsafe_deviation: false, missing_twap_fallback: false, prefer_aggregator_on_deviation: false },
-            Liquidation    => Allowances { disabled_market: false, stale_source: false, unsafe_deviation: true,  missing_twap_fallback: false, prefer_aggregator_on_deviation: true  },
-            View           => Allowances { disabled_market: true,  stale_source: true,  unsafe_deviation: true,  missing_twap_fallback: true,  prefer_aggregator_on_deviation: false },
+            RiskIncreasing => Allowances {
+                disabled_market: false,
+                stale_source: false,
+                unsafe_deviation: false,
+                missing_twap_fallback: false,
+                prefer_aggregator_on_deviation: false,
+            },
+            RiskDecreasing => Allowances {
+                disabled_market: false,
+                stale_source: true,
+                unsafe_deviation: true,
+                missing_twap_fallback: true,
+                prefer_aggregator_on_deviation: false,
+            },
+            Repay => Allowances {
+                disabled_market: true,
+                stale_source: true,
+                unsafe_deviation: true,
+                missing_twap_fallback: true,
+                prefer_aggregator_on_deviation: false,
+            },
+            IsolatedRepay => Allowances {
+                disabled_market: true,
+                stale_source: false,
+                unsafe_deviation: false,
+                missing_twap_fallback: false,
+                prefer_aggregator_on_deviation: false,
+            },
+            Liquidation => Allowances {
+                disabled_market: false,
+                stale_source: false,
+                unsafe_deviation: true,
+                missing_twap_fallback: false,
+                prefer_aggregator_on_deviation: true,
+            },
+            View => Allowances {
+                disabled_market: true,
+                stale_source: true,
+                unsafe_deviation: true,
+                missing_twap_fallback: true,
+                prefer_aggregator_on_deviation: false,
+            },
         }
     }
 }

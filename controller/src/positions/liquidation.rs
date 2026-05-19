@@ -12,8 +12,8 @@ use stellar_macros::{only_role, when_not_paused};
 use super::dust::require_no_dust_after;
 use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_seize_position_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::positions;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -37,7 +37,6 @@ impl Controller {
         clean_bad_debt_standalone(&env, account_id);
     }
 }
-
 
 // Executes liquidation.
 pub fn process_liquidation(
@@ -97,8 +96,7 @@ pub fn process_liquidation(
         &account.borrow_positions,
     );
     let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
-    let will_socialize =
-        post_total_debt > post_total_coll && post_total_coll <= bad_debt_threshold;
+    let will_socialize = post_total_debt > post_total_coll && post_total_coll <= bad_debt_threshold;
     if !will_socialize {
         require_no_dust_after(env, &mut cache, &account);
     }
@@ -114,7 +112,6 @@ pub fn process_liquidation(
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
 }
-
 
 fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {
     EventContext {
@@ -139,7 +136,8 @@ fn apply_liquidation_repayments(
         let token = soroban_sdk::token::Client::new(env, &entry.asset);
         token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position = validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone()));
+        let position =
+            validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone()));
         repay::execute_repayment(
             env,
             account,
@@ -165,7 +163,8 @@ fn apply_liquidation_seizures(
     for i in 0..seized.len() {
         let entry = validation::expect_invariant(env, seized.get(i));
 
-        let position = validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone()));
+        let position =
+            validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone()));
         withdraw::execute_withdrawal(
             env,
             account,
@@ -377,8 +376,7 @@ fn expand_to_full_close_on_dust_residue(
         total_collateral - seizure_usd
     };
 
-    let leaves_debt_dust =
-        residual_debt > Wad::ZERO && residual_debt.raw() < min_debt_floor;
+    let leaves_debt_dust = residual_debt > Wad::ZERO && residual_debt.raw() < min_debt_floor;
     let leaves_collat_dust =
         residual_collateral > Wad::ZERO && residual_collateral.raw() < min_collat_floor;
 
@@ -548,7 +546,6 @@ fn process_excess_payment(
     }
 }
 
-
 fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut ControllerCache,
@@ -663,4 +660,3 @@ fn seize_pool_position(
     let result = pool_seize_position_call(env, &pool_addr, side, position.clone());
     cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
 }
-

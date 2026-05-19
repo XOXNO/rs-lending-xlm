@@ -163,8 +163,6 @@ fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     }
 }
 
-
-
 pub fn set_aggregator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, OracleError::InvalidAggregator);
     storage::set_aggregator(env, &addr);
@@ -381,8 +379,6 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     emit_remove_emode_asset(env, RemoveEModeAssetEvent { asset, category_id });
 }
 
-
-
 /// i128 to u32 (checked).
 fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
@@ -445,8 +441,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         config.first_tolerance_bps,
         config.last_tolerance_bps,
     );
-    let mut oracle_config =
-        validate_market_oracle_sources(env, &asset, &config, tolerance);
+    let mut oracle_config = validate_market_oracle_sources(env, &asset, &config, tolerance);
     // Persists config.
     if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
         oracle_config.asset_decimals = market.oracle_config.asset_decimals;

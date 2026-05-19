@@ -9,9 +9,9 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map, Symbol, Vec};
 
+use crate::cross_contract::pool::fetch_pool_sync_data;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::{token_price, update_asset_index};
-use crate::cross_contract::pool::fetch_pool_sync_data;
 use crate::storage;
 
 pub struct ControllerCache {
@@ -61,14 +61,9 @@ impl ControllerCache {
         &self.env
     }
 
-
-
-
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         token_price(self, asset)
     }
-
-
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
         if let Some(config) = self.market_configs.get(asset.clone()) {
@@ -78,8 +73,6 @@ impl ControllerCache {
         self.market_configs.set(asset.clone(), config.clone());
         config
     }
-
-
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
         self.cached_market_config(asset).asset_config
@@ -217,12 +210,12 @@ impl ControllerCache {
             // cannot return `None`. Surface a typed `InternalError`
             // rather than `.unwrap()` so a future map-invariant break
             // is categorizable instead of an opaque host panic.
-            let value = self
-                .isolated_debts
-                .get(asset.clone())
-                .unwrap_or_else(|| {
-                    soroban_sdk::panic_with_error!(&self.env, common::errors::GenericError::InternalError)
-                });
+            let value = self.isolated_debts.get(asset.clone()).unwrap_or_else(|| {
+                soroban_sdk::panic_with_error!(
+                    &self.env,
+                    common::errors::GenericError::InternalError
+                )
+            });
             storage::set_isolated_debt(&self.env, &asset, value);
             emit_update_debt_ceiling(
                 &self.env,
@@ -234,4 +227,3 @@ impl ControllerCache {
         }
     }
 }
-

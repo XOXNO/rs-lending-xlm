@@ -5,8 +5,8 @@ use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, Executabl
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
-use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_flash_loan_call;
+use crate::oracle::policy::OraclePolicy;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -84,4 +84,3 @@ fn flash_loan_fee(env: &Env, fee_bps: u32, amount: i128) -> i128 {
         fee
     }
 }
-
