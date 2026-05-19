@@ -64,6 +64,7 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParams {
         optimal_utilization_ray: RAY * opt_pct / 100,
         max_borrow_rate_ray: (RAY * (i.max_pct.max(1) as i128 % 1001) / 100).max(1),
         reserve_factor_bps: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
+        max_utilization_ray: 0,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -117,7 +118,7 @@ fuzz_target!(|i: In| {
                 // update_indexes — interest accrual path. Use try_* so
                 // rejected calls (e.g. math overflow on extreme inputs)
                 // don't crash the harness.
-                if let Ok(Ok(idx)) = pool.try_update_indexes(&price_wad) {
+                if let Ok(Ok(idx)) = pool.try_update_indexes() {
                     assert!(
                         idx.borrow_index_ray >= prev_borrow_index,
                         "borrow index regressed: prev={} new={}",
@@ -138,7 +139,7 @@ fuzz_target!(|i: In| {
                 // add_rewards — fails with NoSuppliersToReward (#37) when
                 // supplied == 0. Expected; swallow via try_*.
                 let amount = ((*price_raw as i128) % 10_000_000) + 1;
-                let _ = pool.try_add_rewards(&price_wad, &amount);
+                let _ = pool.try_add_rewards(&price_wad);
             }
             2 => {
                 // keepalive — TTL extension path.

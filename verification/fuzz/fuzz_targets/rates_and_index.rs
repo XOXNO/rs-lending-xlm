@@ -85,6 +85,7 @@ fn make_params(env: &Env, i: &In) -> MarketParams {
         optimal_utilization_ray: opt,
         max_borrow_rate_ray: max_rate.max(1),
         reserve_factor_bps,
+        max_utilization_ray: 0,
         asset_id: Address::from_str(
             env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",

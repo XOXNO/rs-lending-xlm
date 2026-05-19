@@ -205,17 +205,7 @@ impl ControllerCache {
     }
 
     pub fn flush_isolated_debts(&self) {
-        for asset in self.isolated_debts.keys() {
-            // `keys()` is in lock-step with the underlying map, so `get`
-            // cannot return `None`. Surface a typed `InternalError`
-            // rather than `.unwrap()` so a future map-invariant break
-            // is categorizable instead of an opaque host panic.
-            let value = self.isolated_debts.get(asset.clone()).unwrap_or_else(|| {
-                soroban_sdk::panic_with_error!(
-                    &self.env,
-                    common::errors::GenericError::InternalError
-                )
-            });
+        for (asset, value) in self.isolated_debts.iter() {
             storage::set_isolated_debt(&self.env, &asset, value);
             emit_update_debt_ceiling(
                 &self.env,

@@ -99,11 +99,29 @@ fn pick_mode(bits: u8) -> PositionMode {
 /// exhausting the router funding and lets many ops chain in one sequence.
 /// Strategy correctness is asserted via HF floor + reserve checks, not via
 /// matching a specific swap rate.
-fn build_steps(t: &LendingTest, _token_in: &str, _token_out: &str) -> AggregatorSwap {
-    // Empty-path placeholder. Strategy operations that need real swap coverage
-    // must build a valid `AggregatorSwap` for the selected operation.
+use common::types::{SwapPath, SwapHop, SwapVenue};
+use soroban_sdk::testutils::Address;
+
+fn build_steps(t: &LendingTest, token_in: &str, token_out: &str) -> AggregatorSwap {
+    let token_in_addr = t.resolve_asset(token_in);
+    let token_out_addr = t.resolve_asset(token_out);
+    let dummy_pool = soroban_sdk::Address::generate(&t.env);
+
+    let hop = SwapHop {
+        fee_bps: 30,
+        pool: dummy_pool,
+        token_in: token_in_addr,
+        token_out: token_out_addr,
+        venue: SwapVenue::Soroswap,
+    };
+
+    let path = SwapPath {
+        hops: soroban_sdk::vec![&t.env, hop],
+        split_ppm: 1_000_000,
+    };
+
     AggregatorSwap {
-        paths: soroban_vec![&t.env],
+        paths: soroban_sdk::vec![&t.env, path],
         total_min_out: 1,
     }
 }
