@@ -8,8 +8,7 @@ use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, V
 use crate::cache::Cache;
 use crate::interest;
 
-/// Defends the pool's phantom-collateral path: rejects negatives at every
-/// mutating ABI in case a controller upgrade drops its own sign check.
+// Rejects negatives at every mutating ABI.
 pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
     if amount < 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
@@ -34,14 +33,12 @@ pub(crate) fn renew_pool_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// `cap <= 0` or `cap == i128::MAX` means "disabled". Negative caps come
-/// from the controller (sole producer) and are validated upstream.
+// Returns true if cap is enabled.
 pub(crate) fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
-/// Panics `SupplyCapReached` when adding `scaled_delta` would breach
-/// `supply_cap` (asset decimals). No-op if the cap is disabled.
+// Panics if adding scaled_delta would breach supply_cap.
 pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, supply_cap: i128) {
     if !cap_is_enabled(supply_cap) {
         return;
@@ -54,8 +51,7 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, su
     }
 }
 
-/// Panics `BorrowCapReached` when adding `scaled_delta` would breach
-/// `borrow_cap` (asset decimals). No-op if the cap is disabled.
+// Panics if adding scaled_delta would breach borrow_cap.
 pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, borrow_cap: i128) {
     if !cap_is_enabled(borrow_cap) {
         return;
@@ -68,8 +64,7 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
     }
 }
 
-/// Writes `m`'s rate-model fields into stored `MarketParams`. Caller must
-/// have validated (`m.verify(env)`) and accrued interest first.
+// Updates rate-model fields in stored MarketParams.
 pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     let mut params: MarketParams = env
         .storage()
@@ -90,11 +85,7 @@ pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     env.storage().instance().set(&PoolKey::Params, &params);
 }
 
-/// Hard utilization ceiling. Called post-state by `borrow`,
-/// `withdraw`, and the strategy-liability path so any operation that
-/// would push `borrowed / supplied` above `max_utilization_ray`
-/// reverts. Utilization is undefined when supplied is zero, so the
-/// empty-pool case short-circuits.
+// Hard utilization ceiling.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO {
         return;
@@ -118,22 +109,14 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     }
 }
 
-/// Withdraw-specific post-state guard. Rejects a withdrawal that
-/// would leave the pool with `supplied == 0 && borrowed > 0` — the
-/// "donation-backed last-supplier exit" attack: a direct token
-/// donation to the pool address inflates the live SAC balance so the
-/// reserve check on the final supplier's withdrawal passes even
-/// though outstanding debt remains, leaving an insolvent pool whose
-/// utilization views report zero.
+// Rejects withdrawals leaving supplied == 0 and borrowed > 0.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
         panic_with_error!(env, CollateralError::UtilizationAboveMax);
     }
 }
 
-/// Deducts the liquidation `protocol_fee` from `gross_amount`, accrues it
-/// as revenue, and returns the net. No-op on `!is_liquidation` or zero fee.
-/// Panics `WithdrawLessThanFee` if the gross can't cover the fee.
+// Deducts liquidation protocol_fee from gross_amount.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

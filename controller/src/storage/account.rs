@@ -6,9 +6,7 @@ use common::types::{
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map};
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+
 
 fn side_key(account_id: u64, position_type: u32) -> ControllerKey {
     if position_type == POSITION_TYPE_DEPOSIT {
@@ -40,20 +38,11 @@ fn write_side_map(
         persistent.set(&key, map);
         renew_user_key(env, &key);
     }
-    // Any side write keeps AccountMeta alive at least as long as the most
-    // recent user-side activity; without this the meta key could expire
-    // independently of live position data and orphan the account.
+    // Renew keys to prevent archiving.
     let meta_key = account_meta_key(account_id);
     if persistent.has(&meta_key) {
         renew_user_key(env, &meta_key);
     }
-    // Also renew the counterpart side if it exists. Without this, a
-    // borrower who repeatedly mutates only one side (e.g. supplies
-    // collateral while borrow positions stay untouched) would let the
-    // untouched-side key age out and get archived while the account
-    // is still active. Every side-only entrypoint (`borrow`, `repay`)
-    // and bulk entrypoint flows through this function, so renewing
-    // the counterpart here covers every state-changing path.
     let other_type = if position_type == POSITION_TYPE_DEPOSIT {
         POSITION_TYPE_BORROW
     } else {
@@ -69,10 +58,6 @@ fn account_meta_key(account_id: u64) -> ControllerKey {
     ControllerKey::AccountMeta(account_id)
 }
 
-// Builds an `Account` from a meta and pre-loaded side maps. Either side
-// may be empty when the caller only loaded one side and expects inner
-// helpers to consume only that side; helpers that touch both sides at a
-// math gate must load the other side explicitly.
 pub fn account_from_parts(
     meta: AccountMeta,
     supply_positions: Map<Address, AccountPosition>,
@@ -101,9 +86,7 @@ fn account_from_meta(env: &Env, account_id: u64, meta: &AccountMeta) -> Account 
     }
 }
 
-// ---------------------------------------------------------------------------
-// AccountMeta API
-// ---------------------------------------------------------------------------
+
 
 pub fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     env.storage()
@@ -116,8 +99,7 @@ pub fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
-// Writes meta when it differs; always extends meta TTL so the
-// account stays alive even on no-op upserts.
+// Updates meta and extends TTL.
 pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     let key = account_meta_key(account_id);
     let persistent = env.storage().persistent();
@@ -127,9 +109,7 @@ pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     renew_user_key(env, &key);
 }
 
-// ---------------------------------------------------------------------------
-// Per-position atomic API
-// ---------------------------------------------------------------------------
+
 
 pub fn try_get_position(
     env: &Env,
@@ -141,9 +121,7 @@ pub fn try_get_position(
     map.get(asset.clone())
 }
 
-// ---------------------------------------------------------------------------
-// Side enumeration (single storage read)
-// ---------------------------------------------------------------------------
+
 
 pub fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPosition> {
     read_side_map(env, account_id, POSITION_TYPE_DEPOSIT)
@@ -153,21 +131,15 @@ pub fn get_borrow_positions(env: &Env, account_id: u64) -> Map<Address, AccountP
     read_side_map(env, account_id, POSITION_TYPE_BORROW)
 }
 
-// Single flush for the supply side. Removes the side key when the map is
-// empty; otherwise writes + bumps the side TTL. Use this when a batch
-// loaded the side map once, mutated in memory, and wants one final write.
 pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_DEPOSIT, map);
 }
 
-// Symmetric flush for the borrow side.
 pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
     write_side_map(env, account_id, POSITION_TYPE_BORROW, map);
 }
 
-// ---------------------------------------------------------------------------
-// Account-level lifecycle
-// ---------------------------------------------------------------------------
+
 
 pub fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)
@@ -178,7 +150,7 @@ pub fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     try_get_account_meta(env, account_id).map(|meta| account_from_meta(env, account_id, &meta))
 }
 
-// Removes meta + both side maps. Idempotent.
+// Removes account and positions.
 pub fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&account_meta_key(account_id));
@@ -186,8 +158,7 @@ pub fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&side_key(account_id, POSITION_TYPE_BORROW));
 }
 
-// Keeps meta + both side maps alive without mutating them. This is the only
-// renewal helper intended for user-owned account storage.
+// Renews account storage TTL.
 pub fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let meta_key = account_meta_key(account_id);

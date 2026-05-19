@@ -3,17 +3,12 @@ use soroban_sdk::{contracttype, panic_with_error, Address, Env, Map, String, Sym
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
 use crate::errors::CollateralError;
 
-// Internal asset + amount pair used by controller operation helpers.
-// Public contract entrypoints spell this as `(Address, i128)` so the Soroban
-// spec generator emits a tuple type instead of an undefined Rust alias.
+// Asset + amount pair.
 pub type Payment = (Address, i128);
 
-// ---------------------------------------------------------------------------
-// Position types
-// ---------------------------------------------------------------------------
 
-// Position discriminants used inside composite storage keys. Stored as u32
-// because `#[contracttype]` enum variant data does not support u8.
+
+// Position discriminants.
 pub const POSITION_TYPE_DEPOSIT: u32 = 1;
 pub const POSITION_TYPE_BORROW: u32 = 2;
 
@@ -35,9 +30,7 @@ pub enum PositionMode {
     Short = 3,
 }
 
-// ---------------------------------------------------------------------------
-// Market parameters
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -47,24 +40,18 @@ pub struct MarketParams {
     pub slope1_ray: i128,
     pub slope2_ray: i128,
     pub slope3_ray: i128,
+    // Max utilization.
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    // Hard ceiling on `borrowed / supplied`. Must satisfy
-    // `optimal_utilization_ray <= max_utilization_ray <= RAY`.
-    // Enforced post-state by borrow / withdraw / flash-loan in the
-    // pool; reserves enough liquidity for liquidation seizure even at
-    // peak utilization.
     pub max_utilization_ray: i128,
-    // Reserve factor in basis points. Bounded by `BPS` (10 000).
+    // Reserve factor (bps).
     pub reserve_factor_bps: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
 
 impl MarketParams {
-    /// Extracts the rate-model fields as an `InterestRateModel`. Use to
-    /// validate an existing `MarketParams` via `model.verify(env)` without
-    /// duplicating field plumbing.
+    // Interest rate model view.
     pub fn rate_model_view(&self) -> InterestRateModel {
         InterestRateModel {
             max_borrow_rate_ray: self.max_borrow_rate_ray,
@@ -79,17 +66,13 @@ impl MarketParams {
         }
     }
 
-    /// Validates the interest-rate model fields embedded in this market.
-    /// Asset identity and token-decimal checks are context-dependent and stay
-    /// with the caller that has the expected asset/token contract available.
+    // Validates the interest-rate model.
     pub fn verify_rate_model(&self, env: &Env) {
         self.rate_model_view().verify(env);
     }
 }
 
-// Interest-rate model update payload. Separates the 8 mutable rate params
-// from `asset_id`/`asset_decimals`, which the controller resolves from
-// storage and never accepts from the caller.
+// Interest rate model.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct InterestRateModel {
@@ -100,18 +83,14 @@ pub struct InterestRateModel {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
-    // Hard utilization ceiling — see `MarketParams::max_utilization_ray`.
+    // Hard utilization ceiling.
     pub max_utilization_ray: i128,
-    // Reserve factor in basis points. Bounded by `BPS` (10 000).
+    // Reserve factor (bps).
     pub reserve_factor_bps: u32,
 }
 
 impl InterestRateModel {
-    /// Validates rate-model invariants: non-negative components, monotone
-    /// slope chain (`base <= s1 <= s2 <= s3 <= max`), strict `base < max`,
-    /// `0 < mid < optimal < RAY`, `reserve_factor < BPS`, and the Taylor-
-    /// envelope cap on `max_borrow_rate_ray`. Shared by the controller
-    /// (caller-side check) and the pool (defense-in-depth on the ABI).
+    // Validates rate-model invariants.
     pub fn verify(&self, env: &Env) {
         if self.base_borrow_rate_ray < 0
             || self.slope1_ray < self.base_borrow_rate_ray
@@ -137,9 +116,7 @@ impl InterestRateModel {
         if self.optimal_utilization_ray >= RAY {
             panic_with_error!(env, CollateralError::OptUtilTooHigh);
         }
-        // `max_utilization_ray` must sit at or above the optimal
-        // kink (so the IR curve's slope2 region is at least partially
-        // reachable) and at or below 100 %.
+        /// Validates max utilization is within bounds.
         if self.max_utilization_ray < self.optimal_utilization_ray || self.max_utilization_ray > RAY
         {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
@@ -150,26 +127,8 @@ impl InterestRateModel {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Account position
-// ---------------------------------------------------------------------------
 
-// Per-position snapshot stored as the value in
-// `Map<Address, AccountPosition>` under
-// `SupplyPositions(account_id)` / `BorrowPositions(account_id)`.
-//
-// Context that the value omits is derived from where it lives:
-// * `asset` — the enclosing map key.
-// * `position_type` — the enclosing storage key (supply vs borrow).
-// * `account_id` — the discriminant inside that storage key.
-//
-// Event payloads carry these three explicitly via
-// [`crate::events::EventAccountPosition::new`], filled in by the
-// emit-site from local context.
-//
-// The four risk-parameter fields are an open-time snapshot — see
-// `feedback_account_position_snapshot.md`. They are bounded by
-// `BPS` (10 000), so `u32` covers the full domain.
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
@@ -180,14 +139,12 @@ pub struct AccountPosition {
     pub loan_to_value_bps: u32,
 }
 
-// ---------------------------------------------------------------------------
-// Asset configuration
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
-    // Risk parameters in basis points. Bounded by `BPS` (10 000).
+    // Risk parameters (bps).
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
@@ -198,27 +155,14 @@ pub struct AssetConfig {
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
     pub isolation_borrow_enabled: bool,
-    // Isolation debt ceiling, WAD-scaled USD. `i128` — domain reaches
-    // `1e27` for billion-dollar caps.
+    // Isolation debt ceiling (USD-WAD).
     pub isolation_debt_ceiling_usd_wad: i128,
     pub flashloan_fee_bps: u32,
-    // Asset-unit caps. `i128` — high-decimal tokens push raw supply
-    // past `u64`; `-1` / `i128::MAX` encodes "no cap".
     pub borrow_cap: i128,
     pub supply_cap: i128,
-    // Per-position dust floors in WAD-USD. Borrow / repay / withdraw /
-    // Strategy paths reject any state where a single position's USD
-    // value is in the open interval `(0, floor)`. Closing to zero is
-    // always allowed; liquidation expands to a full close on residue
-    // via `helpers::estimate_liquidation_amount`. Validated to be
-    // `>= MIN_DUST_FLOOR_WAD` at admin time.
     pub min_collat_floor_usd_wad: i128,
     pub min_debt_floor_usd_wad: i128,
-    // E-mode category memberships for this asset. Empty when the asset
-    // is not enrolled in any category — `has_emode()` returns false in
-    // that state. Maintained by `add_asset_to_e_mode_category` /
-    // `remove_asset_from_e_mode` / `remove_e_mode_category` so it
-    // stays in sync with the per-category `EModeCategory.assets` map.
+    // E-mode memberships.
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -248,9 +192,7 @@ impl AssetConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Account attributes
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -266,9 +208,7 @@ impl AccountAttributes {
     }
 }
 
-// Slim account context. The supply and borrow position maps live under
-// `ControllerKey::SupplyPositions` / `ControllerKey::BorrowPositions` and
-// serve as their own asset index — no Vec is maintained here.
+// Account metadata.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -279,14 +219,9 @@ pub struct AccountMeta {
     pub isolated_asset: Option<Address>,
 }
 
-// ---------------------------------------------------------------------------
-// E-Mode
-// ---------------------------------------------------------------------------
 
-// One ledger entry per category, holding the params plus the member
-// assets map. `category_id` is the storage-key discriminant
-// (`ControllerKey::EModeCategory(u32)`) and is re-injected into event
-// payloads by the emit-site.
+
+// E-mode category config.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeCategory {
@@ -304,9 +239,7 @@ pub struct EModeAssetConfig {
     pub is_borrowable: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Oracle
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -472,13 +405,6 @@ pub struct MarketOracleConfig {
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfig,
     pub anchor: OracleSourceConfigOption,
-    // Per-market circuit breaker against catastrophic oracle outputs.
-    // A read whose resolved Wad-price falls outside
-    // `[min_sanity_price_wad, max_sanity_price_wad]` reverts with
-    // `OracleError::SanityBoundViolated`. Sentinel: when
-    // `max_sanity_price_wad == 0` the bound is disabled — intended
-    // for test setups only; production deployments must set both
-    // bounds per asset.
     pub min_sanity_price_wad: i128,
     pub max_sanity_price_wad: i128,
 }
@@ -518,15 +444,11 @@ pub struct MarketOracleConfigInput {
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfigInput,
     pub anchor: OracleSourceConfigInputOption,
-    // See `MarketOracleConfig::min_sanity_price_wad` / `max_sanity_price_wad`.
-    // Sentinel `max_sanity_price_wad == 0` disables the bound (tests only).
     pub min_sanity_price_wad: i128,
     pub max_sanity_price_wad: i128,
 }
 
-// ---------------------------------------------------------------------------
-// Price feeds
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -545,9 +467,7 @@ pub struct SafePriceFeed {
     pub within_second_tolerance: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Market index
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -624,9 +544,7 @@ pub struct PoolSyncData {
     pub state: PoolState,
 }
 
-// ---------------------------------------------------------------------------
-// Position limits
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -635,9 +553,7 @@ pub struct PositionLimits {
     pub max_supply_positions: u32,
 }
 
-// ---------------------------------------------------------------------------
-// Liquidation
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -656,7 +572,7 @@ pub struct LiquidationEstimate {
     pub bonus_rate_bps: i128,
 }
 
-// Named entry for a seized collateral asset produced by `execute_liquidation`.
+// Seized collateral.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
@@ -667,7 +583,7 @@ pub struct SeizeEntry {
     pub market_index: MarketIndex,
 }
 
-// Named entry for a repaid debt asset produced by `execute_liquidation`.
+// Repaid debt.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct RepayEntry {
@@ -678,7 +594,7 @@ pub struct RepayEntry {
     pub market_index: MarketIndex,
 }
 
-// Aggregate result of `execute_liquidation`.
+// Liquidation result.
 #[derive(Clone)]
 pub struct LiquidationResult {
     pub seized: Vec<SeizeEntry>,
@@ -688,25 +604,9 @@ pub struct LiquidationResult {
     pub bonus_bps: i128,
 }
 
-// ---------------------------------------------------------------------------
-// Aggregator Swap types
-//
-// These mirror the public ABI of `stellar-router-contract`
-// (XOXNO's deployed Stellar aggregator). The off-chain quote builder
-// produces an `AggregatorSwap` value that the controller forwards to the
-// router via `batch_execute`. The router's own `BatchSwap` struct
-// additionally carries `sender`, which the controller fills in with its
-// own contract address — the user never sets it, eliminating spoofing.
-//
-// **DO NOT rename fields or reorder enum variants** without updating
-// `stellar-router-contract/src/types.rs` AND
-// `stellar-indexer/src/transaction/abi.rs` in lockstep. Soroban's
-// `#[contracttype]` derives an alphabetical `ScMap` key encoding, so
-// the bytes have to match across all three crates.
-// ---------------------------------------------------------------------------
 
-// Which DEX/venue routes a given hop. Tag-only enum — every hop is
-// dispatched on this discriminant inside the router contract.
+
+// Swap venue.
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapVenue {
@@ -717,84 +617,56 @@ pub enum SwapVenue {
     StaticBridge,
 }
 
-// Single hop in a path. `pool`, `token_in`, `token_out` are all Soroban
-// `Address` values; Classic assets are pre-resolved to their SAC
-// contract IDs by the off-chain builder.
+// Swap hop.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapHop {
-    // Fee in basis points (1 bps = 0.01%). Informational; the pool has
-    // authority over actual fees applied.
+    // Fee (bps).
     pub fee_bps: u32,
-    // Pool contract address (for Soroswap/Aquarius/Phoenix), LP account
-    // (for NativeAmm), or zero bytes (for StaticBridge).
+    /// Pool contract address or venue-specific ID.
     pub pool: Address,
     pub token_in: Address,
     pub token_out: Address,
     pub venue: SwapVenue,
 }
 
-// One path in a (possibly multi-path) swap.
-//
-// `split_ppm` is parts per million of the total input allocated to this
-// path. The router computes per-path input as
-// `total_in * split_ppm / 1_000_000`; the LAST path absorbs PPM rounding
-// so the entire `total_in` is consumed and no dust is left on the
-// sender. Within a path, output of hop N feeds hop N+1 directly — there
-// are no per-hop or per-path amount fields. The single `total_min_out`
-// guard at the router-batch level is the only slippage gate.
+// Swap path.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapPath {
     pub hops: Vec<SwapHop>,
-    // Parts per million of the total input. `> 0`; sum across all paths
-    // must equal `1_000_000`.
+    // Split (PPM).
     pub split_ppm: u32,
 }
 
-// User-facing aggregator swap request. The controller wraps this in
-// `BatchSwap` (filling `sender = current_contract_address` and
-// `total_in = actual_withdrawn`) before dispatching to the router.
-// Off-chain callers produce this directly from the indexer's quote
-// response.
+// Swap request.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AggregatorSwap {
-    // One or more paths that all converge on the same final
-    // `token_out`. Each path's `split_ppm` declares its share of the
-    // total input.
+    // Convergence paths.
     pub paths: Vec<SwapPath>,
-    // Aggregate slippage floor across all paths. Computed off-chain
-    // against quoted `amount_out * (1 - slippage)`. Must be > 0.
+    // Slippage floor.
     pub total_min_out: i128,
 }
 
 // Backward-compatible name used by the Certora specs.
 pub type SwapSteps = AggregatorSwap;
 
-// Full batch passed to `Router::batch_execute`. Internal — strategy
-// endpoints take [`AggregatorSwap`] and the controller fills `sender`,
-// `total_in`, and `referral_id = 0` (lending strategies never charge
-// fees on user collateral / debt operations; the standalone swap UI
-// is the path that uses non-zero `referral_id`).
+// Batch swap.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct BatchSwap {
     pub paths: Vec<SwapPath>,
-    // Referral ID for fee attribution. `0` means no fee. Lending
-    // strategies always pass `0`; only direct user→router swaps via
-    // the standalone swap UI use a non-zero referral ID.
+    // Referral ID.
     pub referral_id: u64,
     pub sender: Address,
     pub total_in: i128,
     pub total_min_out: i128,
 }
 
-// ---------------------------------------------------------------------------
-// Consolidated storage types
-// ---------------------------------------------------------------------------
 
-// Market lifecycle status.
+
+// Market status.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -813,7 +685,7 @@ pub struct MarketConfig {
     pub oracle_config: MarketOracleConfig,
 }
 
-// Per-account state read and written by user operations.
+// Account state.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -860,12 +732,9 @@ impl From<&AccountMeta> for AccountAttributes {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Storage key enums
-// ---------------------------------------------------------------------------
+// Storage keys.
 
-// Controller contract storage keys. Small integer fields use u32 because
-// `#[contracttype]` enum variant data does not support u8.
+// Controller storage keys.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
@@ -876,8 +745,6 @@ pub enum ControllerKey {
     AccountNonce,
     PositionLimits,
     LastEModeCategoryId,
-    // Reentrancy guard key. Kept in this enum for stable contracttype
-    // encoding, but stored in temporary storage rather than instance storage.
     FlashLoanOngoing,
 
     // Persistent-scoped
@@ -885,17 +752,13 @@ pub enum ControllerKey {
     AccountMeta(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
-    // Single ledger entry per category — params + member-asset map
-    // inside the [`EModeCategory`] value. One TTL bump per category.
     EModeCategory(u32),
     IsolatedDebt(Address),
-    // Single ledger entry holding `Vec<Address>` (asset addresses).
-    // Pool address per asset is resolved via [`MarketConfig::pool_address`];
-    // no separate `PoolsCount` is kept (vec.len() is authoritative).
+    // Asset list.
     PoolsList,
 }
 
-// Pool storage keys, all Instance-scoped.
+// Pool storage keys.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
@@ -903,7 +766,7 @@ pub enum PoolKey {
     State,
 }
 
-// Mutable pool state held in a single Instance entry.
+// Pool state.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolState {

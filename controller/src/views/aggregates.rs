@@ -1,8 +1,4 @@
-//! USD-aggregate views split out so the heavy iterating bodies can be
-//! abstracted by a Certora harness under `--features certora`. Each
-//! function walks every position in an account and rescales to a
-//! WAD-USD aggregate; the prover replaces them with bounded nondet
-//! returns to keep rule budgets tractable.
+//! USD-aggregate views.
 
 use common::fp::{Ray, Wad};
 use soroban_sdk::Env;

@@ -5,7 +5,7 @@ use soroban_sdk::{panic_with_error, Env};
 
 use crate::cache::Cache;
 
-/// Loads pool state; panics `PoolNotInitialized` if missing.
+// Loads pool state.
 pub fn load_state(env: &Env) -> PoolState {
     env.storage()
         .instance()
@@ -13,7 +13,7 @@ pub fn load_state(env: &Env) -> PoolState {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Loads market params; panics `PoolNotInitialized` if missing.
+// Loads market params.
 pub fn load_params(env: &Env) -> MarketParams {
     env.storage()
         .instance()
@@ -21,19 +21,19 @@ pub fn load_params(env: &Env) -> MarketParams {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Capital utilisation ratio in RAY.
+// Capital utilization ratio in RAY.
 pub fn capital_utilisation(env: &Env) -> i128 {
     Cache::load(env).calculate_utilization().raw()
 }
 
-/// Pool's live token reserves in asset decimals.
+// Pool's live token reserves in asset decimals.
 pub fn reserves(env: &Env) -> i128 {
     let params = load_params(env);
     let token = soroban_sdk::token::Client::new(env, &params.asset_id);
     token.balance(&env.current_contract_address())
 }
 
-/// Current deposit APR in RAY.
+// Current deposit APR in RAY.
 pub fn deposit_rate(env: &Env) -> i128 {
     let cache = Cache::load(env);
     let util = cache.calculate_utilization();
@@ -41,31 +41,31 @@ pub fn deposit_rate(env: &Env) -> i128 {
     calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor_bps).raw()
 }
 
-/// Current borrow APR in RAY.
+// Current borrow APR in RAY.
 pub fn borrow_rate(env: &Env) -> i128 {
     let cache = Cache::load(env);
     calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
-/// Accrued protocol revenue in asset decimals.
+// Accrued protocol revenue in asset decimals.
 pub fn protocol_revenue(env: &Env) -> i128 {
     let c = Cache::load(env);
     c.calculate_original_supply(c.revenue)
 }
 
-/// Total supplied in asset decimals.
+// Total supplied in asset decimals.
 pub fn supplied_amount(env: &Env) -> i128 {
     let c = Cache::load(env);
     c.calculate_original_supply(c.supplied)
 }
 
-/// Total borrowed in asset decimals.
+// Total borrowed in asset decimals.
 pub fn borrowed_amount(env: &Env) -> i128 {
     let c = Cache::load(env);
     c.calculate_original_borrow(c.borrowed)
 }
 
-/// Milliseconds elapsed since the last interest accrual.
+// Milliseconds elapsed since last accrual.
 pub fn delta_time(env: &Env) -> u64 {
     let state = load_state(env);
     let current_ms = env.ledger().timestamp() * 1000;

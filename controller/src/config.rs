@@ -163,9 +163,7 @@ fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Address configuration
-// ---------------------------------------------------------------------------
+
 
 pub fn set_aggregator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, OracleError::InvalidAggregator);
@@ -182,17 +180,10 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
     storage::set_pool_template(env, &hash);
 }
 
-// ---------------------------------------------------------------------------
-// Asset configuration
-// ---------------------------------------------------------------------------
-
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig) {
     validation::validate_asset_config(env, &next_config);
 
     let mut market = storage::get_market_config(env, &asset);
-    // Preserve the controller-managed e-mode membership list — it's
-    // updated via add/remove_asset_to_e_mode_category, never by the
-    // admin asset-config edit path.
     next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
     market.asset_config = next_config.clone();
     storage::set_market_config(env, &asset, &market);
@@ -206,29 +197,9 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     );
 }
 
-// ---------------------------------------------------------------------------
-// Position limits
-// ---------------------------------------------------------------------------
-
-// Hard upper bound on per-account position counts. The cap exists to
-// keep liquidation iteration within Soroban's default tx budget: at
-// liquidation time the engine walks every position on the account
-// twice (debt + collateral side) and a too-large cap pushes the worst-
-// case liquidation past the gas envelope, which would brick
-// liquidations for the affected accounts and accumulate bad debt.
-//
-// The budget bench at
-// `verification/test-harness/tests/bench_liquidate_max_positions.rs`
-// validates 5/5 against the default tx budget (5 is the current full
-// preset set). 10 leaves headroom for future preset growth without
-// entering an un-budgeted region; raising it requires extending the
-// bench harness with additional preset markets first.
 const POSITION_LIMIT_MAX: u32 = 10;
 
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    // Reject 0 (would brick supply/borrow for every user) and any value
-    // above the budget-proven ceiling (would let liquidation iteration
-    // exhaust gas and brick liquidations for affected accounts).
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
         || limits.max_supply_positions > POSITION_LIMIT_MAX
@@ -239,13 +210,6 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
     storage::set_position_limits(env, &limits);
 }
 
-// ---------------------------------------------------------------------------
-// E-Mode categories
-// ---------------------------------------------------------------------------
-
-// Validates an e-mode category's risk params against the global bps
-// invariants. Lifts the `u32` inputs into `i128` once so the existing
-// `BPS` / `MAX_LIQUIDATION_BONUS` i128 constants stay authoritative.
 fn validate_emode_params(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv_i = i128::from(ltv);
     let threshold_i = i128::from(threshold);
@@ -303,12 +267,6 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     cat.is_deprecated = true;
 
-    // Snapshot the member set, clear it on the entry, then walk it to
-    // drop the category id from each member's
-    // `MarketConfig.asset_config.e_mode_categories` list. Accounts
-    // already pointing at this category wind down through the keeper
-    // path — `is_deprecated` stays set so `effective_asset_config`
-    // falls back to base values.
     let members = cat.assets.clone();
     cat.assets = soroban_sdk::Map::new(env);
     storage::set_emode_category(env, id, &cat);
@@ -334,10 +292,6 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
         },
     );
 }
-
-// ---------------------------------------------------------------------------
-// E-Mode asset membership
-// ---------------------------------------------------------------------------
 
 pub fn add_asset_to_e_mode_category(
     env: &Env,
@@ -366,10 +320,6 @@ pub fn add_asset_to_e_mode_category(
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
-    // Append `category_id` to the asset's reverse index — stored on
-    // `MarketConfig.asset_config.e_mode_categories`. `has_emode()`
-    // becomes true on the first non-empty push, so no separate flag
-    // toggle is needed.
     let mut market = storage::get_market_config(env, &asset);
     if !market.asset_config.e_mode_categories.contains(category_id) {
         market.asset_config.e_mode_categories.push_back(category_id);
@@ -416,9 +366,6 @@ pub fn edit_asset_in_e_mode_category(
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     storage::remove_emode_asset(env, category_id, &asset);
 
-    // Remove `category_id` from the asset's reverse index on
-    // `MarketConfig.asset_config.e_mode_categories`. When the list
-    // becomes empty `has_emode()` flips to false naturally.
     if let Some(mut market) = storage::try_get_market_config(env, &asset) {
         if let Some(idx) = market
             .asset_config
@@ -434,14 +381,9 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     emit_remove_emode_asset(env, RemoveEModeAssetEvent { asset, category_id });
 }
 
-// ---------------------------------------------------------------------------
-// Oracle configuration
-// ---------------------------------------------------------------------------
 
-// Bps math is i128-backed; the inputs/outputs are bounded by `BPS +
-// MAX_*_TOLERANCE` so the return values always fit in `u32` after the
-// `i128` arithmetic settles. Convert at the boundary via this helper
-// so the bps domain invariant is enforced in one place.
+
+/// i128 to u32 (checked).
 fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
@@ -505,10 +447,7 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
     );
     let mut oracle_config =
         validate_market_oracle_sources(env, &asset, &config, tolerance);
-    // Persist token precision discovered from the asset contract. Under the
-    // `testing` feature, preserve any synthetic precision seeded at market
-    // creation because the integration harness uses Soroban's SAC helper
-    // (fixed at 7 decimals).
+    // Persists config.
     if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
         oracle_config.asset_decimals = market.oracle_config.asset_decimals;
     }

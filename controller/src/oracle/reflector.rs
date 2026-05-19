@@ -2,9 +2,6 @@
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Symbol, Vec};
 
-// ---------------------------------------------------------------------------
-// SEP-40 asset identifier
-// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,9 +10,6 @@ pub enum ReflectorAsset {
     Other(Symbol),
 }
 
-// ---------------------------------------------------------------------------
-// SEP-40 price data
-// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone)]
@@ -24,9 +18,6 @@ pub struct ReflectorPriceData {
     pub timestamp: u64,
 }
 
-// ---------------------------------------------------------------------------
-// SEP-40 oracle client trait
-// ---------------------------------------------------------------------------
 
 #[contractclient(name = "ReflectorClient")]
 pub trait ReflectorOracle {

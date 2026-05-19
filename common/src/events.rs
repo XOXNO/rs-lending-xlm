@@ -6,9 +6,7 @@ use crate::types::{
     OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
 };
 
-// ---------------------------------------------------------------------------
-// Event data structs
-// ---------------------------------------------------------------------------
+
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,10 +75,7 @@ impl From<OracleStrategy> for EventPricingMethod {
     }
 }
 
-// Indexer-facing position payload. Carries the side, asset, and account
-// id alongside the same risk-param snapshot held in
-// [`AccountPosition`]. Bps fields use `u32` to match the storage width
-// and decode as JS `number` on the indexer side.
+// Position snapshot.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountPosition {
@@ -95,8 +90,7 @@ pub struct EventAccountPosition {
 }
 
 impl EventAccountPosition {
-    // Compose the event payload from the stored value plus the
-    // emit-site context (side, asset, account id).
+    // Creates event payload.
     pub fn new(
         side: AccountPositionType,
         asset: Address,
@@ -116,10 +110,7 @@ impl EventAccountPosition {
     }
 }
 
-// Indexer-facing snapshot of [`AccountMeta`]. `owner` is the canonical
-// account owner — indexers use this as the authoritative source for
-// the position doc's `address` field, since the event-level `caller`
-// can be the controller itself on strategy-internal supply legs.
+// Account attributes snapshot.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountAttributes {
@@ -337,14 +328,7 @@ pub struct UpdateMarketStateBatchEvent {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventPositionDelta {
-    // Discriminator for the controller flow that produced this item. Values
-    // are lowercase symbols of at most nine bytes so they fit in
-    // `Symbol::short`.
-    //
-    // Plain: `supply`, `borrow`, `withdraw`, `repay`.
-    // Admin / aggregated: `param_upd`, `multiply`.
-    // Liquidation: `liq_repay`, `liq_seize`.
-    // Strategy: `sw_debt_r`, `sw_col_wd`, `rp_col_wd`, `rp_col_r`, `close_wd`.
+    /// Action that produced this delta (e.g., supply, borrow, liq_repay).
     pub action: Symbol,
     pub position_type: u32,
     pub asset: Address,
@@ -417,10 +401,7 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-// Indexer-facing category payload — carries the `category_id`
-// discriminant alongside the params held in [`EModeCategory`]. The
-// member-asset map is omitted; per-asset memberships are emitted via
-// [`UpdateEModeAssetEvent`] / [`RemoveEModeAssetEvent`].
+// E-mode category snapshot.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventEModeCategory {
@@ -495,9 +476,7 @@ pub struct ApproveTokenWasmEvent {
     pub approved: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Event emission helpers
-// ---------------------------------------------------------------------------
+
 
 pub fn emit_create_market(env: &Env, event: CreateMarketEvent) {
     event.publish(env);
@@ -555,9 +534,7 @@ pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
     event.publish(env);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+
 
 #[cfg(test)]
 mod tests {

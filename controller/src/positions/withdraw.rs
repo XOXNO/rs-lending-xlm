@@ -14,9 +14,7 @@ use crate::oracle::policy::OraclePolicy;
 use crate::cross_contract::pool::pool_withdraw_call;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-// Sentinel passed to the pool to request a full-position withdrawal. The
-// pool clamps any value `>= current_supply_actual` to the post-accrual
-// balance, so `i128::MAX` is the canonical "withdraw all" signal.
+// Sentinel for full-position withdraw.
 const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 #[contractimpl]
@@ -27,12 +25,7 @@ impl Controller {
     }
 }
 
-// Processes a withdrawal batch and removes the account when all positions close.
-//
-// Storage I/O:
-//   * debt-free: 1 meta read + 1 supply-side read + 1 supply-side write
-//     (or full account close if both sides become empty).
-//   * with debt: + 1 borrow-side read for the post-batch HF gate.
+// Processes withdraw batch.
 pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -40,10 +33,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     let meta = storage::get_account_meta(env, account_id);
     let supply_positions = storage::get_supply_positions(env, account_id);
 
-    // Supply-only exits are risk-decreasing; accounts with debt keep strict
-    // oracle checks before the final health-factor gate. Probe the borrow
-    // side key with `has` (cheap) to avoid loading the borrow map for
-    // accounts that have no debt.
+    // Supply-only exits are risk-decreasing.
     let has_debt = env
         .storage()
         .persistent()
@@ -78,23 +68,16 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         );
     }
 
-    // HF (liquidation threshold) is the solvency gate; LTV is the
-    // looser capacity gate. Borrow enforces LTV, so every collateral-
-    // reducing path must re-check LTV too — otherwise a user could
-    // borrow at LTV then withdraw collateral down to HF≈1.0 and end
-    // above the configured LTV ceiling.
+    // Enforce HF and LTV gates.
     validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
-    // Withdraw that would leave a sub-floor collateral residue is
-    // rejected; the user must withdraw the full remaining balance
-    // (the `0` / `i128::MAX` sentinels) instead.
+    // Dust residue not allowed on partial withdraw.
     require_no_dust_after(env, &mut cache, &account);
 
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {
-        // Withdraw mutates only supply positions; borrow positions are read
-        // only for health-factor validation.
+        // Mutates supply positions only.
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
     cache.emit_position_batch(account_id, &account);
@@ -148,9 +131,7 @@ fn process_single_withdrawal(
     );
 }
 
-// Executes the pool withdrawal leg and records the account-side mutation.
-// `ctx.caller` receives tokens from the pool; `ctx.event_caller` is the
-// user address emitted for indexers.
+// Executes pool withdraw.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,

@@ -7,23 +7,20 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 use crate::cache::ControllerCache;
 use crate::validation;
 
-// ---------------------------------------------------------------------------
-// Position value helpers (used by health factor, liquidation, views)
-// ---------------------------------------------------------------------------
 
-// Computes the USD value of a position: `(scaled × index).to_wad() × price`.
+// USD value of a position.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)
 }
 
-// Returns `value × threshold_bps / BPS` — the liquidation-threshold-weighted collateral value.
+// Liquidation-threshold-weighted collateral value.
 pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad(env, value)
 }
 
-// Sums the LTV-weighted USD value of all supply positions. Used as the borrow capacity ceiling.
+// LTV-weighted USD value sum of all supply positions.
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut ControllerCache,
@@ -46,9 +43,6 @@ pub fn calculate_ltv_collateral_wad(
     ltv
 }
 
-// ---------------------------------------------------------------------------
-// Health factor calculation
-// ---------------------------------------------------------------------------
 
 pub fn calculate_health_factor(
     env: &Env,
@@ -97,10 +91,6 @@ pub fn calculate_health_factor(
         return i128::MAX;
     }
 
-    // Compute `weighted * WAD / total_borrow` in I256 and clamp overflow to
-    // `i128::MAX`. With high-decimal borrow tokens, dust debt, and large
-    // collateral the numerator can exceed i128; treating overflow as infinite
-    // HF keeps the account usable instead of locking it behind a panic.
     let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
     let wad = soroban_sdk::I256::from_i128(env, WAD);
     let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
@@ -109,9 +99,6 @@ pub fn calculate_health_factor(
     result.to_i128().unwrap_or(i128::MAX)
 }
 
-// ---------------------------------------------------------------------------
-// Account totals (extracted from liquidation -- shared with views)
-// ---------------------------------------------------------------------------
 
 pub fn calculate_account_totals(
     env: &Env,
@@ -159,12 +146,8 @@ pub fn calculate_account_totals(
     (total_collateral, total_debt, weighted_coll)
 }
 
-// ---------------------------------------------------------------------------
-// Liquidation math helpers
-// ---------------------------------------------------------------------------
 
-// Interpolates the liquidation bonus linearly from `base` to `max` based on how far
-// `hf` is below `target`. Returns `base` when `hf ≥ target`.
+// Interpolates liquidation bonus linearly from base to max.
 pub fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -193,9 +176,7 @@ pub fn calculate_linear_bonus_with_target(
 }
 
 #[allow(clippy::too_many_arguments)]
-// Estimates the optimal debt repayment amount and bonus that restores HF toward the target.
-// Tries the 1.02 target first; falls back to 1.01, then the base-bonus maximum-collateral path.
-// Returns `(debt_to_repay_usd, bonus_bps)`.
+// Estimates optimal debt repayment and bonus.
 pub fn estimate_liquidation_amount(
     env: &Env,
     total_debt: Wad,
@@ -231,8 +212,6 @@ pub fn estimate_liquidation_amount(
         }
     }
 
-    // 1.01 * WAD — a slight-overshoot HF target used as fallback when the
-    // first attempt cannot restore HF to exactly 1.0 under the bonus curve.
     let target_fallback = Wad::from_raw(WAD + WAD / 100);
     let bonus_fallback =
         calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_fallback);
@@ -246,9 +225,6 @@ pub fn estimate_liquidation_amount(
         target_fallback,
     );
 
-    // Unrecoverable-position path: even the softest target leaves HF below
-    // 1.0, so apply the base bonus against the maximum collateral-backed
-    // repayment.
     let base_bonus_wad = base_bonus.to_wad(env);
     let one_plus_base = Wad::ONE + base_bonus_wad;
     let d_max = total_collateral.div(env, one_plus_base).min(total_debt);
@@ -330,16 +306,13 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(total_debt))
 }
 
-// Returns the collateral-value-weighted average liquidation bonus and the protocol maximum bonus.
-// Returns `(0, MAX_LIQUIDATION_BONUS)` when there are no supply positions.
+// Returns collateral-value-weighted average liquidation bonus.
 pub fn get_account_bonus_params(
     env: &Env,
     cache: &mut ControllerCache,
     supply_positions: &Map<Address, AccountPosition>,
 ) -> (Bps, Bps) {
     let mut total_collateral = Wad::ZERO;
-    // Store (value_wad_raw, bonus_bps) as raw integers: Soroban Vec
-    // cannot hold Wad / Bps wrappers directly.
     let mut asset_values: Vec<(i128, u32)> = Vec::new(env);
 
     for (asset, position) in supply_positions.iter() {

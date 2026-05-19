@@ -49,7 +49,7 @@ pub fn process_flash_loan(
     let fee = flash_loan_fee(env, asset_config.flashloan_fee_bps, amount);
     let pool_addr = cache.cached_pool_address(asset);
 
-    // Engage reentrancy guard before the pool calls the receiver callback.
+    // Reentrancy guard.
     storage::set_flash_loan_ongoing(env, true);
 
     let state = pool_flash_loan_call(env, &pool_addr, caller, receiver, amount, fee, data);

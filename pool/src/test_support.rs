@@ -3,9 +3,7 @@
 use soroban_sdk::testutils::{Ledger, LedgerInfo};
 use soroban_sdk::Env;
 
-/// Sets the canonical ledger snapshot used by all pool unit tests.
-/// Timestamp is in **seconds**; pool code multiplies by 1000 internally to
-/// reach the milliseconds it stores in `last_timestamp`.
+// Sets canonical ledger snapshot for tests.
 pub(crate) fn init_ledger(env: &Env) {
     env.ledger().set(LedgerInfo {
         timestamp: 1_000,

@@ -21,10 +21,7 @@ impl Controller {
     }
 }
 
-// Processes a repayment batch. Any caller may repay any account.
-//
-// Storage I/O: 1 meta read + 1 borrow-side read + 1 borrow-side write.
-// The supply side is never touched.
+// Processes repay batch.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -32,12 +29,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     let meta = storage::get_account_meta(env, account_id);
     let borrow_positions = storage::get_borrow_positions(env, account_id);
-    // Isolated accounts must use safe prices: the per-repay decrement of
-    // the global IsolatedDebt(asset) USD ceiling uses `feed.price_wad`, and a
-    // stale price would drift the ceiling counter against actual debt. Other
-    // (non-isolated) accounts have no such global accumulator, so a
-    // permissive cache stays acceptable to keep repay reachable during
-    // oracle degradation.
+    // Isolated accounts use safe prices for counter decrements.
     let mut account = storage::account_from_parts(meta, Map::new(env), borrow_positions);
     let policy = if account.is_isolated {
         OraclePolicy::IsolatedRepay
@@ -59,15 +51,10 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         );
     }
 
-    // Partial repay leaving sub-floor debt is rejected. The caller
-    // must either repay enough to stay above the floor or repay in
-    // full (full repay sets `scaled_amount_ray == 0`, the closed
-    // sentinel).
+    // Partial repay must stay above dust floor or repay in full.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Full repay does not delete the account; only owner withdraw/close flows
-    // may burn account storage. Meta is never mutated by repay; supply side
-    // stays as it was on disk.
+    // Repay does not delete account storage.
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
@@ -113,7 +100,7 @@ fn process_single_repay(
     );
 }
 
-// Executes the pool repay leg and records the account-side mutation.
+// Executes pool repay.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_repayment(
     env: &Env,
@@ -170,7 +157,7 @@ pub fn execute_repayment(
     result
 }
 
-// Decrements isolated debt by the full current value of `position`.
+// Clears isolated debt.
 pub fn clear_position_isolated_debt(
     env: &Env,
     asset: &Address,

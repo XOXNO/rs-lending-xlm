@@ -39,8 +39,7 @@ impl Controller {
     ) {
         validation::require_not_flash_loaning(&env);
 
-        // Risk-adjusting path: a threshold tightening can tip a position into
-        // liquidation, so oracle prices must stay within tight tolerance.
+        // Propagates threshold updates with safety buffer.
         let mut cache = ControllerCache::new(&env, OraclePolicy::RiskIncreasing);
         validation::require_asset_supported(&env, &mut cache, &asset);
 
@@ -65,15 +64,8 @@ impl Controller {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Endpoint entry
-// ---------------------------------------------------------------------------
 
-// Entry point for supply: validates, creates the account when `account_id == 0`,
-// and processes the deposit batch. Returns the resolved `account_id`.
-//
-// Storage I/O: 1 meta read + 1 supply-side read + 1 supply-side write.
-// The borrow side is never touched.
+// Processes supply batch.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -87,24 +79,16 @@ pub fn process_supply(
     let (acct_id, mut account) =
         resolve_supply_account(env, caller, account_id, e_mode_category, assets);
 
-    // Note: third-party deposits are intentionally permitted. Supplying to
-    // someone else's account can only increase their collateral / health
-    // factor — never decrease either. The isolation/e-mode invariants are
-    // still enforced per asset via `validate_isolated_collateral` and
-    // `validate_e_mode_asset` below.
+    // Third-party deposits permitted.
 
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
 
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
 
-    // A first-time supplier whose deposit lands under the per-asset
-    // floor is rejected so the position cannot open as dust. Existing
-    // positions already above the floor are unaffected because supply
-    // only increases their value.
+    // Rejects dust on first-time supply.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Supply mutates only the supply side; meta and borrow side stay as-is
-    // on disk.
+    // Mutates supply positions only.
     storage::set_supply_positions(env, acct_id, &account.supply_positions);
     cache.emit_position_batch(acct_id, &account);
     cache.emit_market_batch();
@@ -112,11 +96,7 @@ pub fn process_supply(
     acct_id
 }
 
-// Returns the resolved account id and a mutable account snapshot.
-//
-// New accounts are returned from the created snapshot. Existing accounts load
-// metadata and supply positions only because supply does not consume borrow
-// positions.
+// Resolves account ID and returns snapshot.
 fn resolve_supply_account(
     env: &Env,
     caller: &Address,
@@ -137,13 +117,8 @@ fn resolve_supply_account(
     }
 }
 
-// ---------------------------------------------------------------------------
-// process_deposit -- reusable supply flow
-// ---------------------------------------------------------------------------
 
-// Processes a deposit batch on `account`: aggregates duplicate assets,
-// preflights the batch before token movement, then calls the pool once per
-// unique asset using balance-delta accounting.
+// Processes deposit batch on account.
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -179,10 +154,7 @@ fn prepare_deposit_plan(
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
     validation::validate_bulk_isolation(env, account, assets, cache);
 
-    // Cap is verified post-transfer in `update_market_position` against the
-    // balance-delta-credited amount; running a pre-flight cap pass on the
-    // input would still mis-account fee-on-transfer assets and adds one
-    // `current_supplied_amount` cross-contract read per asset.
+    // Caps verified post-transfer.
     for (asset, _) in assets {
         validation::require_market_active(env, cache, &asset);
 
@@ -242,8 +214,7 @@ fn get_or_create_deposit_position(
 }
 
 #[allow(clippy::too_many_arguments)]
-// Updates the deposit position with the latest risk parameters and calls the pool to record the supply.
-// Refreshes LTV, bonus, and fees from `asset_config`; the liquidation threshold is keeper-only.
+// Updates deposit position and calls pool.
 pub fn update_deposit_position(
     env: &Env,
     _account_id: u64,
@@ -256,11 +227,7 @@ pub fn update_deposit_position(
 ) -> AccountPosition {
     let mut position = get_or_create_deposit_position(account, asset_config, asset);
 
-    // Refresh LTV, liquidation bonus, and liquidation fees from the latest
-    // asset config. Do NOT refresh `liquidation_threshold_bps` here: only
-    // the keeper path (`update_position_threshold`) propagates threshold
-    // changes, and it enforces the 5% HF buffer required to prevent an
-    // immediate liquidation from a threshold reduction.
+    // Threshold only updated via keeper path.
     if position.loan_to_value_bps != asset_config.loan_to_value_bps {
         position.loan_to_value_bps = asset_config.loan_to_value_bps;
     }
@@ -328,7 +295,7 @@ fn update_market_position(
     )
 }
 
-fn pull_supply_tokens(
+// Pulls tokens from caller to pool.
     env: &Env,
     caller: &Address,
     asset: &Address,
@@ -353,9 +320,7 @@ fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
     if received <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
-    // Fee-on-transfer tokens may credit less than sent. A larger balance delta
-    // means the token inflated pool reserves during transfer, which this flow
-    // does not attribute to the supplier.
+    // Fee-on-transfer tokens may credit less.
     validation::require_credit_not_above_sent(env, sent, received);
 }
 
@@ -380,9 +345,7 @@ fn apply_pool_supply(
 }
 
 #[allow(clippy::too_many_arguments)]
-// Keeper-driven propagation of updated risk parameters to a specific account's supply position.
-// When `has_risks` is true (threshold tightening), enforces a 5% HF buffer to prevent
-// immediate liquidation after the update.
+// Keeper-driven risk parameter propagation.
 pub fn update_position_threshold(
     env: &Env,
     account_id: u64,
@@ -414,11 +377,7 @@ pub fn update_position_threshold(
 
     storage::renew_user_account(env, account_id);
 
-    // Apply the per-account e-mode override. `ensure_e_mode_not_deprecated`
-    // is deliberately NOT called: the keeper must propagate updated
-    // thresholds to accounts in deprecated categories so they wind down to
-    // base asset params. For deprecated categories with no asset entry,
-    // `apply_e_mode_to_asset_config` becomes a no-op.
+    // Apply e-mode overrides.
     let e_mode_category = emode::e_mode_category(env, meta.e_mode_category_id);
     let asset_emode_config = cache.cached_emode_asset(meta.e_mode_category_id, asset);
     emode::apply_e_mode_to_asset_config(env, asset_config, &e_mode_category, asset_emode_config);
@@ -460,9 +419,7 @@ pub fn update_position_threshold(
     // Persist only the supply side; borrow stays as-is.
     storage::set_supply_positions(env, account_id, &account.supply_positions);
 
-    // Risky updates can tip a position into liquidation; enforce a 5%
-    // safety buffer after the store so the position is not immediately
-    // liquidatable.
+    // Enforce safety buffer on risky updates.
     if has_risks {
         let hf = helpers::calculate_health_factor(
             env,

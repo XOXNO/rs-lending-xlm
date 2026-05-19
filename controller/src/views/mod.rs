@@ -145,9 +145,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .to_asset(feed.asset_decimals)
 }
 
-// Returns the supply and borrow position maps keyed by asset so the SDK
-// receives the asset alongside the snapshot — the stored value no longer
-// carries it.
+// Returns supply and borrow position maps.
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
@@ -195,9 +193,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
 }
 
 
-// ---------------------------------------------------------------------------
-// Market index views
-// ---------------------------------------------------------------------------
+
 
 pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetExtendedConfigView> {
     let mut cache = ControllerCache::new_view(env);
@@ -245,9 +241,7 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
     result
 }
 
-// ---------------------------------------------------------------------------
-// Liquidation estimation view
-// ---------------------------------------------------------------------------
+
 
 pub fn liquidation_estimations_detailed(
     env: &Env,

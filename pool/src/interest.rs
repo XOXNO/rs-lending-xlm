@@ -8,14 +8,10 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-/// Per-chunk cap. `compound_interest`'s 8-term Taylor expansion holds only
-/// for `x = rate * delta_ms / MS_PER_YEAR <= 2`; one year keeps `x` bounded
-/// by `max_borrow_rate` and avoids i128 overflow in `x_pow8`.
+// TAYLOR Taylor expansion bound for compound_interest.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
-/// Accrues interest from `last_timestamp` to `current_timestamp`, iterating
-/// in `MAX_COMPOUND_DELTA_MS` chunks to stay inside the Taylor envelope.
-/// No-op when `delta_ms == 0`.
+// Accrues interest from last_timestamp to current_timestamp.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
     let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
@@ -57,9 +53,7 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
-/// Accrues a RAY-denominated fee to protocol revenue. Asset-decimal callers
-/// must convert via `Ray::from_asset` first. Skips when `supply_index` is at
-/// or below the floor (division would blow up).
+// Accrues a RAY-denominated fee to protocol revenue.
 pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
@@ -72,13 +66,7 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     cache.supplied += fee_scaled;
 }
 
-/// Socialises uncollectable debt by reducing the supply index.
-///
-/// The new index is floored at `SUPPLY_INDEX_FLOOR_RAW` (10^-9 decimal):
-/// a zero index divides-by-zero in `amount / supply_index` conversions, and
-/// revenue accrual short-circuits when `index <= floor`. The pool does not
-/// auto-pause on severe reductions; the controller emits the cleanup event
-/// and market snapshot for off-chain monitoring.
+// Socializes uncollectable debt by reducing the supply index.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 

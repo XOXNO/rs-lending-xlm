@@ -1,7 +1,4 @@
-//! Spot-price read via Reflector's `lastprice` entry point. Returns
-//! `None` when the feed has no value (e.g. brand-new asset) and the
-//! caller didn't mark the read as required; panics with
-//! `OracleError::NoLastPrice` when required.
+// Spot-price read via Reflector lastprice.
 
 use common::errors::OracleError;
 use common::types::{OracleReadMode, ReflectorSourceConfig};

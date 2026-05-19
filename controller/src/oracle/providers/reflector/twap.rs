@@ -1,7 +1,4 @@
-//! TWAP read via Reflector's `prices` entry point. Aggregates the
-//! window into an integer-mean price (rounded toward zero), gates the
-//! result on staleness + minimum-observations, and falls back to a
-//! spot read when policy allows.
+// TWAP read via Reflector prices.
 
 use common::errors::{GenericError, OracleError};
 use common::types::{OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
@@ -15,11 +12,7 @@ use crate::oracle::reflector::reflector_prices_call;
 
 use super::{observation_from_price_data, spot::read_spot, to_reflector_asset};
 
-// Minimum non-missing observations a TWAP read must surface to be trusted.
-// `ceil(records / 2)` — a partial Reflector outage returning half the
-// requested history is still usable. Stricter would let a single-point
-// hiccup DoS every consumer; looser would let a TWAP be skewed by very few
-// samples.
+// Min observations for trusted TWAP.
 pub(crate) fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(1, records.div_ceil(2))
 }
@@ -118,13 +111,7 @@ pub(crate) fn read_twap(
         );
     }
 
-    // Euclidean integer division rounds toward zero. With the per-record
-    // `i128` headroom (price ≤ 10^36, records ≤ 12) this rounds the TWAP
-    // *down*. That's protocol-conservative for collateral valuation
-    // (smaller seize) but slightly aggressive for debt valuation (smaller
-    // debt → easier-looking HF). The chosen direction is collateral-side
-    // because that is the dominant use; debt-side callers that need
-    // upward-rounding should compute it explicitly at the call site.
+    // Integer division rounds toward zero.
     let raw_price = sum / history.len() as i128;
     Some(OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
@@ -137,10 +124,7 @@ pub(crate) fn read_twap(
     })
 }
 
-// When TWAP fails, the policy chooses between a graceful fallback
-// (spot or newest-valid observation in the window) and a hard panic.
-// Liquidation-time reads typically forbid the fallback to deny brief
-// outages from masking under-water positions; routine reads allow it.
+// Handles TWAP fallback.
 fn twap_fallback_or_panic(
     cache: &ControllerCache,
     config: &ReflectorSourceConfig,

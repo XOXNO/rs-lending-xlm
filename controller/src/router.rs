@@ -84,11 +84,7 @@ impl Controller {
     }
 }
 
-// Domain bounds mirroring the oracle path
-// (`oracle::observation::MIN/MAX_ORACLE_DECIMALS`). Floor of 1 because
-// 0-decimal assets destroy all sub-unit precision in `Wad::from_token`;
-// ceiling of 18 because that is the Wad domain. Without these, a
-// 25-decimal SAC would silently underflow scaling math.
+// Valid asset decimal bounds.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
@@ -115,18 +111,13 @@ fn validate_market_creation(
     params.verify_rate_model(env);
 }
 
-// Deploys a liquidity pool for `asset` from the stored WASM template and
-// persists the resulting market config. The controller owns the pool.
+// Deploys liquidity pool.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
     params: &MarketParams,
     config: &AssetConfig,
 ) -> Address {
-    // Asset must be a valid token contract (probes decimals and symbol).
-    // SEP-41 `try_*` returns `Result<Result<T, Conv>, Result<Err, Invoke>>`;
-    // both layers collapse to the same `InvalidAsset` so callers see one
-    // canonical error.
     let token_client = token::Client::new(env, asset);
     let token_decimals = match token_client.try_decimals() {
         Ok(Ok(d)) => d,
@@ -136,14 +127,10 @@ pub fn create_liquidity_pool(
         panic_with_error!(env, GenericError::InvalidAsset);
     }
 
-    // Reject double-listing before the allow-list check so the error is
-    // specific instead of the generic `TokenNotApproved`.
     if storage::has_market_config(env, asset) {
         panic_with_error!(env, GenericError::AssetAlreadySupported);
     }
 
-    // Token contract address must be on the admin allow-list; gate by
-    // address because the Soroban SDK exposes no runtime Wasm-hash lookup.
     if !storage::is_token_approved(env, asset) {
         panic_with_error!(env, GenericError::TokenNotApproved);
     }
@@ -155,31 +142,13 @@ pub fn create_liquidity_pool(
     }
     let wasm_hash = storage::get_pool_template(env);
 
-    // Deterministic salt from the asset address enforces one pool per asset.
     let salt = env.crypto().keccak256(&asset.to_xdr(env));
 
-    // Deploy the pool with the controller as owner. Revenue routing is
-    // anchored to that ownership: `claim_revenue` transfers to the pool
-    // owner (controller), which then forwards to the accumulator. The
-    // accumulator address itself is NOT passed in here; the controller is
-    // the single source of truth and resolves it at claim time.
     let pool_address = env
         .deployer()
         .with_current_contract(salt)
         .deploy_v2(wasm_hash, (env.current_contract_address(), params.clone()));
 
-    // `IsolatedDebt(asset)` is created lazily on the first isolated
-    // borrow against this asset (see `handle_isolated_debt` →
-    // `cache.flush_isolated_debts`). Reads default to 0 via
-    // `storage::get_isolated_debt`'s `unwrap_or(0)`, so non-isolated
-    // markets never need a placeholder entry.
-
-    // Market starts in PendingOracle; `configure_market_oracle` populates
-    // the flat oracle fields and transitions to Active.
-    //
-    // `e_mode_categories` is force-cleared regardless of what the admin
-    // passed in: e-mode membership is only set via the dedicated
-    // `add_asset_to_e_mode_category` flow, never at creation time.
     let mut asset_config = config.clone();
     asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
     let market = MarketConfig {
@@ -190,7 +159,7 @@ pub fn create_liquidity_pool(
     };
     storage::set_market_config(env, asset, &market);
 
-    // Track in the pools list for enumeration.
+    // Tracks in pools list.
     storage::add_to_pools_list(env, asset, &pool_address);
     storage::renew_controller_instance(env);
 
@@ -211,22 +180,15 @@ pub fn create_liquidity_pool(
         },
     );
 
-    // Approval is single-use: the gate at the top of this function
-    // verified the caller had pre-approved this asset; consume it in this
-    // call so the instance footprint does not accumulate stale approvals and
-    // each `create_liquidity_pool` call requires a fresh admin review.
+    // Consume approval.
     storage::set_token_approved(env, asset, false);
 
     pool_address
 }
 
-// ---------------------------------------------------------------------------
-// Pool upgrades
-// ---------------------------------------------------------------------------
 
-// Upgrades a pool's interest-rate model in place. Indexes are synced at
-// the current oracle price before the new parameters are applied so
-// accrued interest rolls into the stored indexes.
+
+// Upgrades pool interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_asset_supported(env, &mut cache, asset);
@@ -269,7 +231,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     );
 }
 
-// Upgrades the pool contract's WASM code.
+// Upgrades pool WASM.
 pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_asset_supported(env, &mut cache, asset);
@@ -278,15 +240,9 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
     pool_client.upgrade(&new_wasm_hash);
 }
 
-// ---------------------------------------------------------------------------
-// Revenue management
-// ---------------------------------------------------------------------------
 
-// Claims accrued protocol revenue from a single pool. The pool transfers
-// the claimed amount to its owner (this controller); the controller then
-// forwards to the configured accumulator. Both transfers must succeed in
-// the same transaction or the whole claim reverts (no try/catch on either
-// hop), so partial state is impossible.
+
+// Claims pool revenue.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     asset: &Address,
@@ -318,7 +274,7 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
-// Claims accrued protocol revenue from multiple pools in one call.
+// Claims revenue from multiple pools.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
@@ -331,8 +287,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
     results
 }
 
-// Transfers reward tokens from the caller into the pool and bumps the
-// pool's supply index to distribute the rewards to suppliers.
+// Transfers rewards to pool and bumps index.
 pub fn add_reward(
     env: &Env,
     caller: &Address,
@@ -367,9 +322,7 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<
     cache.emit_market_batch();
 }
 
-// ---------------------------------------------------------------------------
-// TTL maintenance
-// ---------------------------------------------------------------------------
+
 
 pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     storage::renew_controller_instance(env);
@@ -387,9 +340,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         storage::renew_protocol_shared_key(env, &ControllerKey::Market(asset.clone()));
         storage::renew_isolated_debt_if_positive(env, &asset);
 
-        // E-mode memberships live on the asset's MarketConfig — already
-        // loaded above. Dedupe category ids so one keeper call renews each
-        // category at most once even when many assets share it.
+        // E-mode memberships dedupe.
         for category_id in market.asset_config.e_mode_categories.iter() {
             if !emode_categories.contains(category_id) {
                 emode_categories.push_back(category_id);
@@ -405,8 +356,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
 pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
     for i in 0..account_ids.len() {
         let account_id = validation::expect_invariant(env, account_ids.get(i));
-        // `renew_user_account` per-key `has` checks already make missing accounts a
-        // no-op, so a separate existence read up front is wasted I/O.
+        // renew_user_account is no-op if account missing.
         storage::renew_user_account(env, account_id);
     }
 }

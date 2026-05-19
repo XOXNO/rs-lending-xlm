@@ -1,15 +1,6 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
-/// Core fixed-point primitive: computes `(x * y + d/2) / d` using an I256
-/// intermediate to prevent overflow. Half-up rounding (0.5 rounds away from
-/// zero for positive results).
-///
-/// Backs every typed operation on [`super::fp::Ray`],
-/// [`super::fp::Wad`], and [`super::fp::Bps`].
-///
-/// # Usage patterns
-/// - **Multiply**: `mul_div_half_up(env, a, b, PRECISION)` -> `a * b / precision`
-/// - **Divide**:   `mul_div_half_up(env, a, PRECISION, b)` -> `a * precision / b`
+// (x * y + d/2) / d.
 pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -19,10 +10,7 @@ pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &product.div(&d256))
 }
 
-/// Floor (truncating-toward-zero) variant: `(x * y) / d` with no rounding bias.
-/// Used where the caller needs a guaranteed lower bound (e.g., the base side
-/// of the liquidation seizure split, so that the bonus side is never
-/// understated and the protocol fee is at least the spec value).
+// (x * y) / d (floor).
 pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -30,8 +18,7 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &x256.mul(&y256).div(&d256))
 }
 
-/// Signed variant: rounds away from zero for negative results.
-/// `-1.5 -> -2`, `1.5 -> 2`.
+// (x * y) / d (signed half-up).
 pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -48,11 +35,7 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &rounded.div(&d256))
 }
 
-/// Rescales a value between decimal precisions.
-/// - Upscale (to > from): checked multiplication. Panics with an explicit
-///   "rescale_half_up upscale overflow" message rather than wrap silently.
-/// - Downscale (to < from): half-up rounding (away from zero for negatives).
-/// - Same: identity.
+// Rescales precision.
 pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     if from_decimals == to_decimals {
         return a;
@@ -83,8 +66,7 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
-/// Computes integer division `(a + sign(a)*b/2) / b` with half-up rounding,
-/// rounding away from zero for negatives. Panics if `b == 0`. Requires no `Env`.
+// Division with half-up rounding.
 pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
     let half_b = b / 2;
@@ -97,15 +79,13 @@ pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     }
 }
 
-/// Overflow-safe I256 -> i128 conversion. Panics with `MathOverflow` on failure.
+// I256 to i128 (panics on overflow).
 fn to_i128(env: &Env, val: &I256) -> i128 {
     val.to_i128()
         .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+
 
 #[cfg(test)]
 mod tests {

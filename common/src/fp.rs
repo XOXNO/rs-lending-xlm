@@ -1,31 +1,6 @@
-//! Type-safe fixed-point arithmetic for the lending protocol.
+// Fixed-point types for the lending protocol.
 //!
-//! Three precision types -- [`Ray`], [`Wad`], and [`Bps`] -- prevent accidental
-//! mixing of precisions at compile time. All arithmetic uses half-up rounding
-//! (0.5 rounds away from zero) via the [`fp_core::mul_div_half_up`] primitive.
-//!
-//! These types are **computation-only**; they never reach on-chain storage.
-//! At serialization boundaries, use `from_raw()` / `.raw()` to convert
-//! to and from the `i128` fields required by `#[contracttype]` structs.
-//!
-//! # Arithmetic overflow contract
-//!
-//! Two surfaces are available for add / sub:
-//!
-//!   * Trait operators (`+`, `+=`, `-`, `-=`) — overflow produces a
-//!     host-level `.expect(...)` panic (string message, no contract
-//!     error code). Use only in paths where overflow is structurally
-//!     impossible — typically accumulations of bounded values like
-//!     supply / borrow totals dominated by the protocol's caps.
-//!   * `checked_add(env, rhs)` / `checked_sub(env, rhs)` — panic with
-//!     `GenericError::MathOverflow`. Use in any path that touches
-//!     user-controlled values, accruing indexes, or anywhere a fuzzer
-//!     needs to distinguish expected overflow from an unexpected
-//!     host-level trap.
-//!
-//! The trait `*` and `/` operators are not implemented — multiplication
-//! and division always require `Env` and route through the env-aware
-//! `mul` / `div` / `div_floor` methods.
+
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
@@ -34,9 +9,7 @@ use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
 use crate::fp_core;
 
-// ===========================================================================
-// Ray -- 27-decimal fixed point (indexes, rates, scaled amounts)
-// ===========================================================================
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ray(i128);
@@ -45,9 +18,7 @@ impl Ray {
     pub const ONE: Ray = Ray(RAY);
     pub const ZERO: Ray = Ray(0);
 
-    /// Lift a RAY-precision integer into the math wrapper. Accepts any
-    /// integer that fits inside `i128`, so storage fields stored at
-    /// narrower widths and i128 constants share one constructor.
+    // Lifts i128 to Ray.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Ray(v.into())
@@ -58,41 +29,37 @@ impl Ray {
         self.0
     }
 
-    /// Multiplies two Ray values: `(a * b + RAY/2) / RAY`.
+    // Multiplies Ray.
     pub fn mul(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, other.0, RAY))
     }
 
-    /// Divides two Ray values: `(a * RAY + b/2) / b`.
+    // Divides Ray.
     pub fn div(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
-    /// Divides two Ray values, rounding DOWN toward zero.
+    // Divides Ray (floor).
     pub fn div_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
     }
 
-    /// Divides by a plain integer with half-up rounding (for Taylor series).
+    // Divides by integer (half-up).
     pub fn div_by_int(self, n: i128) -> Ray {
         Ray(fp_core::div_by_int_half_up(self.0, n))
     }
 
-    /// Converts a RAY-precision value to WAD (27 -> 18 decimals).
-    /// Use only when the value is truly in RAY precision (e.g., after
-    /// `scaled * index` where both are RAY-native).
+    // RAY to WAD.
     pub fn to_wad(self) -> Wad {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
-    /// Converts a RAY-precision value to asset decimals for token transfers.
-    /// The only place precision is lost; use at the transfer boundary.
+    // Converts to asset decimals.
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
     }
 
-    /// Upscales a token amount from asset decimals to RAY precision.
-    /// Use at the token-entry boundary, before any scaled arithmetic.
+    // Upscales asset amount to RAY.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
             amount,
@@ -101,11 +68,7 @@ impl Ray {
         ))
     }
 
-    /// Subtraction that enforces the non-negative-result invariant.
-    /// `Ray` wraps a signed `i128`, so plain `-` happily produces negatives
-    /// (e.g. `1 - 1000 = -999`) without overflowing — that breaks invariants
-    /// like "supplied balances stay non-negative". This helper surfaces such
-    /// cases as a typed `MathOverflow` contract error.
+    // Checked subtraction (rejects negative).
     pub fn checked_sub(self, env: &Env, rhs: Ray) -> Ray {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -113,17 +76,12 @@ impl Ray {
         Ray(self.0 - rhs.0)
     }
 
-    /// In-place form of [`checked_sub`]. Same sign-invariant guarantees.
+    // In-place checked subtraction.
     pub fn checked_sub_assign(&mut self, env: &Env, rhs: Ray) {
         *self = self.checked_sub(env, rhs);
     }
 
-    /// Env-aware checked addition. Use in any production path where
-    /// overflow is not structurally impossible — panics with a typed
-    /// `GenericError::MathOverflow` instead of the host-level abort that
-    /// the [`Add`] trait would produce. The trait `+` is retained for
-    /// hot paths where overflow is provably impossible (e.g. accumulating
-    /// position values bounded by the protocol's total cap).
+    // Checked addition.
     pub fn checked_add(self, env: &Env, rhs: Ray) -> Ray {
         Ray(self
             .0
@@ -131,7 +89,7 @@ impl Ray {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    /// In-place form of [`checked_add`].
+    // Checked add-assign.
     pub fn checked_add_assign(&mut self, env: &Env, rhs: Ray) {
         *self = self.checked_add(env, rhs);
     }
@@ -163,9 +121,7 @@ impl SubAssign for Ray {
     }
 }
 
-// ===========================================================================
-// Wad -- 18-decimal fixed point (USD values, prices, health factor)
-// ===========================================================================
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Wad(i128);
@@ -174,9 +130,7 @@ impl Wad {
     pub const ONE: Wad = Wad(WAD);
     pub const ZERO: Wad = Wad(0);
 
-    /// Lift a WAD-precision integer into the math wrapper. Accepts any
-    /// integer that fits inside `i128`, so storage fields stored at
-    /// narrower widths and i128 constants share one constructor.
+    // Lifts i128 to Wad.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Wad(v.into())
@@ -187,59 +141,45 @@ impl Wad {
         self.0
     }
 
-    /// Multiplies two Wad values: `(a * b + WAD/2) / WAD`.
+    // Multiplies Wad.
     pub fn mul(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, other.0, WAD))
     }
 
-    /// Divides two Wad values: `(a * WAD + b/2) / b`.
+    // Divides Wad.
     pub fn div(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, other.0))
     }
 
-    /// Divides two Wad values, rounding the result DOWN toward zero.
-    /// Use when a guaranteed lower bound matters (e.g., the base side of
-    /// the liquidation seizure split, so the bonus side is never understated).
+    // Divides Wad (floor).
     pub fn div_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
-    /// Creates a Wad from a token amount at the given decimal precision.
-    /// Upscales losslessly to 18 decimals.
+    // Upscales asset amount to Wad.
     pub fn from_token(amount: i128, decimals: u32) -> Self {
         Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
     }
 
-    /// Converts a Wad back to a token amount at the given decimal precision.
-    /// Downscales with half-up rounding.
+    // Converts to asset amount.
     pub fn to_token(self, decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
     }
 
-    /// Converts a WAD-precision token amount or dimensionless ratio to RAY.
+    // WAD to RAY.
     pub fn to_ray(self) -> Ray {
         Ray(fp_core::rescale_half_up(self.0, WAD_DECIMALS, RAY_DECIMALS))
     }
 
     pub fn min(self, other: Wad) -> Wad {
-        if self.0 < other.0 {
-            self
-        } else {
-            other
-        }
+        if self.0 < other.0 { self } else { other }
     }
 
     pub fn max(self, other: Wad) -> Wad {
-        if self.0 > other.0 {
-            self
-        } else {
-            other
-        }
+        if self.0 > other.0 { self } else { other }
     }
 
-    /// Env-aware checked addition. Same contract as
-    /// [`Ray::checked_add`] — typed `MathOverflow` instead of a host
-    /// panic when the trait `+` would overflow.
+    // Checked addition.
     pub fn checked_add(self, env: &Env, rhs: Wad) -> Wad {
         Wad(self
             .0
@@ -247,13 +187,12 @@ impl Wad {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    /// In-place form of [`checked_add`].
+    // Checked add-assign.
     pub fn checked_add_assign(&mut self, env: &Env, rhs: Wad) {
         *self = self.checked_add(env, rhs);
     }
 
-    /// Env-aware checked subtraction that rejects underflow (negative
-    /// result). Matches the [`Ray::checked_sub`] convention.
+    // Checked subtraction.
     pub fn checked_sub(self, env: &Env, rhs: Wad) -> Wad {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -261,7 +200,7 @@ impl Wad {
         Wad(self.0 - rhs.0)
     }
 
-    /// In-place form of [`checked_sub`].
+    // In-place checked subtraction.
     pub fn checked_sub_assign(&mut self, env: &Env, rhs: Wad) {
         *self = self.checked_sub(env, rhs);
     }
@@ -293,21 +232,15 @@ impl SubAssign for Wad {
     }
 }
 
-// ===========================================================================
-// Bps -- basis points (LTV, thresholds, bonuses, fees)
-// ===========================================================================
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bps(i128);
 
 impl Bps {
-    /// 100% = 10_000 BPS.
     pub const ONE: Bps = Bps(BPS);
 
-    /// Lift a basis-point value into the math-friendly `i128`-backed
-    /// [`Bps`]. Accepts any integer that fits inside `i128`, so storage
-    /// fields stored as `u32` and constants stored as `i128` both pass
-    /// through the same constructor without a call-site cast.
+    // Lifts i128 to Bps.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Bps(v.into())
@@ -318,29 +251,28 @@ impl Bps {
         self.0
     }
 
-    /// Converts basis points to a WAD ratio: `8000 BPS -> 0.8 WAD`.
+    // BPS to WAD ratio.
     pub fn to_wad(self, env: &Env) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
     }
 
-    /// Applies a basis-point rate to a raw amount: `amount * bps / 10_000`.
+    // Applies ratio to amount.
     pub fn apply_to(self, env: &Env, amount: i128) -> i128 {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
     }
 
-    /// Applies a basis-point rate to a Wad value: `value * (bps / 10_000)`.
+    // Applies ratio to Wad.
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)
     }
 
-    /// Applies a basis-point rate to a Ray value: `value * (bps / 10_000)`.
+    // Applies ratio to Ray.
     pub fn apply_to_ray(self, env: &Env, value: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, value.raw(), self.0, BPS))
     }
 
-    /// Env-aware checked addition. Same contract as
-    /// [`Ray::checked_add`] / [`Wad::checked_add`].
+    // Checked addition.
     pub fn checked_add(self, env: &Env, rhs: Bps) -> Bps {
         Bps(self
             .0
@@ -348,7 +280,7 @@ impl Bps {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    /// Env-aware checked subtraction that rejects underflow.
+    // Checked subtraction.
     pub fn checked_sub(self, env: &Env, rhs: Bps) -> Bps {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -426,10 +358,9 @@ mod tests {
 
     #[test]
     fn test_ray_to_wad() {
-        // 1.0 in RAY -> WAD (27 -> 18 decimals).
-        let r = Ray::from_raw(RAY); // 1.0 in RAY
+        let r = Ray::from_raw(RAY);
         let w = r.to_wad();
-        assert_eq!(w.raw(), WAD); // 1.0 in WAD
+        assert_eq!(w.raw(), WAD);
     }
 
     #[test]
@@ -446,21 +377,18 @@ mod tests {
 
     #[test]
     fn test_ray_from_asset() {
-        // 1.0 XLM (7 decimals) -> RAY.
         let r = Ray::from_asset(10_000_000, 7);
-        assert_eq!(r.raw(), RAY); // 1.0 in RAY
+        assert_eq!(r.raw(), RAY);
     }
 
     #[test]
     fn test_ray_to_asset() {
-        // 1.0 in RAY -> 7-decimal asset.
         let r = Ray::from_raw(RAY);
         assert_eq!(r.to_asset(7), 10_000_000);
     }
 
     #[test]
     fn test_ray_asset_roundtrip() {
-        // from_asset -> to_asset must be identity.
         let original = 12_345_678;
         let ray = Ray::from_asset(original, 7);
         assert_eq!(ray.to_asset(7), original);
@@ -469,8 +397,8 @@ mod tests {
     #[test]
     fn test_wad_mul_div() {
         let env = Env::default();
-        let price = Wad::from_raw(2 * WAD); // $2.00
-        let amount = Wad::from_raw(3 * WAD); // 3.0
+        let price = Wad::from_raw(2 * WAD);
+        let amount = Wad::from_raw(3 * WAD);
         assert_eq!(amount.mul(&env, price), Wad::from_raw(6 * WAD));
 
         let total = Wad::from_raw(6 * WAD);
@@ -480,7 +408,6 @@ mod tests {
 
     #[test]
     fn test_wad_from_token() {
-        // 1.0 USDC (6 decimals) -> WAD.
         let w = Wad::from_token(1_000_000, 6);
         assert_eq!(w.raw(), 1_000_000_000_000_000_000);
     }
@@ -516,25 +443,24 @@ mod tests {
     #[test]
     fn test_bps_to_wad() {
         let env = Env::default();
-        let ltv = Bps::from_raw(8000); // 80%
+        let ltv = Bps::from_raw(8000);
         let w = ltv.to_wad(&env);
-        // 8000 * WAD / 10000 = 0.8 WAD.
         assert_eq!(w.raw(), 800_000_000_000_000_000);
     }
 
     #[test]
     fn test_bps_apply_to() {
         let env = Env::default();
-        let fee_bps = Bps::from_raw(50); // 0.5%
+        let fee_bps = Bps::from_raw(50);
         let amount = 1_000_000_000;
         let fee = fee_bps.apply_to(&env, amount);
-        assert_eq!(fee, 5_000_000); // 0.5% of 1B
+        assert_eq!(fee, 5_000_000);
     }
 
     #[test]
     fn test_bps_apply_to_wad() {
         let env = Env::default();
-        let threshold = Bps::from_raw(8000); // 80%
+        let threshold = Bps::from_raw(8000);
         let value = Wad::from_raw(100 * WAD);
         let weighted = threshold.apply_to_wad(&env, value);
         assert_eq!(weighted.raw(), 80 * WAD);
@@ -555,7 +481,6 @@ mod tests {
 
     #[test]
     fn test_ray_one_plus_compound() {
-        // Simulate: RAY::ONE + x + term2 = 1.0 + 0.1 + 0.005.
         let x = Ray::from_raw(RAY / 10);
         let term2 = Ray::from_raw(RAY / 200);
         let result = Ray::ONE + x + term2;
@@ -568,11 +493,6 @@ mod tests {
         assert!(Wad::ZERO < Wad::ONE);
         assert!(Bps::from_raw(5000) < Bps::ONE);
     }
-
-    // -----------------------------------------------------------------
-    // Coverage for assign-operator overloads and edge-case helpers that
-    // the main math tests don't exercise.
-    // -----------------------------------------------------------------
 
     #[test]
     fn test_ray_add_assign() {
@@ -600,7 +520,6 @@ mod tests {
     #[should_panic]
     fn test_ray_checked_sub_underflow_panics() {
         let env = Env::default();
-        // 3 - 10 would produce a negative; checked_sub rejects.
         let a = Ray::from_raw(3 * RAY);
         let b = Ray::from_raw(10 * RAY);
         let _ = a.checked_sub(&env, b);
@@ -623,7 +542,6 @@ mod tests {
 
     #[test]
     fn test_ray_from_asset_high_decimals() {
-        // Exercise the upscale branch of `Ray::from_asset`.
         let r = Ray::from_asset(1, 0);
         assert_eq!(r.raw(), RAY);
     }
@@ -644,7 +562,6 @@ mod tests {
 
     #[test]
     fn test_wad_max_chooses_other_when_self_smaller() {
-        // `a < b` so `a.max(b)` returns `b` (the else branch).
         let a = Wad::from_raw(1);
         let b = Wad::from_raw(2);
         assert_eq!(a.max(b), b);
@@ -660,13 +577,8 @@ mod tests {
     #[test]
     fn test_wad_div_floor_rounds_down() {
         let env = Env::default();
-        // 1 / 3 in WAD: half-up rounds to 0.333…3 but floor rounds toward
-        // zero — both produce the same result for positive inputs with
-        // remainder < 0.5 of the divisor. Use a value where the rounding
-        // direction matters.
-        let a = Wad::from_raw(2 * WAD); // 2.0
-        let b = Wad::from_raw(3 * WAD); // 3.0
-        // Exact: 0.666…7 (half-up) vs 0.666…6 (floor).
+        let a = Wad::from_raw(2 * WAD);
+        let b = Wad::from_raw(3 * WAD);
         let half_up = a.div(&env, b).raw();
         let floor = a.div_floor(&env, b).raw();
         assert!(floor < half_up, "div_floor must round strictly down for 2/3");

@@ -38,11 +38,7 @@ pub(crate) fn calculate_final_price(
                 if !cache.oracle_policy.allows_unsafe_deviation() {
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }
-                // Liquidation must follow live market state, not the
-                // slower-moving anchor — pricing collateral at TWAP during a
-                // genuine crash would leave the borrower healthy on paper
-                // and DoS liquidations (see `OraclePolicy::Liquidation`
-                // doc-comment).
+                // Use aggregator on high deviation.
                 if cache.oracle_policy.prefers_aggregator_on_deviation() {
                     agg_price
                 } else {
@@ -58,9 +54,7 @@ pub(crate) fn calculate_final_price(
     }
 }
 
-// Tests whether `ratio = safe / aggregator` (in bps) sits inside
-// `[lower_bound_ratio, upper_bound_ratio]`. `aggregator == 0` returns
-// false because the ratio is undefined.
+// Checks if ratio is within bounds.
 pub(crate) fn is_within_anchor(
     env: &Env,
     aggregator: i128,

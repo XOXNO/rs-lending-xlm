@@ -17,21 +17,12 @@ use crate::storage;
 pub struct ControllerCache {
     env: Env,
 
-    // --- Cached maps (get-or-fetch) ---
     pub prices_cache: Map<Address, PriceFeed>,
     pub market_configs: Map<Address, MarketConfig>,
     pub market_indexes: Map<Address, MarketIndex>,
-
-    // --- Pool snapshot read cache (cross-contract `get_sync_data`) ---
     pool_sync_data: Map<Address, PoolSyncData>,
-
-    // --- E-mode asset membership read cache ---
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
-
-    // --- Isolated-debt write accumulator ---
     isolated_debts: Map<Address, i128>,
-
-    // --- Hot event write accumulators ---
     position_updates: Vec<EventPositionDelta>,
     market_updates: Vec<MarketStateSnapshot>,
 
@@ -70,21 +61,14 @@ impl ControllerCache {
         &self.env
     }
 
-    // -------------------------------------------------------------------
-    // Prices
-    // -------------------------------------------------------------------
-    //
-    // `prices_cache` is `pub`; the oracle composition path
-    // (`oracle::price::token_price`) writes / probes it directly. The
-    // single high-level entry point lives here.
+
+
 
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         token_price(self, asset)
     }
 
-    // -------------------------------------------------------------------
-    // Market config
-    // -------------------------------------------------------------------
+
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
         if let Some(config) = self.market_configs.get(asset.clone()) {
@@ -95,10 +79,7 @@ impl ControllerCache {
         config
     }
 
-    // -------------------------------------------------------------------
-    // Convenience accessors -- delegate to cached_market_config so callers
-    // that need only one field stay unchanged.
-    // -------------------------------------------------------------------
+
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
         self.cached_market_config(asset).asset_config
@@ -108,23 +89,10 @@ impl ControllerCache {
         self.cached_market_config(asset).pool_address
     }
 
-    // -------------------------------------------------------------------
-    // Market indexes
-    // -------------------------------------------------------------------
-
     pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {
         if let Some(index) = self.market_indexes.get(asset.clone()) {
             return index;
         }
-        // The controller-side index is always a simulation (pure read of
-        // `get_sync_data` + local accrual). The actual pool-state
-        // mutation happens inside the pool's own `global_sync` at the next
-        // mutating entry (`pool::supply/borrow/withdraw/repay/...`). Skipping
-        // the redundant `update_indexes(&0)` cross-contract write avoids one
-        // pool TX per asset per controller op without changing on-chain state
-        // — every mutating pool op already calls `cache.save()` which bumps
-        // instance TTL for that pool. Read-only / unrelated assets fetched
-        // here for HF/LTV math receive no side-effect TTL bump.
         let index = update_asset_index(self, asset);
         self.market_indexes.set(asset.clone(), index.clone());
         index
@@ -203,11 +171,6 @@ impl ControllerCache {
         self.position_updates = Vec::new(&self.env);
     }
 
-    // -------------------------------------------------------------------
-    // Pool sync data (cross-contract `get_sync_data`) — memoized to keep
-    // multi-step controller flows from re-fetching the same snapshot.
-    // -------------------------------------------------------------------
-
     pub fn cached_pool_sync_data(&mut self, asset: &Address) -> PoolSyncData {
         if let Some(data) = self.pool_sync_data.get(asset.clone()) {
             return data;
@@ -217,10 +180,6 @@ impl ControllerCache {
         self.pool_sync_data.set(asset.clone(), data.clone());
         data
     }
-
-    // -------------------------------------------------------------------
-    // E-mode asset membership read cache
-    // -------------------------------------------------------------------
 
     pub fn cached_emode_asset(
         &mut self,
@@ -239,17 +198,11 @@ impl ControllerCache {
         value
     }
 
-    // -------------------------------------------------------------------
-    // Isolated-debt write accumulator
-    // -------------------------------------------------------------------
-
     pub fn get_isolated_debt(&mut self, asset: &Address) -> i128 {
         if let Some(v) = self.isolated_debts.get(asset.clone()) {
             return v;
         }
         let v = storage::get_isolated_debt(&self.env, asset);
-        // Cache the value so future reads in the same transaction skip
-        // another storage access.
         self.isolated_debts.set(asset.clone(), v);
         v
     }

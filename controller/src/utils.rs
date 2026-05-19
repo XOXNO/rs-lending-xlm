@@ -11,27 +11,19 @@ use crate::{storage, validation};
 
 pub use crate::positions::account::{create_account, remove_account};
 
-// ---------------------------------------------------------------------------
-// Payment Helpers
-// ---------------------------------------------------------------------------
 
-// Deduplicates `(asset, amount)` payments in first-seen asset order and sums
-// duplicate amounts. Rejects zero, negative, and overflowing totals.
+
+// Deduplicates and sums payments.
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
 }
 
-// Deduplicates withdrawal requests. Positive duplicates are summed, while a
-// zero amount remains the "withdraw all" sentinel for that asset.
+// Deduplicates withdrawal requests.
 pub fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, true)
 }
 
-// Transfers `asset` from `from` to `to` and returns the credited amount.
-//
-// Listed assets are standard non-fee, non-rebasing tokens. Avoiding
-// balance-delta accounting removes two token balance reads from every inbound
-// transfer hot path.
+// Transfers asset and returns credited amount.
 pub fn transfer_and_measure_received(
     env: &Env,
     asset: &Address,
@@ -94,13 +86,9 @@ fn aggregate_payment_amount(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-// ---------------------------------------------------------------------------
-// Account Helpers
-// ---------------------------------------------------------------------------
 
-// Creates a new account for the supply entry point, deriving the isolation flag from
-// the first asset in the batch. Returns both the new id and the in-memory snapshot
-// so the caller can skip a redundant re-read.
+
+// Creates account for supply entry point.
 pub fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
@@ -125,32 +113,21 @@ pub fn create_account_for_first_asset(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Market Helpers
-// ---------------------------------------------------------------------------
 
-// Advances each pool's stored `last_timestamp` and persists accrued indices
-// by invoking `pool::update_indexes` directly. Updates the in-memory cache
-// so subsequent reads in the same transaction see the persisted index.
+
+// Syncs market indexes and cache.
 pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
         let state = pool_update_indexes_call(env, &pool_addr);
-        // Refresh the in-memory cache so subsequent reads in this transaction
-        // use the persisted index.
+        // Refresh cache for subsequent reads.
         cache.record_market_update(&state);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Isolated debt adjustment
-// ---------------------------------------------------------------------------
 
-// Decrements the isolated-debt tracker by the USD value of `token_amount`:
-// `new_debt = max(0, current - token_amount × price_wad)`. Zeros residuals
-// below `WAD` ($1). No-op for non-isolated accounts. The decrement is
-// unconditional; under a permissive oracle cache (repay) accepts a
-// slightly off USD value rather than letting the global ceiling drift.
+
+// Decrements isolated debt tracker.
 pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,

@@ -7,20 +7,7 @@ use common::types::{
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
-/// Public, user-callable surface of the lending Controller.
-///
-/// Third-party Soroban contracts depend on this crate and call the protocol
-/// via the generated [`ControllerClient`]. The trait covers position
-/// operations, leverage/swap strategies, flash loans, account TTL renewal,
-/// and read-only views. Admin, keeper, revenue, and pool-config endpoints
-/// are intentionally **not** exposed here — they live on the `Controller`
-/// contract but are gated by `#[only_owner]` / `#[only_role]` and have no
-/// integration value for builders.
-///
-/// Signatures must match the corresponding `pub fn` declarations inside
-/// the controller's `#[contractimpl] impl Controller` blocks exactly.
-/// Soroban does not verify trait conformance at compile time; the wire
-/// client dispatches by name, so any drift silently breaks integrators.
+// Controller interface.
 #[contractclient(name = "ControllerClient")]
 pub trait ControllerInterface {
     // --- Position operations ------------------------------------------------

@@ -19,11 +19,7 @@ use crate::{
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
 };
 
-// Wire-format client for `stellar-router-contract::Router`. Soroban
-// auth-chains the controller's `current_contract_address` into the
-// router's `sender.require_auth()` automatically — no SEP-41 approve
-// dance required, the router pulls each path's `amount_in` directly
-// via `token.transfer(sender, router, amount)`.
+// Router client.
 mod aggregator {
     use common::types::BatchSwap;
     use soroban_sdk::contractclient;
@@ -132,13 +128,9 @@ impl Controller {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Multiply (Leverage)
-// ---------------------------------------------------------------------------
 
-// Opens a leveraged position: borrows `debt_to_flash_loan` via the pool flash strategy,
-// swaps to `collateral_token`, and deposits the proceeds. Accepts an optional initial payment
-// to increase collateral or reduce the required flash-loan amount.
+
+// Opens leveraged position.
 pub fn process_multiply(
     env: &Env,
     caller: &Address,
@@ -169,8 +161,7 @@ pub fn process_multiply(
     }
 
     validation::require_amount_positive(env, debt_to_flash_loan);
-    // Reject zero-floor swap requests at entry so a compromised router
-    // cannot observe an unprotected slippage floor.
+    // Rejects zero-floor swap.
     validation::require_amount_positive(env, swap.total_min_out);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
@@ -182,7 +173,7 @@ pub fn process_multiply(
         &convert_swap,
     );
 
-    // Strict-price cache: strategy borrows are risk-increasing.
+    // Strategy borrows are risk-increasing.
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     let collateral_config = cache.cached_asset_config(collateral_token);
@@ -244,13 +235,9 @@ pub fn process_multiply(
     account_id
 }
 
-// ---------------------------------------------------------------------------
-// Swap Debt
-// ---------------------------------------------------------------------------
 
-// Swaps an existing debt position to a new token: borrows the target token via
-// the pool flash strategy, swaps through the aggregator, and repays the source
-// debt.
+
+// Swaps debt position to new token.
 pub fn process_swap_debt(
     env: &Env,
     caller: &Address,
@@ -270,15 +257,14 @@ pub fn process_swap_debt(
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    // Strict-price cache: strategy borrows are risk-increasing.
+    // Strategy borrows are risk-increasing.
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     validation::require_amount_positive(env, new_debt_amount);
     // Reject zero-floor swap requests at entry.
     validation::require_amount_positive(env, swap.total_min_out);
 
-    // Reject swap_debt when either side is siloed: the flow holds both debt
-    // positions simultaneously, which violates the siloed-borrow invariant.
+    // Rejects swap if either side is siloed.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);
     let new_debt_config = cache.cached_asset_config(new_debt_token);
     if existing_debt_config.is_siloed_borrowing || new_debt_config.is_siloed_borrowing {
@@ -324,12 +310,9 @@ pub fn process_swap_debt(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-// ---------------------------------------------------------------------------
-// Swap Collateral
-// ---------------------------------------------------------------------------
 
-// Swaps existing collateral to a different token: withdraws `from_amount`, swaps through
-// the aggregator, and re-deposits the proceeds as the new collateral.
+
+// Swaps collateral to different token.
 pub fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -408,9 +391,7 @@ pub fn process_swap_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-// ---------------------------------------------------------------------------
-// Swap router helper
-// ---------------------------------------------------------------------------
+
 
 fn swap_tokens(
     env: &Env,
@@ -425,10 +406,7 @@ fn swap_tokens(
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
-    // Validate the off-chain-built `AggregatorSwap` against the controller's
-    // `(token_in, amount_in, token_out)` commitment. A misaligned batch could
-    // succeed at the router but deliver tokens of the wrong type back to the
-    // controller, so the controller rejects it before routing.
+    // Validates swap commitment.
     validate_aggregator_swap(env, swap, token_in, token_out, amount_in);
 
     // Snapshot balances so `verify_router_output` can confirm the exact
@@ -440,8 +418,7 @@ fn swap_tokens(
     // user input never sets it, eliminating any spoof path. `total_in` is
     // the controller's authoritative withdrawal amount; the router slices
     // it across paths via each path's `split_ppm`.
-    // Lending strategies never charge user-facing aggregator fees;
-    // referral_id = 0 disables the fee path entirely on the router side.
+    // referral_id = 0 disables fees on the router.
     let batch = BatchSwap {
         paths: swap.paths.clone(),
         referral_id: 0,
@@ -475,10 +452,7 @@ fn swap_tokens(
     )
 }
 
-// Reject batches whose shape doesn't match the strategy's
-// `(token_in, amount_in, token_out)` commitment. Cheap fast-fail before
-// invoking the router so the panic site stays inside the controller —
-// cleaner error attribution and no router gas spent on a doomed batch.
+// Rejects batches that don't match strategy commitment.
 fn validate_aggregator_swap(
     env: &Env,
     swap: &AggregatorSwap,
@@ -536,12 +510,9 @@ fn validate_aggregator_swap(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Repay Debt With Collateral
-// ---------------------------------------------------------------------------
 
-// Withdraws collateral, swaps it to the debt token via the aggregator, and repays debt.
-// When `close_position` is true, withdraws all remaining collateral to the caller after repayment.
+
+// Repays debt with swapped collateral.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -617,9 +588,7 @@ pub fn process_repay_debt_with_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-// ---------------------------------------------------------------------------
-// Strategy Helpers
-// ---------------------------------------------------------------------------
+
 
 fn controller_event_context(env: &Env, caller: &Address, action: Symbol) -> EventContext {
     EventContext {
@@ -645,11 +614,7 @@ fn snapshot_swap_balances(
     }
 }
 
-// Invoke the router's `batch_execute` under the re-entry guard. The
-// guard reuses the flash-loan flag: a misbehaving router that calls
-// back into any mutating controller endpoint trips the mutator's
-// `require_not_flash_loaning` and panics. The flag is FALSE on entry
-// because strategies never run inside a flash loan.
+// Invokes router batch execution under guard.
 fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
@@ -660,17 +625,7 @@ fn call_router_with_reentrancy_guard(
     storage::set_flash_loan_ongoing(env, false);
 }
 
-// Authorizes the router to pull `total_in` of the input token from the
-// controller in a single SAC transfer.
-//
-// The router pulls the entire `total_in` once at the start of
-// `batch_execute` and slices it across paths from its own vault. Pool-router
-// transfers inside individual hops have the router as the direct caller, so
-// Soroban's direct-caller attestation covers them.
-//
-// `authorize_as_current_contract` consumes the entries for a single
-// downstream invocation, so this must be called immediately before
-// `router.batch_execute(...)`.
+// Authorizes router token pull.
 fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
     let first_path = validation::expect_invariant(env, batch.paths.get(0));
     let first_hop = validation::expect_invariant(env, first_path.hops.get(0));
@@ -692,10 +647,7 @@ fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwa
     env.authorize_as_current_contract(entries);
 }
 
-// Rejects router input-token spend above the controller's committed amount.
-//
-// Underspend is allowed because the output-side minimum remains the slippage
-// guard and leftover input stays on the controller.
+// Rejects overspend by router.
 fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,
@@ -1020,8 +972,7 @@ fn withdraw_collateral_to_controller(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-// Persists account state, re-checks HF with a fresh price cache, and flushes isolated-debt.
-// Deletes the account when all positions close on an owner-initiated full exit.
+// Persists state and flushes isolated debt.
 pub fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -1030,17 +981,7 @@ pub fn strategy_finalize(
 ) {
     // Remove accounts that closed out entirely; otherwise persist.
     //
-    // Intentional asymmetry with plain `process_repay`: the plain repay path
-    // never deletes an account on full debt close, even when both maps go
-    // empty (anti-grief — a third-party repaying your last debt cannot make
-    // your `account_id` disappear mid-block). Strategy paths are different:
-    // `repay_debt_with_collateral` with `close_position=true` is an
-    // owner-initiated full close where the same caller withdraws all
-    // collateral within the same atomic call, so the account is genuinely
-    // empty by the user's own request. `multiply` / `swap_debt` /
-    // `swap_collateral` reach the empty-empty state only on revert paths,
-    // which Soroban rolls back atomically. Deleting here avoids leaving empty
-    // account storage after successful close flows.
+    // Deletes account if empty.
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {
@@ -1074,8 +1015,7 @@ pub fn strategy_finalize(
     cache.emit_market_batch();
 }
 
-// Withdraws the full balance of every supply position to `destination`.
-// Used by `process_repay_debt_with_collateral` for the close-position leg.
+// Withdraws all supply positions to destination.
 pub fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -1115,8 +1055,7 @@ pub fn execute_withdraw_all(
     }
 }
 
-// Pre-flight guard for swap_collateral: rejects isolated assets, deprecated e-mode,
-// non-collateralizable targets, and position limit violations before any token moves.
+// Pre-flight guard for swap_collateral.
 pub fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut ControllerCache,

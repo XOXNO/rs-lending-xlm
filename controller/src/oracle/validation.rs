@@ -51,8 +51,7 @@ pub(crate) fn validate_market_oracle_sources(
     }
 }
 
-// `PrimaryWithAnchor` requires an anchor; `Single` rejects one. A single
-// boolean equality keeps the invariant obvious.
+
 fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();
@@ -72,10 +71,7 @@ fn validate_oracle_asset(env: &Env, asset: &Address) -> u32 {
     token_decimals
 }
 
-// SEP-41 `try_*` returns `Result<Result<T, ConversionError>, InvokeError>`.
-// Flatten both layers to a single `InvalidAsset` so callers see one
-// canonical error instead of the previous double-unwrap chain that read
-// like a bug (former S3 finding).
+
 fn unwrap_token_call<T>(
     env: &Env,
     result: Result<Option<T>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
@@ -159,10 +155,7 @@ fn validate_max_stale(env: &Env, max_stale: u64) {
     }
 }
 
-// Every market must carry meaningful sanity bounds: the runtime
-// circuit-breaker in `oracle::price::token_price` is the protocol's
-// last absolute defense against catastrophic feed values, and it has
-// no off-switch in production. Require `0 < min < max`.
+// Validate sanity bounds.
 fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
         panic_with_error!(env, OracleError::InvalidSanityBounds);

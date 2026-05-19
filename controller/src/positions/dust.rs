@@ -1,30 +1,4 @@
-//! Per-position dust floor. Rejects any account state where a
-//! position's USD value falls in the open interval `(0, floor)`:
-//!
-//!   * `value == 0`        — position closed, allowed.
-//!   * `value >= floor`    — meaningful position, allowed.
-//!   * `0 < value < floor` — sub-threshold residue, reverts with
-//!                            `DustResidueNotAllowed`.
-//!
-//! The floor is per-market (`AssetConfig::min_collat_floor_usd_wad`,
-//! `AssetConfig::min_debt_floor_usd_wad`) and bounded at admin time to
-//! be `>= MIN_DUST_FLOOR_WAD`. Liquidation has an escape hatch in
-//! [`crate::helpers::estimate_liquidation_amount`] that expands to a
-//! full close when the partial would otherwise leave dust.
-//!
-//! # Per-operation scope
-//!
-//! The gate enforces "no NEW dust from THIS operation": it iterates
-//! only the positions present on the `Account` value passed in. Supply
-//! and repay load just the side they mutate and leave the other side
-//! empty so a price / index drift on an untouched side cannot block a
-//! legitimate user action.
-//!
-//! Drift-caused dust is cleared by:
-//!   1. The position owner (`repay`, `withdraw_all`,
-//!      `repay_debt_with_collateral`).
-//!   2. Bad-debt socialization (`check_bad_debt_after_liquidation`)
-//!      when the account is genuinely under water.
+// Rejects positions below USD dust floor.
 
 use common::errors::CollateralError;
 use common::fp::{Ray, Wad};
@@ -34,23 +8,14 @@ use soroban_sdk::{panic_with_error, Address, Env};
 use crate::cache::ControllerCache;
 use crate::helpers;
 
-/// Direction tag for diagnostics-friendly error context. Both sides use the
-/// same error code today; if future work splits supply/borrow dust errors,
-/// they branch here.
+// Dust check side.
 #[derive(Clone, Copy)]
 enum Side {
     Supply,
     Borrow,
 }
 
-/// Asserts that every position on the account has either zero USD value
-/// or a value at or above the per-asset floor. Called from every
-/// state-changing entry on the controller post-mutation.
-///
-/// Argument is `&Account` (not `&mut`) — the dust gate is a read-only
-/// invariant check that runs *after* the entry has staged its mutations in
-/// memory. Single call site per entry is sufficient because the helper
-/// iterates both sides of the account.
+// Asserts positions are zero or above floor.
 pub fn require_no_dust_after(env: &Env, cache: &mut ControllerCache, account: &Account) {
     for (asset, position) in account.supply_positions.iter() {
         let cfg = cache.cached_asset_config(&asset);

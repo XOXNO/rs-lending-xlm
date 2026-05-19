@@ -1,18 +1,4 @@
-//! Reflector (SEP-40) price provider. The protocol's primary price
-//! source. Reads can be spot (`lastprice`) or median-of-N TWAP
-//! (`prices`); the dispatcher below picks one based on the source
-//! configuration. Each path returns an [`OracleObservation`] that the
-//! cross-source composer in `oracle/compose.rs` then anchors and
-//! sanity-checks.
-//!
-//! Split into:
-//!   * [`spot`] — single-point `lastprice` read (also the TWAP fallback
-//!     path when policy allows).
-//!   * [`twap`] — windowed median read with partial-history tolerance,
-//!     staleness gating, and an optional spot fallback.
-//!
-//! `to_reflector_asset` + `observation_from_price_data` are shared
-//! helpers used by both submodules.
+// Reflector (SEP-40) price provider.
 
 mod spot;
 mod twap;
@@ -29,8 +15,7 @@ use crate::cache::ControllerCache;
 
 pub(crate) use twap::min_twap_observations;
 
-// `OracleAssetRef::String` is unsupported on Reflector; `Stellar` and
-// `Symbol` map to the SEP-40 asset variants.
+// Maps OracleAssetRef to ReflectorAsset.
 pub(crate) fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     match asset {
         OracleAssetRef::Stellar(address) => ReflectorAsset::Stellar(address.clone()),
@@ -53,9 +38,7 @@ pub(crate) fn read_reflector_source(
     }
 }
 
-// Builds an `OracleObservation` from a single Reflector price datum.
-// Used by spot reads directly and by TWAP reads to capture the
-// newest-observed datum for fallback when the window is rejected.
+// Builds OracleObservation from Reflector datum.
 pub(crate) fn observation_from_price_data(
     env: &Env,
     pd: &ReflectorPriceData,

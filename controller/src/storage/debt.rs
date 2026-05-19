@@ -7,9 +7,6 @@ pub fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {
     env.storage().persistent().get(&key).unwrap_or(0i128)
 }
 
-// Persist the running isolated-debt counter for `asset`. User flows may update
-// this shared accounting value, but they must not renew its TTL; keeper
-// keepalive owns shared-state rent.
 pub fn set_isolated_debt(env: &Env, asset: &Address, debt: i128) {
     let key = ControllerKey::IsolatedDebt(asset.clone());
     let persistent = env.storage().persistent();

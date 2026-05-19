@@ -4,10 +4,7 @@ use soroban_sdk::{Address, Env, Map};
 use super::emode;
 use crate::storage;
 
-// Creates a new account, increments the nonce, persists it, and returns
-// the in-memory snapshot alongside the new id. Returning the snapshot
-// lets callers skip a redundant re-read for the entry that was just
-// written.
+// Creates and persists new account.
 pub fn create_account(
     env: &Env,
     owner: &Address,
@@ -44,12 +41,12 @@ pub fn create_account(
     (account_id, account)
 }
 
-// Removes all persistent storage entries for `account_id` (meta entry and all positions).
+// Deletes account from storage.
 pub fn remove_account(env: &Env, account_id: u64) {
     storage::remove_account_entry(env, account_id);
 }
 
-// Removes the account from storage when both supply and borrow position maps are empty.
+// Deletes account if empty.
 pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         remove_account(env, account_id);

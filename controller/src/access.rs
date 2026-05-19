@@ -6,9 +6,9 @@ use stellar_macros::only_owner;
 
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
-pub(crate) const KEEPER_ROLE: &str = "KEEPER"; // update_indexes, clean_bad_debt, update_account_threshold
-pub(crate) const REVENUE_ROLE: &str = "REVENUE"; // claim_revenue, add_rewards
-pub(crate) const ORACLE_ROLE: &str = "ORACLE"; // configure_market_oracle, edit_oracle_tolerance, disable_token_oracle
+pub(crate) const KEEPER_ROLE: &str = "KEEPER";
+pub(crate) const REVENUE_ROLE: &str = "REVENUE";
+pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 
 fn default_operational_roles(env: &Env) -> [Symbol; 3] {
     [
@@ -70,9 +70,7 @@ impl Controller {
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
 
-        // Grant only KEEPER at construct. REVENUE and ORACLE require an
-        // explicit `grant_role` after deploy so a compromised owner key in
-        // the bootstrap window cannot immediately exercise those roles.
+        // Grant roles.
         access_control::set_admin(&env, &admin);
         let keeper_role = Symbol::new(&env, KEEPER_ROLE);
         access_control::grant_role_no_auth(&env, &admin, &keeper_role, &admin);
@@ -85,9 +83,7 @@ impl Controller {
             },
         );
 
-        // Pause at construct; operator must `unpause` after wiring
-        // aggregator, accumulator, pool template, oracles, and markets.
-        // `upgrade` applies the same auto-pause.
+        // Pause by default.
         stellar_contract_utils::pausable::pause(&env);
     }
 

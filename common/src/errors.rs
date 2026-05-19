@@ -1,7 +1,6 @@
 use soroban_sdk::contracterror;
 
-// Each enum occupies a disjoint numeric range; codes never collide across
-// domains.
+
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]

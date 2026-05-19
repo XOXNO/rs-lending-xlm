@@ -14,39 +14,19 @@ pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
 pub const MAX_LIQUIDATION_BONUS: i128 = 1_500;
 
-/// Lower clamp on the post-bad-debt supply index, in raw RAY units. The pool
-/// floors `supply_index_ray` at this value during bad-debt socialization
-/// (`pool/src/interest.rs::apply_bad_debt_to_supply_index`). Set to 10^-9 in
-/// raw Ray units; revenue-accrual paths additionally guard against
-/// `index <= floor` so a near-zero index cannot blow up `fee / supply_index`.
+// Supply index floor.
 pub const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
 
-/// Bad-debt socialization threshold: an account with collateral at or
-/// below $5 USD AND debt > collateral triggers `apply_bad_debt_to_supply_index`.
-/// Stored in WAD precision (1 USD = 10^18). Referenced by liquidation paths
-/// and `clean_bad_debt_standalone`.
+// Bad-debt threshold (USD-WAD).
 pub const BAD_DEBT_USD_THRESHOLD: i128 = 5 * WAD;
 
-/// Absolute minimum per-position dust floor. Every market's
-/// `AssetConfig::{min_collat_floor_usd_wad, min_debt_floor_usd_wad}`
-/// must be at least this value (validated at admin time). Below the
-/// floor, dust positions accumulate as un-liquidatable bad debt
-/// because the bonus a liquidator would earn cannot cover transaction
-/// cost. Stored in WAD precision (1 USD = 10^18); $10 is the floor.
+// Min dust floor (USD-WAD).
 pub const MIN_DUST_FLOOR_WAD: i128 = 10 * WAD;
 
-/// Maximum permitted flash-loan fee, in BPS. 500 = 5%. Validated at both
-/// `create_liquidity_pool` (via `validate_asset_config`) and `edit_asset_config`.
+// Max flash-loan fee (BPS).
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
-/// Upper cap on `max_borrow_rate_ray`. The compound-interest 8-term Taylor
-/// series in `pool/src/interest.rs` has documented `< 0.01 %` accuracy only
-/// for per-chunk `x = rate * delta_time / RAY <= 2 RAY`. Capping
-/// `max_borrow_rate_ray` at `2 * RAY` keeps interest accrual inside the
-/// proven envelope even at 100 % utilization across a full
-/// `MAX_COMPOUND_DELTA_MS` chunk. Validated by both
-/// `controller/src/validation::validate_interest_rate_model` and
-/// `pool::Pool::update_params`.
+// Max annual borrow rate.
 pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
 
 pub const K_SCALING_FACTOR: i128 = 20_000;
@@ -57,15 +37,12 @@ pub const MAX_FIRST_TOLERANCE: i128 = 5_000;
 
 pub const MIN_LAST_TOLERANCE: i128 = 150;
 
-/// Absolute ceiling on oracle last-tolerance (BPS). Enforced in
-/// `validate_oracle_bounds`.
+// Max last tolerance (BPS).
 pub const MAX_LAST_TOLERANCE: i128 = 5_000;
 
 pub const ONE_DAY_LEDGERS: u32 = 17_280;
 
-// ---------------------------------------------------------------------------
-// Tiered storage TTLs (ledger counts)
-// ---------------------------------------------------------------------------
+
 
 pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 30; // ~30 days
 pub const TTL_BUMP_INSTANCE: u32 = ONE_DAY_LEDGERS * 180; // ~180 days (Soroban max)

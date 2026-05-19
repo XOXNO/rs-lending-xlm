@@ -4,10 +4,7 @@ use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
 use crate::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolSyncData};
 
-/// Computes the per-millisecond borrow rate from current utilization and market parameters.
-/// Selects the appropriate slope segment (`base → slope1 → slope2 → slope3`) based on
-/// where `utilization` falls relative to `mid` and `optimal`, then divides by
-/// `MILLISECONDS_PER_YEAR` and caps at `max_borrow_rate`.
+// Computes borrow rate (per ms).
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     let mid = Ray::from_raw(params.mid_utilization_ray);
     let optimal = Ray::from_raw(params.optimal_utilization_ray);
@@ -41,8 +38,7 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
     capped.div_by_int(MILLISECONDS_PER_YEAR as i128)
 }
 
-/// Computes the deposit APR as `utilization × borrow_rate × (1 - reserve_factor)`.
-/// Returns zero when utilization is zero or when `reserve_factor_bps` is outside `[0, BPS)`.
+// Computes deposit APR.
 pub fn calculate_deposit_rate(
     env: &Env,
     utilization: Ray,
@@ -67,8 +63,7 @@ pub fn calculate_deposit_rate(
     Ray::from_raw(factor.apply_to(env, rate_x_util.raw()))
 }
 
-/// Approximates `e^x` via an 8-term Taylor series, where `x = rate × delta_ms`.
-/// Returns `Ray::ONE` when `delta_ms` is zero. Accurate to < 0.01% for `x ≤ 2 RAY`.
+// Taylor series approximation of e^x.
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;
@@ -110,8 +105,7 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     old_index.mul(env, interest_factor)
 }
 
-/// Increases the supply index to reflect newly accrued supplier rewards.
-/// No-ops when `supplied` or `rewards_increase` is zero to avoid divide-by-zero.
+// Updates supply index.
 pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
@@ -123,8 +117,7 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     old_index.mul(env, factor)
 }
 
-/// Splits accrued interest into `(supplier_rewards, protocol_fee)` using the reserve factor.
-/// Both values are returned in RAY precision.
+// Splits interest into rewards and fees.
 pub fn calculate_supplier_rewards(
     env: &Env,
     params: &MarketParams,
@@ -145,7 +138,7 @@ pub fn calculate_supplier_rewards(
     (supplier_rewards, protocol_fee)
 }
 
-/// Returns `borrowed / supplied` in RAY. Returns zero when `supplied` is zero.
+// Returns utilization.
 pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if supplied == Ray::ZERO {
         return Ray::ZERO;
@@ -153,14 +146,12 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     borrowed.div(env, supplied)
 }
 
-/// Unscales a position back to principal: `scaled × index`. Both operands and result are in RAY.
+// Unscales position.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
 }
 
-/// Simulates interest accrual from `sync.state.last_timestamp` to `current_timestamp`
-/// without mutating pool state. Used by the controller to read fresh indexes in view
-/// calls and HF/LTV math without paying for a cross-contract write.
+// Simulates interest accrual.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,

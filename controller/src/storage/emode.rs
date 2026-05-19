@@ -3,9 +3,7 @@ use common::errors::EModeError;
 use common::types::{ControllerKey, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{panic_with_error, Address, Env};
 
-// ---------------------------------------------------------------------------
-// EModeCategory (one entry per category — params + member-asset map)
-// ---------------------------------------------------------------------------
+
 
 fn category_key(id: u32) -> ControllerKey {
     ControllerKey::EModeCategory(id)
@@ -28,14 +26,7 @@ pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategory) {
     renew_protocol_shared_key(env, &key);
 }
 
-// ---------------------------------------------------------------------------
-// E-Mode asset memberships — read/written through the embedded `assets` map
-// on the [`EModeCategory`] entry. Single ledger entry per category; per-asset
-// ops load + rewrite the whole entry. The reverse index (asset → categories)
-// lives on `AssetConfig.e_mode_categories` inside the per-asset MarketConfig
-// entry, so both directions of the membership relation share storage already
-// loaded by the surrounding operation.
-// ---------------------------------------------------------------------------
+
 
 pub fn get_emode_asset(env: &Env, category_id: u32, asset: &Address) -> Option<EModeAssetConfig> {
     try_get_emode_category(env, category_id).and_then(|cat| cat.assets.get(asset.clone()))

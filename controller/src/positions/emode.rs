@@ -5,12 +5,8 @@ use soroban_sdk::{panic_with_error, Address, Env};
 use crate::cache::ControllerCache;
 use crate::storage;
 
-// ---------------------------------------------------------------------------
-// Core e-mode functions
-// ---------------------------------------------------------------------------
 
-// Overrides `asset_config` risk parameters with the e-mode category's boosted LTV and thresholds.
-// No-ops when either `category` or `asset_emode_config` is `None`, or when the category is deprecated.
+// Boosts risk parameters via e-mode.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
@@ -29,7 +25,7 @@ pub fn apply_e_mode_to_asset_config(
     }
 }
 
-// Returns the asset config after applying the account's active e-mode overrides.
+// Returns asset config with e-mode overrides.
 pub fn effective_asset_config(
     env: &Env,
     account: &Account,
@@ -43,19 +39,14 @@ pub fn effective_asset_config(
     asset_config
 }
 
-// Panics with `EModeWithIsolated` when an isolated asset is assigned to a non-zero e-mode category.
+// Rejects isolated asset in e-mode.
 pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_id: u32) {
     if asset_config.is_isolated_asset && e_mode_id > 0 {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
 }
 
-// Returns the e-mode membership config for `asset` in category `e_mode_id`.
-// Panics with `EModeCategoryNotFound` when the asset is not a member of the category.
-//
-// Both reads (`market_config` reverse-index + `emode_asset` lookup)
-// go through `cache` so a per-asset loop only hits storage once per
-// asset; subsequent calls in the same transaction are free.
+// Returns e-mode asset config.
 pub fn token_e_mode_config(
     env: &Env,
     cache: &mut ControllerCache,
@@ -66,16 +57,11 @@ pub fn token_e_mode_config(
         return None;
     }
 
-    // Reverse-index check: the asset's MarketConfig records every
-    // category it's enrolled in. Read straight from the cache map so a
-    // missing market surfaces as `EModeCategoryNotFound` (the cached
-    // getter would surface it as `AssetNotSupported`).
+    // Reverse-index check: asset MarketConfig must record enrollment.
     let market = match cache.market_configs.get(asset.clone()) {
         Some(m) => m,
         None => {
-            // Fall through to storage for the cache-miss case, but keep
-            // the e-mode-specific error code if the market truly doesn't
-            // exist.
+            // Use storage on cache miss.
             match crate::storage::try_get_market_config(env, asset) {
                 Some(m) => {
                     cache.market_configs.set(asset.clone(), m.clone());
@@ -96,7 +82,7 @@ pub fn token_e_mode_config(
     config
 }
 
-// Returns the `EModeCategory` for `e_mode_id`, or `None` when `e_mode_id` is zero (no e-mode).
+// Returns e-mode category.
 pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     if e_mode_id == 0 {
         return None;
@@ -104,18 +90,14 @@ pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     Some(storage::get_emode_category(env, e_mode_id))
 }
 
-// Returns the account's e-mode category and rejects deprecated categories.
+// Returns active e-mode category.
 pub fn active_e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     let category = e_mode_category(env, e_mode_id);
     ensure_e_mode_not_deprecated(env, &category);
     category
 }
 
-// ---------------------------------------------------------------------------
-// Deprecation check
-// ---------------------------------------------------------------------------
-
-// Panics with `EModeCategoryDeprecated` when `category` is `Some` and marked deprecated.
+// Panics if deprecated.
 pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
     if let Some(cat) = category {
         if cat.is_deprecated {
@@ -124,12 +106,8 @@ pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Convenience helpers (used by strategy.rs and other callers)
-// ---------------------------------------------------------------------------
 
-// Panics with `NotCollateral` or `AssetNotBorrowable` when the asset's e-mode membership
-// disallows the requested operation. `is_supply = true` checks collateralizability; `false` checks borrowability.
+// Validates e-mode membership.
 pub fn validate_e_mode_asset(
     env: &Env,
     cache: &mut ControllerCache,
@@ -155,12 +133,8 @@ pub fn validate_e_mode_asset(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Isolation mode enforcement (accepts pre-loaded data from caller)
-// ---------------------------------------------------------------------------
 
-// Panics with `MixIsolatedCollateral` when an isolated account supplies a different
-// asset than its existing collateral, or when a non-isolated account supplies an isolated asset.
+// Enforces isolated collateral exclusivity.
 pub fn validate_isolated_collateral(
     env: &Env,
     account: &Account,
@@ -187,7 +161,7 @@ pub fn validate_isolated_collateral(
     }
 }
 
-// Panics with `EModeWithIsolated` when both `e_mode_category > 0` and `is_isolated` are true.
+// Rejects e-mode + isolation.
 pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category: u32, is_isolated: bool) {
     if e_mode_category > 0 && is_isolated {
         panic_with_error!(env, EModeError::EModeWithIsolated);

@@ -1,15 +1,3 @@
-//! Cache-aware price reads. The two heavy entry points
-//! ([`token_price`], [`update_asset_index`]) sit in their own file so
-//! the Certora harness can swap this module wholesale without touching
-//! the rest of `oracle::*`.
-//!
-//! Production behavior:
-//!   * [`token_price`] composes the per-asset feed through the
-//!     primary/anchor pipeline, applies the sanity-bound circuit
-//!     breaker, then caches and returns the result.
-//!   * [`update_asset_index`] simulates pool-side interest accrual on
-//!     the cached sync data and returns the fresh `MarketIndex`.
-
 use common::errors::{GenericError, OracleError};
 use common::rates::simulate_update_indexes;
 use common::types::{MarketIndex, MarketStatus, PriceFeed};
@@ -39,15 +27,7 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
     if resolved.price_wad <= 0 {
         panic_with_error!(cache.env(), OracleError::InvalidPrice);
     }
-    // Absolute price floor/ceiling — the protocol's last line of
-    // defense against catastrophic oracle outputs. Required under the
-    // liquidation policy, which resolves anchor deviation to the live
-    // aggregator: without bounds a brief spot manipulation inside the
-    // deviation band could drive liquidations. `validate_sanity_bounds`
-    // enforces `0 < min < max` at config time, so the only way to reach
-    // a state with `max == 0` here is direct storage tampering. Reject
-    // that too — there is no legitimate disabled-bounds state in
-    // production.
+    // Sanity price bounds.
     if config.max_sanity_price_wad <= 0
         || resolved.price_wad < config.min_sanity_price_wad
         || resolved.price_wad > config.max_sanity_price_wad

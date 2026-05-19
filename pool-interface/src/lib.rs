@@ -38,8 +38,6 @@ pub trait LiquidityPoolInterface {
     ) -> PoolPositionMutation;
     fn update_indexes(env: Env) -> MarketStateSnapshot;
     fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot;
-    /// Pool uses its own `params.asset_id` for the token transfer; the ABI
-    /// takes no caller-supplied asset argument.
     fn flash_loan(
         env: Env,
         initiator: Address,
@@ -61,10 +59,6 @@ pub trait LiquidityPoolInterface {
         side: AccountPositionType,
         position: AccountPosition,
     ) -> PoolPositionMutation;
-    /// Pool transfers revenue to its owner (the controller), which then
-    /// forwards to the protocol accumulator. The ABI takes no
-    /// caller-supplied destination, and the pool stores no destination of
-    /// its own; ownership is the routing anchor.
     fn claim_revenue(env: Env) -> PoolAmountMutation;
     fn update_params(
         env: Env,

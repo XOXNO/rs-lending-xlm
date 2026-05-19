@@ -38,13 +38,8 @@ impl Controller {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Orchestration
-// ---------------------------------------------------------------------------
 
-// Executes a liquidation: verifies HF < 1, computes seizure amounts with the dynamic bonus,
-// repays debt from the liquidator, and seizes proportional collateral.
-// Triggers automatic bad-debt cleanup when residual collateral falls below `BAD_DEBT_USD_THRESHOLD`.
+// Executes liquidation.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -55,10 +50,7 @@ pub fn process_liquidation(
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, debt_payments);
 
-    // Self-liquidation is rejected. A user paying themselves the
-    // liquidation bonus only moves debt around inside the same
-    // account without reducing protocol risk, while consuming a
-    // bonus that would otherwise compensate an external liquidator.
+    // Reject self-liquidation.
     let account_meta = storage::get_account_meta(env, account_id);
     if account_meta.owner == *liquidator {
         panic_with_error!(env, GenericError::AccountNotInMarket);
@@ -66,30 +58,16 @@ pub fn process_liquidation(
 
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation reduces protocol exposure, so blocking it on oracle
-    // disagreement converts a recoverable price-uncertainty event
-    // into bad debt eaten by lenders. The `Liquidation` policy still
-    // requires fresh, dual-sourced prices but resolves disagreements
-    // to the aggregator (live market) rather than the slow-moving
-    // anchor.
+    // Liquidation reduces protocol exposure.
     let mut cache = ControllerCache::new(env, OraclePolicy::Liquidation);
 
     for (asset, _) in debt_payment_plan.iter() {
         validation::require_asset_supported(env, &mut cache, &asset);
     }
 
-    // The side-map writes below bump account metadata TTLs, so an explicit
-    // `renew_user_account` keep-alive call here is redundant.
     let mut account = storage::get_account(env, account_id);
 
-    // Math phase: decide seizure and repayment amounts.
-    //
-    // `_refunds` is intentionally discarded here. The pull-model only
-    // transfers the post-cap `amount` from `repaid_tokens` below. The cap
-    // is enforced at the transfer step itself, so over-collection is
-    // impossible. The vector is still produced because the public
-    // `liquidation_estimations_detailed` view exposes it as informational
-    // metadata for off-chain simulators.
+    // Calculate seizure and repayment.
     let result = execute_liquidation(env, &account, &debt_payment_plan, &mut cache);
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -111,18 +89,7 @@ pub fn process_liquidation(
         &mut cache,
     );
 
-    // Per-position dust gate. The aggregate dust check in
-    // `expand_to_full_close_on_dust_residue` works against account-
-    // level totals, so a single asset's residue can still land sub-
-    // floor while the aggregate looks healthy. The shared dust helper
-    // iterates every supply / borrow position and reverts on any
-    // open-interval `(0, floor)` value.
-    //
-    // Skip when the account already qualifies for bad-debt
-    // socialization (mirrors `check_bad_debt_after_liquidation`).
-    // Bad-debt cleanup zeroes the supply index for the affected
-    // reserve, which collapses any sub-floor residue to ≈ 0 — running
-    // the dust gate first would block a legitimate cleanup path.
+    // Per-position dust gate.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
         env,
         &mut cache,
@@ -136,9 +103,7 @@ pub fn process_liquidation(
         require_no_dust_after(env, &mut cache, &account);
     }
 
-    // Liquidation never mutates meta fields (owner, is_isolated, e_mode,
-    // mode, isolated_asset). Flush only the two sides; each side write
-    // also TTL-bumps meta via `write_side_map`.
+    // Persist position updates.
     storage::set_supply_positions(env, account_id, &account.supply_positions);
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
 
@@ -150,9 +115,6 @@ pub fn process_liquidation(
     cache.emit_market_batch();
 }
 
-// ---------------------------------------------------------------------------
-// Execution Engine (Math)
-// ---------------------------------------------------------------------------
 
 fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {
     EventContext {
@@ -262,17 +224,7 @@ pub(crate) fn execute_liquidation(
         total_debt_payment_usd,
     );
 
-    // If the optimal partial liquidation would leave a residue below
-    // the configured dust floor on either side, expand to a full
-    // close so the residue is erased rather than left as
-    // un-liquidatable bad debt.
-    //
-    // The expansion may only consume what the liquidator has already
-    // provided: raising `max_debt_to_repay_usd` past
-    // `total_debt_payment_usd` would price the seizure as if the
-    // liquidator repaid more than they actually did, an over-seizure
-    // bug. Pass the payment ceiling so the helper clamps before
-    // raising the target.
+    // Full close if residue is dust.
     expand_to_full_close_on_dust_residue(
         env,
         cache,
@@ -375,11 +327,7 @@ fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-// Returns the per-account dust floors (max across the supply side and
-// across the borrow side respectively). The "max" rule is conservative:
-// if any market in the position requires a $20 floor while the rest
-// require $10, the whole account is governed by $20. Returns `(0, 0)`
-// when both sides are empty.
+// Returns per-account dust floors.
 fn account_dust_floors(cache: &mut ControllerCache, account: &Account) -> (i128, i128) {
     let mut min_collat: i128 = 0;
     for asset in account.supply_positions.keys() {
@@ -398,15 +346,7 @@ fn account_dust_floors(cache: &mut ControllerCache, account: &Account) -> (i128,
     (min_collat, min_debt)
 }
 
-// If a partial liquidation of `*repay_usd` debt at `bonus` rate would
-// leave either:
-//   * residual debt in `(0, min_debt_floor)`, or
-//   * residual collateral in `(0, min_collat_floor)`,
-// expand `*repay_usd` to `total_debt` so the position closes
-// entirely. Existing per-asset seizure clamping handles the asset-
-// side cap; the bad-debt socialization path
-// (`check_bad_debt_after_liquidation`) is unchanged and fires on the
-// resulting residue when applicable.
+// Expands liquidation to full close on dust residue.
 fn expand_to_full_close_on_dust_residue(
     env: &Env,
     cache: &mut ControllerCache,
@@ -608,9 +548,6 @@ fn process_excess_payment(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Bad debt check and cleanup
-// ---------------------------------------------------------------------------
 
 fn check_bad_debt_after_liquidation(
     env: &Env,
@@ -643,9 +580,7 @@ fn check_bad_debt_after_liquidation(
     }
 }
 
-// Socializes the entire position as bad debt: seizes all collateral into protocol revenue
-// and writes off all debt against the supply index. Callable by the KEEPER role.
-// Panics with `CannotCleanBadDebt` when the account does not meet the bad-debt threshold.
+// Socializes bad debt by seizing collateral and writing off debt.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
     // reverts atomically, so no upfront `renew_user_account` keep-alive is needed.

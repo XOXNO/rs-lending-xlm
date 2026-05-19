@@ -59,7 +59,6 @@ impl LiquidityPool {
         env.storage().instance().set(&PoolKey::State, &state);
     }
 
-    // Admin-only mutating endpoints.
 
     #[only_owner]
     pub fn supply(
@@ -100,8 +99,7 @@ impl LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
-        // Max-utilization ceiling — checked post-state so a borrow
-        // that would tip the pool past the cap reverts.
+        // Max-utilization ceiling.
         utils::require_utilization_below_max(&env, &cache);
 
         cache.transfer_out(&caller, amount);
@@ -120,8 +118,7 @@ impl LiquidityPool {
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation {
-        // `i128::MAX` is the controller's "withdraw all" sentinel; other
-        // negatives are rejected.
+        // Controller uses i128::MAX for "withdraw all".
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
         let mut cache = Cache::load(&env);
@@ -137,12 +134,7 @@ impl LiquidityPool {
 
         cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
         position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_withdrawal).raw();
-        // Max-utilization ceiling — post-state. Skipped on liquidation
-        // seize because the protocol must always be able to liquidate
-        // (the seize is a side effect of debt removal in the same flow,
-        // not a discretionary withdrawal). The solvency guard fires
-        // unconditionally on withdraw to catch the donation-backed
-        // last-supplier-exit pattern.
+        // Max-utilization ceiling.
         if !is_liquidation {
             utils::require_utilization_below_max(&env, &cache);
         }
@@ -227,8 +219,7 @@ impl LiquidityPool {
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
-        // Always operate on the pool's own asset and snapshot balance locally
-        // so the callback can't settle with a different asset.
+        // Snapshot balance locally to prevent settlement with different asset.
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
@@ -238,8 +229,7 @@ impl LiquidityPool {
 
         tok.transfer(&pool_addr, &receiver, &amount);
 
-        // Pre-callback sanity: catch fee-on-transfer / silently-failing
-        // tokens so the callback sees a known-correct balance.
+        // Pre-callback sanity.
         if tok.balance(&pool_addr) != expected_after_payout {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
@@ -258,7 +248,7 @@ impl LiquidityPool {
                 .into_val(&env),
         );
 
-        // Post-callback: callback must not have mutated the pool's balance.
+        // Post-callback: balance must not have been mutated.
         if tok.balance(&pool_addr) != expected_after_payout {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
@@ -303,7 +293,7 @@ impl LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         position.scaled_amount_ray += scaled_debt.raw();
         cache.borrowed += scaled_debt;
-        // Max-utilization ceiling — post-state. Same rule as plain borrow.
+        // Max-utilization ceiling.
         utils::require_utilization_below_max(&env, &cache);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
@@ -328,7 +318,7 @@ impl LiquidityPool {
 
         match side {
             AccountPositionType::Borrow => {
-                // Socialise bad debt via the supply index (RAY precision).
+                // Socialize bad debt.
                 let current_debt_ray =
                     cache.calculate_original_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
                 interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
@@ -354,32 +344,22 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        // Defensive: writers (`+=` positive, `checked_sub_assign`) keep
-        // `revenue` non-negative. A negative value would silently skip the
-        // burn (treasury → negative → no transfer) and return garbage.
+        // Defensive: revenue must be non-negative.
         if cache.revenue.raw() < 0 {
             panic_with_error!(&env, GenericError::MathOverflow);
         }
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 
-        // `burn_claimable_revenue` decrements `cache.supplied` by the
-        // revenue's scaled share. If the previous final supplier had
-        // already withdrawn (leaving only the protocol-revenue share as
-        // `supplied`), the burn can land at `supplied == 0` while
-        // `borrowed > 0` — symmetric to the donation-backed last-
-        // supplier exit the withdraw path guards against. Reject the
-        // same insolvent post-state here.
+        // Reject insolvent post-state.
         utils::require_solvent_withdraw_state(&env, &cache);
 
-        // CEI: commit state before the external token call so a re-entry
-        // can't observe stale revenue and recurse a claim.
+        // CEI: commit state before external call.
         let mutation = cache.amount_mutation(amount_to_transfer);
         cache.save();
 
         if amount_to_transfer > 0 {
-            // Revenue always routes to the pool owner (controller); pool
-            // never trusts a caller-supplied destination.
+            // Revenue routes to pool owner.
             let owner = ownable::get_owner(&env)
                 .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
             cache.transfer_out(&owner, amount_to_transfer);
@@ -401,7 +381,7 @@ impl LiquidityPool {
         max_utilization: i128,
         reserve_factor: u32,
     ) {
-        // Accrue at the old rate model before applying the new one.
+        // Accrue at old rate model before applying new.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
         cache.save();
@@ -414,9 +394,7 @@ impl LiquidityPool {
             slope3_ray: slope3,
             mid_utilization_ray: mid_utilization,
             optimal_utilization_ray: optimal_utilization,
-            // Threaded through the ABI so governance can tighten or
-            // loosen the utilization ceiling without resetting it on
-            // every rate-model adjustment.
+            // Governance adjustable ceiling.
             max_utilization_ray: max_utilization,
             reserve_factor_bps: reserve_factor,
         };

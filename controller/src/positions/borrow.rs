@@ -22,9 +22,7 @@ impl Controller {
     }
 }
 
-// Strategy borrow path: validates e-mode and borrowability, enforces the borrow cap and
-// isolated-debt ceiling, flashes the debt via `pool::create_strategy`, and emits the event.
-// Returns the net amount received after the pool deducts the strategy flash fee.
+// Strategy borrow path.
 pub fn handle_create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
@@ -78,15 +76,9 @@ pub fn handle_create_borrow_strategy(
     result.amount_received
 }
 
-// ---------------------------------------------------------------------------
-// Batch entry point
-// ---------------------------------------------------------------------------
 
-// Processes a batch of borrows: validates LTV collateral, enforces position limits,
-// and calls the pool for each asset. Post-batch HF gate prevents sub-threshold openings.
-//
-// Storage I/O: 1 meta read + 1 supply-side read (LTV) + 1 borrow-side
-// read + 1 borrow-side write. The supply side and meta are not mutated.
+
+// Processes borrow batch.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -101,25 +93,19 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
     process_borrow_plan(env, caller, account_id, &mut account, borrows, &mut cache);
     validation::require_healthy_account(env, &mut cache, &account);
-    // Borrowing under the per-asset floor is rejected even when the
-    // position is otherwise healthy — the protocol cannot profitably
-    // liquidate dust.
+    // Rejects dust positions.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Borrow only mutates the borrow side; supply and meta stay untouched.
+    // Mutates borrow positions only.
     storage::set_borrow_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
 }
 
-// ---------------------------------------------------------------------------
-// process_borrow_plan -- reusable borrow flow
-// ---------------------------------------------------------------------------
 
-// Processes a borrow batch on `account`: aggregates duplicate assets,
-// preflights the batch before pool mutation, then calls the pool once per
-// unique asset.
+
+// Processes borrow plan on account.
 pub fn process_borrow_plan(
     env: &Env,
     caller: &Address,
@@ -131,8 +117,7 @@ pub fn process_borrow_plan(
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
-    // Resolve the e-mode-overlaid asset config once per unique asset; both
-    // the preflight and the execute phase consume it without recomputing.
+    // Resolve effective asset configs.
     let mut effective_configs: Map<Address, AssetConfig> = Map::new(env);
     for (asset, _) in borrow_plan.iter() {
         if !effective_configs.contains_key(asset.clone()) {
@@ -332,9 +317,7 @@ fn record_borrow_update(
     update::update_or_remove_position(account, AccountPositionType::Borrow, asset, &position);
 }
 
-// Increments the isolated-debt USD tracker by the USD value of `amount`.
-// Panics with `DebtCeilingReached` when the new total would exceed the isolation debt ceiling.
-// No-ops for non-isolated accounts.
+// Increments isolated-debt tracker and checks ceiling.
 pub fn handle_isolated_debt(
     env: &Env,
     cache: &mut ControllerCache,

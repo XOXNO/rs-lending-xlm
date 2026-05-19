@@ -28,9 +28,6 @@ pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 
 pub use price::{token_price, update_asset_index};
 
-// Public projection of the oracle composition pipeline. Mirrors the
-// internal `ResolvedOracleComponents` with stable field names suited
-// for view APIs. Returned by `price_components`.
 pub struct PriceComponents {
     pub aggregator_price_wad: Option<i128>,
     pub safe_price_wad: Option<i128>,

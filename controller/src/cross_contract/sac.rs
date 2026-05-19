@@ -1,7 +1,4 @@
-//! Thin wrapper around the Soroban Asset Contract (SAC) cross-contract
-//! ABI. Lifting the cross-contract call into its own module gives a
-//! clean substitution boundary under `--features certora`; the
-//! sibling [`crate::cross_contract::pool`] uses the same pattern.
+// Wrapper around Soroban Asset Contract (SAC).
 
 use soroban_sdk::{Address, Env};
 

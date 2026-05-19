@@ -1,16 +1,4 @@
-//! Thin wrappers around the `LiquidityPool` cross-contract ABI. One
-//! file boundary cleanly separates "code that crosses the Soroban
-//! contract edge" from the rest of the controller. Under
-//! `--features certora` the sibling
-//! `verification/certora/controller/harness/cross_contract/pool.rs`
-//! provides nondet+cvlr_assume summaries in place of the real
-//! `LiquidityPoolClient` invocations below.
-//!
-//! Every wrapper takes `pool_addr: &Address` directly; the caller is
-//! responsible for resolving it through
-//! [`crate::cache::ControllerCache::cached_pool_address`] so repeated
-//! reads of the same market within one transaction share a single
-//! storage hit.
+// Wrappers around LiquidityPool cross-contract ABI.
 
 use common::types::{
     AccountPosition, AccountPositionType, MarketStateSnapshot, PoolAmountMutation,
@@ -18,9 +6,6 @@ use common::types::{
 };
 use soroban_sdk::{Address, Bytes, Env};
 
-// ---------------------------------------------------------------------------
-// Position-mutating calls
-// ---------------------------------------------------------------------------
 
 pub(crate) fn pool_supply_call(
     env: &Env,
@@ -103,9 +88,6 @@ pub(crate) fn pool_seize_position_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(&side, &position)
 }
 
-// ---------------------------------------------------------------------------
-// Pool-state and revenue calls
-// ---------------------------------------------------------------------------
 
 pub(crate) fn pool_flash_loan_call(
     env: &Env,
