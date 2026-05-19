@@ -2,6 +2,7 @@
 members = [
     "common",
     "pool-interface",
+    "controller-interface",
     "pool",
     "controller",
     "flash-loan-receiver",
