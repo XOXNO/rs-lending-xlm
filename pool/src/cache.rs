@@ -161,7 +161,7 @@ impl Cache {
         let scaled_to_burn = if amount >= treasury_actual {
             self.revenue
         } else {
-            let ratio = Ray::from_raw(amount).div(&self.env, Ray::from_raw(treasury_actual));
+            let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
             self.revenue.mul(&self.env, ratio)
         };
         self.revenue.checked_sub_assign(&self.env, scaled_to_burn);

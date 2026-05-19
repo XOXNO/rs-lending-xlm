@@ -254,6 +254,8 @@ impl LiquidityPool {
             panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
         }
 
+        // Authorize the pool to invoke transfer_from on the token contract.
+        // This relies on the receiver having called `approve` on the token contract during the callback.
         authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
         tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
 

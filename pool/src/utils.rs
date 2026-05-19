@@ -112,7 +112,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
 // Rejects withdrawals leaving supplied == 0 and borrowed > 0.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
-        panic_with_error!(env, CollateralError::UtilizationAboveMax);
+        panic_with_error!(env, CollateralError::PoolInsolvent);
     }
 }
 

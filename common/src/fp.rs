@@ -55,9 +55,15 @@ impl Ray {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
     }
 
+    // Creates a Ray from a ratio of two integers.
+    pub fn from_fraction(env: &Env, numerator: i128, denominator: i128) -> Ray {
+        Ray(fp_core::mul_div_half_up(env, numerator, RAY, denominator))
+    }
+
     // Upscales asset amount to RAY.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
+
             amount,
             asset_decimals,
             RAY_DECIMALS,
