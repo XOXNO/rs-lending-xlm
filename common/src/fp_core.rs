@@ -85,8 +85,6 @@ fn to_i128(env: &Env, val: &I256) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,4 @@
 // Fixed-point types for the lending protocol.
-//!
-
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
@@ -8,8 +6,6 @@ use soroban_sdk::{panic_with_error, Env};
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
 use crate::fp_core;
-
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ray(i128);
@@ -121,8 +117,6 @@ impl SubAssign for Ray {
     }
 }
 
-
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Wad(i128);
 
@@ -172,11 +166,19 @@ impl Wad {
     }
 
     pub fn min(self, other: Wad) -> Wad {
-        if self.0 < other.0 { self } else { other }
+        if self.0 < other.0 {
+            self
+        } else {
+            other
+        }
     }
 
     pub fn max(self, other: Wad) -> Wad {
-        if self.0 > other.0 { self } else { other }
+        if self.0 > other.0 {
+            self
+        } else {
+            other
+        }
     }
 
     // Checked addition.
@@ -231,8 +233,6 @@ impl SubAssign for Wad {
         self.0 -= rhs.0;
     }
 }
-
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bps(i128);
@@ -581,7 +581,10 @@ mod tests {
         let b = Wad::from_raw(3 * WAD);
         let half_up = a.div(&env, b).raw();
         let floor = a.div_floor(&env, b).raw();
-        assert!(floor < half_up, "div_floor must round strictly down for 2/3");
+        assert!(
+            floor < half_up,
+            "div_floor must round strictly down for 2/3"
+        );
     }
 
     #[test]
@@ -863,6 +866,10 @@ mod tests {
         let half_up = a.div(&env, b).raw();
         let floor = a.div_floor(&env, b).raw();
         // 2/3 in RAY: half_up rounds the 0.666…7 up, floor leaves 0.666…6.
-        assert_eq!(half_up - floor, 1, "div and div_floor must differ by 1 ulp on a half-remainder");
+        assert_eq!(
+            half_up - floor,
+            1,
+            "div and div_floor must differ by 1 ulp on a half-remainder"
+        );
     }
 }

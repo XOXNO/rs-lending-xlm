@@ -14,6 +14,7 @@ fn params(asset: Address) -> MarketParams {
         mid_utilization_ray: RAY / 2,
         optimal_utilization_ray: RAY * 8 / 10,
         max_borrow_rate_ray: 2 * RAY,
+        max_utilization_ray: RAY,
         reserve_factor_bps: 1_000,
         asset_id: asset,
         asset_decimals: 7,

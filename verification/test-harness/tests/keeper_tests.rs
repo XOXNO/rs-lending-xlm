@@ -316,8 +316,10 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
 
 #[test]
 fn test_keeper_role_required() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     // Create BOB without the KEEPER role.
     let bob_addr = t.get_or_create_user(BOB);

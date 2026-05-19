@@ -14,8 +14,8 @@
 extern crate std;
 
 use test_harness::{
-    eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, STABLECOIN_EMODE, ALICE,
-    BOB, LIQUIDATOR,
+    eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
+    STABLECOIN_EMODE,
 };
 
 // ---------------------------------------------------------------------------

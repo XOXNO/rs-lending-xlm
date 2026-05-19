@@ -6,8 +6,6 @@ use crate::errors::CollateralError;
 // Asset + amount pair.
 pub type Payment = (Address, i128);
 
-
-
 // Position discriminants.
 pub const POSITION_TYPE_DEPOSIT: u32 = 1;
 pub const POSITION_TYPE_BORROW: u32 = 2;
@@ -29,8 +27,6 @@ pub enum PositionMode {
     Long = 2,
     Short = 3,
 }
-
-
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -116,7 +112,7 @@ impl InterestRateModel {
         if self.optimal_utilization_ray >= RAY {
             panic_with_error!(env, CollateralError::OptUtilTooHigh);
         }
-        /// Validates max utilization is within bounds.
+        // Validates max utilization bounds.
         if self.max_utilization_ray < self.optimal_utilization_ray || self.max_utilization_ray > RAY
         {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
@@ -127,8 +123,6 @@ impl InterestRateModel {
     }
 }
 
-
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
@@ -138,8 +132,6 @@ pub struct AccountPosition {
     pub liquidation_fees_bps: u32,
     pub loan_to_value_bps: u32,
 }
-
-
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -192,8 +184,6 @@ impl AssetConfig {
     }
 }
 
-
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
@@ -219,8 +209,6 @@ pub struct AccountMeta {
     pub isolated_asset: Option<Address>,
 }
 
-
-
 // E-mode category config.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -238,8 +226,6 @@ pub struct EModeAssetConfig {
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
 }
-
-
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -448,8 +434,6 @@ pub struct MarketOracleConfigInput {
     pub max_sanity_price_wad: i128,
 }
 
-
-
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PriceFeed {
@@ -466,8 +450,6 @@ pub struct SafePriceFeed {
     pub within_first_tolerance: bool,
     pub within_second_tolerance: bool,
 }
-
-
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -544,16 +526,12 @@ pub struct PoolSyncData {
     pub state: PoolState,
 }
 
-
-
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PositionLimits {
     pub max_borrow_positions: u32,
     pub max_supply_positions: u32,
 }
-
-
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -603,8 +581,6 @@ pub struct LiquidationResult {
     pub max_debt_usd: i128,
     pub bonus_bps: i128,
 }
-
-
 
 // Swap venue.
 #[contracttype]
@@ -663,8 +639,6 @@ pub struct BatchSwap {
     pub total_in: i128,
     pub total_min_out: i128,
 }
-
-
 
 // Market status.
 #[contracttype]

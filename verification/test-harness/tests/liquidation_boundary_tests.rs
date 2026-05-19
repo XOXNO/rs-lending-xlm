@@ -40,7 +40,7 @@ fn test_hf_exactly_one_is_healthy() {
     let hf_raw = t.health_factor_raw(ALICE);
     // The threshold/price math is exact enough that HF lands within a
     // few ulps of WAD; widen tolerance modestly for arithmetic slop.
-    let drift = (hf_raw - WAD as i128).abs();
+    let drift = (hf_raw - WAD).abs();
     assert!(
         drift < 1_000,
         "HF should be ~1.0 (raw WAD), got {}, drift={}",
@@ -67,7 +67,7 @@ fn test_hf_just_below_one_is_liquidatable() {
     t.set_price("USDC", usd(1) * 874 / 1000); // HF ≈ 0.9989
 
     let hf_raw = t.health_factor_raw(ALICE);
-    assert!(hf_raw < WAD as i128, "HF must be < 1.0, got {}", hf_raw);
+    assert!(hf_raw < WAD, "HF must be < 1.0, got {}", hf_raw);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert!(
@@ -91,7 +91,7 @@ fn test_liquidation_strictly_improves_hf() {
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // $6000 debt
-    // Mild crash: HF ≈ 0.987, well inside the partial-liquidation band.
+                                 // Mild crash: HF ≈ 0.987, well inside the partial-liquidation band.
     t.set_price("USDC", usd_cents(74));
     t.assert_liquidatable(ALICE);
 
@@ -165,8 +165,14 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
     // Also verify the lowest realized bonus is at or above base (5 %)
     // and the highest is well below max (15 %): we're inside the
     // interpolation band.
-    let min_bonus = bonuses.iter().map(|(_, b)| *b).fold(f64::INFINITY, f64::min);
-    let max_bonus = bonuses.iter().map(|(_, b)| *b).fold(f64::NEG_INFINITY, f64::max);
+    let min_bonus = bonuses
+        .iter()
+        .map(|(_, b)| *b)
+        .fold(f64::INFINITY, f64::min);
+    let max_bonus = bonuses
+        .iter()
+        .map(|(_, b)| *b)
+        .fold(f64::NEG_INFINITY, f64::max);
     assert!(
         min_bonus >= 0.04,
         "min realized bonus should be ≥ base ~5 %, got {:.4}",

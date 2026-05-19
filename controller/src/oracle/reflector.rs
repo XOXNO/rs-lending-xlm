@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Symbol, Vec};
 

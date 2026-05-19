@@ -106,14 +106,14 @@ fn test_isolated_accounts_independent_across_assets() {
     // ETH tracker must be ≈ $4000 (in WAD), not $12000. Within rounding.
     let eth_debt_usd = eth_isolated_debt / WAD;
     assert!(
-        eth_debt_usd >= 3_990 && eth_debt_usd <= 4_010,
+        (3_990..=4_010).contains(&eth_debt_usd),
         "ETH isolated tracker must reflect only ETH-account debt, got {} (~ ${})",
         eth_isolated_debt,
         eth_debt_usd
     );
     let wbtc_debt_usd = wbtc_isolated_debt / WAD;
     assert!(
-        wbtc_debt_usd >= 7_990 && wbtc_debt_usd <= 8_010,
+        (7_990..=8_010).contains(&wbtc_debt_usd),
         "WBTC isolated tracker must reflect only WBTC-account debt, got {} (~ ${})",
         wbtc_isolated_debt,
         wbtc_debt_usd

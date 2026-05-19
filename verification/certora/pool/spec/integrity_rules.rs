@@ -15,6 +15,7 @@ fn valid_params(asset: Address) -> MarketParams {
         mid_utilization_ray: RAY / 2,
         optimal_utilization_ray: RAY * 8 / 10,
         max_borrow_rate_ray: 2 * RAY,
+        max_utilization_ray: RAY,
         reserve_factor_bps: 1_000,
         asset_id: asset,
         asset_decimals: 7,
@@ -224,6 +225,7 @@ fn seize_position_zeroes_scaled_amount(
 }
 
 #[rule]
+#[allow(clippy::too_many_arguments)]
 fn update_params_keeps_rate_domain(
     e: Env,
     admin: Address,

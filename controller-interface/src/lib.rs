@@ -120,10 +120,7 @@ pub trait ControllerInterface {
 
     fn get_isolated_debt(env: Env, asset: Address) -> i128;
 
-    fn get_all_markets_detailed(
-        env: Env,
-        assets: Vec<Address>,
-    ) -> Vec<AssetExtendedConfigView>;
+    fn get_all_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;
 
     fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView>;
 

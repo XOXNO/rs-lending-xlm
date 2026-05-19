@@ -5,7 +5,9 @@
 
 extern crate std;
 
-use test_harness::{eth_preset, helpers, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
+use test_harness::{
+    eth_preset, helpers, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
+};
 
 // ---------------------------------------------------------------------------
 // 1. Donation attack defense
@@ -119,8 +121,8 @@ fn test_partial_liquidation_chain_converges() {
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0); // $6000 debt
-    // Shallow crash → HF ≈ 0.97. Within a couple of partials the
-    // position should be lifted back to safe.
+                                 // Shallow crash → HF ≈ 0.97. Within a couple of partials the
+                                 // position should be lifted back to safe.
     t.set_price("USDC", usd_cents(74));
     t.assert_liquidatable(ALICE);
 

@@ -42,8 +42,6 @@ pub const MAX_LAST_TOLERANCE: i128 = 5_000;
 
 pub const ONE_DAY_LEDGERS: u32 = 17_280;
 
-
-
 pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 30; // ~30 days
 pub const TTL_BUMP_INSTANCE: u32 = ONE_DAY_LEDGERS * 180; // ~180 days (Soroban max)
 

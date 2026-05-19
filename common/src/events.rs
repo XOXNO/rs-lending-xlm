@@ -6,8 +6,6 @@ use crate::types::{
     OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
 };
 
-
-
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -476,8 +474,6 @@ pub struct ApproveTokenWasmEvent {
     pub approved: bool,
 }
 
-
-
 pub fn emit_create_market(env: &Env, event: CreateMarketEvent) {
     event.publish(env);
 }
@@ -533,8 +529,6 @@ pub fn emit_initial_multiply_payment(env: &Env, event: InitialMultiplyPaymentEve
 pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
     event.publish(env);
 }
-
-
 
 #[cfg(test)]
 mod tests {

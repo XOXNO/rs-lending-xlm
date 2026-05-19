@@ -30,9 +30,11 @@ use test_harness::{
 #[test]
 #[should_panic(expected = "Error(Contract, #37)")]
 fn test_add_rewards_rejects_after_full_withdrawal() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
-        .with_max_utilization_disabled_all_markets().build();
+        .with_max_utilization_disabled_all_markets()
+        .build();
 
     // Alice supplies, then withdraws her entire position. No borrows happen,
     // so all scaled supply belongs to Alice and `withdraw_all` returns the

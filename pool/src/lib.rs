@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 mod cache;
 mod interest;
 mod utils;
@@ -41,6 +42,7 @@ pub struct LiquidityPool;
 
 #[contractimpl]
 impl LiquidityPool {
+    #[allow(clippy::too_many_arguments)]
     pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
         params.verify_rate_model(&env);
 
@@ -58,7 +60,6 @@ impl LiquidityPool {
         };
         env.storage().instance().set(&PoolKey::State, &state);
     }
-
 
     #[only_owner]
     pub fn supply(
@@ -475,7 +476,7 @@ mod tests {
     use common::types::AccountPosition;
     use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-    use soroban_sdk::{contract, contractimpl, token, Address, Bytes, Env};
+    use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
     #[contract]
     pub struct PoolFlashLoanReceiver;

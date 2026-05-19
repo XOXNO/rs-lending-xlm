@@ -38,18 +38,9 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     let mut t = setup();
     t.set_flash_loan_ongoing(true);
 
-    assert_contract_error(
-        t.try_supply(BOB, "USDC", 1.0),
-        errors::FLASH_LOAN_ONGOING,
-    );
-    assert_contract_error(
-        t.try_borrow(ALICE, "ETH", 0.01),
-        errors::FLASH_LOAN_ONGOING,
-    );
-    assert_contract_error(
-        t.try_repay(ALICE, "ETH", 0.01),
-        errors::FLASH_LOAN_ONGOING,
-    );
+    assert_contract_error(t.try_supply(BOB, "USDC", 1.0), errors::FLASH_LOAN_ONGOING);
+    assert_contract_error(t.try_borrow(ALICE, "ETH", 0.01), errors::FLASH_LOAN_ONGOING);
+    assert_contract_error(t.try_repay(ALICE, "ETH", 0.01), errors::FLASH_LOAN_ONGOING);
     assert_contract_error(
         t.try_withdraw(ALICE, "USDC", 1.0),
         errors::FLASH_LOAN_ONGOING,

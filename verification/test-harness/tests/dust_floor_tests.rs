@@ -13,8 +13,8 @@
 extern crate std;
 
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest,
-    ALICE, LIQUIDATOR,
+    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    LIQUIDATOR,
 };
 
 // ---------------------------------------------------------------------------
@@ -110,12 +110,11 @@ fn test_liquidation_expands_to_full_close_on_dust_residue() {
     // mathematically partial liquidation would leave a few-dollar residue
     // on at least one side — the dust full-close path should expand
     // repayment to the full debt.
-    let liq_id = t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.0625);
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.0625);
 
     // Post-liquidation: either the debt closed entirely (full-close fired)
     // or the position is healthy again. The relevant assertion is that
     // Alice is no longer in a sub-floor residue state.
-    let _ = liq_id;
 }
 
 // Regression for Codex adversarial-review #1: dust expansion may never
@@ -249,7 +248,7 @@ fn test_liquidation_full_payment_closes_dust_position() {
 
     // Pay 0.011 ETH = $22 = total debt. Dust expansion fires AND the
     // payment ceiling allows it → full close.
-    let _ = t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
     let debt_after = t.borrow_balance(ALICE, "ETH");
     assert!(
         debt_after < 0.0001,
@@ -280,7 +279,8 @@ fn test_update_params_threads_custom_max_utilization() {
         max_utilization_ray: common::constants::RAY * 85 / 100,
         reserve_factor_bps: 1000,
     };
-    t.ctrl_client().upgrade_liquidity_pool_params(&asset, &model);
+    t.ctrl_client()
+        .upgrade_liquidity_pool_params(&asset, &model);
 
     // Read the pool's stored params through the harness view. The cap
     // must equal what we sent, not the previous default.

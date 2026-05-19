@@ -13,7 +13,7 @@
 extern crate std;
 
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usd_cents, LendingTest, ALICE,
+    assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
 };
 
 fn setup() -> LendingTest {

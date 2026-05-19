@@ -5,7 +5,7 @@
 /// solvency across account operations.
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, Env, Map, Vec};
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
 use common::fp::{Ray, Wad};
@@ -604,14 +604,14 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let _feed1 = cache.cached_price(&asset);
 
     // Sanity: the cache contains the price.
-    let cached = cache.try_get_price(&asset);
+    let cached = cache.prices_cache.get(asset.clone());
     cvlr_assert!(cached.is_some());
 
     // Invalidate the price cache (simulates post-swap cleanup)
-    cache.clean_prices_cache();
+    cache.prices_cache = Map::new(&e);
 
     // After invalidation: cache must be empty for this asset
-    let cached_after = cache.try_get_price(&asset);
+    let cached_after = cache.prices_cache.get(asset.clone());
     cvlr_assert!(cached_after.is_none());
 
     // A fresh lookup will re-fetch from the oracle. The key property is that
@@ -619,7 +619,7 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let _feed2 = cache.cached_price(&asset);
 
     // The fresh fetch repopulates the cache
-    let cached_repopulated = cache.try_get_price(&asset);
+    let cached_repopulated = cache.prices_cache.get(asset.clone());
     cvlr_assert!(cached_repopulated.is_some());
 }
 

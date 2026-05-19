@@ -10,8 +10,10 @@ use test_harness::{
 
 #[test]
 fn test_withdraw_partial() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw(ALICE, "USDC", 3_000.0);
@@ -34,8 +36,10 @@ fn test_withdraw_partial() {
 
 #[test]
 fn test_withdraw_full_with_zero_amount() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
@@ -129,8 +133,10 @@ fn test_withdraw_rejects_exceeding_hf() {
 
 #[test]
 fn test_withdraw_allowed_without_borrows() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -148,8 +154,10 @@ fn test_withdraw_allowed_without_borrows() {
 
 #[test]
 fn test_withdraw_rejects_during_flash_loan() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_flash_loan_ongoing(true);
@@ -164,8 +172,10 @@ fn test_withdraw_rejects_during_flash_loan() {
 
 #[test]
 fn test_withdraw_rejects_when_paused() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.pause();
@@ -203,8 +213,10 @@ fn test_withdraw_removes_position_when_empty() {
 
 #[test]
 fn test_withdraw_cleans_up_empty_account() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw_all(ALICE, "USDC");
@@ -225,8 +237,10 @@ fn test_withdraw_cleans_up_empty_account() {
 
 #[test]
 fn test_withdraw_full_amount_returned() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -250,8 +264,10 @@ fn test_withdraw_full_amount_returned() {
 
 #[test]
 fn test_withdraw_raw_precision() {
-    let mut t = LendingTest::new().with_market(usdc_preset())
-        .with_dust_disabled_all_markets().build();
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
 
     // Supply 1000 USDC raw units.
     let supply_amount = 1000i128;

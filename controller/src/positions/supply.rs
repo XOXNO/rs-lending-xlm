@@ -295,7 +295,7 @@ fn update_market_position(
     )
 }
 
-// Pulls tokens from caller to pool.
+fn pull_supply_tokens(
     env: &Env,
     caller: &Address,
     asset: &Address,
