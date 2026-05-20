@@ -67,8 +67,8 @@ fi
 
 # Source files to exclude. Keeps only project surface: common/, controller/,
 # pool/, verification/test-harness/src/. Filters std (toolchain), deps
-# (cargo registry), the fuzz harness itself, and test-harness tests.
-IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/verification/fuzz/|verification/test-harness/tests/)'
+# (cargo registry), the fuzz harness itself, test-harness tests, types, and events.
+IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/verification/fuzz/|verification/test-harness/tests/|/types/|events\.rs)'
 
 mkdir -p "$COV_OUT"
 
@@ -95,7 +95,7 @@ for target in "${TARGETS[@]}"; do
 
     if [ "$FUZZ_COV_TIME" -gt 0 ]; then
         echo "  [1/3] short fuzz run (${FUZZ_COV_TIME}s)"
-        cargo +nightly fuzz run "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} -- \
+        cargo +nightly fuzz run --fuzz-dir . "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} -- \
             -max_total_time="$FUZZ_COV_TIME" >/dev/null 2>&1 || true
     fi
 
@@ -107,7 +107,7 @@ for target in "${TARGETS[@]}"; do
     # runtime dependency). cargo-fuzz appends its own flags to user RUSTFLAGS,
     # so ours lands first and applies to sysroot crates.
     RUSTFLAGS="-Cunsafe-allow-abi-mismatch=sanitizer${RUSTFLAGS:+ }${RUSTFLAGS:-}" \
-        cargo +nightly fuzz coverage "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
+        cargo +nightly fuzz coverage --fuzz-dir . "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
 
     profdata="coverage/$target/coverage.profdata"
     binary="target/$HOST_TRIPLE/coverage/$HOST_TRIPLE/release/$target"
