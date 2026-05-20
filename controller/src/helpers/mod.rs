@@ -125,6 +125,16 @@ pub fn calculate_account_totals(
         );
     }
 
+    let total_debt = calculate_total_debt_wad(env, cache, borrow_positions);
+
+    (total_collateral, total_debt, weighted_coll)
+}
+
+pub fn calculate_total_debt_wad(
+    env: &Env,
+    cache: &mut ControllerCache,
+    borrow_positions: &Map<Address, AccountPosition>,
+) -> Wad {
     let mut total_debt = Wad::ZERO;
     for (asset, position) in borrow_positions.iter() {
         let feed = cache.cached_price(&asset);
@@ -139,8 +149,7 @@ pub fn calculate_account_totals(
 
         total_debt += value;
     }
-
-    (total_collateral, total_debt, weighted_coll)
+    total_debt
 }
 
 // Interpolates liquidation bonus linearly from base to max.

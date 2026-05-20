@@ -1,7 +1,7 @@
-use common::errors::{CollateralError, GenericError};
+use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory, MarketIndex,
-    Payment, PriceFeed, POSITION_TYPE_DEPOSIT,
+    Payment, PositionMode, PriceFeed, POSITION_TYPE_DEPOSIT,
 };
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
@@ -106,7 +106,7 @@ fn resolve_supply_account(
     validation::require_non_empty_payments(env, assets);
 
     if account_id == 0 {
-        utils::create_account_for_first_asset(env, caller, e_mode_category, assets)
+        create_account_for_first_asset(env, caller, e_mode_category, assets)
     } else {
         let meta = storage::get_account_meta(env, account_id);
         let supply_positions = storage::get_supply_positions(env, account_id);
@@ -150,7 +150,7 @@ fn prepare_deposit_plan(
     e_mode: &Option<EModeCategory>,
 ) {
     validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
-    validation::validate_bulk_isolation(env, account, assets, cache);
+    validate_bulk_isolation(env, account, assets, cache);
 
     // Caps verified post-transfer.
     for (asset, _) in assets {
@@ -443,4 +443,45 @@ pub fn update_position_threshold(
         Some(feed.price_wad),
     );
     cache.emit_position_batch(account_id, &account);
+}
+
+fn validate_bulk_isolation(
+    env: &Env,
+    account: &Account,
+    assets: &Vec<Payment>,
+    cache: &mut ControllerCache,
+) {
+    if assets.len() <= 1 {
+        return;
+    }
+    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
+    let first_config = cache.cached_asset_config(&first_asset);
+    if account.is_isolated || first_config.is_isolated_asset {
+        panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
+    }
+}
+
+// Creates account for supply entry point.
+fn create_account_for_first_asset(
+    env: &Env,
+    caller: &Address,
+    e_mode_category: u32,
+    assets: &Vec<Payment>,
+) -> (u64, Account) {
+    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
+    let first_config = storage::get_market_config(env, &first_asset).asset_config;
+    let is_isolated = first_config.is_isolated_asset;
+    let isolated_asset = if is_isolated {
+        Some(first_asset.clone())
+    } else {
+        None
+    };
+    super::account::create_account(
+        env,
+        caller,
+        e_mode_category,
+        PositionMode::Normal,
+        is_isolated,
+        isolated_asset,
+    )
 }

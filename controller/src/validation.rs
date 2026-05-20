@@ -104,22 +104,6 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
     }
 }
 
-pub fn validate_bulk_isolation(
-    env: &Env,
-    account: &Account,
-    assets: &Vec<Payment>,
-    cache: &mut ControllerCache,
-) {
-    if assets.len() <= 1 {
-        return;
-    }
-    let (first_asset, _) = expect_invariant(env, assets.get(0));
-    let first_config = cache.cached_asset_config(&first_asset);
-    if account.is_isolated || first_config.is_isolated_asset {
-        panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
-    }
-}
-
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,

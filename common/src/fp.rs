@@ -63,7 +63,6 @@ impl Ray {
     // Upscales asset amount to RAY.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
-
             amount,
             asset_decimals,
             RAY_DECIMALS,

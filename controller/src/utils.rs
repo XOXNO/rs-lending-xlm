@@ -1,24 +1,19 @@
 use common::constants::WAD;
 use common::errors::GenericError;
 use common::fp::Wad;
-use common::types::{Account, Payment, PositionMode};
+use common::types::{Account, Payment};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_update_indexes_call;
 use crate::cross_contract::sac::sac_transfer_call;
-use crate::{storage, validation};
+use crate::validation;
 
 pub use crate::positions::account::{create_account, remove_account};
 
 // Deduplicates and sums payments.
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
-}
-
-// Deduplicates withdrawal requests.
-pub fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
-    aggregate_payments(env, payments, true)
 }
 
 // Transfers asset and returns credited amount.
@@ -37,7 +32,7 @@ pub fn transfer_and_measure_received(
     amount
 }
 
-fn aggregate_payments(
+pub fn aggregate_payments(
     env: &Env,
     payments: &Vec<Payment>,
     zero_is_withdraw_all: bool,
@@ -82,31 +77,6 @@ fn aggregate_payment_amount(
         .unwrap_or(0)
         .checked_add(amount)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-// Creates account for supply entry point.
-pub fn create_account_for_first_asset(
-    env: &Env,
-    caller: &Address,
-    e_mode_category: u32,
-    assets: &Vec<Payment>,
-) -> (u64, Account) {
-    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
-    let first_config = storage::get_market_config(env, &first_asset).asset_config;
-    let is_isolated = first_config.is_isolated_asset;
-    let isolated_asset = if is_isolated {
-        Some(first_asset.clone())
-    } else {
-        None
-    };
-    create_account(
-        env,
-        caller,
-        e_mode_category,
-        PositionMode::Normal,
-        is_isolated,
-        isolated_asset,
-    )
 }
 
 // Syncs market indexes and cache.

@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::fp::{Bps, Ray, Wad};
+use common::fp::{Bps, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
     POSITION_TYPE_BORROW,
@@ -170,7 +170,8 @@ fn prepare_borrow_plan(
 
     let ltv_collateral =
         helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
-    let mut total_borrowed_wad = current_borrowed_wad(env, cache, &account.borrow_positions);
+    let mut total_borrowed_wad =
+        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     for (asset, amount) in assets {
         let asset_config = validation::expect_invariant(env, effective_configs.get(asset.clone()));
@@ -366,30 +367,6 @@ fn get_or_create_borrow_position(
             liquidation_fees_bps: borrow_asset_config.liquidation_fees_bps,
             loan_to_value_bps: borrow_asset_config.loan_to_value_bps,
         })
-}
-
-fn current_borrowed_wad(
-    env: &Env,
-    cache: &mut ControllerCache,
-    borrow_positions: &Map<Address, AccountPosition>,
-) -> i128 {
-    let mut total_borrowed_wad: i128 = 0;
-    for asset in borrow_positions.keys() {
-        let position = validation::expect_invariant(env, borrow_positions.get(asset.clone()));
-        let position_feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-
-        let actual = Ray::from_raw(position.scaled_amount_ray)
-            .mul(env, Ray::from_raw(market_index.borrow_index_ray));
-        let actual_wad = actual.to_wad();
-        let value = actual_wad
-            .mul(env, Wad::from_raw(position_feed.price_wad))
-            .raw();
-        total_borrowed_wad = total_borrowed_wad
-            .checked_add(value)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    }
-    total_borrowed_wad
 }
 
 fn validate_ltv_capacity(

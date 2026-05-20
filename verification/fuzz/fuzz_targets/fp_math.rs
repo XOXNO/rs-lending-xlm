@@ -194,12 +194,9 @@ fn fuzz_rescale(i: &In) {
         if i.a.abs() > bound {
             return;
         }
-        // `rescale_half_up` panics explicitly on upscale overflow. Skip
-        // out-of-domain inputs before asserting roundtrip behavior.
-        let up = match std::panic::catch_unwind(|| rescale_half_up(i.a, from, to)) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
+        // `rescale_half_up` panics explicitly on upscale overflow. 
+        // We already bound `a` to prevent this.
+        let up = rescale_half_up(i.a, from, to);
         let back = rescale_half_up(up, to, from);
         assert_eq!(
             back, i.a,

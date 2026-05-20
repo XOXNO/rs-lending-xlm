@@ -55,7 +55,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     };
     let mut cache = ControllerCache::new(env, policy);
 
-    let withdrawal_plan = utils::aggregate_withdrawal_payments(env, withdrawals);
+    let withdrawal_plan = aggregate_withdrawal_payments(env, withdrawals);
     for (asset, amount) in withdrawal_plan {
         process_single_withdrawal(
             env,
@@ -183,4 +183,9 @@ pub fn execute_withdrawal(
     );
 
     result
+}
+
+// Deduplicates withdrawal requests.
+fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
+    utils::aggregate_payments(env, payments, true)
 }
