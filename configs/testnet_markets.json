@@ -33,7 +33,9 @@
         "anchor": {
           "tag": "None",
           "values": null
-        }
+        },
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1100000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -59,7 +61,9 @@
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000000",
-        "supply_cap": "100000000000000"
+        "supply_cap": "100000000000000",
+        "min_collat_floor_usd_wad": "10000000000000000000",
+        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -94,7 +98,9 @@
         "anchor": {
           "tag": "None",
           "values": null
-        }
+        },
+        "min_sanity_price_wad": "45000000000000000",
+        "max_sanity_price_wad": "155000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -120,7 +126,9 @@
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
         "borrow_cap": "654974084165841",
-        "supply_cap": "654974084165841"
+        "supply_cap": "654974084165841",
+        "min_collat_floor_usd_wad": "10000000000000000000",
+        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -155,7 +163,9 @@
         "anchor": {
           "tag": "None",
           "values": null
-        }
+        },
+        "min_sanity_price_wad": "972000000000000000",
+        "max_sanity_price_wad": "1188000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -181,7 +191,9 @@
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000000",
-        "supply_cap": "100000000000000"
+        "supply_cap": "100000000000000",
+        "min_collat_floor_usd_wad": "10000000000000000000",
+        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -227,7 +239,9 @@
               ]
             }
           ]
-        }
+        },
+        "min_sanity_price_wad": "27000000000000000000000",
+        "max_sanity_price_wad": "93000000000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -253,7 +267,9 @@
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
         "borrow_cap": "1000000000",
-        "supply_cap": "1000000000"
+        "supply_cap": "1000000000",
+        "min_collat_floor_usd_wad": "10000000000000000000",
+        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -299,7 +315,9 @@
               ]
             }
           ]
-        }
+        },
+        "min_sanity_price_wad": "1350000000000000000000",
+        "max_sanity_price_wad": "4650000000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",
@@ -325,7 +343,9 @@
         "isolation_debt_ceiling_usd_wad": "0",
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000",
-        "supply_cap": "100000000000"
+        "supply_cap": "100000000000",
+        "min_collat_floor_usd_wad": "10000000000000000000",
+        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     }
   ]

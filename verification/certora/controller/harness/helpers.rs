@@ -18,7 +18,7 @@
 //! cannot silently drift from the production surface.
 
 #[allow(dead_code)] // Prod has fns we don't re-export (we shadow them locally).
-#[path = "../../../../controller/src/helpers/mod.rs"]
+#[path = "../../../../contracts/controller/src/helpers/mod.rs"]
 mod __prod;
 
 pub use __prod::{

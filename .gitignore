@@ -18,6 +18,8 @@ docs
 .zed
 # Claude Code runtime
 .claude/
+.antigravitycli
+.remember
 
 # Secrets and local config (NEVER commit these)
 .env

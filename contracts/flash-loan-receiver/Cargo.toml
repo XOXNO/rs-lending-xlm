@@ -8,4 +8,4 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-common = { path = "../common" }
+common = { path = "../../common" }

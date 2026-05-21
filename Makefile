@@ -68,16 +68,16 @@ CONFIG_DIR  ?= configs
 FLASH_MARKET ?= XLM
 FLASH_LOAN_AMOUNT ?= 10000000
 FLASH_RECEIVER_FUND ?= 10000000
-POOL_WASM_HASH_FILE ?= /tmp/pool_wasm_hash.txt
-POOL_UPGRADE_WASM_HASH_FILE ?= /tmp/pool_upgrade_wasm_hash.txt
-CONTROLLER_WASM_HASH_FILE ?= /tmp/controller_wasm_hash.txt
+POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
+POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
+CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
 # Stellar CLI source account flag
 ifeq ($(SIGNER),ledger)
   SOURCE_FLAG = --source-account $(SIGNER_ADDRESS) --sign-with-ledger
 else
-  SOURCE_FLAG = --source-account $$(stellar keys secret $(SIGNER) 2>/dev/null || echo $(SIGNER))
+  SOURCE_FLAG = --source $(SIGNER)
 endif
 
 # ---------------------------------------------------------------------------
@@ -557,8 +557,8 @@ deploy-flash-loan-receiver: build-flash-loan-receiver
 		--wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) \
-		--alias flash-loan-receiver > /tmp/flash_loan_receiver_id.txt
-	@RECEIVER=$$(tail -n1 /tmp/flash_loan_receiver_id.txt); \
+		--alias flash-loan-receiver > target/flash_loan_receiver_id.txt
+	@RECEIVER=$$(tail -n1 target/flash_loan_receiver_id.txt); \
 	echo "Flash receiver: $$RECEIVER"; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].flash_loan_receiver = "'$$RECEIVER'"' \
@@ -619,7 +619,7 @@ test-flash-loan-receiver:
 		local expected="$$2"; \
 		local data="$$3"; \
 		local log; \
-		log="/tmp/flash_loan_$${name}.log"; \
+		log="target/flash_loan_$${name}.log"; \
 		echo "Running $$name (expected $$expected)..."; \
 		if stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
 			-- flash_loan \

@@ -10,7 +10,7 @@ use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 #[cfg(not(feature = "certora"))]
 mod aggregates;
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/views/aggregates.rs"]
+#[path = "../../../../verification/certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
 
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};

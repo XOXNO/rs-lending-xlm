@@ -6,7 +6,7 @@ mod market;
 mod pools;
 mod ttl;
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/storage.rs"]
+#[path = "../../../../verification/certora/controller/harness/storage.rs"]
 mod verification_storage;
 
 pub use account::*;

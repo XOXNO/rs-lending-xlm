@@ -5,8 +5,8 @@ on:
     branches: [master, main, feat/*, rc/*]
     paths:
       - 'common/**'
-      - 'pool/**'
-      - 'controller/**'
+      - 'contracts/pool/**'
+      - 'contracts/controller/**'
       - 'verification/test-harness/**'
       - 'verification/fuzz/**'
   schedule:

@@ -15,9 +15,9 @@ import sys
 
 IN_SCOPE_MARKERS = (
     "/common/src/",
-    "/pool/src/",
-    "/pool-interface/src/",
-    "/controller/src/",
+    "/contracts/pool/src/",
+    "/interfaces/pool/src/",
+    "/contracts/controller/src/",
 )
 
 

@@ -4,18 +4,18 @@ pub mod policy;
 #[cfg(not(feature = "certora"))]
 mod price;
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/oracle_price.rs"]
+#[path = "../../../../verification/certora/controller/harness/oracle_price.rs"]
 mod price;
 mod providers;
 #[cfg(not(feature = "certora"))]
 pub mod reflector;
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/oracle_reflector.rs"]
+#[path = "../../../../verification/certora/controller/harness/oracle_reflector.rs"]
 pub mod reflector;
 #[cfg(not(feature = "certora"))]
 mod tolerance;
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/oracle_tolerance.rs"]
+#[path = "../../../../verification/certora/controller/harness/oracle_tolerance.rs"]
 mod tolerance;
 pub(crate) mod validation;
 

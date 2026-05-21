@@ -9,7 +9,7 @@ mod views;
 mod test_support;
 
 #[cfg(feature = "certora")]
-#[path = "../../verification/certora/pool/spec/mod.rs"]
+#[path = "../../../verification/certora/pool/spec/mod.rs"]
 pub mod spec;
 
 use cache::Cache;
@@ -42,7 +42,6 @@ pub struct LiquidityPool;
 
 #[contractimpl]
 impl LiquidityPool {
-    #[allow(clippy::too_many_arguments)]
     pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
         params.verify_rate_model(&env);
 

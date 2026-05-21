@@ -10,7 +10,7 @@
 //! wrapper functions are replaced.
 
 #[allow(dead_code)]
-#[path = "../../../../controller/src/oracle/reflector.rs"]
+#[path = "../../../../contracts/controller/src/oracle/reflector.rs"]
 mod __prod;
 
 pub use __prod::{ReflectorAsset, ReflectorClient, ReflectorPriceData};

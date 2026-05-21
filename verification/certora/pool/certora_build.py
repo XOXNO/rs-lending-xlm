@@ -11,7 +11,7 @@ import tempfile
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
 PACKAGE = "pool"
-PACKAGE_DIR = os.path.join(ROOT_DIR, PACKAGE)
+PACKAGE_DIR = os.path.join(ROOT_DIR, "contracts", PACKAGE)
 TARGET_DIR = os.path.join(ROOT_DIR, "target", "certora", PACKAGE)
 EXECUTABLE = os.path.join(TARGET_DIR, "wasm32v1-none", "release", f"{PACKAGE}.wasm")
 

@@ -1,5 +1,5 @@
 [package]
-name = "pool-interface"
+name = "controller-interface"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,4 @@ crate-type = ["rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-common = { path = "../common" }
+common = { path = "../../common" }

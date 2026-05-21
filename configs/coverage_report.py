@@ -26,11 +26,11 @@ def keep(path: str, mode: str) -> bool:
     if REPO_MARKER not in path or "/verification/test-harness/" in path:
         return False
     if mode == "controller":
-        return "/controller/" in path or "/common/" in path
+        return "/contracts/controller/" in path or "/common/" in path
     if mode == "pool":
-        return "/pool/" in path
+        return "/contracts/pool/" in path
     if mode == "merged":
-        return "/controller/" in path or "/common/" in path or "/pool/" in path
+        return "/contracts/controller/" in path or "/common/" in path or "/contracts/pool/" in path
     raise ValueError(f"unsupported mode: {mode}")
 
 

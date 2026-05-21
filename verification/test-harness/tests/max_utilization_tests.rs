@@ -172,7 +172,7 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
         Ok(Err(err)) => Err(err.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
+    assert_contract_error(result, errors::POOL_INSOLVENT);
 }
 
 // ---------------------------------------------------------------------------

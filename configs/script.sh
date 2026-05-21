@@ -47,8 +47,7 @@ SIGNER_ADDRESS=$(stellar keys public-key "$SIGNER" 2>/dev/null || stellar keys a
 if [ "$SIGNER" = "ledger" ]; then
     SOURCE_FLAG="--source-account $SIGNER_ADDRESS --sign-with-ledger"
 else
-    SIGNER_SECRET=$(stellar keys secret "$SIGNER" 2>/dev/null || echo "$SIGNER")
-    SOURCE_FLAG="--source-account $SIGNER_SECRET"
+    SOURCE_FLAG="--source $SIGNER"
 fi
 
 # ---------------------------------------------------------------------------

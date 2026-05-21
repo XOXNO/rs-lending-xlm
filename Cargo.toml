@@ -1,11 +1,11 @@
 [workspace]
 members = [
     "common",
-    "pool-interface",
-    "controller-interface",
-    "pool",
-    "controller",
-    "flash-loan-receiver",
+    "interfaces/pool",
+    "interfaces/controller",
+    "contracts/pool",
+    "contracts/controller",
+    "contracts/flash-loan-receiver",
     "verification/test-harness",
 ]
 exclude = ["verification/fuzz", "vendor"]

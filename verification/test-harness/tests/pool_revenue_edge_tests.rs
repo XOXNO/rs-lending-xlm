@@ -187,5 +187,5 @@ fn test_claim_revenue_blocked_when_post_state_insolvent() {
     // solvency guard must reject this and leave the revenue parked
     // until borrowers exit.
     let result = t.try_claim_revenue("USDC");
-    assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
+    assert_contract_error(result, errors::POOL_INSOLVENT);
 }

@@ -41,6 +41,7 @@ pub mod errors {
     pub const DUST_FLOOR_TOO_LOW: u32 = 125;
     pub const DUST_RESIDUE_NOT_ALLOWED: u32 = 126;
     pub const UTILIZATION_ABOVE_MAX: u32 = 127;
+    pub const POOL_INSOLVENT: u32 = 123;
     pub const INVALID_UTIL_RANGE: u32 = 117;
     pub const CONTRACT_PAUSED: u32 = 1000; // Pausable enforced pause
 

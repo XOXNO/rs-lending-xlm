@@ -16,7 +16,7 @@ import tempfile
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 STELLAR_DIR = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
-CONTROLLER_DIR = os.path.join(STELLAR_DIR, "controller")
+CONTROLLER_DIR = os.path.join(STELLAR_DIR, "contracts", "controller")
 
 # Build command: target wasm32v1-none, matching our contract build target.
 # Works only with a #![no_std]-patched cvlr-spec (see stellar/vendor/cvlr).

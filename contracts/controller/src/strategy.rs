@@ -202,6 +202,7 @@ pub fn process_multiply(
     let swap_amount_in = amount_received
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+
     let swapped_collateral = swap_tokens(
         env,
         debt_token,
@@ -217,6 +218,7 @@ pub fn process_multiply(
 
     let mut deposit_assets = Vec::new(env);
     deposit_assets.push_back((collateral_token.clone(), total_collateral));
+
     supply::process_deposit(
         env,
         &env.current_contract_address(),

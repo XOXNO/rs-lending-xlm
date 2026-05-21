@@ -21,8 +21,8 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 soroban-sdk = { version = "=26.0.0", features = ["testutils"] }
 common = { path = "../../common" }
-controller = { path = "../../controller", features = ["testing"] }
-pool = { path = "../../pool" }
+controller = { path = "../../contracts/controller", features = ["testing"] }
+pool = { path = "../../contracts/pool" }
 test-harness = { path = "../test-harness", features = ["testing"] }
 
 # Optional: only compiled when `seed-corpus` feature is enabled.
