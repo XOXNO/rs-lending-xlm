@@ -1,6 +1,6 @@
 use common::errors::{GenericError, OracleError};
-use common::fp::Ray;
-use common::fp_core;
+use common::math::fp::Ray;
+use common::math::fp_core;
 use common::types::OraclePriceFluctuation;
 use soroban_sdk::{panic_with_error, Env};
 

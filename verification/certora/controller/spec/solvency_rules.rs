@@ -8,7 +8,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
-use common::fp::{Ray, Wad};
+use common::math::fp::{Ray, Wad};
 
 // ===========================================================================
 // Solvency Rules
@@ -532,10 +532,10 @@ fn supply_withdraw_roundtrip_no_profit(e: Env) {
     cvlr_assume!(supply_index >= RAY); // Index starts at RAY and only grows
 
     // Supply: actual -> scaled (what the pool stores)
-    let scaled = common::fp_core::mul_div_half_up(&e, amount, RAY, supply_index);
+    let scaled = common::math::fp_core::mul_div_half_up(&e, amount, RAY, supply_index);
 
     // Withdraw: scaled -> actual (what the user gets back)
-    let recovered = common::fp_core::mul_div_half_up(&e, scaled, supply_index, RAY);
+    let recovered = common::math::fp_core::mul_div_half_up(&e, scaled, supply_index, RAY);
 
     // User must not profit beyond rounding dust: recovered <= amount + 1.
     // The +1 tolerance accounts for half-up rounding on both div and mul.
@@ -572,10 +572,10 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
     cvlr_assume!(borrow_index >= RAY); // Index starts at RAY and only grows
 
     // Borrow: actual -> scaled_debt (what the pool stores)
-    let scaled_debt = common::fp_core::mul_div_half_up(&e, amount, RAY, borrow_index);
+    let scaled_debt = common::math::fp_core::mul_div_half_up(&e, amount, RAY, borrow_index);
 
     // Repay calculation: scaled_debt -> actual debt owed
-    let debt_owed = common::fp_core::mul_div_half_up(&e, scaled_debt, borrow_index, RAY);
+    let debt_owed = common::math::fp_core::mul_div_half_up(&e, scaled_debt, borrow_index, RAY);
 
     // Debt owed must be >= original borrow minus rounding dust (at most 1 unit)
     cvlr_assert!(debt_owed >= amount - 1);
@@ -699,7 +699,7 @@ fn compound_interest_bounded_output(e: Env) {
     // Rate is bounded by max_borrow_rate / MILLISECONDS_PER_YEAR
     // Use 10 * RAY as a generous max_borrow_rate (1000% APY)
     let max_rate_per_ms =
-        common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+        common::math::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
@@ -730,7 +730,7 @@ fn compound_interest_no_wrap(e: Env) {
 
     // Bound rate to max_borrow_rate / MILLISECONDS_PER_YEAR
     let max_rate_per_ms =
-        common::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+        common::math::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time <= MILLISECONDS_PER_YEAR);
@@ -761,8 +761,8 @@ fn roundtrip_supply_sanity(e: Env) {
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     cvlr_assume!((RAY..=10 * RAY).contains(&index));
 
-    let scaled = common::fp_core::mul_div_half_up(&e, amount, RAY, index);
-    let recovered = common::fp_core::mul_div_half_up(&e, scaled, index, RAY);
+    let scaled = common::math::fp_core::mul_div_half_up(&e, amount, RAY, index);
+    let recovered = common::math::fp_core::mul_div_half_up(&e, scaled, index, RAY);
     cvlr_satisfy!(recovered <= amount + 1);
 }
 
@@ -770,7 +770,7 @@ fn roundtrip_supply_sanity(e: Env) {
 fn compound_no_wrap_sanity(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
     let time: u64 = cvlr::nondet::nondet();
-    let max_rate_per_ms = common::fp_core::div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
+    let max_rate_per_ms = common::math::fp_core::div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
     cvlr_assume!(rate > 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
     let factor = common::rates::compound_interest(&e, Ray::from_raw(rate), time);

@@ -12,8 +12,8 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, WAD};
-use common::fp::{Bps, Wad};
-use common::fp_core::{mul_div_floor, mul_div_half_up};
+use common::math::fp::{Bps, Wad};
+use common::math::fp_core::{mul_div_floor, mul_div_half_up};
 use common::types::{POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 
 // Realistic per-call debt amount cap. The protocol's largest configured

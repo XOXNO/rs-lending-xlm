@@ -3,7 +3,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
-use crate::fp::Ray;
+use crate::math::fp::Ray;
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes, update_borrow_index, update_supply_index, utilization,

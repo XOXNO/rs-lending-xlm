@@ -1,6 +1,6 @@
 use common::errors::FlashLoanError;
 use common::events::{emit_flash_loan, FlashLoanEvent};
-use common::fp::Bps;
+use common::math::fp::Bps;
 use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, Executable};
 use stellar_macros::when_not_paused;
 

@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::fp::{Bps, Wad};
+use common::math::fp::{Bps, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
     POSITION_TYPE_BORROW,

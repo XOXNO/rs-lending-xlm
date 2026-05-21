@@ -15,8 +15,8 @@ use cvlr::{cvlr_assert, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
-use common::fp::Ray;
-use common::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
+use common::math::fp::Ray;
+use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
 use common::types::MarketParams;
 

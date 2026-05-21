@@ -17,7 +17,7 @@ use common::constants::RAY;
 #[cfg(test)]
 use common::constants::TTL_THRESHOLD_INSTANCE;
 use common::errors::{FlashLoanError, GenericError};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
     AccountPosition, AccountPositionType, InterestRateModel, MarketParams, MarketStateSnapshot,

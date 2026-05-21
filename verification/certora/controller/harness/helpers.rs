@@ -26,7 +26,7 @@ pub use __prod::{
     get_account_bonus_params, position_value, weighted_collateral,
 };
 
-use common::fp::{Bps, Wad};
+use common::math::fp::{Bps, Wad};
 use common::types::AccountPosition;
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;

@@ -19,8 +19,8 @@ Soroban, implemented in Rust across four `no_std` crates:
   flash-loan settlement, rate-model updates).
 - `pool-interface`: typed Soroban contract trait the controller uses to call
   pools.
-- `common`: shared fixed-point math (`fp`, `fp_core`), rate model (`rates`),
-  constants, errors, events, and contract types.
+- `common`: shared fixed-point math (`math::fp`, `math::fp_core`), rate model
+  (`rates`), constants, errors, events, and contract types.
 
 Pools are owner-gated. Mutating accounting and maintenance entrypoints enforce
 controller ownership through `verify_admin` /
@@ -391,7 +391,7 @@ classDiagram
 
 ## 8. Fixed-Point Domains
 
-Numeric domains (`common/src/constants.rs`, `common/src/fp.rs`):
+Numeric domains (`common/src/constants.rs`, `common/src/math/fp.rs`):
 
 - token-native units for token transfers,
 - `BPS = 10_000` for percentages,
@@ -1037,7 +1037,7 @@ flowchart TD
   positions, oracle, swap).
 - `common/src/constants.rs`: fixed-point constants and protocol bounds.
 - `common/src/rates.rs`: rate model and index math.
-- `common/src/fp.rs`, `common/src/fp_core.rs`: typed fixed-point
+- `common/src/math/fp.rs`, `common/src/math/fp_core.rs`: typed fixed-point
   arithmetic.
 - `architecture/INVARIANTS.md`: invariant inventory keyed to module paths.
 

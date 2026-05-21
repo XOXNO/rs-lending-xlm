@@ -89,9 +89,9 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
         let market_index = cache.cached_market_index(&asset);
         let value = helpers::position_value(
             env,
-            common::fp::Ray::from_raw(position.scaled_amount_ray),
-            common::fp::Ray::from_raw(market_index.borrow_index_ray),
-            common::fp::Wad::from_raw(feed.price_wad),
+            common::math::fp::Ray::from_raw(position.scaled_amount_ray),
+            common::math::fp::Ray::from_raw(market_index.borrow_index_ray),
+            common::math::fp::Wad::from_raw(feed.price_wad),
         )
         .raw();
         total_borrow_wad = total_borrow_wad

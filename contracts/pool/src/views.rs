@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::test_support::init_ledger;
     use common::constants::RAY;
-    use common::fp::Ray;
+    use common::math::fp::Ray;
     use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address};

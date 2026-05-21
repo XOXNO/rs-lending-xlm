@@ -50,7 +50,7 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | Native pool fuzzing | `verification/fuzz/fuzz_targets/pool_native.rs` | Pool constructor, index update, rewards, views, and reserve invariants without token transfer setup. |
 | Protocol flow fuzzing | `verification/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Multi-asset user flows, liquidations, flash-loan failure paths, strategy routes, router allowance cleanup, and rollback behavior. |
 | Property tests | `verification/test-harness/tests/fuzz_*.rs` | Deterministic proptest suites for solvency, conservation, auth, TTL, budget metering, strategy/flash-loan behavior, and liquidation differentials. |
-| Miri | `common/src/fp_core.rs` tests | Undefined-behavior checks for pure i128 fixed-point helpers. |
+| Miri | `common/src/math/fp_core.rs` tests | Undefined-behavior checks for pure i128 fixed-point helpers. |
 
 ## Targets
 

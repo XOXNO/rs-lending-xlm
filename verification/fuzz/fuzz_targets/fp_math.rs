@@ -1,4 +1,4 @@
-//! Unified fuzz target for the three pure-math primitives in `common::fp_core`:
+//! Unified fuzz target for the three pure-math primitives in `common::math::fp_core`:
 //! `mul_div_half_up`, `div_by_int_half_up`, and `rescale_half_up`.
 //!
 //! A shared 35-byte input layout dispatches to the correct arm via `kind % 3`,
@@ -15,7 +15,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
-use common::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
+use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 

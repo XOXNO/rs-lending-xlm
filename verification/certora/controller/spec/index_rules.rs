@@ -8,7 +8,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::fp::Ray;
+use common::math::fp::Ray;
 
 // ---------------------------------------------------------------------------
 // Rule 1: Supply index never drops below the bad-debt floor

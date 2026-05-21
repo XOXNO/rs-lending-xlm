@@ -1,5 +1,5 @@
 use common::errors::GenericError;
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{
     AccountPosition, MarketIndex, MarketParams, MarketStateSnapshot, PoolAmountMutation, PoolKey,
     PoolPositionMutation, PoolState, PoolStrategyMutation,

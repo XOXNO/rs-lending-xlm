@@ -1,7 +1,7 @@
 // Rejects positions below USD dust floor.
 
 use common::errors::CollateralError;
-use common::fp::{Ray, Wad};
+use common::math::fp::{Ray, Wad};
 use common::types::Account;
 use soroban_sdk::{panic_with_error, Address, Env};
 

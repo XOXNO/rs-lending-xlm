@@ -27,7 +27,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes,

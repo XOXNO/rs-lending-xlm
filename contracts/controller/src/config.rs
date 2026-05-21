@@ -10,7 +10,7 @@ use common::events::{
     UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
     UpdateEModeCategoryEvent,
 };
-use common::fp_core;
+use common::math::fp_core;
 use common::types::{
     AssetConfig, EModeAssetConfig, EModeCategory, MarketOracleConfigInput, MarketStatus,
     OraclePriceFluctuation, PositionLimits,

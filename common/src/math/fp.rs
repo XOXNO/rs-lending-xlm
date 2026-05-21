@@ -5,7 +5,7 @@ use soroban_sdk::{panic_with_error, Env};
 
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
-use crate::fp_core;
+use super::fp_core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ray(i128);

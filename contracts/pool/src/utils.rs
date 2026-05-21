@@ -1,6 +1,6 @@
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{InterestRateModel, MarketParams, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec};

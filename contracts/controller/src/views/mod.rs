@@ -1,5 +1,5 @@
 use common::constants::WAD;
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{
     AccountAttributes, AccountPosition, AssetExtendedConfigView, EModeCategory,
     LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,

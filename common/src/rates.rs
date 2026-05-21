@@ -1,7 +1,7 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
-use crate::fp::{Bps, Ray};
+use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolSyncData};
 
 // Computes borrow rate (per ms).
@@ -201,7 +201,7 @@ pub fn simulate_update_indexes(
 mod tests {
     use super::*;
     use crate::constants::RAY;
-    use crate::fp_core::div_by_int_half_up;
+    use crate::math::fp_core::div_by_int_half_up;
     use soroban_sdk::Env;
 
     fn make_test_params() -> MarketParams {

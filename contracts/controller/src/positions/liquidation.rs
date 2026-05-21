@@ -1,7 +1,7 @@
 use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
-use common::fp::Wad;
+use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, AccountPositionType, LiquidationResult, Payment, RepayEntry,
     SeizeEntry,

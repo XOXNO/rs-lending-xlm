@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;

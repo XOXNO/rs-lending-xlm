@@ -1,6 +1,6 @@
 //! USD-aggregate views.
 
-use common::fp::{Ray, Wad};
+use common::math::fp::{Ray, Wad};
 use soroban_sdk::Env;
 
 use crate::cache::ControllerCache;

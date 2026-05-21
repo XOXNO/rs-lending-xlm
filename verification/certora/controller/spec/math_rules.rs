@@ -8,7 +8,7 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
 
 use common::constants::{RAY, WAD};
-use common::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
+use common::math::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
 
 // ---------------------------------------------------------------------------
 // Rule 1: mul_half_up is commutative -- mul_half_up(a, b, p) == mul_half_up(b, a, p)

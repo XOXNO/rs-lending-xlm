@@ -1,6 +1,6 @@
 use common::constants::WAD;
 use common::errors::GenericError;
-use common::fp::Wad;
+use common::math::fp::Wad;
 use common::types::{Account, Payment};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 

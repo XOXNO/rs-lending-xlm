@@ -29,7 +29,7 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env};
 
-use common::fp::{Bps, Wad};
+use common::math::fp::{Bps, Wad};
 use common::types::{MarketIndex, PriceFeed};
 
 use crate::cache::ControllerCache;

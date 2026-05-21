@@ -1,5 +1,5 @@
 use common::constants::{MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest, update_borrow_index,
     update_supply_index,

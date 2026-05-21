@@ -1,5 +1,5 @@
 use common::constants::{RAY, WAD};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{ControllerKey, PositionLimits, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 use soroban_sdk::token;
 

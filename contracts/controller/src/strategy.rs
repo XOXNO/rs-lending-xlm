@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
-use common::fp::{Ray, Wad};
+use common::math::fp::{Ray, Wad};
 use common::types::{
     Account, AccountPosition, AggregatorSwap, AssetConfig, BatchSwap, PositionMode,
     POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,

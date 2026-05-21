@@ -3,7 +3,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::fp::Ray;
+use common::math::fp::Ray;
 use common::types::{AccountPosition, AccountPositionType, MarketParams, PoolKey, PoolState};
 
 fn valid_params(asset: Address) -> MarketParams {

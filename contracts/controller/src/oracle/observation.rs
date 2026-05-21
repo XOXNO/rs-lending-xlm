@@ -1,5 +1,5 @@
 use common::errors::{GenericError, OracleError};
-use common::fp::Wad;
+use common::math::fp::Wad;
 use common::types::{OracleProviderKind, OracleReadMode};
 use soroban_sdk::{panic_with_error, Env, U256};
 

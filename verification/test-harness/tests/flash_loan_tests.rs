@@ -1,6 +1,6 @@
 extern crate std;
 
-use common::fp::Bps;
+use common::math::fp::Bps;
 use common::types::ControllerKey;
 use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};

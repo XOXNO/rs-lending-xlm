@@ -1,6 +1,6 @@
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::GenericError;
-use common::fp::{Bps, Ray, Wad};
+use common::math::fp::{Bps, Ray, Wad};
 use common::types::AccountPosition;
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 

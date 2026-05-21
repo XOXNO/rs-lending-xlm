@@ -3,7 +3,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use crate::constants::{BPS, RAY, WAD};
-use crate::fp::{Bps, Ray, Wad};
+use crate::math::fp::{Bps, Ray, Wad};
 
 #[rule]
 fn ray_mul_identity(e: Env, amount: i128) {

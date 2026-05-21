@@ -1,4 +1,4 @@
-//! Fuzz target for the `common::fp` helpers outside the direct coverage of
+//! Fuzz target for the `common::math::fp` helpers outside the direct coverage of
 //! `fp_math` and `rates_and_index`:
 //!
 //!   - Ray ↔ Wad ↔ asset/token conversions (`to_wad`, `to_asset`,
@@ -19,7 +19,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};
-use common::fp::{Bps, Ray, Wad};
+use common::math::fp::{Bps, Ray, Wad};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::Env;
 

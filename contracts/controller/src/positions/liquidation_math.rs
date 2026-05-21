@@ -1,5 +1,5 @@
 use common::errors::CollateralError;
-use common::fp::{Bps, Ray, Wad};
+use common::math::fp::{Bps, Ray, Wad};
 use common::types::{Account, Payment, RepayEntry, SeizeEntry};
 use soroban_sdk::{panic_with_error, Env, Vec};
 

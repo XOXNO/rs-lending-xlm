@@ -1,8 +1,8 @@
 extern crate std;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
-use common::fp::{Ray, Wad};
-use common::fp_core::{
+use common::math::fp::{Ray, Wad};
+use common::math::fp_core::{
     div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
 };
 use common::rates::*;
