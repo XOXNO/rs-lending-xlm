@@ -1,7 +1,7 @@
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use common::types::{InterestRateModel, MarketParams, PoolKey};
+use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec};
 
@@ -66,7 +66,7 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
 
 // Updates rate-model fields in stored MarketParams.
 pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
-    let mut params: MarketParams = env
+    let mut params: MarketParamsRaw = env
         .storage()
         .instance()
         .get(&PoolKey::Params)
@@ -95,7 +95,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     // (`borrowed > supplied`), which is a separate failure mode the
     // ceiling can't fix. Production deployments must keep this strictly
     // below RAY (validated at admin time by `InterestRateModel::verify`).
-    if cache.params.max_utilization_ray >= common::constants::RAY {
+    if cache.params.max_utilization >= Ray::ONE {
         return;
     }
     // Use the index-aware utilization
@@ -104,7 +104,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     // accrues, real utilization can exceed the cap while the scaled
     // ratio still looks compliant.
     let utilization = cache.calculate_utilization();
-    if utilization.raw() > cache.params.max_utilization_ray {
+    if utilization > cache.params.max_utilization {
         panic_with_error!(env, CollateralError::UtilizationAboveMax);
     }
 }

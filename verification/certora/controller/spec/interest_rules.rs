@@ -69,15 +69,15 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
     cvlr_assume!(asset_decimals <= 27);
 
     MarketParams {
-        base_borrow_rate_ray,
-        slope1_ray,
-        slope2_ray,
-        slope3_ray,
-        mid_utilization_ray,
-        optimal_utilization_ray,
-        max_utilization_ray,
-        max_borrow_rate_ray,
-        reserve_factor_bps,
+        base_borrow_rate: Ray::from_raw(base_borrow_rate_ray),
+        slope1: Ray::from_raw(slope1_ray),
+        slope2: Ray::from_raw(slope2_ray),
+        slope3: Ray::from_raw(slope3_ray),
+        mid_utilization: Ray::from_raw(mid_utilization_ray),
+        optimal_utilization: Ray::from_raw(optimal_utilization_ray),
+        max_utilization: Ray::from_raw(max_utilization_ray),
+        max_borrow_rate: Ray::from_raw(max_borrow_rate_ray),
+        reserve_factor: common::math::fp::Bps::from_raw(i128::from(reserve_factor_bps)),
         asset_id,
         asset_decimals,
     }
@@ -97,10 +97,10 @@ fn borrow_rate_zero_utilization(e: Env) {
     let rate = calculate_borrow_rate(&e, Ray::ZERO, &params);
 
     // Expected: min(base, max) / MILLISECONDS_PER_YEAR
-    let annual = if params.base_borrow_rate_ray > params.max_borrow_rate_ray {
-        params.max_borrow_rate_ray
+    let annual = if params.base_borrow_rate > params.max_borrow_rate {
+        params.max_borrow_rate.raw()
     } else {
-        params.base_borrow_rate_ray
+        params.base_borrow_rate.raw()
     };
     let expected = div_by_int_half_up(annual, MILLISECONDS_PER_YEAR as i128);
 
@@ -144,7 +144,7 @@ fn borrow_rate_monotonic_in_region1(e: Env) {
 
     cvlr_assume!(util_a >= 0);
     cvlr_assume!(util_a < util_b);
-    cvlr_assume!(util_b < params.mid_utilization_ray);
+    cvlr_assume!(util_b < params.mid_utilization.raw());
 
     let rate_a = calculate_borrow_rate(&e, Ray::from_raw(util_a), &params);
     let rate_b = calculate_borrow_rate(&e, Ray::from_raw(util_b), &params);
@@ -160,9 +160,9 @@ fn borrow_rate_monotonic_in_region2(e: Env) {
     let util_a: i128 = cvlr::nondet::nondet();
     let util_b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(params.mid_utilization_ray <= util_a);
+    cvlr_assume!(params.mid_utilization.raw() <= util_a);
     cvlr_assume!(util_a < util_b);
-    cvlr_assume!(util_b < params.optimal_utilization_ray);
+    cvlr_assume!(util_b < params.optimal_utilization.raw());
 
     let rate_a = calculate_borrow_rate(&e, Ray::from_raw(util_a), &params);
     let rate_b = calculate_borrow_rate(&e, Ray::from_raw(util_b), &params);
@@ -178,7 +178,7 @@ fn borrow_rate_monotonic_in_region3(e: Env) {
     let util_a: i128 = cvlr::nondet::nondet();
     let util_b: i128 = cvlr::nondet::nondet();
 
-    cvlr_assume!(params.optimal_utilization_ray <= util_a);
+    cvlr_assume!(params.optimal_utilization.raw() <= util_a);
     cvlr_assume!(util_a < util_b);
     cvlr_assume!(util_b <= RAY);
 
@@ -202,7 +202,7 @@ fn borrow_rate_capped(e: Env) {
     cvlr_assume!((0..=RAY).contains(&utilization));
 
     let rate = calculate_borrow_rate(&e, Ray::from_raw(utilization), &params);
-    let cap = div_by_int_half_up(params.max_borrow_rate_ray, MILLISECONDS_PER_YEAR as i128);
+    let cap = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
 
     // Allow +1 for half-up rounding tolerance
     cvlr_assert!(rate.raw() <= cap + 1);
@@ -222,11 +222,11 @@ fn borrow_rate_continuity_at_mid(e: Env) {
     let params = nondet_valid_params(&e);
 
     // Ensure mid >= 2 so mid-1 is still positive
-    cvlr_assume!(params.mid_utilization_ray >= 2);
+    cvlr_assume!(params.mid_utilization.raw() >= 2);
 
     let rate_below =
-        calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray - 1), &params);
-    let rate_at = calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray), &params);
+        calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization.raw() - 1), &params);
+    let rate_at = calculate_borrow_rate(&e, params.mid_utilization, &params);
 
     // Both should evaluate to approximately base + slope1 at the boundary.
     // The difference must be at most 1 (rounding artifact from the -1 step).
@@ -251,14 +251,14 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
     let params = nondet_valid_params(&e);
 
     // Ensure optimal >= 2 so optimal-1 is still in-range
-    cvlr_assume!(params.optimal_utilization_ray >= 2);
+    cvlr_assume!(params.optimal_utilization.raw() >= 2);
 
     let rate_below = calculate_borrow_rate(
         &e,
-        Ray::from_raw(params.optimal_utilization_ray - 1),
+        Ray::from_raw(params.optimal_utilization.raw() - 1),
         &params,
     );
-    let rate_at = calculate_borrow_rate(&e, Ray::from_raw(params.optimal_utilization_ray), &params);
+    let rate_at = calculate_borrow_rate(&e, params.optimal_utilization, &params);
 
     let diff = if rate_at >= rate_below {
         rate_at.raw() - rate_below.raw()
@@ -288,7 +288,7 @@ fn deposit_rate_zero_when_no_utilization(e: Env) {
         &e,
         Ray::ZERO,
         Ray::from_raw(borrow_rate),
-        reserve_factor_bps,
+        common::math::fp::Bps::from_raw(i128::from(reserve_factor_bps)),
     );
 
     cvlr_assert!(rate == Ray::ZERO);
@@ -315,7 +315,7 @@ fn deposit_rate_less_than_borrow(e: Env) {
         &e,
         Ray::from_raw(utilization),
         Ray::from_raw(borrow_rate),
-        reserve_factor_bps,
+        common::math::fp::Bps::from_raw(i128::from(reserve_factor_bps)),
     );
     let upper_bound = mul_div_half_up(&e, utilization, borrow_rate, RAY);
 
@@ -478,7 +478,7 @@ fn supplier_rewards_conservation(e: Env) {
     let expected_fee = mul_div_half_up(
         &e,
         accrued_interest,
-        i128::from(params.reserve_factor_bps),
+        params.reserve_factor.raw(),
         BPS,
     );
     let fee_diff = if protocol_fee.raw() >= expected_fee {

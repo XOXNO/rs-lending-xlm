@@ -1,4 +1,4 @@
-use common::constants::{BAD_DEBT_USD_THRESHOLD, WAD};
+use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::math::fp::Wad;
@@ -11,11 +11,14 @@ use stellar_macros::{only_role, when_not_paused};
 
 use super::dust::require_no_dust_after;
 use super::liquidation_math::*;
+use super::repay::RepaymentRequest;
+use super::withdraw::{WithdrawFlags, WithdrawalRequest};
 use super::{repay, withdraw, EventContext};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_seize_position_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions;
+use crate::storage::iter_typed_positions;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -72,22 +75,8 @@ pub fn process_liquidation(
 
     validation::require_non_empty_payments(env, &result.repaid);
 
-    apply_liquidation_repayments(
-        env,
-        liquidator,
-        account_id,
-        &mut account,
-        &result.repaid,
-        &mut cache,
-    );
-    apply_liquidation_seizures(
-        env,
-        liquidator,
-        account_id,
-        &mut account,
-        &result.seized,
-        &mut cache,
-    );
+    apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
+    apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
     // Per-position dust gate.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
@@ -125,7 +114,6 @@ fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventConte
 fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
-    account_id: u64,
     account: &mut Account,
     repaid: &Vec<RepayEntry>,
     cache: &mut ControllerCache,
@@ -137,17 +125,21 @@ fn apply_liquidation_repayments(
         let token = soroban_sdk::token::Client::new(env, &entry.asset);
         token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position =
-            validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone()));
+        let position: AccountPosition = (&validation::expect_invariant(
+            env,
+            account.borrow_positions.get(entry.asset.clone()),
+        ))
+            .into();
         repay::execute_repayment(
             env,
             account,
-            account_id,
-            &entry.asset,
             liquidation_event_context(liquidator, symbol_short!("liq_repay")),
-            &position,
-            entry.feed.price_wad,
-            entry.amount,
+            RepaymentRequest {
+                asset: &entry.asset,
+                position: &position,
+                amount: entry.amount,
+                price: Wad::from_raw(entry.feed.price_wad),
+            },
             cache,
         );
     }
@@ -156,7 +148,6 @@ fn apply_liquidation_repayments(
 fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
-    account_id: u64,
     account: &mut Account,
     seized: &Vec<SeizeEntry>,
     cache: &mut ControllerCache,
@@ -164,19 +155,25 @@ fn apply_liquidation_seizures(
     for i in 0..seized.len() {
         let entry = validation::expect_invariant(env, seized.get(i));
 
-        let position =
-            validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone()));
+        let position: AccountPosition = (&validation::expect_invariant(
+            env,
+            account.supply_positions.get(entry.asset.clone()),
+        ))
+            .into();
         withdraw::execute_withdrawal(
             env,
             account,
-            account_id,
-            &entry.asset,
             liquidation_event_context(liquidator, symbol_short!("liq_seize")),
-            entry.amount,
-            &position,
-            true,
-            entry.protocol_fee,
-            entry.feed.price_wad,
+            WithdrawalRequest {
+                asset: &entry.asset,
+                amount: entry.amount,
+                position: &position,
+                price: Wad::from_raw(entry.feed.price_wad),
+            },
+            WithdrawFlags {
+                is_liquidation: true,
+                protocol_fee: entry.protocol_fee,
+            },
             cache,
         );
     }
@@ -196,7 +193,7 @@ pub(crate) fn execute_liquidation(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if hf >= WAD {
+    if hf >= Wad::ONE {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
@@ -207,33 +204,34 @@ pub(crate) fn execute_liquidation(
         &account.borrow_positions,
     );
 
-    let (proportion_seized, bonus_params) =
+    let (proportion_seized, bonus_bounds) =
         calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
 
-    let (total_debt_payment_usd, repaid_tokens) =
-        calculate_repayment_amounts(env, debt_payments, account, &mut refunds, cache);
-
-    let (mut max_debt_to_repay_usd, _seizure_usd, bonus) = calculate_liquidation_amounts(
-        env,
+    let snap = LiquidationSnapshot {
         total_debt,
         total_collateral,
         weighted_coll,
         proportion_seized,
-        bonus_params,
-        Wad::from_raw(hf),
-        total_debt_payment_usd,
-    );
+        hf,
+    };
+
+    let (total_debt_payment_usd, repaid_tokens) =
+        calculate_repayment_amounts(env, debt_payments, account, &mut refunds, cache);
+
+    let (max_debt_to_repay_usd, _seizure_usd, bonus) =
+        calculate_liquidation_amounts(env, &snap, bonus_bounds, total_debt_payment_usd);
 
     // Full close if residue is dust.
-    expand_to_full_close_on_dust_residue(
+    let max_debt_to_repay_usd = expand_to_full_close_on_dust_residue(
         env,
         cache,
         account,
-        total_debt,
-        total_collateral,
-        bonus,
-        total_debt_payment_usd,
-        &mut max_debt_to_repay_usd,
+        DustExpansionInputs {
+            snap: &snap,
+            bonus,
+            payment_ceiling_usd: total_debt_payment_usd,
+            repay_usd: max_debt_to_repay_usd,
+        },
     );
 
     let seized_collaterals = calculate_seized_collateral(
@@ -341,11 +339,11 @@ fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
-    for (asset, position) in account.supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(&account.supply_positions) {
         seize_pool_position(env, cache, AccountPositionType::Deposit, &asset, &position);
     }
 
-    for (asset, position) in account.borrow_positions.iter() {
+    for (asset, position) in iter_typed_positions(&account.borrow_positions) {
         repay::clear_position_isolated_debt(env, &asset, &position, account, cache);
         seize_pool_position(env, cache, AccountPositionType::Borrow, &asset, &position);
     }
@@ -372,5 +370,5 @@ fn seize_pool_position(
     let feed = cache.cached_price(asset);
     let pool_addr = cache.cached_pool_address(asset);
     let result = pool_seize_position_call(env, &pool_addr, side, position.clone());
-    cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
+    cache.record_market_update_with_price(&result.market_state, Some(feed.price.raw()));
 }

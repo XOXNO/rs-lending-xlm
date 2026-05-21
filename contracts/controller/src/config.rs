@@ -12,7 +12,7 @@ use common::events::{
 };
 use common::math::fp_core;
 use common::types::{
-    AssetConfig, EModeAssetConfig, EModeCategory, MarketOracleConfigInput, MarketStatus,
+    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfigInput, MarketStatus,
     OraclePriceFluctuation, PositionLimits,
 };
 use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable};
@@ -40,7 +40,7 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfig) {
+    pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw) {
         edit_asset_config(&env, asset, cfg);
     }
 
@@ -178,7 +178,7 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
     storage::set_pool_template(env, &hash);
 }
 
-pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig) {
+pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
     validation::validate_asset_config(env, &next_config);
 
     let mut market = storage::get_market_config(env, &asset);
@@ -224,7 +224,7 @@ pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u
     validate_emode_params(env, ltv, threshold, bonus);
 
     let id = storage::increment_emode_category_id(env);
-    let cat = EModeCategory {
+    let cat = EModeCategoryRaw {
         loan_to_value_bps: ltv,
         liquidation_threshold_bps: threshold,
         liquidation_bonus_bps: bonus,

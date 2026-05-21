@@ -2,7 +2,7 @@ extern crate std;
 
 use super::*;
 use common::constants::{BPS, RAY};
-use common::types::AccountPosition;
+use common::types::AccountPositionRaw;
 use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
@@ -77,7 +77,7 @@ impl TestSetup {
 
         test_support::init_ledger(&env);
 
-        let params = MarketParams {
+        let params = MarketParamsRaw {
             max_borrow_rate_ray: RAY,
             base_borrow_rate_ray: RAY / 100,
             slope1_ray: RAY * 4 / 100,
@@ -114,8 +114,8 @@ impl TestSetup {
         LiquidityPoolClient::new(&self.env, &self.pool)
     }
 
-    fn deposit_position(&self) -> AccountPosition {
-        AccountPosition {
+    fn deposit_position(&self) -> AccountPositionRaw {
+        AccountPositionRaw {
             scaled_amount_ray: 0,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
@@ -124,8 +124,8 @@ impl TestSetup {
         }
     }
 
-    fn borrow_position(&self) -> AccountPosition {
-        AccountPosition {
+    fn borrow_position(&self) -> AccountPositionRaw {
+        AccountPositionRaw {
             scaled_amount_ray: 0,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
@@ -147,22 +147,23 @@ impl TestSetup {
         });
     }
 
-    fn edit_state(&self, edit: impl FnOnce(&mut PoolState)) {
+    fn edit_state(&self, edit: impl FnOnce(&mut PoolStateRaw)) {
         self.env.as_contract(&self.pool, || {
-            let mut state: PoolState = self.env.storage().instance().get(&PoolKey::State).unwrap();
+            let mut state: PoolStateRaw =
+                self.env.storage().instance().get(&PoolKey::State).unwrap();
             edit(&mut state);
             self.env.storage().instance().set(&PoolKey::State, &state);
         });
     }
 
-    fn state_snapshot(&self) -> PoolState {
+    fn state_snapshot(&self) -> PoolStateRaw {
         self.env.as_contract(&self.pool, || {
             self.env.storage().instance().get(&PoolKey::State).unwrap()
         })
     }
 }
 
-fn assert_pool_state_eq(left: &PoolState, right: &PoolState) {
+fn assert_pool_state_eq(left: &PoolStateRaw, right: &PoolStateRaw) {
     assert_eq!(left.supplied_ray, right.supplied_ray);
     assert_eq!(left.borrowed_ray, right.borrowed_ray);
     assert_eq!(left.revenue_ray, right.revenue_ray);
@@ -406,7 +407,7 @@ fn test_borrow_above_max_utilization_panics() {
     });
     // Tighten the cap to 50 %.
     t.env.as_contract(&t.pool, || {
-        let mut params: MarketParams = t.env.storage().instance().get(&PoolKey::Params).unwrap();
+        let mut params: MarketParamsRaw = t.env.storage().instance().get(&PoolKey::Params).unwrap();
         params.max_utilization_ray = RAY / 2;
         t.env.storage().instance().set(&PoolKey::Params, &params);
     });
@@ -1421,7 +1422,7 @@ fn test_constructor_rejects_invalid_rate_model() {
     test_support::init_ledger(&env);
 
     let admin = Address::generate(&env);
-    let params = MarketParams {
+    let params = MarketParamsRaw {
         max_borrow_rate_ray: RAY,
         base_borrow_rate_ray: -1,
         slope1_ray: RAY * 4 / 100,
@@ -1476,7 +1477,7 @@ fn test_keepalive_rejects_non_admin() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address()
         .clone();
-    let params = MarketParams {
+    let params = MarketParamsRaw {
         max_borrow_rate_ray: RAY,
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY * 4 / 100,

@@ -79,7 +79,7 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
         let deposit_count = crate::storage::positions::count_positions(
             &e,
             account_id,
-            common::types::POSITION_TYPE_DEPOSIT,
+            common::types::AccountPositionType::Deposit,
         );
         cvlr_assert!(deposit_count <= 1);
 
@@ -88,7 +88,7 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
             let deposit_list = crate::storage::positions::get_position_list(
                 &e,
                 account_id,
-                common::types::POSITION_TYPE_DEPOSIT,
+                common::types::AccountPositionType::Deposit,
             );
             let deposit_asset = deposit_list.get(0).unwrap();
             cvlr_assert!(deposit_asset == account_data.isolated_asset);
@@ -175,7 +175,7 @@ fn isolation_repay_decreases_counter(
     // The account must already owe the repaid asset, otherwise repay is a
     // no-op and the counter would not move.
     let borrow_pos =
-        crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_BORROW, &asset);
+        crate::storage::get_position(&e, account_id, common::types::AccountPositionType::Borrow, &asset);
     cvlr_assume!(borrow_pos.is_some());
     cvlr_assume!(borrow_pos.unwrap().scaled_amount_ray > 0);
 

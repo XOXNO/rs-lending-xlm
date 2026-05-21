@@ -1,13 +1,13 @@
-use common::constants::{
-    BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD, WAD,
-};
+use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
+use common::math::fp::Wad;
 use common::types::{
-    Account, AssetConfig, MarketStatus, Payment, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
+    Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
+use crate::storage::iter_typed_positions;
 use crate::{helpers, storage};
 
 // Unwraps Option or panics with InternalError.
@@ -70,7 +70,7 @@ pub fn require_healthy_account(env: &Env, cache: &mut ControllerCache, account: 
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if hf < WAD {
+    if hf < Wad::ONE {
         panic_with_error!(env, CollateralError::InsufficientCollateral);
     }
 }
@@ -84,14 +84,14 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
         helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
 
     let mut total_borrow_wad: i128 = 0;
-    for (asset, position) in account.borrow_positions.iter() {
+    for (asset, position) in iter_typed_positions(&account.borrow_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
         let value = helpers::position_value(
             env,
-            common::math::fp::Ray::from_raw(position.scaled_amount_ray),
-            common::math::fp::Ray::from_raw(market_index.borrow_index_ray),
-            common::math::fp::Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.price,
         )
         .raw();
         total_borrow_wad = total_borrow_wad
@@ -107,17 +107,18 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
 pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
-    position_type: u32,
+    position_type: AccountPositionType,
     assets: &Vec<Payment>,
 ) {
     let limits = storage::get_position_limits(env);
 
-    let (current_count, max_allowed) = if position_type == POSITION_TYPE_DEPOSIT {
-        (account.supply_positions.len(), limits.max_supply_positions)
-    } else if position_type == POSITION_TYPE_BORROW {
-        (account.borrow_positions.len(), limits.max_borrow_positions)
-    } else {
-        panic_with_error!(env, GenericError::InvalidPositionType);
+    let (current_count, max_allowed) = match position_type {
+        AccountPositionType::Deposit => {
+            (account.supply_positions.len(), limits.max_supply_positions)
+        }
+        AccountPositionType::Borrow => {
+            (account.borrow_positions.len(), limits.max_borrow_positions)
+        }
     };
 
     let mut seen: Map<Address, bool> = Map::new(env);
@@ -129,10 +130,9 @@ pub fn validate_bulk_position_limits(
         }
         seen.set(asset.clone(), true);
 
-        let already_present = if position_type == POSITION_TYPE_DEPOSIT {
-            account.supply_positions.contains_key(asset)
-        } else {
-            account.borrow_positions.contains_key(asset)
+        let already_present = match position_type {
+            AccountPositionType::Deposit => account.supply_positions.contains_key(asset),
+            AccountPositionType::Borrow => account.borrow_positions.contains_key(asset),
         };
         if !already_present {
             new_positions_count = new_positions_count
@@ -149,7 +149,7 @@ pub fn validate_bulk_position_limits(
     }
 }
 
-pub fn validate_asset_config(env: &Env, config: &AssetConfig) {
+pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
     if i128::from(config.liquidation_threshold_bps) <= i128::from(config.loan_to_value_bps)
         || i128::from(config.liquidation_threshold_bps) > BPS
     {

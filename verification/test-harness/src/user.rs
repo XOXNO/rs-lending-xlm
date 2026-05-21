@@ -1,4 +1,4 @@
-use common::types::{AccountMeta, ControllerKey, EModeCategory, PositionMode};
+use common::types::{AccountMeta, ControllerKey, EModeCategoryRaw, PositionMode};
 use soroban_sdk::{vec, Address, Vec};
 
 use crate::context::{AccountEntry, LendingTest};
@@ -75,7 +75,7 @@ impl LendingTest {
                     .env
                     .storage()
                     .persistent()
-                    .get::<_, EModeCategory>(&ControllerKey::EModeCategory(e_mode_category))
+                    .get::<_, EModeCategoryRaw>(&ControllerKey::EModeCategory(e_mode_category))
                     .expect("e-mode category must exist");
                 assert!(!category.is_deprecated, "e-mode category is deprecated");
             }

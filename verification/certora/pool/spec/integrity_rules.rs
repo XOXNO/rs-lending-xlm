@@ -4,10 +4,12 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-use common::types::{AccountPosition, AccountPositionType, MarketParams, PoolKey, PoolState};
+use common::types::{
+    AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw,
+};
 
-fn valid_params(asset: Address) -> MarketParams {
-    MarketParams {
+fn valid_params(asset: Address) -> MarketParamsRaw {
+    MarketParamsRaw {
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY / 10,
         slope2_ray: RAY / 5,
@@ -22,8 +24,8 @@ fn valid_params(asset: Address) -> MarketParams {
     }
 }
 
-fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolState {
-    PoolState {
+fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
+    PoolStateRaw {
         supplied_ray: supplied,
         borrowed_ray: borrowed,
         revenue_ray: revenue,
@@ -33,12 +35,12 @@ fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) ->
     }
 }
 
-fn seed_pool(env: &Env, admin: Address, asset: Address, state: PoolState) {
+fn seed_pool(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     crate::LiquidityPool::__constructor(env.clone(), admin, valid_params(asset));
     env.storage().instance().set(&PoolKey::State, &state);
 }
 
-fn read_state(env: &Env) -> PoolState {
+fn read_state(env: &Env) -> PoolStateRaw {
     env.storage().instance().get(&PoolKey::State).unwrap()
 }
 
@@ -261,7 +263,7 @@ fn update_params_keeps_rate_domain(
         (BPS / 10) as u32,
     );
 
-    let params: MarketParams = e.storage().instance().get(&PoolKey::Params).unwrap();
+    let params: MarketParamsRaw = e.storage().instance().get(&PoolKey::Params).unwrap();
     cvlr_assert!(params.max_borrow_rate_ray == max_rate);
     cvlr_assert!(params.base_borrow_rate_ray == base);
     cvlr_assert!(params.slope1_ray == slope1);

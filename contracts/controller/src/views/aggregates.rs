@@ -1,9 +1,10 @@
 //! USD-aggregate views.
 
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Wad;
 use soroban_sdk::Env;
 
 use crate::cache::ControllerCache;
+use crate::storage::iter_typed_positions;
 use crate::{helpers, storage};
 
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -18,15 +19,15 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = ControllerCache::new_view(env);
     let mut total_collateral = Wad::ZERO;
 
-    for (asset, position) in supply.iter() {
+    for (asset, position) in iter_typed_positions(&supply) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = helpers::position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
         );
         total_collateral += value;
     }
@@ -46,15 +47,15 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = ControllerCache::new_view(env);
     let mut total_borrow = Wad::ZERO;
 
-    for (asset, position) in borrow.iter() {
+    for (asset, position) in iter_typed_positions(&borrow) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = helpers::position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.price,
         );
         total_borrow += value;
     }

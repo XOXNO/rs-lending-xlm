@@ -28,7 +28,6 @@ use num_rational::BigRational;
 use num_traits::{Signed, ToPrimitive, Zero};
 
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
-use common::types::{POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
 
 use crate::context::LendingTest;
 
@@ -608,8 +607,6 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
             decimals: market.decimals,
         });
     }
-    // Silence unused-constant lint when test code tightens.
-    let _ = POSITION_TYPE_DEPOSIT;
     out
 }
 
@@ -634,7 +631,6 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
             decimals: market.decimals,
         });
     }
-    let _ = POSITION_TYPE_BORROW;
     out
 }
 

@@ -1,7 +1,7 @@
 use super::*;
 use common::types::{
-    AccountAttributes, AccountPosition, AssetConfig, EModeAssetConfig, MarketIndex, MarketParams,
-    PositionMode, POSITION_TYPE_DEPOSIT,
+    AccountAttributes, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig,
+    MarketIndex, MarketParamsRaw, PositionMode,
 };
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Map, Vec};
@@ -9,17 +9,20 @@ use soroban_sdk::{Address, Env, Map, Vec};
 pub fn get_position(
     env: &Env,
     account_id: u64,
-    position_type: u32,
+    position_type: AccountPositionType,
     asset: &Address,
-) -> Option<AccountPosition> {
+) -> Option<AccountPositionRaw> {
     try_get_position(env, account_id, position_type, asset)
 }
 
-pub fn get_position_list(env: &Env, account_id: u64, position_type: u32) -> Vec<Address> {
-    let map = if position_type == POSITION_TYPE_DEPOSIT {
-        get_supply_positions(env, account_id)
-    } else {
-        get_borrow_positions(env, account_id)
+pub fn get_position_list(
+    env: &Env,
+    account_id: u64,
+    position_type: AccountPositionType,
+) -> Vec<Address> {
+    let map = match position_type {
+        AccountPositionType::Deposit => get_supply_positions(env, account_id),
+        AccountPositionType::Borrow => get_borrow_positions(env, account_id),
     };
     let mut out = Vec::new(env);
     for asset in map.keys() {
@@ -113,13 +116,14 @@ pub mod market_index {
     use super::*;
 
     pub fn get_market_index(env: &Env, asset: &Address) -> MarketIndex {
+        use common::math::fp::Ray;
         let market = get_market_config(env, asset);
         let state = LiquidityPoolClient::new(env, &market.pool_address)
             .get_sync_data()
             .state;
         MarketIndex {
-            borrow_index_ray: state.borrow_index_ray,
-            supply_index_ray: state.supply_index_ray,
+            borrow_index: Ray::from_raw(state.borrow_index_ray),
+            supply_index: Ray::from_raw(state.supply_index_ray),
         }
     }
 }
@@ -127,7 +131,7 @@ pub mod market_index {
 pub mod market_params {
     use super::*;
 
-    pub fn get_market_params(env: &Env, asset: &Address) -> MarketParams {
+    pub fn get_market_params(env: &Env, asset: &Address) -> MarketParamsRaw {
         let market = get_market_config(env, asset);
         LiquidityPoolClient::new(env, &market.pool_address)
             .get_sync_data()
@@ -171,7 +175,7 @@ pub mod positions {
     pub fn get_scaled_amount(
         env: &Env,
         account_id: u64,
-        position_type: u32,
+        position_type: AccountPositionType,
         asset: &Address,
     ) -> i128 {
         try_get_position(env, account_id, position_type, asset)

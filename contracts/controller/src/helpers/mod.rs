@@ -1,10 +1,12 @@
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::GenericError;
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::AccountPosition;
+use common::types::AccountPositionRaw;
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
+use crate::positions::liquidation_math::{BonusBounds, LiquidationSnapshot};
+use crate::storage::iter_typed_positions;
 use crate::validation;
 
 // USD value of a position.
@@ -23,21 +25,21 @@ pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
+    supply_positions: &Map<Address, AccountPositionRaw>,
 ) -> Wad {
     let mut ltv = Wad::ZERO;
-    for (asset, position) in supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
         );
 
-        ltv += Bps::from_raw(position.loan_to_value_bps).apply_to_wad(env, value);
+        ltv += position.loan_to_value.apply_to_wad(env, value);
     }
     ltv
 }
@@ -45,48 +47,45 @@ pub fn calculate_ltv_collateral_wad(
 pub fn calculate_health_factor(
     env: &Env,
     cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
-    borrow_positions: &Map<Address, AccountPosition>,
-) -> i128 {
+    supply_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, AccountPositionRaw>,
+) -> Wad {
     if borrow_positions.is_empty() {
-        return i128::MAX; // No debt means infinite HF.
+        return Wad::from_raw(i128::MAX); // No debt means infinite HF.
     }
 
     let mut weighted_collateral_total = Wad::ZERO;
 
-    for (asset, position) in supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
         );
 
-        weighted_collateral_total += weighted_collateral(
-            env,
-            value,
-            Bps::from_raw(position.liquidation_threshold_bps),
-        );
+        weighted_collateral_total +=
+            weighted_collateral(env, value, position.liquidation_threshold);
     }
 
     let mut total_borrow = Wad::ZERO;
-    for (asset, position) in borrow_positions.iter() {
+    for (asset, position) in iter_typed_positions(borrow_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.price,
         );
 
         total_borrow += value;
     }
 
     if total_borrow == Wad::ZERO {
-        return i128::MAX;
+        return Wad::from_raw(i128::MAX);
     }
 
     let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
@@ -94,35 +93,31 @@ pub fn calculate_health_factor(
     let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
     let numerator = w.mul(&wad);
     let result = numerator.div(&tb);
-    result.to_i128().unwrap_or(i128::MAX)
+    Wad::from_raw(result.to_i128().unwrap_or(i128::MAX))
 }
 
 pub fn calculate_account_totals(
     env: &Env,
     cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
-    borrow_positions: &Map<Address, AccountPosition>,
+    supply_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, AccountPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let mut total_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
 
-    for (asset, position) in supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
         );
 
         total_collateral += value;
-        weighted_coll += weighted_collateral(
-            env,
-            value,
-            Bps::from_raw(position.liquidation_threshold_bps),
-        );
+        weighted_coll += weighted_collateral(env, value, position.liquidation_threshold);
     }
 
     let total_debt = calculate_total_debt_wad(env, cache, borrow_positions);
@@ -133,18 +128,18 @@ pub fn calculate_account_totals(
 pub fn calculate_total_debt_wad(
     env: &Env,
     cache: &mut ControllerCache,
-    borrow_positions: &Map<Address, AccountPosition>,
+    borrow_positions: &Map<Address, AccountPositionRaw>,
 ) -> Wad {
     let mut total_debt = Wad::ZERO;
-    for (asset, position) in borrow_positions.iter() {
+    for (asset, position) in iter_typed_positions(borrow_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.price,
         );
 
         total_debt += value;
@@ -180,38 +175,17 @@ pub fn calculate_linear_bonus_with_target(
     Bps::from_raw(bonus.raw().min(MAX_LIQUIDATION_BONUS))
 }
 
-#[allow(clippy::too_many_arguments)]
 // Estimates optimal debt repayment and bonus.
 pub fn estimate_liquidation_amount(
     env: &Env,
-    total_debt: Wad,
-    weighted_coll: Wad,
-    hf: Wad,
-    base_bonus: Bps,
-    max_bonus: Bps,
-    proportion_seized: Wad,
-    total_collateral: Wad,
+    snap: &LiquidationSnapshot,
+    bounds: BonusBounds,
 ) -> (Wad, Bps) {
     let target_primary = Wad::from_raw(1_020_000_000_000_000_000i128);
     let bonus_primary =
-        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_primary);
-    if let Some(d) = try_liquidation_at_target(
-        env,
-        total_debt,
-        weighted_coll,
-        bonus_primary,
-        proportion_seized,
-        total_collateral,
-        target_primary,
-    ) {
-        let new_hf = calculate_post_liquidation_hf(
-            env,
-            weighted_coll,
-            total_debt,
-            d,
-            proportion_seized,
-            bonus_primary,
-        );
+        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target_primary);
+    if let Some(d) = try_liquidation_at_target(env, snap, bonus_primary, target_primary) {
+        let new_hf = calculate_post_liquidation_hf(env, snap, d, bonus_primary);
         if new_hf >= Wad::ONE {
             return (d, bonus_primary);
         }
@@ -219,59 +193,42 @@ pub fn estimate_liquidation_amount(
 
     let target_fallback = Wad::from_raw(WAD + WAD / 100);
     let bonus_fallback =
-        calculate_linear_bonus_with_target(env, hf, base_bonus, max_bonus, target_fallback);
-    let fallback_result = try_liquidation_at_target(
-        env,
-        total_debt,
-        weighted_coll,
-        bonus_fallback,
-        proportion_seized,
-        total_collateral,
-        target_fallback,
-    );
+        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target_fallback);
+    let fallback_result = try_liquidation_at_target(env, snap, bonus_fallback, target_fallback);
 
-    let base_bonus_wad = base_bonus.to_wad(env);
+    let base_bonus_wad = bounds.base.to_wad(env);
     let one_plus_base = Wad::ONE + base_bonus_wad;
-    let d_max = total_collateral.div(env, one_plus_base).min(total_debt);
+    let d_max = snap.total_collateral.div(env, one_plus_base).min(snap.total_debt);
 
-    let base_new_hf = calculate_post_liquidation_hf(
-        env,
-        weighted_coll,
-        total_debt,
-        d_max,
-        proportion_seized,
-        base_bonus,
-    );
+    let base_new_hf = calculate_post_liquidation_hf(env, snap, d_max, bounds.base);
 
-    if base_new_hf < Wad::ONE && base_new_hf < hf {
-        return (d_max, base_bonus);
+    if base_new_hf < Wad::ONE && base_new_hf < snap.hf {
+        return (d_max, bounds.base);
     }
 
     match fallback_result {
         Some(d) => (d, bonus_fallback),
-        None => (d_max, base_bonus),
+        None => (d_max, bounds.base),
     }
 }
 
 fn calculate_post_liquidation_hf(
     env: &Env,
-    weighted_coll: Wad,
-    total_debt: Wad,
+    snap: &LiquidationSnapshot,
     debt_to_repay: Wad,
-    proportion_seized: Wad,
     bonus: Bps,
 ) -> Wad {
     let one_plus_bonus = Bps::ONE + bonus;
 
-    let seized_proportion = proportion_seized.mul(env, debt_to_repay);
+    let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
     let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
-    let seized_weighted = Wad::from_raw(seized_weighted_raw).min(weighted_coll);
+    let seized_weighted = Wad::from_raw(seized_weighted_raw).min(snap.weighted_coll);
 
-    let new_weighted = weighted_coll - seized_weighted;
-    let new_debt = if debt_to_repay >= total_debt {
+    let new_weighted = snap.weighted_coll - seized_weighted;
+    let new_debt = if debt_to_repay >= snap.total_debt {
         Wad::ZERO
     } else {
-        total_debt - debt_to_repay
+        snap.total_debt - debt_to_repay
     };
 
     if new_debt == Wad::ZERO {
@@ -282,61 +239,61 @@ fn calculate_post_liquidation_hf(
 
 fn try_liquidation_at_target(
     env: &Env,
-    total_debt: Wad,
-    weighted_coll: Wad,
+    snap: &LiquidationSnapshot,
     bonus: Bps,
-    proportion_seized: Wad,
-    total_collateral: Wad,
     target_hf: Wad,
 ) -> Option<Wad> {
     let bonus_wad = bonus.to_wad(env);
     let one_plus_bonus = Wad::ONE + bonus_wad;
 
-    let d_max = total_collateral.div(env, one_plus_bonus);
+    let d_max = snap.total_collateral.div(env, one_plus_bonus);
 
-    let denom_term = proportion_seized.mul(env, one_plus_bonus);
+    let denom_term = snap.proportion_seized.mul(env, one_plus_bonus);
     let denominator = target_hf - denom_term;
 
     if denominator <= Wad::ZERO {
         return None;
     }
 
-    let target_debt = target_hf.mul(env, total_debt);
-    if target_debt <= weighted_coll {
-        return Some(d_max.min(total_debt));
+    let target_debt = target_hf.mul(env, snap.total_debt);
+    if target_debt <= snap.weighted_coll {
+        return Some(d_max.min(snap.total_debt));
     }
-    let numerator = target_debt - weighted_coll;
+    let numerator = target_debt - snap.weighted_coll;
     let d_ideal = numerator.div(env, denominator);
 
-    Some(d_ideal.min(d_max).min(total_debt))
+    Some(d_ideal.min(d_max).min(snap.total_debt))
 }
 
 // Returns collateral-value-weighted average liquidation bonus.
 pub fn get_account_bonus_params(
     env: &Env,
     cache: &mut ControllerCache,
-    supply_positions: &Map<Address, AccountPosition>,
-) -> (Bps, Bps) {
+    supply_positions: &Map<Address, AccountPositionRaw>,
+) -> BonusBounds {
     let mut total_collateral = Wad::ZERO;
-    let mut asset_values: Vec<(i128, u32)> = Vec::new(env);
+    let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
 
-    for (asset, position) in supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
         let value = position_value(
             env,
-            Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
         );
 
         total_collateral += value;
-        asset_values.push_back((value.raw(), position.liquidation_bonus_bps));
+        asset_values.push_back((value.raw(), position.liquidation_bonus.raw()));
     }
 
     if total_collateral == Wad::ZERO {
-        return (Bps::from_raw(0), Bps::from_raw(MAX_LIQUIDATION_BONUS));
+        return BonusBounds {
+            base: Bps::from_raw(0),
+            max: Bps::from_raw(MAX_LIQUIDATION_BONUS),
+        };
     }
 
     let mut weighted_bonus_sum: i128 = 0;
@@ -348,8 +305,8 @@ pub fn get_account_bonus_params(
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     }
 
-    (
-        Bps::from_raw(weighted_bonus_sum),
-        Bps::from_raw(MAX_LIQUIDATION_BONUS),
-    )
+    BonusBounds {
+        base: Bps::from_raw(weighted_bonus_sum),
+        max: Bps::from_raw(MAX_LIQUIDATION_BONUS),
+    }
 }

@@ -73,7 +73,7 @@ fn expect_host_auth_rejection<T, E>(
 fn supply_position_params(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition> = t
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPositionRaw> = t
             .env
             .storage()
             .persistent()

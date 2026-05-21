@@ -30,7 +30,7 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};
-use common::types::MarketParams;
+use common::types::MarketParamsRaw;
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
 use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
@@ -51,11 +51,11 @@ struct In {
     ops: [(u32, u32, u8); 8],
 }
 
-fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParams {
+fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     let mid_pct = (i.mid_pct % 98 + 1) as i128;
     let opt_pct = (i.opt_pct as i128 % (99 - mid_pct)) + mid_pct + 1;
 
-    MarketParams {
+    MarketParamsRaw {
         base_borrow_rate_ray: RAY * (i.base_pct as i128 % 51) / 100,
         slope1_ray: RAY * (i.s1_pct as i128 % 51) / 100,
         slope2_ray: RAY * (i.s2_pct as i128 % 101) / 100,

@@ -46,7 +46,7 @@ impl LendingTest {
     pub fn edit_asset_config(
         &self,
         asset_name: &str,
-        f: impl FnOnce(&mut common::types::AssetConfig),
+        f: impl FnOnce(&mut common::types::AssetConfigRaw),
     ) {
         let asset = self.resolve_asset(asset_name);
         let ctrl = self.ctrl_client();

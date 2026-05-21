@@ -14,7 +14,7 @@ use soroban_sdk::{Address, Env, Vec};
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, WAD};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
-use common::types::{POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
+use common::types::{AccountPositionType};
 
 // Realistic per-call debt amount cap. The protocol's largest configured
 // debt position would be on the order of 10^12 raw token units (1M tokens
@@ -53,7 +53,7 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     // only entry is the asset being repaid, so apply_liquidation_repayments
     // iterates exactly once.
     let borrow_pre =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_asset);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     cvlr_assume!(borrow_pre.is_some());
     let scaled_debt_before = borrow_pre.unwrap().scaled_amount_ray;
     cvlr_assume!(scaled_debt_before > 0);
@@ -67,7 +67,7 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     // strict decrease -- or it remains and its scaled amount is strictly
     // smaller. A repay can never grow the scaled debt for the repaid asset.
     let borrow_post =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_asset);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     match borrow_post {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < scaled_debt_before),
         None => cvlr_assert!(true), // fully closed
@@ -102,13 +102,13 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
 
     // Pin both sides to single entries: one collateral asset, one debt asset.
     let supply_pre =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_asset);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_asset);
     cvlr_assume!(supply_pre.is_some());
     let scaled_col_before = supply_pre.unwrap().scaled_amount_ray;
     cvlr_assume!(scaled_col_before > 0);
 
     let borrow_pre =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_asset);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
     cvlr_assume!(borrow_pre.is_some());
     cvlr_assume!(borrow_pre.unwrap().scaled_amount_ray > 0);
 
@@ -118,7 +118,7 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
     crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
 
     let supply_post =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_asset);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_asset);
     match supply_post {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < scaled_col_before),
         None => cvlr_assert!(true), // fully seized
@@ -339,16 +339,18 @@ fn ideal_repayment_targets_102(
     // total_collateral ~= total_debt * HF / proportion_seized (approximation)
     let total_collateral_wad = total_debt_wad; // Simplification for rule verification
 
-    let (ideal, bonus) = crate::helpers::estimate_liquidation_amount(
-        &e,
-        Wad::from_raw(total_debt_wad),
-        Wad::from_raw(weighted_collateral_wad),
-        Wad::from_raw(hf_wad),
-        Bps::from_raw(base_bonus_bps),
-        Bps::from_raw(max_bonus_bps),
-        Wad::from_raw(proportion_seized_wad),
-        Wad::from_raw(total_collateral_wad),
-    );
+    let snap = crate::positions::liquidation_math::LiquidationSnapshot {
+        total_debt: Wad::from_raw(total_debt_wad),
+        total_collateral: Wad::from_raw(total_collateral_wad),
+        weighted_coll: Wad::from_raw(weighted_collateral_wad),
+        proportion_seized: Wad::from_raw(proportion_seized_wad),
+        hf: Wad::from_raw(hf_wad),
+    };
+    let bounds = crate::positions::liquidation_math::BonusBounds {
+        base: Bps::from_raw(base_bonus_bps),
+        max: Bps::from_raw(max_bonus_bps),
+    };
+    let (ideal, bonus) = crate::helpers::estimate_liquidation_amount(&e, &snap, bounds);
 
     // Ideal repayment must be positive (there is debt to repay)
     cvlr_assert!(ideal.raw() > 0);
@@ -394,15 +396,17 @@ fn estimate_liquidation_sanity(e: Env) {
     cvlr_assume!(weighted_col > 0 && weighted_col < total_debt);
     cvlr_assume!(hf > 0 && hf < WAD);
 
-    let (ideal, _bonus) = crate::helpers::estimate_liquidation_amount(
-        &e,
-        Wad::from_raw(total_debt),
-        Wad::from_raw(weighted_col),
-        Wad::from_raw(hf),
-        Bps::from_raw(500),
-        Bps::from_raw(1000),
-        Wad::from_raw(WAD / 2),
-        Wad::from_raw(total_debt),
-    );
+    let snap = crate::positions::liquidation_math::LiquidationSnapshot {
+        total_debt: Wad::from_raw(total_debt),
+        total_collateral: Wad::from_raw(total_debt),
+        weighted_coll: Wad::from_raw(weighted_col),
+        proportion_seized: Wad::from_raw(WAD / 2),
+        hf: Wad::from_raw(hf),
+    };
+    let bounds = crate::positions::liquidation_math::BonusBounds {
+        base: Bps::from_raw(500),
+        max: Bps::from_raw(1000),
+    };
+    let (ideal, _bonus) = crate::helpers::estimate_liquidation_amount(&e, &snap, bounds);
     cvlr_satisfy!(ideal.raw() > 0);
 }

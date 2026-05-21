@@ -380,7 +380,7 @@ proptest! {
         if side_present {
             // If the side key still exists, it must not contain the
             // fully-withdrawn asset.
-            let map: soroban_sdk::Map<Address, common::types::AccountPosition> = t
+            let map: soroban_sdk::Map<Address, common::types::AccountPositionRaw> = t
                 .env
                 .as_contract(&t.controller, || {
                     t.env.storage().persistent().get(&side_key).unwrap()

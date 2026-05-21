@@ -27,12 +27,12 @@
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
-use common::math::fp::Ray;
+use common::math::fp::{Bps, Ray};
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes,
 };
-use common::types::{MarketParams, PoolState, PoolSyncData};
+use common::types::{MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{Address, Env};
 
@@ -74,18 +74,18 @@ fn make_params(env: &Env, i: &In) -> MarketParams {
     let mid = RAY * mid_pct / 100;
     let opt = RAY * opt_pct / 100;
     let max_rate = RAY * (i.max_pct.max(1) as i128 % 1001) / 100;
-    let reserve_factor_bps = (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32;
+    let reserve_factor_bps = ((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1);
 
     MarketParams {
-        base_borrow_rate_ray: base,
-        slope1_ray: s1,
-        slope2_ray: s2,
-        slope3_ray: s3,
-        mid_utilization_ray: mid,
-        optimal_utilization_ray: opt,
-        max_borrow_rate_ray: max_rate.max(1),
-        reserve_factor_bps,
-        max_utilization_ray: 0,
+        base_borrow_rate: Ray::from_raw(base),
+        slope1: Ray::from_raw(s1),
+        slope2: Ray::from_raw(s2),
+        slope3: Ray::from_raw(s3),
+        mid_utilization: Ray::from_raw(mid),
+        optimal_utilization: Ray::from_raw(opt),
+        max_borrow_rate: Ray::from_raw(max_rate.max(1)),
+        reserve_factor: Bps::from_raw(reserve_factor_bps),
+        max_utilization: Ray::ZERO,
         asset_id: Address::from_str(
             env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -99,10 +99,10 @@ fn assert_rate_invariants(env: &Env, util_bps: i128, params: &MarketParams, rate
         rate.raw() >= 0,
         "negative rate at util_bps={} mid={}",
         util_bps,
-        params.mid_utilization_ray
+        params.mid_utilization.raw()
     );
 
-    let max_per_ms = params.max_borrow_rate_ray / MS_PER_YEAR as i128;
+    let max_per_ms = params.max_borrow_rate.raw() / MS_PER_YEAR as i128;
     assert!(
         rate.raw() <= max_per_ms + 2,
         "rate exceeded max: rate={} max_per_ms={}",
@@ -192,14 +192,14 @@ fn assert_interest_split(
     );
 
     // Zero reserve factor ⇒ no protocol fee.
-    if params.reserve_factor_bps == 0 {
+    if params.reserve_factor.raw() == 0 {
         assert_eq!(fee.raw(), 0, "fee non-zero with reserve_factor_bps=0");
     }
 
     // Half-up bound on Bps::apply_to: |fee*BPS - rf*accrued| ≤ BPS/2 + 1.
     if let (Some(fee_scaled), Some(rf_scaled)) = (
         fee.raw().checked_mul(BPS),
-        i128::from(params.reserve_factor_bps).checked_mul(accrued.raw()),
+        params.reserve_factor.raw().checked_mul(accrued.raw()),
     ) {
         let err = (fee_scaled - rf_scaled).abs();
         assert!(
@@ -208,7 +208,7 @@ fn assert_interest_split(
             fee_scaled,
             rf_scaled,
             err,
-            params.reserve_factor_bps
+            params.reserve_factor.raw()
         );
     }
 }
@@ -248,7 +248,7 @@ fuzz_target!(|i: In| {
 
     // ---- calculate_deposit_rate (not reachable via simulate_update_indexes) ----
     // `util` and `rate` are already clamped into the validated domain above.
-    let deposit_rate = calculate_deposit_rate(&env, util, rate, params.reserve_factor_bps);
+    let deposit_rate = calculate_deposit_rate(&env, util, rate, params.reserve_factor);
     assert!(
         deposit_rate.raw() >= 0,
         "negative deposit rate: {}",
@@ -264,7 +264,7 @@ fuzz_target!(|i: In| {
     );
     // reserve_factor == BPS-1 clamp edge: denominator (BPS - rf) = 1, so the
     // deposit rate can approach rate; still must not exceed it.
-    if params.reserve_factor_bps == 0 && util.raw() > 0 {
+    if params.reserve_factor.raw() == 0 && util.raw() > 0 {
         // Zero reserve factor ⇒ suppliers get the full util × rate (± 1 ulp).
         let expected = rate.mul(&env, util);
         let diff = (deposit_rate.raw() - expected.raw()).abs();
@@ -310,8 +310,8 @@ fuzz_target!(|i: In| {
     // for accrual, so feeding (delta_ms, 0) mirrors the clamp above exactly.
     let old_index_raw = Ray::ONE.raw();
     let sync = PoolSyncData {
-        params: params.clone(),
-        state: PoolState {
+        params: MarketParamsRaw::from(&params),
+        state: PoolStateRaw {
             supplied_ray: supplied_raw,
             borrowed_ray: borrowed_raw,
             revenue_ray: 0,
@@ -324,23 +324,23 @@ fuzz_target!(|i: In| {
 
     // Monotonic non-decrease: indices only grow across a positive time step.
     assert!(
-        new_idx.borrow_index_ray >= old_index_raw,
+        new_idx.borrow_index.raw() >= old_index_raw,
         "borrow index regressed: new={} old={} dt={}",
-        new_idx.borrow_index_ray,
+        new_idx.borrow_index.raw(),
         old_index_raw,
         delta_ms
     );
     assert!(
-        new_idx.supply_index_ray >= old_index_raw,
+        new_idx.supply_index.raw() >= old_index_raw,
         "supply index regressed: new={} old={} dt={}",
-        new_idx.supply_index_ray,
+        new_idx.supply_index.raw(),
         old_index_raw,
         delta_ms
     );
 
     // delta_ms == 0 ⇒ indices are passed through unchanged.
     if delta_ms == 0 {
-        assert_eq!(new_idx.borrow_index_ray, old_index_raw);
-        assert_eq!(new_idx.supply_index_ray, old_index_raw);
+        assert_eq!(new_idx.borrow_index.raw(), old_index_raw);
+        assert_eq!(new_idx.supply_index.raw(), old_index_raw);
     }
 });

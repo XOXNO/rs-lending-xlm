@@ -45,8 +45,8 @@ use crate::cache::ControllerCache;
 pub fn calculate_account_totals(
     _env: &Env,
     _cache: &mut ControllerCache,
-    _supply_positions: &Map<Address, AccountPosition>,
-    _borrow_positions: &Map<Address, AccountPosition>,
+    _supply_positions: &Map<Address, AccountPositionRaw>,
+    _borrow_positions: &Map<Address, AccountPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let total_collateral_raw: i128 = nondet();
     let total_debt_raw: i128 = nondet();

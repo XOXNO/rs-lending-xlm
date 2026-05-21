@@ -362,7 +362,7 @@ fn supply_position_limit_enforced(
     // Assume the account already has the maximum number of supply positions.
     let limits = crate::storage::get_position_limits(&e);
     let current_list =
-        crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_DEPOSIT);
+        crate::storage::get_position_list(&e, account_id, common::types::AccountPositionType::Deposit);
     cvlr_assume!(current_list.len() == limits.max_supply_positions as u32);
 
     // Bound the loop: once the prover knows the length is concrete and equals
@@ -403,7 +403,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
 
     let limits = crate::storage::get_position_limits(&e);
     let current_list =
-        crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_BORROW);
+        crate::storage::get_position_list(&e, account_id, common::types::AccountPositionType::Borrow);
     cvlr_assume!(current_list.len() == limits.max_borrow_positions as u32);
     cvlr_assume!(limits.max_borrow_positions as u32 <= 10);
 
@@ -651,7 +651,7 @@ fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Addres
     // Pin borrow list to a single asset so the production e-mode/isolation
     // traversal collapses to one iteration.
     let borrow_list =
-        crate::storage::get_position_list(&e, account_id, common::types::POSITION_TYPE_BORROW);
+        crate::storage::get_position_list(&e, account_id, common::types::AccountPositionType::Borrow);
     cvlr_assume!(borrow_list.len() == 1);
 
     // The asset is an isolated asset (would require switching to isolation)

@@ -735,7 +735,7 @@ fn test_edit_asset_in_e_mode_category() {
     // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let config: Option<common::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
-        let cat: Option<common::types::EModeCategory> = t
+        let cat: Option<common::types::EModeCategoryRaw> = t
             .env
             .storage()
             .persistent()

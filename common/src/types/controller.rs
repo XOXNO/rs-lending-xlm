@@ -1,11 +1,13 @@
+use crate::math::fp::{Bps, Wad};
 use crate::types::oracle::MarketOracleConfig;
-use crate::types::pool::AccountPosition;
+use crate::types::pool::AccountPositionRaw;
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
+// Wire/storage form. Embedded in MarketConfig (persistent storage value).
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct AssetConfig {
+pub struct AssetConfigRaw {
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
@@ -22,6 +24,28 @@ pub struct AssetConfig {
     pub supply_cap: i128,
     pub min_collat_floor_usd_wad: i128,
     pub min_debt_floor_usd_wad: i128,
+    pub e_mode_categories: Vec<u32>,
+}
+
+// In-memory typed form. Used by every compute path.
+#[derive(Clone, Debug)]
+pub struct AssetConfig {
+    pub loan_to_value: Bps,
+    pub liquidation_threshold: Bps,
+    pub liquidation_bonus: Bps,
+    pub liquidation_fees: Bps,
+    pub is_collateralizable: bool,
+    pub is_borrowable: bool,
+    pub is_isolated_asset: bool,
+    pub is_siloed_borrowing: bool,
+    pub is_flashloanable: bool,
+    pub isolation_borrow_enabled: bool,
+    pub isolation_debt_ceiling_usd: Wad,
+    pub flashloan_fee: Bps,
+    pub borrow_cap: i128,
+    pub supply_cap: i128,
+    pub min_collat_floor_usd: Wad,
+    pub min_debt_floor_usd: Wad,
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -51,6 +75,54 @@ impl AssetConfig {
     }
 }
 
+impl From<&AssetConfigRaw> for AssetConfig {
+    fn from(r: &AssetConfigRaw) -> Self {
+        Self {
+            loan_to_value: Bps::from_raw(i128::from(r.loan_to_value_bps)),
+            liquidation_threshold: Bps::from_raw(i128::from(r.liquidation_threshold_bps)),
+            liquidation_bonus: Bps::from_raw(i128::from(r.liquidation_bonus_bps)),
+            liquidation_fees: Bps::from_raw(i128::from(r.liquidation_fees_bps)),
+            is_collateralizable: r.is_collateralizable,
+            is_borrowable: r.is_borrowable,
+            is_isolated_asset: r.is_isolated_asset,
+            is_siloed_borrowing: r.is_siloed_borrowing,
+            is_flashloanable: r.is_flashloanable,
+            isolation_borrow_enabled: r.isolation_borrow_enabled,
+            isolation_debt_ceiling_usd: Wad::from_raw(r.isolation_debt_ceiling_usd_wad),
+            flashloan_fee: Bps::from_raw(i128::from(r.flashloan_fee_bps)),
+            borrow_cap: r.borrow_cap,
+            supply_cap: r.supply_cap,
+            min_collat_floor_usd: Wad::from_raw(r.min_collat_floor_usd_wad),
+            min_debt_floor_usd: Wad::from_raw(r.min_debt_floor_usd_wad),
+            e_mode_categories: r.e_mode_categories.clone(),
+        }
+    }
+}
+
+impl From<&AssetConfig> for AssetConfigRaw {
+    fn from(t: &AssetConfig) -> Self {
+        Self {
+            loan_to_value_bps: t.loan_to_value.raw() as u32,
+            liquidation_threshold_bps: t.liquidation_threshold.raw() as u32,
+            liquidation_bonus_bps: t.liquidation_bonus.raw() as u32,
+            liquidation_fees_bps: t.liquidation_fees.raw() as u32,
+            is_collateralizable: t.is_collateralizable,
+            is_borrowable: t.is_borrowable,
+            is_isolated_asset: t.is_isolated_asset,
+            is_siloed_borrowing: t.is_siloed_borrowing,
+            is_flashloanable: t.is_flashloanable,
+            isolation_borrow_enabled: t.isolation_borrow_enabled,
+            isolation_debt_ceiling_usd_wad: t.isolation_debt_ceiling_usd.raw(),
+            flashloan_fee_bps: t.flashloan_fee.raw() as u32,
+            borrow_cap: t.borrow_cap,
+            supply_cap: t.supply_cap,
+            min_collat_floor_usd_wad: t.min_collat_floor_usd.raw(),
+            min_debt_floor_usd_wad: t.min_debt_floor_usd.raw(),
+            e_mode_categories: t.e_mode_categories.clone(),
+        }
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
@@ -75,14 +147,49 @@ pub struct AccountMeta {
     pub isolated_asset: Option<Address>,
 }
 
+// Wire/storage form. Stored under ControllerKey::EModeCategory(id).
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EModeCategory {
+pub struct EModeCategoryRaw {
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
+}
+
+// In-memory typed form. Used by the e-mode compute path.
+#[derive(Clone, Debug)]
+pub struct EModeCategory {
+    pub loan_to_value: Bps,
+    pub liquidation_threshold: Bps,
+    pub liquidation_bonus: Bps,
+    pub is_deprecated: bool,
+    pub assets: Map<Address, EModeAssetConfig>,
+}
+
+impl From<&EModeCategoryRaw> for EModeCategory {
+    fn from(r: &EModeCategoryRaw) -> Self {
+        Self {
+            loan_to_value: Bps::from_raw(i128::from(r.loan_to_value_bps)),
+            liquidation_threshold: Bps::from_raw(i128::from(r.liquidation_threshold_bps)),
+            liquidation_bonus: Bps::from_raw(i128::from(r.liquidation_bonus_bps)),
+            is_deprecated: r.is_deprecated,
+            assets: r.assets.clone(),
+        }
+    }
+}
+
+impl From<&EModeCategory> for EModeCategoryRaw {
+    fn from(t: &EModeCategory) -> Self {
+        Self {
+            loan_to_value_bps: t.loan_to_value.raw() as u32,
+            liquidation_threshold_bps: t.liquidation_threshold.raw() as u32,
+            liquidation_bonus_bps: t.liquidation_bonus.raw() as u32,
+            is_deprecated: t.is_deprecated,
+            assets: t.assets.clone(),
+        }
+    }
 }
 
 #[contracttype]
@@ -143,8 +250,8 @@ pub struct SeizeEntry {
     pub asset: Address,
     pub amount: i128,
     pub protocol_fee: i128,
-    pub feed: crate::types::oracle::PriceFeed,
-    pub market_index: crate::types::pool::MarketIndex,
+    pub feed: crate::types::oracle::PriceFeedRaw,
+    pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
 #[contracttype]
@@ -153,8 +260,8 @@ pub struct RepayEntry {
     pub asset: Address,
     pub amount: i128,
     pub usd_wad: i128,
-    pub feed: crate::types::oracle::PriceFeed,
-    pub market_index: crate::types::pool::MarketIndex,
+    pub feed: crate::types::oracle::PriceFeedRaw,
+    pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
 pub struct LiquidationResult {
@@ -178,7 +285,7 @@ pub enum MarketStatus {
 #[derive(Clone, Debug)]
 pub struct MarketConfig {
     pub status: MarketStatus,
-    pub asset_config: AssetConfig,
+    pub asset_config: AssetConfigRaw,
     pub pool_address: Address,
     pub oracle_config: MarketOracleConfig,
 }
@@ -191,8 +298,8 @@ pub struct Account {
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
     pub isolated_asset: Option<Address>,
-    pub supply_positions: Map<Address, AccountPosition>,
-    pub borrow_positions: Map<Address, AccountPosition>,
+    pub supply_positions: Map<Address, AccountPositionRaw>,
+    pub borrow_positions: Map<Address, AccountPositionRaw>,
 }
 
 impl Account {

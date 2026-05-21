@@ -30,7 +30,7 @@ use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env};
 
 use common::math::fp::{Bps, Wad};
-use common::types::{MarketIndex, PriceFeed};
+use common::types::{MarketIndex, PriceFeedRaw};
 
 use crate::cache::ControllerCache;
 
@@ -57,14 +57,14 @@ pub mod sac;
 ///   * `timestamp <= cache.current_timestamp_ms / 1000 + 60` (the staleness
 ///     guard rejects feeds further in the future than the 60-s clock-skew
 ///     tolerance).
-pub fn token_price_summary(cache: &mut ControllerCache, _asset: &Address) -> PriceFeed {
+pub fn token_price_summary(cache: &mut ControllerCache, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
     let timestamp: u64 = nondet();
     cvlr_assume!(price_wad > 0);
     cvlr_assume!(asset_decimals <= 27);
     cvlr_assume!(timestamp <= cache.current_timestamp_ms / 1000 + 60);
-    PriceFeed {
+    PriceFeedRaw {
         price_wad,
         asset_decimals,
         timestamp,
@@ -96,6 +96,7 @@ pub fn is_within_anchor_summary(
 ///   * `borrow_index_ray >= RAY` (initial value; only grows).
 ///   * `last_timestamp <= cache.current_timestamp_ms`.
 pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address) -> MarketIndex {
+    use common::math::fp::Ray;
     let supply_index_ray: i128 = nondet();
     let borrow_index_ray: i128 = nondet();
     cvlr_assume!(supply_index_ray >= common::constants::SUPPLY_INDEX_FLOOR_RAW);
@@ -104,8 +105,8 @@ pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address
     // supply index to drop below the borrow index after `pool::seize_position`
     // calls `apply_bad_debt_to_supply_index` (pool/src/lib.rs:521-525).
     MarketIndex {
-        supply_index_ray,
-        borrow_index_ray,
+        supply_index: Ray::from_raw(supply_index_ray),
+        borrow_index: Ray::from_raw(borrow_index_ray),
     }
 }
 
@@ -122,8 +123,8 @@ pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address
 pub fn calculate_account_totals_summary(
     _env: &Env,
     _cache: &mut ControllerCache,
-    _supply_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
-    _borrow_positions: &soroban_sdk::Map<Address, common::types::AccountPosition>,
+    _supply_positions: &soroban_sdk::Map<Address, common::types::AccountPositionRaw>,
+    _borrow_positions: &soroban_sdk::Map<Address, common::types::AccountPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let total_collateral_raw: i128 = nondet();
     let total_debt_raw: i128 = nondet();

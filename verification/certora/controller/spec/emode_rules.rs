@@ -267,7 +267,7 @@ fn deprecated_emode_allows_withdraw(
 
     // Account must have a deposit position for this specific asset.
     let position =
-        crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_DEPOSIT, &asset);
+        crate::storage::get_position(&e, account_id, common::types::AccountPositionType::Deposit, &asset);
     cvlr_assume!(position.is_some());
     let pos_before = position.unwrap();
     cvlr_assume!(pos_before.scaled_amount_ray > 0);
@@ -282,7 +282,7 @@ fn deprecated_emode_allows_withdraw(
     // position is gone (full withdraw) or its scaled amount strictly
     // decreased (partial withdraw).
     let position_after =
-        crate::storage::get_position(&e, account_id, common::types::POSITION_TYPE_DEPOSIT, &asset);
+        crate::storage::get_position(&e, account_id, common::types::AccountPositionType::Deposit, &asset);
     match position_after {
         None => {
             cvlr_assert!(true);

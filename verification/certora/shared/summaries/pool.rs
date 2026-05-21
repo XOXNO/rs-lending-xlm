@@ -23,8 +23,8 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPosition, AccountPositionType, MarketIndex, MarketParams, MarketStateSnapshot,
-    PoolAmountMutation, PoolPositionMutation, PoolState, PoolStrategyMutation, PoolSyncData,
+    AccountPosition, AccountPositionType, MarketIndex, MarketParamsRaw, MarketStateSnapshot,
+    PoolAmountMutation, PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSyncData,
 };
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,8 @@ fn nondet_market_index() -> MarketIndex {
     cvlr_assume!(supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
     cvlr_assume!(borrow_index_ray >= RAY);
     MarketIndex {
-        supply_index_ray,
-        borrow_index_ray,
+        supply_index: common::math::fp::Ray::from_raw(supply_index_ray),
+        borrow_index: common::math::fp::Ray::from_raw(borrow_index_ray),
     }
 }
 
@@ -52,8 +52,8 @@ fn nondet_market_index() -> MarketIndex {
 /// allows the supply index to drop (bad-debt write-down).
 fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
     let idx = nondet_market_index();
-    cvlr_assume!(idx.supply_index_ray >= prior.supply_index_ray);
-    cvlr_assume!(idx.borrow_index_ray >= prior.borrow_index_ray);
+    cvlr_assume!(idx.supply_index >= prior.supply_index);
+    cvlr_assume!(idx.borrow_index >= prior.borrow_index);
     idx
 }
 
@@ -70,8 +70,8 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
     MarketStateSnapshot {
         asset: asset.clone(),
         timestamp,
-        supply_index_ray: market_index.supply_index_ray,
-        borrow_index_ray: market_index.borrow_index_ray,
+        supply_index_ray: market_index.supply_index.raw(),
+        borrow_index_ray: market_index.borrow_index.raw(),
         reserves_ray,
         supplied_ray,
         borrowed_ray,
@@ -108,7 +108,7 @@ pub fn supply_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount: amount,
     }
@@ -139,7 +139,7 @@ pub fn borrow_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount: amount,
     }
@@ -178,7 +178,7 @@ pub fn withdraw_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount,
     }
@@ -216,7 +216,7 @@ pub fn repay_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: new_position,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount,
     }
@@ -306,7 +306,7 @@ pub fn create_strategy_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolStrategyMutation {
         position: new_position,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount: amount,
         amount_received: amount - fee,
@@ -339,7 +339,7 @@ pub fn seize_position_summary(
     let market_state = nondet_market_state(pool_addr, &market_index);
     PoolPositionMutation {
         position: zeroed,
-        market_index,
+        market_index: (&market_index).into(),
         market_state,
         actual_amount: 0,
     }
@@ -410,7 +410,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     let asset_id: Address = nondet_address();
 
     PoolSyncData {
-        params: MarketParams {
+        params: MarketParamsRaw {
             max_borrow_rate_ray,
             base_borrow_rate_ray,
             slope1_ray,
@@ -423,7 +423,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
             asset_id,
             asset_decimals,
         },
-        state: PoolState {
+        state: PoolStateRaw {
             supplied_ray,
             borrowed_ray,
             revenue_ray,

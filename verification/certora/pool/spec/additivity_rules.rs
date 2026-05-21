@@ -3,10 +3,10 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::RAY;
-use common::types::{MarketParams, PoolKey, PoolState};
+use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 
-fn params(asset: Address) -> MarketParams {
-    MarketParams {
+fn params(asset: Address) -> MarketParamsRaw {
+    MarketParamsRaw {
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY / 10,
         slope2_ray: RAY / 5,
@@ -25,7 +25,7 @@ fn seed(env: &Env, admin: Address, asset: Address) {
     crate::LiquidityPool::__constructor(env.clone(), admin, params(asset));
     env.storage().instance().set(
         &PoolKey::State,
-        &PoolState {
+        &PoolStateRaw {
             supplied_ray: 100 * RAY,
             borrowed_ray: 25 * RAY,
             revenue_ray: 0,
@@ -86,7 +86,7 @@ fn supply_withdraw_roundtrip_scaled_no_profit(
 
     let cache = crate::cache::Cache::load(&e);
     let scaled = cache.calculate_scaled_supply(amount);
-    let recovered = cache.calculate_original_supply(scaled);
+    let recovered = cache.unscale_supply(scaled);
 
     cvlr_assert!(recovered <= amount + 1);
 }
@@ -98,7 +98,7 @@ fn borrow_repay_roundtrip_scaled_no_profit(e: Env, admin: Address, asset: Addres
 
     let cache = crate::cache::Cache::load(&e);
     let scaled = cache.calculate_scaled_borrow(amount);
-    let recovered = cache.calculate_original_borrow(scaled);
+    let recovered = cache.unscale_borrow(scaled);
 
     cvlr_assert!(recovered <= amount + 1);
 }

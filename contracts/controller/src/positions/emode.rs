@@ -18,9 +18,9 @@ pub fn apply_e_mode_to_asset_config(
         }
         asset_config.is_collateralizable = aec.is_collateralizable;
         asset_config.is_borrowable = aec.is_borrowable;
-        asset_config.loan_to_value_bps = cat.loan_to_value_bps;
-        asset_config.liquidation_threshold_bps = cat.liquidation_threshold_bps;
-        asset_config.liquidation_bonus_bps = cat.liquidation_bonus_bps;
+        asset_config.loan_to_value = cat.loan_to_value;
+        asset_config.liquidation_threshold = cat.liquidation_threshold;
+        asset_config.liquidation_bonus = cat.liquidation_bonus;
     }
 }
 
@@ -86,7 +86,7 @@ pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     if e_mode_id == 0 {
         return None;
     }
-    Some(storage::get_emode_category(env, e_mode_id))
+    Some((&storage::get_emode_category(env, e_mode_id)).into())
 }
 
 // Returns active e-mode category.

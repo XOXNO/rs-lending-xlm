@@ -12,7 +12,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
     };
     env.storage()
         .persistent()
-        .get::<_, Map<Address, common::types::AccountPosition>>(&key)
+        .get::<_, Map<Address, common::types::AccountPositionRaw>>(&key)
         .map(|m| m.len())
         .unwrap_or(0)
 }
@@ -200,7 +200,7 @@ impl LendingTest {
                 .env
                 .storage()
                 .persistent()
-                .get::<_, soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPosition>>(
+                .get::<_, soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPositionRaw>>(
                     &map_key,
                 )
                 .map(|m| m.contains_key(asset.clone()))

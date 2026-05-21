@@ -3,10 +3,12 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::types::{AccountPosition, AccountPositionType, MarketParams, PoolKey, PoolState};
+use common::types::{
+    AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw,
+};
 
-fn params(asset: Address) -> MarketParams {
-    MarketParams {
+fn params(asset: Address) -> MarketParamsRaw {
+    MarketParamsRaw {
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY / 10,
         slope2_ray: RAY / 5,
@@ -21,8 +23,8 @@ fn params(asset: Address) -> MarketParams {
     }
 }
 
-fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolState {
-    PoolState {
+fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolStateRaw {
+    PoolStateRaw {
         supplied_ray: supplied,
         borrowed_ray: borrowed,
         revenue_ray: revenue,
@@ -32,7 +34,7 @@ fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolS
     }
 }
 
-fn seed(env: &Env, admin: Address, asset: Address, state: PoolState) {
+fn seed(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     crate::LiquidityPool::__constructor(env.clone(), admin, params(asset));
     env.storage().instance().set(&PoolKey::State, &state);
 }

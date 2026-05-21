@@ -1,8 +1,8 @@
 use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
-    Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig,
-    EModeCategory, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
+    Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, EModeAssetConfig,
+    EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
     OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
 };
 
@@ -98,12 +98,12 @@ impl EventAccountPosition {
         Self {
             position_type: side.into(),
             asset_id: asset,
-            scaled_amount_ray: position.scaled_amount_ray,
+            scaled_amount_ray: position.scaled_amount.raw(),
             account_nonce: account_id,
-            liquidation_threshold_bps: position.liquidation_threshold_bps,
-            liquidation_bonus_bps: position.liquidation_bonus_bps,
-            liquidation_fees_bps: position.liquidation_fees_bps,
-            loan_to_value_bps: position.loan_to_value_bps,
+            liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
+            liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
+            liquidation_fees_bps: position.liquidation_fees.raw() as u32,
+            loan_to_value_bps: position.loan_to_value.raw() as u32,
         }
     }
 }
@@ -300,7 +300,7 @@ pub struct CreateMarketEvent {
     pub optimal_utilization: i128,
     pub reserve_factor: u32,
     pub market_address: Address,
-    pub config: AssetConfig,
+    pub config: AssetConfigRaw,
 }
 
 #[contractevent(topics = ["market", "params_update"])]
@@ -355,14 +355,14 @@ impl EventPositionDelta {
             action,
             position_type: position_type as u32,
             asset,
-            scaled_amount_ray: position.scaled_amount_ray,
+            scaled_amount_ray: position.scaled_amount.raw(),
             index_ray,
             amount,
             asset_price_wad,
-            liquidation_threshold_bps: position.liquidation_threshold_bps,
-            liquidation_bonus_bps: position.liquidation_bonus_bps,
-            liquidation_fees_bps: position.liquidation_fees_bps,
-            loan_to_value_bps: position.loan_to_value_bps,
+            liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
+            liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
+            liquidation_fees_bps: position.liquidation_fees.raw() as u32,
+            loan_to_value_bps: position.loan_to_value.raw() as u32,
         }
     }
 }
@@ -389,7 +389,7 @@ pub struct FlashLoanEvent {
 #[derive(Clone, Debug)]
 pub struct UpdateAssetConfigEvent {
     pub asset: Address,
-    pub config: AssetConfig,
+    pub config: AssetConfigRaw,
 }
 
 #[contractevent(topics = ["config", "oracle"])]
@@ -411,7 +411,7 @@ pub struct EventEModeCategory {
 }
 
 impl EventEModeCategory {
-    pub fn new(category_id: u32, category: &EModeCategory) -> Self {
+    pub fn new(category_id: u32, category: &EModeCategoryRaw) -> Self {
         Self {
             category_id,
             loan_to_value_bps: category.loan_to_value_bps,
@@ -534,7 +534,7 @@ pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
 mod tests {
     use super::*;
     use crate::types::{
-        AssetConfig, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
+        AssetConfigRaw, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
         OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
         OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorSourceConfig,
     };
@@ -554,8 +554,8 @@ mod tests {
         Address::generate(env)
     }
 
-    fn dummy_asset_config(env: &Env) -> AssetConfig {
-        AssetConfig {
+    fn dummy_asset_config(env: &Env) -> AssetConfigRaw {
+        AssetConfigRaw {
             loan_to_value_bps: 7500,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,

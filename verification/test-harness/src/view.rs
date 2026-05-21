@@ -1,6 +1,6 @@
 use common::constants::{RAY, WAD};
 use common::math::fp::Ray;
-use common::types::{ControllerKey, PositionLimits, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
+use common::types::{ControllerKey, PositionLimits, AccountPositionType};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
@@ -66,7 +66,7 @@ impl LendingTest {
     pub fn supply_balance_raw(&self, user: &str, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.find_account_id(user)
-            .map(|account_id| self.position_balance_raw(account_id, &asset, POSITION_TYPE_DEPOSIT))
+            .map(|account_id| self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit))
             .unwrap_or(0)
     }
 
@@ -74,7 +74,7 @@ impl LendingTest {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
         i128_to_f64(
-            self.position_balance_raw(account_id, &asset, POSITION_TYPE_DEPOSIT),
+            self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit),
             decimals,
         )
     }
@@ -87,7 +87,7 @@ impl LendingTest {
     pub fn borrow_balance_raw(&self, user: &str, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.find_account_id(user)
-            .map(|account_id| self.position_balance_raw(account_id, &asset, POSITION_TYPE_BORROW))
+            .map(|account_id| self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow))
             .unwrap_or(0)
     }
 
@@ -95,7 +95,7 @@ impl LendingTest {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
         i128_to_f64(
-            self.position_balance_raw(account_id, &asset, POSITION_TYPE_BORROW),
+            self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow),
             decimals,
         )
     }
@@ -104,22 +104,20 @@ impl LendingTest {
         &self,
         account_id: u64,
         asset: &soroban_sdk::Address,
-        position_type: u32,
+        position_type: AccountPositionType,
     ) -> i128 {
         let (supplies, borrows) = self.ctrl_client().get_account_positions(&account_id);
-        let positions = if position_type == POSITION_TYPE_DEPOSIT {
-            supplies
-        } else {
-            borrows
+        let positions = match position_type {
+            AccountPositionType::Deposit => supplies,
+            AccountPositionType::Borrow => borrows,
         };
 
         if let Some(position) = positions.get(asset.clone()) {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
             let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data();
-            let index = if position_type == POSITION_TYPE_DEPOSIT {
-                sync.state.supply_index_ray
-            } else {
-                sync.state.borrow_index_ray
+            let index = match position_type {
+                AccountPositionType::Deposit => sync.state.supply_index_ray,
+                AccountPositionType::Borrow => sync.state.borrow_index_ray,
             };
             let decimals = self.resolve_market_by_asset(asset).decimals;
             return Ray::from_raw(position.scaled_amount_ray)
@@ -231,7 +229,7 @@ impl LendingTest {
         accounts
     }
 
-    pub fn get_asset_config(&self, asset_name: &str) -> common::types::AssetConfig {
+    pub fn get_asset_config(&self, asset_name: &str) -> common::types::AssetConfigRaw {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().get_market_config(&asset).asset_config
     }

@@ -1,32 +1,34 @@
 use super::renew_user_key;
 use common::errors::GenericError;
 use common::types::{
-    Account, AccountMeta, AccountPosition, ControllerKey, POSITION_TYPE_BORROW,
-    POSITION_TYPE_DEPOSIT,
+    Account, AccountMeta, AccountPosition, AccountPositionRaw, AccountPositionType, ControllerKey,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map};
 
-fn side_key(account_id: u64, position_type: u32) -> ControllerKey {
-    if position_type == POSITION_TYPE_DEPOSIT {
-        ControllerKey::SupplyPositions(account_id)
-    } else {
-        ControllerKey::BorrowPositions(account_id)
+fn side_key(account_id: u64, position_type: AccountPositionType) -> ControllerKey {
+    match position_type {
+        AccountPositionType::Deposit => ControllerKey::SupplyPositions(account_id),
+        AccountPositionType::Borrow => ControllerKey::BorrowPositions(account_id),
     }
 }
 
-fn read_side_map(env: &Env, account_id: u64, position_type: u32) -> Map<Address, AccountPosition> {
+fn read_side_map(
+    env: &Env,
+    account_id: u64,
+    position_type: AccountPositionType,
+) -> Map<Address, AccountPositionRaw> {
     let key = side_key(account_id, position_type);
     env.storage()
         .persistent()
-        .get::<_, Map<Address, AccountPosition>>(&key)
+        .get::<_, Map<Address, AccountPositionRaw>>(&key)
         .unwrap_or_else(|| Map::new(env))
 }
 
 fn write_side_map(
     env: &Env,
     account_id: u64,
-    position_type: u32,
-    map: &Map<Address, AccountPosition>,
+    position_type: AccountPositionType,
+    map: &Map<Address, AccountPositionRaw>,
 ) {
     let key = side_key(account_id, position_type);
     let persistent = env.storage().persistent();
@@ -41,10 +43,9 @@ fn write_side_map(
     if persistent.has(&meta_key) {
         renew_user_key(env, &meta_key);
     }
-    let other_type = if position_type == POSITION_TYPE_DEPOSIT {
-        POSITION_TYPE_BORROW
-    } else {
-        POSITION_TYPE_DEPOSIT
+    let other_type = match position_type {
+        AccountPositionType::Deposit => AccountPositionType::Borrow,
+        AccountPositionType::Borrow => AccountPositionType::Deposit,
     };
     let other_key = side_key(account_id, other_type);
     if persistent.has(&other_key) {
@@ -58,8 +59,8 @@ fn account_meta_key(account_id: u64) -> ControllerKey {
 
 pub fn account_from_parts(
     meta: AccountMeta,
-    supply_positions: Map<Address, AccountPosition>,
-    borrow_positions: Map<Address, AccountPosition>,
+    supply_positions: Map<Address, AccountPositionRaw>,
+    borrow_positions: Map<Address, AccountPositionRaw>,
 ) -> Account {
     Account {
         owner: meta.owner,
@@ -79,8 +80,8 @@ fn account_from_meta(env: &Env, account_id: u64, meta: &AccountMeta) -> Account 
         e_mode_category_id: meta.e_mode_category_id,
         mode: meta.mode,
         isolated_asset: meta.isolated_asset.clone(),
-        supply_positions: read_side_map(env, account_id, POSITION_TYPE_DEPOSIT),
-        borrow_positions: read_side_map(env, account_id, POSITION_TYPE_BORROW),
+        supply_positions: read_side_map(env, account_id, AccountPositionType::Deposit),
+        borrow_positions: read_side_map(env, account_id, AccountPositionType::Borrow),
     }
 }
 
@@ -108,27 +109,36 @@ pub fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
 pub fn try_get_position(
     env: &Env,
     account_id: u64,
-    position_type: u32,
+    position_type: AccountPositionType,
     asset: &Address,
 ) -> Option<AccountPosition> {
     let map = read_side_map(env, account_id, position_type);
-    map.get(asset.clone())
+    map.get(asset.clone()).map(|raw| AccountPosition::from(&raw))
 }
 
-pub fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPosition> {
-    read_side_map(env, account_id, POSITION_TYPE_DEPOSIT)
+pub fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPositionRaw> {
+    read_side_map(env, account_id, AccountPositionType::Deposit)
 }
 
-pub fn get_borrow_positions(env: &Env, account_id: u64) -> Map<Address, AccountPosition> {
-    read_side_map(env, account_id, POSITION_TYPE_BORROW)
+pub fn get_borrow_positions(env: &Env, account_id: u64) -> Map<Address, AccountPositionRaw> {
+    read_side_map(env, account_id, AccountPositionType::Borrow)
 }
 
-pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
-    write_side_map(env, account_id, POSITION_TYPE_DEPOSIT, map);
+pub fn set_supply_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPositionRaw>) {
+    write_side_map(env, account_id, AccountPositionType::Deposit, map);
 }
 
-pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPosition>) {
-    write_side_map(env, account_id, POSITION_TYPE_BORROW, map);
+pub fn set_borrow_positions(env: &Env, account_id: u64, map: &Map<Address, AccountPositionRaw>) {
+    write_side_map(env, account_id, AccountPositionType::Borrow, map);
+}
+
+// Typed iterator over a position map. Lifts each entry from `AccountPositionRaw`
+// to `AccountPosition` so call sites can read `position.scaled_amount` etc.
+// directly instead of `Ray::from_raw(position.scaled_amount_ray)`.
+pub fn iter_typed_positions(
+    map: &Map<Address, AccountPositionRaw>,
+) -> impl Iterator<Item = (Address, AccountPosition)> + '_ {
+    map.iter().map(|(addr, raw)| (addr, AccountPosition::from(&raw)))
 }
 
 pub fn get_account(env: &Env, account_id: u64) -> Account {
@@ -144,8 +154,8 @@ pub fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
 pub fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&account_meta_key(account_id));
-    persistent.remove(&side_key(account_id, POSITION_TYPE_DEPOSIT));
-    persistent.remove(&side_key(account_id, POSITION_TYPE_BORROW));
+    persistent.remove(&side_key(account_id, AccountPositionType::Deposit));
+    persistent.remove(&side_key(account_id, AccountPositionType::Borrow));
 }
 
 // Renews account storage TTL.
@@ -155,11 +165,11 @@ pub fn renew_user_account(env: &Env, account_id: u64) {
     if persistent.has(&meta_key) {
         renew_user_key(env, &meta_key);
     }
-    let supply_key = side_key(account_id, POSITION_TYPE_DEPOSIT);
+    let supply_key = side_key(account_id, AccountPositionType::Deposit);
     if persistent.has(&supply_key) {
         renew_user_key(env, &supply_key);
     }
-    let borrow_key = side_key(account_id, POSITION_TYPE_BORROW);
+    let borrow_key = side_key(account_id, AccountPositionType::Borrow);
     if persistent.has(&borrow_key) {
         renew_user_key(env, &borrow_key);
     }

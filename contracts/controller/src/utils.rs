@@ -94,7 +94,7 @@ pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,
     token_amount: i128,
-    price_wad: &i128,
+    price: Wad,
     asset_decimals: u32,
     cache: &mut ControllerCache,
 ) {
@@ -103,7 +103,7 @@ pub fn adjust_isolated_debt_usd(
     };
 
     let amount_wad = Wad::from_token(token_amount, asset_decimals);
-    let usd_wad = amount_wad.mul(env, Wad::from_raw(*price_wad)).raw();
+    let usd_wad = amount_wad.mul(env, price).raw();
 
     let current = cache.get_isolated_debt(&isolated_asset);
     let mut new_debt = if usd_wad >= current {

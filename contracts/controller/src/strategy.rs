@@ -1,9 +1,9 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Wad;
 use common::types::{
-    Account, AccountPosition, AggregatorSwap, AssetConfig, BatchSwap, PositionMode,
-    POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
+    Account, AccountPosition, AccountPositionType, AggregatorSwap, AssetConfig, BatchSwap,
+    PositionMode,
 };
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -14,6 +14,8 @@ use stellar_macros::when_not_paused;
 use crate::cache::ControllerCache;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::dust::require_no_dust_after;
+use crate::positions::repay::RepaymentRequest;
+use crate::positions::withdraw::{WithdrawFlags, WithdrawalRequest};
 use crate::{
     positions::{borrow, emode, repay, supply, withdraw, EventContext},
     storage, utils, validation, Controller, ControllerArgs, ControllerClient,
@@ -50,15 +52,17 @@ impl Controller {
         process_multiply(
             &env,
             &caller,
-            account_id,
-            e_mode_category,
-            &collateral_token,
-            debt_to_flash_loan,
-            &debt_token,
-            mode,
-            &swap,
-            initial_payment,
-            convert_swap,
+            MultiplyParams {
+                account_id,
+                e_mode_category,
+                collateral_token: &collateral_token,
+                debt_to_flash_loan,
+                debt_token: &debt_token,
+                mode,
+                swap: &swap,
+                initial_payment,
+                convert_swap,
+            },
         )
     }
 
@@ -118,32 +122,47 @@ impl Controller {
         process_repay_debt_with_collateral(
             &env,
             &caller,
-            account_id,
-            &collateral_token,
-            collateral_amount,
-            &debt_token,
-            &swap,
-            close_position,
+            RepayWithCollateralParams {
+                account_id,
+                collateral_token: &collateral_token,
+                collateral_amount,
+                debt_token: &debt_token,
+                swap: &swap,
+                close_position,
+            },
         );
     }
 }
 
+/// Parameters for `process_multiply`. Mirrors the public entrypoint args.
+pub struct MultiplyParams<'a> {
+    pub account_id: u64,
+    pub e_mode_category: u32,
+    pub collateral_token: &'a Address,
+    pub debt_to_flash_loan: i128,
+    pub debt_token: &'a Address,
+    pub mode: PositionMode,
+    pub swap: &'a AggregatorSwap,
+    pub initial_payment: Option<(Address, i128)>,
+    pub convert_swap: Option<AggregatorSwap>,
+}
+
 // Opens leveraged position.
-pub fn process_multiply(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    e_mode_category: u32,
-    collateral_token: &Address,
-    debt_to_flash_loan: i128,
-    debt_token: &Address,
-    mode: PositionMode,
-    swap: &AggregatorSwap,
-    initial_payment: Option<(Address, i128)>,
-    convert_swap: Option<AggregatorSwap>,
-) -> u64 {
+pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
+
+    let MultiplyParams {
+        account_id,
+        e_mode_category,
+        collateral_token,
+        debt_to_flash_loan,
+        debt_token,
+        mode,
+        swap,
+        initial_payment,
+        convert_swap,
+    } = params;
 
     if collateral_token == debt_token {
         panic_with_error!(env, GenericError::AssetsAreTheSame);
@@ -288,21 +307,23 @@ pub fn process_swap_debt(
         caller,
     );
 
-    let existing_pos = account
+    let existing_pos: AccountPosition = (&account
         .borrow_positions
         .get(existing_debt_token.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
+        .into();
 
     repay_debt_from_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
-        existing_debt_token,
-        swapped_amount,
-        &existing_pos,
-        symbol_short!("sw_debt_r"),
+        StrategyRepay {
+            debt_token: existing_debt_token,
+            debt_available: swapped_amount,
+            debt_pos: &existing_pos,
+            action: symbol_short!("sw_debt_r"),
+        },
     );
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
@@ -347,21 +368,23 @@ pub fn process_swap_collateral(
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 
-    let current_pos = account
+    let current_pos: AccountPosition = (&account
         .supply_positions
         .get(current_collateral.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound));
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
+        .into();
 
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
-        current_collateral,
-        from_amount,
-        &current_pos,
-        symbol_short!("sw_col_wd"),
+        StrategyWithdraw {
+            asset: current_collateral,
+            amount: from_amount,
+            position: &current_pos,
+            action: symbol_short!("sw_col_wd"),
+        },
     );
 
     let swapped_amount = swap_tokens(
@@ -503,17 +526,31 @@ fn validate_aggregator_swap(
     }
 }
 
+/// Parameters for `process_repay_debt_with_collateral`.
+pub struct RepayWithCollateralParams<'a> {
+    pub account_id: u64,
+    pub collateral_token: &'a Address,
+    pub collateral_amount: i128,
+    pub debt_token: &'a Address,
+    pub swap: &'a AggregatorSwap,
+    pub close_position: bool,
+}
+
 // Repays debt with swapped collateral.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
-    account_id: u64,
-    collateral_token: &Address,
-    collateral_amount: i128,
-    debt_token: &Address,
-    swap: &AggregatorSwap,
-    close_position: bool,
+    params: RepayWithCollateralParams<'_>,
 ) {
+    let RepayWithCollateralParams {
+        account_id,
+        collateral_token,
+        collateral_amount,
+        debt_token,
+        swap,
+        close_position,
+    } = params;
+
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_amount_positive(env, collateral_amount);
@@ -538,13 +575,14 @@ pub fn process_repay_debt_with_collateral(
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
-        collateral_token,
-        collateral_amount,
-        &collateral_pos,
-        symbol_short!("rp_col_wd"),
+        StrategyWithdraw {
+            asset: collateral_token,
+            amount: collateral_amount,
+            position: &collateral_pos,
+            action: symbol_short!("rp_col_wd"),
+        },
     );
 
     let debt_available = swap_or_net_collateral_to_debt(
@@ -558,13 +596,14 @@ pub fn process_repay_debt_with_collateral(
     repay_debt_from_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
-        debt_token,
-        debt_available,
-        &debt_pos,
-        symbol_short!("rp_col_r"),
+        StrategyRepay {
+            debt_token,
+            debt_available,
+            debt_pos: &debt_pos,
+            action: symbol_short!("rp_col_r"),
+        },
     );
 
     close_remaining_collateral_if_requested(
@@ -770,7 +809,7 @@ fn open_strategy_borrow(
     validation::validate_bulk_position_limits(
         env,
         account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &new_borrow_assets,
     );
 
@@ -786,7 +825,7 @@ fn emit_multiply_initial_payment(
     if let Some((payment_token, payment_amount)) = initial_payment {
         let feed = cache.cached_price(&payment_token);
         let amount_wad = Wad::from_token(payment_amount, feed.asset_decimals);
-        let usd_value_wad = amount_wad.mul(env, Wad::from_raw(feed.price_wad)).raw();
+        let usd_value_wad = amount_wad.mul(env, feed.price).raw();
         emit_initial_multiply_payment(
             env,
             InitialMultiplyPaymentEvent {
@@ -833,7 +872,7 @@ fn load_repay_with_collateral_positions(
         .get(debt_token.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
 
-    (collateral_pos, debt_pos)
+    ((&collateral_pos).into(), (&debt_pos).into())
 }
 
 fn swap_or_net_collateral_to_debt(
@@ -858,21 +897,16 @@ fn swap_or_net_collateral_to_debt(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     cache: &mut ControllerCache,
     caller: &Address,
-    debt_token: &Address,
-    debt_available: i128,
-    debt_pos: &AccountPosition,
-    action: Symbol,
+    req: StrategyRepay<'_>,
 ) {
-    let debt_pool_addr = cache.cached_pool_address(debt_token);
-    let debt_feed = cache.cached_price(debt_token);
-    let debt_tok = soroban_sdk::token::Client::new(env, debt_token);
+    let debt_pool_addr = cache.cached_pool_address(req.debt_token);
+    let debt_feed = cache.cached_price(req.debt_token);
+    let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 
     // Pool-balance delta accounting around the transfer mirrors plain
     // `process_single_repay`: pass the amount that actually arrived to
@@ -881,10 +915,10 @@ fn repay_debt_from_controller(
     // `debt_available - fee` reaches the pool.
     let actual_arrived_at_pool = utils::transfer_and_measure_received(
         env,
-        debt_token,
+        req.debt_token,
         &env.current_contract_address(),
         &debt_pool_addr,
-        debt_available,
+        req.debt_available,
         GenericError::InternalError,
     );
 
@@ -894,16 +928,25 @@ fn repay_debt_from_controller(
     repay::execute_repayment(
         env,
         account,
-        account_id,
-        debt_token,
-        controller_event_context(env, caller, action),
-        debt_pos,
-        debt_feed.price_wad,
-        actual_arrived_at_pool,
+        controller_event_context(env, caller, req.action),
+        RepaymentRequest {
+            asset: req.debt_token,
+            position: req.debt_pos,
+            amount: actual_arrived_at_pool,
+            price: debt_feed.price,
+        },
         cache,
     );
 
-    refund_controller_balance_delta(env, debt_token, controller_balance_before_repay, caller);
+    refund_controller_balance_delta(env, req.debt_token, controller_balance_before_repay, caller);
+}
+
+/// Bundle for the strategy-side debt-repay helper.
+struct StrategyRepay<'a> {
+    debt_token: &'a Address,
+    debt_available: i128,
+    debt_pos: &'a AccountPosition,
+    action: Symbol,
 }
 
 fn close_remaining_collateral_if_requested(
@@ -925,33 +968,28 @@ fn close_remaining_collateral_if_requested(
     execute_withdraw_all(env, account, account_id, caller, cache);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     cache: &mut ControllerCache,
     caller: &Address,
-    asset: &Address,
-    amount: i128,
-    position: &AccountPosition,
-    action: Symbol,
+    req: StrategyWithdraw<'_>,
 ) -> i128 {
-    let feed = cache.cached_price(asset);
-    let token = soroban_sdk::token::Client::new(env, asset);
+    let feed = cache.cached_price(req.asset);
+    let token = soroban_sdk::token::Client::new(env, req.asset);
     let balance_before = token.balance(&env.current_contract_address());
 
     withdraw::execute_withdrawal(
         env,
         account,
-        account_id,
-        asset,
-        controller_event_context(env, caller, action),
-        amount,
-        position,
-        false,
-        0,
-        feed.price_wad,
+        controller_event_context(env, caller, req.action),
+        WithdrawalRequest {
+            asset: req.asset,
+            amount: req.amount,
+            position: req.position,
+            price: feed.price,
+        },
+        WithdrawFlags::plain(),
         cache,
     );
 
@@ -959,6 +997,14 @@ fn withdraw_collateral_to_controller(
         .balance(&env.current_contract_address())
         .checked_sub(balance_before)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
+}
+
+/// Bundle for the strategy-side collateral withdraw helper.
+struct StrategyWithdraw<'a> {
+    asset: &'a Address,
+    amount: i128,
+    position: &'a AccountPosition,
+    action: Symbol,
 }
 
 // Persists state and flushes isolated debt.
@@ -1012,32 +1058,35 @@ pub fn execute_withdraw_all(
     destination: &Address,
     cache: &mut ControllerCache,
 ) {
+    let _ = account_id;
     // Collect keys to avoid borrowing issues during mutation.
     let deposit_keys: Vec<Address> = account.supply_positions.keys();
     for i in 0..deposit_keys.len() {
         let asset = validation::expect_invariant(env, deposit_keys.get(i));
         if let Some(pos) = account.supply_positions.get(asset.clone()) {
+            let pos: AccountPosition = (&pos).into();
             let feed = cache.cached_price(&asset);
             let market_index = cache.cached_market_index(&asset);
-            let full_amount = Ray::from_raw(pos.scaled_amount_ray)
-                .mul(env, Ray::from_raw(market_index.supply_index_ray))
+            let full_amount = pos
+                .scaled_amount
+                .mul(env, market_index.supply_index)
                 .to_asset(feed.asset_decimals);
             // `destination` doubles as `event_caller` — the user initiated this close.
             let _updated = withdraw::execute_withdrawal(
                 env,
                 account,
-                account_id,
-                &asset,
                 EventContext {
                     caller: destination.clone(),
                     event_caller: destination.clone(),
                     action: symbol_short!("close_wd"),
                 },
-                full_amount,
-                &pos,
-                false,
-                0,
-                feed.price_wad,
+                WithdrawalRequest {
+                    asset: &asset,
+                    amount: full_amount,
+                    position: &pos,
+                    price: feed.price,
+                },
+                WithdrawFlags::plain(),
                 cache,
             );
         }
@@ -1074,6 +1123,11 @@ pub fn validate_swap_new_collateral_preflight(
         .contains_key(new_collateral.clone())
     {
         let new_assets = soroban_sdk::vec![env, (new_collateral.clone(), 0i128)];
-        validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, &new_assets);
+        validation::validate_bulk_position_limits(
+            env,
+            account,
+            AccountPositionType::Deposit,
+            &new_assets,
+        );
     }
 }

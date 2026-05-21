@@ -1,4 +1,4 @@
-use common::types::AssetConfig;
+use common::types::AssetConfigRaw;
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, eth_preset, tokens, usd,
     usdc_preset, LendingTest, BOB,
@@ -20,7 +20,7 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     // total = 1,000,000.
     t.ctrl_client().edit_asset_config(
         &t.resolve_asset("USDC"),
-        &AssetConfig {
+        &AssetConfigRaw {
             supply_cap: 10_100_000_000_000,
             ..usdc_preset().config.to_asset_config(&t.env)
         },
@@ -62,7 +62,7 @@ fn test_strategy_multiply_supply_cap_reached() {
     // Alice's deliberately-tiny 5 USDC seed position survives the new gate.
     t.ctrl_client().edit_asset_config(
         &t.resolve_asset("USDC"),
-        &AssetConfig {
+        &AssetConfigRaw {
             supply_cap: 10_100_000_000_000,
             min_collat_floor_usd_wad: 0,
             min_debt_floor_usd_wad: 0,

@@ -24,7 +24,7 @@ use common::constants::{
 use common::types::{
     AssetConfig, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
-    OracleStrategy, PriceFeed, ReflectorSourceConfig,
+    OracleStrategy, PriceFeedRaw, ReflectorSourceConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assume!(asset_decimals <= 27);
     let now_secs = cache.current_timestamp_ms / 1000;
     cvlr_assume!(timestamp <= now_secs + 60);
-    let seeded = PriceFeed {
+    let seeded = PriceFeedRaw {
         price_wad,
         asset_decimals,
         timestamp,

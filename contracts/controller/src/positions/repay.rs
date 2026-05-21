@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::math::fp::Ray;
+use common::math::fp::{Ray, Wad};
 use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
@@ -12,6 +12,14 @@ use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_repay_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+
+/// Bundle of per-call repayment inputs.
+pub(crate) struct RepaymentRequest<'a> {
+    pub asset: &'a Address,
+    pub position: &'a AccountPosition,
+    pub amount: i128,
+    pub price: Wad,
+}
 
 #[contractimpl]
 impl Controller {
@@ -40,15 +48,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan {
-        process_single_repay(
-            env,
-            caller,
-            account_id,
-            &mut account,
-            &asset,
-            amount,
-            &mut cache,
-        );
+        process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
     // Partial repay must stay above dust floor or repay in full.
@@ -64,7 +64,6 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 fn process_single_repay(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     asset: &Address,
     amount: i128,
@@ -72,45 +71,42 @@ fn process_single_repay(
 ) {
     validation::require_amount_positive(env, amount);
 
-    let position = account
+    let position: AccountPosition = (&account
         .borrow_positions
         .get(asset.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound));
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .into();
     let actual_received = transfer_repayment_to_pool(env, caller, asset, amount, cache);
 
-    let price_wad = if account.is_isolated {
-        cache.cached_price(asset).price_wad
+    let price = if account.is_isolated {
+        cache.cached_price(asset).price
     } else {
-        0
+        Wad::ZERO
     };
     let _ = execute_repayment(
         env,
         account,
-        account_id,
-        asset,
         EventContext {
             caller: caller.clone(),
             event_caller: caller.clone(),
             action: symbol_short!("repay"),
         },
-        &position,
-        price_wad,
-        actual_received,
+        RepaymentRequest {
+            asset,
+            position: &position,
+            amount: actual_received,
+            price,
+        },
         cache,
     );
 }
 
 // Executes pool repay.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
-    _account_id: u64,
-    asset: &Address,
     ctx: EventContext,
-    position: &AccountPosition,
-    price_wad: i128,
-    amount: i128,
+    req: RepaymentRequest<'_>,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
     let EventContext {
@@ -119,27 +115,31 @@ pub fn execute_repayment(
         action,
     } = ctx;
 
-    let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_repay_call(env, &pool_addr, caller.clone(), amount, position.clone());
+    let pool_addr = cache.cached_pool_address(req.asset);
+    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, req.position.clone());
     cache.record_market_update_with_price(
         &result.market_state,
-        if price_wad > 0 { Some(price_wad) } else { None },
+        if req.price > Wad::ZERO {
+            Some(req.price.raw())
+        } else {
+            None
+        },
     );
 
     update::update_or_remove_position(
         account,
         AccountPositionType::Borrow,
-        asset,
-        &result.position,
+        req.asset,
+        &AccountPosition::from(&result.position),
     );
     if account.is_isolated {
-        let feed = cache.cached_price(asset);
+        let feed = cache.cached_price(req.asset);
         adjust_isolated_debt_for_repay(
             env,
             account,
             cache,
             result.actual_amount,
-            price_wad,
+            req.price,
             feed.asset_decimals,
         );
     }
@@ -147,11 +147,15 @@ pub fn execute_repayment(
     cache.record_position_update(
         action,
         AccountPositionType::Borrow,
-        asset,
+        req.asset,
         result.market_index.borrow_index_ray,
         result.actual_amount,
-        &result.position,
-        if price_wad > 0 { Some(price_wad) } else { None },
+        &AccountPosition::from(&result.position),
+        if req.price > Wad::ZERO {
+            Some(req.price.raw())
+        } else {
+            None
+        },
     );
 
     result
@@ -174,7 +178,7 @@ pub fn clear_position_isolated_debt(
     let actual_amount = actual_borrow_amount(
         env,
         position,
-        market_index.borrow_index_ray,
+        market_index.borrow_index,
         feed.asset_decimals,
     );
     adjust_isolated_debt_for_repay(
@@ -182,7 +186,7 @@ pub fn clear_position_isolated_debt(
         account,
         cache,
         actual_amount,
-        feed.price_wad,
+        feed.price,
         feed.asset_decimals,
     );
 }
@@ -208,11 +212,12 @@ fn transfer_repayment_to_pool(
 fn actual_borrow_amount(
     env: &Env,
     position: &AccountPosition,
-    borrow_index_ray: i128,
+    borrow_index: Ray,
     asset_decimals: u32,
 ) -> i128 {
-    Ray::from_raw(position.scaled_amount_ray)
-        .mul(env, Ray::from_raw(borrow_index_ray))
+    position
+        .scaled_amount
+        .mul(env, borrow_index)
         .to_asset(asset_decimals)
 }
 
@@ -221,7 +226,7 @@ fn adjust_isolated_debt_for_repay(
     account: &Account,
     cache: &mut ControllerCache,
     actual_amount: i128,
-    price_wad: i128,
+    price: Wad,
     asset_decimals: u32,
 ) {
     if account.is_isolated && actual_amount > 0 {
@@ -229,7 +234,7 @@ fn adjust_isolated_debt_for_repay(
             env,
             account,
             actual_amount,
-            &price_wad,
+            price,
             asset_decimals,
             cache,
         );

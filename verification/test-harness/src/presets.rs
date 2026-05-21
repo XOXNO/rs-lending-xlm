@@ -221,8 +221,8 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // ---------------------------------------------------------------------------
 
 impl AssetConfigPreset {
-    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> common::types::AssetConfig {
-        common::types::AssetConfig {
+    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> common::types::AssetConfigRaw {
+        common::types::AssetConfigRaw {
             loan_to_value_bps: self.loan_to_value_bps,
             liquidation_threshold_bps: self.liquidation_threshold_bps,
             liquidation_bonus_bps: self.liquidation_bonus_bps,
@@ -251,8 +251,8 @@ impl MarketParamsPreset {
         &self,
         asset: &soroban_sdk::Address,
         decimals: u32,
-    ) -> common::types::MarketParams {
-        common::types::MarketParams {
+    ) -> common::types::MarketParamsRaw {
+        common::types::MarketParamsRaw {
             max_borrow_rate_ray: self.max_borrow_rate_ray,
             base_borrow_rate_ray: self.base_borrow_rate_ray,
             slope1_ray: self.slope1_ray,

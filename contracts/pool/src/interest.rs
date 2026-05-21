@@ -104,7 +104,7 @@ mod tests {
     use super::*;
     use crate::test_support::init_ledger;
     use common::constants::RAY;
-    use common::types::{MarketParams, PoolKey, PoolState};
+    use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env};
 
@@ -120,7 +120,7 @@ mod tests {
             init_ledger(&env);
 
             let admin = Address::generate(&env);
-            let params = MarketParams {
+            let params = MarketParamsRaw {
                 max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
                 slope1_ray: RAY / 10,
@@ -142,7 +142,7 @@ mod tests {
             self.env.as_contract(&self.contract, f)
         }
 
-        fn fresh_cache(&self, state: PoolState) -> Cache {
+        fn fresh_cache(&self, state: PoolStateRaw) -> Cache {
             self.env.storage().instance().set(&PoolKey::State, &state);
             Cache::load(&self.env)
         }
@@ -153,7 +153,7 @@ mod tests {
     fn test_add_protocol_revenue_ray_zero_is_noop() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 100 * RAY,
                 borrowed_ray: 0,
                 revenue_ray: 0,
@@ -175,7 +175,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // supply_index set to (floor - 1) to trigger the safety branch.
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 100 * RAY,
                 borrowed_ray: 0,
                 revenue_ray: 0,
@@ -197,7 +197,7 @@ mod tests {
     fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 0,
                 borrowed_ray: 0,
                 revenue_ray: 0,
@@ -217,7 +217,7 @@ mod tests {
     fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 10 * RAY,
                 borrowed_ray: 0,
                 revenue_ray: 0,
@@ -246,7 +246,7 @@ mod tests {
         t.as_contract(|| {
             // supply_index high enough that a 91% drop still leaves the new
             // index above the floor, exercising the non-clamping branch.
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 1_000 * RAY,
                 borrowed_ray: 0,
                 revenue_ray: 0,
@@ -272,7 +272,7 @@ mod tests {
     fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let mut cache = t.fresh_cache(PoolState {
+            let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 1_000 * RAY,
                 borrowed_ray: 0,
                 revenue_ray: 0,

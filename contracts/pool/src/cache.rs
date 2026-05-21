@@ -1,8 +1,9 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
-    AccountPosition, MarketIndex, MarketParams, MarketStateSnapshot, PoolAmountMutation, PoolKey,
-    PoolPositionMutation, PoolState, PoolStrategyMutation,
+    AccountPosition, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot,
+    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStateRaw,
+    PoolStrategyMutation,
 };
 use soroban_sdk::{panic_with_error, Env};
 
@@ -21,34 +22,35 @@ pub struct Cache {
 impl Cache {
     // Loads params and state from instance storage.
     pub fn load(env: &Env) -> Self {
-        let params: MarketParams = env
+        let params: MarketParamsRaw = env
             .storage()
             .instance()
             .get(&PoolKey::Params)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
-        let s: PoolState = env
+        let raw_state: PoolStateRaw = env
             .storage()
             .instance()
             .get(&PoolKey::State)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+        let state = PoolState::from(&raw_state);
 
         Cache {
             env: env.clone(),
-            supplied: Ray::from_raw(s.supplied_ray),
-            borrowed: Ray::from_raw(s.borrowed_ray),
-            revenue: Ray::from_raw(s.revenue_ray),
-            borrow_index: Ray::from_raw(s.borrow_index_ray),
-            supply_index: Ray::from_raw(s.supply_index_ray),
-            last_timestamp: s.last_timestamp,
+            supplied: state.supplied,
+            borrowed: state.borrowed,
+            revenue: state.revenue,
+            borrow_index: state.borrow_index,
+            supply_index: state.supply_index,
+            last_timestamp: state.last_timestamp,
             current_timestamp: env.ledger().timestamp() * 1000,
-            params,
+            params: (&params).into(),
         }
     }
 
     // Writes current cache back to instance storage.
     pub fn save(&self) {
-        let state = PoolState {
+        let state = PoolStateRaw {
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),
             revenue_ray: self.revenue.raw(),
@@ -67,10 +69,8 @@ impl Cache {
         }
         let total_borrowed = self.borrowed.mul(&self.env, self.borrow_index);
         let total_supplied = self.supplied.mul(&self.env, self.supply_index);
-        if total_supplied == Ray::ZERO {
-            return Ray::ZERO;
-        }
-        total_borrowed.div(&self.env, total_supplied)
+
+        common::rates::utilization(&self.env, total_borrowed, total_supplied)
     }
 
     // Returns true if pool balance covers amount.
@@ -179,9 +179,9 @@ impl Cache {
         }
     }
 
-    // Current borrow and supply indexes.
-    pub fn market_index(&self) -> MarketIndex {
-        MarketIndex {
+    // Current borrow and supply indexes (wire form for event embedding).
+    pub fn market_index(&self) -> MarketIndexRaw {
+        MarketIndexRaw {
             borrow_index_ray: self.borrow_index.raw(),
             supply_index_ray: self.supply_index.raw(),
         }
@@ -209,7 +209,7 @@ impl Cache {
         actual_amount: i128,
     ) -> PoolPositionMutation {
         PoolPositionMutation {
-            position,
+            position: (&position).into(),
             market_index: self.market_index(),
             market_state: self.market_snapshot(),
             actual_amount,
@@ -232,7 +232,7 @@ impl Cache {
         amount_received: i128,
     ) -> PoolStrategyMutation {
         PoolStrategyMutation {
-            position,
+            position: (&position).into(),
             market_index: self.market_index(),
             market_state: self.market_snapshot(),
             actual_amount,
@@ -254,7 +254,7 @@ mod tests {
     struct TestSetup {
         env: Env,
         contract: Address,
-        params: MarketParams,
+        params: MarketParamsRaw,
     }
 
     impl TestSetup {
@@ -264,7 +264,7 @@ mod tests {
             init_ledger(&env);
 
             let admin = Address::generate(&env);
-            let params = MarketParams {
+            let params = MarketParamsRaw {
                 max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
                 slope1_ray: RAY / 10,
@@ -316,7 +316,7 @@ mod tests {
                 supply_index: Ray::ZERO,
                 last_timestamp: 0,
                 current_timestamp: 1_000_000,
-                params: t.params.clone(),
+                params: (&t.params).into(),
             };
 
             assert_eq!(cache.calculate_utilization(), Ray::ZERO);
@@ -326,7 +326,7 @@ mod tests {
     // Helper to build a fully-controlled cache for unit-level tests.
     fn cache_with(
         env: &Env,
-        params: MarketParams,
+        params: &MarketParamsRaw,
         supplied: i128,
         borrowed: i128,
         revenue: i128,
@@ -342,7 +342,7 @@ mod tests {
             supply_index: Ray::from_raw(supply_index),
             last_timestamp: 0,
             current_timestamp: 1_000_000,
-            params,
+            params: params.into(),
         }
     }
 
@@ -350,7 +350,7 @@ mod tests {
     fn test_calculate_utilization_returns_zero_when_supplied_is_zero() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let cache = cache_with(&t.env, t.params.clone(), 0, 5 * RAY, 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, 0, 5 * RAY, 0, RAY, RAY);
             assert_eq!(cache.calculate_utilization(), Ray::ZERO);
         });
     }
@@ -360,7 +360,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // 5 borrowed against 10 supplied at index 1 -> 50% utilization.
-            let cache = cache_with(&t.env, t.params.clone(), 10 * RAY, 5 * RAY, 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, 10 * RAY, 5 * RAY, 0, RAY, RAY);
             assert_eq!(cache.calculate_utilization(), Ray::from_raw(RAY / 2));
         });
     }
@@ -370,7 +370,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // current_debt = 1 asset unit; partial repay of 0 (no debt cleared).
-            let cache = cache_with(&t.env, t.params.clone(), 0, 10i128.pow(20), 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
             let pos_scaled = Ray::from_raw(10i128.pow(20));
             let (scaled, overpayment) = cache.resolve_repay(0, pos_scaled);
             assert_eq!(scaled, Ray::ZERO);
@@ -383,7 +383,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // current_debt = 1; pay 5 -> overpayment = 4, burn full position.
-            let cache = cache_with(&t.env, t.params.clone(), 0, 10i128.pow(20), 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, 0, 10i128.pow(20), 0, RAY, RAY);
             let pos_scaled = Ray::from_raw(10i128.pow(20));
             let (scaled, overpayment) = cache.resolve_repay(5, pos_scaled);
             assert_eq!(scaled, pos_scaled);
@@ -396,7 +396,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // Position = 1 asset unit; request 100 -> full withdraw.
-            let cache = cache_with(&t.env, t.params.clone(), 10i128.pow(20), 0, 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, 10i128.pow(20), 0, 0, RAY, RAY);
             let pos_scaled = Ray::from_raw(10i128.pow(20));
             let (scaled, gross) = cache.resolve_withdrawal(100, pos_scaled);
             assert_eq!(scaled, pos_scaled);
@@ -410,7 +410,7 @@ mod tests {
         t.as_contract(|| {
             // Position = 5 asset units; request 2 -> partial.
             let supplied = 5 * 10i128.pow(20);
-            let cache = cache_with(&t.env, t.params.clone(), supplied, 0, 0, RAY, RAY);
+            let cache = cache_with(&t.env, &t.params, supplied, 0, 0, RAY, RAY);
             let pos_scaled = Ray::from_raw(supplied);
             let (scaled, gross) = cache.resolve_withdrawal(2, pos_scaled);
             assert_eq!(scaled.raw(), 2 * 10i128.pow(20));
@@ -422,7 +422,7 @@ mod tests {
     fn test_market_index_reflects_current_indexes() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let cache = cache_with(&t.env, t.params.clone(), 0, 0, 0, 2 * RAY, 3 * RAY);
+            let cache = cache_with(&t.env, &t.params, 0, 0, 0, 2 * RAY, 3 * RAY);
             let idx = cache.market_index();
             assert_eq!(idx.supply_index_ray, 2 * RAY);
             assert_eq!(idx.borrow_index_ray, 3 * RAY);

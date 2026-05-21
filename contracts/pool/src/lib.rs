@@ -20,9 +20,9 @@ use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
-    AccountPosition, AccountPositionType, InterestRateModel, MarketParams, MarketStateSnapshot,
-    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStrategyMutation,
-    PoolSyncData,
+    AccountPosition, AccountPositionRaw, AccountPositionType, InterestRateModel, MarketParamsRaw,
+    MarketStateSnapshot, PoolAmountMutation, PoolKey, PoolPositionMutation, PoolStateRaw,
+    PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, Bytes, BytesN, Env, IntoVal, Symbol,
@@ -42,14 +42,14 @@ pub struct LiquidityPool;
 
 #[contractimpl]
 impl LiquidityPool {
-    pub fn __constructor(env: Env, admin: Address, params: MarketParams) {
+    pub fn __constructor(env: Env, admin: Address, params: MarketParamsRaw) {
         params.verify_rate_model(&env);
 
         ownable::set_owner(&env, &admin);
 
         env.storage().instance().set(&PoolKey::Params, &params);
 
-        let state = PoolState {
+        let state = PoolStateRaw {
             supplied_ray: 0,
             borrowed_ray: 0,
             revenue_ray: 0,
@@ -63,7 +63,7 @@ impl LiquidityPool {
     #[only_owner]
     pub fn supply(
         env: Env,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
         amount: i128,
         supply_cap: i128,
     ) -> PoolPositionMutation {
@@ -71,9 +71,10 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
+        let mut position = AccountPosition::from(&position);
         let scaled_amount = cache.calculate_scaled_supply(amount);
         enforce_supply_cap(&env, &cache, scaled_amount, supply_cap);
-        position.scaled_amount_ray += scaled_amount.raw();
+        position.scaled_amount += scaled_amount;
         cache.supplied += scaled_amount;
 
         let mutation = cache.position_mutation(position, amount);
@@ -86,7 +87,7 @@ impl LiquidityPool {
         env: Env,
         caller: Address,
         amount: i128,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
         borrow_cap: i128,
     ) -> PoolPositionMutation {
         require_nonneg_amount(&env, amount);
@@ -95,9 +96,10 @@ impl LiquidityPool {
 
         cache.require_reserves(amount);
 
+        let mut position = AccountPosition::from(&position);
         let scaled_debt = cache.calculate_scaled_borrow(amount);
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
-        position.scaled_amount_ray += scaled_debt.raw();
+        position.scaled_amount += scaled_debt;
         cache.borrowed += scaled_debt;
         // Max-utilization ceiling.
         utils::require_utilization_below_max(&env, &cache);
@@ -114,7 +116,7 @@ impl LiquidityPool {
         env: Env,
         caller: Address,
         amount: i128,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation {
@@ -124,8 +126,9 @@ impl LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-        let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, pos_scaled);
+        let mut position = AccountPosition::from(&position);
+        let (scaled_withdrawal, gross_amount) =
+            cache.resolve_withdrawal(amount, position.scaled_amount);
 
         let net_transfer =
             apply_liquidation_fee(&env, &mut cache, gross_amount, is_liquidation, protocol_fee);
@@ -133,7 +136,7 @@ impl LiquidityPool {
         cache.require_reserves(net_transfer);
 
         cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
-        position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_withdrawal).raw();
+        position.scaled_amount = position.scaled_amount.checked_sub(&env, scaled_withdrawal);
         // Max-utilization ceiling.
         if !is_liquidation {
             utils::require_utilization_below_max(&env, &cache);
@@ -152,16 +155,16 @@ impl LiquidityPool {
         env: Env,
         caller: Address,
         amount: i128,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
     ) -> PoolPositionMutation {
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        let pos_scaled = Ray::from_raw(position.scaled_amount_ray);
-        let (scaled_repay, overpayment) = cache.resolve_repay(amount, pos_scaled);
+        let mut position = AccountPosition::from(&position);
+        let (scaled_repay, overpayment) = cache.resolve_repay(amount, position.scaled_amount);
 
-        position.scaled_amount_ray = pos_scaled.checked_sub(&env, scaled_repay).raw();
+        position.scaled_amount = position.scaled_amount.checked_sub(&env, scaled_repay);
         cache.borrowed.checked_sub_assign(&env, scaled_repay);
 
         cache.transfer_out(&caller, overpayment);
@@ -274,7 +277,7 @@ impl LiquidityPool {
     pub fn create_strategy(
         env: Env,
         caller: Address,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
         amount: i128,
         fee: i128,
         borrow_cap: i128,
@@ -291,9 +294,10 @@ impl LiquidityPool {
 
         interest::global_sync(&env, &mut cache);
 
+        let mut position = AccountPosition::from(&position);
         let scaled_debt = cache.calculate_scaled_borrow(amount);
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
-        position.scaled_amount_ray += scaled_debt.raw();
+        position.scaled_amount += scaled_debt;
         cache.borrowed += scaled_debt;
         // Max-utilization ceiling.
         utils::require_utilization_below_max(&env, &cache);
@@ -313,26 +317,26 @@ impl LiquidityPool {
     pub fn seize_position(
         env: Env,
         side: AccountPositionType,
-        mut position: AccountPosition,
+        position: AccountPositionRaw,
     ) -> PoolPositionMutation {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
+        let mut position = AccountPosition::from(&position);
         match side {
             AccountPositionType::Borrow => {
                 // Socialize bad debt.
-                let current_debt_ray =
-                    cache.unscale_borrow_ray(Ray::from_raw(position.scaled_amount_ray));
+                let current_debt_ray = cache.unscale_borrow_ray(position.scaled_amount);
                 interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
                 cache
                     .borrowed
-                    .checked_sub_assign(&env, Ray::from_raw(position.scaled_amount_ray));
-                position.scaled_amount_ray = 0;
+                    .checked_sub_assign(&env, position.scaled_amount);
+                position.scaled_amount = Ray::ZERO;
             }
             AccountPositionType::Deposit => {
                 // Absorb dust into revenue.
-                cache.revenue += Ray::from_raw(position.scaled_amount_ray);
-                position.scaled_amount_ray = 0;
+                cache.revenue += position.scaled_amount;
+                position.scaled_amount = Ray::ZERO;
             }
         }
 
@@ -449,12 +453,12 @@ impl LiquidityPool {
     }
 
     pub fn get_sync_data(env: Env) -> PoolSyncData {
-        let params: MarketParams = env
+        let params: MarketParamsRaw = env
             .storage()
             .instance()
             .get(&PoolKey::Params)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
-        let state: PoolState = env
+        let state: PoolStateRaw = env
             .storage()
             .instance()
             .get(&PoolKey::State)

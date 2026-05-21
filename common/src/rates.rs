@@ -2,36 +2,30 @@ use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
 use crate::math::fp::{Bps, Ray};
-use crate::types::{MarketParams, PoolSyncData};
+use crate::types::{MarketParams, PoolState, PoolSyncData};
 
 // Computes borrow rate (per ms).
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
-    let mid = Ray::from_raw(params.mid_utilization_ray);
-    let optimal = Ray::from_raw(params.optimal_utilization_ray);
-    let base = Ray::from_raw(params.base_borrow_rate_ray);
-    let s1 = Ray::from_raw(params.slope1_ray);
-    let s2 = Ray::from_raw(params.slope2_ray);
-    let s3 = Ray::from_raw(params.slope3_ray);
-    let max_rate = Ray::from_raw(params.max_borrow_rate_ray);
-
-    let annual_rate = if utilization < mid {
-        let contribution = utilization.mul(env, s1).div(env, mid);
-        base + contribution
-    } else if utilization < optimal {
-        let excess = utilization - mid;
-        let range = optimal - mid;
-        let contribution = excess.mul(env, s2).div(env, range);
-        base + s1 + contribution
+    let annual_rate = if utilization < params.mid_utilization {
+        let contribution = utilization
+            .mul(env, params.slope1)
+            .div(env, params.mid_utilization);
+        params.base_borrow_rate + contribution
+    } else if utilization < params.optimal_utilization {
+        let excess = utilization - params.mid_utilization;
+        let range = params.optimal_utilization - params.mid_utilization;
+        let contribution = excess.mul(env, params.slope2).div(env, range);
+        params.base_borrow_rate + params.slope1 + contribution
     } else {
-        let base_rate = base + s1 + s2;
-        let excess = utilization - optimal;
-        let range = Ray::ONE - optimal;
-        let contribution = excess.mul(env, s3).div(env, range);
+        let base_rate = params.base_borrow_rate + params.slope1 + params.slope2;
+        let excess = utilization - params.optimal_utilization;
+        let range = Ray::ONE - params.optimal_utilization;
+        let contribution = excess.mul(env, params.slope3).div(env, range);
         base_rate + contribution
     };
 
-    let capped = if annual_rate > max_rate {
-        max_rate
+    let capped = if annual_rate > params.max_borrow_rate {
+        params.max_borrow_rate
     } else {
         annual_rate
     };
@@ -43,23 +37,21 @@ pub fn calculate_deposit_rate(
     env: &Env,
     utilization: Ray,
     borrow_rate: Ray,
-    reserve_factor_bps: u32,
+    reserve_factor: Bps,
 ) -> Ray {
     if utilization == Ray::ZERO {
         return Ray::ZERO;
     }
 
-    let reserve_factor_bps = i128::from(reserve_factor_bps);
-
     // Defense-in-depth: upstream validation rejects `reserve_factor >= BPS`,
     // but clamp here so a mis-wired caller cannot drive `BPS -
     // reserve_factor` negative and invert the supplier-reward sign.
-    if !(0..BPS).contains(&reserve_factor_bps) {
+    if !(0..BPS).contains(&reserve_factor.raw()) {
         return Ray::ZERO;
     }
 
     let rate_x_util = utilization.mul(env, borrow_rate);
-    let factor = Bps::from_raw(BPS - reserve_factor_bps);
+    let factor = Bps::from_raw(BPS - reserve_factor.raw());
     Ray::from_raw(factor.apply_to(env, rate_x_util.raw()))
 }
 
@@ -130,9 +122,8 @@ pub fn calculate_supplier_rewards(
 
     let accrued_interest = new_total_debt - old_total_debt;
 
-    let protocol_fee = Ray::from_raw(
-        Bps::from_raw(params.reserve_factor_bps).apply_to(env, accrued_interest.raw()),
-    );
+    let protocol_fee =
+        Ray::from_raw(params.reserve_factor.apply_to(env, accrued_interest.raw()));
     let supplier_rewards = accrued_interest - protocol_fee;
 
     (supplier_rewards, protocol_fee)
@@ -157,43 +148,40 @@ pub fn simulate_update_indexes(
     current_timestamp: u64,
     sync: &PoolSyncData,
 ) -> crate::types::MarketIndex {
-    let state = &sync.state;
-    let current_borrowed_index = Ray::from_raw(state.borrow_index_ray);
-    let current_supply_index = Ray::from_raw(state.supply_index_ray);
+    let state = PoolState::from(&sync.state);
     let delta_ms = current_timestamp.saturating_sub(state.last_timestamp);
 
     if delta_ms == 0 {
         return crate::types::MarketIndex {
-            supply_index_ray: current_supply_index.raw(),
-            borrow_index_ray: current_borrowed_index.raw(),
+            supply_index: state.supply_index,
+            borrow_index: state.borrow_index,
         };
     }
 
-    let borrowed = Ray::from_raw(state.borrowed_ray);
-    let supplied = Ray::from_raw(state.supplied_ray);
+    let params = MarketParams::from(&sync.params);
 
-    let borrowed_original = scaled_to_original(env, borrowed, current_borrowed_index);
-    let supplied_original = scaled_to_original(env, supplied, current_supply_index);
+    let borrowed_original = scaled_to_original(env, state.borrowed, state.borrow_index);
+    let supplied_original = scaled_to_original(env, state.supplied, state.supply_index);
     let util = utilization(env, borrowed_original, supplied_original);
-    let borrow_rate = calculate_borrow_rate(env, util, &sync.params);
+    let borrow_rate = calculate_borrow_rate(env, util, &params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
 
-    let new_borrow_index = update_borrow_index(env, current_borrowed_index, interest_factor);
+    let new_borrow_index = update_borrow_index(env, state.borrow_index, interest_factor);
 
     let (supplier_rewards, _) = calculate_supplier_rewards(
         env,
-        &sync.params,
-        borrowed,
+        &params,
+        state.borrowed,
         new_borrow_index,
-        current_borrowed_index,
+        state.borrow_index,
     );
 
     let new_supply_index =
-        update_supply_index(env, supplied, current_supply_index, supplier_rewards);
+        update_supply_index(env, state.supplied, state.supply_index, supplier_rewards);
 
     crate::types::MarketIndex {
-        supply_index_ray: new_supply_index.raw(),
-        borrow_index_ray: new_borrow_index.raw(),
+        supply_index: new_supply_index,
+        borrow_index: new_borrow_index,
     }
 }
 
@@ -206,15 +194,15 @@ mod tests {
 
     fn make_test_params() -> MarketParams {
         MarketParams {
-            base_borrow_rate_ray: RAY / 100,         // 1%
-            slope1_ray: RAY * 4 / 100,               // 4%
-            slope2_ray: RAY * 10 / 100,              // 10%
-            slope3_ray: RAY * 300 / 100,             // 300%
-            mid_utilization_ray: RAY * 50 / 100,     // 50%
-            optimal_utilization_ray: RAY * 80 / 100, // 80%
-            max_utilization_ray: RAY * 95 / 100,     // 95%
-            max_borrow_rate_ray: RAY,                // 100%
-            reserve_factor_bps: 1000,                // 10%
+            base_borrow_rate: Ray::from_raw(RAY / 100),         // 1%
+            slope1: Ray::from_raw(RAY * 4 / 100),               // 4%
+            slope2: Ray::from_raw(RAY * 10 / 100),              // 10%
+            slope3: Ray::from_raw(RAY * 300 / 100),             // 300%
+            mid_utilization: Ray::from_raw(RAY * 50 / 100),     // 50%
+            optimal_utilization: Ray::from_raw(RAY * 80 / 100), // 80%
+            max_utilization: Ray::from_raw(RAY * 95 / 100),     // 95%
+            max_borrow_rate: Ray::from_raw(RAY),                // 100%
+            reserve_factor: Bps::from_raw(1000),                // 10%
             asset_id: soroban_sdk::Address::from_str(
                 &Env::default(),
                 "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -282,7 +270,7 @@ mod tests {
 
         let rate = calculate_borrow_rate(&env, Ray::ONE, &params);
         let expected =
-            div_by_int_half_up(params.max_borrow_rate_ray, MILLISECONDS_PER_YEAR as i128);
+            div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
         assert!((rate.raw() - expected).abs() <= 1);
     }
 
@@ -404,7 +392,7 @@ mod tests {
         let env = Env::default();
         let util_80 = Ray::from_raw(RAY * 80 / 100);
         let borrow_rate = Ray::from_raw(RAY * 5 / 100);
-        let reserve_factor = 1000;
+        let reserve_factor = Bps::from_raw(1000);
 
         let rate = calculate_deposit_rate(&env, util_80, borrow_rate, reserve_factor);
 
@@ -421,7 +409,7 @@ mod tests {
     fn test_deposit_rate_zero_util() {
         let env = Env::default();
         assert_eq!(
-            calculate_deposit_rate(&env, Ray::ZERO, Ray::from_raw(RAY / 10), 1000),
+            calculate_deposit_rate(&env, Ray::ZERO, Ray::from_raw(RAY / 10), Bps::from_raw(1000)),
             Ray::ZERO
         );
     }

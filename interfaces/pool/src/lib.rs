@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPosition, AccountPositionType, MarketStateSnapshot, PoolAmountMutation,
+    AccountPositionRaw, AccountPositionType, MarketStateSnapshot, PoolAmountMutation,
     PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
@@ -11,7 +11,7 @@ use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 pub trait LiquidityPoolInterface {
     fn supply(
         env: Env,
-        position: AccountPosition,
+        position: AccountPositionRaw,
         amount: i128,
         supply_cap: i128,
     ) -> PoolPositionMutation;
@@ -19,14 +19,14 @@ pub trait LiquidityPoolInterface {
         env: Env,
         caller: Address,
         amount: i128,
-        position: AccountPosition,
+        position: AccountPositionRaw,
         borrow_cap: i128,
     ) -> PoolPositionMutation;
     fn withdraw(
         env: Env,
         caller: Address,
         amount: i128,
-        position: AccountPosition,
+        position: AccountPositionRaw,
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation;
@@ -34,7 +34,7 @@ pub trait LiquidityPoolInterface {
         env: Env,
         caller: Address,
         amount: i128,
-        position: AccountPosition,
+        position: AccountPositionRaw,
     ) -> PoolPositionMutation;
     fn update_indexes(env: Env) -> MarketStateSnapshot;
     fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot;
@@ -49,7 +49,7 @@ pub trait LiquidityPoolInterface {
     fn create_strategy(
         env: Env,
         caller: Address,
-        position: AccountPosition,
+        position: AccountPositionRaw,
         amount: i128,
         fee: i128,
         borrow_cap: i128,
@@ -57,7 +57,7 @@ pub trait LiquidityPoolInterface {
     fn seize_position(
         env: Env,
         side: AccountPositionType,
-        position: AccountPosition,
+        position: AccountPositionRaw,
     ) -> PoolPositionMutation;
     fn claim_revenue(env: Env) -> PoolAmountMutation;
     fn update_params(

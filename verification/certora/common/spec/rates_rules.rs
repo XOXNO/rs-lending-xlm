@@ -3,24 +3,24 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
-use crate::math::fp::Ray;
+use crate::math::fp::{Bps, Ray};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes, update_borrow_index, update_supply_index, utilization,
 };
-use crate::types::{MarketParams, PoolState, PoolSyncData};
+use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
 
 fn valid_params(asset: Address) -> MarketParams {
     MarketParams {
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY / 2,
-        mid_utilization_ray: RAY / 2,
-        optimal_utilization_ray: RAY * 8 / 10,
-        max_utilization_ray: RAY * 95 / 100,
-        max_borrow_rate_ray: MAX_BORROW_RATE_RAY,
-        reserve_factor_bps: 1_000,
+        base_borrow_rate: Ray::from_raw(RAY / 100),
+        slope1: Ray::from_raw(RAY / 10),
+        slope2: Ray::from_raw(RAY / 5),
+        slope3: Ray::from_raw(RAY / 2),
+        mid_utilization: Ray::from_raw(RAY / 2),
+        optimal_utilization: Ray::from_raw(RAY * 8 / 10),
+        max_utilization: Ray::from_raw(RAY * 95 / 100),
+        max_borrow_rate: Ray::from_raw(MAX_BORROW_RATE_RAY),
+        reserve_factor: Bps::from_raw(1_000),
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -52,14 +52,14 @@ fn borrow_rate_is_capped(e: Env, asset: Address, util_raw: i128) {
     let params = valid_params(asset);
     let rate = calculate_borrow_rate(&e, Ray::from_raw(util_raw), &params);
     cvlr_assert!(rate.raw() >= 0);
-    cvlr_assert!(rate.raw() <= params.max_borrow_rate_ray);
+    cvlr_assert!(rate.raw() <= params.max_borrow_rate.raw());
 }
 
 #[rule]
 fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128) {
     cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&borrow_rate));
 
-    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from_raw(borrow_rate), 1_000);
+    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from_raw(borrow_rate), Bps::from_raw(1_000));
     cvlr_assert!(rate.raw() == 0);
 }
 
@@ -73,7 +73,7 @@ fn deposit_rate_not_above_borrow_rate(e: Env, util_raw: i128, borrow_rate: i128,
         &e,
         Ray::from_raw(util_raw),
         Ray::from_raw(borrow_rate),
-        reserve_bps,
+        Bps::from_raw(i128::from(reserve_bps)),
     );
     cvlr_assert!(rate.raw() >= 0);
     cvlr_assert!(rate.raw() <= borrow_rate);
@@ -161,8 +161,8 @@ fn simulate_indexes_no_time_noop(
     cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
 
     let sync = PoolSyncData {
-        params: valid_params(asset),
-        state: PoolState {
+        params: (&valid_params(asset)).into(),
+        state: PoolStateRaw {
             supplied_ray: supplied,
             borrowed_ray: borrowed,
             revenue_ray: 0,
@@ -173,8 +173,8 @@ fn simulate_indexes_no_time_noop(
     };
     let index = simulate_update_indexes(&e, timestamp, &sync);
 
-    cvlr_assert!(index.borrow_index_ray == borrow_index);
-    cvlr_assert!(index.supply_index_ray == supply_index);
+    cvlr_assert!(index.borrow_index.raw() == borrow_index);
+    cvlr_assert!(index.supply_index.raw() == supply_index);
 }
 
 #[rule]

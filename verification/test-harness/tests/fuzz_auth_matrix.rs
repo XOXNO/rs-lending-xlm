@@ -57,8 +57,8 @@ fn build_ctx() -> LendingTest {
 
 // Blanket AssetConfig + MarketOracleConfigInput builders with plausible shapes.
 // Values need not be valid -- the auth gate must reject before the body runs.
-fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfig {
-    common::types::AssetConfig {
+fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfigRaw {
+    common::types::AssetConfigRaw {
         loan_to_value_bps: 7500,
         liquidation_threshold_bps: 8000,
         liquidation_bonus_bps: 500,
@@ -237,7 +237,7 @@ proptest! {
 
         // create_liquidity_pool (only_owner)
         expect_rejected("create_liquidity_pool", || {
-            let params = common::types::MarketParams {
+            let params = common::types::MarketParamsRaw {
                 max_borrow_rate_ray: 0, base_borrow_rate_ray: 0,
                 slope1_ray: 0, slope2_ray: 0, slope3_ray: 0,
                 mid_utilization_ray: 0, optimal_utilization_ray: 0,

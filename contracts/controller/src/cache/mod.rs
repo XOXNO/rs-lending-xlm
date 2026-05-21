@@ -5,7 +5,7 @@ use common::events::{
 };
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig, MarketConfig,
-    MarketIndex, MarketStateSnapshot, PoolSyncData, PriceFeed,
+    MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed, PriceFeedRaw,
 };
 use soroban_sdk::{Address, Env, Map, Symbol, Vec};
 
@@ -17,9 +17,9 @@ use crate::storage;
 pub struct ControllerCache {
     env: Env,
 
-    pub prices_cache: Map<Address, PriceFeed>,
+    pub prices_cache: Map<Address, PriceFeedRaw>,
     pub market_configs: Map<Address, MarketConfig>,
-    pub market_indexes: Map<Address, MarketIndex>,
+    pub market_indexes: Map<Address, MarketIndexRaw>,
     pool_sync_data: Map<Address, PoolSyncData>,
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
     isolated_debts: Map<Address, i128>,
@@ -62,7 +62,7 @@ impl ControllerCache {
     }
 
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
-        token_price(self, asset)
+        (&token_price(self, asset)).into()
     }
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
@@ -75,7 +75,7 @@ impl ControllerCache {
     }
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
-        self.cached_market_config(asset).asset_config
+        (&self.cached_market_config(asset).asset_config).into()
     }
 
     pub fn cached_pool_address(&mut self, asset: &Address) -> Address {
@@ -84,10 +84,11 @@ impl ControllerCache {
 
     pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {
         if let Some(index) = self.market_indexes.get(asset.clone()) {
-            return index;
+            return (&index).into();
         }
         let index = update_asset_index(self, asset);
-        self.market_indexes.set(asset.clone(), index.clone());
+        self.market_indexes
+            .set(asset.clone(), MarketIndexRaw::from(&index));
         index
     }
 
@@ -106,7 +107,7 @@ impl ControllerCache {
         }
         self.market_indexes.set(
             update.asset.clone(),
-            MarketIndex {
+            MarketIndexRaw {
                 borrow_index_ray: update.borrow_index_ray,
                 supply_index_ray: update.supply_index_ray,
             },

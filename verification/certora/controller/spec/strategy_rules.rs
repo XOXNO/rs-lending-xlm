@@ -15,7 +15,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::BAD_DEBT_USD_THRESHOLD;
-use common::types::{SwapSteps, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
+use common::types::{SwapSteps, AccountPositionType};
 
 // ===========================================================================
 // Strategy Rules
@@ -61,14 +61,14 @@ fn multiply_basic(
 
     // Verify deposit position exists with scaled_amount > 0
     let deposit_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assert!(deposit_pos.is_some());
     let deposit = deposit_pos.unwrap();
     cvlr_assert!(deposit.scaled_amount_ray > 0);
 
     // Verify borrow position exists with scaled_amount > 0
     let borrow_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
     let borrow = borrow_pos.unwrap();
     cvlr_assert!(borrow.scaled_amount_ray > 0);
@@ -107,12 +107,12 @@ fn multiply_with_initial_payment_collateral(
     );
 
     let deposit_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assert!(deposit_pos.is_some());
     cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
 
     let borrow_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
     cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
 }
@@ -157,12 +157,12 @@ fn multiply_with_initial_payment_third_token(
     );
 
     let deposit_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assert!(deposit_pos.is_some());
     cvlr_assert!(deposit_pos.unwrap().scaled_amount_ray > 0);
 
     let borrow_pos =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(borrow_pos.is_some());
     cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
 }
@@ -274,7 +274,7 @@ fn swap_debt_conserves_debt_value(
 
     // Capture the source debt position before the swap.
     let old_pos_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &existing_debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &existing_debt_token);
     cvlr_assume!(old_pos_before.is_some());
     let old_scaled_before = old_pos_before.unwrap().scaled_amount_ray;
     cvlr_assume!(old_scaled_before > 0);
@@ -292,13 +292,13 @@ fn swap_debt_conserves_debt_value(
 
     // New debt position must exist with scaled_amount > 0
     let new_pos_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &new_debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &new_debt_token);
     cvlr_assert!(new_pos_after.is_some());
     cvlr_assert!(new_pos_after.unwrap().scaled_amount_ray > 0);
 
     // Old debt position must have decreased or been removed
     let old_pos_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &existing_debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &existing_debt_token);
     match old_pos_after {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < old_scaled_before),
         None => cvlr_assert!(true), // Fully repaid and removed
@@ -357,7 +357,7 @@ fn swap_collateral_conserves_collateral(
 
     // Capture the source collateral position before the swap.
     let old_pos_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &current_collateral);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &current_collateral);
     cvlr_assume!(old_pos_before.is_some());
     let old_scaled_before = old_pos_before.unwrap().scaled_amount_ray;
     cvlr_assume!(old_scaled_before > 0);
@@ -375,13 +375,13 @@ fn swap_collateral_conserves_collateral(
 
     // New collateral position must exist with scaled_amount > 0
     let new_pos_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &new_collateral);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &new_collateral);
     cvlr_assert!(new_pos_after.is_some());
     cvlr_assert!(new_pos_after.unwrap().scaled_amount_ray > 0);
 
     // Old collateral must have decreased or been removed
     let old_pos_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &current_collateral);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &current_collateral);
     match old_pos_after {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < old_scaled_before),
         None => cvlr_assert!(true), // Fully withdrawn and removed
@@ -485,13 +485,13 @@ fn repay_with_collateral_reduces_both_no_close(
 
     // Capture positions before
     let collateral_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assume!(collateral_before.is_some());
     let collateral_scaled_before = collateral_before.unwrap().scaled_amount_ray;
     cvlr_assume!(collateral_scaled_before > 0);
 
     let debt_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assume!(debt_before.is_some());
     let debt_scaled_before = debt_before.unwrap().scaled_amount_ray;
     cvlr_assume!(debt_scaled_before > 0);
@@ -509,7 +509,7 @@ fn repay_with_collateral_reduces_both_no_close(
 
     // Collateral must have decreased or been removed
     let collateral_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     match collateral_after {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < collateral_scaled_before),
         None => cvlr_assert!(true), // Fully withdrawn
@@ -517,7 +517,7 @@ fn repay_with_collateral_reduces_both_no_close(
 
     // Debt must have decreased or been removed
     let debt_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     match debt_after {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < debt_scaled_before),
         None => cvlr_assert!(true), // Fully repaid
@@ -548,12 +548,12 @@ fn repay_with_collateral_full_close_removes_account(
     // repay, so the prover discovers the witness within the loop_iter bound
     // rather than pinning the map shape here.
     let collateral_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assume!(collateral_before.is_some());
     cvlr_assume!(collateral_before.unwrap().scaled_amount_ray > 0);
 
     let debt_before =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assume!(debt_before.is_some());
     cvlr_assume!(debt_before.unwrap().scaled_amount_ray > 0);
 
@@ -572,11 +572,11 @@ fn repay_with_collateral_full_close_removes_account(
     // pulls each remaining supply asset; `strategy_finalize` deletes the
     // account if both maps are empty.
     let debt_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_BORROW, &debt_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
     cvlr_assert!(debt_after.is_none());
 
     let collateral_after =
-        crate::storage::get_position(&e, account_id, POSITION_TYPE_DEPOSIT, &collateral_token);
+        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_token);
     cvlr_assert!(collateral_after.is_none());
 }
 
@@ -645,15 +645,15 @@ fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
 #[rule]
 fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     // Assume account qualifies: has borrows, debt > collateral, collateral <= $5
-    let borrow_list_pre = crate::storage::get_position_list(&e, account_id, POSITION_TYPE_BORROW);
+    let borrow_list_pre = crate::storage::get_position_list(&e, account_id, AccountPositionType::Borrow);
     cvlr_assume!(!borrow_list_pre.is_empty());
 
     // Execute bad debt cleanup
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
 
     // After cleanup, both position lists must be empty
-    let deposit_list = crate::storage::get_position_list(&e, account_id, POSITION_TYPE_DEPOSIT);
-    let borrow_list = crate::storage::get_position_list(&e, account_id, POSITION_TYPE_BORROW);
+    let deposit_list = crate::storage::get_position_list(&e, account_id, AccountPositionType::Deposit);
+    let borrow_list = crate::storage::get_position_list(&e, account_id, AccountPositionType::Borrow);
 
     cvlr_assert!(deposit_list.is_empty());
     cvlr_assert!(borrow_list.is_empty());

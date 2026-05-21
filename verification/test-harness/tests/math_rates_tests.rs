@@ -172,16 +172,17 @@ fn test_wad_min_max() {
 // ===========================================================================
 
 fn make_test_params() -> common::types::MarketParams {
+    use common::math::fp::{Bps, Ray};
     common::types::MarketParams {
-        base_borrow_rate_ray: RAY / 100,         // 1%.
-        slope1_ray: RAY * 4 / 100,               // 4%.
-        slope2_ray: RAY * 10 / 100,              // 10%.
-        slope3_ray: RAY * 300 / 100,             // 300%.
-        mid_utilization_ray: RAY * 50 / 100,     // 50%.
-        optimal_utilization_ray: RAY * 80 / 100, // 80%.
-        max_utilization_ray: RAY * 95 / 100,     // 95%.
-        max_borrow_rate_ray: RAY,                // 100%.
-        reserve_factor_bps: 1000,                // 10%.
+        base_borrow_rate: Ray::from_raw(RAY / 100),         // 1%.
+        slope1: Ray::from_raw(RAY * 4 / 100),               // 4%.
+        slope2: Ray::from_raw(RAY * 10 / 100),              // 10%.
+        slope3: Ray::from_raw(RAY * 300 / 100),             // 300%.
+        mid_utilization: Ray::from_raw(RAY * 50 / 100),     // 50%.
+        optimal_utilization: Ray::from_raw(RAY * 80 / 100), // 80%.
+        max_utilization: Ray::from_raw(RAY * 95 / 100),     // 95%.
+        max_borrow_rate: Ray::from_raw(RAY),                // 100%.
+        reserve_factor: Bps::from_raw(1000),                // 10%.
         asset_id: soroban_sdk::Address::from_str(
             &Env::default(),
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -246,7 +247,7 @@ fn test_borrow_rate_full_utilization() {
     let params = make_test_params();
 
     let rate = calculate_borrow_rate(&env, Ray::ONE, &params);
-    let expected = div_by_int_half_up(params.max_borrow_rate_ray, MILLISECONDS_PER_YEAR as i128);
+    let expected = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected).abs() <= 1);
 }
 
@@ -271,7 +272,12 @@ fn test_borrow_rate_capped_at_max() {
 #[test]
 fn test_deposit_rate_zero_utilization() {
     let env = Env::default();
-    let rate = calculate_deposit_rate(&env, Ray::ZERO, Ray::from_raw(RAY / 10), 1000);
+    let rate = calculate_deposit_rate(
+        &env,
+        Ray::ZERO,
+        Ray::from_raw(RAY / 10),
+        common::math::fp::Bps::from_raw(1000),
+    );
     assert_eq!(rate, Ray::ZERO);
 }
 
@@ -286,7 +292,7 @@ fn test_deposit_rate_with_reserve_factor() {
         &env,
         Ray::from_raw(RAY * 80 / 100),
         Ray::from_raw(RAY * 5 / 100),
-        1000,
+        common::math::fp::Bps::from_raw(1000),
     );
     let expected = RAY * 36 / 1000;
     assert!((rate.raw() - expected).abs() <= 1);

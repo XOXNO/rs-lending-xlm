@@ -1,7 +1,8 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::math::fp::{Ray, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory, MarketIndex,
-    Payment, PositionMode, PriceFeed, POSITION_TYPE_DEPOSIT,
+    Payment, PositionMode, PriceFeed,
 };
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
@@ -13,7 +14,7 @@ use crate::cross_contract::pool::pool_supply_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-const THRESHOLD_UPDATE_MIN_HF: i128 = 1_050_000_000_000_000_000;
+const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 #[contractimpl]
 impl Controller {
@@ -45,7 +46,6 @@ impl Controller {
 
         let base_config = cache.cached_asset_config(&asset);
         let price_feed = cache.cached_price(&asset);
-        let controller_addr = env.current_contract_address();
 
         for account_id in account_ids {
             let mut account_asset_config = base_config.clone();
@@ -53,11 +53,12 @@ impl Controller {
             update_position_threshold(
                 &env,
                 account_id,
-                &asset,
-                has_risks,
-                &mut account_asset_config,
-                &controller_addr,
-                &price_feed,
+                ThresholdUpdate {
+                    asset: &asset,
+                    has_risks,
+                    asset_config: &mut account_asset_config,
+                    feed: &price_feed,
+                },
                 &mut cache,
             );
         }
@@ -149,7 +150,7 @@ fn prepare_deposit_plan(
     cache: &mut ControllerCache,
     e_mode: &Option<EModeCategory>,
 ) {
-    validation::validate_bulk_position_limits(env, account, POSITION_TYPE_DEPOSIT, assets);
+    validation::validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
     validate_bulk_isolation(env, account, assets, cache);
 
     // Caps verified post-transfer.
@@ -178,16 +179,18 @@ fn execute_deposit_plan(
     cache: &mut ControllerCache,
     e_mode: &Option<EModeCategory>,
 ) {
+    let _ = account_id;
     for (asset, amount_in) in assets {
         let asset_config = emode::effective_asset_config(env, account, &asset, cache, e_mode);
 
         update_deposit_position(
             env,
-            account_id,
             account,
-            &asset,
-            amount_in,
-            &asset_config,
+            DepositRequest {
+                asset: &asset,
+                amount: amount_in,
+                asset_config: &asset_config,
+            },
             caller,
             cache,
         );
@@ -202,47 +205,51 @@ fn get_or_create_deposit_position(
     account
         .supply_positions
         .get(asset.clone())
+        .map(|raw| AccountPosition::from(&raw))
         .unwrap_or(AccountPosition {
-            scaled_amount_ray: 0,
-            liquidation_threshold_bps: asset_config.liquidation_threshold_bps,
-            liquidation_bonus_bps: asset_config.liquidation_bonus_bps,
-            liquidation_fees_bps: asset_config.liquidation_fees_bps,
-            loan_to_value_bps: asset_config.loan_to_value_bps,
+            scaled_amount: Ray::ZERO,
+            liquidation_threshold: asset_config.liquidation_threshold,
+            liquidation_bonus: asset_config.liquidation_bonus,
+            liquidation_fees: asset_config.liquidation_fees,
+            loan_to_value: asset_config.loan_to_value,
         })
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Per-call deposit inputs.
+pub struct DepositRequest<'a> {
+    pub asset: &'a Address,
+    pub amount: i128,
+    pub asset_config: &'a AssetConfig,
+}
+
 // Updates deposit position and calls pool.
 pub fn update_deposit_position(
     env: &Env,
-    _account_id: u64,
     account: &mut Account,
-    asset: &Address,
-    amount: i128,
-    asset_config: &AssetConfig,
+    req: DepositRequest<'_>,
     caller: &Address,
     cache: &mut ControllerCache,
 ) -> AccountPosition {
-    let mut position = get_or_create_deposit_position(account, asset_config, asset);
+    let mut position = get_or_create_deposit_position(account, req.asset_config, req.asset);
 
     // Threshold only updated via keeper path.
-    if position.loan_to_value_bps != asset_config.loan_to_value_bps {
-        position.loan_to_value_bps = asset_config.loan_to_value_bps;
+    if position.loan_to_value != req.asset_config.loan_to_value {
+        position.loan_to_value = req.asset_config.loan_to_value;
     }
-    if position.liquidation_bonus_bps != asset_config.liquidation_bonus_bps {
-        position.liquidation_bonus_bps = asset_config.liquidation_bonus_bps;
+    if position.liquidation_bonus != req.asset_config.liquidation_bonus {
+        position.liquidation_bonus = req.asset_config.liquidation_bonus;
     }
-    if position.liquidation_fees_bps != asset_config.liquidation_fees_bps {
-        position.liquidation_fees_bps = asset_config.liquidation_fees_bps;
+    if position.liquidation_fees != req.asset_config.liquidation_fees {
+        position.liquidation_fees = req.asset_config.liquidation_fees;
     }
 
     let market_update = update_market_position(
         env,
         cache,
         &mut position,
-        asset,
-        amount,
-        asset_config,
+        req.asset,
+        req.amount,
+        req.asset_config,
         caller,
     );
 
@@ -251,8 +258,8 @@ pub fn update_deposit_position(
     cache.record_position_update(
         symbol_short!("supply"),
         AccountPositionType::Deposit,
-        asset,
-        market_update.market_index.supply_index_ray,
+        req.asset,
+        market_update.market_index.supply_index.raw(),
         market_update.credited_amount,
         &position,
         None,
@@ -260,7 +267,7 @@ pub fn update_deposit_position(
 
     // Update the in-memory account. `process_supply` writes storage once at
     // the end of the batch.
-    update::update_or_remove_position(account, AccountPositionType::Deposit, asset, &position);
+    update::update_or_remove_position(account, AccountPositionType::Deposit, req.asset, &position);
 
     position
 }
@@ -333,27 +340,37 @@ fn apply_pool_supply(
     let pool_addr = cache.cached_pool_address(asset);
     let result = pool_supply_call(env, &pool_addr, position.clone(), amount, supply_cap);
 
-    *position = result.position;
+    *position = (&result.position).into();
     cache.record_market_update(&result.market_state);
 
     SupplyMarketUpdate {
-        market_index: result.market_index,
+        market_index: (&result.market_index).into(),
         credited_amount: amount,
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Per-account inputs for a keeper threshold propagation.
+pub struct ThresholdUpdate<'a> {
+    pub asset: &'a Address,
+    pub has_risks: bool,
+    pub asset_config: &'a mut AssetConfig,
+    pub feed: &'a PriceFeed,
+}
+
 // Keeper-driven risk parameter propagation.
 pub fn update_position_threshold(
     env: &Env,
     account_id: u64,
-    asset: &Address,
-    has_risks: bool,
-    asset_config: &mut AssetConfig,
-    _controller_addr: &Address,
-    feed: &PriceFeed,
+    update_req: ThresholdUpdate<'_>,
     cache: &mut ControllerCache,
 ) {
+    let ThresholdUpdate {
+        asset,
+        has_risks,
+        asset_config,
+        feed,
+    } = update_req;
+
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
@@ -382,19 +399,23 @@ pub fn update_position_threshold(
 
     let mut updated_pos = position;
 
+    let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
+    let cfg_ltv = asset_config.loan_to_value.raw() as u32;
+    let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
+    let cfg_fees = asset_config.liquidation_fees.raw() as u32;
     if has_risks {
-        if updated_pos.liquidation_threshold_bps != asset_config.liquidation_threshold_bps {
-            updated_pos.liquidation_threshold_bps = asset_config.liquidation_threshold_bps;
+        if updated_pos.liquidation_threshold_bps != cfg_lt {
+            updated_pos.liquidation_threshold_bps = cfg_lt;
         }
     } else {
-        if updated_pos.loan_to_value_bps != asset_config.loan_to_value_bps {
-            updated_pos.loan_to_value_bps = asset_config.loan_to_value_bps;
+        if updated_pos.loan_to_value_bps != cfg_ltv {
+            updated_pos.loan_to_value_bps = cfg_ltv;
         }
-        if updated_pos.liquidation_bonus_bps != asset_config.liquidation_bonus_bps {
-            updated_pos.liquidation_bonus_bps = asset_config.liquidation_bonus_bps;
+        if updated_pos.liquidation_bonus_bps != cfg_bonus {
+            updated_pos.liquidation_bonus_bps = cfg_bonus;
         }
-        if updated_pos.liquidation_fees_bps != asset_config.liquidation_fees_bps {
-            updated_pos.liquidation_fees_bps = asset_config.liquidation_fees_bps;
+        if updated_pos.liquidation_fees_bps != cfg_fees {
+            updated_pos.liquidation_fees_bps = cfg_fees;
         }
     }
 
@@ -411,7 +432,7 @@ pub fn update_position_threshold(
         &mut account,
         AccountPositionType::Deposit,
         asset,
-        &updated_pos,
+        &AccountPosition::from(&updated_pos),
     );
 
     // Persist only the supply side; borrow stays as-is.
@@ -425,7 +446,7 @@ pub fn update_position_threshold(
             &account.supply_positions,
             &account.borrow_positions,
         );
-        if hf < THRESHOLD_UPDATE_MIN_HF {
+        if hf < Wad::from_raw(THRESHOLD_UPDATE_MIN_HF_RAW) {
             panic_with_error!(env, CollateralError::HealthFactorTooLow);
         }
     }
@@ -437,10 +458,10 @@ pub fn update_position_threshold(
         symbol_short!("param_upd"),
         AccountPositionType::Deposit,
         asset,
-        market_index.supply_index_ray,
+        market_index.supply_index.raw(),
         0,
-        &updated_pos,
-        Some(feed.price_wad),
+        &AccountPosition::from(&updated_pos),
+        Some(feed.price.raw()),
     );
     cache.emit_position_batch(account_id, &account);
 }

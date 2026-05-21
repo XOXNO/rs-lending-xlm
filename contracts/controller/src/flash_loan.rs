@@ -46,7 +46,7 @@ pub fn process_flash_loan(
     }
     require_wasm_receiver(env, receiver);
 
-    let fee = flash_loan_fee(env, asset_config.flashloan_fee_bps, amount);
+    let fee = flash_loan_fee(env, asset_config.flashloan_fee, amount);
     let pool_addr = cache.cached_pool_address(asset);
 
     // Reentrancy guard.
@@ -76,11 +76,11 @@ fn require_wasm_receiver(env: &Env, receiver: &Address) {
     }
 }
 
-fn flash_loan_fee(env: &Env, fee_bps: u32, amount: i128) -> i128 {
-    let fee = Bps::from_raw(fee_bps).apply_to(env, amount);
-    if fee_bps > 0 && fee == 0 {
+fn flash_loan_fee(env: &Env, fee: Bps, amount: i128) -> i128 {
+    let amount_after_fee = fee.apply_to(env, amount);
+    if fee.raw() > 0 && amount_after_fee == 0 {
         1
     } else {
-        fee
+        amount_after_fee
     }
 }

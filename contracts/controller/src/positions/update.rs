@@ -1,3 +1,4 @@
+use common::math::fp::Ray;
 use common::types::{Account, AccountPosition, AccountPositionType};
 use soroban_sdk::Address;
 
@@ -13,11 +14,11 @@ pub fn update_or_remove_position(
         AccountPositionType::Borrow => &mut account.borrow_positions,
     };
 
-    if position.scaled_amount_ray == 0 {
+    if position.scaled_amount == Ray::ZERO {
         map.remove(asset.clone());
         true
     } else {
-        map.set(asset.clone(), position.clone());
+        map.set(asset.clone(), position.into());
         false
     }
 }

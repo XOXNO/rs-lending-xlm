@@ -207,19 +207,39 @@ pub struct MarketOracleConfigInput {
     pub max_sanity_price_wad: i128,
 }
 
+// Wire/storage form. Embedded in event payloads and SeizeEntry/RepayEntry.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct PriceFeed {
+pub struct PriceFeedRaw {
     pub price_wad: i128,
     pub asset_decimals: u32,
     pub timestamp: u64,
 }
 
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct SafePriceFeed {
-    pub price_wad: i128,
+// In-memory typed form. Used by every compute path.
+#[derive(Clone, Copy, Debug)]
+pub struct PriceFeed {
+    pub price: crate::math::fp::Wad,
     pub asset_decimals: u32,
-    pub within_first_tolerance: bool,
-    pub within_second_tolerance: bool,
+    pub timestamp: u64,
+}
+
+impl From<&PriceFeedRaw> for PriceFeed {
+    fn from(r: &PriceFeedRaw) -> Self {
+        Self {
+            price: crate::math::fp::Wad::from_raw(r.price_wad),
+            asset_decimals: r.asset_decimals,
+            timestamp: r.timestamp,
+        }
+    }
+}
+
+impl From<&PriceFeed> for PriceFeedRaw {
+    fn from(t: &PriceFeed) -> Self {
+        Self {
+            price_wad: t.price.raw(),
+            asset_decimals: t.asset_decimals,
+            timestamp: t.timestamp,
+        }
+    }
 }

@@ -9,7 +9,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::WAD;
-use common::types::{MarketStatus, POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT};
+use common::types::{MarketStatus, AccountPositionType};
 
 #[rule]
 fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -17,7 +17,7 @@ fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, 
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
     let supply_count =
-        crate::storage::positions::count_positions(&e, account_id, POSITION_TYPE_DEPOSIT);
+        crate::storage::positions::count_positions(&e, account_id, AccountPositionType::Deposit);
     cvlr_assume!(supply_count == 0);
 
     crate::spec::compat::borrow_single(e, caller, account_id, asset, amount);
@@ -39,13 +39,13 @@ fn supply_does_not_change_other_account_positions(
     let other_supply_before = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_DEPOSIT,
+        AccountPositionType::Deposit,
         &asset,
     );
     let other_borrow_before = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -54,13 +54,13 @@ fn supply_does_not_change_other_account_positions(
     let other_supply_after = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_DEPOSIT,
+        AccountPositionType::Deposit,
         &asset,
     );
     let other_borrow_after = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -82,13 +82,13 @@ fn borrow_does_not_change_other_account_positions(
     let other_supply_before = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_DEPOSIT,
+        AccountPositionType::Deposit,
         &asset,
     );
     let other_borrow_before = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -97,13 +97,13 @@ fn borrow_does_not_change_other_account_positions(
     let other_supply_after = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_DEPOSIT,
+        AccountPositionType::Deposit,
         &asset,
     );
     let other_borrow_after = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -120,7 +120,7 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     let other_debt_before = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -129,7 +129,7 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     let other_debt_after = crate::storage::positions::get_scaled_amount(
         &e,
         other_account,
-        POSITION_TYPE_BORROW,
+        AccountPositionType::Borrow,
         &asset,
     );
 
@@ -173,12 +173,12 @@ fn controller_supply_persists_pool_returned_position(
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
     let before =
-        crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_DEPOSIT, &asset);
+        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Deposit, &asset);
 
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
     let after =
-        crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_DEPOSIT, &asset);
+        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Deposit, &asset);
     cvlr_assert!(after >= before);
 }
 
@@ -193,12 +193,12 @@ fn controller_borrow_persists_pool_returned_position(
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
     let before =
-        crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
+        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Borrow, &asset);
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
 
     let after =
-        crate::storage::positions::get_scaled_amount(&e, account_id, POSITION_TYPE_BORROW, &asset);
+        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Borrow, &asset);
     cvlr_assert!(after >= before);
 }
 

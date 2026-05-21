@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountAttributes, AccountPosition, AggregatorSwap, AssetExtendedConfigView, EModeCategory,
+    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView, EModeCategoryRaw,
     LiquidationEstimate, MarketConfig, MarketIndexView, PositionMode,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
@@ -110,13 +110,13 @@ pub trait ControllerInterface {
     fn get_account_positions(
         env: Env,
         account_id: u64,
-    ) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>);
+    ) -> (Map<Address, AccountPositionRaw>, Map<Address, AccountPositionRaw>);
 
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
     fn get_market_config(env: Env, asset: Address) -> MarketConfig;
 
-    fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategory;
+    fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw;
 
     fn get_isolated_debt(env: Env, asset: Address) -> i128;
 

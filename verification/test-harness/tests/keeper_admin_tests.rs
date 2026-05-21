@@ -15,7 +15,7 @@
 extern crate std;
 
 use common::errors::{EModeError, GenericError};
-use common::types::{ControllerKey, EModeCategory};
+use common::types::{ControllerKey, EModeCategoryRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec};
 use test_harness::{
@@ -185,7 +185,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
 
     // Confirm the category is flagged deprecated in storage.
     let deprecated: bool = t.env.as_contract(&t.controller_address(), || {
-        let cat: EModeCategory = t
+        let cat: EModeCategoryRaw = t
             .env
             .storage()
             .persistent()

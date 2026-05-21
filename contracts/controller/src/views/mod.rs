@@ -1,9 +1,7 @@
 use common::constants::WAD;
-use common::math::fp::Ray;
 use common::types::{
-    AccountAttributes, AccountPosition, AssetExtendedConfigView, EModeCategory,
-    LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
-    POSITION_TYPE_BORROW, POSITION_TYPE_DEPOSIT,
+    AccountAttributes, AccountPositionRaw, AccountPositionType, AssetExtendedConfigView,
+    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
 };
 use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 
@@ -49,7 +47,7 @@ impl Controller {
     pub fn get_account_positions(
         env: Env,
         account_id: u64,
-    ) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>) {
+    ) -> (Map<Address, AccountPositionRaw>, Map<Address, AccountPositionRaw>) {
         get_account_positions(&env, account_id)
     }
 
@@ -61,7 +59,7 @@ impl Controller {
         get_market_config_view(&env, &asset)
     }
 
-    pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategory {
+    pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw {
         get_emode_category_view(&env, category_id)
     }
 
@@ -105,7 +103,8 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
             &mut cache,
             &account.supply_positions,
             &account.borrow_positions,
-        ),
+        )
+        .raw(),
         None => i128::MAX,
     }
 }
@@ -115,7 +114,7 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 }
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_position(env, account_id, POSITION_TYPE_DEPOSIT, asset) {
+    let position = match storage::try_get_position(env, account_id, AccountPositionType::Deposit, asset) {
         Some(position) => position,
         None => return 0,
     };
@@ -124,13 +123,14 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
     let market_index = cache.cached_market_index(asset);
     let feed = cache.cached_price(asset);
 
-    Ray::from_raw(position.scaled_amount_ray)
-        .mul(env, Ray::from_raw(market_index.supply_index_ray))
+    position
+        .scaled_amount
+        .mul(env, market_index.supply_index)
         .to_asset(feed.asset_decimals)
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_position(env, account_id, POSITION_TYPE_BORROW, asset) {
+    let position = match storage::try_get_position(env, account_id, AccountPositionType::Borrow, asset) {
         Some(position) => position,
         None => return 0,
     };
@@ -139,8 +139,9 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
     let market_index = cache.cached_market_index(asset);
     let feed = cache.cached_price(asset);
 
-    Ray::from_raw(position.scaled_amount_ray)
-        .mul(env, Ray::from_raw(market_index.borrow_index_ray))
+    position
+        .scaled_amount
+        .mul(env, market_index.borrow_index)
         .to_asset(feed.asset_decimals)
 }
 
@@ -148,7 +149,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
-) -> (Map<Address, AccountPosition>, Map<Address, AccountPosition>) {
+) -> (Map<Address, AccountPositionRaw>, Map<Address, AccountPositionRaw>) {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return (Map::new(env), Map::new(env));
     }
@@ -168,7 +169,7 @@ pub fn get_market_config_view(env: &Env, asset: &Address) -> MarketConfig {
     storage::get_market_config(env, asset)
 }
 
-pub fn get_emode_category_view(env: &Env, category_id: u32) -> EModeCategory {
+pub fn get_emode_category_view(env: &Env, category_id: u32) -> EModeCategoryRaw {
     storage::get_emode_category(env, category_id)
 }
 
@@ -226,8 +227,8 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
 
         result.push_back(MarketIndexView {
             asset,
-            supply_index_ray: index.supply_index_ray,
-            borrow_index_ray: index.borrow_index_ray,
+            supply_index_ray: index.supply_index.raw(),
+            borrow_index_ray: index.borrow_index.raw(),
             price_wad: components.final_price_wad,
             safe_price_wad,
             aggregator_price_wad,

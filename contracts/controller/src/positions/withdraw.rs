@@ -1,4 +1,5 @@
 use common::errors::{CollateralError, GenericError};
+use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, AccountPositionType, ControllerKey, Payment, PoolPositionMutation,
 };
@@ -16,6 +17,30 @@ use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerCl
 
 // Sentinel for full-position withdraw.
 const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
+
+/// Per-call withdrawal inputs that travel together through the pipeline.
+pub(crate) struct WithdrawalRequest<'a> {
+    pub asset: &'a Address,
+    pub amount: i128,
+    pub position: &'a AccountPosition,
+    pub price: Wad,
+}
+
+/// Liquidation-only modifiers; default is a plain withdraw.
+#[derive(Clone, Copy)]
+pub(crate) struct WithdrawFlags {
+    pub is_liquidation: bool,
+    pub protocol_fee: i128,
+}
+
+impl WithdrawFlags {
+    pub fn plain() -> Self {
+        Self {
+            is_liquidation: false,
+            protocol_fee: 0,
+        }
+    }
+}
 
 #[contractimpl]
 impl Controller {
@@ -57,15 +82,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
 
     let withdrawal_plan = aggregate_withdrawal_payments(env, withdrawals);
     for (asset, amount) in withdrawal_plan {
-        process_single_withdrawal(
-            env,
-            caller,
-            account_id,
-            &mut account,
-            &asset,
-            amount,
-            &mut cache,
-        );
+        process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
     // Enforce HF and LTV gates.
@@ -84,11 +101,9 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     cache.emit_market_batch();
 }
 
-#[allow(clippy::too_many_arguments)]
 fn process_single_withdrawal(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     asset: &Address,
     amount: i128,
@@ -101,8 +116,8 @@ fn process_single_withdrawal(
 
     let feed = cache.cached_price(asset);
 
-    let position = match account.supply_positions.get(asset.clone()) {
-        Some(pos) => pos,
+    let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
+        Some(pos) => (&pos).into(),
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
 
@@ -115,35 +130,29 @@ fn process_single_withdrawal(
     let _ = execute_withdrawal(
         env,
         account,
-        account_id,
-        asset,
         EventContext {
             caller: caller.clone(),
             event_caller: caller.clone(),
             action: symbol_short!("withdraw"),
         },
-        withdraw_amount,
-        &position,
-        false,
-        0,
-        feed.price_wad,
+        WithdrawalRequest {
+            asset,
+            amount: withdraw_amount,
+            position: &position,
+            price: feed.price,
+        },
+        WithdrawFlags::plain(),
         cache,
     );
 }
 
 // Executes pool withdraw.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
-    asset: &Address,
     ctx: EventContext,
-    amount: i128,
-    position: &AccountPosition,
-    is_liquidation: bool,
-    protocol_fee: i128,
-    price_wad: i128,
+    req: WithdrawalRequest<'_>,
+    flags: WithdrawFlags,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
     let EventContext {
@@ -151,35 +160,34 @@ pub fn execute_withdrawal(
         event_caller,
         action,
     } = ctx;
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_withdraw_call(
         env,
         &pool_addr,
         caller.clone(),
-        amount,
-        position.clone(),
-        is_liquidation,
-        protocol_fee,
+        req.amount,
+        req.position.clone(),
+        flags.is_liquidation,
+        flags.protocol_fee,
     );
-    cache.record_market_update_with_price(&result.market_state, Some(price_wad));
+    cache.record_market_update_with_price(&result.market_state, Some(req.price.raw()));
+    let result_position: AccountPosition = (&result.position).into();
     update::update_or_remove_position(
         account,
         AccountPositionType::Deposit,
-        asset,
-        &result.position,
+        req.asset,
+        &result_position,
     );
 
-    let _ = env;
-    let _ = account_id;
     let _ = event_caller;
     cache.record_position_update(
         action,
         AccountPositionType::Deposit,
-        asset,
+        req.asset,
         result.market_index.supply_index_ray,
         result.actual_amount,
-        &result.position,
-        Some(price_wad),
+        &result_position,
+        Some(req.price.raw()),
     );
 
     result

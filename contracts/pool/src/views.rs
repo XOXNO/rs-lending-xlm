@@ -1,12 +1,12 @@
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
-use common::types::{MarketParams, PoolKey, PoolState};
+use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::cache::Cache;
 
 // Loads pool state.
-pub fn load_state(env: &Env) -> PoolState {
+pub fn load_state(env: &Env) -> PoolStateRaw {
     env.storage()
         .instance()
         .get(&PoolKey::State)
@@ -14,7 +14,7 @@ pub fn load_state(env: &Env) -> PoolState {
 }
 
 // Loads market params.
-pub fn load_params(env: &Env) -> MarketParams {
+pub fn load_params(env: &Env) -> MarketParamsRaw {
     env.storage()
         .instance()
         .get(&PoolKey::Params)
@@ -38,7 +38,7 @@ pub fn deposit_rate(env: &Env) -> i128 {
     let cache = Cache::load(env);
     let util = cache.calculate_utilization();
     let borrow = calculate_borrow_rate(env, util, &cache.params);
-    calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor_bps).raw()
+    calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor).raw()
 }
 
 // Current borrow APR in RAY.
@@ -88,8 +88,8 @@ mod tests {
         env: Env,
         contract: Address,
         asset: Address,
-        params: MarketParams,
-        state: PoolState,
+        params: MarketParamsRaw,
+        state: PoolStateRaw,
     }
 
     impl TestSetup {
@@ -103,7 +103,7 @@ mod tests {
                 .register_stellar_asset_contract_v2(admin.clone())
                 .address()
                 .clone();
-            let params = MarketParams {
+            let params = MarketParamsRaw {
                 max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
                 slope1_ray: RAY / 10,
@@ -116,7 +116,7 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let state = PoolState {
+            let state = PoolStateRaw {
                 supplied_ray: 10 * RAY,
                 borrowed_ray: 5 * RAY,
                 revenue_ray: 3 * RAY,
@@ -167,9 +167,10 @@ mod tests {
             assert_eq!(delta_time(&t.env), 50_000);
 
             let util = Ray::from_raw(capital_utilisation(&t.env));
-            let expected_borrow = calculate_borrow_rate(&t.env, util, &t.params);
+            let params: common::types::MarketParams = (&t.params).into();
+            let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
             let expected_deposit =
-                calculate_deposit_rate(&t.env, util, expected_borrow, t.params.reserve_factor_bps);
+                calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);
 
             assert_eq!(borrow_rate(&t.env), expected_borrow.raw());
             assert_eq!(deposit_rate(&t.env), expected_deposit.raw());
@@ -181,7 +182,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let zero_supply = PoolState {
+            let zero_supply = PoolStateRaw {
                 supplied_ray: 0,
                 ..t.state.clone()
             };
@@ -199,7 +200,7 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            let future_state = PoolState {
+            let future_state = PoolStateRaw {
                 last_timestamp: 1_100_000,
                 ..t.state.clone()
             };

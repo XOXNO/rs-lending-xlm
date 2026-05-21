@@ -1,12 +1,31 @@
 use common::errors::CollateralError;
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::{Account, Payment, RepayEntry, SeizeEntry};
+use common::types::{Account, AccountPosition, Payment, RepayEntry, SeizeEntry};
 use soroban_sdk::{panic_with_error, Env, Vec};
 
 use crate::cache::ControllerCache;
 use crate::helpers;
+use crate::storage::iter_typed_positions;
 use crate::utils;
 use crate::validation;
+
+/// Aggregate position metrics consumed by the liquidation pipeline. Bundling
+/// these avoids repeating the same 5-value tuple across every helper.
+#[derive(Clone, Copy)]
+pub(crate) struct LiquidationSnapshot {
+    pub total_debt: Wad,
+    pub total_collateral: Wad,
+    pub weighted_coll: Wad,
+    pub proportion_seized: Wad,
+    pub hf: Wad,
+}
+
+/// Liquidation bonus interpolation bounds (base and protocol-max).
+#[derive(Clone, Copy)]
+pub(crate) struct BonusBounds {
+    pub base: Bps,
+    pub max: Bps,
+}
 
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
@@ -14,16 +33,16 @@ pub(crate) fn calculate_seizure_proportions(
     total_collateral: Wad,
     weighted_coll: Wad,
     cache: &mut ControllerCache,
-) -> (Wad, (Bps, Bps)) {
+) -> (Wad, BonusBounds) {
     let proportion_seized = if total_collateral > Wad::ZERO {
         weighted_coll.div(env, total_collateral)
     } else {
         Wad::ZERO
     };
 
-    let bonus_params = helpers::get_account_bonus_params(env, cache, &account.supply_positions);
+    let bounds = helpers::get_account_bonus_params(env, cache, &account.supply_positions);
 
-    (proportion_seized, bonus_params)
+    (proportion_seized, bounds)
 }
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
@@ -42,13 +61,15 @@ pub(crate) fn calculate_repayment_amounts(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        let position = account
+        let position: AccountPosition = (&account
             .borrow_positions
             .get(asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
+            .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
+            .into();
 
-        let actual_debt = Ray::from_raw(position.scaled_amount_ray)
-            .mul(env, Ray::from_raw(market_index.borrow_index_ray))
+        let actual_debt = position
+            .scaled_amount
+            .mul(env, market_index.borrow_index)
             .to_asset(feed.asset_decimals);
 
         let mut payment_amount = amount;
@@ -59,15 +80,15 @@ pub(crate) fn calculate_repayment_amounts(
         }
 
         let payment_wad = Wad::from_token(payment_amount, feed.asset_decimals);
-        let payment_usd = payment_wad.mul(env, Wad::from_raw(feed.price_wad));
+        let payment_usd = payment_wad.mul(env, feed.price);
 
         total_repaid_usd += payment_usd;
         repaid_tokens.push_back(RepayEntry {
             asset,
             amount: payment_amount,
             usd_wad: payment_usd.raw(),
-            feed,
-            market_index,
+            feed: (&feed).into(),
+            market_index: (&market_index).into(),
         });
     }
 
@@ -76,48 +97,54 @@ pub(crate) fn calculate_repayment_amounts(
 pub(crate) fn account_dust_floors(cache: &mut ControllerCache, account: &Account) -> (i128, i128) {
     let mut min_collat: i128 = 0;
     for asset in account.supply_positions.keys() {
-        let f = cache.cached_asset_config(&asset).min_collat_floor_usd_wad;
+        let f = cache.cached_asset_config(&asset).min_collat_floor_usd.raw();
         if f > min_collat {
             min_collat = f;
         }
     }
     let mut min_debt: i128 = 0;
     for asset in account.borrow_positions.keys() {
-        let f = cache.cached_asset_config(&asset).min_debt_floor_usd_wad;
+        let f = cache.cached_asset_config(&asset).min_debt_floor_usd.raw();
         if f > min_debt {
             min_debt = f;
         }
     }
     (min_collat, min_debt)
 }
+/// Inputs to the dust-residue full-close check. `payment_ceiling_usd` is an
+/// upper bound on what the liquidator has actually delivered — dust expansion
+/// may never price seizure beyond this amount, otherwise the liquidator would
+/// get full-close collateral for a partial payment.
+#[derive(Clone, Copy)]
+pub(crate) struct DustExpansionInputs<'a> {
+    pub snap: &'a LiquidationSnapshot,
+    pub bonus: Bps,
+    pub payment_ceiling_usd: Wad,
+    pub repay_usd: Wad,
+}
+
+/// Returns an updated `repay_usd` that expands to a full close when leaving
+/// residue would fall below dust floors.
 pub(crate) fn expand_to_full_close_on_dust_residue(
     env: &Env,
     cache: &mut ControllerCache,
     account: &Account,
-    total_debt: Wad,
-    total_collateral: Wad,
-    bonus: Bps,
-    // Upper bound on what the liquidator has actually delivered. Dust
-    // expansion may never price seizure beyond this amount — otherwise
-    // the liquidator would get full-close collateral for a partial
-    // payment.
-    payment_ceiling_usd: Wad,
-    repay_usd: &mut Wad,
-) {
+    inputs: DustExpansionInputs<'_>,
+) -> Wad {
     let (min_collat_floor, min_debt_floor) = account_dust_floors(cache, account);
 
-    let one_plus_bonus = Wad::ONE + bonus.to_wad(env);
-    let seizure_usd = repay_usd.mul(env, one_plus_bonus);
+    let one_plus_bonus = Wad::ONE + inputs.bonus.to_wad(env);
+    let seizure_usd = inputs.repay_usd.mul(env, one_plus_bonus);
 
-    let residual_debt = if *repay_usd >= total_debt {
+    let residual_debt = if inputs.repay_usd >= inputs.snap.total_debt {
         Wad::ZERO
     } else {
-        total_debt - *repay_usd
+        inputs.snap.total_debt - inputs.repay_usd
     };
-    let residual_collateral = if seizure_usd >= total_collateral {
+    let residual_collateral = if seizure_usd >= inputs.snap.total_collateral {
         Wad::ZERO
     } else {
-        total_collateral - seizure_usd
+        inputs.snap.total_collateral - seizure_usd
     };
 
     let leaves_debt_dust = residual_debt > Wad::ZERO && residual_debt.raw() < min_debt_floor;
@@ -125,7 +152,7 @@ pub(crate) fn expand_to_full_close_on_dust_residue(
         residual_collateral > Wad::ZERO && residual_collateral.raw() < min_collat_floor;
 
     if !(leaves_debt_dust || leaves_collat_dust) {
-        return;
+        return inputs.repay_usd;
     }
 
     // Full close is only safe when the liquidator has covered the
@@ -138,33 +165,20 @@ pub(crate) fn expand_to_full_close_on_dust_residue(
     //      Reject with `DustResidueNotAllowed`; the liquidator must
     //      either pay the full debt or pick an amount that doesn't
     //      trip the floor.
-    if payment_ceiling_usd >= total_debt {
-        *repay_usd = total_debt;
+    if inputs.payment_ceiling_usd >= inputs.snap.total_debt {
+        inputs.snap.total_debt
     } else {
         panic_with_error!(env, CollateralError::DustResidueNotAllowed);
     }
 }
 pub(crate) fn calculate_liquidation_amounts(
     env: &Env,
-    total_debt: Wad,
-    total_collateral: Wad,
-    weighted_coll: Wad,
-    proportion_seized: Wad,
-    bonus_params: (Bps, Bps),
-    hf: Wad,
+    snap: &LiquidationSnapshot,
+    bonus_bounds: BonusBounds,
     total_payment_usd: Wad,
 ) -> (Wad, Wad, Bps) {
-    let (base_bonus, max_bonus) = bonus_params;
-    let (ideal_repayment_usd, bonus) = helpers::estimate_liquidation_amount(
-        env,
-        total_debt,
-        weighted_coll,
-        hf,
-        base_bonus,
-        max_bonus,
-        proportion_seized,
-        total_collateral,
-    );
+    let (ideal_repayment_usd, bonus) =
+        helpers::estimate_liquidation_amount(env, snap, bonus_bounds);
 
     let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
     let seizure_multiplier = Wad::ONE + bonus.to_wad(env);
@@ -188,24 +202,23 @@ pub(crate) fn calculate_seized_collateral(
     let one_plus_bonus = Wad::ONE + bonus.to_wad(env);
     let total_seizure_usd = repayment_usd.mul(env, one_plus_bonus);
 
-    for (asset, position) in account.supply_positions.iter() {
+    for (asset, position) in iter_typed_positions(&account.supply_positions) {
         let feed = cache.cached_price(&asset);
-        if feed.price_wad == 0 {
+        if feed.price.raw() == 0 {
             continue;
         }
 
         let asset_config = cache.cached_asset_config(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        let actual_ray = Ray::from_raw(position.scaled_amount_ray)
-            .mul(env, Ray::from_raw(market_index.supply_index_ray));
+        let actual_ray = position.scaled_amount.mul(env, market_index.supply_index);
         let actual_amount_wad = actual_ray.to_wad();
-        let asset_value = actual_amount_wad.mul(env, Wad::from_raw(feed.price_wad));
+        let asset_value = actual_amount_wad.mul(env, feed.price);
 
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
-        let seizure_amount_wad = seizure_for_asset_usd.div(env, Wad::from_raw(feed.price_wad));
+        let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
         let seizure_ray = seizure_amount_wad.to_ray();
 
         if seizure_ray <= Ray::ZERO {
@@ -222,8 +235,7 @@ pub(crate) fn calculate_seized_collateral(
         // bound, so the bonus side captures any rounding remainder.
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
-        let protocol_fee =
-            Bps::from_raw(asset_config.liquidation_fees_bps).apply_to_ray(env, bonus_ray);
+        let protocol_fee = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
         let capped_amount = capped_ray.to_asset(feed.asset_decimals);
         if capped_amount <= 0 {
             continue;
@@ -233,8 +245,8 @@ pub(crate) fn calculate_seized_collateral(
             asset,
             amount: capped_amount,
             protocol_fee: protocol_fee.to_asset(feed.asset_decimals),
-            feed,
-            market_index,
+            feed: (&feed).into(),
+            market_index: (&market_index).into(),
         });
     }
 

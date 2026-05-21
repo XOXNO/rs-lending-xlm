@@ -1,12 +1,12 @@
 use common::errors::{GenericError, OracleError};
 use common::rates::simulate_update_indexes;
-use common::types::{MarketIndex, MarketStatus, PriceFeed};
+use common::types::{MarketIndex, MarketStatus, PriceFeedRaw};
 use soroban_sdk::{panic_with_error, Address};
 
 use super::compose;
 use crate::cache::ControllerCache;
 
-pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
+pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeedRaw {
     if let Some(feed) = cache.prices_cache.get(asset.clone()) {
         return feed;
     }
@@ -34,7 +34,7 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeed {
     {
         panic_with_error!(cache.env(), OracleError::SanityBoundViolated);
     }
-    let feed = PriceFeed {
+    let feed = PriceFeedRaw {
         price_wad: resolved.price_wad,
         asset_decimals: config.asset_decimals,
         timestamp: resolved.timestamp,

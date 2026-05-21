@@ -3,8 +3,8 @@ use common::events::{
     emit_create_market, emit_update_market_params, CreateMarketEvent, UpdateMarketParamsEvent,
 };
 use common::types::{
-    AssetConfig, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig, MarketParams,
-    MarketStatus,
+    AssetConfigRaw, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig,
+    MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
@@ -55,8 +55,8 @@ impl Controller {
     pub fn create_liquidity_pool(
         env: Env,
         asset: Address,
-        params: MarketParams,
-        config: AssetConfig,
+        params: MarketParamsRaw,
+        config: AssetConfigRaw,
     ) -> Address {
         create_liquidity_pool(&env, &asset, &params, &config)
     }
@@ -93,8 +93,8 @@ const MAX_ASSET_DECIMALS: u32 = 18;
 fn validate_market_creation(
     env: &Env,
     asset: &Address,
-    params: &MarketParams,
-    config: &AssetConfig,
+    params: &MarketParamsRaw,
+    config: &AssetConfigRaw,
     _token_decimals: u32,
 ) {
     if params.asset_id != *asset {
@@ -117,8 +117,8 @@ fn validate_market_creation(
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
-    params: &MarketParams,
-    config: &AssetConfig,
+    params: &MarketParamsRaw,
+    config: &AssetConfigRaw,
 ) -> Address {
     let token_client = token::Client::new(env, asset);
     let token_decimals = match token_client.try_decimals() {

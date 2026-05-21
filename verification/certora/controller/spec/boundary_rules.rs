@@ -15,7 +15,7 @@ use cvlr::{cvlr_assert, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
-use common::math::fp::Ray;
+use common::math::fp::{Bps, Ray};
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
 use common::types::MarketParams;
@@ -34,15 +34,15 @@ use common::types::MarketParams;
 /// the path count. The test contract address is already a host primitive.
 fn boundary_test_params(env: &Env) -> MarketParams {
     MarketParams {
-        base_borrow_rate_ray: RAY / 100,         // 1%
-        slope1_ray: RAY * 4 / 100,               // 4%
-        slope2_ray: RAY * 10 / 100,              // 10%
-        slope3_ray: RAY * 80 / 100,              // 80%
-        mid_utilization_ray: RAY * 50 / 100,     // 50%
-        optimal_utilization_ray: RAY * 80 / 100, // 80%
-        max_utilization_ray: RAY * 95 / 100,     // 95%
-        max_borrow_rate_ray: RAY,                // 100%
-        reserve_factor_bps: 1000,                // 10%
+        base_borrow_rate: Ray::from_raw(RAY / 100),         // 1%
+        slope1: Ray::from_raw(RAY * 4 / 100),               // 4%
+        slope2: Ray::from_raw(RAY * 10 / 100),              // 10%
+        slope3: Ray::from_raw(RAY * 80 / 100),              // 80%
+        mid_utilization: Ray::from_raw(RAY * 50 / 100),     // 50%
+        optimal_utilization: Ray::from_raw(RAY * 80 / 100), // 80%
+        max_utilization: Ray::from_raw(RAY * 95 / 100),     // 95%
+        max_borrow_rate: Ray::from_raw(RAY),                // 100%
+        reserve_factor: Bps::from_raw(1000),                // 10%
         asset_id: env.current_contract_address(),
         asset_decimals: 7,
     }

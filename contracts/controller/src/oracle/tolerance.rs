@@ -1,5 +1,5 @@
+use common::constants::RAY;
 use common::errors::{GenericError, OracleError};
-use common::math::fp::Ray;
 use common::math::fp_core;
 use common::types::OraclePriceFluctuation;
 use soroban_sdk::{panic_with_error, Env};
@@ -65,9 +65,9 @@ pub(crate) fn is_within_anchor(
     if aggregator == 0 {
         return false;
     }
-    let ratio_ray = Ray::from_raw(safe)
-        .div(env, Ray::from_raw(aggregator))
-        .raw();
+    // safe and aggregator are same-scale i128 prices (Wad). Their ratio at
+    // RAY precision = `safe * RAY / aggregator`; rescale RAY→BPS for comparison.
+    let ratio_ray = fp_core::mul_div_half_up(env, safe, RAY, aggregator);
     let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4);
     let upper = i128::from(upper_bound_ratio);
     let lower = i128::from(lower_bound_ratio);

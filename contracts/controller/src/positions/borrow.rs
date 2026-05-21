@@ -1,8 +1,7 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::math::fp::{Bps, Wad};
+use common::math::fp::{Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, Payment, PriceFeed,
-    POSITION_TYPE_BORROW,
+    Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, Payment, PriceFeed,
 };
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec};
 use stellar_macros::when_not_paused;
@@ -13,6 +12,16 @@ use crate::cache::ControllerCache;
 use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+
+/// Result of a single pool borrow/strategy call, ready to be reflected onto
+/// the account's borrow position.
+struct BorrowUpdate {
+    action: Symbol,
+    index: i128,
+    amount: i128,
+    position: AccountPosition,
+    price_wad: i128,
+}
 
 #[contractimpl]
 impl Controller {
@@ -45,7 +54,7 @@ pub fn handle_create_borrow_strategy(
 
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
-    let flash_fee = Bps::from_raw(debt_config.flashloan_fee_bps).apply_to(env, amount);
+    let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = get_or_create_borrow_position(account, &debt_config, debt_token);
 
     let pool_addr = cache.cached_pool_address(debt_token);
@@ -58,18 +67,19 @@ pub fn handle_create_borrow_strategy(
         flash_fee,
         debt_config.borrow_cap,
     );
-    cache.record_market_update_with_price(&result.market_state, Some(price_feed.price_wad));
+    cache.record_market_update_with_price(&result.market_state, Some(price_feed.price.raw()));
+    let _ = account_id;
+    let _ = caller;
     record_borrow_update(
-        env,
         account,
-        account_id,
         debt_token,
-        symbol_short!("multiply"),
-        result.market_index.borrow_index_ray,
-        result.actual_amount,
-        result.position,
-        price_feed.price_wad,
-        caller,
+        BorrowUpdate {
+            action: symbol_short!("multiply"),
+            index: result.market_index.borrow_index_ray,
+            amount: result.actual_amount,
+            position: (&result.position).into(),
+            price_wad: price_feed.price.raw(),
+        },
         cache,
     );
 
@@ -114,24 +124,17 @@ pub fn process_borrow_plan(
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
     // Resolve effective asset configs.
-    let mut effective_configs: Map<Address, AssetConfig> = Map::new(env);
+    let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
     for (asset, _) in borrow_plan.iter() {
         if !effective_configs.contains_key(asset.clone()) {
             let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-            effective_configs.set(asset, cfg);
+            effective_configs.set(asset, (&cfg).into());
         }
     }
 
+    let _ = account_id;
     prepare_borrow_plan(env, account, &borrow_plan, cache, &effective_configs);
-    execute_borrow_plan(
-        env,
-        caller,
-        account_id,
-        account,
-        &borrow_plan,
-        cache,
-        &effective_configs,
-    );
+    execute_borrow_plan(env, caller, account, &borrow_plan, cache, &effective_configs);
 }
 
 fn validate_borrow_asset_preflight(
@@ -158,11 +161,11 @@ fn prepare_borrow_plan(
     account: &Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
-    effective_configs: &Map<Address, AssetConfig>,
+    effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
     validation::require_non_empty_payments(env, assets);
 
-    validation::validate_bulk_position_limits(env, account, POSITION_TYPE_BORROW, assets);
+    validation::validate_bulk_position_limits(env, account, AccountPositionType::Borrow, assets);
     for (asset, _) in assets {
         validation::require_market_active(env, cache, &asset);
     }
@@ -174,7 +177,11 @@ fn prepare_borrow_plan(
         helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     for (asset, amount) in assets {
-        let asset_config = validation::expect_invariant(env, effective_configs.get(asset.clone()));
+        let asset_config: AssetConfig = (&validation::expect_invariant(
+            env,
+            effective_configs.get(asset.clone()),
+        ))
+            .into();
         validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
 
         let feed = cache.cached_price(&asset);
@@ -219,99 +226,97 @@ fn push_unique_asset(assets: &mut Vec<Address>, asset: Address) {
 fn execute_borrow_plan(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
-    effective_configs: &Map<Address, AssetConfig>,
+    effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
     for (asset, amount) in assets {
-        let asset_config = validation::expect_invariant(env, effective_configs.get(asset.clone()));
+        let asset_config: AssetConfig = (&validation::expect_invariant(
+            env,
+            effective_configs.get(asset.clone()),
+        ))
+            .into();
         let feed = cache.cached_price(&asset);
 
         update_borrow_position(
             env,
-            account_id,
             account,
-            &asset,
-            amount,
-            &asset_config,
+            BorrowAsset {
+                asset: &asset,
+                amount,
+                config: &asset_config,
+                feed: &feed,
+            },
             caller,
-            &feed,
-            asset_config.borrow_cap,
             cache,
         );
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Inputs for a single borrow-position update.
+struct BorrowAsset<'a> {
+    asset: &'a Address,
+    amount: i128,
+    config: &'a AssetConfig,
+    feed: &'a PriceFeed,
+}
+
 fn update_borrow_position(
     env: &Env,
-    account_id: u64,
     account: &mut Account,
-    asset: &Address,
-    amount: i128,
-    asset_config: &AssetConfig,
+    req: BorrowAsset<'_>,
     caller: &Address,
-    feed: &PriceFeed,
-    borrow_cap: i128,
     cache: &mut ControllerCache,
 ) {
-    let borrow_position = get_or_create_borrow_position(account, asset_config, asset);
+    let borrow_position = get_or_create_borrow_position(account, req.config, req.asset);
 
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_borrow_call(
         env,
         &pool_addr,
         caller.clone(),
-        amount,
+        req.amount,
         borrow_position,
-        borrow_cap,
+        req.config.borrow_cap,
     );
-    cache.record_market_update_with_price(&result.market_state, Some(feed.price_wad));
+    cache.record_market_update_with_price(&result.market_state, Some(req.feed.price.raw()));
 
     record_borrow_update(
-        env,
         account,
-        account_id,
-        asset,
-        symbol_short!("borrow"),
-        result.market_index.borrow_index_ray,
-        result.actual_amount,
-        result.position,
-        feed.price_wad,
-        caller,
+        req.asset,
+        BorrowUpdate {
+            action: symbol_short!("borrow"),
+            index: result.market_index.borrow_index_ray,
+            amount: result.actual_amount,
+            position: (&result.position).into(),
+            price_wad: req.feed.price.raw(),
+        },
         cache,
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 fn record_borrow_update(
-    env: &Env,
     account: &mut Account,
-    account_id: u64,
     asset: &Address,
-    action: Symbol,
-    index: i128,
-    amount: i128,
-    position: AccountPosition,
-    price_wad: i128,
-    caller: &Address,
+    update: BorrowUpdate,
     cache: &mut ControllerCache,
 ) {
-    let _ = env;
-    let _ = account_id;
-    let _ = caller;
     cache.record_position_update(
-        action,
+        update.action,
         AccountPositionType::Borrow,
         asset,
-        index,
-        amount,
-        &position,
-        Some(price_wad),
+        update.index,
+        update.amount,
+        &update.position,
+        Some(update.price_wad),
     );
-    update::update_or_remove_position(account, AccountPositionType::Borrow, asset, &position);
+    update::update_or_remove_position(
+        account,
+        AccountPositionType::Borrow,
+        asset,
+        &update.position,
+    );
 }
 
 // Increments isolated-debt tracker and checks ceiling.
@@ -327,7 +332,7 @@ pub fn handle_isolated_debt(
     }
 
     let amount_wad = Wad::from_token(amount, feed.asset_decimals);
-    let amount_in_usd_wad = amount_wad.mul(env, Wad::from_raw(feed.price_wad)).raw();
+    let amount_in_usd_wad = amount_wad.mul(env, feed.price).raw();
 
     let isolated_token = account
         .try_isolated_token()
@@ -341,7 +346,7 @@ pub fn handle_isolated_debt(
         .checked_add(amount_in_usd_wad)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    if new_debt > collateral_config.isolation_debt_ceiling_usd_wad {
+    if new_debt > collateral_config.isolation_debt_ceiling_usd.raw() {
         panic_with_error!(env, EModeError::DebtCeilingReached);
     }
 
@@ -360,12 +365,13 @@ fn get_or_create_borrow_position(
     account
         .borrow_positions
         .get(asset.clone())
+        .map(|raw| AccountPosition::from(&raw))
         .unwrap_or(AccountPosition {
-            scaled_amount_ray: 0,
-            liquidation_threshold_bps: borrow_asset_config.liquidation_threshold_bps,
-            liquidation_bonus_bps: borrow_asset_config.liquidation_bonus_bps,
-            liquidation_fees_bps: borrow_asset_config.liquidation_fees_bps,
-            loan_to_value_bps: borrow_asset_config.loan_to_value_bps,
+            scaled_amount: Ray::ZERO,
+            liquidation_threshold: borrow_asset_config.liquidation_threshold,
+            liquidation_bonus: borrow_asset_config.liquidation_bonus,
+            liquidation_fees: borrow_asset_config.liquidation_fees,
+            loan_to_value: borrow_asset_config.loan_to_value,
         })
 }
 
@@ -377,7 +383,7 @@ fn validate_ltv_capacity(
     feed: &PriceFeed,
 ) -> i128 {
     let amount_wad = Wad::from_token(amount, feed.asset_decimals);
-    let new_borrow_wad = amount_wad.mul(env, Wad::from_raw(feed.price_wad)).raw();
+    let new_borrow_wad = amount_wad.mul(env, feed.price).raw();
     let total_borrow_wad = borrowed_amount_wad
         .checked_add(new_borrow_wad)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

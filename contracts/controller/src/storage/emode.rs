@@ -1,24 +1,24 @@
 use super::renew_protocol_shared_key;
 use common::errors::EModeError;
-use common::types::{ControllerKey, EModeAssetConfig, EModeCategory};
+use common::types::{ControllerKey, EModeAssetConfig, EModeCategoryRaw};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 fn category_key(id: u32) -> ControllerKey {
     ControllerKey::EModeCategory(id)
 }
 
-pub fn get_emode_category(env: &Env, id: u32) -> EModeCategory {
+pub fn get_emode_category(env: &Env, id: u32) -> EModeCategoryRaw {
     env.storage()
         .persistent()
         .get(&category_key(id))
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound))
 }
 
-pub fn try_get_emode_category(env: &Env, id: u32) -> Option<EModeCategory> {
+pub fn try_get_emode_category(env: &Env, id: u32) -> Option<EModeCategoryRaw> {
     env.storage().persistent().get(&category_key(id))
 }
 
-pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategory) {
+pub fn set_emode_category(env: &Env, id: u32, cat: &EModeCategoryRaw) {
     let key = category_key(id);
     env.storage().persistent().set(&key, cat);
     renew_protocol_shared_key(env, &key);
