@@ -56,7 +56,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     validation::require_not_flash_loaning(env);
 
     let meta = storage::get_account_meta(env, account_id);
-    let supply_positions = storage::get_supply_positions(env, account_id);
+    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
 
     // Supply-only exits are risk-decreasing.
     let has_debt = env
@@ -64,7 +64,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         .persistent()
         .has(&ControllerKey::BorrowPositions(account_id));
     let borrow_positions = if has_debt {
-        storage::get_borrow_positions(env, account_id)
+        storage::get_positions(env, account_id, AccountPositionType::Borrow)
     } else {
         Map::new(env)
     };
@@ -95,7 +95,12 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         utils::remove_account(env, account_id);
     } else {
         // Mutates supply positions only.
-        storage::set_supply_positions(env, account_id, &account.supply_positions);
+        storage::set_positions(
+            env,
+            account_id,
+            AccountPositionType::Deposit,
+            &account.supply_positions,
+        );
     }
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();

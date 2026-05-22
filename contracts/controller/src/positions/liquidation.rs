@@ -92,8 +92,18 @@ pub fn process_liquidation(
     }
 
     // Persist position updates.
-    storage::set_supply_positions(env, account_id, &account.supply_positions);
-    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
+    storage::set_positions(
+        env,
+        account_id,
+        AccountPositionType::Deposit,
+        &account.supply_positions,
+    );
+    storage::set_positions(
+        env,
+        account_id,
+        AccountPositionType::Borrow,
+        &account.borrow_positions,
+    );
 
     // Reuse the post-liquidation account snapshot for bad-debt cleanup.
     check_bad_debt_after_liquidation(env, &mut cache, account_id, &account);

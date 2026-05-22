@@ -20,10 +20,7 @@ pub fn get_position_list(
     account_id: u64,
     position_type: AccountPositionType,
 ) -> Vec<Address> {
-    let map = match position_type {
-        AccountPositionType::Deposit => get_supply_positions(env, account_id),
-        AccountPositionType::Borrow => get_borrow_positions(env, account_id),
-    };
+    let map = get_positions(env, account_id, position_type);
     let mut out = Vec::new(env);
     for asset in map.keys() {
         out.push_back(asset);

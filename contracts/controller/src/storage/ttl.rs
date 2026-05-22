@@ -5,19 +5,19 @@ use common::constants::{
 use common::types::ControllerKey;
 use soroban_sdk::Env;
 
-pub fn renew_user_key(env: &Env, key: &ControllerKey) {
+pub(crate) fn renew_user_key(env: &Env, key: &ControllerKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
-pub fn renew_protocol_shared_key(env: &Env, key: &ControllerKey) {
+pub(crate) fn renew_protocol_shared_key(env: &Env, key: &ControllerKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-pub fn renew_controller_instance(env: &Env) {
+pub(crate) fn renew_controller_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);

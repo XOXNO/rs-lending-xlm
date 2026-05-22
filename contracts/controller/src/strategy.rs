@@ -1024,8 +1024,18 @@ pub fn strategy_finalize(
         // exactly as loaded. Flush sides directly so the meta key is not
         // re-read for an equality compare. Each side write TTL-bumps meta
         // via `write_side_map`.
-        storage::set_supply_positions(env, account_id, &account.supply_positions);
-        storage::set_borrow_positions(env, account_id, &account.borrow_positions);
+        storage::set_positions(
+            env,
+            account_id,
+            AccountPositionType::Deposit,
+            &account.supply_positions,
+        );
+        storage::set_positions(
+            env,
+            account_id,
+            AccountPositionType::Borrow,
+            &account.borrow_positions,
+        );
     }
 
     // Re-check HF (against liquidation threshold) and LTV (against

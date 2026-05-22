@@ -155,8 +155,8 @@ pub fn get_account_positions(
     }
 
     (
-        storage::get_supply_positions(env, account_id),
-        storage::get_borrow_positions(env, account_id),
+        storage::get_positions(env, account_id, AccountPositionType::Deposit),
+        storage::get_positions(env, account_id, AccountPositionType::Borrow),
     )
 }
 

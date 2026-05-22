@@ -92,8 +92,8 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     validation::require_not_flash_loaning(env);
 
     let meta = storage::get_account_meta(env, account_id);
-    let supply_positions = storage::get_supply_positions(env, account_id);
-    let borrow_positions = storage::get_borrow_positions(env, account_id);
+    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
+    let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
 
     validation::require_account_owner_match(env, &account, caller);
@@ -105,7 +105,12 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     require_no_dust_after(env, &mut cache, &account);
 
     // Mutates borrow positions only.
-    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
+    storage::set_positions(
+        env,
+        account_id,
+        AccountPositionType::Borrow,
+        &account.borrow_positions,
+    );
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();

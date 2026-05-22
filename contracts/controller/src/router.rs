@@ -162,7 +162,7 @@ pub fn create_liquidity_pool(
     storage::set_market_config(env, asset, &market);
 
     // Tracks in pools list.
-    storage::add_to_pools_list(env, asset, &pool_address);
+    storage::add_to_pools_list(env, asset);
     storage::renew_controller_instance(env);
 
     emit_create_market(

@@ -3,7 +3,7 @@ use common::types::ControllerKey;
 use soroban_sdk::{Address, Env, Vec};
 
 // Returns all asset addresses.
-pub fn get_pools_list(env: &Env) -> Vec<Address> {
+pub(crate) fn get_pools_list(env: &Env) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&ControllerKey::PoolsList)
@@ -11,7 +11,7 @@ pub fn get_pools_list(env: &Env) -> Vec<Address> {
 }
 
 // Bumps PoolsList TTL.
-pub fn renew_pools_list(env: &Env) {
+pub(crate) fn renew_pools_list(env: &Env) {
     let key = ControllerKey::PoolsList;
     if env.storage().persistent().has(&key) {
         renew_protocol_shared_key(env, &key);
@@ -19,7 +19,7 @@ pub fn renew_pools_list(env: &Env) {
 }
 
 // Adds asset to PoolsList.
-pub fn add_to_pools_list(env: &Env, asset: &Address, _pool: &Address) {
+pub(crate) fn add_to_pools_list(env: &Env, asset: &Address) {
     let mut list = get_pools_list(env);
     list.push_back(asset.clone());
     let key = ControllerKey::PoolsList;

@@ -36,7 +36,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     validation::require_non_empty_payments(env, payments);
 
     let meta = storage::get_account_meta(env, account_id);
-    let borrow_positions = storage::get_borrow_positions(env, account_id);
+    let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
     // Isolated accounts use safe prices for counter decrements.
     let mut account = storage::account_from_parts(meta, Map::new(env), borrow_positions);
     let policy = if account.is_isolated {
@@ -55,7 +55,12 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     require_no_dust_after(env, &mut cache, &account);
 
     // Repay does not delete account storage.
-    storage::set_borrow_positions(env, account_id, &account.borrow_positions);
+    storage::set_positions(
+        env,
+        account_id,
+        AccountPositionType::Borrow,
+        &account.borrow_positions,
+    );
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();

@@ -89,7 +89,12 @@ pub fn process_supply(
     require_no_dust_after(env, &mut cache, &account);
 
     // Mutates supply positions only.
-    storage::set_supply_positions(env, acct_id, &account.supply_positions);
+    storage::set_positions(
+        env,
+        acct_id,
+        AccountPositionType::Deposit,
+        &account.supply_positions,
+    );
     cache.emit_position_batch(acct_id, &account);
     cache.emit_market_batch();
 
@@ -110,7 +115,7 @@ fn resolve_supply_account(
         create_account_for_first_asset(env, caller, e_mode_category, assets)
     } else {
         let meta = storage::get_account_meta(env, account_id);
-        let supply_positions = storage::get_supply_positions(env, account_id);
+        let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
         let account =
             storage::account_from_parts(meta, supply_positions, soroban_sdk::Map::new(env));
         (account_id, account)
@@ -376,7 +381,7 @@ pub fn update_position_threshold(
         return;
     };
 
-    let supply_positions = storage::get_supply_positions(env, account_id);
+    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
 
     // No-op when the account has no supply position for this asset.
     let Some(position) = supply_positions.get(asset.clone()) else {
@@ -385,7 +390,7 @@ pub fn update_position_threshold(
 
     // Load borrow positions only when the health-factor gate requires them.
     let borrow_positions = if has_risks {
-        storage::get_borrow_positions(env, account_id)
+        storage::get_positions(env, account_id, AccountPositionType::Borrow)
     } else {
         soroban_sdk::Map::new(env)
     };
@@ -436,7 +441,12 @@ pub fn update_position_threshold(
     );
 
     // Persist only the supply side; borrow stays as-is.
-    storage::set_supply_positions(env, account_id, &account.supply_positions);
+    storage::set_positions(
+        env,
+        account_id,
+        AccountPositionType::Deposit,
+        &account.supply_positions,
+    );
 
     // Enforce safety buffer on risky updates.
     if has_risks {

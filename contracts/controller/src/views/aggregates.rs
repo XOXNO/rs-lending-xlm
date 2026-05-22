@@ -1,6 +1,7 @@
 //! USD-aggregate views.
 
 use common::math::fp::Wad;
+use common::types::AccountPositionType;
 use soroban_sdk::Env;
 
 use crate::cache::ControllerCache;
@@ -11,7 +12,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
     }
-    let supply = storage::get_supply_positions(env, account_id);
+    let supply = storage::get_positions(env, account_id, AccountPositionType::Deposit);
     if supply.is_empty() {
         return 0;
     }
@@ -39,7 +40,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
     }
-    let borrow = storage::get_borrow_positions(env, account_id);
+    let borrow = storage::get_positions(env, account_id, AccountPositionType::Borrow);
     if borrow.is_empty() {
         return 0;
     }
