@@ -1,5 +1,4 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, Payment, PriceFeed,
 };
@@ -55,7 +54,8 @@ pub fn handle_create_borrow_strategy(
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
-    let borrow_position = get_or_create_borrow_position(account, &debt_config, debt_token);
+    let borrow_position =
+        account.get_or_create_position(AccountPositionType::Borrow, debt_token, &debt_config);
 
     let pool_addr = cache.cached_pool_address(debt_token);
     let result = pool_create_strategy_call(
@@ -282,7 +282,8 @@ fn update_borrow_position(
     caller: &Address,
     cache: &mut ControllerCache,
 ) {
-    let borrow_position = get_or_create_borrow_position(account, req.config, req.asset);
+    let borrow_position =
+        account.get_or_create_position(AccountPositionType::Borrow, req.asset, req.config);
 
     let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_borrow_call(
@@ -367,24 +368,6 @@ pub fn handle_isolated_debt(
     // (`ControllerCache::flush_isolated_debts`). Emitting here too would
     // produce one event per in-batch borrow against the same isolated asset.
     cache.set_isolated_debt(&isolated_token, new_debt);
-}
-
-fn get_or_create_borrow_position(
-    account: &Account,
-    borrow_asset_config: &AssetConfig,
-    asset: &Address,
-) -> AccountPosition {
-    account
-        .borrow_positions
-        .get(asset.clone())
-        .map(|raw| AccountPosition::from(&raw))
-        .unwrap_or(AccountPosition {
-            scaled_amount: Ray::ZERO,
-            liquidation_threshold: borrow_asset_config.liquidation_threshold,
-            liquidation_bonus: borrow_asset_config.liquidation_bonus,
-            liquidation_fees: borrow_asset_config.liquidation_fees,
-            loan_to_value: borrow_asset_config.loan_to_value,
-        })
 }
 
 fn validate_ltv_capacity(

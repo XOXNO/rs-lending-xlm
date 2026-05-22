@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
     Payment, PositionMode, PriceFeed,
@@ -219,24 +219,6 @@ fn execute_deposit_plan(
     }
 }
 
-fn get_or_create_deposit_position(
-    account: &Account,
-    asset_config: &AssetConfig,
-    asset: &Address,
-) -> AccountPosition {
-    account
-        .supply_positions
-        .get(asset.clone())
-        .map(|raw| AccountPosition::from(&raw))
-        .unwrap_or(AccountPosition {
-            scaled_amount: Ray::ZERO,
-            liquidation_threshold: asset_config.liquidation_threshold,
-            liquidation_bonus: asset_config.liquidation_bonus,
-            liquidation_fees: asset_config.liquidation_fees,
-            loan_to_value: asset_config.loan_to_value,
-        })
-}
-
 /// Per-call deposit inputs.
 pub struct DepositRequest<'a> {
     pub asset: &'a Address,
@@ -252,7 +234,8 @@ pub fn update_deposit_position(
     caller: &Address,
     cache: &mut ControllerCache,
 ) -> AccountPosition {
-    let mut position = get_or_create_deposit_position(account, req.asset_config, req.asset);
+    let mut position =
+        account.get_or_create_position(AccountPositionType::Deposit, req.asset, req.asset_config);
 
     // Threshold only updated via keeper path.
     if position.loan_to_value != req.asset_config.loan_to_value {

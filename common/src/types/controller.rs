@@ -1,7 +1,7 @@
-use crate::math::fp::{Bps, Wad};
+use crate::math::fp::{Bps, Ray, Wad};
 use crate::types::oracle::MarketOracleConfig;
-use crate::types::pool::AccountPositionRaw;
-use crate::types::shared::PositionMode;
+use crate::types::pool::{AccountPosition, AccountPositionRaw};
+use crate::types::shared::{AccountPositionType, PositionMode};
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 // Wire/storage form. Embedded in MarketConfig (persistent storage value).
@@ -313,6 +313,33 @@ impl Account {
 
     pub fn try_isolated_token(&self) -> Option<Address> {
         self.isolated_asset.clone()
+    }
+
+    /// Returns the existing supply/borrow position for `asset` (loaded from the
+    /// raw map and decoded to the typed form) or a fresh one seeded from
+    /// `config`'s risk parameters. Used at the start of every position
+    /// mutation so callers operate on a typed value regardless of whether the
+    /// asset has been touched before.
+    pub fn get_or_create_position(
+        &self,
+        kind: AccountPositionType,
+        asset: &Address,
+        config: &AssetConfig,
+    ) -> AccountPosition {
+        let positions = match kind {
+            AccountPositionType::Deposit => &self.supply_positions,
+            AccountPositionType::Borrow => &self.borrow_positions,
+        };
+        positions
+            .get(asset.clone())
+            .map(|raw| AccountPosition::from(&raw))
+            .unwrap_or(AccountPosition {
+                scaled_amount: Ray::ZERO,
+                liquidation_threshold: config.liquidation_threshold,
+                liquidation_bonus: config.liquidation_bonus,
+                liquidation_fees: config.liquidation_fees,
+                loan_to_value: config.loan_to_value,
+            })
     }
 }
 
