@@ -467,9 +467,9 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
-#[contractevent(topics = ["config", "approve_token_wasm"])]
+#[contractevent(topics = ["config", "approve_token"])]
 #[derive(Clone, Debug)]
-pub struct ApproveTokenWasmEvent {
+pub struct ApproveTokenEvent {
     pub wasm_hash: soroban_sdk::BytesN<32>,
     pub approved: bool,
 }
@@ -526,7 +526,7 @@ pub fn emit_initial_multiply_payment(env: &Env, event: InitialMultiplyPaymentEve
     event.publish(env);
 }
 
-pub fn emit_approve_token_wasm(env: &Env, event: ApproveTokenWasmEvent) {
+pub fn emit_approve_token(env: &Env, event: ApproveTokenEvent) {
     event.publish(env);
 }
 
@@ -920,9 +920,9 @@ mod tests {
                 },
             );
 
-            emit_approve_token_wasm(
+            emit_approve_token(
                 &env,
-                ApproveTokenWasmEvent {
+                ApproveTokenEvent {
                     wasm_hash: BytesN::from_array(&env, &[0u8; 32]),
                     approved: true,
                 },

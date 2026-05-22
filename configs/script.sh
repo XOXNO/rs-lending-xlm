@@ -504,11 +504,11 @@ create_market() {
 
     # Post-audit (T1-7): the controller gates `create_liquidity_pool` behind an
     # admin allow-list. Pre-approve the token contract before creating the
-    # market. `approve_token_wasm` is idempotent — calling on an already-approved
+    # market. `approve_token` is idempotent — calling on an already-approved
     # token is a no-op.
     echo "Approving token for market creation..."
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
-        -- approve_token_wasm \
+        -- approve_token \
         --token "$asset_address"
 
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \

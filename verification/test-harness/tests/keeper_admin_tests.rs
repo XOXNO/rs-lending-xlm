@@ -129,7 +129,7 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
     let asset = env
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
-    ctrl.approve_token_wasm(&asset);
+    ctrl.approve_token(&asset);
 
     let preset = usdc_preset();
     let params = preset.params.to_market_params(&asset, preset.decimals);

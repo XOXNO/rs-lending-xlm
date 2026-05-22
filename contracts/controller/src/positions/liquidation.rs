@@ -49,6 +49,7 @@ pub fn process_liquidation(
     account_id: u64,
     debt_payments: &Vec<Payment>,
 ) {
+    // Stage 1: Pipelined Context Check
     liquidator.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, debt_payments);
@@ -59,6 +60,7 @@ pub fn process_liquidation(
         panic_with_error!(env, GenericError::AccountNotInMarket);
     }
 
+    // Stage 2: State Resolution
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
     // Liquidation reduces protocol exposure.
@@ -70,6 +72,7 @@ pub fn process_liquidation(
 
     let mut account = storage::get_account(env, account_id);
 
+    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     // Calculate seizure and repayment.
     let result = execute_liquidation(env, &account, &debt_payment_plan, &mut cache);
 
@@ -78,6 +81,7 @@ pub fn process_liquidation(
     apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
+    // Stage 5: Post-flight Risk Gates
     // Per-position dust gate.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
         env,
@@ -91,6 +95,7 @@ pub fn process_liquidation(
         require_no_dust_after(env, &mut cache, &account);
     }
 
+    // Stage 6: State Persistence
     // Persist position updates.
     storage::set_positions(
         env,

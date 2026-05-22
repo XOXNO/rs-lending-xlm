@@ -588,7 +588,7 @@ fn test_market_initialization_cascade() {
     let config = usdc_preset().config.to_asset_config(&t.env);
 
     // 0. Pre-approve the token contract (allow-list gate, T1-7).
-    ctrl.approve_token_wasm(&asset);
+    ctrl.approve_token(&asset);
 
     // 1. Create the liquidity pool with no oracle; the call succeeds and
     //    leaves the market in PendingOracle.

@@ -88,9 +88,11 @@ pub fn handle_create_borrow_strategy(
 
 // Processes borrow batch.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
+    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // Stage 2: State Resolution
     let meta = storage::get_account_meta(env, account_id);
     let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
     let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
@@ -99,12 +101,16 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     validation::require_account_owner_match(env, &account, caller);
 
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
+
+    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     process_borrow_plan(env, caller, account_id, &mut account, borrows, &mut cache);
+
+    // Stage 5: Post-flight Risk Gates
     validation::require_healthy_account(env, &mut cache, &account);
     // Rejects dust positions.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Mutates borrow positions only.
+    // Stage 6: State Persistence
     storage::set_positions(
         env,
         account_id,

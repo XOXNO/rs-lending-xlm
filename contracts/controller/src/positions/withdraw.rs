@@ -52,9 +52,11 @@ impl Controller {
 
 // Processes withdraw batch.
 pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
+    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // Stage 2: State Resolution
     let meta = storage::get_account_meta(env, account_id);
     let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
 
@@ -80,17 +82,20 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     };
     let mut cache = ControllerCache::new(env, policy);
 
+    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     let withdrawal_plan = aggregate_withdrawal_payments(env, withdrawals);
     for (asset, amount) in withdrawal_plan {
         process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
+    // Stage 5: Post-flight Risk Gates
     // Enforce HF and LTV gates.
     validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust residue not allowed on partial withdraw.
     require_no_dust_after(env, &mut cache, &account);
 
+    // Stage 6: State Persistence
     if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
         utils::remove_account(env, account_id);
     } else {

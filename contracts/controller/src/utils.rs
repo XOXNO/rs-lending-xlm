@@ -1,10 +1,7 @@
-use common::constants::WAD;
 use common::errors::GenericError;
-use common::types::{Account, Payment, PriceFeed};
+use common::types::Payment;
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
-use crate::cache::ControllerCache;
-use crate::cross_contract::pool::pool_update_indexes_call;
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::validation;
 
@@ -76,42 +73,4 @@ fn aggregate_payment_amount(
         .unwrap_or(0)
         .checked_add(amount)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-// Syncs market indexes and cache.
-pub fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
-    for asset in assets {
-        let pool_addr = cache.cached_pool_address(&asset);
-        let state = pool_update_indexes_call(env, &pool_addr);
-        // Refresh cache for subsequent reads.
-        cache.record_market_update(&state);
-    }
-}
-
-// Decrements isolated debt tracker.
-pub fn adjust_isolated_debt_usd(
-    env: &Env,
-    account: &Account,
-    token_amount: i128,
-    feed: &PriceFeed,
-    cache: &mut ControllerCache,
-) {
-    let Some(isolated_asset) = account.try_isolated_token() else {
-        return;
-    };
-
-    let usd_wad = feed.usd_value_wad(env, token_amount).raw();
-
-    let current = cache.get_isolated_debt(&isolated_asset);
-    let mut new_debt = if usd_wad >= current {
-        0
-    } else {
-        current - usd_wad
-    };
-
-    if new_debt > 0 && new_debt < WAD {
-        new_debt = 0;
-    }
-
-    cache.set_isolated_debt(&isolated_asset, new_debt);
 }

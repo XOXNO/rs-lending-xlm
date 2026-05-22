@@ -6,7 +6,7 @@ use common::types::{
     AssetConfigRaw, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig,
     MarketParamsRaw, MarketStatus,
 };
-use soroban_sdk::{contractimpl, panic_with_error, token, xdr::ToXdr, Address, BytesN, Env, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
@@ -25,7 +25,7 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
 
         let mut cache = ControllerCache::new(&env, OraclePolicy::RiskDecreasing);
-        utils::sync_market_indexes(&env, &mut cache, &assets);
+        sync_market_indexes(&env, &mut cache, &assets);
         cache.emit_market_batch();
     }
 
@@ -86,6 +86,16 @@ impl Controller {
     }
 }
 
+// Syncs market indexes and cache.
+fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
+    for asset in assets {
+        let pool_addr = cache.cached_pool_address(&asset);
+        let state = pool_update_indexes_call(env, &pool_addr);
+        // Refresh cache for subsequent reads.
+        cache.record_market_update(&state);
+    }
+}
+
 // Valid asset decimal bounds.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
@@ -120,14 +130,7 @@ pub fn create_liquidity_pool(
     params: &MarketParamsRaw,
     config: &AssetConfigRaw,
 ) -> Address {
-    let token_client = token::Client::new(env, asset);
-    let token_decimals = match token_client.try_decimals() {
-        Ok(Ok(d)) => d,
-        _ => panic_with_error!(env, GenericError::InvalidAsset),
-    };
-    if !matches!(token_client.try_symbol(), Ok(Ok(_))) {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
+    let token_decimals = validation::validate_and_fetch_token_decimals(env, asset);
 
     if storage::has_market_config(env, asset) {
         panic_with_error!(env, GenericError::AssetAlreadySupported);

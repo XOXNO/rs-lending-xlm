@@ -453,7 +453,7 @@ impl LendingTestBuilder {
             let asset_config = pm.config.to_asset_config(&env);
             // Pre-approve the token contract; the controller's allow-list gate
             // requires explicit admin approval before market creation.
-            ctrl.approve_token_wasm(&asset_address);
+            ctrl.approve_token(&asset_address);
             let pool_address =
                 ctrl.create_liquidity_pool(&asset_address, &market_params, &asset_config);
 

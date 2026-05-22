@@ -2,7 +2,7 @@ use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_D
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
-use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
 use crate::storage::iter_typed_positions;
@@ -147,16 +147,37 @@ pub fn validate_bulk_position_limits(
     }
 }
 
-pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
-    if i128::from(config.liquidation_threshold_bps) <= i128::from(config.loan_to_value_bps)
-        || i128::from(config.liquidation_threshold_bps) > BPS
-    {
+pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
+    let ltv_i = i128::from(ltv);
+    let threshold_i = i128::from(threshold);
+    let bonus_i = i128::from(bonus);
+    if threshold_i <= ltv_i || threshold_i > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
+    if bonus_i > MAX_LIQUIDATION_BONUS {
+        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
+    }
+}
 
-    if i128::from(config.liquidation_bonus_bps) > MAX_LIQUIDATION_BONUS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
+pub fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
+    let token_client = token::Client::new(env, token);
+    let decimals = match token_client.try_decimals() {
+        Ok(Ok(d)) => d,
+        _ => panic_with_error!(env, GenericError::InvalidAsset),
+    };
+    if !matches!(token_client.try_symbol(), Ok(Ok(_))) {
+        panic_with_error!(env, GenericError::InvalidAsset);
     }
+    decimals
+}
+
+pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
+    validate_risk_bounds(
+        env,
+        config.loan_to_value_bps,
+        config.liquidation_threshold_bps,
+        config.liquidation_bonus_bps,
+    );
 
     if i128::from(config.liquidation_fees_bps) > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);

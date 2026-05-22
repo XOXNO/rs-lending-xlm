@@ -1,3 +1,4 @@
+use common::constants::WAD;
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Ray, Wad};
 use common::types::{
@@ -33,10 +34,12 @@ impl Controller {
 
 // Processes repay batch.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
+    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, payments);
 
+    // Stage 2: State Resolution
     let meta = storage::get_account_meta(env, account_id);
     let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
     // Isolated accounts use safe prices for counter decrements.
@@ -48,15 +51,17 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     };
     let mut cache = ControllerCache::new(env, policy);
 
+    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
+    // Stage 5: Post-flight Risk Gates
     // Partial repay must stay above dust floor or repay in full.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Repay does not delete account storage.
+    // Stage 6: State Persistence
     storage::set_positions(
         env,
         account_id,
@@ -222,6 +227,34 @@ fn adjust_isolated_debt_for_repay(
     feed: &PriceFeed,
 ) {
     if account.is_isolated && actual_amount > 0 {
-        utils::adjust_isolated_debt_usd(env, account, actual_amount, feed, cache);
+        adjust_isolated_debt_usd(env, account, actual_amount, feed, cache);
     }
+}
+
+// Decrements isolated debt tracker.
+fn adjust_isolated_debt_usd(
+    env: &Env,
+    account: &Account,
+    token_amount: i128,
+    feed: &PriceFeed,
+    cache: &mut ControllerCache,
+) {
+    let Some(isolated_asset) = account.try_isolated_token() else {
+        return;
+    };
+
+    let usd_wad = feed.usd_value_wad(env, token_amount).raw();
+
+    let current = cache.get_isolated_debt(&isolated_asset);
+    let mut new_debt = if usd_wad >= current {
+        0
+    } else {
+        current - usd_wad
+    };
+
+    if new_debt > 0 && new_debt < WAD {
+        new_debt = 0;
+    }
+
+    cache.set_isolated_debt(&isolated_asset, new_debt);
 }

@@ -35,22 +35,23 @@ pub fn process_supply(
     e_mode_category: u32,
     assets: &Vec<Payment>,
 ) -> u64 {
+    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // Stage 2: State Resolution
     let (acct_id, mut account) =
         resolve_supply_account(env, caller, account_id, e_mode_category, assets);
-
-    // Third-party deposits permitted.
-
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
 
+    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
 
+    // Stage 5: Post-flight Risk Gates
     // Rejects dust on first-time supply.
     require_no_dust_after(env, &mut cache, &account);
 
-    // Mutates supply positions only.
+    // Stage 6: State Persistence
     storage::set_positions(
         env,
         acct_id,

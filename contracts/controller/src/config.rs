@@ -1,12 +1,12 @@
 use common::constants::{
-    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MAX_LIQUIDATION_BONUS, MIN_FIRST_TOLERANCE,
+    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE,
     MIN_LAST_TOLERANCE,
 };
-use common::errors::{CollateralError, EModeError, GenericError, OracleError};
+use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{
-    emit_approve_token_wasm, emit_remove_emode_asset, emit_update_asset_config,
+    emit_approve_token, emit_remove_emode_asset, emit_update_asset_config,
     emit_update_asset_oracle, emit_update_emode_asset, emit_update_emode_category,
-    ApproveTokenWasmEvent, EventEModeCategory, EventOracleProvider, RemoveEModeAssetEvent,
+    ApproveTokenEvent, EventEModeCategory, EventOracleProvider, RemoveEModeAssetEvent,
     UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
     UpdateEModeCategoryEvent,
 };
@@ -92,12 +92,12 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn approve_token_wasm(env: Env, token: Address) {
+    pub fn approve_token(env: Env, token: Address) {
         storage::set_token_approved(&env, &token, true);
         let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
-        emit_approve_token_wasm(
+        emit_approve_token(
             &env,
-            ApproveTokenWasmEvent {
+            ApproveTokenEvent {
                 wasm_hash,
                 approved: true,
             },
@@ -105,12 +105,12 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn revoke_token_wasm(env: Env, token: Address) {
+    pub fn revoke_token(env: Env, token: Address) {
         storage::set_token_approved(&env, &token, false);
         let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
-        emit_approve_token_wasm(
+        emit_approve_token(
             &env,
-            ApproveTokenWasmEvent {
+            ApproveTokenEvent {
                 wasm_hash,
                 approved: false,
             },
@@ -208,20 +208,8 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
     storage::set_position_limits(env, &limits);
 }
 
-fn validate_emode_params(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
-    let ltv_i = i128::from(ltv);
-    let threshold_i = i128::from(threshold);
-    let bonus_i = i128::from(bonus);
-    if threshold_i <= ltv_i || threshold_i > BPS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
-    if !(0..=MAX_LIQUIDATION_BONUS).contains(&bonus_i) {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
-}
-
 pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
-    validate_emode_params(env, ltv, threshold, bonus);
+    validation::validate_risk_bounds(env, ltv, threshold, bonus);
 
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategoryRaw {
@@ -244,7 +232,7 @@ pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u
 }
 
 pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
-    validate_emode_params(env, ltv, threshold, bonus);
+    validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     cat.loan_to_value_bps = ltv;
@@ -270,17 +258,7 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     storage::set_emode_category(env, id, &cat);
 
     for asset in members.keys() {
-        if let Some(mut market) = storage::try_get_market_config(env, &asset) {
-            if let Some(idx) = market
-                .asset_config
-                .e_mode_categories
-                .iter()
-                .position(|cid| cid == id)
-            {
-                market.asset_config.e_mode_categories.remove(idx as u32);
-                storage::set_market_config(env, &asset, &market);
-            }
-        }
+        remove_emode_category_from_market_config(env, &asset, id);
     }
 
     emit_update_emode_category(
@@ -364,17 +342,7 @@ pub fn edit_asset_in_e_mode_category(
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     storage::remove_emode_asset(env, category_id, &asset);
 
-    if let Some(mut market) = storage::try_get_market_config(env, &asset) {
-        if let Some(idx) = market
-            .asset_config
-            .e_mode_categories
-            .iter()
-            .position(|id| id == category_id)
-        {
-            market.asset_config.e_mode_categories.remove(idx as u32);
-            storage::set_market_config(env, &asset, &market);
-        }
-    }
+    remove_emode_category_from_market_config(env, &asset, category_id);
 
     emit_remove_emode_asset(env, RemoveEModeAssetEvent { asset, category_id });
 }
@@ -432,10 +400,6 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         panic_with_error!(env, GenericError::PairNotActive);
     }
 
-    if config.max_price_stale_seconds < 60 || config.max_price_stale_seconds > 86_400 {
-        panic_with_error!(env, OracleError::InvalidStalenessConfig);
-    }
-
     let tolerance = validate_and_calculate_tolerances(
         env,
         config.first_tolerance_bps,
@@ -480,4 +444,19 @@ pub fn disable_token_oracle(env: &Env, asset: Address) {
     let mut market = storage::get_market_config(env, &asset);
     market.status = MarketStatus::Disabled;
     storage::set_market_config(env, &asset, &market);
+}
+
+// Helper to remove an E-mode category ID from a market configuration's categories list.
+fn remove_emode_category_from_market_config(env: &Env, asset: &Address, category_id: u32) {
+    if let Some(mut market) = storage::try_get_market_config(env, asset) {
+        if let Some(idx) = market
+            .asset_config
+            .e_mode_categories
+            .iter()
+            .position(|id| id == category_id)
+        {
+            market.asset_config.e_mode_categories.remove(idx as u32);
+            storage::set_market_config(env, asset, &market);
+        }
+    }
 }

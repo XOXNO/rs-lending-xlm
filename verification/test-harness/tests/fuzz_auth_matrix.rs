@@ -202,12 +202,12 @@ proptest! {
         expect_rejected("remove_asset_from_e_mode", || {
             ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
         }).unwrap();
-        // approve_token_wasm / revoke_token_wasm (only_owner)
-        expect_rejected("approve_token_wasm", || {
-            ctrl.set_auths(&no_auths).try_approve_token_wasm(&usdc)
+        // approve_token / revoke_token (only_owner)
+        expect_rejected("approve_token", || {
+            ctrl.set_auths(&no_auths).try_approve_token(&usdc)
         }).unwrap();
-        expect_rejected("revoke_token_wasm", || {
-            ctrl.set_auths(&no_auths).try_revoke_token_wasm(&usdc)
+        expect_rejected("revoke_token", || {
+            ctrl.set_auths(&no_auths).try_revoke_token(&usdc)
         }).unwrap();
 
         // upgrade / upgrade_liquidity_pool / upgrade_liquidity_pool_params (only_owner)

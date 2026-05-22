@@ -4,7 +4,9 @@ use common::types::{
     OracleSourceConfig, OracleSourceConfigInput, OracleStrategy, RedStoneSourceConfig,
     ReflectorSourceConfig,
 };
-use soroban_sdk::{panic_with_error, token, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Env};
+
+use crate::validation;
 
 use super::observation::{
     millis_to_seconds, normalize_positive_price, u256_to_i128, validate_timestamp,
@@ -32,7 +34,7 @@ pub(crate) fn validate_market_oracle_sources(
         config.max_sanity_price_wad,
     );
 
-    let asset_decimals = validate_oracle_asset(env, asset);
+    let asset_decimals = validation::validate_and_fetch_token_decimals(env, asset);
     let primary = validate_source(env, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
         Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
@@ -63,28 +65,7 @@ fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     }
 }
 
-fn validate_oracle_asset(env: &Env, asset: &Address) -> u32 {
-    let token_decimals = unwrap_token_call(
-        env,
-        token::Client::new(env, asset)
-            .try_decimals()
-            .map(|r| r.ok()),
-    );
-    if token::Client::new(env, asset).try_symbol().is_err() {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
-    token_decimals
-}
 
-fn unwrap_token_call<T>(
-    env: &Env,
-    result: Result<Option<T>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
-) -> T {
-    match result {
-        Ok(Some(value)) => value,
-        _ => panic_with_error!(env, GenericError::InvalidAsset),
-    }
-}
 
 fn validate_source(
     env: &Env,
