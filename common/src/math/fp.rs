@@ -3,9 +3,9 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
 
+use super::fp_core;
 use crate::constants::{BPS, RAY, RAY_DECIMALS, WAD, WAD_DECIMALS};
 use crate::errors::GenericError;
-use super::fp_core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ray(i128);

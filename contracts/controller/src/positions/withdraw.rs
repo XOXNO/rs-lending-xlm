@@ -171,7 +171,7 @@ pub fn execute_withdrawal(
         &pool_addr,
         caller.clone(),
         req.amount,
-        req.position.clone(),
+        *req.position,
         flags.is_liquidation,
         flags.protocol_fee,
     );

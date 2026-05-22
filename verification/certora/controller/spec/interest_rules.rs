@@ -475,12 +475,7 @@ fn supplier_rewards_conservation(e: Env) {
     cvlr_assert!(diff <= 1);
 
     // Verify protocol fee matches expected: mul_half_up(accrued, reserve_factor, BPS) within +/-1
-    let expected_fee = mul_div_half_up(
-        &e,
-        accrued_interest,
-        params.reserve_factor.raw(),
-        BPS,
-    );
+    let expected_fee = mul_div_half_up(&e, accrued_interest, params.reserve_factor.raw(), BPS);
     let fee_diff = if protocol_fee.raw() >= expected_fee {
         protocol_fee.raw() - expected_fee
     } else {

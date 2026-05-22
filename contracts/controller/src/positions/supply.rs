@@ -77,7 +77,8 @@ fn resolve_supply_account(
         create_account_for_first_asset(env, caller, e_mode_category, assets)
     } else {
         let meta = storage::get_account_meta(env, account_id);
-        let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
+        let supply_positions =
+            storage::get_positions(env, account_id, AccountPositionType::Deposit);
         let account =
             storage::account_from_parts(meta, supply_positions, soroban_sdk::Map::new(env));
         (account_id, account)
@@ -133,11 +134,8 @@ fn prepare_deposit_plan(
     for (asset, _) in assets {
         validation::require_market_active(env, cache, &asset);
 
-        let asset_config: AssetConfig = (&validation::expect_invariant(
-            env,
-            effective_configs.get(asset.clone()),
-        ))
-            .into();
+        let asset_config: AssetConfig =
+            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset, true);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
@@ -161,11 +159,8 @@ fn execute_deposit_plan(
 ) {
     let _ = account_id;
     for (asset, amount_in) in assets {
-        let asset_config: AssetConfig = (&validation::expect_invariant(
-            env,
-            effective_configs.get(asset.clone()),
-        ))
-            .into();
+        let asset_config: AssetConfig =
+            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
 
         update_deposit_position(
             env,
@@ -305,7 +300,7 @@ fn apply_pool_supply(
     supply_cap: i128,
 ) -> SupplyMarketUpdate {
     let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_supply_call(env, &pool_addr, position.clone(), amount, supply_cap);
+    let result = pool_supply_call(env, &pool_addr, *position, amount, supply_cap);
 
     *position = (&result.position).into();
     cache.record_market_update(&result.market_state);

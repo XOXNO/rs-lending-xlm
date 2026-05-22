@@ -198,7 +198,10 @@ pub fn estimate_liquidation_amount(
 
     let base_bonus_wad = bounds.base.to_wad(env);
     let one_plus_base = Wad::ONE + base_bonus_wad;
-    let d_max = snap.total_collateral.div(env, one_plus_base).min(snap.total_debt);
+    let d_max = snap
+        .total_collateral
+        .div(env, one_plus_base)
+        .min(snap.total_debt);
 
     let base_new_hf = calculate_post_liquidation_hf(env, snap, d_max, bounds.base);
 

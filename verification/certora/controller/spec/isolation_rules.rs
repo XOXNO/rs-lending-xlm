@@ -174,8 +174,12 @@ fn isolation_repay_decreases_counter(
 
     // The account must already owe the repaid asset, otherwise repay is a
     // no-op and the counter would not move.
-    let borrow_pos =
-        crate::storage::get_position(&e, account_id, common::types::AccountPositionType::Borrow, &asset);
+    let borrow_pos = crate::storage::get_position(
+        &e,
+        account_id,
+        common::types::AccountPositionType::Borrow,
+        &asset,
+    );
     cvlr_assume!(borrow_pos.is_some());
     cvlr_assume!(borrow_pos.unwrap().scaled_amount_ray > 0);
 

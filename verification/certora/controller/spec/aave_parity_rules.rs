@@ -9,7 +9,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::WAD;
-use common::types::{MarketStatus, AccountPositionType};
+use common::types::{AccountPositionType, MarketStatus};
 
 #[rule]
 fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -172,13 +172,21 @@ fn controller_supply_persists_pool_returned_position(
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
-    let before =
-        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Deposit, &asset);
+    let before = crate::storage::positions::get_scaled_amount(
+        &e,
+        account_id,
+        AccountPositionType::Deposit,
+        &asset,
+    );
 
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let after =
-        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Deposit, &asset);
+    let after = crate::storage::positions::get_scaled_amount(
+        &e,
+        account_id,
+        AccountPositionType::Deposit,
+        &asset,
+    );
     cvlr_assert!(after >= before);
 }
 
@@ -192,13 +200,21 @@ fn controller_borrow_persists_pool_returned_position(
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
 
-    let before =
-        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Borrow, &asset);
+    let before = crate::storage::positions::get_scaled_amount(
+        &e,
+        account_id,
+        AccountPositionType::Borrow,
+        &asset,
+    );
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let after =
-        crate::storage::positions::get_scaled_amount(&e, account_id, AccountPositionType::Borrow, &asset);
+    let after = crate::storage::positions::get_scaled_amount(
+        &e,
+        account_id,
+        AccountPositionType::Borrow,
+        &asset,
+    );
     cvlr_assert!(after >= before);
 }
 

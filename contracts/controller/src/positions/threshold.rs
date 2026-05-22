@@ -1,8 +1,6 @@
 use common::errors::CollateralError;
 use common::math::fp::Wad;
-use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, PriceFeed,
-};
+use common::types::{Account, AccountPosition, AccountPositionType, AssetConfig, PriceFeed};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
 

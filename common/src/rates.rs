@@ -122,8 +122,7 @@ pub fn calculate_supplier_rewards(
 
     let accrued_interest = new_total_debt - old_total_debt;
 
-    let protocol_fee =
-        Ray::from_raw(params.reserve_factor.apply_to(env, accrued_interest.raw()));
+    let protocol_fee = Ray::from_raw(params.reserve_factor.apply_to(env, accrued_interest.raw()));
     let supplier_rewards = accrued_interest - protocol_fee;
 
     (supplier_rewards, protocol_fee)
@@ -409,7 +408,12 @@ mod tests {
     fn test_deposit_rate_zero_util() {
         let env = Env::default();
         assert_eq!(
-            calculate_deposit_rate(&env, Ray::ZERO, Ray::from_raw(RAY / 10), Bps::from_raw(1000)),
+            calculate_deposit_rate(
+                &env,
+                Ray::ZERO,
+                Ray::from_raw(RAY / 10),
+                Bps::from_raw(1000)
+            ),
             Ray::ZERO
         );
     }

@@ -59,7 +59,12 @@ fn borrow_rate_is_capped(e: Env, asset: Address, util_raw: i128) {
 fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128) {
     cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&borrow_rate));
 
-    let rate = calculate_deposit_rate(&e, Ray::ZERO, Ray::from_raw(borrow_rate), Bps::from_raw(1_000));
+    let rate = calculate_deposit_rate(
+        &e,
+        Ray::ZERO,
+        Ray::from_raw(borrow_rate),
+        Bps::from_raw(1_000),
+    );
     cvlr_assert!(rate.raw() == 0);
 }
 

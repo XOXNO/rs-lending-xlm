@@ -1,9 +1,7 @@
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::math::fp::Wad;
-use common::types::{
-    Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment,
-};
+use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;

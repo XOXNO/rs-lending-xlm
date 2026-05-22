@@ -47,7 +47,10 @@ impl Controller {
     pub fn get_account_positions(
         env: Env,
         account_id: u64,
-    ) -> (Map<Address, AccountPositionRaw>, Map<Address, AccountPositionRaw>) {
+    ) -> (
+        Map<Address, AccountPositionRaw>,
+        Map<Address, AccountPositionRaw>,
+    ) {
         get_account_positions(&env, account_id)
     }
 
@@ -114,10 +117,11 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 }
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_position(env, account_id, AccountPositionType::Deposit, asset) {
-        Some(position) => position,
-        None => return 0,
-    };
+    let position =
+        match storage::try_get_position(env, account_id, AccountPositionType::Deposit, asset) {
+            Some(position) => position,
+            None => return 0,
+        };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -130,10 +134,11 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_position(env, account_id, AccountPositionType::Borrow, asset) {
-        Some(position) => position,
-        None => return 0,
-    };
+    let position =
+        match storage::try_get_position(env, account_id, AccountPositionType::Borrow, asset) {
+            Some(position) => position,
+            None => return 0,
+        };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -149,7 +154,10 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
-) -> (Map<Address, AccountPositionRaw>, Map<Address, AccountPositionRaw>) {
+) -> (
+    Map<Address, AccountPositionRaw>,
+    Map<Address, AccountPositionRaw>,
+) {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return (Map::new(env), Map::new(env));
     }

@@ -4,9 +4,7 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-use common::types::{
-    AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw,
-};
+use common::types::{AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw};
 
 fn valid_params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {

@@ -123,7 +123,7 @@ pub fn execute_repayment(
     } = ctx;
 
     let pool_addr = cache.cached_pool_address(req.asset);
-    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, req.position.clone());
+    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, *req.position);
     cache.record_market_update_with_price(
         &result.market_state,
         if req.price > Wad::ZERO {

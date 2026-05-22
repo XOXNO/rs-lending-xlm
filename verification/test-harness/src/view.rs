@@ -1,6 +1,6 @@
 use common::constants::{RAY, WAD};
 use common::math::fp::Ray;
-use common::types::{ControllerKey, PositionLimits, AccountPositionType};
+use common::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
@@ -66,7 +66,9 @@ impl LendingTest {
     pub fn supply_balance_raw(&self, user: &str, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.find_account_id(user)
-            .map(|account_id| self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit))
+            .map(|account_id| {
+                self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit)
+            })
             .unwrap_or(0)
     }
 
@@ -87,7 +89,9 @@ impl LendingTest {
     pub fn borrow_balance_raw(&self, user: &str, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.find_account_id(user)
-            .map(|account_id| self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow))
+            .map(|account_id| {
+                self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow)
+            })
             .unwrap_or(0)
     }
 

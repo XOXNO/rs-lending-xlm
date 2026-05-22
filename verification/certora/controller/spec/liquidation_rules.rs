@@ -14,7 +14,7 @@ use soroban_sdk::{Address, Env, Vec};
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, WAD};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
-use common::types::{AccountPositionType};
+use common::types::AccountPositionType;
 
 // Realistic per-call debt amount cap. The protocol's largest configured
 // debt position would be on the order of 10^12 raw token units (1M tokens
@@ -101,8 +101,12 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
     cvlr_assume!(debt_amount <= MAX_DEBT_AMOUNT_RAW);
 
     // Pin both sides to single entries: one collateral asset, one debt asset.
-    let supply_pre =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_asset);
+    let supply_pre = crate::storage::get_position(
+        &e,
+        account_id,
+        AccountPositionType::Deposit,
+        &collateral_asset,
+    );
     cvlr_assume!(supply_pre.is_some());
     let scaled_col_before = supply_pre.unwrap().scaled_amount_ray;
     cvlr_assume!(scaled_col_before > 0);
@@ -117,8 +121,12 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
 
     crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
 
-    let supply_post =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &collateral_asset);
+    let supply_post = crate::storage::get_position(
+        &e,
+        account_id,
+        AccountPositionType::Deposit,
+        &collateral_asset,
+    );
     match supply_post {
         Some(pos) => cvlr_assert!(pos.scaled_amount_ray < scaled_col_before),
         None => cvlr_assert!(true), // fully seized

@@ -92,10 +92,8 @@ pub(crate) fn pool_seize_position_call(
     side: AccountPositionType,
     position: AccountPosition,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(
-        &side,
-        &AccountPositionRaw::from(&position),
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr)
+        .seize_position(&side, &AccountPositionRaw::from(&position))
 }
 
 pub(crate) fn pool_flash_loan_call(

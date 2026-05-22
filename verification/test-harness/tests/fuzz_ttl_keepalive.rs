@@ -355,7 +355,7 @@ proptest! {
             let bps = partial_bps.get(i).copied().unwrap_or(5000);
             let cur = t.supply_balance_raw(user, asset);
             if cur <= 1 { break; }
-            let amt = (cur as i128 * bps as i128) / 10_000;
+            let amt = (cur * bps as i128) / 10_000;
             if amt > 0 && amt < cur {
                 let _ = t.try_withdraw(user, asset, amt as f64 / 10_f64.powi(7));
             }

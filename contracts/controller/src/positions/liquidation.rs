@@ -135,11 +135,9 @@ fn apply_liquidation_repayments(
         let token = soroban_sdk::token::Client::new(env, &entry.asset);
         token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position: AccountPosition = (&validation::expect_invariant(
-            env,
-            account.borrow_positions.get(entry.asset.clone()),
-        ))
-            .into();
+        let position: AccountPosition =
+            (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
+                .into();
         repay::execute_repayment(
             env,
             account,
@@ -165,11 +163,9 @@ fn apply_liquidation_seizures(
     for i in 0..seized.len() {
         let entry = validation::expect_invariant(env, seized.get(i));
 
-        let position: AccountPosition = (&validation::expect_invariant(
-            env,
-            account.supply_positions.get(entry.asset.clone()),
-        ))
-            .into();
+        let position: AccountPosition =
+            (&validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone())))
+                .into();
         withdraw::execute_withdrawal(
             env,
             account,
@@ -379,6 +375,6 @@ fn seize_pool_position(
 ) {
     let feed = cache.cached_price(asset);
     let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_seize_position_call(env, &pool_addr, side, position.clone());
+    let result = pool_seize_position_call(env, &pool_addr, side, *position);
     cache.record_market_update_with_price(&result.market_state, Some(feed.price.raw()));
 }

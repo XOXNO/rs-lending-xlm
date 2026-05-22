@@ -139,7 +139,14 @@ pub fn process_borrow_plan(
 
     let _ = account_id;
     prepare_borrow_plan(env, account, &borrow_plan, cache, &effective_configs);
-    execute_borrow_plan(env, caller, account, &borrow_plan, cache, &effective_configs);
+    execute_borrow_plan(
+        env,
+        caller,
+        account,
+        &borrow_plan,
+        cache,
+        &effective_configs,
+    );
 }
 
 fn validate_borrow_asset_preflight(
@@ -190,11 +197,8 @@ fn prepare_borrow_plan(
         helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     for (asset, amount) in assets {
-        let asset_config: AssetConfig = (&validation::expect_invariant(
-            env,
-            effective_configs.get(asset.clone()),
-        ))
-            .into();
+        let asset_config: AssetConfig =
+            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
         validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
 
         let feed = cache.cached_price(&asset);
@@ -245,11 +249,8 @@ fn execute_borrow_plan(
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
     for (asset, amount) in assets {
-        let asset_config: AssetConfig = (&validation::expect_invariant(
-            env,
-            effective_configs.get(asset.clone()),
-        ))
-            .into();
+        let asset_config: AssetConfig =
+            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
         let feed = cache.cached_price(&asset);
 
         update_borrow_position(
