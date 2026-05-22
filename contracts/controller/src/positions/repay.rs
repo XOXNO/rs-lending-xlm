@@ -1,6 +1,8 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Ray, Wad};
-use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation, PriceFeed,
+};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
@@ -139,14 +141,7 @@ pub fn execute_repayment(
     );
     if account.is_isolated {
         let feed = cache.cached_price(req.asset);
-        adjust_isolated_debt_for_repay(
-            env,
-            account,
-            cache,
-            result.actual_amount,
-            req.price,
-            feed.asset_decimals,
-        );
+        adjust_isolated_debt_for_repay(env, account, cache, result.actual_amount, &feed);
     }
     let _ = event_caller;
     cache.record_position_update(
@@ -186,14 +181,7 @@ pub fn clear_position_isolated_debt(
         market_index.borrow_index,
         feed.asset_decimals,
     );
-    adjust_isolated_debt_for_repay(
-        env,
-        account,
-        cache,
-        actual_amount,
-        feed.price,
-        feed.asset_decimals,
-    );
+    adjust_isolated_debt_for_repay(env, account, cache, actual_amount, &feed);
 }
 
 fn transfer_repayment_to_pool(
@@ -231,17 +219,9 @@ fn adjust_isolated_debt_for_repay(
     account: &Account,
     cache: &mut ControllerCache,
     actual_amount: i128,
-    price: Wad,
-    asset_decimals: u32,
+    feed: &PriceFeed,
 ) {
     if account.is_isolated && actual_amount > 0 {
-        utils::adjust_isolated_debt_usd(
-            env,
-            account,
-            actual_amount,
-            price,
-            asset_decimals,
-            cache,
-        );
+        utils::adjust_isolated_debt_usd(env, account, actual_amount, feed, cache);
     }
 }

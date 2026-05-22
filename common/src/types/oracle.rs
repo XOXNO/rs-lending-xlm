@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String, Symbol};
+use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,6 +222,12 @@ pub struct PriceFeed {
     pub price: crate::math::fp::Wad,
     pub asset_decimals: u32,
     pub timestamp: u64,
+}
+
+impl PriceFeed {
+    pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
+        crate::math::fp::Wad::from_token(token_amount, self.asset_decimals).mul(env, self.price)
+    }
 }
 
 impl From<&PriceFeedRaw> for PriceFeed {

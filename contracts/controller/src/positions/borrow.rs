@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, EModeError, GenericError};
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, Payment, PriceFeed,
 };
@@ -161,6 +161,14 @@ fn validate_borrow_asset_preflight(
     }
 }
 
+// Batch-borrow risk gate (first of two — the strategy-borrow path in
+// `handle_create_borrow_strategy` has its own checks and does not pass here).
+//   1. here — per-asset cumulative LTV against pre-borrow collateral
+//      (`validate_ltv_capacity`), so a borrow that would exceed LTV is
+//      rejected before any pool call.
+//   2. after `execute_borrow_plan`, in `borrow_batch` — final HF
+//      (`require_healthy_account`) against the post-borrow positions,
+//      catching any rounding the pre-check missed.
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
@@ -247,7 +255,7 @@ fn execute_borrow_plan(
         update_borrow_position(
             env,
             account,
-            BorrowAsset {
+            BorrowRequest {
                 asset: &asset,
                 amount,
                 config: &asset_config,
@@ -260,7 +268,7 @@ fn execute_borrow_plan(
 }
 
 /// Inputs for a single borrow-position update.
-struct BorrowAsset<'a> {
+struct BorrowRequest<'a> {
     asset: &'a Address,
     amount: i128,
     config: &'a AssetConfig,
@@ -270,7 +278,7 @@ struct BorrowAsset<'a> {
 fn update_borrow_position(
     env: &Env,
     account: &mut Account,
-    req: BorrowAsset<'_>,
+    req: BorrowRequest<'_>,
     caller: &Address,
     cache: &mut ControllerCache,
 ) {
@@ -336,8 +344,7 @@ pub fn handle_isolated_debt(
         return;
     }
 
-    let amount_wad = Wad::from_token(amount, feed.asset_decimals);
-    let amount_in_usd_wad = amount_wad.mul(env, feed.price).raw();
+    let amount_in_usd_wad = feed.usd_value_wad(env, amount).raw();
 
     let isolated_token = account
         .try_isolated_token()
@@ -387,8 +394,7 @@ fn validate_ltv_capacity(
     amount: i128,
     feed: &PriceFeed,
 ) -> i128 {
-    let amount_wad = Wad::from_token(amount, feed.asset_decimals);
-    let new_borrow_wad = amount_wad.mul(env, feed.price).raw();
+    let new_borrow_wad = feed.usd_value_wad(env, amount).raw();
     let total_borrow_wad = borrowed_amount_wad
         .checked_add(new_borrow_wad)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

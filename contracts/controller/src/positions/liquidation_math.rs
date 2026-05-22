@@ -79,8 +79,7 @@ pub(crate) fn calculate_repayment_amounts(
             payment_amount = actual_debt;
         }
 
-        let payment_wad = Wad::from_token(payment_amount, feed.asset_decimals);
-        let payment_usd = payment_wad.mul(env, feed.price);
+        let payment_usd = feed.usd_value_wad(env, payment_amount);
 
         total_repaid_usd += payment_usd;
         repaid_tokens.push_back(RepayEntry {

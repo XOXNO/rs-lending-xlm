@@ -1,6 +1,5 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
-use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatorSwap, AssetConfig, BatchSwap,
     PositionMode,
@@ -824,8 +823,7 @@ fn emit_multiply_initial_payment(
 ) {
     if let Some((payment_token, payment_amount)) = initial_payment {
         let feed = cache.cached_price(&payment_token);
-        let amount_wad = Wad::from_token(payment_amount, feed.asset_decimals);
-        let usd_value_wad = amount_wad.mul(env, feed.price).raw();
+        let usd_value_wad = feed.usd_value_wad(env, payment_amount).raw();
         emit_initial_multiply_payment(
             env,
             InitialMultiplyPaymentEvent {

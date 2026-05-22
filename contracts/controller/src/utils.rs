@@ -1,7 +1,6 @@
 use common::constants::WAD;
 use common::errors::GenericError;
-use common::math::fp::Wad;
-use common::types::{Account, Payment};
+use common::types::{Account, Payment, PriceFeed};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
@@ -94,16 +93,14 @@ pub fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,
     token_amount: i128,
-    price: Wad,
-    asset_decimals: u32,
+    feed: &PriceFeed,
     cache: &mut ControllerCache,
 ) {
-    let Some(isolated_asset) = account.isolated_asset.clone() else {
+    let Some(isolated_asset) = account.try_isolated_token() else {
         return;
     };
 
-    let amount_wad = Wad::from_token(token_amount, asset_decimals);
-    let usd_wad = amount_wad.mul(env, price).raw();
+    let usd_wad = feed.usd_value_wad(env, token_amount).raw();
 
     let current = cache.get_isolated_debt(&isolated_asset);
     let mut new_debt = if usd_wad >= current {
