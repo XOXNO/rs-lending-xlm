@@ -6,6 +6,7 @@ pub mod liquidation;
 pub mod liquidation_math;
 pub mod repay;
 pub mod supply;
+pub mod threshold;
 pub mod update;
 pub mod withdraw;
 
