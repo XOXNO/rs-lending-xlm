@@ -1,10 +1,10 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::{Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, EModeCategory, MarketIndex,
+    Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
     Payment, PositionMode, PriceFeed,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
 use super::dust::require_no_dust_after;
@@ -136,7 +136,16 @@ pub fn process_deposit(
 
     let deposit_plan = utils::aggregate_positive_payments(env, assets);
 
-    prepare_deposit_plan(env, account, &deposit_plan, cache, &e_mode);
+    // Resolve effective asset configs once; both prepare and execute read them.
+    let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
+    for (asset, _) in deposit_plan.iter() {
+        if !effective_configs.contains_key(asset.clone()) {
+            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
+            effective_configs.set(asset, (&cfg).into());
+        }
+    }
+
+    prepare_deposit_plan(env, account, &deposit_plan, cache, &effective_configs);
     execute_deposit_plan(
         env,
         caller,
@@ -144,7 +153,7 @@ pub fn process_deposit(
         account,
         &deposit_plan,
         cache,
-        &e_mode,
+        &effective_configs,
     );
 }
 
@@ -153,7 +162,7 @@ fn prepare_deposit_plan(
     account: &Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
-    e_mode: &Option<EModeCategory>,
+    effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
     validation::validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
     validate_bulk_isolation(env, account, assets, cache);
@@ -162,7 +171,11 @@ fn prepare_deposit_plan(
     for (asset, _) in assets {
         validation::require_market_active(env, cache, &asset);
 
-        let asset_config = emode::effective_asset_config(env, account, &asset, cache, e_mode);
+        let asset_config: AssetConfig = (&validation::expect_invariant(
+            env,
+            effective_configs.get(asset.clone()),
+        ))
+            .into();
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset, true);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
@@ -182,11 +195,15 @@ fn execute_deposit_plan(
     account: &mut Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
-    e_mode: &Option<EModeCategory>,
+    effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
     let _ = account_id;
     for (asset, amount_in) in assets {
-        let asset_config = emode::effective_asset_config(env, account, &asset, cache, e_mode);
+        let asset_config: AssetConfig = (&validation::expect_invariant(
+            env,
+            effective_configs.get(asset.clone()),
+        ))
+            .into();
 
         update_deposit_position(
             env,
