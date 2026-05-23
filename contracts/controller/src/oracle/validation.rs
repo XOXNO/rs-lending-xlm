@@ -65,8 +65,6 @@ fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     }
 }
 
-
-
 fn validate_source(
     env: &Env,
     source: &OracleSourceConfigInput,

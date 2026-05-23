@@ -4,7 +4,9 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-use common::types::{AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{
+    AccountPosition, AccountPositionType, InterestRateModel, MarketParamsRaw, PoolKey, PoolStateRaw,
+};
 
 fn valid_params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -248,18 +250,19 @@ fn update_params_keeps_rate_domain(
         valid_state(0, 0, 0, e.ledger().timestamp()),
     );
 
-    crate::LiquidityPool::update_params(
-        e.clone(),
-        max_rate,
-        base,
-        slope1,
-        slope2,
-        slope3,
-        RAY / 2,
-        RAY * 8 / 10,
-        RAY * 95 / 100,
-        (BPS / 10) as u32,
-    );
+    let model = InterestRateModel {
+        max_borrow_rate_ray: max_rate,
+        base_borrow_rate_ray: base,
+        slope1_ray: slope1,
+        slope2_ray: slope2,
+        slope3_ray: slope3,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: (BPS / 10) as u32,
+    };
+
+    crate::LiquidityPool::update_params(e.clone(), model);
 
     let params: MarketParamsRaw = e.storage().instance().get(&PoolKey::Params).unwrap();
     cvlr_assert!(params.max_borrow_rate_ray == max_rate);

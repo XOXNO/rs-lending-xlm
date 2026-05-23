@@ -1,4 +1,3 @@
-use common::constants::WAD;
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::AccountPositionRaw;
 use soroban_sdk::{Address, Env, Map};
@@ -51,46 +50,14 @@ pub fn calculate_health_factor(
         return Wad::from_raw(i128::MAX); // No debt means infinite HF.
     }
 
-    let mut weighted_collateral_total = Wad::ZERO;
-
-    for (asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-        let value = position_value(
-            env,
-            position.scaled_amount,
-            market_index.supply_index,
-            feed.price,
-        );
-
-        weighted_collateral_total +=
-            weighted_collateral(env, value, position.liquidation_threshold);
-    }
-
-    let mut total_borrow = Wad::ZERO;
-    for (asset, position) in iter_typed_positions(borrow_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-        let value = position_value(
-            env,
-            position.scaled_amount,
-            market_index.borrow_index,
-            feed.price,
-        );
-
-        total_borrow += value;
-    }
+    let (_, total_borrow, weighted_collateral_total) =
+        calculate_account_totals(env, cache, supply_positions, borrow_positions);
 
     if total_borrow == Wad::ZERO {
         return Wad::from_raw(i128::MAX);
     }
 
-    let w = soroban_sdk::I256::from_i128(env, weighted_collateral_total.raw());
-    let wad = soroban_sdk::I256::from_i128(env, WAD);
-    let tb = soroban_sdk::I256::from_i128(env, total_borrow.raw());
-    let numerator = w.mul(&wad);
-    let result = numerator.div(&tb);
-    Wad::from_raw(result.to_i128().unwrap_or(i128::MAX))
+    weighted_collateral_total.div_floor(env, total_borrow)
 }
 
 pub fn calculate_account_totals(
@@ -143,5 +110,3 @@ pub fn calculate_total_debt_wad(
     }
     total_debt
 }
-
-

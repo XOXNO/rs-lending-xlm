@@ -341,6 +341,10 @@ impl Account {
                 loan_to_value: config.loan_to_value,
             })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.supply_positions.is_empty() && self.borrow_positions.is_empty()
+    }
 }
 
 impl From<&Account> for AccountAttributes {

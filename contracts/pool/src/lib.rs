@@ -373,37 +373,13 @@ impl LiquidityPool {
         mutation
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[only_owner]
-    pub fn update_params(
-        env: Env,
-        max_borrow_rate: i128,
-        base_borrow_rate: i128,
-        slope1: i128,
-        slope2: i128,
-        slope3: i128,
-        mid_utilization: i128,
-        optimal_utilization: i128,
-        max_utilization: i128,
-        reserve_factor: u32,
-    ) {
+    pub fn update_params(env: Env, model: InterestRateModel) {
         // Accrue at old rate model before applying new.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
         cache.save();
 
-        let model = InterestRateModel {
-            max_borrow_rate_ray: max_borrow_rate,
-            base_borrow_rate_ray: base_borrow_rate,
-            slope1_ray: slope1,
-            slope2_ray: slope2,
-            slope3_ray: slope3,
-            mid_utilization_ray: mid_utilization,
-            optimal_utilization_ray: optimal_utilization,
-            // Governance adjustable ceiling.
-            max_utilization_ray: max_utilization,
-            reserve_factor_bps: reserve_factor,
-        };
         model.verify(&env);
         apply_rate_model(&env, &model);
     }

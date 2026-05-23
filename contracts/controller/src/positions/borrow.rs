@@ -35,10 +35,8 @@ pub fn handle_create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
     account: &mut Account,
-    account_id: u64,
     debt_token: &Address,
     amount: i128,
-    caller: &Address,
 ) -> i128 {
     validation::require_market_active(env, cache, debt_token);
 
@@ -68,8 +66,6 @@ pub fn handle_create_borrow_strategy(
         debt_config.borrow_cap,
     );
     cache.record_market_update_with_price(&result.market_state, Some(price_feed.price.raw()));
-    let _ = account_id;
-    let _ = caller;
     record_borrow_update(
         account,
         debt_token,
@@ -93,10 +89,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     validation::require_not_flash_loaning(env);
 
     // Stage 2: State Resolution
-    let meta = storage::get_account_meta(env, account_id);
-    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
-    let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
-    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
+    let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
 
@@ -137,10 +130,8 @@ pub fn process_borrow_plan(
     // Resolve effective asset configs.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
     for (asset, _) in borrow_plan.iter() {
-        if !effective_configs.contains_key(asset.clone()) {
-            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-            effective_configs.set(asset, (&cfg).into());
-        }
+        let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
+        effective_configs.set(asset, (&cfg).into());
     }
 
     let _ = account_id;

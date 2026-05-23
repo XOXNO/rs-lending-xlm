@@ -5,7 +5,6 @@ mod access;
 pub(crate) mod cache;
 mod config;
 pub(crate) mod cross_contract;
-mod flash_loan;
 #[cfg(not(feature = "certora"))]
 pub(crate) mod helpers;
 #[cfg(feature = "certora")]
@@ -15,7 +14,7 @@ pub(crate) mod oracle;
 pub(crate) mod positions;
 mod router;
 mod storage;
-mod strategy;
+mod strategies;
 mod utils;
 mod validation;
 mod views;

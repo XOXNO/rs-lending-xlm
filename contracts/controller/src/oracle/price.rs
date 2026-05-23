@@ -45,7 +45,6 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeedRaw
 }
 
 pub fn update_asset_index(cache: &mut ControllerCache, asset: &Address) -> MarketIndex {
-    let env = cache.env().clone();
     let sync_data = cache.cached_pool_sync_data(asset);
-    simulate_update_indexes(&env, cache.current_timestamp_ms, &sync_data)
+    simulate_update_indexes(cache.env(), cache.current_timestamp_ms, &sync_data)
 }

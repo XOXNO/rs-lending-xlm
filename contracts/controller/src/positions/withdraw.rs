@@ -1,9 +1,7 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Wad;
-use common::types::{
-    Account, AccountPosition, AccountPositionType, ControllerKey, Payment, PoolPositionMutation,
-};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
+use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use super::EventContext;
@@ -13,7 +11,7 @@ use super::update;
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_withdraw_call;
 use crate::oracle::policy::OraclePolicy;
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
 
 // Sentinel for full-position withdraw.
 const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
@@ -57,21 +55,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     validation::require_not_flash_loaning(env);
 
     // Stage 2: State Resolution
-    let meta = storage::get_account_meta(env, account_id);
-    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
-
-    // Supply-only exits are risk-decreasing.
-    let has_debt = env
-        .storage()
-        .persistent()
-        .has(&ControllerKey::BorrowPositions(account_id));
-    let borrow_positions = if has_debt {
-        storage::get_positions(env, account_id, AccountPositionType::Borrow)
-    } else {
-        Map::new(env)
-    };
-
-    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
+    let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
 
@@ -83,7 +67,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     let mut cache = ControllerCache::new(env, policy);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    let withdrawal_plan = aggregate_withdrawal_payments(env, withdrawals);
+    let withdrawal_plan = aggregate_payments(env, withdrawals, true);
     for (asset, amount) in withdrawal_plan {
         process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
@@ -96,8 +80,8 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     require_no_dust_after(env, &mut cache, &account);
 
     // Stage 6: State Persistence
-    if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
-        utils::remove_account(env, account_id);
+    if account.is_empty() {
+        remove_account(env, account_id);
     } else {
         // Mutates supply positions only.
         storage::set_positions(
@@ -201,9 +185,4 @@ pub fn execute_withdrawal(
     );
 
     result
-}
-
-// Deduplicates withdrawal requests.
-fn aggregate_withdrawal_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
-    utils::aggregate_payments(env, payments, true)
 }

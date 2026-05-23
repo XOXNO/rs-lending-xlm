@@ -11,7 +11,7 @@ use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_supply_call;
 use crate::oracle::policy::OraclePolicy;
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, utils, validation::*, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -37,15 +37,16 @@ pub fn process_supply(
 ) -> u64 {
     // Stage 1: Pipelined Context Check
     caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_not_flash_loaning(env);
 
     // Stage 2: State Resolution
-    let (acct_id, mut account) =
-        resolve_supply_account(env, caller, account_id, e_mode_category, assets);
+    //
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
+    let (acct_id, mut account) =
+        resolve_supply_account(env, caller, account_id, e_mode_category, assets, &mut cache);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    process_deposit(env, caller, acct_id, &mut account, assets, &mut cache);
+    process_deposit(env, caller, &mut account, assets, &mut cache);
 
     // Stage 5: Post-flight Risk Gates
     // Rejects dust on first-time supply.
@@ -71,17 +72,14 @@ fn resolve_supply_account(
     account_id: u64,
     e_mode_category: u32,
     assets: &Vec<Payment>,
+    cache: &mut ControllerCache,
 ) -> (u64, Account) {
-    validation::require_non_empty_payments(env, assets);
+    require_non_empty_payments(env, assets);
 
     if account_id == 0 {
-        create_account_for_first_asset(env, caller, e_mode_category, assets)
+        create_account_for_first_asset(env, caller, e_mode_category, assets, cache)
     } else {
-        let meta = storage::get_account_meta(env, account_id);
-        let supply_positions =
-            storage::get_positions(env, account_id, AccountPositionType::Deposit);
-        let account =
-            storage::account_from_parts(meta, supply_positions, soroban_sdk::Map::new(env));
+        let account = storage::get_account_supply_only(env, account_id);
         (account_id, account)
     }
 }
@@ -90,7 +88,6 @@ fn resolve_supply_account(
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
@@ -103,17 +100,14 @@ pub fn process_deposit(
     // Resolve effective asset configs once; both prepare and execute read them.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
     for (asset, _) in deposit_plan.iter() {
-        if !effective_configs.contains_key(asset.clone()) {
-            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-            effective_configs.set(asset, (&cfg).into());
-        }
+        let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
+        effective_configs.set(asset, (&cfg).into());
     }
 
     prepare_deposit_plan(env, account, &deposit_plan, cache, &effective_configs);
     execute_deposit_plan(
         env,
         caller,
-        account_id,
         account,
         &deposit_plan,
         cache,
@@ -128,15 +122,15 @@ fn prepare_deposit_plan(
     cache: &mut ControllerCache,
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
-    validation::validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
+    validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
     validate_bulk_isolation(env, account, assets, cache);
 
     // Caps verified post-transfer.
     for (asset, _) in assets {
-        validation::require_market_active(env, cache, &asset);
+        require_market_active(env, cache, &asset);
 
         let asset_config: AssetConfig =
-            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
+            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset, true);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
@@ -152,16 +146,14 @@ fn prepare_deposit_plan(
 fn execute_deposit_plan(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     assets: &Vec<Payment>,
     cache: &mut ControllerCache,
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
-    let _ = account_id;
     for (asset, amount_in) in assets {
         let asset_config: AssetConfig =
-            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
+            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
 
         update_deposit_position(
             env,
@@ -289,7 +281,7 @@ fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
     // Fee-on-transfer tokens may credit less.
-    validation::require_credit_not_above_sent(env, sent, received);
+    require_credit_not_above_sent(env, sent, received);
 }
 
 fn apply_pool_supply(
@@ -321,7 +313,7 @@ fn validate_bulk_isolation(
     if assets.len() <= 1 {
         return;
     }
-    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
+    let (first_asset, _) = expect_invariant(env, assets.get(0));
     let first_config = cache.cached_asset_config(&first_asset);
     if account.is_isolated || first_config.is_isolated_asset {
         panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
@@ -334,9 +326,10 @@ fn create_account_for_first_asset(
     caller: &Address,
     e_mode_category: u32,
     assets: &Vec<Payment>,
+    cache: &mut ControllerCache,
 ) -> (u64, Account) {
-    let (first_asset, _) = validation::expect_invariant(env, assets.get(0));
-    let first_config = storage::get_market_config(env, &first_asset).asset_config;
+    let (first_asset, _) = expect_invariant(env, assets.get(0));
+    let first_config = cache.cached_asset_config(&first_asset);
     let is_isolated = first_config.is_isolated_asset;
     let isolated_asset = if is_isolated {
         Some(first_asset.clone())

@@ -412,3 +412,51 @@ fn test_emode_rejects_threshold_lte_ltv() {
     };
     assert_contract_error(flat, errors::INVALID_LIQ_THRESHOLD);
 }
+
+// ---------------------------------------------------------------------------
+// 16. test_emode_deprecated_category_operations_rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_emode_deprecated_category_operations_rejected() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    // Deprecate the category first.
+    t.remove_e_mode_category(1);
+
+    // 1. Trying to edit the deprecated category must fail.
+    let edit_result = t
+        .ctrl_client()
+        .try_edit_e_mode_category(&1u32, &8000u32, &8500u32, &200u32);
+    let flat_edit: Result<(), soroban_sdk::Error> = match edit_result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat_edit, errors::EMODE_CATEGORY_DEPRECATED);
+
+    // 2. Trying to remove/deprecate the category again must fail.
+    let remove_result = t.ctrl_client().try_remove_e_mode_category(&1u32);
+    let flat_remove: Result<(), soroban_sdk::Error> = match remove_result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat_remove, errors::EMODE_CATEGORY_DEPRECATED);
+
+    // 3. Trying to edit an asset in the deprecated category must fail.
+    let asset_address = t.resolve_asset("USDC");
+    let edit_asset_result =
+        t.ctrl_client()
+            .try_edit_asset_in_e_mode_category(&asset_address, &1u32, &true, &true);
+    let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat_edit_asset, errors::EMODE_CATEGORY_DEPRECATED);
+}

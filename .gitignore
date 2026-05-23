@@ -20,7 +20,7 @@ docs
 .claude/
 .antigravitycli
 .remember
-
+.playwright-mcp
 # Secrets and local config (NEVER commit these)
 .env
 .env.local

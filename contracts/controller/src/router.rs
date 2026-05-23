@@ -142,9 +142,6 @@ pub fn create_liquidity_pool(
 
     validate_market_creation(env, asset, params, config, token_decimals);
 
-    if !storage::has_pool_template(env) {
-        panic_with_error!(env, GenericError::TemplateEmpty);
-    }
     let wasm_hash = storage::get_pool_template(env);
 
     let salt = env.crypto().keccak256(&asset.to_xdr(env));
@@ -206,17 +203,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     cache.record_market_update(&state);
     cache.emit_market_batch();
 
-    pool_client.update_params(
-        &params.max_borrow_rate_ray,
-        &params.base_borrow_rate_ray,
-        &params.slope1_ray,
-        &params.slope2_ray,
-        &params.slope3_ray,
-        &params.mid_utilization_ray,
-        &params.optimal_utilization_ray,
-        &params.max_utilization_ray,
-        &params.reserve_factor_bps,
-    );
+    pool_client.update_params(params);
 
     emit_update_market_params(
         env,

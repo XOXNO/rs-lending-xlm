@@ -40,10 +40,6 @@ pub(crate) fn set_pool_template(env: &Env, hash: &BytesN<32>) {
         .set(&ControllerKey::PoolTemplate, hash);
 }
 
-pub(crate) fn has_pool_template(env: &Env) -> bool {
-    env.storage().instance().has(&ControllerKey::PoolTemplate)
-}
-
 pub(crate) fn get_aggregator(env: &Env) -> Address {
     env.storage()
         .instance()

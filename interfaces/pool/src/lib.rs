@@ -2,8 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPositionRaw, AccountPositionType, MarketStateSnapshot, PoolAmountMutation,
-    PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
+    AccountPositionRaw, AccountPositionType, InterestRateModel, MarketStateSnapshot,
+    PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 
@@ -60,18 +60,7 @@ pub trait LiquidityPoolInterface {
         position: AccountPositionRaw,
     ) -> PoolPositionMutation;
     fn claim_revenue(env: Env) -> PoolAmountMutation;
-    fn update_params(
-        env: Env,
-        max_borrow_rate: i128,
-        base_borrow_rate: i128,
-        slope1: i128,
-        slope2: i128,
-        slope3: i128,
-        mid_utilization: i128,
-        optimal_utilization: i128,
-        max_utilization: i128,
-        reserve_factor: u32,
-    );
+    fn update_params(env: Env, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn keepalive(env: Env);
     fn capital_utilisation(env: Env) -> i128;

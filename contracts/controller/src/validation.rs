@@ -5,7 +5,6 @@ use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, 
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
-use crate::storage::iter_typed_positions;
 use crate::{helpers, storage};
 
 // Unwraps Option or panics with InternalError.
@@ -80,22 +79,8 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
 
     let ltv_collateral_wad =
         helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
-
-    let mut total_borrow_wad: i128 = 0;
-    for (asset, position) in iter_typed_positions(&account.borrow_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-        let value = helpers::position_value(
-            env,
-            position.scaled_amount,
-            market_index.borrow_index,
-            feed.price,
-        )
-        .raw();
-        total_borrow_wad = total_borrow_wad
-            .checked_add(value)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    }
+    let total_borrow_wad =
+        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     if ltv_collateral_wad < total_borrow_wad {
         panic_with_error!(env, CollateralError::InsufficientCollateral);
@@ -133,9 +118,7 @@ pub fn validate_bulk_position_limits(
             AccountPositionType::Borrow => account.borrow_positions.contains_key(asset),
         };
         if !already_present {
-            new_positions_count = new_positions_count
-                .checked_add(1)
-                .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+            new_positions_count += 1;
         }
     }
 

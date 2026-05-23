@@ -139,7 +139,7 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(result, GenericError::TemplateEmpty as u32);
+    assert_contract_error(result, GenericError::TemplateNotSet as u32);
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ use common::math::fp::{Ray, Wad};
 use common::types::{
     Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation, PriceFeed,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use super::EventContext;
@@ -27,7 +27,7 @@ pub(crate) struct RepaymentRequest<'a> {
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
         process_repay(&env, &caller, account_id, &payments);
     }
 }
@@ -40,10 +40,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     validation::require_non_empty_payments(env, payments);
 
     // Stage 2: State Resolution
-    let meta = storage::get_account_meta(env, account_id);
-    let borrow_positions = storage::get_positions(env, account_id, AccountPositionType::Borrow);
-    // Isolated accounts use safe prices for counter decrements.
-    let mut account = storage::account_from_parts(meta, Map::new(env), borrow_positions);
+    let mut account = storage::get_account_borrow_only(env, account_id);
     let policy = if account.is_isolated {
         OraclePolicy::IsolatedRepay
     } else {
@@ -123,7 +120,7 @@ pub fn execute_repayment(
 ) -> PoolPositionMutation {
     let EventContext {
         caller,
-        event_caller,
+        event_caller: _,
         action,
     } = ctx;
 
@@ -144,11 +141,12 @@ pub fn execute_repayment(
         req.asset,
         &AccountPosition::from(&result.position),
     );
+
     if account.is_isolated {
         let feed = cache.cached_price(req.asset);
         adjust_isolated_debt_for_repay(env, account, cache, result.actual_amount, &feed);
     }
-    let _ = event_caller;
+
     cache.record_position_update(
         action,
         AccountPositionType::Borrow,

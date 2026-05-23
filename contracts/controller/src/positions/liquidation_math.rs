@@ -179,8 +179,7 @@ pub(crate) fn calculate_liquidation_amounts(
     bonus_bounds: BonusBounds,
     total_payment_usd: Wad,
 ) -> (Wad, Wad, Bps) {
-    let (ideal_repayment_usd, bonus) =
-        estimate_liquidation_amount(env, snap, bonus_bounds);
+    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds);
 
     let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
     let seizure_multiplier = Wad::ONE + bonus.to_wad(env);

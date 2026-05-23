@@ -1,6 +1,5 @@
 use common::constants::{
-    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE,
-    MIN_LAST_TOLERANCE,
+    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
 };
 use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{
@@ -235,6 +234,9 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus:
     validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    if cat.is_deprecated {
+        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
+    }
     cat.loan_to_value_bps = ltv;
     cat.liquidation_threshold_bps = threshold;
     cat.liquidation_bonus_bps = bonus;
@@ -251,6 +253,9 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus:
 pub fn remove_e_mode_category(env: &Env, id: u32) {
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    if cat.is_deprecated {
+        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
+    }
     cat.is_deprecated = true;
 
     let members = cat.assets.clone();
@@ -319,7 +324,12 @@ pub fn edit_asset_in_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    if storage::get_emode_asset(env, category_id, &asset).is_none() {
+    let cat = storage::try_get_emode_category(env, category_id)
+        .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    if cat.is_deprecated {
+        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
+    }
+    if !cat.assets.contains_key(asset.clone()) {
         panic_with_error!(env, EModeError::AssetNotInEmode);
     }
 

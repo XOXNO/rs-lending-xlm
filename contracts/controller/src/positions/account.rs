@@ -48,7 +48,7 @@ pub fn remove_account(env: &Env, account_id: u64) {
 
 // Deletes account if empty.
 pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
-    if account.supply_positions.is_empty() && account.borrow_positions.is_empty() {
+    if account.is_empty() {
         remove_account(env, account_id);
     }
 }

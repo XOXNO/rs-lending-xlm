@@ -911,17 +911,18 @@ fn test_update_params_rejects_invalid_utilization_range() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY * 8 / 10),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY * 8 / 10,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidUtilRange as u32,
@@ -933,17 +934,18 @@ fn test_update_params_rejects_optimal_utilization_above_one() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY / 2),
-        &RAY,
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::OptUtilTooHigh as u32,
@@ -955,17 +957,18 @@ fn test_update_params_rejects_invalid_reserve_factor() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY / 2),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &10_000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 10_000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidReserveFactor as u32,
@@ -977,17 +980,18 @@ fn test_update_params_rejects_negative_base_rate() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &-1i128,
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY / 2),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: -1i128,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidBorrowParams as u32,
@@ -999,17 +1003,18 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(RAY / 100),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY / 2),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: RAY / 100,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidBorrowParams as u32,
@@ -1297,17 +1302,18 @@ fn test_update_params_happy_path() {
     let new_opt = RAY * 85 / 100;
     let new_reserve: u32 = 2000;
 
-    client.update_params(
-        &new_max,
-        &new_base,
-        &new_s1,
-        &new_s2,
-        &new_s3,
-        &new_mid,
-        &new_opt,
-        &(RAY * 95 / 100),
-        &new_reserve,
-    );
+    let model = InterestRateModel {
+        max_borrow_rate_ray: new_max,
+        base_borrow_rate_ray: new_base,
+        slope1_ray: new_s1,
+        slope2_ray: new_s2,
+        slope3_ray: new_s3,
+        mid_utilization_ray: new_mid,
+        optimal_utilization_ray: new_opt,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: new_reserve,
+    };
+    client.update_params(&model);
 
     // Every field must round-trip exactly.
     let sync = client.get_sync_data();
@@ -1351,17 +1357,18 @@ fn test_update_params_rejects_invalid_slope_ordering() {
     let client = t.client();
 
     // slope3 < slope2: invalid.
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 2),
-        &(RAY / 5),
-        &(RAY / 2),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 2,
+        slope3_ray: RAY / 5,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidBorrowParams as u32,
@@ -1374,17 +1381,18 @@ fn test_update_params_rejects_mid_utilization_zero() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &0i128,
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &1000,
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: 0i128,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidUtilRange as u32,
@@ -1398,17 +1406,18 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let result = flatten_contract_result(client.try_update_params(
-        &(2 * RAY),
-        &(RAY / 100),
-        &(RAY / 10),
-        &(RAY / 5),
-        &RAY,
-        &(RAY / 2),
-        &(RAY * 8 / 10),
-        &(RAY * 95 / 100),
-        &(BPS as u32),
-    ));
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: BPS as u32,
+    };
+    let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
         common::errors::CollateralError::InvalidReserveFactor as u32,
