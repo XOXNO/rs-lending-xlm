@@ -1,7 +1,5 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-#[cfg(not(feature = "certora"))]
-mod abi;
 mod cache;
 mod interest;
 mod utils;
@@ -31,7 +29,7 @@ use soroban_sdk::{
     IntoVal, Symbol,
 };
 
-contractmeta!(key = "name", val = "rs-lending-xlm liquidity pool");
+contractmeta!(key = "name", val = "Liquidity Pool");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
 contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
 
@@ -47,6 +45,8 @@ use utils::{
 #[contract]
 pub struct LiquidityPool;
 
+// Constructor lives in an inherent impl because Soroban constructors can't be
+// declared in traits.
 #[contractimpl]
 impl LiquidityPool {
     pub fn __constructor(env: Env, admin: Address, params: MarketParamsRaw) {
@@ -66,9 +66,14 @@ impl LiquidityPool {
         };
         env.storage().instance().set(&PoolKey::State, &state);
     }
+}
 
+// Trait impl is the ABI surface: every method here must match
+// `pool_interface::LiquidityPoolInterface` exactly, enforced at `cargo check`.
+#[contractimpl]
+impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
-    pub fn supply(
+    fn supply(
         env: Env,
         position: AccountPositionRaw,
         amount: i128,
@@ -91,7 +96,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn borrow(
+    fn borrow(
         env: Env,
         caller: Address,
         amount: i128,
@@ -121,7 +126,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn withdraw(
+    fn withdraw(
         env: Env,
         caller: Address,
         amount: i128,
@@ -161,7 +166,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn repay(
+    fn repay(
         env: Env,
         caller: Address,
         amount: i128,
@@ -186,7 +191,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn update_indexes(env: Env) -> MarketStateSnapshot {
+    fn update_indexes(env: Env) -> MarketStateSnapshot {
         renew_pool_instance(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -197,7 +202,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot {
+    fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot {
         renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
@@ -218,7 +223,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn flash_loan(
+    fn flash_loan(
         env: Env,
         initiator: Address,
         receiver: Address,
@@ -288,7 +293,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn create_strategy(
+    fn create_strategy(
         env: Env,
         caller: Address,
         position: AccountPositionRaw,
@@ -330,7 +335,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn seize_position(
+    fn seize_position(
         env: Env,
         side: AccountPositionType,
         position: AccountPositionRaw,
@@ -363,7 +368,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn claim_revenue(env: Env) -> PoolAmountMutation {
+    fn claim_revenue(env: Env) -> PoolAmountMutation {
         renew_pool_instance(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -392,7 +397,7 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn update_params(env: Env, model: InterestRateModel) {
+    fn update_params(env: Env, model: InterestRateModel) {
         renew_pool_instance(&env);
         // Accrue at old rate model before applying new.
         let mut cache = Cache::load(&env);
@@ -404,51 +409,51 @@ impl LiquidityPool {
     }
 
     #[only_owner]
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_pool_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
     #[only_owner]
-    pub fn keepalive(env: Env) {
+    fn keepalive(env: Env) {
         renew_pool_instance(&env);
     }
 
     // Read-only views.
 
-    pub fn capital_utilisation(env: Env) -> i128 {
+    fn capital_utilisation(env: Env) -> i128 {
         views::capital_utilisation(&env)
     }
 
-    pub fn reserves(env: Env) -> i128 {
+    fn reserves(env: Env) -> i128 {
         views::reserves(&env)
     }
 
-    pub fn deposit_rate(env: Env) -> i128 {
+    fn deposit_rate(env: Env) -> i128 {
         views::deposit_rate(&env)
     }
 
-    pub fn borrow_rate(env: Env) -> i128 {
+    fn borrow_rate(env: Env) -> i128 {
         views::borrow_rate(&env)
     }
 
-    pub fn protocol_revenue(env: Env) -> i128 {
+    fn protocol_revenue(env: Env) -> i128 {
         views::protocol_revenue(&env)
     }
 
-    pub fn supplied_amount(env: Env) -> i128 {
+    fn supplied_amount(env: Env) -> i128 {
         views::supplied_amount(&env)
     }
 
-    pub fn borrowed_amount(env: Env) -> i128 {
+    fn borrowed_amount(env: Env) -> i128 {
         views::borrowed_amount(&env)
     }
 
-    pub fn delta_time(env: Env) -> u64 {
+    fn delta_time(env: Env) -> u64 {
         views::delta_time(&env)
     }
 
-    pub fn get_sync_data(env: Env) -> PoolSyncData {
+    fn get_sync_data(env: Env) -> PoolSyncData {
         let params: MarketParamsRaw = env
             .storage()
             .instance()

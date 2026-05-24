@@ -27,7 +27,7 @@ pub mod spec;
 
 use soroban_sdk::{contract, contractmeta};
 
-contractmeta!(key = "name", val = "rs-lending-xlm controller");
+contractmeta!(key = "name", val = "Lending Controller");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
 contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
 
