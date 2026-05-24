@@ -5,7 +5,7 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec};
 use stellar_macros::when_not_paused;
 
-use super::dust::require_no_dust_after;
+use super::dust::require_no_borrow_dust_for_assets;
 use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
@@ -94,14 +94,19 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     validation::require_account_owner_match(env, &account, caller);
 
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
+    // Aggregate once at the entrypoint; downstream stages — including the
+    // post-flight dust scope — operate on the deduped plan.
+    let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    process_borrow_plan(env, caller, account_id, &mut account, borrows, &mut cache);
+    process_borrow_plan(env, caller, account_id, &mut account, &borrow_plan, &mut cache);
 
     // Stage 5: Post-flight Risk Gates
     validation::require_healthy_account(env, &mut cache, &account);
-    // Rejects dust positions.
-    require_no_dust_after(env, &mut cache, &account);
+    // Dust gate is scoped to the borrowed assets — borrow never mutates
+    // supply positions and must not be blocked by pre-existing borrow or
+    // supply positions that drifted under the floor.
+    require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &borrow_plan));
 
     // Stage 6: State Persistence
     storage::set_positions(
@@ -115,17 +120,18 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     cache.emit_market_batch();
 }
 
-// Processes borrow plan on account.
+// Processes the borrow batch on an account. `borrow_plan` MUST be the
+// output of `utils::aggregate_positive_payments` — already deduped and with
+// every amount > 0. The entrypoint aggregates before this call.
 pub fn process_borrow_plan(
     env: &Env,
     caller: &Address,
     account_id: u64,
     account: &mut Account,
-    borrows: &Vec<Payment>,
+    borrow_plan: &Vec<Payment>,
     cache: &mut ControllerCache,
 ) {
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-    let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
     // Resolve effective asset configs.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
@@ -135,15 +141,8 @@ pub fn process_borrow_plan(
     }
 
     let _ = account_id;
-    prepare_borrow_plan(env, account, &borrow_plan, cache, &effective_configs);
-    execute_borrow_plan(
-        env,
-        caller,
-        account,
-        &borrow_plan,
-        cache,
-        &effective_configs,
-    );
+    prepare_borrow_plan(env, account, borrow_plan, cache, &effective_configs);
+    execute_borrow_plan(env, caller, account, borrow_plan, cache, &effective_configs);
 }
 
 fn validate_borrow_asset_preflight(

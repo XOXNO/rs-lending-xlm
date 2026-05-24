@@ -119,7 +119,6 @@ impl TestSetup {
             scaled_amount_ray: 0,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
             loan_to_value_bps: 7500,
         }
     }
@@ -129,7 +128,6 @@ impl TestSetup {
             scaled_amount_ray: 0,
             liquidation_threshold_bps: 8000,
             liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
             loan_to_value_bps: 7500,
         }
     }

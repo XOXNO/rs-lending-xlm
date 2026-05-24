@@ -596,6 +596,10 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
     for (i, (asset, position)) in supplies.iter().enumerate() {
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data();
+        // Liquidation fee is a market-level parameter sourced from the current
+        // asset config (mirrors production `asset_config.liquidation_fees`),
+        // not a per-position field.
+        let liq_fees_bps = t.ctrl_client().get_market_config(&asset).asset_config.liquidation_fees_bps;
         out.push(RefCollateralPosition {
             asset_id: i as u32,
             supply_scaled_ray: br_from_i128(position.scaled_amount_ray),
@@ -603,7 +607,7 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
             price_wad: br_from_i128(market.price_wad),
             liq_threshold_bps: i128::from(position.liquidation_threshold_bps),
             liq_bonus_bps: i128::from(position.liquidation_bonus_bps),
-            liq_fees_bps: i128::from(position.liquidation_fees_bps),
+            liq_fees_bps: i128::from(liq_fees_bps),
             decimals: market.decimals,
         });
     }

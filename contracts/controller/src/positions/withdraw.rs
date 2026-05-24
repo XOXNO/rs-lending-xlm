@@ -6,7 +6,7 @@ use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
-use super::dust::require_no_dust_after;
+use super::dust::require_no_supply_dust_for_assets;
 use super::update;
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_withdraw_call;
@@ -67,8 +67,9 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     let mut cache = ControllerCache::new(env, policy);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
+    // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let withdrawal_plan = aggregate_payments(env, withdrawals, true);
-    for (asset, amount) in withdrawal_plan {
+    for (asset, amount) in withdrawal_plan.iter() {
         process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
@@ -76,8 +77,10 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     // Enforce HF and LTV gates.
     validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
-    // Dust residue not allowed on partial withdraw.
-    require_no_dust_after(env, &mut cache, &account);
+    // Dust gate is scoped to the withdrawn assets — withdraw never mutates
+    // borrow positions and must not be blocked by pre-existing positions
+    // that drifted under the floor on assets the user did not touch.
+    require_no_supply_dust_for_assets(env, &mut cache, &account, &plan_assets(env, &withdrawal_plan));
 
     // Stage 6: State Persistence
     if account.is_empty() {

@@ -83,7 +83,6 @@ pub struct EventAccountPosition {
     pub account_nonce: u64,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
     pub loan_to_value_bps: u32,
 }
 
@@ -102,7 +101,6 @@ impl EventAccountPosition {
             account_nonce: account_id,
             liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
             liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
-            liquidation_fees_bps: position.liquidation_fees.raw() as u32,
             loan_to_value_bps: position.loan_to_value.raw() as u32,
         }
     }
@@ -336,7 +334,6 @@ pub struct EventPositionDelta {
     pub asset_price_wad: Option<i128>,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
     pub loan_to_value_bps: u32,
 }
 
@@ -361,7 +358,6 @@ impl EventPositionDelta {
             asset_price_wad,
             liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
             liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
-            liquidation_fees_bps: position.liquidation_fees.raw() as u32,
             loan_to_value_bps: position.loan_to_value.raw() as u32,
         }
     }
@@ -894,7 +890,6 @@ mod tests {
                 asset_price_wad: None,
                 liquidation_threshold_bps: 0,
                 liquidation_bonus_bps: 0,
-                liquidation_fees_bps: 0,
                 loan_to_value_bps: 0,
             });
             emit_update_position_batch(

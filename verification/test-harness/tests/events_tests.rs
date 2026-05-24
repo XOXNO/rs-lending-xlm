@@ -108,7 +108,6 @@ fn test_supply_position_event_restores_risk_fields() {
     for field in [
         "liquidation_threshold_bps",
         "liquidation_bonus_bps",
-        "liquidation_fees_bps",
         "loan_to_value_bps",
     ] {
         assert!(

@@ -36,6 +36,123 @@ fn test_supply_above_dust_floor_succeeds() {
     t.assert_supply_near(ALICE, "USDC", 100.0, 1.0);
 }
 
+// Regression: a pre-existing supply position whose USD value drifted under
+// the dust floor due to a price crash (not user action) must NOT block an
+// unrelated supply of a different, healthy asset. The dust gate on supply
+// only applies to the assets actually being supplied in this action.
+#[test]
+fn test_supply_unrelated_asset_not_blocked_by_price_crashed_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Alice supplies $15 USDC — above the $10 floor at open time.
+    t.supply(ALICE, "USDC", 15.0);
+
+    // USDC crashes to $0.50. Alice's position is now $7.50 < $10 floor.
+    // She did not cause this — the market moved.
+    t.set_price("USDC", common::constants::WAD / 2);
+
+    // Alice now deposits a healthy unrelated asset ($100 ETH). The
+    // pre-existing crashed USDC position must not block this.
+    let result = t.try_supply(ALICE, "ETH", 0.05); // 0.05 ETH @ $2000 = $100
+    assert!(
+        result.is_ok(),
+        "supply of healthy unrelated asset must not be blocked by a \
+         pre-existing position that drifted below dust floor; got {:?}",
+        result
+    );
+
+    t.assert_supply_near(ALICE, "ETH", 0.05, 0.001);
+}
+
+// Regression: borrow must not be blocked by an unrelated supply position
+// whose USD value drifted sub-floor from a price crash. Borrow only mutates
+// borrow positions; the dust gate scopes to the touched (borrowed) assets.
+#[test]
+fn test_borrow_not_blocked_by_price_crashed_supply_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(usdt_stable_preset())
+        .build();
+
+    // Alice's collateral: $1000 ETH plus a small $15 USDC stake. Both
+    // initially above the $10 floor.
+    t.supply_bulk(ALICE, &[("ETH", 0.5), ("USDC", 15.0)]);
+
+    // USDC crashes to $0.50 → USDC supply position now worth $7.50, dust.
+    // ETH collateral untouched ($1000) so the account is still healthy.
+    t.set_price("USDC", common::constants::WAD / 2);
+
+    // Alice borrows a healthy amount of USDT, well above the floor.
+    let result = t.try_borrow(ALICE, "USDT", 50.0);
+    assert!(
+        result.is_ok(),
+        "borrow must not be blocked by a pre-existing supply position \
+         that drifted below dust floor; got {:?}",
+        result
+    );
+}
+
+// Regression: withdraw of a healthy position must not be blocked by an
+// unrelated supply position that drifted sub-floor from a price crash.
+// Withdraw mutates supply only; dust scopes to withdrawn assets.
+#[test]
+fn test_withdraw_not_blocked_by_price_crashed_other_supply_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply_bulk(ALICE, &[("ETH", 0.5), ("USDC", 15.0)]);
+
+    // USDC crashes — USDC supply position now sub-floor at $7.50.
+    t.set_price("USDC", common::constants::WAD / 2);
+
+    // Alice withdraws part of her ETH (leaves $900 of ETH, still well
+    // above floor). The drifted USDC leg must not block this.
+    let result = t.try_withdraw(ALICE, "ETH", 0.05);
+    assert!(
+        result.is_ok(),
+        "withdraw of healthy position must not be blocked by an unrelated \
+         pre-existing position that drifted below dust floor; got {:?}",
+        result
+    );
+}
+
+// Regression: repay must not be blocked by an unrelated borrow position
+// whose USD value drifted sub-floor. Repay mutates borrow only; dust
+// scopes to repaid assets.
+#[test]
+fn test_repay_not_blocked_by_price_crashed_other_borrow_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(usdt_stable_preset())
+        .build();
+
+    // Alice: $10k USDC supply, borrows two debts.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 100.0);
+    t.borrow(ALICE, "ETH", 0.025); // $50 debt @ $2000
+
+    // ETH crashes hard. Alice's ETH debt is now 0.025 × $40 = $1, dust.
+    // (Her supply ETH/USDC isn't relevant — USDC is the collateral.)
+    t.set_price("ETH", common::constants::WAD * 40);
+
+    // Alice repays $50 of USDT. ETH debt is untouched; its dust state is
+    // not the repay path's concern.
+    let result = t.try_repay(ALICE, "USDT", 50.0);
+    assert!(
+        result.is_ok(),
+        "repay must not be blocked by an unrelated borrow position that \
+         drifted below dust floor; got {:?}",
+        result
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Repay / withdraw partial-residue gates
 // ---------------------------------------------------------------------------

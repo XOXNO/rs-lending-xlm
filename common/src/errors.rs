@@ -132,6 +132,7 @@ pub enum EModeError {
     AssetNotInEmode = 307,
     AssetAlreadyInEmode = 308,
     EModeAssetsLimitReached = 309,
+    EModeMismatch = 310,
 }
 
 #[contracterror]

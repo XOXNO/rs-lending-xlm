@@ -114,7 +114,16 @@ pub fn process_swap_collateral(
         &mut cache,
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(
+        env,
+        account_id,
+        &mut account,
+        &mut cache,
+        crate::strategies::helpers::StrategyTouched {
+            supply_assets: &[current_collateral, new_collateral],
+            borrow_assets: &[],
+        },
+    );
 }
 
 // Pre-flight guard for swap_collateral.

@@ -9,7 +9,7 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
-use super::dust::require_no_dust_after;
+use super::dust::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use super::liquidation_math::*;
 use super::repay::RepaymentRequest;
 use super::withdraw::{WithdrawFlags, WithdrawalRequest};
@@ -82,7 +82,10 @@ pub fn process_liquidation(
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
     // Stage 5: Post-flight Risk Gates
-    // Per-position dust gate.
+    // Per-leg dust gate. Scoped to the assets the liquidation actually
+    // touched (seized supply + repaid debt). Other positions on the
+    // account that drifted under floor due to price moves are not the
+    // liquidation's concern and must not block the call.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
         env,
         &mut cache,
@@ -92,7 +95,10 @@ pub fn process_liquidation(
     let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
     let will_socialize = post_total_debt > post_total_coll && post_total_coll <= bad_debt_threshold;
     if !will_socialize {
-        require_no_dust_after(env, &mut cache, &account);
+        let seized_assets = seize_entry_assets(env, &result.seized);
+        let repaid_assets = repay_entry_assets(env, &result.repaid);
+        require_no_supply_dust_for_assets(env, &mut cache, &account, &seized_assets);
+        require_no_borrow_dust_for_assets(env, &mut cache, &account, &repaid_assets);
     }
 
     // Stage 6: State Persistence
@@ -116,6 +122,28 @@ pub fn process_liquidation(
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
+}
+
+fn seize_entry_assets(env: &Env, seized: &Vec<SeizeEntry>) -> Vec<Address> {
+    let mut out: Vec<Address> = Vec::new(env);
+    for i in 0..seized.len() {
+        let entry = validation::expect_invariant(env, seized.get(i));
+        if !out.contains(&entry.asset) {
+            out.push_back(entry.asset);
+        }
+    }
+    out
+}
+
+fn repay_entry_assets(env: &Env, repaid: &Vec<RepayEntry>) -> Vec<Address> {
+    let mut out: Vec<Address> = Vec::new(env);
+    for i in 0..repaid.len() {
+        let entry = validation::expect_invariant(env, repaid.get(i));
+        if !out.contains(&entry.asset) {
+            out.push_back(entry.asset);
+        }
+    }
+    out
 }
 
 fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {

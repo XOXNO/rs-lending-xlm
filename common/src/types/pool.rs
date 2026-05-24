@@ -160,7 +160,6 @@ pub struct AccountPositionRaw {
     pub scaled_amount_ray: i128,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
     pub loan_to_value_bps: u32,
 }
 
@@ -170,7 +169,6 @@ pub struct AccountPosition {
     pub scaled_amount: Ray,
     pub liquidation_threshold: Bps,
     pub liquidation_bonus: Bps,
-    pub liquidation_fees: Bps,
     pub loan_to_value: Bps,
 }
 
@@ -180,7 +178,6 @@ impl From<&AccountPositionRaw> for AccountPosition {
             scaled_amount: Ray::from_raw(r.scaled_amount_ray),
             liquidation_threshold: Bps::from_raw(i128::from(r.liquidation_threshold_bps)),
             liquidation_bonus: Bps::from_raw(i128::from(r.liquidation_bonus_bps)),
-            liquidation_fees: Bps::from_raw(i128::from(r.liquidation_fees_bps)),
             loan_to_value: Bps::from_raw(i128::from(r.loan_to_value_bps)),
         }
     }
@@ -192,7 +189,6 @@ impl From<&AccountPosition> for AccountPositionRaw {
             scaled_amount_ray: t.scaled_amount.raw(),
             liquidation_threshold_bps: t.liquidation_threshold.raw() as u32,
             liquidation_bonus_bps: t.liquidation_bonus.raw() as u32,
-            liquidation_fees_bps: t.liquidation_fees.raw() as u32,
             loan_to_value_bps: t.loan_to_value.raw() as u32,
         }
     }
@@ -416,7 +412,6 @@ mod tests {
             scaled_amount_ray: 12_345 * RAY,
             liquidation_threshold_bps: 8_500,
             liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
             loan_to_value_bps: 8_000,
         };
         let typed = AccountPosition::from(&raw);

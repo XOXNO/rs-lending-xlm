@@ -6,7 +6,7 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
-use super::dust::require_no_dust_after;
+use super::dust::require_no_supply_dust_for_assets;
 use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_supply_call;
@@ -40,17 +40,21 @@ pub fn process_supply(
     require_not_flash_loaning(env);
 
     // Stage 2: State Resolution
-    //
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
+    // Aggregate once at the entrypoint; downstream stages — including the
+    // post-flight dust scope — operate on the deduped plan.
+    let deposit_plan = utils::aggregate_positive_payments(env, assets);
     let (acct_id, mut account) =
-        resolve_supply_account(env, caller, account_id, e_mode_category, assets, &mut cache);
+        resolve_supply_account(env, caller, account_id, e_mode_category, &deposit_plan, &mut cache);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    process_deposit(env, caller, &mut account, assets, &mut cache);
+    process_deposit(env, caller, &mut account, &deposit_plan, &mut cache);
 
     // Stage 5: Post-flight Risk Gates
-    // Rejects dust on first-time supply.
-    require_no_dust_after(env, &mut cache, &account);
+    // Dust gate is scoped to the assets supplied in this batch — supply
+    // never mutates borrow positions and must not be blocked by pre-existing
+    // positions whose USD value drifted under the floor from price moves.
+    require_no_supply_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &deposit_plan));
 
     // Stage 6: State Persistence
     storage::set_positions(
@@ -80,22 +84,28 @@ fn resolve_supply_account(
         create_account_for_first_asset(env, caller, e_mode_category, assets, cache)
     } else {
         let account = storage::get_account_supply_only(env, account_id);
+        // Non-zero `e_mode_category` must match the account's stored mode;
+        // zero is the unspecified sentinel.
+        if e_mode_category != 0 && e_mode_category != account.e_mode_category_id {
+            panic_with_error!(env, common::errors::EModeError::EModeMismatch);
+        }
         (account_id, account)
     }
 }
 
-// Processes deposit batch on account.
+// Processes the deposit batch on an account. `deposit_plan` MUST be the
+// output of `utils::aggregate_positive_payments` — already deduped and with
+// every amount > 0. Strategy callers that pass a single-element batch are
+// trivially aggregated; the supply entrypoint aggregates before this call.
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    assets: &Vec<Payment>,
+    deposit_plan: &Vec<Payment>,
     cache: &mut ControllerCache,
 ) {
     // Fetch the e-mode category once and reuse across every iteration.
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-
-    let deposit_plan = utils::aggregate_positive_payments(env, assets);
 
     // Resolve effective asset configs once; both prepare and execute read them.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
@@ -104,15 +114,8 @@ pub fn process_deposit(
         effective_configs.set(asset, (&cfg).into());
     }
 
-    prepare_deposit_plan(env, account, &deposit_plan, cache, &effective_configs);
-    execute_deposit_plan(
-        env,
-        caller,
-        account,
-        &deposit_plan,
-        cache,
-        &effective_configs,
-    );
+    prepare_deposit_plan(env, account, deposit_plan, cache, &effective_configs);
+    execute_deposit_plan(env, caller, account, deposit_plan, cache, &effective_configs);
 }
 
 fn prepare_deposit_plan(
@@ -193,9 +196,6 @@ pub fn update_deposit_position(
     }
     if position.liquidation_bonus != req.asset_config.liquidation_bonus {
         position.liquidation_bonus = req.asset_config.liquidation_bonus;
-    }
-    if position.liquidation_fees != req.asset_config.liquidation_fees {
-        position.liquidation_fees = req.asset_config.liquidation_fees;
     }
 
     let market_update = update_market_position(

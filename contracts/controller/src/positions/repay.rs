@@ -9,7 +9,7 @@ use stellar_macros::when_not_paused;
 
 use super::EventContext;
 
-use super::dust::require_no_dust_after;
+use super::dust::require_no_borrow_dust_for_assets;
 use super::update;
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_repay_call;
@@ -52,14 +52,18 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     let mut cache = ControllerCache::new(env, policy);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
+    // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
-    for (asset, amount) in repayment_plan {
+    for (asset, amount) in repayment_plan.iter() {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
     // Stage 5: Post-flight Risk Gates
-    // Partial repay must stay above dust floor or repay in full.
-    require_no_dust_after(env, &mut cache, &account);
+    // Dust gate is scoped to the repaid assets — repay never mutates
+    // supply positions and must not be blocked by pre-existing borrow
+    // positions that drifted under the floor on assets the user did
+    // not touch.
+    require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &repayment_plan));
 
     // Stage 6: State Persistence
     storage::set_positions(

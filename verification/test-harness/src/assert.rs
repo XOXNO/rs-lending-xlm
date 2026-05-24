@@ -87,6 +87,7 @@ pub mod errors {
     pub const DEBT_CEILING_REACHED: u32 = 304;
     pub const NOT_BORROWABLE_ISOLATION: u32 = 305;
     pub const ASSET_NOT_IN_EMODE: u32 = 307;
+    pub const EMODE_MISMATCH: u32 = 310;
 
     // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = 400;

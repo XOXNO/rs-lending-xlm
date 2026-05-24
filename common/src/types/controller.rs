@@ -339,7 +339,6 @@ impl Account {
                 scaled_amount: Ray::ZERO,
                 liquidation_threshold: config.liquidation_threshold,
                 liquidation_bonus: config.liquidation_bonus,
-                liquidation_fees: config.liquidation_fees,
                 loan_to_value: config.loan_to_value,
             })
     }
@@ -563,7 +562,6 @@ mod tests {
             scaled_amount_ray: 1,
             liquidation_threshold_bps: 0,
             liquidation_bonus_bps: 0,
-            liquidation_fees_bps: 0,
             loan_to_value_bps: 0,
         };
         account
@@ -581,7 +579,6 @@ mod tests {
             scaled_amount_ray: 42 * crate::constants::RAY,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
             loan_to_value_bps: 7_500,
         };
         account.supply_positions.set(asset.clone(), stored.clone());
@@ -603,7 +600,6 @@ mod tests {
         assert_eq!(fresh.loan_to_value, cfg.loan_to_value);
         assert_eq!(fresh.liquidation_threshold, cfg.liquidation_threshold);
         assert_eq!(fresh.liquidation_bonus, cfg.liquidation_bonus);
-        assert_eq!(fresh.liquidation_fees, cfg.liquidation_fees);
     }
 }
 

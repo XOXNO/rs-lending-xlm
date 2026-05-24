@@ -189,6 +189,17 @@ impl LendingTest {
         asset_name: &str,
         amount: f64,
     ) -> Result<u64, soroban_sdk::Error> {
+        self.try_supply_with_e_mode(user, asset_name, amount, 0)
+    }
+
+    /// Try supply with an explicit e-mode argument -- returns Result.
+    pub fn try_supply_with_e_mode(
+        &mut self,
+        user: &str,
+        asset_name: &str,
+        amount: f64,
+        e_mode_category: u32,
+    ) -> Result<u64, soroban_sdk::Error> {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw_amount = f64_to_i128(amount, decimals);
         let addr = self.get_or_create_user(user);
@@ -200,7 +211,7 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        match ctrl.try_supply(&addr, &account_id, &0u32, &assets) {
+        match ctrl.try_supply(&addr, &account_id, &e_mode_category, &assets) {
             Ok(Ok(id)) => Ok(id),
             Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

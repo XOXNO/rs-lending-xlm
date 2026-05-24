@@ -104,5 +104,14 @@ pub fn process_swap_debt(
         },
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(
+        env,
+        account_id,
+        &mut account,
+        &mut cache,
+        crate::strategies::helpers::StrategyTouched {
+            supply_assets: &[],
+            borrow_assets: &[existing_debt_token, new_debt_token],
+        },
+    );
 }

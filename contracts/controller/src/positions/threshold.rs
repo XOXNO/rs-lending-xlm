@@ -102,7 +102,6 @@ fn update_position_threshold(
     let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
     let cfg_ltv = asset_config.loan_to_value.raw() as u32;
     let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
-    let cfg_fees = asset_config.liquidation_fees.raw() as u32;
     if has_risks {
         if updated_pos.liquidation_threshold_bps != cfg_lt {
             updated_pos.liquidation_threshold_bps = cfg_lt;
@@ -113,9 +112,6 @@ fn update_position_threshold(
         }
         if updated_pos.liquidation_bonus_bps != cfg_bonus {
             updated_pos.liquidation_bonus_bps = cfg_bonus;
-        }
-        if updated_pos.liquidation_fees_bps != cfg_fees {
-            updated_pos.liquidation_fees_bps = cfg_fees;
         }
     }
 

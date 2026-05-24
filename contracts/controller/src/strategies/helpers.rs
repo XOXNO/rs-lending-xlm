@@ -4,7 +4,7 @@ use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractIn
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec};
 
 use crate::cache::ControllerCache;
-use crate::positions::dust::require_no_dust_after;
+use crate::positions::dust::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest};
 use crate::{positions::borrow, positions::EventContext, storage, utils, validation};
@@ -372,12 +372,33 @@ pub(crate) fn refund_controller_balance_delta(
     }
 }
 
+fn addresses_from_slice(env: &Env, items: &[&Address]) -> Vec<Address> {
+    let mut out: Vec<Address> = Vec::new(env);
+    for addr in items {
+        if !out.contains(*addr) {
+            out.push_back((*addr).clone());
+        }
+    }
+    out
+}
+
+// Per-strategy touched-asset descriptor for the post-finalize dust gate.
+// Strategies build this from their entrypoint arguments so the dust check
+// only enforces the floor on legs the strategy actually mutated. Pre-existing
+// positions on other assets that drifted under floor (price moves, interest
+// accrual) are not the strategy's concern and must not block the call.
+pub(crate) struct StrategyTouched<'a> {
+    pub supply_assets: &'a [&'a Address],
+    pub borrow_assets: &'a [&'a Address],
+}
+
 // Persists state and flushes isolated debt.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
     account: &mut Account,
     cache: &mut ControllerCache,
+    touched: StrategyTouched<'_>,
 ) {
     // Remove accounts that closed out entirely; otherwise persist.
     if account.is_empty() {
@@ -409,9 +430,13 @@ pub(crate) fn strategy_finalize(
     cache.prices_cache = soroban_sdk::Map::new(env);
     validation::require_within_ltv(env, cache, account);
     validation::require_healthy_account(env, cache, account);
-    // Strategy paths can leave sub-floor residue on either side; the
-    // per-asset dust floor is enforced on every position post-finalize.
-    require_no_dust_after(env, cache, account);
+    // Strategy paths can leave sub-floor residue on either touched leg;
+    // enforce the per-asset dust floor on the legs this strategy actually
+    // mutated (built by the entrypoint as `touched`).
+    let supply_touched = addresses_from_slice(env, touched.supply_assets);
+    let borrow_touched = addresses_from_slice(env, touched.borrow_assets);
+    require_no_supply_dust_for_assets(env, cache, account, &supply_touched);
+    require_no_borrow_dust_for_assets(env, cache, account, &borrow_touched);
 
     // Borrow-position-cap enforcement lives at each strategy entrypoint
     // that actually opens debt (multiply, swap_debt) — mirrors `borrow_batch`'s

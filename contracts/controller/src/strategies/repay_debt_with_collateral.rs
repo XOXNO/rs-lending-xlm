@@ -128,7 +128,16 @@ pub fn process_repay_debt_with_collateral(
         close_position,
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(
+        env,
+        account_id,
+        &mut account,
+        &mut cache,
+        crate::strategies::helpers::StrategyTouched {
+            supply_assets: &[collateral_token],
+            borrow_assets: &[debt_token],
+        },
+    );
 }
 
 fn load_repay_with_collateral_positions(

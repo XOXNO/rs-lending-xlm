@@ -155,7 +155,16 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &mut cache,
     );
 
-    strategy_finalize(env, account_id, &mut account, &mut cache);
+    strategy_finalize(
+        env,
+        account_id,
+        &mut account,
+        &mut cache,
+        crate::strategies::helpers::StrategyTouched {
+            supply_assets: &[collateral_token],
+            borrow_assets: &[debt_token],
+        },
+    );
 
     emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
 

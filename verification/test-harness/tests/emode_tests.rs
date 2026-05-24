@@ -460,3 +460,63 @@ fn test_emode_deprecated_category_operations_rejected() {
     };
     assert_contract_error(flat_edit_asset, errors::EMODE_CATEGORY_DEPRECATED);
 }
+
+// Regression: passing a non-zero `e_mode_category` argument to supply on an
+// EXISTING account must panic if it disagrees with the account's stored
+// category. Without this guard the argument was silently ignored — the caller
+// believes they are operating in one mode while the account is in another.
+// Zero remains the "unspecified" sentinel (kept for harness convention) and
+// does not trigger the guard.
+#[test]
+fn test_supply_rejects_e_mode_mismatch_on_existing_account() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    // Alice opens a normal (non-emode) account via her first supply.
+    t.supply(ALICE, "USDC", 50.0);
+
+    // Now she calls supply on the same account with e_mode = 1. The account
+    // is in e_mode = 0; the call must reject.
+    let result = t.try_supply_with_e_mode(ALICE, "USDC", 10.0, 1);
+    assert_contract_error(result, errors::EMODE_MISMATCH);
+}
+
+#[test]
+fn test_supply_rejects_e_mode_mismatch_against_active_category() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    // Alice opens an e-mode 1 account.
+    let _ = t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 50.0);
+
+    // Re-supply with a DIFFERENT non-zero category must reject.
+    let result = t.try_supply_with_e_mode(ALICE, "USDC", 10.0, 2);
+    assert_contract_error(result, errors::EMODE_MISMATCH);
+}
+
+// Negative-case: zero stays as "unspecified" and must NOT trigger the
+// mismatch panic, preserving the harness's pervasive `&0u32` convention.
+#[test]
+fn test_supply_zero_e_mode_does_not_trigger_mismatch_against_active_category() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let _ = t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 50.0);
+
+    // Caller passes 0 (the default sentinel); account is in e_mode=1.
+    // This is the existing harness convention and must keep working.
+    let result = t.try_supply_with_e_mode(ALICE, "USDC", 10.0, 0);
+    assert!(
+        result.is_ok(),
+        "zero e_mode argument is the 'unspecified' sentinel and must not \
+         trigger the mismatch guard; got {:?}",
+        result
+    );
+}

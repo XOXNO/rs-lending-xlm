@@ -12,6 +12,17 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Pa
     aggregate_payments(env, payments, false)
 }
 
+// Asset addresses from an already-aggregated payment plan. The aggregation
+// step (`aggregate_positive_payments` / `aggregate_payments`) guarantees
+// uniqueness, so this is just a tuple-to-address projection — no dedup.
+pub fn plan_assets(env: &Env, plan: &Vec<Payment>) -> Vec<Address> {
+    let mut out: Vec<Address> = Vec::new(env);
+    for (asset, _) in plan {
+        out.push_back(asset);
+    }
+    out
+}
+
 // Transfers asset and returns credited amount.
 pub fn transfer_and_measure_received(
     env: &Env,
