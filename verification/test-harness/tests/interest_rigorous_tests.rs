@@ -265,7 +265,7 @@ fn test_scaled_amount_times_index_equals_actual() {
 
     // Read the scaled position from the borrow side map.
     let scaled_borrow = t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPositionRaw> = t
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::DebtPositionRaw> = t
             .env
             .storage()
             .persistent()

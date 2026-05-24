@@ -1,9 +1,9 @@
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::AccountPositionRaw;
+use common::types::{AccountPositionRaw, DebtPositionRaw};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::ControllerCache;
-use crate::storage::iter_typed_positions;
+use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 // USD value of a position.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
@@ -44,7 +44,7 @@ pub fn calculate_health_factor(
     env: &Env,
     cache: &mut ControllerCache,
     supply_positions: &Map<Address, AccountPositionRaw>,
-    borrow_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> Wad {
     if borrow_positions.is_empty() {
         return Wad::from_raw(i128::MAX); // No debt means infinite HF.
@@ -64,7 +64,7 @@ pub fn calculate_account_totals(
     env: &Env,
     cache: &mut ControllerCache,
     supply_positions: &Map<Address, AccountPositionRaw>,
-    borrow_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let mut total_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
@@ -92,10 +92,10 @@ pub fn calculate_account_totals(
 pub fn calculate_total_debt_wad(
     env: &Env,
     cache: &mut ControllerCache,
-    borrow_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> Wad {
     let mut total_debt = Wad::ZERO;
-    for (asset, position) in iter_typed_positions(borrow_positions) {
+    for (asset, position) in iter_debt_positions(borrow_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 

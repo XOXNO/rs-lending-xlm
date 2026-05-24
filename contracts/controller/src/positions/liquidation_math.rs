@@ -2,7 +2,7 @@ use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::{
-    Account, AccountPosition, AccountPositionRaw, Payment, RepayEntry, SeizeEntry,
+    Account, AccountPositionRaw, DebtPosition, Payment, RepayEntry, SeizeEntry,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
@@ -64,7 +64,7 @@ pub(crate) fn calculate_repayment_amounts(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        let position: AccountPosition = (&account
+        let position: DebtPosition = (&account
             .borrow_positions
             .get(asset.clone())
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))

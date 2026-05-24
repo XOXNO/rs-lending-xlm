@@ -2,9 +2,8 @@ use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
-    AccountPosition, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot,
-    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStateRaw,
-    PoolStrategyMutation,
+    MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolAmountMutation,
+    PoolKey, PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation, ScaledPositionRaw,
 };
 use soroban_sdk::{panic_with_error, Env};
 
@@ -218,14 +217,13 @@ impl Cache {
         }
     }
 
-    // Position mutation snapshot.
-    pub fn position_mutation(
-        &self,
-        position: AccountPosition,
-        actual_amount: i128,
-    ) -> PoolPositionMutation {
+    // Position mutation snapshot. The pool returns only the scaled share; the
+    // controller owns any collateral risk params and merges this back.
+    pub fn position_mutation(&self, scaled: Ray, actual_amount: i128) -> PoolPositionMutation {
         PoolPositionMutation {
-            position: (&position).into(),
+            position: ScaledPositionRaw {
+                scaled_amount_ray: scaled.raw(),
+            },
             market_index: self.market_index(),
             market_state: self.market_snapshot(),
             actual_amount,
@@ -243,12 +241,14 @@ impl Cache {
     // Strategy mutation snapshot.
     pub fn strategy_mutation(
         &self,
-        position: AccountPosition,
+        scaled: Ray,
         actual_amount: i128,
         amount_received: i128,
     ) -> PoolStrategyMutation {
         PoolStrategyMutation {
-            position: (&position).into(),
+            position: ScaledPositionRaw {
+                scaled_amount_ray: scaled.raw(),
+            },
             market_index: self.market_index(),
             market_state: self.market_snapshot(),
             actual_amount,

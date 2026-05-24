@@ -15,7 +15,7 @@ use controller_interface::ControllerInterface;
 use soroban_sdk::{Address, Bytes, Env, Map, Vec};
 
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView,
+    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView, DebtPositionRaw,
     EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, PositionMode,
 };
 
@@ -65,7 +65,7 @@ fn _abi_proof() {
         u64,
     ) -> (
         Map<Address, AccountPositionRaw>,
-        Map<Address, AccountPositionRaw>,
+        Map<Address, DebtPositionRaw>,
     ) = Controller::get_account_positions;
     let _: fn(Env, u64) -> AccountAttributes = Controller::get_account_attributes;
     let _: fn(Env, Address) -> MarketConfig = Controller::get_market_config;

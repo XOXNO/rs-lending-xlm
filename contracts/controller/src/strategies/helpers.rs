@@ -1,5 +1,7 @@
 use common::errors::GenericError;
-use common::types::{Account, AccountPosition, AccountPositionType, AggregatorSwap, BatchSwap};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, AggregatorSwap, BatchSwap, DebtPosition,
+};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec};
 
@@ -24,7 +26,7 @@ pub(crate) mod aggregator {
 pub(crate) struct StrategyRepay<'a> {
     pub debt_token: &'a Address,
     pub debt_available: i128,
-    pub debt_pos: &'a AccountPosition,
+    pub debt_pos: &'a DebtPosition,
     pub action: Symbol,
 }
 
@@ -408,18 +410,8 @@ pub(crate) fn strategy_finalize(
         // exactly as loaded. Flush sides directly so the meta key is not
         // re-read for an equality compare. Each side write TTL-bumps meta
         // via `write_side_map`.
-        storage::set_positions(
-            env,
-            account_id,
-            AccountPositionType::Deposit,
-            &account.supply_positions,
-        );
-        storage::set_positions(
-            env,
-            account_id,
-            AccountPositionType::Borrow,
-            &account.borrow_positions,
-        );
+        storage::set_supply_positions(env, account_id, &account.supply_positions);
+        storage::set_debt_positions(env, account_id, &account.borrow_positions);
     }
 
     // Re-check HF (against liquidation threshold) and LTV (against

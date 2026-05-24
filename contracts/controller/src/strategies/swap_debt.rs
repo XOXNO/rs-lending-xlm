@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::types::{AccountPosition, AggregatorSwap};
+use common::types::{AggregatorSwap, DebtPosition};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env};
 use stellar_macros::when_not_paused;
 
@@ -85,7 +85,7 @@ pub fn process_swap_debt(
         caller,
     );
 
-    let existing_pos: AccountPosition = (&account
+    let existing_pos: DebtPosition = (&account
         .borrow_positions
         .get(existing_debt_token.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))

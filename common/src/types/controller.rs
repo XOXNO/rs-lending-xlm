@@ -1,7 +1,7 @@
 use crate::math::fp::{Bps, Ray, Wad};
 use crate::types::oracle::MarketOracleConfig;
-use crate::types::pool::{AccountPosition, AccountPositionRaw};
-use crate::types::shared::{AccountPositionType, PositionMode};
+use crate::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
+use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 // Wire/storage form. Embedded in MarketConfig (persistent storage value).
@@ -301,7 +301,7 @@ pub struct Account {
     pub mode: PositionMode,
     pub isolated_asset: Option<Address>,
     pub supply_positions: Map<Address, AccountPositionRaw>,
-    pub borrow_positions: Map<Address, AccountPositionRaw>,
+    pub borrow_positions: Map<Address, DebtPositionRaw>,
 }
 
 impl Account {
@@ -317,22 +317,15 @@ impl Account {
         self.isolated_asset.clone()
     }
 
-    /// Returns the existing supply/borrow position for `asset` (loaded from the
-    /// raw map and decoded to the typed form) or a fresh one seeded from
-    /// `config`'s risk parameters. Used at the start of every position
-    /// mutation so callers operate on a typed value regardless of whether the
-    /// asset has been touched before.
-    pub fn get_or_create_position(
+    /// Existing collateral position for `asset` (decoded to typed form) or a
+    /// fresh one seeded from `config`'s risk parameters. Collateral positions
+    /// carry the risk params that HF/LTV/liquidation math reads.
+    pub fn get_or_create_supply_position(
         &self,
-        kind: AccountPositionType,
         asset: &Address,
         config: &AssetConfig,
     ) -> AccountPosition {
-        let positions = match kind {
-            AccountPositionType::Deposit => &self.supply_positions,
-            AccountPositionType::Borrow => &self.borrow_positions,
-        };
-        positions
+        self.supply_positions
             .get(asset.clone())
             .map(|raw| AccountPosition::from(&raw))
             .unwrap_or(AccountPosition {
@@ -340,6 +333,17 @@ impl Account {
                 liquidation_threshold: config.liquidation_threshold,
                 liquidation_bonus: config.liquidation_bonus,
                 loan_to_value: config.loan_to_value,
+            })
+    }
+
+    /// Existing debt position for `asset` or a fresh zero one. Debt positions
+    /// carry only the scaled share — risk params live on collateral.
+    pub fn get_or_create_debt_position(&self, asset: &Address) -> DebtPosition {
+        self.borrow_positions
+            .get(asset.clone())
+            .map(|raw| DebtPosition::from(&raw))
+            .unwrap_or(DebtPosition {
+                scaled_amount: Ray::ZERO,
             })
     }
 
@@ -584,22 +588,33 @@ mod tests {
         account.supply_positions.set(asset.clone(), stored.clone());
 
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
-        let got = account.get_or_create_position(AccountPositionType::Deposit, &asset, &cfg);
+        let got = account.get_or_create_supply_position(&asset, &cfg);
         assert_eq!(got.scaled_amount.raw(), stored.scaled_amount_ray);
     }
 
     #[test]
-    fn test_get_or_create_position_seeds_from_config_on_borrow_side() {
+    fn test_get_or_create_supply_position_seeds_risk_from_config() {
         let env = Env::default();
         let account = empty_account(&env, account_meta(&env, 0, false));
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
         let asset = Address::generate(&env);
 
-        let fresh = account.get_or_create_position(AccountPositionType::Borrow, &asset, &cfg);
+        let fresh = account.get_or_create_supply_position(&asset, &cfg);
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
         assert_eq!(fresh.loan_to_value, cfg.loan_to_value);
         assert_eq!(fresh.liquidation_threshold, cfg.liquidation_threshold);
         assert_eq!(fresh.liquidation_bonus, cfg.liquidation_bonus);
+    }
+
+    #[test]
+    fn test_get_or_create_debt_position_is_scaled_only() {
+        let env = Env::default();
+        let account = empty_account(&env, account_meta(&env, 0, false));
+        let asset = Address::generate(&env);
+
+        // Debt positions carry only the scaled share — no risk params.
+        let fresh = account.get_or_create_debt_position(&asset);
+        assert_eq!(fresh.scaled_amount, Ray::ZERO);
     }
 }
 

@@ -1,18 +1,17 @@
 //! USD-aggregate views.
 
 use common::math::fp::Wad;
-use common::types::AccountPositionType;
 use soroban_sdk::Env;
 
 use crate::cache::ControllerCache;
-use crate::storage::iter_typed_positions;
+use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{helpers, storage};
 
 pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
     }
-    let supply = storage::get_positions(env, account_id, AccountPositionType::Deposit);
+    let supply = storage::get_supply_positions(env, account_id);
     if supply.is_empty() {
         return 0;
     }
@@ -40,7 +39,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
     }
-    let borrow = storage::get_positions(env, account_id, AccountPositionType::Borrow);
+    let borrow = storage::get_debt_positions(env, account_id);
     if borrow.is_empty() {
         return 0;
     }
@@ -48,7 +47,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     let mut cache = ControllerCache::new_view(env);
     let mut total_borrow = Wad::ZERO;
 
-    for (asset, position) in iter_typed_positions(&borrow) {
+    for (asset, position) in iter_debt_positions(&borrow) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 

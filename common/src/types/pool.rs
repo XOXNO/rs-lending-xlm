@@ -194,6 +194,73 @@ impl From<&AccountPosition> for AccountPositionRaw {
     }
 }
 
+// Pool wire/return form. The pool reasons only about scaled shares; collateral
+// risk parameters live exclusively on the controller side. Every pool method
+// takes — and every pool mutation returns — this minimal shape so the pool ABI
+// is decoupled from the controller's per-side storage structs.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScaledPositionRaw {
+    pub scaled_amount_ray: i128,
+}
+
+impl From<&AccountPosition> for ScaledPositionRaw {
+    fn from(t: &AccountPosition) -> Self {
+        Self {
+            scaled_amount_ray: t.scaled_amount.raw(),
+        }
+    }
+}
+
+impl From<&DebtPosition> for ScaledPositionRaw {
+    fn from(t: &DebtPosition) -> Self {
+        Self {
+            scaled_amount_ray: t.scaled_amount.raw(),
+        }
+    }
+}
+
+// Wire/storage form for debt positions. A borrow position carries only its
+// scaled share; the collateral risk params (threshold/bonus/ltv) are dead on
+// the debt side — HF math reads them from supply positions only.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DebtPositionRaw {
+    pub scaled_amount_ray: i128,
+}
+
+// In-memory typed form for debt positions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DebtPosition {
+    pub scaled_amount: Ray,
+}
+
+impl From<&DebtPositionRaw> for DebtPosition {
+    fn from(r: &DebtPositionRaw) -> Self {
+        Self {
+            scaled_amount: Ray::from_raw(r.scaled_amount_ray),
+        }
+    }
+}
+
+// Pool returns the post-mutation scaled share; on the debt side that is the
+// whole position.
+impl From<&ScaledPositionRaw> for DebtPosition {
+    fn from(r: &ScaledPositionRaw) -> Self {
+        Self {
+            scaled_amount: Ray::from_raw(r.scaled_amount_ray),
+        }
+    }
+}
+
+impl From<&DebtPosition> for DebtPositionRaw {
+    fn from(t: &DebtPosition) -> Self {
+        Self {
+            scaled_amount_ray: t.scaled_amount.raw(),
+        }
+    }
+}
+
 // Wire/storage form. Embedded in PoolPositionMutation / PoolStrategyMutation /
 // ControllerCache::market_indexes (Map values must be #[contracttype]).
 #[contracttype]
@@ -245,7 +312,7 @@ pub struct MarketStateSnapshot {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolPositionMutation {
-    pub position: AccountPositionRaw,
+    pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
     pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
@@ -254,7 +321,7 @@ pub struct PoolPositionMutation {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStrategyMutation {
-    pub position: AccountPositionRaw,
+    pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
     pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,

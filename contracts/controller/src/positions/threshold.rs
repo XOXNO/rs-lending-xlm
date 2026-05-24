@@ -76,7 +76,7 @@ fn update_position_threshold(
         return;
     };
 
-    let supply_positions = storage::get_positions(env, account_id, AccountPositionType::Deposit);
+    let supply_positions = storage::get_supply_positions(env, account_id);
 
     // No-op when the account has no supply position for this asset.
     let Some(position) = supply_positions.get(asset.clone()) else {
@@ -85,7 +85,7 @@ fn update_position_threshold(
 
     // Load borrow positions only when the health-factor gate requires them.
     let borrow_positions = if has_risks {
-        storage::get_positions(env, account_id, AccountPositionType::Borrow)
+        storage::get_debt_positions(env, account_id)
     } else {
         soroban_sdk::Map::new(env)
     };
@@ -124,20 +124,14 @@ fn update_position_threshold(
         supply_positions,
         borrow_positions,
     };
-    update::update_or_remove_position(
+    update::update_or_remove_supply_position(
         &mut account,
-        AccountPositionType::Deposit,
         asset,
         &AccountPosition::from(&updated_pos),
     );
 
     // Persist only the supply side; borrow stays as-is.
-    storage::set_positions(
-        env,
-        account_id,
-        AccountPositionType::Deposit,
-        &account.supply_positions,
-    );
+    storage::set_supply_positions(env, account_id, &account.supply_positions);
 
     // Enforce safety buffer on risky updates.
     if has_risks {

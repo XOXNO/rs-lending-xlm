@@ -2,7 +2,7 @@ extern crate std;
 
 use super::*;
 use common::constants::{BPS, RAY};
-use common::types::AccountPositionRaw;
+use common::types::ScaledPositionRaw;
 use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
@@ -114,21 +114,15 @@ impl TestSetup {
         LiquidityPoolClient::new(&self.env, &self.pool)
     }
 
-    fn deposit_position(&self) -> AccountPositionRaw {
-        AccountPositionRaw {
+    fn deposit_position(&self) -> ScaledPositionRaw {
+        ScaledPositionRaw {
             scaled_amount_ray: 0,
-            liquidation_threshold_bps: 8000,
-            liquidation_bonus_bps: 500,
-            loan_to_value_bps: 7500,
         }
     }
 
-    fn borrow_position(&self) -> AccountPositionRaw {
-        AccountPositionRaw {
+    fn borrow_position(&self) -> ScaledPositionRaw {
+        ScaledPositionRaw {
             scaled_amount_ray: 0,
-            liquidation_threshold_bps: 8000,
-            liquidation_bonus_bps: 500,
-            loan_to_value_bps: 7500,
         }
     }
 

@@ -1,9 +1,9 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
-    Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, EModeAssetConfig,
-    EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
-    OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
+    Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, DebtPosition,
+    EModeAssetConfig, EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation,
+    OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
 };
 
 #[contracttype]
@@ -359,6 +359,32 @@ impl EventPositionDelta {
             liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
             liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
             loan_to_value_bps: position.loan_to_value.raw() as u32,
+        }
+    }
+
+    // Debt-position delta. Debt positions carry no collateral risk params, so
+    // the risk fields are zeroed. CONSUMERS MUST gate interpretation of the
+    // risk fields on `position_type == Borrow` (a zero here means "N/A", not a
+    // configured 0% value).
+    pub fn new_debt(
+        action: Symbol,
+        asset: Address,
+        index_ray: i128,
+        amount: i128,
+        position: &DebtPosition,
+        asset_price_wad: Option<i128>,
+    ) -> Self {
+        Self {
+            action,
+            position_type: AccountPositionType::Borrow,
+            asset,
+            scaled_amount_ray: position.scaled_amount.raw(),
+            index_ray,
+            amount,
+            asset_price_wad,
+            liquidation_threshold_bps: 0,
+            liquidation_bonus_bps: 0,
+            loan_to_value_bps: 0,
         }
     }
 }

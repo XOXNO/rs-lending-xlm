@@ -5,8 +5,9 @@ use common::events::{
     UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
 };
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig, MarketConfig,
-    MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed, PriceFeedRaw,
+    Account, AccountPosition, AccountPositionType, AssetConfig, DebtPosition, EModeAssetConfig,
+    MarketConfig, MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed,
+    PriceFeedRaw,
 };
 use soroban_sdk::{Address, Env, Map, Symbol, Vec};
 
@@ -146,6 +147,25 @@ impl ControllerCache {
         self.position_updates.push_back(EventPositionDelta::new(
             action,
             position_type,
+            asset.clone(),
+            index_ray,
+            amount,
+            position,
+            asset_price_wad,
+        ));
+    }
+
+    pub fn record_debt_position_update(
+        &mut self,
+        action: Symbol,
+        asset: &Address,
+        index_ray: i128,
+        amount: i128,
+        position: &DebtPosition,
+        asset_price_wad: Option<i128>,
+    ) {
+        self.position_updates.push_back(EventPositionDelta::new_debt(
+            action,
             asset.clone(),
             index_ray,
             amount,

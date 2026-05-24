@@ -1,23 +1,24 @@
 // Wrappers around LiquidityPool cross-contract ABI.
+//
+// The pool reasons only about scaled shares, so every wrapper takes a
+// `ScaledPositionRaw`. Callers convert their typed position (a collateral
+// `AccountPosition` or a `DebtPosition`) via the `From` impls; collateral risk
+// params never cross the wire.
 
 use common::types::{
-    AccountPosition, AccountPositionRaw, AccountPositionType, MarketStateSnapshot,
-    PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
+    AccountPositionType, MarketStateSnapshot, PoolAmountMutation, PoolPositionMutation,
+    PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 use soroban_sdk::{Address, Bytes, Env};
 
 pub(crate) fn pool_supply_call(
     env: &Env,
     pool_addr: &Address,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     amount: i128,
     supply_cap: i128,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).supply(
-        &AccountPositionRaw::from(&position),
-        &amount,
-        &supply_cap,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).supply(&position, &amount, &supply_cap)
 }
 
 pub(crate) fn pool_borrow_call(
@@ -25,13 +26,13 @@ pub(crate) fn pool_borrow_call(
     pool_addr: &Address,
     caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     borrow_cap: i128,
 ) -> PoolPositionMutation {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).borrow(
         &caller,
         &amount,
-        &AccountPositionRaw::from(&position),
+        &position,
         &borrow_cap,
     )
 }
@@ -40,14 +41,14 @@ pub(crate) fn pool_create_strategy_call(
     env: &Env,
     pool_addr: &Address,
     caller: Address,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
     borrow_cap: i128,
 ) -> PoolStrategyMutation {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).create_strategy(
         &caller,
-        &AccountPositionRaw::from(&position),
+        &position,
         &amount,
         &fee,
         &borrow_cap,
@@ -59,14 +60,14 @@ pub(crate) fn pool_withdraw_call(
     pool_addr: &Address,
     caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     is_liquidation: bool,
     protocol_fee: i128,
 ) -> PoolPositionMutation {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).withdraw(
         &caller,
         &amount,
-        &AccountPositionRaw::from(&position),
+        &position,
         &is_liquidation,
         &protocol_fee,
     )
@@ -77,23 +78,18 @@ pub(crate) fn pool_repay_call(
     pool_addr: &Address,
     caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(
-        &caller,
-        &amount,
-        &AccountPositionRaw::from(&position),
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(&caller, &amount, &position)
 }
 
 pub(crate) fn pool_seize_position_call(
     env: &Env,
     pool_addr: &Address,
     side: AccountPositionType,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr)
-        .seize_position(&side, &AccountPositionRaw::from(&position))
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(&side, &position)
 }
 
 pub(crate) fn pool_flash_loan_call(

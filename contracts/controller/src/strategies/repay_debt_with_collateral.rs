@@ -1,5 +1,5 @@
 use common::errors::CollateralError;
-use common::types::{Account, AccountPosition, AggregatorSwap};
+use common::types::{Account, AccountPosition, AggregatorSwap, DebtPosition};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env};
 use stellar_macros::when_not_paused;
 
@@ -145,7 +145,7 @@ fn load_repay_with_collateral_positions(
     account: &Account,
     collateral_token: &Address,
     debt_token: &Address,
-) -> (AccountPosition, AccountPosition) {
+) -> (AccountPosition, DebtPosition) {
     // Validate both positions before moving any tokens so a missing
     // position surfaces as its specific error rather than a host panic on
     // a later transfer.

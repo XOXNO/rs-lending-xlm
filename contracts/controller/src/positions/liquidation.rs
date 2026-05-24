@@ -3,8 +3,8 @@ use common::errors::{CollateralError, GenericError};
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
 use common::math::fp::Wad;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, LiquidationResult, Payment, RepayEntry,
-    SeizeEntry,
+    Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
+    RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
 use stellar_macros::{only_role, when_not_paused};
@@ -18,7 +18,7 @@ use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_seize_position_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions;
-use crate::storage::iter_typed_positions;
+use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -103,18 +103,8 @@ pub fn process_liquidation(
 
     // Stage 6: State Persistence
     // Persist position updates.
-    storage::set_positions(
-        env,
-        account_id,
-        AccountPositionType::Deposit,
-        &account.supply_positions,
-    );
-    storage::set_positions(
-        env,
-        account_id,
-        AccountPositionType::Borrow,
-        &account.borrow_positions,
-    );
+    storage::set_supply_positions(env, account_id, &account.supply_positions);
+    storage::set_debt_positions(env, account_id, &account.borrow_positions);
 
     // Reuse the post-liquidation account snapshot for bad-debt cleanup.
     check_bad_debt_after_liquidation(env, &mut cache, account_id, &account);
@@ -168,7 +158,7 @@ fn apply_liquidation_repayments(
         let token = soroban_sdk::token::Client::new(env, &entry.asset);
         token.transfer(liquidator, &pool_addr, &entry.amount);
 
-        let position: AccountPosition =
+        let position: DebtPosition =
             (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
                 .into();
         repay::execute_repayment(
@@ -379,12 +369,12 @@ fn execute_bad_debt_cleanup(
     total_collateral_usd: i128,
 ) {
     for (asset, position) in iter_typed_positions(&account.supply_positions) {
-        seize_pool_position(env, cache, AccountPositionType::Deposit, &asset, &position);
+        seize_pool_position(env, cache, AccountPositionType::Deposit, &asset, (&position).into());
     }
 
-    for (asset, position) in iter_typed_positions(&account.borrow_positions) {
+    for (asset, position) in iter_debt_positions(&account.borrow_positions) {
         repay::clear_position_isolated_debt(env, &asset, &position, account, cache);
-        seize_pool_position(env, cache, AccountPositionType::Borrow, &asset, &position);
+        seize_pool_position(env, cache, AccountPositionType::Borrow, &asset, (&position).into());
     }
 
     emit_clean_bad_debt(
@@ -404,10 +394,10 @@ fn seize_pool_position(
     cache: &mut ControllerCache,
     side: AccountPositionType,
     asset: &Address,
-    position: &AccountPosition,
+    position: ScaledPositionRaw,
 ) {
     let feed = cache.cached_price(asset);
     let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_seize_position_call(env, &pool_addr, side, *position);
+    let result = pool_seize_position_call(env, &pool_addr, side, position);
     cache.record_market_update_with_price(&result.market_state, Some(feed.price.raw()));
 }

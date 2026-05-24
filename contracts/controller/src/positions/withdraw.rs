@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::math::fp::Wad;
+use common::math::fp::{Ray, Wad};
 use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -87,12 +87,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         remove_account(env, account_id);
     } else {
         // Mutates supply positions only.
-        storage::set_positions(
-            env,
-            account_id,
-            AccountPositionType::Deposit,
-            &account.supply_positions,
-        );
+        storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
@@ -163,18 +158,16 @@ pub fn execute_withdrawal(
         &pool_addr,
         caller.clone(),
         req.amount,
-        *req.position,
+        req.position.into(),
         flags.is_liquidation,
         flags.protocol_fee,
     );
     cache.record_market_update_with_price(&result.market_state, Some(req.price.raw()));
-    let result_position: AccountPosition = (&result.position).into();
-    update::update_or_remove_position(
-        account,
-        AccountPositionType::Deposit,
-        req.asset,
-        &result_position,
-    );
+    // Merge ONLY the scaled share back; preserve the collateral risk params the
+    // pool does not echo.
+    let mut result_position = *req.position;
+    result_position.scaled_amount = Ray::from_raw(result.position.scaled_amount_ray);
+    update::update_or_remove_supply_position(account, req.asset, &result_position);
 
     let _ = event_caller;
     cache.record_position_update(

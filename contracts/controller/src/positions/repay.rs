@@ -1,9 +1,7 @@
 use common::constants::WAD;
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Ray, Wad};
-use common::types::{
-    Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation, PriceFeed,
-};
+use common::types::{Account, DebtPosition, Payment, PoolPositionMutation, PriceFeed};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -19,7 +17,7 @@ use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerCl
 /// Bundle of per-call repayment inputs.
 pub(crate) struct RepaymentRequest<'a> {
     pub asset: &'a Address,
-    pub position: &'a AccountPosition,
+    pub position: &'a DebtPosition,
     pub amount: i128,
     pub price: Wad,
 }
@@ -66,12 +64,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &repayment_plan));
 
     // Stage 6: State Persistence
-    storage::set_positions(
-        env,
-        account_id,
-        AccountPositionType::Borrow,
-        &account.borrow_positions,
-    );
+    storage::set_debt_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
@@ -87,7 +80,7 @@ fn process_single_repay(
 ) {
     validation::require_amount_positive(env, amount);
 
-    let position: AccountPosition = (&account
+    let position: DebtPosition = (&account
         .borrow_positions
         .get(asset.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
@@ -132,7 +125,7 @@ pub fn execute_repayment(
     } = ctx;
 
     let pool_addr = cache.cached_pool_address(req.asset);
-    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, *req.position);
+    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, req.position.into());
     cache.record_market_update_with_price(
         &result.market_state,
         if req.price > Wad::ZERO {
@@ -142,11 +135,10 @@ pub fn execute_repayment(
         },
     );
 
-    update::update_or_remove_position(
+    update::update_or_remove_debt_position(
         account,
-        AccountPositionType::Borrow,
         req.asset,
-        &AccountPosition::from(&result.position),
+        &DebtPosition::from(&result.position),
     );
 
     if account.is_isolated {
@@ -154,13 +146,12 @@ pub fn execute_repayment(
         adjust_isolated_debt_for_repay(env, account, cache, result.actual_amount, &feed);
     }
 
-    cache.record_position_update(
+    cache.record_debt_position_update(
         action,
-        AccountPositionType::Borrow,
         req.asset,
         result.market_index.borrow_index_ray,
         result.actual_amount,
-        &AccountPosition::from(&result.position),
+        &DebtPosition::from(&result.position),
         if req.price > Wad::ZERO {
             Some(req.price.raw())
         } else {
@@ -175,7 +166,7 @@ pub fn execute_repayment(
 pub fn clear_position_isolated_debt(
     env: &Env,
     asset: &Address,
-    position: &AccountPosition,
+    position: &DebtPosition,
     account: &Account,
     cache: &mut ControllerCache,
 ) {
@@ -214,7 +205,7 @@ fn transfer_repayment_to_pool(
 
 fn actual_borrow_amount(
     env: &Env,
-    position: &AccountPosition,
+    position: &DebtPosition,
     borrow_index: Ray,
     asset_decimals: u32,
 ) -> i128 {

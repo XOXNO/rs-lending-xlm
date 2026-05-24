@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, EModeError, GenericError};
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, Payment, PriceFeed,
+    Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PriceFeed,
 };
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec};
 use stellar_macros::when_not_paused;
@@ -18,7 +18,7 @@ struct BorrowUpdate {
     action: Symbol,
     index: i128,
     amount: i128,
-    position: AccountPosition,
+    position: DebtPosition,
     price_wad: i128,
 }
 
@@ -52,15 +52,14 @@ pub fn handle_create_borrow_strategy(
     handle_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
-    let borrow_position =
-        account.get_or_create_position(AccountPositionType::Borrow, debt_token, &debt_config);
+    let borrow_position = account.get_or_create_debt_position(debt_token);
 
     let pool_addr = cache.cached_pool_address(debt_token);
     let result = pool_create_strategy_call(
         env,
         &pool_addr,
         env.current_contract_address(),
-        borrow_position,
+        (&borrow_position).into(),
         amount,
         flash_fee,
         debt_config.borrow_cap,
@@ -109,12 +108,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &borrow_plan));
 
     // Stage 6: State Persistence
-    storage::set_positions(
-        env,
-        account_id,
-        AccountPositionType::Borrow,
-        &account.borrow_positions,
-    );
+    storage::set_debt_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
@@ -279,8 +273,7 @@ fn update_borrow_position(
     caller: &Address,
     cache: &mut ControllerCache,
 ) {
-    let borrow_position =
-        account.get_or_create_position(AccountPositionType::Borrow, req.asset, req.config);
+    let borrow_position = account.get_or_create_debt_position(req.asset);
 
     let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_borrow_call(
@@ -288,7 +281,7 @@ fn update_borrow_position(
         &pool_addr,
         caller.clone(),
         req.amount,
-        borrow_position,
+        (&borrow_position).into(),
         req.config.borrow_cap,
     );
     cache.record_market_update_with_price(&result.market_state, Some(req.feed.price.raw()));
@@ -313,21 +306,15 @@ fn record_borrow_update(
     update: BorrowUpdate,
     cache: &mut ControllerCache,
 ) {
-    cache.record_position_update(
+    cache.record_debt_position_update(
         update.action,
-        AccountPositionType::Borrow,
         asset,
         update.index,
         update.amount,
         &update.position,
         Some(update.price_wad),
     );
-    update::update_or_remove_position(
-        account,
-        AccountPositionType::Borrow,
-        asset,
-        &update.position,
-    );
+    update::update_or_remove_debt_position(account, asset, &update.position);
 }
 
 // Increments isolated-debt tracker and checks ceiling.

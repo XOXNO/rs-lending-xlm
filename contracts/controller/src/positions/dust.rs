@@ -2,8 +2,8 @@
 
 use common::errors::CollateralError;
 use common::math::fp::{Ray, Wad};
-use common::types::{Account, AccountPosition, AccountPositionRaw};
-use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
+use common::types::Account;
+use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::cache::ControllerCache;
 use crate::helpers;
@@ -29,9 +29,14 @@ pub fn require_no_supply_dust_for_assets(
     check_assets_side(
         env,
         cache,
-        &account.supply_positions,
         assets,
         Side::Supply,
+        |asset| {
+            account
+                .supply_positions
+                .get(asset.clone())
+                .map(|raw| Ray::from_raw(raw.scaled_amount_ray))
+        },
         |cfg| cfg.min_collat_floor_usd.raw(),
     );
 }
@@ -51,9 +56,14 @@ pub fn require_no_borrow_dust_for_assets(
     check_assets_side(
         env,
         cache,
-        &account.borrow_positions,
         assets,
         Side::Borrow,
+        |asset| {
+            account
+                .borrow_positions
+                .get(asset.clone())
+                .map(|raw| Ray::from_raw(raw.scaled_amount_ray))
+        },
         |cfg| cfg.min_debt_floor_usd.raw(),
     );
 }
@@ -61,25 +71,17 @@ pub fn require_no_borrow_dust_for_assets(
 fn check_assets_side(
     env: &Env,
     cache: &mut ControllerCache,
-    positions: &Map<Address, AccountPositionRaw>,
     assets: &Vec<Address>,
     side: Side,
+    scaled_for: impl Fn(&Address) -> Option<Ray>,
     floor_for: impl Fn(&common::types::AssetConfig) -> i128,
 ) {
     for asset in assets.iter() {
-        let Some(raw) = positions.get(asset.clone()) else {
+        let Some(scaled) = scaled_for(&asset) else {
             continue;
         };
-        let position = AccountPosition::from(&raw);
         let cfg = cache.cached_asset_config(&asset);
-        check_position(
-            env,
-            cache,
-            &asset,
-            position.scaled_amount,
-            floor_for(&cfg),
-            side,
-        );
+        check_position(env, cache, &asset, scaled, floor_for(&cfg), side);
     }
 }
 

@@ -111,12 +111,16 @@ impl LendingTest {
         position_type: AccountPositionType,
     ) -> i128 {
         let (supplies, borrows) = self.ctrl_client().get_account_positions(&account_id);
-        let positions = match position_type {
-            AccountPositionType::Deposit => supplies,
-            AccountPositionType::Borrow => borrows,
+        // Supply and debt maps now hold different value types; extract the
+        // scaled share before the type divergence.
+        let scaled_ray = match position_type {
+            AccountPositionType::Deposit => {
+                supplies.get(asset.clone()).map(|p| p.scaled_amount_ray)
+            }
+            AccountPositionType::Borrow => borrows.get(asset.clone()).map(|p| p.scaled_amount_ray),
         };
 
-        if let Some(position) = positions.get(asset.clone()) {
+        if let Some(scaled_amount_ray) = scaled_ray {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
             let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data();
             let index = match position_type {
@@ -124,7 +128,7 @@ impl LendingTest {
                 AccountPositionType::Borrow => sync.state.borrow_index_ray,
             };
             let decimals = self.resolve_market_by_asset(asset).decimals;
-            return Ray::from_raw(position.scaled_amount_ray)
+            return Ray::from_raw(scaled_amount_ray)
                 .mul(&self.env, Ray::from_raw(index))
                 .to_asset(decimals);
         }

@@ -1,6 +1,6 @@
 use common::constants::WAD;
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AccountPositionType, AssetExtendedConfigView,
+    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
     EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
 };
 use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
@@ -49,7 +49,7 @@ impl Controller {
         account_id: u64,
     ) -> (
         Map<Address, AccountPositionRaw>,
-        Map<Address, AccountPositionRaw>,
+        Map<Address, DebtPositionRaw>,
     ) {
         get_account_positions(&env, account_id)
     }
@@ -117,11 +117,10 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 }
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position =
-        match storage::try_get_position(env, account_id, AccountPositionType::Deposit, asset) {
-            Some(position) => position,
-            None => return 0,
-        };
+    let position = match storage::try_get_supply_position(env, account_id, asset) {
+        Some(position) => position,
+        None => return 0,
+    };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -134,11 +133,10 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position =
-        match storage::try_get_position(env, account_id, AccountPositionType::Borrow, asset) {
-            Some(position) => position,
-            None => return 0,
-        };
+    let position = match storage::try_get_debt_position(env, account_id, asset) {
+        Some(position) => position,
+        None => return 0,
+    };
 
     let mut cache = ControllerCache::new_view(env);
     let market_index = cache.cached_market_index(asset);
@@ -156,15 +154,15 @@ pub fn get_account_positions(
     account_id: u64,
 ) -> (
     Map<Address, AccountPositionRaw>,
-    Map<Address, AccountPositionRaw>,
+    Map<Address, DebtPositionRaw>,
 ) {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return (Map::new(env), Map::new(env));
     }
 
     (
-        storage::get_positions(env, account_id, AccountPositionType::Deposit),
-        storage::get_positions(env, account_id, AccountPositionType::Borrow),
+        storage::get_supply_positions(env, account_id),
+        storage::get_debt_positions(env, account_id),
     )
 }
 

@@ -1,4 +1,5 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
     Payment, PositionMode,
@@ -57,12 +58,7 @@ pub fn process_supply(
     require_no_supply_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &deposit_plan));
 
     // Stage 6: State Persistence
-    storage::set_positions(
-        env,
-        acct_id,
-        AccountPositionType::Deposit,
-        &account.supply_positions,
-    );
+    storage::set_supply_positions(env, acct_id, &account.supply_positions);
     cache.emit_position_batch(acct_id, &account);
     cache.emit_market_batch();
 
@@ -187,8 +183,7 @@ pub fn update_deposit_position(
     caller: &Address,
     cache: &mut ControllerCache,
 ) -> AccountPosition {
-    let mut position =
-        account.get_or_create_position(AccountPositionType::Deposit, req.asset, req.asset_config);
+    let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
 
     // Threshold only updated via keeper path.
     if position.loan_to_value != req.asset_config.loan_to_value {
@@ -222,7 +217,7 @@ pub fn update_deposit_position(
 
     // Update the in-memory account. `process_supply` writes storage once at
     // the end of the batch.
-    update::update_or_remove_position(account, AccountPositionType::Deposit, req.asset, &position);
+    update::update_or_remove_supply_position(account, req.asset, &position);
 
     position
 }
@@ -293,9 +288,11 @@ fn apply_pool_supply(
     supply_cap: i128,
 ) -> SupplyMarketUpdate {
     let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_supply_call(env, &pool_addr, *position, amount, supply_cap);
+    let result = pool_supply_call(env, &pool_addr, (&*position).into(), amount, supply_cap);
 
-    *position = (&result.position).into();
+    // Merge ONLY the scaled share back; the pool does not echo collateral risk
+    // params, so preserve the ones the controller already holds.
+    position.scaled_amount = Ray::from_raw(result.position.scaled_amount_ray);
     cache.record_market_update(&result.market_state);
 
     SupplyMarketUpdate {

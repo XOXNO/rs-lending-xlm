@@ -21,6 +21,56 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
     })
 }
 
+// Returns (threshold, bonus, ltv) bps from the stored supply position.
+fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller_address(), || {
+        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPositionRaw> = t
+            .env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::SupplyPositions(account_id))
+            .expect("supply side map should exist");
+        let p = map
+            .get(asset)
+            .expect("supply position should exist for asset");
+        (
+            p.liquidation_threshold_bps,
+            p.liquidation_bonus_bps,
+            p.loan_to_value_bps,
+        )
+    })
+}
+
+// Invariant guard for the borrow/collateral type split: the pool's position
+// return must merge ONLY the scaled amount back onto a supply position — it
+// must never zero the collateral risk fields the controller holds. A
+// regression here makes HF math see 0% LTV everywhere and blocks all borrows.
+#[test]
+fn test_supply_roundtrip_preserves_risk_fields() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    let id = t.resolve_account_id(ALICE);
+    let first = supply_risk_fields(&t, id, "USDC");
+    assert!(
+        first.0 > 0 && first.2 > 0,
+        "preset should seed non-zero threshold/ltv; got {:?}",
+        first
+    );
+
+    // Second supply round-trips through the pool and merges the returned
+    // position back onto the stored one.
+    t.supply(ALICE, "USDC", 1_000.0);
+    let second = supply_risk_fields(&t, id, "USDC");
+
+    assert_eq!(
+        first, second,
+        "supply round-trip must preserve (threshold, bonus, ltv); pool return \
+         merge zeroed risk fields"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 1. test_update_indexes_refreshes_rates
 // ---------------------------------------------------------------------------
