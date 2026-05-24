@@ -994,7 +994,7 @@ fn test_update_params_rejects_negative_base_rate() {
     let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidBorrowParams as u32,
+        common::errors::CollateralError::BaseRateNegative as u32,
     );
 }
 
@@ -1003,12 +1003,13 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
     let t = TestSetup::new();
     let client = t.client();
 
+    // Keep slopes flat at base so SlopeNonMonotonic doesn't pre-empt MaxRateBelowBase.
     let model = InterestRateModel {
         max_borrow_rate_ray: RAY / 100,
         base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY / 10,
-        slope2_ray: RAY / 5,
-        slope3_ray: RAY,
+        slope1_ray: RAY / 100,
+        slope2_ray: RAY / 100,
+        slope3_ray: RAY / 100,
         mid_utilization_ray: RAY / 2,
         optimal_utilization_ray: RAY * 8 / 10,
         max_utilization_ray: RAY * 95 / 100,
@@ -1017,7 +1018,7 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
     let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidBorrowParams as u32,
+        common::errors::CollateralError::MaxRateBelowBase as u32,
     );
 }
 
@@ -1350,7 +1351,7 @@ fn test_update_params_happy_path() {
     let _ = client.borrow(&borrower, &100_0000000i128, &borrow_pos, &i128::MAX);
 }
 
-// Slope ordering violation (slope3 < slope2) panics with InvalidBorrowParams.
+// slope3 < slope2 → SlopeNonMonotonic.
 #[test]
 fn test_update_params_rejects_invalid_slope_ordering() {
     let t = TestSetup::new();
@@ -1371,7 +1372,7 @@ fn test_update_params_rejects_invalid_slope_ordering() {
     let result = flatten_contract_result(client.try_update_params(&model));
     assert_contract_error(
         result,
-        common::errors::CollateralError::InvalidBorrowParams as u32,
+        common::errors::CollateralError::SlopeNonMonotonic as u32,
     );
 }
 
@@ -1424,8 +1425,9 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
     );
 }
 
+// base_borrow_rate < 0 → BaseRateNegative (#128).
 #[test]
-#[should_panic(expected = "Error(Contract, #116)")]
+#[should_panic(expected = "Error(Contract, #128)")]
 fn test_constructor_rejects_invalid_rate_model() {
     let env = Env::default();
     test_support::init_ledger(&env);

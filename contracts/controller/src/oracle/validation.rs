@@ -11,7 +11,7 @@ use crate::validation;
 use super::observation::{
     millis_to_seconds, normalize_positive_price, u256_to_i128, validate_timestamp,
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
-    MIN_PRICE_STALE_SECONDS,
+    MIN_ORACLE_RESOLUTION_SECONDS, MIN_PRICE_STALE_SECONDS,
 };
 use super::providers::redstone::{RedStonePriceData, RedStonePriceFeedClient, REDSTONE_DECIMALS};
 use super::providers::reflector::{min_twap_observations, to_reflector_asset};
@@ -63,6 +63,20 @@ fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     if needs_anchor != has_anchor {
         panic_with_error!(env, GenericError::InvalidExchangeSrc);
     }
+
+    // Production rejects Single + Spot (INVARIANTS §4.3, ADR-0003); a TWAP
+    // or anchor cross-check is required.
+    #[cfg(not(feature = "testing"))]
+    {
+        if matches!(config.strategy, OracleStrategy::Single)
+            && matches!(
+                config.primary,
+                OracleSourceConfigInput::Reflector(ref r) if matches!(r.read_mode, OracleReadMode::Spot)
+            )
+        {
+            panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
+        }
+    }
 }
 
 fn validate_source(
@@ -78,7 +92,9 @@ fn validate_source(
             let decimals = client.decimals();
             validate_decimals(env, decimals);
             let resolution = client.resolution();
-            if resolution == 0 || u64::from(resolution) > max_stale {
+            if resolution < MIN_ORACLE_RESOLUTION_SECONDS
+                || u64::from(resolution) > max_stale
+            {
                 panic_with_error!(env, OracleError::InvalidOracleResolution);
             }
 
@@ -112,6 +128,9 @@ fn validate_source(
         OracleSourceConfigInput::RedStone(config) => {
             validate_max_stale(env, config.max_stale_seconds);
 
+            // Redstone has no on-chain base() accessor; quote currency is
+            // implicit in `feed_id`. See providers/redstone.rs for the full
+            // identity-validation note.
             let client = RedStonePriceFeedClient::new(env, &config.contract);
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
@@ -141,6 +160,9 @@ fn validate_max_stale(env: &Env, max_stale: u64) {
 // Validate sanity bounds.
 fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
+        panic_with_error!(env, OracleError::InvalidSanityBounds);
+    }
+    if max_wad > common::constants::MAX_REASONABLE_PRICE_WAD {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
     }
 }

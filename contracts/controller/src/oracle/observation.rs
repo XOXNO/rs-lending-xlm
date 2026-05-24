@@ -1,16 +1,18 @@
+use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{OracleProviderKind, OracleReadMode};
 use soroban_sdk::{panic_with_error, Env, U256};
 
-// Future skew limit.
+// Max drift between the ledger clock and an oracle publication timestamp.
 const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 
-// Max TWAP records.
 pub(crate) const MAX_TWAP_RECORDS: u32 = 12;
 
 pub(crate) const MIN_PRICE_STALE_SECONDS: u64 = 60;
 pub(crate) const MAX_PRICE_STALE_SECONDS: u64 = 86_400;
+
+pub(crate) const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 
 pub(crate) const MIN_ORACLE_DECIMALS: u32 = 1;
 pub(crate) const MAX_ORACLE_DECIMALS: u32 = 18;
@@ -76,6 +78,6 @@ pub(crate) fn u256_to_i128(env: &Env, value: &U256) -> i128 {
 // MS to seconds.
 pub(crate) fn millis_to_seconds(env: &Env, timestamp_ms: u64) -> u64 {
     timestamp_ms
-        .checked_div(1000)
+        .checked_div(MS_PER_SECOND)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }

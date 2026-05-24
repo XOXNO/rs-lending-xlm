@@ -1,10 +1,12 @@
 use common::errors::GenericError;
-use common::types::PositionLimits;
+use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
 
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
+
+const INITIAL_APP_VERSION: u32 = 1;
 
 pub(crate) const KEEPER_ROLE: &str = "KEEPER";
 pub(crate) const REVENUE_ROLE: &str = "REVENUE";
@@ -83,28 +85,60 @@ impl Controller {
             },
         );
 
+        env.storage()
+            .instance()
+            .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
+
         // Pause by default.
         stellar_contract_utils::pausable::pause(&env);
     }
 
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        storage::renew_controller_instance(&env);
         stellar_contract_utils::pausable::pause(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
+    // Post-upgrade migration entrypoint. Enforces strict version monotonicity.
+    #[only_owner]
+    pub fn migrate(env: Env, new_version: u32) {
+        storage::renew_controller_instance(&env);
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&ControllerKey::AppVersion)
+            .unwrap_or(INITIAL_APP_VERSION);
+        if new_version <= current_version {
+            panic_with_error!(&env, GenericError::InternalError);
+        }
+        env.storage()
+            .instance()
+            .set(&ControllerKey::AppVersion, &new_version);
+    }
+
+    pub fn app_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&ControllerKey::AppVersion)
+            .unwrap_or(INITIAL_APP_VERSION)
+    }
+
     #[only_owner]
     pub fn pause(env: Env) {
+        storage::renew_controller_instance(&env);
         stellar_contract_utils::pausable::pause(&env);
     }
 
     #[only_owner]
     pub fn unpause(env: Env) {
+        storage::renew_controller_instance(&env);
         stellar_contract_utils::pausable::unpause(&env);
     }
 
     #[only_owner]
     pub fn grant_role(env: Env, account: Address, role: Symbol) {
+        storage::renew_controller_instance(&env);
         let owner = ownable::get_owner(&env)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
         access_control::grant_role_no_auth(&env, &account, &role, &owner);
@@ -112,6 +146,7 @@ impl Controller {
 
     #[only_owner]
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
+        storage::renew_controller_instance(&env);
         let owner = ownable::get_owner(&env)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
@@ -123,6 +158,7 @@ impl Controller {
 
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
+        storage::renew_controller_instance(&env);
         let current_owner = ownable::get_owner(&env)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
 
@@ -137,6 +173,7 @@ impl Controller {
     }
 
     pub fn accept_ownership(env: Env) {
+        storage::renew_controller_instance(&env);
         let previous_owner = ownable::get_owner(&env)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
         ownable::accept_ownership(&env);

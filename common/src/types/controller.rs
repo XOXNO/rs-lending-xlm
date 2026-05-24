@@ -264,6 +264,8 @@ pub struct RepayEntry {
     pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct LiquidationResult {
     pub seized: Vec<SeizeEntry>,
     pub repaid: Vec<RepayEntry>,
@@ -367,6 +369,248 @@ impl From<&AccountMeta> for AccountAttributes {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::WAD;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    fn sample_asset_config_raw(env: &Env) -> AssetConfigRaw {
+        let mut categories: Vec<u32> = Vec::new(env);
+        categories.push_back(1);
+        categories.push_back(2);
+        AssetConfigRaw {
+            loan_to_value_bps: 7_500,
+            liquidation_threshold_bps: 8_000,
+            liquidation_bonus_bps: 500,
+            liquidation_fees_bps: 100,
+            is_collateralizable: true,
+            is_borrowable: true,
+            is_isolated_asset: false,
+            is_siloed_borrowing: false,
+            is_flashloanable: true,
+            isolation_borrow_enabled: true,
+            isolation_debt_ceiling_usd_wad: 1_000 * WAD,
+            flashloan_fee_bps: 9,
+            borrow_cap: 1_000_000,
+            supply_cap: 5_000_000,
+            min_collat_floor_usd_wad: 10 * WAD,
+            min_debt_floor_usd_wad: 10 * WAD,
+            e_mode_categories: categories,
+        }
+    }
+
+    fn isolated_asset_config_raw(env: &Env) -> AssetConfigRaw {
+        let mut raw = sample_asset_config_raw(env);
+        raw.is_collateralizable = false;
+        raw.is_borrowable = false;
+        raw.is_isolated_asset = true;
+        raw.is_siloed_borrowing = true;
+        raw.isolation_borrow_enabled = false;
+        raw.e_mode_categories = Vec::new(env);
+        raw
+    }
+
+    #[test]
+    fn test_asset_config_raw_typed_roundtrip() {
+        let env = Env::default();
+        let raw = sample_asset_config_raw(&env);
+        let typed = AssetConfig::from(&raw);
+        let back = AssetConfigRaw::from(&typed);
+        assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
+        assert_eq!(back.liquidation_threshold_bps, raw.liquidation_threshold_bps);
+        assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
+        assert_eq!(back.liquidation_fees_bps, raw.liquidation_fees_bps);
+        assert_eq!(back.is_collateralizable, raw.is_collateralizable);
+        assert_eq!(back.is_borrowable, raw.is_borrowable);
+        assert_eq!(back.is_isolated_asset, raw.is_isolated_asset);
+        assert_eq!(back.is_siloed_borrowing, raw.is_siloed_borrowing);
+        assert_eq!(back.is_flashloanable, raw.is_flashloanable);
+        assert_eq!(back.isolation_borrow_enabled, raw.isolation_borrow_enabled);
+        assert_eq!(
+            back.isolation_debt_ceiling_usd_wad,
+            raw.isolation_debt_ceiling_usd_wad
+        );
+        assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
+        assert_eq!(back.borrow_cap, raw.borrow_cap);
+        assert_eq!(back.supply_cap, raw.supply_cap);
+        assert_eq!(back.min_collat_floor_usd_wad, raw.min_collat_floor_usd_wad);
+        assert_eq!(back.min_debt_floor_usd_wad, raw.min_debt_floor_usd_wad);
+        assert_eq!(back.e_mode_categories, raw.e_mode_categories);
+    }
+
+    #[test]
+    fn test_asset_config_accessors_collateralizable_borrowable() {
+        let env = Env::default();
+        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        assert!(cfg.can_supply());
+        assert!(cfg.can_borrow());
+        assert!(!cfg.is_isolated());
+        assert!(!cfg.is_siloed_borrowing());
+        assert!(cfg.can_borrow_in_isolation());
+        assert!(cfg.has_emode());
+    }
+
+    #[test]
+    fn test_asset_config_accessors_isolated_silent() {
+        let env = Env::default();
+        let cfg = AssetConfig::from(&isolated_asset_config_raw(&env));
+        assert!(!cfg.can_supply());
+        assert!(!cfg.can_borrow());
+        assert!(cfg.is_isolated());
+        assert!(cfg.is_siloed_borrowing());
+        assert!(!cfg.can_borrow_in_isolation());
+        assert!(!cfg.has_emode());
+    }
+
+    fn emode_category_raw(env: &Env) -> EModeCategoryRaw {
+        let mut assets: Map<Address, EModeAssetConfig> = Map::new(env);
+        assets.set(
+            Address::generate(env),
+            EModeAssetConfig {
+                is_collateralizable: true,
+                is_borrowable: true,
+            },
+        );
+        EModeCategoryRaw {
+            loan_to_value_bps: 9_000,
+            liquidation_threshold_bps: 9_300,
+            liquidation_bonus_bps: 300,
+            is_deprecated: false,
+            assets,
+        }
+    }
+
+    #[test]
+    fn test_emode_category_raw_typed_roundtrip() {
+        let env = Env::default();
+        let raw = emode_category_raw(&env);
+        let typed = EModeCategory::from(&raw);
+        let back = EModeCategoryRaw::from(&typed);
+        assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
+        assert_eq!(back.liquidation_threshold_bps, raw.liquidation_threshold_bps);
+        assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
+        assert_eq!(back.is_deprecated, raw.is_deprecated);
+        assert_eq!(back.assets.len(), raw.assets.len());
+    }
+
+    fn account_meta(env: &Env, category: u32, isolated: bool) -> AccountMeta {
+        AccountMeta {
+            owner: Address::generate(env),
+            is_isolated: isolated,
+            e_mode_category_id: category,
+            mode: PositionMode::Normal,
+            isolated_asset: if isolated {
+                Some(Address::generate(env))
+            } else {
+                None
+            },
+        }
+    }
+
+    fn empty_account(env: &Env, meta: AccountMeta) -> Account {
+        Account {
+            owner: meta.owner,
+            is_isolated: meta.is_isolated,
+            e_mode_category_id: meta.e_mode_category_id,
+            mode: meta.mode,
+            isolated_asset: meta.isolated_asset,
+            supply_positions: Map::new(env),
+            borrow_positions: Map::new(env),
+        }
+    }
+
+    #[test]
+    fn test_account_attributes_from_account_and_meta_match() {
+        let env = Env::default();
+        let meta = account_meta(&env, 4, true);
+        let from_meta = AccountAttributes::from(&meta);
+        let account = empty_account(&env, meta);
+        let from_account = AccountAttributes::from(&account);
+        assert_eq!(from_meta, from_account);
+        assert!(from_account.has_emode());
+        assert!(from_account.is_isolated);
+        assert_eq!(from_account.e_mode_category_id, 4);
+    }
+
+    #[test]
+    fn test_account_attributes_no_emode_without_category() {
+        let env = Env::default();
+        let attrs = AccountAttributes::from(&account_meta(&env, 0, false));
+        assert!(!attrs.has_emode());
+    }
+
+    #[test]
+    fn test_account_has_emode_and_try_isolated_token_and_attributes() {
+        let env = Env::default();
+        let normal = empty_account(&env, account_meta(&env, 0, false));
+        assert!(!normal.has_emode());
+        assert!(normal.try_isolated_token().is_none());
+        assert_eq!(normal.attributes().e_mode_category_id, 0);
+
+        let isolated = empty_account(&env, account_meta(&env, 1, true));
+        assert!(isolated.has_emode());
+        assert!(isolated.try_isolated_token().is_some());
+    }
+
+    #[test]
+    fn test_account_is_empty_only_when_both_sides_empty() {
+        let env = Env::default();
+        let mut account = empty_account(&env, account_meta(&env, 0, false));
+        assert!(account.is_empty());
+
+        let position = AccountPositionRaw {
+            scaled_amount_ray: 1,
+            liquidation_threshold_bps: 0,
+            liquidation_bonus_bps: 0,
+            liquidation_fees_bps: 0,
+            loan_to_value_bps: 0,
+        };
+        account
+            .supply_positions
+            .set(Address::generate(&env), position.clone());
+        assert!(!account.is_empty());
+    }
+
+    #[test]
+    fn test_get_or_create_position_returns_existing() {
+        let env = Env::default();
+        let mut account = empty_account(&env, account_meta(&env, 0, false));
+        let asset = Address::generate(&env);
+        let stored = AccountPositionRaw {
+            scaled_amount_ray: 42 * crate::constants::RAY,
+            liquidation_threshold_bps: 8_000,
+            liquidation_bonus_bps: 500,
+            liquidation_fees_bps: 100,
+            loan_to_value_bps: 7_500,
+        };
+        account.supply_positions.set(asset.clone(), stored.clone());
+
+        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        let got = account.get_or_create_position(AccountPositionType::Deposit, &asset, &cfg);
+        assert_eq!(got.scaled_amount.raw(), stored.scaled_amount_ray);
+    }
+
+    #[test]
+    fn test_get_or_create_position_seeds_from_config_on_borrow_side() {
+        let env = Env::default();
+        let account = empty_account(&env, account_meta(&env, 0, false));
+        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        let asset = Address::generate(&env);
+
+        let fresh = account.get_or_create_position(AccountPositionType::Borrow, &asset, &cfg);
+        assert_eq!(fresh.scaled_amount, Ray::ZERO);
+        assert_eq!(fresh.loan_to_value, cfg.loan_to_value);
+        assert_eq!(fresh.liquidation_threshold, cfg.liquidation_threshold);
+        assert_eq!(fresh.liquidation_bonus, cfg.liquidation_bonus);
+        assert_eq!(fresh.liquidation_fees, cfg.liquidation_fees);
+    }
+}
+
+// Storage tiers per variant are defined by the accessor functions in
+// `controller::storage` (instance vs persistent vs temporary). Per-account
+// state (`AccountMeta`, `SupplyPositions`, `BorrowPositions`) is split per
+// INVARIANTS §5.2 so callers load only the side they need.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
@@ -384,4 +628,5 @@ pub enum ControllerKey {
     EModeCategory(u32),
     IsolatedDebt(Address),
     PoolsList,
+    AppVersion,
 }

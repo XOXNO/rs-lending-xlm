@@ -29,6 +29,15 @@ pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 // Max annual borrow rate.
 pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
 
+// Ceiling on `borrow_index`. Bounds compounding so the i128 backing never
+// overflows. 1e36 leaves headroom above any realistic accrual horizon.
+pub const MAX_BORROW_INDEX_RAY: i128 = 1_000_000_000_000_000_000_000_000_000_000_000_000;
+
+// Protocol-wide upper bound for operator-supplied per-asset sanity caps.
+pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
+
+pub const MS_PER_SECOND: u64 = 1_000;
+
 pub const K_SCALING_FACTOR: i128 = 20_000;
 
 pub const MIN_FIRST_TOLERANCE: i128 = 50;
@@ -57,3 +66,11 @@ pub const TTL_EXTEND_TO: u32 = TTL_BUMP_INSTANCE;
 pub const MAX_SUPPLY_POSITIONS: u8 = 4;
 
 pub const MAX_BORROW_POSITIONS: u8 = 4;
+
+// Cap on the per-category assets map; bounded so the serialized category
+// fits comfortably under the Soroban per-entry size limit (~65 KiB).
+pub const MAX_EMODE_ASSETS_PER_CATEGORY: u32 = 64;
+
+// Cap on the controller's `PoolsList`. Single-entry serialization + per-tx
+// footprint cost both scale linearly with the list length.
+pub const MAX_POOLS_LIST_ENTRIES: u32 = 256;

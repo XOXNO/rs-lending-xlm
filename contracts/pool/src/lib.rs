@@ -1,5 +1,7 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+#[cfg(not(feature = "certora"))]
+mod abi;
 mod cache;
 mod interest;
 mod utils;
@@ -13,7 +15,7 @@ mod test_support;
 pub mod spec;
 
 use cache::Cache;
-use common::constants::RAY;
+use common::constants::{MS_PER_SECOND, RAY};
 #[cfg(test)]
 use common::constants::TTL_THRESHOLD_INSTANCE;
 use common::errors::{FlashLoanError, GenericError};
@@ -25,8 +27,13 @@ use common::types::{
     PoolStrategyMutation, PoolSyncData,
 };
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, Address, Bytes, BytesN, Env, IntoVal, Symbol,
+    contract, contractimpl, contractmeta, panic_with_error, token, Address, Bytes, BytesN, Env,
+    IntoVal, Symbol,
 };
+
+contractmeta!(key = "name", val = "rs-lending-xlm liquidity pool");
+contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
+contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
 
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -43,7 +50,7 @@ pub struct LiquidityPool;
 #[contractimpl]
 impl LiquidityPool {
     pub fn __constructor(env: Env, admin: Address, params: MarketParamsRaw) {
-        params.verify_rate_model(&env);
+        params.verify(&env);
 
         ownable::set_owner(&env, &admin);
 
@@ -55,7 +62,7 @@ impl LiquidityPool {
             revenue_ray: 0,
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
-            last_timestamp: env.ledger().timestamp() * 1000,
+            last_timestamp: env.ledger().timestamp() * MS_PER_SECOND,
         };
         env.storage().instance().set(&PoolKey::State, &state);
     }
@@ -67,6 +74,7 @@ impl LiquidityPool {
         amount: i128,
         supply_cap: i128,
     ) -> PoolPositionMutation {
+        renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -90,6 +98,7 @@ impl LiquidityPool {
         position: AccountPositionRaw,
         borrow_cap: i128,
     ) -> PoolPositionMutation {
+        renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -104,10 +113,10 @@ impl LiquidityPool {
         // Max-utilization ceiling.
         utils::require_utilization_below_max(&env, &cache);
 
-        cache.transfer_out(&caller, amount);
-
+        // CEI: snapshot + commit before external call.
         let mutation = cache.position_mutation(position, amount);
         cache.save();
+        cache.transfer_out(&caller, amount);
         mutation
     }
 
@@ -120,6 +129,7 @@ impl LiquidityPool {
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation {
+        renew_pool_instance(&env);
         // Controller uses i128::MAX for "withdraw all".
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
@@ -143,10 +153,10 @@ impl LiquidityPool {
         }
         utils::require_solvent_withdraw_state(&env, &cache);
 
-        cache.transfer_out(&caller, net_transfer);
-
+        // CEI: snapshot + commit before external call.
         let mutation = cache.position_mutation(position, gross_amount);
         cache.save();
+        cache.transfer_out(&caller, net_transfer);
         mutation
     }
 
@@ -157,6 +167,7 @@ impl LiquidityPool {
         amount: i128,
         position: AccountPositionRaw,
     ) -> PoolPositionMutation {
+        renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -167,15 +178,16 @@ impl LiquidityPool {
         position.scaled_amount = position.scaled_amount.checked_sub(&env, scaled_repay);
         cache.borrowed.checked_sub_assign(&env, scaled_repay);
 
-        cache.transfer_out(&caller, overpayment);
-
+        // CEI: snapshot + commit before external call.
         let mutation = cache.position_mutation(position, amount - overpayment);
         cache.save();
+        cache.transfer_out(&caller, overpayment);
         mutation
     }
 
     #[only_owner]
     pub fn update_indexes(env: Env) -> MarketStateSnapshot {
+        renew_pool_instance(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -186,6 +198,7 @@ impl LiquidityPool {
 
     #[only_owner]
     pub fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot {
+        renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
 
@@ -213,6 +226,7 @@ impl LiquidityPool {
         fee: i128,
         data: Bytes,
     ) -> MarketStateSnapshot {
+        renew_pool_instance(&env);
         require_positive_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
@@ -282,6 +296,7 @@ impl LiquidityPool {
         fee: i128,
         borrow_cap: i128,
     ) -> PoolStrategyMutation {
+        renew_pool_instance(&env);
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
@@ -306,10 +321,11 @@ impl LiquidityPool {
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
 
         let amount_to_send = amount - fee;
-        cache.transfer_out(&caller, amount_to_send);
 
+        // CEI: snapshot + commit before external call.
         let mutation = cache.strategy_mutation(position, amount, amount_to_send);
         cache.save();
+        cache.transfer_out(&caller, amount_to_send);
         mutation
     }
 
@@ -319,6 +335,7 @@ impl LiquidityPool {
         side: AccountPositionType,
         position: AccountPositionRaw,
     ) -> PoolPositionMutation {
+        renew_pool_instance(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -347,6 +364,7 @@ impl LiquidityPool {
 
     #[only_owner]
     pub fn claim_revenue(env: Env) -> PoolAmountMutation {
+        renew_pool_instance(&env);
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
@@ -375,6 +393,7 @@ impl LiquidityPool {
 
     #[only_owner]
     pub fn update_params(env: Env, model: InterestRateModel) {
+        renew_pool_instance(&env);
         // Accrue at old rate model before applying new.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
@@ -386,6 +405,7 @@ impl LiquidityPool {
 
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_pool_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 

@@ -29,7 +29,7 @@
 //!   `flow_e2e` enforces for core ops).
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
-use soroban_sdk::{token, vec as soroban_vec};
+use soroban_sdk::token;
 use stellar_fuzz::{
     arb_amount, assert_global_invariants, assert_state_preserved_on_failure, build_wide_context,
     snapshot, LendingTest, ALICE, HF_WAD_FLOOR,

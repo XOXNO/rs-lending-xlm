@@ -1,20 +1,23 @@
 // TWAP read via Reflector prices.
 
+use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
+use common::events::{emit_oracle_twap_degraded, OracleTwapDegradedEvent};
 use common::types::{OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
 use soroban_sdk::panic_with_error;
 
 use crate::cache::ControllerCache;
 use crate::oracle::observation::{
-    check_not_future_at, is_stale, normalize_positive_price, OracleObservation,
+    check_not_future_at, is_stale, normalize_positive_price, OracleObservation, MAX_TWAP_RECORDS,
 };
 use crate::oracle::reflector::reflector_prices_call;
 
 use super::{observation_from_price_data, spot::read_spot, to_reflector_asset};
 
-// Min observations for trusted TWAP.
+// Min observations for trusted TWAP. Floor of 2 rules out single-sample
+// "TWAPs"; larger windows accept partial history above ceil(records/2).
 pub(crate) fn min_twap_observations(records: u32) -> u32 {
-    core::cmp::max(1, records.div_ceil(2))
+    core::cmp::max(2, records.div_ceil(2))
 }
 
 pub(crate) fn read_twap(
@@ -32,6 +35,9 @@ pub(crate) fn read_twap(
             None,
             OracleError::TwapInsufficientObservations,
         );
+    }
+    if records > MAX_TWAP_RECORDS {
+        panic_with_error!(cache.env(), OracleError::InvalidOracleTokenType);
     }
 
     let env = cache.env();
@@ -60,7 +66,7 @@ pub(crate) fn read_twap(
     let mut newest_valid: Option<OracleObservation> = None;
     let mut has_invalid_price = false;
     for pd in history.iter() {
-        check_not_future_at(env, cache.current_timestamp_ms / 1000, pd.timestamp);
+        check_not_future_at(env, cache.current_timestamp_ms / MS_PER_SECOND, pd.timestamp);
         if pd.price <= 0 {
             has_invalid_price = true;
             continue;
@@ -101,7 +107,7 @@ pub(crate) fn read_twap(
         );
     }
 
-    if is_stale(cache.current_timestamp_ms / 1000, oldest_ts, max_stale) {
+    if is_stale(cache.current_timestamp_ms / MS_PER_SECOND, oldest_ts, max_stale) {
         return twap_fallback_or_panic(
             cache,
             config,
@@ -111,7 +117,7 @@ pub(crate) fn read_twap(
         );
     }
 
-    // Integer division rounds toward zero.
+    // Average of actually-returned samples (AverageAvailable semantics).
     let raw_price = sum / history.len() as i128;
     Some(OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
@@ -133,6 +139,13 @@ fn twap_fallback_or_panic(
     err: OracleError,
 ) -> Option<OracleObservation> {
     if cache.oracle_policy.allows_missing_twap_fallback() {
+        emit_oracle_twap_degraded(
+            cache.env(),
+            OracleTwapDegradedEvent {
+                oracle: config.contract.clone(),
+                reason_code: err as u32,
+            },
+        );
         fallback.or_else(|| read_spot(cache.env(), config, required))
     } else {
         panic_with_error!(cache.env(), err);
@@ -143,14 +156,14 @@ fn twap_fallback_or_panic(
 mod tests {
     use super::*;
 
-    // `min_twap_observations` clamps small `records` to 1 (so a 1-sample
-    // window doesn't require zero samples), and rounds up otherwise.
     #[test]
     fn test_min_twap_observations_clamps_and_rounds_up() {
-        assert_eq!(min_twap_observations(0), 1);
-        assert_eq!(min_twap_observations(1), 1);
-        assert_eq!(min_twap_observations(2), 1);
+        assert_eq!(min_twap_observations(0), 2);
+        assert_eq!(min_twap_observations(1), 2);
+        assert_eq!(min_twap_observations(2), 2);
         assert_eq!(min_twap_observations(3), 2);
+        assert_eq!(min_twap_observations(4), 2);
+        assert_eq!(min_twap_observations(5), 3);
         assert_eq!(min_twap_observations(12), 6);
     }
 }

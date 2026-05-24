@@ -12,6 +12,7 @@ stellar-access = { workspace = true }
 stellar-contract-utils = { workspace = true }
 stellar-macros = { workspace = true }
 common = { path = "../../common" }
+pool-interface = { path = "../../interfaces/pool" }
 cvlr = { workspace = true, optional = true }
 cvlr-soroban = { workspace = true, optional = true }
 cvlr-soroban-macros = { workspace = true, optional = true }

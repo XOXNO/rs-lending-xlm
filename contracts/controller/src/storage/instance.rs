@@ -2,10 +2,20 @@ use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
+// Tier-tagged storage keys: every `LocalKey` lives in instance storage,
+// every `SessionKey` in temporary storage. Prefer these over adding new
+// variants to `ControllerKey`.
+
 #[contracttype]
 #[derive(Clone, Debug)]
 enum LocalKey {
     ApprovedToken(Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+enum SessionKey {
+    FlashLoanOngoing,
 }
 
 pub(crate) fn is_token_approved(env: &Env, token: &Address) -> bool {
@@ -120,6 +130,17 @@ pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
+    // Reads consult both the SessionKey variant (writes go here) and the
+    // legacy ControllerKey variant so an in-place upgrade preserves any
+    // flag set by the previous revision.
+    let new_flag = env
+        .storage()
+        .temporary()
+        .get::<_, bool>(&SessionKey::FlashLoanOngoing)
+        .unwrap_or(false);
+    if new_flag {
+        return true;
+    }
     env.storage()
         .temporary()
         .get(&ControllerKey::FlashLoanOngoing)
@@ -130,8 +151,11 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     if ongoing {
         env.storage()
             .temporary()
-            .set(&ControllerKey::FlashLoanOngoing, &true);
+            .set(&SessionKey::FlashLoanOngoing, &true);
     } else {
+        env.storage()
+            .temporary()
+            .remove(&SessionKey::FlashLoanOngoing);
         env.storage()
             .temporary()
             .remove(&ControllerKey::FlashLoanOngoing);

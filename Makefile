@@ -25,10 +25,11 @@ SHELL := /bin/bash
 .PHONY: \
         build build-one optimize deploy-artifacts \
         test test-verbose test-one test-match test-pool \
-        miri-common \
+        miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
         coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
-        fmt fmt-check clippy clippy-contracts clean \
+        fmt fmt-check clippy clippy-contracts clippy-fuzz \
+        wasm-size-check mutants clean \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -58,7 +59,11 @@ FUZZ_DIR := verification/fuzz
 CONTRACTS := pool controller
 
 # Coverage exclusions (no executable code / stubs only).
-COV_IGNORE := --ignore-filename-regex="types\.rs|providers\.rs|router\.rs"
+# Exclude test scaffolding (verification/test-harness internals, the Certora
+# spec layer, vendored cvlr/OZ crates) and trivial type-alias files that have
+# no executable lines. Protocol code in `common/`, `contracts/`, and
+# `interfaces/` stays in scope.
+COV_IGNORE := --ignore-filename-regex='(^|/)(verification/test-harness|verification/certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
 
 # Network config (override via env or CLI, for example `make SIGNER=ledger mainnet setupAll`)
 NETWORK     ?= testnet
@@ -162,6 +167,21 @@ miri-common:
 		fp_core::tests::test_rescale \
 		fp_core::tests::test_div_by_int
 
+## Run Miri on pool::interest pure-arithmetic paths.
+miri-pool:
+	@cd contracts/pool && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+		cargo +nightly miri test --lib -- \
+		interest::
+
+## Run Miri on controller::helpers pure-arithmetic paths.
+miri-controller:
+	@cd contracts/controller && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+		cargo +nightly miri test --lib -- \
+		helpers::
+
+## Run all Miri checks (common + pool + controller pure paths).
+miri-all: miri-common miri-pool miri-controller
+
 # ---------------------------------------------------------------------------
 # Coverage
 # ---------------------------------------------------------------------------
@@ -258,6 +278,57 @@ clippy:
 ## Lint contracts only (no test-harness)
 clippy-contracts:
 	cargo clippy -p controller -p pool -p common -- -D warnings
+
+## Lint the fuzz crate (excluded from the workspace).
+clippy-fuzz:
+	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
+
+# ---------------------------------------------------------------------------
+# WASM size budget
+# ---------------------------------------------------------------------------
+# Thresholds live in `configs/wasm_size_budget.txt`.
+
+WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
+
+## Fail if any release WASM exceeds the committed budget.
+wasm-size-check: build
+	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
+		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
+		echo "Create one with 'path bytes' lines (one per contract)."; \
+		exit 1; \
+	fi
+	@status=0; \
+	while IFS=' ' read -r rel_path budget; do \
+		case "$$rel_path" in ''|\#*) continue ;; esac; \
+		path="$(RELEASE_DIR)/$$rel_path"; \
+		if [ ! -f "$$path" ]; then \
+			echo "WASM not built: $$path"; status=1; continue; \
+		fi; \
+		size=$$(wc -c <"$$path" | tr -d ' '); \
+		if [ "$$size" -gt "$$budget" ]; then \
+			echo "FAIL $$rel_path  size=$$size bytes  budget=$$budget bytes"; \
+			status=1; \
+		else \
+			echo "OK   $$rel_path  size=$$size bytes  budget=$$budget bytes"; \
+		fi; \
+	done <$(WASM_BUDGET_FILE); \
+	exit $$status
+
+# ---------------------------------------------------------------------------
+# Mutation testing
+# ---------------------------------------------------------------------------
+
+## Run cargo-mutants on common/ + controller/src/helpers/.
+mutants:
+	@command -v cargo-mutants >/dev/null 2>&1 || { \
+		echo "cargo-mutants not installed. Install with:"; \
+		echo "  cargo install cargo-mutants --locked"; \
+		exit 1; \
+	}
+	cargo mutants --package common --package controller \
+		--file 'common/src/**/*.rs' \
+		--file 'contracts/controller/src/helpers/**/*.rs' \
+		-- --test-threads=1
 
 # ---------------------------------------------------------------------------
 # Clean
@@ -1014,5 +1085,56 @@ help:
 	@echo ""
 	@echo "Ledger signing (any command):"
 	@echo "    SIGNER=ledger make mainnet setupAll"
+
+# --- Mutation testing -----------------------------------------------------
+# Requires: cargo install --locked cargo-mutants
+# Config:   .cargo/mutants.toml (workspace-wide excludes)
+# Output:   mutants.out/ (gitignored)
+#
+# Per-target scope keeps each invocation under ~10 min. Parallelise with
+# MUTANTS_JOBS (defaults to 4 workers).
+
+MUTANTS_JOBS ?= 4
+# Test-harness integration tests can run long under accrual-loop mutations.
+# 120s is generous enough to disambiguate "infinite loop" from "merely slow".
+MUTANTS_TIMEOUT ?= 120
+
+mutants-math:
+	cargo mutants --package common --file 'common/src/math/**' -j $(MUTANTS_JOBS)
+
+mutants-rates:
+	cargo mutants --package common --file 'common/src/rates.rs' -j $(MUTANTS_JOBS)
+
+mutants-pool-interest:
+	cargo mutants --package pool --file 'contracts/pool/src/interest.rs' -j $(MUTANTS_JOBS)
+
+mutants-pool:
+	cargo mutants --package pool \
+		--test-package pool --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-oracle-policy:
+	cargo mutants --package controller \
+		--file 'contracts/controller/src/oracle/policy.rs' \
+		--file 'contracts/controller/src/oracle/compose.rs' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-controller-positions:
+	cargo mutants --package controller --file 'contracts/controller/src/positions/**' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-controller-strategies:
+	cargo mutants --package controller --file 'contracts/controller/src/strategies/**' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-common:
+	cargo mutants --package common -j $(MUTANTS_JOBS)
 
 .DEFAULT_GOAL := help

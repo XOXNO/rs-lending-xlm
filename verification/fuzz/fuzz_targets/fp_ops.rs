@@ -67,12 +67,19 @@ fuzz_target!(|i: In| {
     let bps = Bps::from_raw(i.bps as i128);
     let decimals = (i.decimals % 28) as u32; // 0..=27
 
-    // ---- Add / Sub roundtrips (exercises the Add/Sub impls) ----
-    assert_eq!((ray_a + ray_b) - ray_b, ray_a, "Ray add/sub roundtrip");
-    assert_eq!((wad_a + wad_b) - wad_b, wad_a, "Wad add/sub roundtrip");
+    // Add / Sub roundtrips. Restrict to non-negative operands — Sub panics
+    // on a negative result by design.
+    if ray_a.raw() >= 0 && ray_b.raw() >= 0 {
+        assert_eq!((ray_a + ray_b) - ray_b, ray_a, "Ray add/sub roundtrip");
+    }
+    if wad_a.raw() >= 0 && wad_b.raw() >= 0 {
+        assert_eq!((wad_a + wad_b) - wad_b, wad_a, "Wad add/sub roundtrip");
+    }
     let bps_a = Bps::from_raw(i.bps as i128);
     let bps_b = Bps::from_raw((i.b_raw as i128) % (BPS * 2));
-    assert_eq!((bps_a + bps_b) - bps_b, bps_a, "Bps add/sub roundtrip");
+    if bps_a.raw() >= 0 && bps_b.raw() >= 0 {
+        assert_eq!((bps_a + bps_b) - bps_b, bps_a, "Bps add/sub roundtrip");
+    }
 
     // ---- Ray::to_wad ----
     // Ray → Wad divides by 10^9. `Ray::ONE.to_wad() == Wad::ONE`.
@@ -194,7 +201,9 @@ fuzz_target!(|i: In| {
     // round away from zero, so a strict `to_token(from_token(x)) <= x`
     // bound doesn't hold for negative amounts or near-boundary values.
     // Durable invariants: non-zero roundtrips preserve sign and zero maps to zero.
-    if decimals >= 2 || i.token_amount.abs() as i128 <= 10i128.pow(15) {
+    // Skip i64::MIN — `.abs()` overflows i64.
+    let token_amount_safe = i.token_amount.saturating_abs() as i128;
+    if i.token_amount != i64::MIN && (decimals >= 2 || token_amount_safe <= 10i128.pow(15)) {
         let w = Wad::from_token(i.token_amount as i128, decimals);
         let back = w.to_token(decimals);
         // Sign preservation across the roundtrip.

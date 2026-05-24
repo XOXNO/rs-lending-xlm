@@ -145,6 +145,8 @@ pub(crate) fn withdraw_collateral_to_controller(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
+// `_refund_to` is unused: router-leftover input stays on the controller
+// and is refunded by `refund_controller_balance_delta` at the strategy tail.
 pub(crate) fn swap_tokens(
     env: &Env,
     token_in: &Address,
@@ -272,15 +274,19 @@ pub(crate) fn snapshot_swap_balances(
     }
 }
 
-// Invokes router batch execution under guard.
+// Invokes the router under the flash-loan guard. Save+restore preserves
+// any pre-existing outer guard.
 pub(crate) fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
     batch: &BatchSwap,
 ) {
+    let previously_set = storage::is_flash_loan_ongoing(env);
     storage::set_flash_loan_ongoing(env, true);
     let _ = router.batch_execute(batch);
-    storage::set_flash_loan_ongoing(env, false);
+    if !previously_set {
+        storage::set_flash_loan_ongoing(env, false);
+    }
 }
 
 // Authorizes router token pull.
@@ -290,7 +296,7 @@ pub(crate) fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch
     let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
             contract: first_hop.token_in.clone(),
-            fn_name: Symbol::new(env, "transfer"),
+            fn_name: symbol_short!("transfer"),
             args: (
                 env.current_contract_address(),
                 router_addr.clone(),

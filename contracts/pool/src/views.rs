@@ -1,3 +1,4 @@
+use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
@@ -68,7 +69,7 @@ pub fn borrowed_amount(env: &Env) -> i128 {
 // Milliseconds elapsed since last accrual.
 pub fn delta_time(env: &Env) -> u64 {
     let state = load_state(env);
-    let current_ms = env.ledger().timestamp() * 1000;
+    let current_ms = env.ledger().timestamp() * MS_PER_SECOND;
     current_ms.saturating_sub(state.last_timestamp)
 }
 

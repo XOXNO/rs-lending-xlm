@@ -61,6 +61,11 @@ pub mod errors {
     pub const INVALID_LIQ_THRESHOLD: u32 = 113;
     pub const CANNOT_CLEAN_BAD_DEBT: u32 = 114;
     pub const INVALID_BORROW_PARAMS: u32 = 116;
+    pub const BASE_RATE_NEGATIVE: u32 = 128;
+    pub const SLOPE_NON_MONOTONIC: u32 = 129;
+    pub const MAX_RATE_BELOW_BASE: u32 = 130;
+    pub const MAX_BORROW_RATE_TOO_HIGH: u32 = 131;
+    pub const ASSET_DECIMALS_TOO_HIGH: u32 = 132;
     pub const DEBT_POSITION_NOT_FOUND: u32 = 120;
     pub const COLLATERAL_POSITION_NOT_FOUND: u32 = 121;
     pub const CANNOT_CLOSE_WITH_REMAINING_DEBT: u32 = 122;

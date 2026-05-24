@@ -30,25 +30,30 @@ impl Controller {
     }
 
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
+        storage::renew_controller_instance(&env);
         renew_account(&env, &caller, account_id);
     }
 
     #[only_role(caller, "KEEPER")]
-    pub fn keepalive_shared_state(env: Env, caller: Address, assets: Vec<Address>) {
-        let _ = caller;
-        keepalive_shared_state(&env, &assets);
-    }
-
-    #[only_role(caller, "KEEPER")]
     pub fn keepalive_accounts(env: Env, caller: Address, account_ids: Vec<u64>) {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         keepalive_accounts(&env, &account_ids);
     }
 
     #[only_role(caller, "KEEPER")]
     pub fn keepalive_pools(env: Env, caller: Address, assets: Vec<Address>) {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         keepalive_pools(&env, &assets);
+    }
+
+    #[only_role(caller, "KEEPER")]
+    pub fn keepalive_shared_state(env: Env, caller: Address, assets: Vec<Address>) {
+        // `keepalive_shared_state` already bumps the controller instance
+        // (see inner fn at the bottom of this file) — listing for documentation.
+        let _ = caller;
+        keepalive_shared_state(&env, &assets);
     }
 
     #[only_owner]
@@ -58,22 +63,26 @@ impl Controller {
         params: MarketParamsRaw,
         config: AssetConfigRaw,
     ) -> Address {
+        // Inner `create_liquidity_pool` already bumps the controller instance.
         create_liquidity_pool(&env, &asset, &params, &config)
     }
 
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
+        storage::renew_controller_instance(&env);
         upgrade_liquidity_pool_params(&env, &asset, &params);
     }
 
     #[only_owner]
     pub fn upgrade_liquidity_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
+        storage::renew_controller_instance(&env);
         upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
     }
 
     #[when_not_paused]
     #[only_role(caller, "REVENUE")]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         validation::require_not_flash_loaning(&env);
         claim_revenue(&env, assets)
@@ -81,6 +90,7 @@ impl Controller {
 
     #[only_role(caller, "REVENUE")]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
+        storage::renew_controller_instance(&env);
         validation::require_not_flash_loaning(&env);
         add_rewards_batch(&env, &caller, rewards);
     }

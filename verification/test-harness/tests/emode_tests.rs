@@ -419,7 +419,7 @@ fn test_emode_rejects_threshold_lte_ltv() {
 
 #[test]
 fn test_emode_deprecated_category_operations_rejected() {
-    let mut t = LendingTest::new()
+    let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)

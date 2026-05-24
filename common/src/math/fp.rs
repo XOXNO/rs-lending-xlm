@@ -50,9 +50,24 @@ impl Ray {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
-    // Converts to asset decimals.
+    // Converts to asset decimals (half-up).
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
+    }
+
+    // Converts to asset decimals (floor). Use at credit-to-user boundaries.
+    pub fn to_asset_floor(self, asset_decimals: u32) -> i128 {
+        fp_core::rescale_floor(self.0, RAY_DECIMALS, asset_decimals)
+    }
+
+    // Converts to asset decimals (ceiling). Use at debit-from-user boundaries.
+    pub fn to_asset_ceil(self, asset_decimals: u32) -> i128 {
+        fp_core::rescale_ceil(self.0, RAY_DECIMALS, asset_decimals)
+    }
+
+    // Multiplies Ray (floor).
+    pub fn mul_floor(self, env: &Env, other: Ray) -> Ray {
+        Ray(fp_core::mul_div_floor(env, self.0, other.0, RAY))
     }
 
     // Creates a Ray from a ratio of two integers.
@@ -112,13 +127,17 @@ impl AddAssign for Ray {
 impl Sub for Ray {
     type Output = Ray;
     fn sub(self, rhs: Ray) -> Ray {
-        Ray(self.0 - rhs.0)
+        let result = self.0.checked_sub(rhs.0).expect("Ray subtraction overflow");
+        if result < 0 {
+            panic!("Ray subtraction underflow (would produce negative)");
+        }
+        Ray(result)
     }
 }
 
 impl SubAssign for Ray {
     fn sub_assign(&mut self, rhs: Ray) {
-        self.0 -= rhs.0;
+        *self = *self - rhs;
     }
 }
 
@@ -229,13 +248,17 @@ impl AddAssign for Wad {
 impl Sub for Wad {
     type Output = Wad;
     fn sub(self, rhs: Wad) -> Wad {
-        Wad(self.0 - rhs.0)
+        let result = self.0.checked_sub(rhs.0).expect("Wad subtraction overflow");
+        if result < 0 {
+            panic!("Wad subtraction underflow (would produce negative)");
+        }
+        Wad(result)
     }
 }
 
 impl SubAssign for Wad {
     fn sub_assign(&mut self, rhs: Wad) {
-        self.0 -= rhs.0;
+        *self = *self - rhs;
     }
 }
 
@@ -310,13 +333,17 @@ impl AddAssign for Bps {
 impl Sub for Bps {
     type Output = Bps;
     fn sub(self, rhs: Bps) -> Bps {
-        Bps(self.0 - rhs.0)
+        let result = self.0.checked_sub(rhs.0).expect("Bps subtraction overflow");
+        if result < 0 {
+            panic!("Bps subtraction underflow (would produce negative)");
+        }
+        Bps(result)
     }
 }
 
 impl SubAssign for Bps {
     fn sub_assign(&mut self, rhs: Bps) {
-        self.0 -= rhs.0;
+        *self = *self - rhs;
     }
 }
 
@@ -666,14 +693,12 @@ mod tests {
         assert_eq!(r.raw(), 12345);
     }
 
-    // Ray::Sub allows producing a negative result (the unchecked form).
-    // Documented behaviour: consumers needing the non-negative invariant
-    // must use `checked_sub`.
     #[test]
-    fn test_ray_unchecked_sub_can_produce_negative() {
+    #[should_panic(expected = "Ray subtraction underflow")]
+    fn test_ray_sub_panics_on_negative_result() {
         let a = Ray::from_raw(RAY);
         let b = Ray::from_raw(2 * RAY);
-        assert_eq!((a - b).raw(), -RAY);
+        let _ = a - b;
     }
 
     // Wad::div by zero — same propagation path as Ray.
@@ -692,14 +717,12 @@ mod tests {
         assert_eq!(half.mul(&env, half).raw(), WAD / 4);
     }
 
-    // Wad::Sub overflow path (i128::MIN - 1). Plain `-` operator wraps
-    // without panic; checked variants are only on `Ray`. Pin the
-    // behaviour explicitly: Wad's Sub is unchecked.
     #[test]
-    fn test_wad_unchecked_sub_can_produce_negative() {
+    #[should_panic(expected = "Wad subtraction underflow")]
+    fn test_wad_sub_panics_on_negative_result() {
         let a = Wad::from_raw(WAD);
         let b = Wad::from_raw(3 * WAD);
-        assert_eq!((a - b).raw(), -2 * WAD);
+        let _ = a - b;
     }
 
     // Wad::min / max with equal operands: the `else` branch fires, so
@@ -876,5 +899,89 @@ mod tests {
             1,
             "div and div_floor must differ by 1 ulp on a half-remainder"
         );
+    }
+
+    // ---- Zero-boundary tests for checked_sub on Ray/Wad/Bps ---------------
+    // Differentiates `< 0` from `<= 0`/`== 0` on both self and rhs guards.
+
+    #[test]
+    fn test_ray_checked_sub_zero_zero_returns_zero() {
+        let env = Env::default();
+        assert_eq!(Ray::ZERO.checked_sub(&env, Ray::ZERO), Ray::ZERO);
+    }
+
+    #[test]
+    fn test_wad_checked_sub_zero_zero_returns_zero() {
+        let env = Env::default();
+        assert_eq!(Wad::ZERO.checked_sub(&env, Wad::ZERO), Wad::ZERO);
+    }
+
+    #[test]
+    fn test_bps_checked_sub_zero_zero_returns_zero() {
+        let env = Env::default();
+        let zero = Bps::from_raw(0i128);
+        assert_eq!(zero.checked_sub(&env, zero), zero);
+    }
+
+    // ---- Sub trait at equality returns zero (Wad / Bps) -------------------
+    // Differentiates `result < 0` from `result <= 0` / `== 0` in Sub impls.
+
+    #[test]
+    fn test_wad_sub_equal_returns_zero() {
+        assert_eq!(Wad::ONE - Wad::ONE, Wad::ZERO);
+    }
+
+    #[test]
+    fn test_bps_sub_equal_returns_zero() {
+        assert_eq!(Bps::ONE - Bps::ONE, Bps::from_raw(0i128));
+    }
+
+    // ---- Assign-op body validation ----------------------------------------
+    // Replacing the body with `()` must change observable state.
+
+    #[test]
+    fn test_ray_checked_add_assign_mutates() {
+        let env = Env::default();
+        let mut x = Ray::from_raw(RAY);
+        x.checked_add_assign(&env, Ray::from_raw(2 * RAY));
+        assert_eq!(x.raw(), 3 * RAY);
+    }
+
+    #[test]
+    fn test_wad_checked_add_assign_mutates() {
+        let env = Env::default();
+        let mut x = Wad::from_raw(crate::constants::WAD);
+        x.checked_add_assign(&env, Wad::from_raw(2 * crate::constants::WAD));
+        assert_eq!(x.raw(), 3 * crate::constants::WAD);
+    }
+
+    #[test]
+    fn test_wad_checked_sub_assign_mutates() {
+        let env = Env::default();
+        let mut x = Wad::from_raw(5 * crate::constants::WAD);
+        x.checked_sub_assign(&env, Wad::from_raw(2 * crate::constants::WAD));
+        assert_eq!(x.raw(), 3 * crate::constants::WAD);
+    }
+
+    // ---- Ray::to_asset_floor / to_asset_ceil pin concrete output ----------
+    // Differentiates the function body from constant returns (0, 1, -1).
+
+    #[test]
+    fn test_ray_to_asset_floor_pins_concrete_output() {
+        // 1.5 in Ray (1.5 * 10^27) → asset 7-dec floor = 15000000.
+        let r = Ray::from_raw(RAY + RAY / 2);
+        assert_eq!(r.to_asset_floor(7), 15_000_000);
+        // 1.999_999 in Ray (truncated) at 0-dec = 1 (floor).
+        let r2 = Ray::from_raw(RAY + RAY * 999_999 / 1_000_000);
+        assert_eq!(r2.to_asset_floor(0), 1);
+    }
+
+    #[test]
+    fn test_ray_to_asset_ceil_pins_concrete_output() {
+        // 1.5 in Ray at 0-dec → ceil = 2.
+        let r = Ray::from_raw(RAY + RAY / 2);
+        assert_eq!(r.to_asset_ceil(0), 2);
+        // Exact 1.0 at 7-dec ceil = 10000000 (no sub-ulp remainder).
+        assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
     }
 }

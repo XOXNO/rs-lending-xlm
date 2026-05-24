@@ -304,3 +304,26 @@ fn test_redstone_anchor_outside_second_tolerance_blocks_strict_view() {
     assert_eq!(view.price_wad, usd(1));
     assert!(!view.within_second_tolerance);
 }
+
+// Runtime path: configure-time succeeds (price is set), then the feed is
+// removed before a price read, exercising the `Err` branch in
+// `try_read_price_data_for_feed` at controller/src/oracle/providers/redstone.rs.
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let feed_id = String::from_str(&t.env, "USDC");
+    let redstone = setup_redstone(&t, &feed_id, usd(1));
+
+    configure_usdc_with_redstone_single(&t, &redstone, &feed_id);
+
+    // Wipe the price entry out of the mock's temporary storage so the next
+    // `read_price_data_for_feed` returns Err.
+    t.env.as_contract(&redstone, || {
+        let key = test_harness::mock_redstone::MockKey::PriceData(feed_id.clone());
+        t.env.storage().temporary().remove(&key);
+    });
+
+    // Supply triggers a primary-source price read on the USDC market.
+    t.supply(ALICE, "USDC", 1_000.0);
+}

@@ -14,6 +14,11 @@ verification/certora/controller/results/*.md
 verification/fuzz/corpus/
 verification/fuzz/artifacts/
 verification/fuzz/coverage/
+# cargo-mutants run output (regenerated per invocation)
+mutants.out/
+mutants.out.old/
+**/mutants.out/
+**/mutants.out.old/
 docs
 .zed
 # Claude Code runtime

@@ -3,11 +3,13 @@ use common::constants::{
 };
 use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{
-    emit_approve_token, emit_remove_emode_asset, emit_update_asset_config,
-    emit_update_asset_oracle, emit_update_emode_asset, emit_update_emode_category,
-    ApproveTokenEvent, EventEModeCategory, EventOracleProvider, RemoveEModeAssetEvent,
+    emit_approve_token, emit_oracle_disabled, emit_remove_emode_asset, emit_update_accumulator,
+    emit_update_aggregator, emit_update_asset_config, emit_update_asset_oracle,
+    emit_update_emode_asset, emit_update_emode_category, emit_update_pool_template,
+    emit_update_position_limits, ApproveTokenEvent, EventEModeCategory, EventOracleProvider,
+    OracleDisabledEvent, RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent,
     UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
-    UpdateEModeCategoryEvent,
+    UpdateEModeCategoryEvent, UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
 use common::math::fp_core;
 use common::types::{
@@ -25,41 +27,49 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 impl Controller {
     #[only_owner]
     pub fn set_aggregator(env: Env, addr: Address) {
+        storage::renew_controller_instance(&env);
         set_aggregator(&env, addr);
     }
 
     #[only_owner]
     pub fn set_accumulator(env: Env, addr: Address) {
+        storage::renew_controller_instance(&env);
         set_accumulator(&env, addr);
     }
 
     #[only_owner]
     pub fn set_liquidity_pool_template(env: Env, hash: BytesN<32>) {
+        storage::renew_controller_instance(&env);
         set_liquidity_pool_template(&env, hash);
     }
 
     #[only_owner]
     pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw) {
+        storage::renew_controller_instance(&env);
         edit_asset_config(&env, asset, cfg);
     }
 
     #[only_owner]
     pub fn set_position_limits(env: Env, limits: PositionLimits) {
+        storage::renew_controller_instance(&env);
         set_position_limits(&env, limits);
     }
 
     #[only_owner]
     pub fn add_e_mode_category(env: Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
+        storage::renew_controller_instance(&env);
         add_e_mode_category(&env, ltv, threshold, bonus)
     }
 
     #[only_owner]
     pub fn edit_e_mode_category(env: Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
+        storage::renew_controller_instance(&env);
         edit_e_mode_category(&env, id, ltv, threshold, bonus);
     }
 
     #[only_owner]
     pub fn remove_e_mode_category(env: Env, id: u32) {
+        storage::renew_controller_instance(&env);
         remove_e_mode_category(&env, id);
     }
 
@@ -71,6 +81,7 @@ impl Controller {
         can_collateral: bool,
         can_borrow: bool,
     ) {
+        storage::renew_controller_instance(&env);
         add_asset_to_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
     }
 
@@ -82,16 +93,19 @@ impl Controller {
         can_collateral: bool,
         can_borrow: bool,
     ) {
+        storage::renew_controller_instance(&env);
         edit_asset_in_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
     }
 
     #[only_owner]
     pub fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32) {
+        storage::renew_controller_instance(&env);
         remove_asset_from_e_mode(&env, asset, category_id);
     }
 
     #[only_owner]
     pub fn approve_token(env: Env, token: Address) {
+        storage::renew_controller_instance(&env);
         storage::set_token_approved(&env, &token, true);
         let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
         emit_approve_token(
@@ -105,6 +119,7 @@ impl Controller {
 
     #[only_owner]
     pub fn revoke_token(env: Env, token: Address) {
+        storage::renew_controller_instance(&env);
         storage::set_token_approved(&env, &token, false);
         let wasm_hash = env.crypto().keccak256(&token.to_xdr(&env)).into();
         emit_approve_token(
@@ -123,6 +138,7 @@ impl Controller {
         asset: Address,
         cfg: MarketOracleConfigInput,
     ) {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         configure_market_oracle(&env, asset, cfg);
     }
@@ -135,12 +151,14 @@ impl Controller {
         first_tolerance: u32,
         last_tolerance: u32,
     ) {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         edit_oracle_tolerance(&env, asset, first_tolerance, last_tolerance);
     }
 
     #[only_role(caller, "ORACLE")]
     pub fn disable_token_oracle(env: Env, caller: Address, asset: Address) {
+        storage::renew_controller_instance(&env);
         let _ = caller;
         disable_token_oracle(&env, asset);
     }
@@ -165,16 +183,32 @@ fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
 pub fn set_aggregator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, OracleError::InvalidAggregator);
     storage::set_aggregator(env, &addr);
+    emit_update_aggregator(
+        env,
+        UpdateAggregatorEvent {
+            aggregator: addr,
+        },
+    );
 }
 
 pub fn set_accumulator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, GenericError::NotSmartContract);
     storage::set_accumulator(env, &addr);
+    emit_update_accumulator(
+        env,
+        UpdateAccumulatorEvent {
+            accumulator: addr,
+        },
+    );
 }
 
 pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
     require_nonzero_wasm_hash(env, &hash);
     storage::set_pool_template(env, &hash);
+    emit_update_pool_template(
+        env,
+        UpdatePoolTemplateEvent { wasm_hash: hash },
+    );
 }
 
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
@@ -205,6 +239,13 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
         panic_with_error!(env, GenericError::InvalidPositionLimits);
     }
     storage::set_position_limits(env, &limits);
+    emit_update_position_limits(
+        env,
+        UpdatePositionLimitsEvent {
+            max_supply_positions: limits.max_supply_positions,
+            max_borrow_positions: limits.max_borrow_positions,
+        },
+    );
 }
 
 pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
@@ -350,6 +391,10 @@ pub fn edit_asset_in_e_mode_category(
 }
 
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
+    if storage::get_emode_asset(env, category_id, &asset).is_none() {
+        panic_with_error!(env, EModeError::AssetNotInEmode);
+    }
+
     storage::remove_emode_asset(env, category_id, &asset);
 
     remove_emode_category_from_market_config(env, &asset, category_id);
@@ -452,8 +497,12 @@ pub fn edit_oracle_tolerance(env: &Env, asset: Address, first_tolerance: u32, la
 
 pub fn disable_token_oracle(env: &Env, asset: Address) {
     let mut market = storage::get_market_config(env, &asset);
+    if !matches!(market.status, MarketStatus::Active) {
+        panic_with_error!(env, GenericError::PairNotActive);
+    }
     market.status = MarketStatus::Disabled;
     storage::set_market_config(env, &asset, &market);
+    emit_oracle_disabled(env, OracleDisabledEvent { asset });
 }
 
 // Helper to remove an E-mode category ID from a market configuration's categories list.

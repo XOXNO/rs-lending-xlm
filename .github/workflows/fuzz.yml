@@ -41,7 +41,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.93'
+          toolchain: '1.95'
           targets: wasm32v1-none
 
       - name: Install Rust nightly (for cargo-fuzz)
@@ -78,19 +78,23 @@ jobs:
       - name: Function-level fuzz (30s each)
         run: make fuzz FUZZ_TIME=30
 
+      - name: Contract-level fuzz smoke (60s each)
+        # PR-only smoke; full long-run lives in the nightly job below.
+        run: make fuzz-contract FUZZ_TIME=60
+
       - name: Contract-level proptest (256 cases each)
         run: make proptest PROPTEST_CASES=256
 
-  miri-common:
+  miri:
     if: github.event_name == 'pull_request'
-    name: Miri pass on common
+    name: Miri pass (common + pool::interest + controller::helpers)
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri, rust-src
-      - run: make miri-common
+      - run: make miri-all
 
   # Nightly: long run, surfaces findings into issues on failure.
   nightly-long:
@@ -106,7 +110,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.93'
+          toolchain: '1.95'
           targets: wasm32v1-none
 
       - uses: dtolnay/rust-toolchain@nightly

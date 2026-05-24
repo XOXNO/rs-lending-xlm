@@ -1,4 +1,5 @@
 use super::renew_protocol_shared_key;
+use common::constants::MAX_EMODE_ASSETS_PER_CATEGORY;
 use common::errors::EModeError;
 use common::types::{ControllerKey, EModeAssetConfig, EModeCategoryRaw};
 use soroban_sdk::{panic_with_error, Address, Env};
@@ -38,6 +39,11 @@ pub(crate) fn set_emode_asset(
 ) {
     let mut cat = try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    // Cap applies to inserts only — updates leave cardinality unchanged.
+    let is_new = !cat.assets.contains_key(asset.clone());
+    if is_new && cat.assets.len() >= MAX_EMODE_ASSETS_PER_CATEGORY {
+        panic_with_error!(env, EModeError::EModeAssetsLimitReached);
+    }
     cat.assets.set(asset.clone(), config.clone());
     set_emode_category(env, category_id, &cat);
 }

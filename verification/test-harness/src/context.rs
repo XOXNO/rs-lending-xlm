@@ -292,14 +292,10 @@ impl LendingTestBuilder {
         self
     }
 
-    /// Opt out of `env.mock_all_auths()`.
-    ///
-    /// Most tests rely on the blanket auth mock to avoid boilerplate. Tests
-    /// that exercise nested contract-to-contract auth (flash-loan receivers
-    /// that mint SAC tokens, multi-hop strategy swaps, etc.) should call this
-    /// so they can attach explicit `MockAuth` trees per call via
-    /// `ctrl.mock_auths(&[...])`. Default behavior is unchanged for every
-    /// existing test.
+    /// Opt out of `env.mock_all_auths()` so the test can attach explicit
+    /// `MockAuth` trees per call. Required for tests exercising nested
+    /// contract-to-contract auth (flash-loan receivers, multi-hop strategy
+    /// swaps) and recommended for auth-sensitive categories.
     pub fn without_auto_auth(mut self) -> Self {
         self.skip_mock_auths = true;
         self

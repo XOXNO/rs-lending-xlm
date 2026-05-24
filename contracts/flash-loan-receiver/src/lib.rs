@@ -1,11 +1,17 @@
 #![no_std]
 
+//! Reference flash-loan receiver used for protocol smoke tests and audit
+//! scenarios — NOT a production contract. Production receivers must
+//! validate the calling pool's identity, call `pool.require_auth()` where
+//! appropriate, and parameterize the controller address through the
+//! constructor instead of the hard-coded `TESTNET_CONTROLLER` below.
+
 use common::errors::GenericError;
 use common::types::Payment;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error, token,
-    xdr::FromXdr, Address, Bytes, Env, IntoVal, Symbol, Vec,
+    contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
+    symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
 };
 
 const TESTNET_CONTROLLER: &str = "CAYHSB4IPBJV6WIB2VJN5IMAVCAOUXHDLJTKWKBEQ4REIBC2RAWXQPEW";
@@ -135,7 +141,7 @@ fn authorize_token_approve(
     let token_approve = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
             contract: asset.clone(),
-            fn_name: Symbol::new(env, "approve"),
+            fn_name: symbol_short!("approve"),
             args: (
                 env.current_contract_address(),
                 spender.clone(),
@@ -193,7 +199,7 @@ fn authorize_controller_supply(
     let controller_supply = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
             contract: controller.clone(),
-            fn_name: Symbol::new(env, "supply"),
+            fn_name: symbol_short!("supply"),
             args: (caller.clone(), 0u64, 0u32, assets.clone()).into_val(env),
         },
         sub_invocations: Vec::new(env),

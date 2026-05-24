@@ -26,6 +26,9 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
+    // Permissionless w.r.t. account owner: any caller can settle another
+    // account's debt (required by liquidators and debt-swap strategies).
+    // Repay has no side effect that could harm the owner.
     #[when_not_paused]
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
         process_repay(&env, &caller, account_id, &payments);

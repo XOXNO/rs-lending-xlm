@@ -1,6 +1,8 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
+#[cfg(not(feature = "certora"))]
+mod abi;
 mod access;
 pub(crate) mod cache;
 mod config;
@@ -23,7 +25,11 @@ mod views;
 #[path = "../../../verification/certora/controller/spec/mod.rs"]
 pub mod spec;
 
-use soroban_sdk::contract;
+use soroban_sdk::{contract, contractmeta};
+
+contractmeta!(key = "name", val = "rs-lending-xlm controller");
+contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
+contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
 
 #[contract]
 pub struct Controller;

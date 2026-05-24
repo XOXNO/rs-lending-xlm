@@ -29,7 +29,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.93"
+          toolchain: "1.95"
           targets: wasm32v1-none
           components: rustfmt
 
@@ -59,14 +59,19 @@ jobs:
       - name: Compile Certora feature paths
         run: ./verification/certora/compile_all.sh
 
+      # Fork PRs without org-secret access must skip this workflow at the
+      # trigger level — a missing CERTORAKEY fails the job here.
+      - name: Verify CERTORAKEY is configured
+        run: |
+          if [ -z "$CERTORAKEY" ]; then
+            echo "::error::CERTORAKEY secret is not configured; hosted prover cannot run."
+            echo "::error::A missing secret must fail this job, not silently skip it."
+            echo "::error::Either configure CERTORAKEY, or scope this workflow to internal PRs only."
+            exit 1
+          fi
+
       - name: Install Certora CLI
-        if: ${{ env.CERTORAKEY != '' }}
         run: python3 -m pip install --upgrade certora-cli
 
       - name: Run fast Certora configs
-        if: ${{ env.CERTORAKEY != '' }}
         run: ./verification/certora/run_profile.py fast
-
-      - name: Skip hosted prover
-        if: ${{ env.CERTORAKEY == '' }}
-        run: echo "CERTORAKEY is not configured; compile and orphan checks completed, hosted prover skipped."

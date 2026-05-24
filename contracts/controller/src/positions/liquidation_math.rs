@@ -308,10 +308,11 @@ pub fn calculate_linear_bonus_with_target(
     max: Bps,
     target: Wad,
 ) -> Bps {
-    let gap_numerator = target - hf;
-    if gap_numerator <= Wad::ZERO {
+    // HF at/above target → no bonus interpolation; return base.
+    if hf >= target {
         return base;
     }
+    let gap_numerator = target - hf;
     let gap_wad = gap_numerator.div(env, target);
 
     let double_gap = gap_wad.mul(env, Wad::from_raw(2 * WAD));
@@ -405,11 +406,10 @@ fn try_liquidation_at_target(
     let d_max = snap.total_collateral.div(env, one_plus_bonus);
 
     let denom_term = snap.proportion_seized.mul(env, one_plus_bonus);
-    let denominator = target_hf - denom_term;
-
-    if denominator <= Wad::ZERO {
+    if target_hf <= denom_term {
         return None;
     }
+    let denominator = target_hf - denom_term;
 
     let target_debt = target_hf.mul(env, snap.total_debt);
     if target_debt <= snap.weighted_coll {

@@ -71,7 +71,7 @@ fn build_ctx() -> LendingTest {
 }
 
 #[test]
-fn test_fresh_supply_does_not_renew_controller_instance_ttl() {
+fn test_fresh_supply_renews_controller_instance_ttl() {
     let mut t = build_ctx();
     t.advance_time(days(151));
 
@@ -85,14 +85,22 @@ fn test_fresh_supply_does_not_renew_controller_instance_ttl() {
     t.supply(ALICE, "USDC", 100.0);
 
     let post_ttl = controller_instance_ttl(&t);
-    assert_eq!(
-        post_ttl, pre_ttl,
-        "fresh account supply must not renew controller instance TTL"
+    assert!(
+        post_ttl > pre_ttl,
+        "fresh account supply must renew controller instance TTL (pre={}, post={})",
+        pre_ttl,
+        post_ttl
+    );
+    assert!(
+        post_ttl >= TTL_THRESHOLD_INSTANCE,
+        "post-supply controller instance TTL must clear the threshold (got {})",
+        post_ttl
     );
 }
 
+// `keepalive_pools` routes to `pool.keepalive` and bumps pool instance TTL.
 #[test]
-fn test_pool_supply_does_not_renew_pool_instance_ttl() {
+fn test_pool_supply_renews_pool_instance_ttl_via_direct_keepalive() {
     let mut t = build_ctx();
     t.advance_time(days(151));
 
@@ -104,12 +112,16 @@ fn test_pool_supply_does_not_renew_pool_instance_ttl() {
         pre_ttl
     );
 
-    t.supply(ALICE, "USDC", 100.0);
+    let mut assets = soroban_sdk::Vec::new(&t.env);
+    assets.push_back(t.resolve_asset("USDC"));
+    t.ctrl_client().keepalive_pools(&t.keeper, &assets);
 
     let post_ttl = pool_instance_ttl(&t, &pool);
-    assert_eq!(
-        post_ttl, pre_ttl,
-        "user-driven pool mutation must not renew pool instance TTL"
+    assert!(
+        post_ttl > pre_ttl,
+        "keepalive_pools must renew pool instance TTL (pre={}, post={})",
+        pre_ttl,
+        post_ttl
     );
 }
 

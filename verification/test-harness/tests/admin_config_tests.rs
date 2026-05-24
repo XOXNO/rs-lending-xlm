@@ -256,8 +256,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let asset = t.resolve_market("USDC").asset.clone();
     let ctrl = t.ctrl_client();
 
-    // Just over the cap (`2 * RAY + 1`). Validator must panic with
-    // `InvalidBorrowParams`.
+    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY → MAX_BORROW_RATE_TOO_HIGH (#131).
     let result = ctrl.try_upgrade_liquidity_pool_params(
         &asset,
         &InterestRateModel {
@@ -276,7 +275,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::INVALID_BORROW_PARAMS);
+    assert_contract_error(mapped, errors::MAX_BORROW_RATE_TOO_HIGH);
 }
 
 #[test]

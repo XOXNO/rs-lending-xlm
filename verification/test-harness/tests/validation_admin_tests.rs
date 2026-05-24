@@ -72,9 +72,9 @@ fn baseline_irm() -> InterestRateModel {
     }
 }
 
-// validation.rs:173 -- monotone-slope / cap chain rejects InvalidBorrowParams (#116).
+// base_borrow_rate_ray < 0 -> BaseRateNegative (#128).
 #[test]
-#[should_panic(expected = "Error(Contract, #116)")]
+#[should_panic(expected = "Error(Contract, #128)")]
 fn test_validate_irm_rejects_negative_base_rate() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();

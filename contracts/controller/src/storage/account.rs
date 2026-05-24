@@ -41,10 +41,7 @@ pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
 
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     let key = ControllerKey::AccountMeta(account_id);
-    let persistent = env.storage().persistent();
-    if persistent.get::<_, AccountMeta>(&key).as_ref() != Some(meta) {
-        persistent.set(&key, meta);
-    }
+    env.storage().persistent().set(&key, meta);
     renew_user_key(env, &key);
 }
 
@@ -130,9 +127,8 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::BorrowPositions(account_id));
 }
 
-// Extends TTL on every account key (meta + both side maps) that currently
-// exists. Account-level TTL keeps related entries alive together so a side
-// map isn't archived while meta is still around.
+// Extends TTL on every existing account key. The `has()` guard is required —
+// soroban-sdk 26.x panics on `extend_ttl` against a missing key.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [

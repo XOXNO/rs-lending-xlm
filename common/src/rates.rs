@@ -1,6 +1,7 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
-use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
+use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR};
+use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
@@ -72,8 +73,8 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
             .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
     });
 
-    // 8-term Taylor expansion of e^x. Error < 0.01% at x = 2, which bounds
-    // error for markets idle up to two years at 100% borrow rate.
+    // 8-term Taylor expansion of e^x. Remainder R8(x) ≤ x^9 / 9! → ≈ 0.14%
+    // absolute error at x = 2. Per-chunk x is bounded by the accrual loop.
     let x_sq = x.mul(env, x);
     let x_cub = x_sq.mul(env, x);
     let x_pow4 = x_cub.mul(env, x);
@@ -94,7 +95,11 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
 }
 
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
-    old_index.mul(env, interest_factor)
+    let new_index = old_index.mul(env, interest_factor);
+    if new_index.raw() > MAX_BORROW_INDEX_RAY {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+    new_index
 }
 
 // Updates supply index.
@@ -104,6 +109,11 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     }
 
     let total_supplied_value = supplied.mul(env, old_index);
+    // Guards the post-bad-debt path where `supplied * old_index` can round
+    // to zero (supply_index at SUPPLY_INDEX_FLOOR with tiny scaled supply).
+    if total_supplied_value == Ray::ZERO {
+        return old_index;
+    }
     let rewards_ratio = rewards_increase.div(env, total_supplied_value);
     let factor = Ray::ONE + rewards_ratio;
     old_index.mul(env, factor)
@@ -415,6 +425,54 @@ mod tests {
                 Bps::from_raw(1000)
             ),
             Ray::ZERO
+        );
+    }
+
+    // `update_borrow_index` boundary: `new_index > MAX` must panic, `==` must
+    // not. Differentiates `>` from `==`/`>=` on line 99.
+
+    #[test]
+    fn test_update_borrow_index_at_max_does_not_panic() {
+        let env = Env::default();
+        let old_index = Ray::from_raw(MAX_BORROW_INDEX_RAY);
+        let new_index = update_borrow_index(&env, old_index, Ray::ONE);
+        assert_eq!(new_index.raw(), MAX_BORROW_INDEX_RAY);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #33)")]
+    fn test_update_borrow_index_above_max_panics() {
+        let env = Env::default();
+        let old_index = Ray::from_raw(MAX_BORROW_INDEX_RAY);
+        // factor = 1 + 1 ulp → product strictly exceeds MAX.
+        let factor = Ray::from_raw(RAY + 1);
+        let _ = update_borrow_index(&env, old_index, factor);
+    }
+
+    // Pins compound_interest against e^0.5 with tolerance tight enough to
+    // detect a sign flip on any Taylor term (term2..term8). Truncation
+    // bound at x = 0.5 is x^9/9! ≈ 5.4e-9 → 5.4e18 in Ray units.
+    #[test]
+    fn test_compound_interest_high_x_pins_all_taylor_terms() {
+        let env = Env::default();
+        // rate * delta = x = 0.5 Ray. Set rate = 0.5 RAY/ms, delta = 1.
+        let rate = Ray::from_raw(RAY / 2);
+        let result = compound_interest(&env, rate, 1);
+
+        // e^0.5 = 1.6487212707001281468486507878...
+        let expected = 1_648_721_270_700_128_146_848_650_787_i128;
+
+        // Tolerance must be >> Taylor truncation (5.4e18) but << any single
+        // term's magnitude. Smallest relevant term is term8 ≈ 1.9e20.
+        let tolerance = 1e19 as i128;
+        let diff = (result.raw() - expected).abs();
+        assert!(
+            diff <= tolerance,
+            "compound_interest(0.5) drift {} exceeds tolerance {}; got {}, expected {}",
+            diff,
+            tolerance,
+            result.raw(),
+            expected
         );
     }
 }

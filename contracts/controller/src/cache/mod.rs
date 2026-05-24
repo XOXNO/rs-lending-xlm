@@ -1,7 +1,8 @@
+use common::constants::MS_PER_SECOND;
 use common::events::{
-    emit_update_debt_ceiling, emit_update_market_state_batch, emit_update_position_batch,
-    EventPositionDelta, UpdateDebtCeilingEvent, UpdateMarketStateBatchEvent,
-    UpdatePositionBatchEvent,
+    emit_update_debt_ceiling_batch, emit_update_market_state_batch, emit_update_position_batch,
+    EventDebtCeilingEntry, EventPositionDelta, UpdateDebtCeilingBatchEvent,
+    UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
 };
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig, MarketConfig,
@@ -31,7 +32,10 @@ pub struct ControllerCache {
 }
 
 impl ControllerCache {
+    // Mutating entry points construct the cache via `new`, which bumps the
+    // controller instance TTL. Views go through `new_view` and skip the bump.
     pub fn new(env: &Env, oracle_policy: OraclePolicy) -> Self {
+        crate::storage::renew_controller_instance(env);
         Self::build(env, oracle_policy)
     }
 
@@ -40,7 +44,7 @@ impl ControllerCache {
     }
 
     pub(crate) fn build(env: &Env, oracle_policy: OraclePolicy) -> Self {
-        let current_timestamp_ms = env.ledger().timestamp() * 1000;
+        let current_timestamp_ms = env.ledger().timestamp() * MS_PER_SECOND;
 
         ControllerCache {
             env: env.clone(),
@@ -206,15 +210,17 @@ impl ControllerCache {
     }
 
     pub fn flush_isolated_debts(&self) {
+        if self.isolated_debts.is_empty() {
+            return;
+        }
+        let mut updates: Vec<EventDebtCeilingEntry> = Vec::new(&self.env);
         for (asset, value) in self.isolated_debts.iter() {
             storage::set_isolated_debt(&self.env, &asset, value);
-            emit_update_debt_ceiling(
-                &self.env,
-                UpdateDebtCeilingEvent {
-                    asset,
-                    total_debt_usd_wad: value,
-                },
-            );
+            updates.push_back(EventDebtCeilingEntry {
+                asset,
+                total_debt_usd_wad: value,
+            });
         }
+        emit_update_debt_ceiling_batch(&self.env, UpdateDebtCeilingBatchEvent { updates });
     }
 }

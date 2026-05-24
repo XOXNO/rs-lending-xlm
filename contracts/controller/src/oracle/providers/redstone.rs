@@ -1,6 +1,11 @@
 #![allow(dead_code)]
 
-use common::errors::{GenericError, OracleError};
+// Identity validation:
+// Redstone's `read_price_data_for_feed` ABI has no base/quote accessor (unlike
+// Reflector's `base()`). The quote currency is implicit in `feed_id`; on-chain
+// validation covers decimals, freshness, and sanity bounds only.
+
+use common::errors::GenericError;
 use common::types::{OracleProviderKind, OracleReadMode, RedStoneSourceConfig};
 use soroban_sdk::{contractclient, contracttype, panic_with_error, Env, Error, String, U256};
 
@@ -32,10 +37,6 @@ pub(crate) fn read_redstone_source(
 ) -> Option<OracleObservation> {
     let env = cache.env();
     let client = RedStonePriceFeedClient::new(env, &config.contract);
-
-    if config.decimals != REDSTONE_DECIMALS {
-        panic_with_error!(env, OracleError::InvalidOracleDecimals);
-    }
 
     let price_data = match client.try_read_price_data_for_feed(&config.feed_id) {
         Ok(Ok(price_data)) => price_data,

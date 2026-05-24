@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, Address};
 
-// Asset + amount pair.
+// Asset + amount pair. Tuple alias — Soroban serializes `(Address, i128)`
+// natively. For new boundary types prefer `controller::PaymentTuple`.
 pub type Payment = (Address, i128);
 
 #[contracttype]

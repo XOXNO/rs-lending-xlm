@@ -28,7 +28,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.93'
+          toolchain: '1.95'
           targets: wasm32v1-none
           components: clippy, rustfmt
 
@@ -57,11 +57,17 @@ jobs:
       - name: Build contracts
         run: stellar contract build
 
+      - name: WASM size budget
+        run: make wasm-size-check
+
       - name: Run tests
         run: cargo test --workspace
 
-      - name: Clippy
+      - name: Clippy (workspace)
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (fuzz crate, workspace-excluded)
+        run: make clippy-fuzz
 
   security-scan:
     name: Security Scan (OpenZeppelin)

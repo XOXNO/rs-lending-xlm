@@ -2,7 +2,7 @@ extern crate std;
 
 use test_harness::{
     days, eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, PositionType, ALICE,
-    LIQUIDATOR, STABLECOIN_EMODE,
+    BOB, LIQUIDATOR, STABLECOIN_EMODE,
 };
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,9 @@ fn test_revenue_accrues_over_time() {
         .with_market(eth_preset())
         .build();
 
-    // Set up: supply and borrow to generate interest.
+    // Seed real ETH supply so revenue accrual isn't short-circuited by the
+    // empty-pool guard in `add_protocol_revenue_ray`.
+    t.supply(BOB, "ETH", 50.0);
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 

@@ -786,3 +786,53 @@ fn compound_no_wrap_sanity(e: Env) {
     let factor = common::rates::compound_interest(&e, Ray::from_raw(rate), time);
     cvlr_satisfy!(factor.raw() > RAY);
 }
+
+/// Post-supply: total supplied ≤ supply_cap (INVARIANTS §7).
+#[rule]
+fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let market = crate::storage::get_market_config(&e, &asset);
+    let supply_cap = market.asset_config.supply_cap;
+
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, 0, asset, amount);
+
+    let post_supplied = pool_client.supplied_amount();
+    cvlr_assert!(post_supplied <= supply_cap);
+}
+
+/// Post-borrow: total borrowed ≤ borrow_cap (INVARIANTS §7).
+#[rule]
+fn borrow_respects_borrow_cap(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let market = crate::storage::get_market_config(&e, &asset);
+    let borrow_cap = market.asset_config.borrow_cap;
+
+    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
+    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
+
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+
+    let post_borrowed = pool_client.borrowed_amount();
+    cvlr_assert!(post_borrowed <= borrow_cap);
+}
+
+/// `actual = scaled * index / RAY` reconstruction property (INVARIANTS §1.3).
+#[rule]
+fn scaled_to_actual_reconstruction(e: Env) {
+    let scaled: i128 = cvlr::nondet::nondet();
+    let index: i128 = cvlr::nondet::nondet();
+    cvlr_assume!(scaled > 0 && scaled <= WAD * 1_000_000);
+    cvlr_assume!((RAY..=10 * RAY).contains(&index));
+
+    let actual = common::math::fp_core::mul_div_half_up(&e, scaled, index, RAY);
+
+    cvlr_assert!(actual + 1 >= scaled);
+    cvlr_assert!(actual <= scaled.saturating_mul(index) / RAY + 1);
+}

@@ -44,6 +44,9 @@ struct In {
     s3_pct: u16,
     mid_pct: u8,
     opt_pct: u8,
+    // Retained for corpus-input compatibility; `make_params` derives
+    // max_borrow_rate from the slope chain.
+    #[allow(dead_code)]
     max_pct: u16,
     reserve_pct: u8,
     // Sequence of (price_wad, time_advance_ms, op_kind) ops.
@@ -55,16 +58,24 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     let mid_pct = (i.mid_pct % 98 + 1) as i128;
     let opt_pct = (i.opt_pct as i128 % (99 - mid_pct)) + mid_pct + 1;
 
+    // Monotone slope chain bounded by MAX_BORROW_RATE_RAY (= 2*RAY → 200 pct):
+    //   0 <= base <= slope1 <= slope2 <= slope3 <= max <= 200, max > base.
+    let base_pct = (i.base_pct as i128) % 51; // 0..=50
+    let s1_pct = base_pct + ((i.s1_pct as i128) % (101 - base_pct)); // base..=100
+    let s2_pct = s1_pct + ((i.s2_pct as i128) % (151 - s1_pct)); // s1..=150
+    let s3_pct = s2_pct + ((i.s3_pct as i128) % (201 - s2_pct)); // s2..=200
+    let max_pct = (s3_pct.max(base_pct + 1)).clamp(s3_pct, 200); // s3..=200, > base
+
     MarketParamsRaw {
-        base_borrow_rate_ray: RAY * (i.base_pct as i128 % 51) / 100,
-        slope1_ray: RAY * (i.s1_pct as i128 % 51) / 100,
-        slope2_ray: RAY * (i.s2_pct as i128 % 101) / 100,
-        slope3_ray: RAY * (i.s3_pct as i128 % 501) / 100,
+        base_borrow_rate_ray: RAY * base_pct / 100,
+        slope1_ray: RAY * s1_pct / 100,
+        slope2_ray: RAY * s2_pct / 100,
+        slope3_ray: RAY * s3_pct / 100,
         mid_utilization_ray: RAY * mid_pct / 100,
         optimal_utilization_ray: RAY * opt_pct / 100,
-        max_borrow_rate_ray: (RAY * (i.max_pct.max(1) as i128 % 1001) / 100).max(1),
+        max_borrow_rate_ray: RAY * max_pct / 100,
         reserve_factor_bps: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
-        max_utilization_ray: 0,
+        max_utilization_ray: RAY,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -105,8 +116,7 @@ fuzz_target!(|i: In| {
     let mut cur_ts_s: u64 = env.ledger().timestamp();
 
     for (price_raw, dt_raw, op_kind) in i.ops.iter() {
-        // Price: clamped to a realistic wad range [0.001, 1000].
-        let price_wad: i128 = ((*price_raw as i128 % 1_000_000) + 1).saturating_mul(WAD / 1_000);
+        let _price_wad: i128 = ((*price_raw as i128 % 1_000_000) + 1).saturating_mul(WAD / 1_000);
 
         // Time advance: up to 100 days per step (scaled from u32).
         let dt_s: u64 = (*dt_raw as u64) % (100 * 86_400);
@@ -139,7 +149,7 @@ fuzz_target!(|i: In| {
                 // add_rewards — fails with NoSuppliersToReward (#37) when
                 // supplied == 0. Expected; swallow via try_*.
                 let amount = ((*price_raw as i128) % 10_000_000) + 1;
-                let _ = pool.try_add_rewards(&price_wad);
+                let _ = pool.try_add_rewards(&amount);
             }
             2 => {
                 // keepalive — TTL extension path.

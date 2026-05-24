@@ -1,3 +1,4 @@
+use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
@@ -43,7 +44,7 @@ impl Cache {
             borrow_index: state.borrow_index,
             supply_index: state.supply_index,
             last_timestamp: state.last_timestamp,
-            current_timestamp: env.ledger().timestamp() * 1000,
+            current_timestamp: env.ledger().timestamp() * MS_PER_SECOND,
             params: (&params).into(),
         }
     }
@@ -75,7 +76,7 @@ impl Cache {
 
     // Returns true if pool balance covers amount.
     pub fn has_reserves(&self, amount: i128) -> bool {
-        let reserves = self.get_reserves_for(&self.params.asset_id);
+        let reserves = self.live_reserves_for(&self.params.asset_id);
         reserves >= amount
     }
 
@@ -89,8 +90,8 @@ impl Cache {
         }
     }
 
-    // Pool's live on-chain balance of asset.
-    pub fn get_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
+    // Pool's live on-chain balance of asset (cross-contract read, by design).
+    pub fn live_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
         let token = soroban_sdk::token::Client::new(&self.env, asset);
         token.balance(&self.env.current_contract_address())
     }
@@ -116,18 +117,32 @@ impl Cache {
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    // Converts scaled supply to asset decimals.
+    // Converts scaled supply to asset decimals (half-up).
     pub fn unscale_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    // Converts scaled borrow to asset decimals.
+    // Floor-rounded; protocol-favor on credit-to-user boundaries (INVARIANTS §1.2).
+    pub fn unscale_supply_floor(&self, scaled: Ray) -> i128 {
+        scaled
+            .mul_floor(&self.env, self.supply_index)
+            .to_asset_floor(self.params.asset_decimals)
+    }
+
+    // Converts scaled borrow to asset decimals (half-up).
     pub fn unscale_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset(self.params.asset_decimals)
+    }
+
+    // Ceiling-rounded; protocol-favor on debit-from-user boundaries (INVARIANTS §1.2).
+    pub fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
+        scaled
+            .mul(&self.env, self.borrow_index)
+            .to_asset_ceil(self.params.asset_decimals)
     }
 
     // Converts scaled borrow to actual in RAY.
@@ -135,16 +150,17 @@ impl Cache {
         scaled.mul(&self.env, self.borrow_index)
     }
 
-    // Resolves withdrawal amounts.
+    // Resolves withdrawal amounts; full-close uses the floor readout.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.unscale_supply(pos_scaled);
+        let current_supply_floor = self.unscale_supply_floor(pos_scaled);
         if amount >= current_supply_actual {
-            return (pos_scaled, current_supply_actual);
+            return (pos_scaled, current_supply_floor);
         }
         let scaled = self.calculate_scaled_supply(amount);
         let remaining_actual = self.unscale_supply(pos_scaled - scaled);
         if remaining_actual == 0 {
-            (pos_scaled, current_supply_actual)
+            (pos_scaled, current_supply_floor)
         } else {
             (scaled, amount)
         }
@@ -152,7 +168,7 @@ impl Cache {
 
     // Burns reserve-covered protocol revenue.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
-        let reserves = self.get_reserves_for(&self.params.asset_id);
+        let reserves = self.live_reserves_for(&self.params.asset_id);
         let treasury_actual = self.unscale_supply(self.revenue);
         let amount = reserves.min(treasury_actual);
         if amount <= 0 {
@@ -169,11 +185,11 @@ impl Cache {
         amount
     }
 
-    // Resolves repayment amounts.
+    // Resolves repayment amounts; full-close uses the ceiling readout.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
-        let current_debt = self.unscale_borrow(pos_scaled);
-        if amount >= current_debt {
-            (pos_scaled, amount - current_debt)
+        let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
+        if amount >= current_debt_ceil {
+            (pos_scaled, amount - current_debt_ceil)
         } else {
             (self.calculate_scaled_borrow(amount), 0)
         }
@@ -194,7 +210,7 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
-            reserves_ray: self.get_reserves_for(&self.params.asset_id),
+            reserves_ray: self.live_reserves_for(&self.params.asset_id),
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),
             revenue_ray: self.revenue.raw(),
@@ -430,7 +446,7 @@ mod tests {
     }
 
     // Note: `amount_mutation` / `burn_claimable_revenue` aren't unit-tested
-    // here because both call `get_reserves_for` (live token balance read),
+    // here because both call `live_reserves_for` (live token balance read),
     // and this module's `TestSetup` uses a generated address rather than a
     // registered Stellar Asset Contract. Both are exercised via lib.rs
     // ABI-level tests (`test_claim_revenue*`).

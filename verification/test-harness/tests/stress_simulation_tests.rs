@@ -445,6 +445,8 @@ fn test_keeper_index_freshness_matters() {
         .with_market(eth_preset())
         .build();
 
+    // Seed real ETH supply so the empty-pool revenue guard doesn't fire.
+    t_a.supply(BOB, "ETH", 50.0);
     t_a.supply(ALICE, "USDC", 100_000.0);
     t_a.borrow(ALICE, "ETH", 10.0);
 
@@ -460,6 +462,7 @@ fn test_keeper_index_freshness_matters() {
         .with_market(eth_preset())
         .build();
 
+    t_b.supply(BOB, "ETH", 50.0);
     t_b.supply(ALICE, "USDC", 100_000.0);
     t_b.borrow(ALICE, "ETH", 10.0);
 

@@ -42,6 +42,10 @@ pub enum GenericError {
     InvalidPositionLimits = 36,
     NoSuppliersToReward = 37,
     SpotOnlyNotProductionSafe = 38,
+    AddOverflow = 39,
+    SubUnderflow = 40,
+    MulOverflow = 41,
+    DivByZero = 42,
 }
 
 #[contracterror]
@@ -76,6 +80,11 @@ pub enum CollateralError {
     DustFloorTooLow = 125,
     DustResidueNotAllowed = 126,
     UtilizationAboveMax = 127,
+    BaseRateNegative = 128,
+    SlopeNonMonotonic = 129,
+    MaxRateBelowBase = 130,
+    MaxBorrowRateTooHigh = 131,
+    AssetDecimalsTooHigh = 132,
 }
 
 #[contracterror]
@@ -122,6 +131,7 @@ pub enum EModeError {
     AssetInEmodeExists = 306,
     AssetNotInEmode = 307,
     AssetAlreadyInEmode = 308,
+    EModeAssetsLimitReached = 309,
 }
 
 #[contracterror]
@@ -139,6 +149,7 @@ pub enum FlashLoanError {
     MultiplyExtraSteps = 408,
     StrategyFeeExceeds = 409,
     InvalidBulkTicker = 410,
+    // 411 reserved — do not reuse without coordinating off-chain monitors.
     InvalidFlashloanReceiver = 412,
 }
 

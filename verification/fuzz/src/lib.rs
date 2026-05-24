@@ -1,7 +1,5 @@
-//! Helpers shared by contract-level libFuzzer targets.
-//!
-//! Provides minimal context builders, input-decoding helpers, and invariant
-//! assertions for fuzz targets.
+//! Helpers shared by contract-level libFuzzer targets: context builders,
+//! input-decoding helpers, and invariant assertions.
 
 pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 

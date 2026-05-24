@@ -249,3 +249,146 @@ impl From<&PriceFeed> for PriceFeedRaw {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::WAD;
+    use soroban_sdk::testutils::Address as _;
+
+    fn reflector_input(env: &Env) -> ReflectorSourceConfigInput {
+        ReflectorSourceConfigInput {
+            contract: Address::generate(env),
+            asset: OracleAssetRef::Stellar(Address::generate(env)),
+            read_mode: OracleReadMode::Twap(5),
+        }
+    }
+
+    fn reflector_resolved(env: &Env) -> ReflectorSourceConfig {
+        ReflectorSourceConfig {
+            contract: Address::generate(env),
+            asset: OracleAssetRef::Stellar(Address::generate(env)),
+            read_mode: OracleReadMode::Twap(5),
+            decimals: 14,
+            resolution_seconds: 300,
+        }
+    }
+
+    fn redstone_resolved(env: &Env) -> RedStoneSourceConfig {
+        RedStoneSourceConfig {
+            contract: Address::generate(env),
+            feed_id: String::from_str(env, "BTC/USD"),
+            decimals: 8,
+            max_stale_seconds: 900,
+        }
+    }
+
+    #[test]
+    fn test_input_option_none_is_none_and_as_ref_none() {
+        let none = OracleSourceConfigInputOption::None;
+        assert!(none.is_none());
+        assert!(none.as_ref().is_none());
+    }
+
+    #[test]
+    fn test_input_option_some_is_some_and_as_ref_yields_inner() {
+        let env = Env::default();
+        let some = OracleSourceConfigInputOption::Some(OracleSourceConfigInput::Reflector(
+            reflector_input(&env),
+        ));
+        assert!(!some.is_none());
+        assert!(matches!(
+            some.as_ref(),
+            Some(OracleSourceConfigInput::Reflector(_))
+        ));
+    }
+
+    #[test]
+    fn test_resolved_option_as_ref_branches() {
+        let env = Env::default();
+        let none = OracleSourceConfigOption::None;
+        assert!(none.as_ref().is_none());
+
+        let some =
+            OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(reflector_resolved(&env)));
+        assert!(matches!(
+            some.as_ref(),
+            Some(OracleSourceConfig::Reflector(_))
+        ));
+    }
+
+    #[test]
+    fn test_oracle_source_config_reflector_accessors() {
+        let env = Env::default();
+        let cfg = OracleSourceConfig::Reflector(reflector_resolved(&env));
+        assert_eq!(cfg.provider_kind(), OracleProviderKind::ReflectorSep40);
+        assert_eq!(cfg.read_mode(), OracleReadMode::Twap(5));
+        assert_eq!(cfg.decimals(), 14);
+        // Reflector falls back to the market-level default for staleness.
+        assert_eq!(cfg.max_stale_seconds(900), 900);
+    }
+
+    #[test]
+    fn test_oracle_source_config_redstone_accessors() {
+        let env = Env::default();
+        let cfg = OracleSourceConfig::RedStone(redstone_resolved(&env));
+        assert_eq!(cfg.provider_kind(), OracleProviderKind::RedStonePriceFeed);
+        // Redstone collapses to spot — it doesn't carry a read-mode field.
+        assert_eq!(cfg.read_mode(), OracleReadMode::Spot);
+        assert_eq!(cfg.decimals(), 8);
+        // Redstone uses its own per-source max-stale, ignoring the default.
+        assert_eq!(cfg.max_stale_seconds(60), 900);
+    }
+
+    #[test]
+    fn test_market_oracle_config_pending_for_shape() {
+        let env = Env::default();
+        let asset = Address::generate(&env);
+        let cfg = MarketOracleConfig::pending_for(asset.clone(), 7);
+
+        assert_eq!(cfg.asset_decimals, 7);
+        assert_eq!(cfg.max_price_stale_seconds, 0);
+        assert_eq!(cfg.strategy, OracleStrategy::Single);
+        assert_eq!(cfg.min_sanity_price_wad, 0);
+        assert_eq!(cfg.max_sanity_price_wad, 0);
+        assert!(cfg.anchor.as_ref().is_none());
+
+        // The sentinel `contract` self-points at the asset; runtime callers
+        // reject this via the market-status guard in `oracle::price`.
+        match cfg.primary {
+            OracleSourceConfig::Reflector(r) => {
+                assert_eq!(r.contract, asset);
+                assert_eq!(r.read_mode, OracleReadMode::Spot);
+                assert_eq!(r.decimals, 7);
+            }
+            _ => panic!("pending_for must build a Reflector primary"),
+        }
+    }
+
+    #[test]
+    fn test_price_feed_raw_typed_roundtrip() {
+        let raw = PriceFeedRaw {
+            price_wad: 12_345 * WAD,
+            asset_decimals: 7,
+            timestamp: 1_700_000_000,
+        };
+        let typed = PriceFeed::from(&raw);
+        let back = PriceFeedRaw::from(&typed);
+        assert_eq!(back.price_wad, raw.price_wad);
+        assert_eq!(back.asset_decimals, raw.asset_decimals);
+        assert_eq!(back.timestamp, raw.timestamp);
+    }
+
+    #[test]
+    fn test_price_feed_usd_value_wad_scales_by_decimals() {
+        let env = Env::default();
+        let feed = PriceFeed {
+            price: crate::math::fp::Wad::from_raw(2 * WAD), // $2/token
+            asset_decimals: 7,
+            timestamp: 0,
+        };
+        // 10 token at 7 decimals = 1e8 raw units; @ $2 = $20 in WAD.
+        let usd = feed.usd_value_wad(&env, 100_000_000);
+        assert_eq!(usd.raw(), 20 * WAD);
+    }
+}

@@ -587,3 +587,40 @@ fn test_flash_loan_adversarial_receiver_rejects_invalid_data() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
+
+// ---------------------------------------------------------------------------
+// 21. test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects
+// ---------------------------------------------------------------------------
+
+// Exercises `FlashLoanMode::ReenterControllerSupply` — the reference
+// receiver tries to call `controller.supply` from inside the callback. The
+// controller's `require_not_flash_loaning` guard must reject this and roll
+// the loan back. Covers flash-loan-receiver lines 99-101 + 183-210.
+#[test]
+fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+
+    let receiver = t.deploy_adversarial_flash_loan_receiver();
+    let data = receiver_data(&t, FlashLoanMode::ReenterControllerSupply);
+
+    let amount = raw_units(&t, "USDC", 10_000);
+    let fee = flash_fee(&t, "USDC", amount);
+    let asset = t.resolve_asset("USDC");
+    prefund_receiver_fee(&t, &receiver, &asset, fee);
+
+    let reserves_before = pool_reserves(&t, "USDC");
+    let caller = t.get_or_create_user(BOB);
+
+    t.env.set_auths(&[]);
+    let result = strict_flash_loan(&t, &caller, &asset, amount, &receiver, &data);
+
+    assert!(
+        result.is_err(),
+        "receiver controller-reentry must fail under flash-loan guard"
+    );
+    assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
+    assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
+}
+

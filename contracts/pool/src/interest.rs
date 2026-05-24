@@ -61,6 +61,10 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
+    // Drop fees against an empty pool — there's no supplier to dilute.
+    if cache.supplied == Ray::ZERO {
+        return;
+    }
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
     cache.revenue += fee_scaled;
     cache.supplied += fee_scaled;

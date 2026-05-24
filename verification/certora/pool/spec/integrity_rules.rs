@@ -283,3 +283,60 @@ fn pool_integrity_reachability(e: Env, admin: Address, asset: Address) {
     let state = read_state(&e);
     cvlr_satisfy!(state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
+
+/// `revenue_ray <= supplied_ray` preserved across `add_rewards` (INVARIANTS §2.2).
+#[rule]
+fn revenue_le_supplied_after_add_rewards(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    supplied_init: i128,
+    revenue_init: i128,
+    rewards: i128,
+) {
+    cvlr_assume!(supplied_init >= 0 && supplied_init <= 1_000_000 * RAY);
+    cvlr_assume!(revenue_init >= 0 && revenue_init <= supplied_init);
+    cvlr_assume!(rewards >= 0 && rewards <= 1_000_000);
+
+    seed_pool(
+        &e,
+        admin,
+        asset,
+        valid_state(supplied_init, 0, revenue_init, e.ledger().timestamp()),
+    );
+
+    let _ = crate::LiquidityPool::add_rewards(e.clone(), rewards);
+
+    let state = read_state(&e);
+    cvlr_assert!(state.revenue_ray <= state.supplied_ray);
+    cvlr_assert!(state.revenue_ray >= 0);
+}
+
+/// Flash-loan fee accrual preserves `revenue_ray <= supplied_ray` (INVARIANTS §2.5).
+#[rule]
+fn flash_loan_revenue_supplied_lockstep(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    supplied_init: i128,
+    revenue_init: i128,
+) {
+    cvlr_assume!(supplied_init > 0 && supplied_init <= 1_000_000 * RAY);
+    cvlr_assume!(revenue_init >= 0 && revenue_init <= supplied_init);
+
+    seed_pool(
+        &e,
+        admin,
+        asset,
+        valid_state(supplied_init, 0, revenue_init, e.ledger().timestamp()),
+    );
+
+    let fee_ray = Ray::from_raw(1_000_000);
+    let mut cache = crate::cache::Cache::load(&e);
+    crate::interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+    cache.save();
+
+    let state = read_state(&e);
+    cvlr_assert!(state.revenue_ray <= state.supplied_ray);
+    cvlr_assert!(state.revenue_ray >= 0);
+}

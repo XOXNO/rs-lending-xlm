@@ -66,6 +66,63 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
+// Rescales precision, FLOOR-rounded (truncation toward zero on downscale).
+// Used at protocol-credit-to-user boundaries so the protocol never overpays
+// by 1 ulp on a half-up tie.
+pub fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
+    if from_decimals == to_decimals {
+        return a;
+    }
+    if to_decimals > from_decimals {
+        // Upscale: exact, no rounding direction matters.
+        let diff = to_decimals - from_decimals;
+        let factor = 10i128
+            .checked_pow(diff)
+            .expect("rescale_floor upscale factor overflow");
+        a.checked_mul(factor)
+            .expect("rescale_floor upscale overflow")
+    } else {
+        let diff = from_decimals - to_decimals;
+        let factor = 10i128
+            .checked_pow(diff)
+            .expect("rescale_floor downscale factor overflow");
+        // Truncation toward zero is floor for non-negative inputs (the
+        // common case in the lending protocol). Negative inputs are
+        // expected to be rejected upstream.
+        a / factor
+    }
+}
+
+// Rescales precision, CEILING-rounded for non-negative inputs. Used at
+// protocol-debit-from-user boundaries so the user can never settle for
+// 1 ulp less than true debt.
+pub fn rescale_ceil(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
+    if from_decimals == to_decimals {
+        return a;
+    }
+    if to_decimals > from_decimals {
+        let diff = to_decimals - from_decimals;
+        let factor = 10i128
+            .checked_pow(diff)
+            .expect("rescale_ceil upscale factor overflow");
+        a.checked_mul(factor)
+            .expect("rescale_ceil upscale overflow")
+    } else {
+        let diff = from_decimals - to_decimals;
+        let factor = 10i128
+            .checked_pow(diff)
+            .expect("rescale_ceil downscale factor overflow");
+        let quotient = a / factor;
+        let remainder = a % factor;
+        // Non-negative input with any sub-ulp remainder rounds up.
+        if a >= 0 && remainder != 0 {
+            quotient + 1
+        } else {
+            quotient
+        }
+    }
+}
+
 // Division with half-up rounding.
 pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
@@ -357,5 +414,105 @@ mod tests {
     fn test_div_by_int_half_up_negative_exact_half() {
         assert_eq!(div_by_int_half_up(-1, 2), -1);
         assert_eq!(div_by_int_half_up(-3, 2), -2);
+    }
+
+    // --- rescale_floor branches ---
+
+    #[test]
+    fn test_rescale_floor_identity_returns_input() {
+        assert_eq!(rescale_floor(123_456_789, 7, 7), 123_456_789);
+        assert_eq!(rescale_floor(i128::MAX, 18, 18), i128::MAX);
+        assert_eq!(rescale_floor(0, 27, 27), 0);
+    }
+
+    #[test]
+    fn test_rescale_floor_upscale_is_exact() {
+        // 1 at 6 dec -> 18 dec: 1 * 10^12 = 1_000_000_000_000.
+        assert_eq!(rescale_floor(1, 6, 18), 1_000_000_000_000);
+        // 7 at 0 dec -> 7 dec: 7 * 10^7 = 70_000_000.
+        assert_eq!(rescale_floor(7, 0, 7), 70_000_000);
+    }
+
+    #[test]
+    fn test_rescale_floor_downscale_truncates_toward_zero() {
+        // 19 at 1 dec -> 0 dec: floor(1.9) = 1.
+        assert_eq!(rescale_floor(19, 1, 0), 1);
+        // 1_999_999 at 6 dec -> 0 dec: floor(1.999_999) = 1.
+        assert_eq!(rescale_floor(1_999_999, 6, 0), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "rescale_floor upscale factor overflow")]
+    fn test_rescale_floor_upscale_factor_overflow_panics() {
+        // 10^39 overflows i128.
+        let _ = rescale_floor(1, 0, 39);
+    }
+
+    #[test]
+    #[should_panic(expected = "rescale_floor upscale overflow")]
+    fn test_rescale_floor_upscale_value_overflow_panics() {
+        // i128::MAX * 10 overflows.
+        let _ = rescale_floor(i128::MAX, 0, 1);
+    }
+
+    // --- rescale_ceil branches ---
+
+    #[test]
+    fn test_rescale_ceil_identity_returns_input() {
+        assert_eq!(rescale_ceil(987_654, 5, 5), 987_654);
+        assert_eq!(rescale_ceil(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_rescale_ceil_upscale_is_exact() {
+        assert_eq!(rescale_ceil(3, 0, 6), 3_000_000);
+        assert_eq!(rescale_ceil(1, 6, 18), 1_000_000_000_000);
+    }
+
+    #[test]
+    fn test_rescale_ceil_downscale_rounds_up_on_remainder() {
+        // 11 at 1 dec -> 0 dec: 1.1 -> 2.
+        assert_eq!(rescale_ceil(11, 1, 0), 2);
+        // Exact remainder = 0: returns the truncated quotient (1).
+        assert_eq!(rescale_ceil(10, 1, 0), 1);
+        // 1_999_999 at 6 dec -> 0 dec: 1.999999 -> 2.
+        assert_eq!(rescale_ceil(1_999_999, 6, 0), 2);
+    }
+
+    #[test]
+    fn test_rescale_ceil_downscale_negative_truncates_toward_zero() {
+        // Negative inputs use the truncated quotient — no rounding adjustment.
+        // -11 at 1 dec -> 0 dec: -11 / 10 = -1 (toward zero).
+        assert_eq!(rescale_ceil(-11, 1, 0), -1);
+    }
+
+    #[test]
+    #[should_panic(expected = "rescale_ceil upscale factor overflow")]
+    fn test_rescale_ceil_upscale_factor_overflow_panics() {
+        let _ = rescale_ceil(1, 0, 39);
+    }
+
+    #[test]
+    #[should_panic(expected = "rescale_ceil upscale overflow")]
+    fn test_rescale_ceil_upscale_value_overflow_panics() {
+        let _ = rescale_ceil(i128::MAX, 0, 1);
+    }
+
+    // Downscale with `to_decimals > 0`. The `from - to` arithmetic gets
+    // collapsed under `to == 0` (the case the older tests covered), so
+    // these pin the subtraction direction explicitly. A `+` mutation would
+    // overflow `10^(from + to)` and panic instead of producing the floor
+    // / ceil result.
+
+    #[test]
+    fn test_rescale_floor_downscale_to_nonzero_decimals() {
+        assert_eq!(rescale_floor(1_999_999_999, 9, 6), 1_999_999);
+        assert_eq!(rescale_floor(5_000_000_000_000_000_000, 18, 6), 5_000_000);
+    }
+
+    #[test]
+    fn test_rescale_ceil_downscale_to_nonzero_decimals() {
+        assert_eq!(rescale_ceil(1_000_000_001, 9, 6), 1_000_001);
+        assert_eq!(rescale_ceil(1_000_000_000, 9, 6), 1_000_000);
     }
 }

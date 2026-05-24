@@ -1,4 +1,4 @@
-use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use soroban_sdk::{contracttype, panic_with_error, Address, Env};
@@ -37,6 +37,15 @@ impl MarketParamsRaw {
 
     pub fn verify_rate_model(&self, env: &Env) {
         self.rate_model_view().verify(env);
+    }
+
+    // Full boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
+    // (beyond which `Ray::from_asset` would overflow).
+    pub fn verify(&self, env: &Env) {
+        if self.asset_decimals > RAY_DECIMALS {
+            panic_with_error!(env, CollateralError::AssetDecimalsTooHigh);
+        }
+        self.verify_rate_model(env);
     }
 }
 
@@ -108,19 +117,21 @@ pub struct InterestRateModel {
 
 impl InterestRateModel {
     pub fn verify(&self, env: &Env) {
-        if self.base_borrow_rate_ray < 0
-            || self.slope1_ray < self.base_borrow_rate_ray
+        if self.base_borrow_rate_ray < 0 {
+            panic_with_error!(env, CollateralError::BaseRateNegative);
+        }
+        if self.slope1_ray < self.base_borrow_rate_ray
             || self.slope2_ray < self.slope1_ray
             || self.slope3_ray < self.slope2_ray
             || self.max_borrow_rate_ray < self.slope3_ray
         {
-            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+            panic_with_error!(env, CollateralError::SlopeNonMonotonic);
         }
         if self.max_borrow_rate_ray <= self.base_borrow_rate_ray {
-            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+            panic_with_error!(env, CollateralError::MaxRateBelowBase);
         }
         if self.max_borrow_rate_ray > MAX_BORROW_RATE_RAY {
-            panic_with_error!(env, CollateralError::InvalidBorrowParams);
+            panic_with_error!(env, CollateralError::MaxBorrowRateTooHigh);
         }
         if self.mid_utilization_ray <= 0 {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
@@ -321,5 +332,126 @@ impl From<&PoolState> for PoolStateRaw {
             supply_index_ray: t.supply_index.raw(),
             last_timestamp: t.last_timestamp,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn asset(env: &Env) -> Address {
+        Address::generate(env)
+    }
+
+    fn sample_raw_params(env: &Env) -> MarketParamsRaw {
+        MarketParamsRaw {
+            max_borrow_rate_ray: RAY,
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY / 20,
+            slope2_ray: RAY / 10,
+            slope3_ray: RAY / 2,
+            mid_utilization_ray: RAY / 2,
+            optimal_utilization_ray: RAY * 8 / 10,
+            max_utilization_ray: RAY * 95 / 100,
+            reserve_factor_bps: 1_000,
+            asset_id: asset(env),
+            asset_decimals: 7,
+        }
+    }
+
+    #[test]
+    fn test_market_params_raw_typed_roundtrip() {
+        let env = Env::default();
+        let raw = sample_raw_params(&env);
+        let typed = MarketParams::from(&raw);
+        let back = MarketParamsRaw::from(&typed);
+        assert_eq!(back.max_borrow_rate_ray, raw.max_borrow_rate_ray);
+        assert_eq!(back.base_borrow_rate_ray, raw.base_borrow_rate_ray);
+        assert_eq!(back.slope1_ray, raw.slope1_ray);
+        assert_eq!(back.slope2_ray, raw.slope2_ray);
+        assert_eq!(back.slope3_ray, raw.slope3_ray);
+        assert_eq!(back.mid_utilization_ray, raw.mid_utilization_ray);
+        assert_eq!(back.optimal_utilization_ray, raw.optimal_utilization_ray);
+        assert_eq!(back.max_utilization_ray, raw.max_utilization_ray);
+        assert_eq!(back.reserve_factor_bps, raw.reserve_factor_bps);
+        assert_eq!(back.asset_id, raw.asset_id);
+        assert_eq!(back.asset_decimals, raw.asset_decimals);
+    }
+
+    #[test]
+    fn test_market_params_rate_model_view_copies_fields() {
+        let env = Env::default();
+        let raw = sample_raw_params(&env);
+        let model = raw.rate_model_view();
+        assert_eq!(model.max_borrow_rate_ray, raw.max_borrow_rate_ray);
+        assert_eq!(model.base_borrow_rate_ray, raw.base_borrow_rate_ray);
+        assert_eq!(model.slope1_ray, raw.slope1_ray);
+        assert_eq!(model.slope2_ray, raw.slope2_ray);
+        assert_eq!(model.slope3_ray, raw.slope3_ray);
+        assert_eq!(model.mid_utilization_ray, raw.mid_utilization_ray);
+        assert_eq!(model.optimal_utilization_ray, raw.optimal_utilization_ray);
+        assert_eq!(model.max_utilization_ray, raw.max_utilization_ray);
+        assert_eq!(model.reserve_factor_bps, raw.reserve_factor_bps);
+    }
+
+    #[test]
+    fn test_market_params_verify_accepts_valid_config() {
+        let env = Env::default();
+        sample_raw_params(&env).verify(&env);
+    }
+
+    #[test]
+    #[should_panic(expected = "#132")]
+    fn test_market_params_verify_rejects_decimals_above_ray() {
+        let env = Env::default();
+        let mut raw = sample_raw_params(&env);
+        raw.asset_decimals = RAY_DECIMALS + 1;
+        raw.verify(&env);
+    }
+
+    #[test]
+    fn test_account_position_raw_typed_roundtrip() {
+        let raw = AccountPositionRaw {
+            scaled_amount_ray: 12_345 * RAY,
+            liquidation_threshold_bps: 8_500,
+            liquidation_bonus_bps: 500,
+            liquidation_fees_bps: 100,
+            loan_to_value_bps: 8_000,
+        };
+        let typed = AccountPosition::from(&raw);
+        let back = AccountPositionRaw::from(&typed);
+        assert_eq!(back, raw);
+    }
+
+    #[test]
+    fn test_market_index_raw_typed_roundtrip() {
+        let raw = MarketIndexRaw {
+            borrow_index_ray: RAY + RAY / 10,
+            supply_index_ray: RAY + RAY / 20,
+        };
+        let typed = MarketIndex::from(&raw);
+        let back = MarketIndexRaw::from(&typed);
+        assert_eq!(back, raw);
+    }
+
+    #[test]
+    fn test_pool_state_raw_typed_roundtrip() {
+        let raw = PoolStateRaw {
+            supplied_ray: 100 * RAY,
+            borrowed_ray: 60 * RAY,
+            revenue_ray: 5 * RAY,
+            borrow_index_ray: RAY,
+            supply_index_ray: RAY,
+            last_timestamp: 1_700_000_000_000,
+        };
+        let typed = PoolState::from(&raw);
+        let back = PoolStateRaw::from(&typed);
+        assert_eq!(back.supplied_ray, raw.supplied_ray);
+        assert_eq!(back.borrowed_ray, raw.borrowed_ray);
+        assert_eq!(back.revenue_ray, raw.revenue_ray);
+        assert_eq!(back.borrow_index_ray, raw.borrow_index_ray);
+        assert_eq!(back.supply_index_ray, raw.supply_index_ray);
+        assert_eq!(back.last_timestamp, raw.last_timestamp);
     }
 }

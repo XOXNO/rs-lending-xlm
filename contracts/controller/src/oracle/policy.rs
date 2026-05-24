@@ -93,3 +93,68 @@ impl OraclePolicy {
         Allowances::for_policy(self).prefer_aggregator_on_deviation
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_risk_increasing_rejects_every_loosening() {
+        let p = OraclePolicy::RiskIncreasing;
+        assert!(!p.allows_disabled_market());
+        assert!(!p.allows_stale_source());
+        assert!(!p.allows_unsafe_deviation());
+        assert!(!p.allows_missing_twap_fallback());
+        assert!(!p.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_risk_decreasing_permits_stale_and_fallback() {
+        let p = OraclePolicy::RiskDecreasing;
+        assert!(!p.allows_disabled_market());
+        assert!(p.allows_stale_source());
+        assert!(p.allows_unsafe_deviation());
+        assert!(p.allows_missing_twap_fallback());
+        assert!(!p.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_repay_permits_disabled_and_stale() {
+        let p = OraclePolicy::Repay;
+        assert!(p.allows_disabled_market());
+        assert!(p.allows_stale_source());
+        assert!(p.allows_unsafe_deviation());
+        assert!(p.allows_missing_twap_fallback());
+        assert!(!p.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_isolated_repay_permits_only_disabled_market() {
+        let p = OraclePolicy::IsolatedRepay;
+        assert!(p.allows_disabled_market());
+        assert!(!p.allows_stale_source());
+        assert!(!p.allows_unsafe_deviation());
+        assert!(!p.allows_missing_twap_fallback());
+        assert!(!p.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_liquidation_prefers_aggregator() {
+        let p = OraclePolicy::Liquidation;
+        assert!(!p.allows_disabled_market());
+        assert!(!p.allows_stale_source());
+        assert!(p.allows_unsafe_deviation());
+        assert!(!p.allows_missing_twap_fallback());
+        assert!(p.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_view_permits_everything_except_aggregator_preference() {
+        let p = OraclePolicy::View;
+        assert!(p.allows_disabled_market());
+        assert!(p.allows_stale_source());
+        assert!(p.allows_unsafe_deviation());
+        assert!(p.allows_missing_twap_fallback());
+        assert!(!p.prefers_aggregator_on_deviation());
+    }
+}

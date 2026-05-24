@@ -325,6 +325,7 @@ name = "controller"
 version = "0.1.0"
 dependencies = [
  "common",
+ "controller-interface",
  "cvlr",
  "cvlr-soroban",
  "cvlr-soroban-derive",
@@ -1294,6 +1295,7 @@ dependencies = [
  "cvlr-soroban",
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
+ "pool-interface",
  "soroban-sdk",
  "stellar-access",
  "stellar-contract-utils",

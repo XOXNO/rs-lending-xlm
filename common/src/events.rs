@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
     Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, EModeAssetConfig,
@@ -177,7 +177,7 @@ pub struct EventOracleProvider {
 }
 
 impl EventOracleProvider {
-    pub fn from_market(env: &Env, asset: &Address, market: &MarketConfig) -> Self {
+    pub fn from_market(_env: &Env, asset: &Address, market: &MarketConfig) -> Self {
         let market_max_stale = market.oracle_config.max_price_stale_seconds;
         let primary = EventOracleSource::from(&market.oracle_config.primary, market_max_stale);
         let anchor = market
@@ -188,7 +188,7 @@ impl EventOracleProvider {
 
         Self {
             base_token_id: asset.clone(),
-            quote_token_id: Symbol::new(env, "USD"),
+            quote_token_id: symbol_short!("USD"),
             tolerance: market.oracle_config.tolerance.clone(),
             pricing_method: market.oracle_config.strategy.into(),
             oracle_type: EventOracleType::Normal,
@@ -328,7 +328,7 @@ pub struct UpdateMarketStateBatchEvent {
 pub struct EventPositionDelta {
     /// Action that produced this delta (e.g., supply, borrow, liq_repay).
     pub action: Symbol,
-    pub position_type: u32,
+    pub position_type: AccountPositionType,
     pub asset: Address,
     pub scaled_amount_ray: i128,
     pub index_ray: i128,
@@ -353,7 +353,7 @@ impl EventPositionDelta {
     ) -> Self {
         Self {
             action,
-            position_type: position_type as u32,
+            position_type,
             asset,
             scaled_amount_ray: position.scaled_amount.raw(),
             index_ray,
@@ -450,6 +450,19 @@ pub struct UpdateDebtCeilingEvent {
     pub total_debt_usd_wad: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EventDebtCeilingEntry {
+    pub asset: Address,
+    pub total_debt_usd_wad: i128,
+}
+
+#[contractevent(topics = ["debt", "ceiling_batch_update"])]
+#[derive(Clone, Debug)]
+pub struct UpdateDebtCeilingBatchEvent {
+    pub updates: Vec<EventDebtCeilingEntry>,
+}
+
 #[contractevent(topics = ["debt", "bad_debt"])]
 #[derive(Clone, Debug)]
 pub struct CleanBadDebtEvent {
@@ -472,6 +485,44 @@ pub struct InitialMultiplyPaymentEvent {
 pub struct ApproveTokenEvent {
     pub wasm_hash: soroban_sdk::BytesN<32>,
     pub approved: bool,
+}
+
+#[contractevent(topics = ["config", "aggregator"])]
+#[derive(Clone, Debug)]
+pub struct UpdateAggregatorEvent {
+    pub aggregator: Address,
+}
+
+#[contractevent(topics = ["config", "accumulator"])]
+#[derive(Clone, Debug)]
+pub struct UpdateAccumulatorEvent {
+    pub accumulator: Address,
+}
+
+#[contractevent(topics = ["config", "pool_template"])]
+#[derive(Clone, Debug)]
+pub struct UpdatePoolTemplateEvent {
+    pub wasm_hash: soroban_sdk::BytesN<32>,
+}
+
+#[contractevent(topics = ["config", "position_limits"])]
+#[derive(Clone, Debug)]
+pub struct UpdatePositionLimitsEvent {
+    pub max_supply_positions: u32,
+    pub max_borrow_positions: u32,
+}
+
+#[contractevent(topics = ["config", "oracle_disabled"])]
+#[derive(Clone, Debug)]
+pub struct OracleDisabledEvent {
+    pub asset: Address,
+}
+
+#[contractevent(topics = ["oracle", "twap_degraded"])]
+#[derive(Clone, Debug)]
+pub struct OracleTwapDegradedEvent {
+    pub oracle: Address,
+    pub reason_code: u32,
 }
 
 pub fn emit_create_market(env: &Env, event: CreateMarketEvent) {
@@ -515,6 +566,34 @@ pub fn emit_remove_emode_asset(env: &Env, event: RemoveEModeAssetEvent) {
 }
 
 pub fn emit_update_debt_ceiling(env: &Env, event: UpdateDebtCeilingEvent) {
+    event.publish(env);
+}
+
+pub fn emit_update_debt_ceiling_batch(env: &Env, event: UpdateDebtCeilingBatchEvent) {
+    event.publish(env);
+}
+
+pub fn emit_update_aggregator(env: &Env, event: UpdateAggregatorEvent) {
+    event.publish(env);
+}
+
+pub fn emit_update_accumulator(env: &Env, event: UpdateAccumulatorEvent) {
+    event.publish(env);
+}
+
+pub fn emit_update_pool_template(env: &Env, event: UpdatePoolTemplateEvent) {
+    event.publish(env);
+}
+
+pub fn emit_update_position_limits(env: &Env, event: UpdatePositionLimitsEvent) {
+    event.publish(env);
+}
+
+pub fn emit_oracle_disabled(env: &Env, event: OracleDisabledEvent) {
+    event.publish(env);
+}
+
+pub fn emit_oracle_twap_degraded(env: &Env, event: OracleTwapDegradedEvent) {
     event.publish(env);
 }
 
@@ -807,7 +886,7 @@ mod tests {
             let mut position_updates = Vec::new(&env);
             position_updates.push_back(EventPositionDelta {
                 action: soroban_sdk::symbol_short!("supply"),
-                position_type: EventAccountPositionType::Deposit as u32,
+                position_type: AccountPositionType::Deposit,
                 asset: asset.clone(),
                 scaled_amount_ray: 0,
                 index_ray: 0,
