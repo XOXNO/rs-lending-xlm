@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, GenericError};
 use common::types::{AggregatorSwap, DebtPosition};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -47,9 +47,11 @@ pub fn process_swap_debt(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    if existing_debt_token == new_debt_token {
-        panic_with_error!(env, GenericError::AssetsAreTheSame);
-    }
+    assert_with_error!(
+        env,
+        existing_debt_token != new_debt_token,
+        GenericError::AssetsAreTheSame
+    );
 
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);

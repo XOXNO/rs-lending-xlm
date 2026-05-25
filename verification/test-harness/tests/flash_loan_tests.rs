@@ -623,4 +623,3 @@ fn test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects() {
     assert!(flash_guard_cleared(&t), "flash-loan guard must roll back");
     assert_eq!(pool_reserves(&t, "USDC"), reserves_before);
 }
-

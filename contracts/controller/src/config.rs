@@ -16,7 +16,9 @@ use common::types::{
     AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfigInput, MarketStatus,
     OraclePriceFluctuation, PositionLimits,
 };
-use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable,
+};
 use stellar_macros::{only_owner, only_role};
 
 use crate::oracle::validation::validate_market_oracle_sources;
@@ -175,40 +177,29 @@ fn require_contract_address(
 }
 
 fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
-    if hash.to_array() == [0; 32] {
-        panic_with_error!(env, GenericError::InvalidPoolTemplate);
-    }
+    assert_with_error!(
+        env,
+        hash.to_array() != [0; 32],
+        GenericError::InvalidPoolTemplate
+    );
 }
 
 pub fn set_aggregator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, OracleError::InvalidAggregator);
     storage::set_aggregator(env, &addr);
-    emit_update_aggregator(
-        env,
-        UpdateAggregatorEvent {
-            aggregator: addr,
-        },
-    );
+    emit_update_aggregator(env, UpdateAggregatorEvent { aggregator: addr });
 }
 
 pub fn set_accumulator(env: &Env, addr: Address) {
     require_contract_address(env, &addr, GenericError::NotSmartContract);
     storage::set_accumulator(env, &addr);
-    emit_update_accumulator(
-        env,
-        UpdateAccumulatorEvent {
-            accumulator: addr,
-        },
-    );
+    emit_update_accumulator(env, UpdateAccumulatorEvent { accumulator: addr });
 }
 
 pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
     require_nonzero_wasm_hash(env, &hash);
     storage::set_pool_template(env, &hash);
-    emit_update_pool_template(
-        env,
-        UpdatePoolTemplateEvent { wasm_hash: hash },
-    );
+    emit_update_pool_template(env, UpdatePoolTemplateEvent { wasm_hash: hash });
 }
 
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
@@ -275,9 +266,7 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus:
     validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
-    if cat.is_deprecated {
-        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
-    }
+    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     cat.loan_to_value_bps = ltv;
     cat.liquidation_threshold_bps = threshold;
     cat.liquidation_bonus_bps = bonus;
@@ -294,9 +283,7 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus:
 pub fn remove_e_mode_category(env: &Env, id: u32) {
     let mut cat = storage::try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
-    if cat.is_deprecated {
-        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
-    }
+    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     cat.is_deprecated = true;
 
     let members = cat.assets.clone();
@@ -324,17 +311,19 @@ pub fn add_asset_to_e_mode_category(
 ) {
     let cat = storage::try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
-    if cat.is_deprecated {
-        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
-    }
+    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
-    if !storage::has_market_config(env, &asset) {
-        panic_with_error!(env, GenericError::AssetNotSupported);
-    }
+    assert_with_error!(
+        env,
+        storage::has_market_config(env, &asset),
+        GenericError::AssetNotSupported
+    );
 
-    if storage::get_emode_asset(env, category_id, &asset).is_some() {
-        panic_with_error!(env, EModeError::AssetAlreadyInEmode);
-    }
+    assert_with_error!(
+        env,
+        storage::get_emode_asset(env, category_id, &asset).is_none(),
+        EModeError::AssetAlreadyInEmode
+    );
 
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
@@ -367,12 +356,12 @@ pub fn edit_asset_in_e_mode_category(
 ) {
     let cat = storage::try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
-    if cat.is_deprecated {
-        panic_with_error!(env, EModeError::EModeCategoryDeprecated);
-    }
-    if !cat.assets.contains_key(asset.clone()) {
-        panic_with_error!(env, EModeError::AssetNotInEmode);
-    }
+    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
+    assert_with_error!(
+        env,
+        cat.assets.contains_key(asset.clone()),
+        EModeError::AssetNotInEmode
+    );
 
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
@@ -391,9 +380,11 @@ pub fn edit_asset_in_e_mode_category(
 }
 
 pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
-    if storage::get_emode_asset(env, category_id, &asset).is_none() {
-        panic_with_error!(env, EModeError::AssetNotInEmode);
-    }
+    assert_with_error!(
+        env,
+        storage::get_emode_asset(env, category_id, &asset).is_some(),
+        EModeError::AssetNotInEmode
+    );
 
     storage::remove_emode_asset(env, category_id, &asset);
 
@@ -422,12 +413,16 @@ fn validate_and_calculate_tolerances(
 ) -> OraclePriceFluctuation {
     let first = i128::from(first_tolerance);
     let last = i128::from(last_tolerance);
-    if !(MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first) {
-        panic_with_error!(env, OracleError::BadFirstTolerance);
-    }
-    if !(MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last) {
-        panic_with_error!(env, OracleError::BadLastTolerance);
-    }
+    assert_with_error!(
+        env,
+        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first),
+        OracleError::BadFirstTolerance
+    );
+    assert_with_error!(
+        env,
+        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last),
+        OracleError::BadLastTolerance
+    );
 
     validation::validate_oracle_bounds(env, first, last);
 
@@ -448,12 +443,14 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         None => panic_with_error!(env, GenericError::AssetNotSupported),
     };
 
-    if !matches!(
-        market.status,
-        MarketStatus::PendingOracle | MarketStatus::Active | MarketStatus::Disabled
-    ) {
-        panic_with_error!(env, GenericError::PairNotActive);
-    }
+    assert_with_error!(
+        env,
+        matches!(
+            market.status,
+            MarketStatus::PendingOracle | MarketStatus::Active | MarketStatus::Disabled
+        ),
+        GenericError::PairNotActive
+    );
 
     let tolerance = validate_and_calculate_tolerances(
         env,
@@ -497,9 +494,11 @@ pub fn edit_oracle_tolerance(env: &Env, asset: Address, first_tolerance: u32, la
 
 pub fn disable_token_oracle(env: &Env, asset: Address) {
     let mut market = storage::get_market_config(env, &asset);
-    if !matches!(market.status, MarketStatus::Active) {
-        panic_with_error!(env, GenericError::PairNotActive);
-    }
+    assert_with_error!(
+        env,
+        matches!(market.status, MarketStatus::Active),
+        GenericError::PairNotActive
+    );
     market.status = MarketStatus::Disabled;
     storage::set_market_config(env, &asset, &market);
     emit_oracle_disabled(env, OracleDisabledEvent { asset });

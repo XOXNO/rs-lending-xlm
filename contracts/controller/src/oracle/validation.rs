@@ -4,7 +4,7 @@ use common::types::{
     OracleSourceConfig, OracleSourceConfigInput, OracleStrategy, RedStoneSourceConfig,
     ReflectorSourceConfig,
 };
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::validation;
 
@@ -60,9 +60,11 @@ pub(crate) fn validate_market_oracle_sources(
 fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
     let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
     let has_anchor = !config.anchor.is_none();
-    if needs_anchor != has_anchor {
-        panic_with_error!(env, GenericError::InvalidExchangeSrc);
-    }
+    assert_with_error!(
+        env,
+        needs_anchor == has_anchor,
+        GenericError::InvalidExchangeSrc
+    );
 
     // Production rejects Single + Spot (INVARIANTS §4.3, ADR-0003); a TWAP
     // or anchor cross-check is required.
@@ -92,9 +94,7 @@ fn validate_source(
             let decimals = client.decimals();
             validate_decimals(env, decimals);
             let resolution = client.resolution();
-            if resolution < MIN_ORACLE_RESOLUTION_SECONDS
-                || u64::from(resolution) > max_stale
-            {
+            if resolution < MIN_ORACLE_RESOLUTION_SECONDS || u64::from(resolution) > max_stale {
                 panic_with_error!(env, OracleError::InvalidOracleResolution);
             }
 
@@ -152,9 +152,11 @@ fn validate_source(
 }
 
 fn validate_max_stale(env: &Env, max_stale: u64) {
-    if !(MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS).contains(&max_stale) {
-        panic_with_error!(env, OracleError::InvalidStalenessConfig);
-    }
+    assert_with_error!(
+        env,
+        (MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS).contains(&max_stale),
+        OracleError::InvalidStalenessConfig
+    );
 }
 
 // Validate sanity bounds.
@@ -162,9 +164,11 @@ fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
     }
-    if max_wad > common::constants::MAX_REASONABLE_PRICE_WAD {
-        panic_with_error!(env, OracleError::InvalidSanityBounds);
-    }
+    assert_with_error!(
+        env,
+        max_wad <= common::constants::MAX_REASONABLE_PRICE_WAD,
+        OracleError::InvalidSanityBounds
+    );
 }
 
 fn validate_usd_base(env: &Env, oracle: &Address) {
@@ -175,18 +179,20 @@ fn validate_usd_base(env: &Env, oracle: &Address) {
 }
 
 fn validate_decimals(env: &Env, decimals: u32) {
-    if !(MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&decimals) {
-        panic_with_error!(env, OracleError::InvalidOracleDecimals);
-    }
+    assert_with_error!(
+        env,
+        (MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&decimals),
+        OracleError::InvalidOracleDecimals
+    );
 }
 
 fn validate_twap_records(env: &Env, records: u32) {
-    if records == 0 {
-        panic_with_error!(env, OracleError::TwapInsufficientObservations);
-    }
-    if records > MAX_TWAP_RECORDS {
-        panic_with_error!(env, OracleError::InvalidOracleTokenType);
-    }
+    assert_with_error!(env, records != 0, OracleError::TwapInsufficientObservations);
+    assert_with_error!(
+        env,
+        records <= MAX_TWAP_RECORDS,
+        OracleError::InvalidOracleTokenType
+    );
 }
 
 fn validate_twap_history(
@@ -199,12 +205,12 @@ fn validate_twap_history(
 ) {
     let history = reflector_prices_call(env, oracle, asset, records)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::ReflectorHistoryEmpty));
-    if history.is_empty() {
-        panic_with_error!(env, OracleError::ReflectorHistoryEmpty);
-    }
-    if history.len() < min_twap_observations(records) {
-        panic_with_error!(env, OracleError::TwapInsufficientObservations);
-    }
+    assert_with_error!(env, !history.is_empty(), OracleError::ReflectorHistoryEmpty);
+    assert_with_error!(
+        env,
+        history.len() >= min_twap_observations(records),
+        OracleError::TwapInsufficientObservations
+    );
     for pd in history.iter() {
         validate_reflector_feed(env, &pd, max_stale, decimals);
     }

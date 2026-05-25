@@ -1,6 +1,6 @@
 use common::errors::CollateralError;
 use common::types::{Account, AccountPosition, AggregatorSwap, DebtPosition};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -195,9 +195,11 @@ fn close_remaining_collateral_if_requested(
         return;
     }
 
-    if !account.borrow_positions.is_empty() {
-        panic_with_error!(env, CollateralError::CannotCloseWithRemainingDebt);
-    }
+    assert_with_error!(
+        env,
+        account.borrow_positions.is_empty(),
+        CollateralError::CannotCloseWithRemainingDebt
+    );
 
     execute_withdraw_all(env, account, account_id, caller, cache);
 }

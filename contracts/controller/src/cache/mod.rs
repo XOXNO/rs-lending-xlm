@@ -164,14 +164,15 @@ impl ControllerCache {
         position: &DebtPosition,
         asset_price_wad: Option<i128>,
     ) {
-        self.position_updates.push_back(EventPositionDelta::new_debt(
-            action,
-            asset.clone(),
-            index_ray,
-            amount,
-            position,
-            asset_price_wad,
-        ));
+        self.position_updates
+            .push_back(EventPositionDelta::new_debt(
+                action,
+                asset.clone(),
+                index_ray,
+                amount,
+                position,
+                asset_price_wad,
+            ));
     }
 
     pub fn emit_position_batch(&mut self, account_id: u64, account: &Account) {

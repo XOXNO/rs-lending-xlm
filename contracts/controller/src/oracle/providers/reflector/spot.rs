@@ -2,7 +2,7 @@
 
 use common::errors::OracleError;
 use common::types::{OracleReadMode, ReflectorSourceConfig};
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{assert_with_error, Env};
 
 use crate::oracle::observation::OracleObservation;
 use crate::oracle::reflector::reflector_lastprice_call;
@@ -16,9 +16,7 @@ pub(crate) fn read_spot(
 ) -> Option<OracleObservation> {
     let asset = to_reflector_asset(env, &config.asset);
     let Some(pd) = reflector_lastprice_call(env, &config.contract, &asset) else {
-        if required {
-            panic_with_error!(env, OracleError::NoLastPrice);
-        }
+        assert_with_error!(env, !required, OracleError::NoLastPrice);
         return None;
     };
     Some(observation_from_price_data(

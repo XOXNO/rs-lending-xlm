@@ -1,7 +1,7 @@
 use common::errors::CollateralError;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPosition, AccountPositionType, AssetConfig, PriceFeed};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, symbol_short, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
 use super::{emode, update};
@@ -141,9 +141,11 @@ fn update_position_threshold(
             &account.supply_positions,
             &account.borrow_positions,
         );
-        if hf < Wad::from_raw(THRESHOLD_UPDATE_MIN_HF_RAW) {
-            panic_with_error!(env, CollateralError::HealthFactorTooLow);
-        }
+        assert_with_error!(
+            env,
+            hf >= Wad::from_raw(THRESHOLD_UPDATE_MIN_HF_RAW),
+            CollateralError::HealthFactorTooLow
+        );
     }
 
     // Record a position update with amount = 0; no deposit or withdraw

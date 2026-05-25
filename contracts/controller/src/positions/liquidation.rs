@@ -6,7 +6,9 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
     RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec,
+};
 use stellar_macros::{only_role, when_not_paused};
 
 use super::dust::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
@@ -56,9 +58,11 @@ pub fn process_liquidation(
 
     // Reject self-liquidation.
     let account_meta = storage::get_account_meta(env, account_id);
-    if account_meta.owner == *liquidator {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
-    }
+    assert_with_error!(
+        env,
+        account_meta.owner != *liquidator,
+        GenericError::AccountNotInMarket
+    );
 
     // Stage 2: State Resolution
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
@@ -222,9 +226,7 @@ pub(crate) fn execute_liquidation(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if hf >= Wad::ONE {
-        panic_with_error!(env, CollateralError::HealthFactorTooHigh);
-    }
+    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
 
     let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
         env,
@@ -332,9 +334,11 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     let mut cache = ControllerCache::new(env, OraclePolicy::Liquidation);
     let account = storage::get_account(env, account_id);
 
-    if account.borrow_positions.is_empty() {
-        panic_with_error!(env, CollateralError::PositionNotFound);
-    }
+    assert_with_error!(
+        env,
+        !account.borrow_positions.is_empty(),
+        CollateralError::PositionNotFound
+    );
 
     let (total_collateral_usd, total_debt_usd, _) = helpers::calculate_account_totals(
         env,
@@ -369,12 +373,24 @@ fn execute_bad_debt_cleanup(
     total_collateral_usd: i128,
 ) {
     for (asset, position) in iter_typed_positions(&account.supply_positions) {
-        seize_pool_position(env, cache, AccountPositionType::Deposit, &asset, (&position).into());
+        seize_pool_position(
+            env,
+            cache,
+            AccountPositionType::Deposit,
+            &asset,
+            (&position).into(),
+        );
     }
 
     for (asset, position) in iter_debt_positions(&account.borrow_positions) {
         repay::clear_position_isolated_debt(env, &asset, &position, account, cache);
-        seize_pool_position(env, cache, AccountPositionType::Borrow, &asset, (&position).into());
+        seize_pool_position(
+            env,
+            cache,
+            AccountPositionType::Borrow,
+            &asset,
+            (&position).into(),
+        );
     }
 
     emit_clean_bad_debt(

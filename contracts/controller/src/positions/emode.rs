@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, EModeError};
 use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::ControllerCache;
 use crate::storage;
@@ -70,14 +70,14 @@ pub fn token_e_mode_config(
             }
         }
     };
-    if !market.asset_config.e_mode_categories.contains(e_mode_id) {
-        panic_with_error!(env, EModeError::EModeCategoryNotFound);
-    }
+    assert_with_error!(
+        env,
+        market.asset_config.e_mode_categories.contains(e_mode_id),
+        EModeError::EModeCategoryNotFound
+    );
 
     let config = cache.cached_emode_asset(e_mode_id, asset);
-    if config.is_none() {
-        panic_with_error!(env, EModeError::EModeCategoryNotFound);
-    }
+    assert_with_error!(env, config.is_some(), EModeError::EModeCategoryNotFound);
     config
 }
 
@@ -99,9 +99,7 @@ pub fn active_e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory
 // Panics if deprecated.
 pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
     if let Some(cat) = category {
-        if cat.is_deprecated {
-            panic_with_error!(env, EModeError::EModeCategoryDeprecated);
-        }
+        assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     }
 }
 
@@ -152,9 +150,11 @@ pub fn validate_isolated_collateral(
     }
 
     for existing_asset in account.supply_positions.keys() {
-        if existing_asset != *asset {
-            panic_with_error!(env, EModeError::MixIsolatedCollateral);
-        }
+        assert_with_error!(
+            env,
+            existing_asset == *asset,
+            EModeError::MixIsolatedCollateral
+        );
     }
 }
 

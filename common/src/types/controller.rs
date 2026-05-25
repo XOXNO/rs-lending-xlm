@@ -421,7 +421,10 @@ mod tests {
         let typed = AssetConfig::from(&raw);
         let back = AssetConfigRaw::from(&typed);
         assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
-        assert_eq!(back.liquidation_threshold_bps, raw.liquidation_threshold_bps);
+        assert_eq!(
+            back.liquidation_threshold_bps,
+            raw.liquidation_threshold_bps
+        );
         assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
         assert_eq!(back.liquidation_fees_bps, raw.liquidation_fees_bps);
         assert_eq!(back.is_collateralizable, raw.is_collateralizable);
@@ -491,7 +494,10 @@ mod tests {
         let typed = EModeCategory::from(&raw);
         let back = EModeCategoryRaw::from(&typed);
         assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
-        assert_eq!(back.liquidation_threshold_bps, raw.liquidation_threshold_bps);
+        assert_eq!(
+            back.liquidation_threshold_bps,
+            raw.liquidation_threshold_bps
+        );
         assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
         assert_eq!(back.is_deprecated, raw.is_deprecated);
         assert_eq!(back.assets.len(), raw.assets.len());

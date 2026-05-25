@@ -1,6 +1,8 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, AggregatorSwap};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Vec,
+};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -50,16 +52,20 @@ pub fn process_swap_collateral(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    if current_collateral == new_collateral {
-        panic_with_error!(env, GenericError::AssetsAreTheSame);
-    }
+    assert_with_error!(
+        env,
+        current_collateral != new_collateral,
+        GenericError::AssetsAreTheSame
+    );
 
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    if account.is_isolated {
-        panic_with_error!(env, FlashLoanError::SwapCollateralNoIso);
-    }
+    assert_with_error!(
+        env,
+        !account.is_isolated,
+        FlashLoanError::SwapCollateralNoIso
+    );
 
     // Debt-free collateral swaps are risk-neutral; the tightest oracle
     // tolerance is unnecessary when no outstanding borrows can be liquidated.
@@ -146,9 +152,11 @@ pub fn validate_swap_new_collateral_preflight(
     emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
     emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, new_collateral, true);
 
-    if !config.is_collateralizable {
-        panic_with_error!(env, CollateralError::NotCollateral);
-    }
+    assert_with_error!(
+        env,
+        config.is_collateralizable,
+        CollateralError::NotCollateral
+    );
 
     // Extra pre-flight: check DEPOSIT position limits when the destination is a new asset.
     if !account

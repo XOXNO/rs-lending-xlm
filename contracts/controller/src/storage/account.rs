@@ -39,10 +39,7 @@ pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     renew_user_key(env, &key);
 }
 
-pub(crate) fn get_supply_positions(
-    env: &Env,
-    account_id: u64,
-) -> Map<Address, AccountPositionRaw> {
+pub(crate) fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPositionRaw> {
     env.storage()
         .persistent()
         .get::<_, Map<Address, AccountPositionRaw>>(&ControllerKey::SupplyPositions(account_id))
@@ -65,16 +62,14 @@ pub(crate) fn set_supply_positions(
     renew_user_account(env, account_id);
 }
 
-pub(crate) fn set_debt_positions(
-    env: &Env,
-    account_id: u64,
-    map: &Map<Address, DebtPositionRaw>,
-) {
+pub(crate) fn set_debt_positions(env: &Env, account_id: u64, map: &Map<Address, DebtPositionRaw>) {
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
     renew_user_account(env, account_id);
 }
 
-fn write_side_map<V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
+fn write_side_map<
+    V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
+>(
     env: &Env,
     key: &ControllerKey,
     map: &Map<Address, V>,

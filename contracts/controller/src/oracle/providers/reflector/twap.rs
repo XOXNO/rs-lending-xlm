@@ -4,7 +4,7 @@ use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::events::{emit_oracle_twap_degraded, OracleTwapDegradedEvent};
 use common::types::{OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
-use soroban_sdk::panic_with_error;
+use soroban_sdk::{assert_with_error, panic_with_error};
 
 use crate::cache::ControllerCache;
 use crate::oracle::observation::{
@@ -36,9 +36,11 @@ pub(crate) fn read_twap(
             OracleError::TwapInsufficientObservations,
         );
     }
-    if records > MAX_TWAP_RECORDS {
-        panic_with_error!(cache.env(), OracleError::InvalidOracleTokenType);
-    }
+    assert_with_error!(
+        cache.env(),
+        records <= MAX_TWAP_RECORDS,
+        OracleError::InvalidOracleTokenType
+    );
 
     let env = cache.env();
     let asset = to_reflector_asset(env, &config.asset);
@@ -66,7 +68,11 @@ pub(crate) fn read_twap(
     let mut newest_valid: Option<OracleObservation> = None;
     let mut has_invalid_price = false;
     for pd in history.iter() {
-        check_not_future_at(env, cache.current_timestamp_ms / MS_PER_SECOND, pd.timestamp);
+        check_not_future_at(
+            env,
+            cache.current_timestamp_ms / MS_PER_SECOND,
+            pd.timestamp,
+        );
         if pd.price <= 0 {
             has_invalid_price = true;
             continue;
@@ -107,7 +113,11 @@ pub(crate) fn read_twap(
         );
     }
 
-    if is_stale(cache.current_timestamp_ms / MS_PER_SECOND, oldest_ts, max_stale) {
+    if is_stale(
+        cache.current_timestamp_ms / MS_PER_SECOND,
+        oldest_ts,
+        max_stale,
+    ) {
         return twap_fallback_or_panic(
             cache,
             config,

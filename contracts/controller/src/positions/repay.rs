@@ -61,7 +61,12 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     // supply positions and must not be blocked by pre-existing borrow
     // positions that drifted under the floor on assets the user did
     // not touch.
-    require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &repayment_plan));
+    require_no_borrow_dust_for_assets(
+        env,
+        &mut cache,
+        &account,
+        &utils::plan_assets(env, &repayment_plan),
+    );
 
     // Stage 6: State Persistence
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
@@ -125,7 +130,13 @@ pub fn execute_repayment(
     } = ctx;
 
     let pool_addr = cache.cached_pool_address(req.asset);
-    let result = pool_repay_call(env, &pool_addr, caller.clone(), req.amount, req.position.into());
+    let result = pool_repay_call(
+        env,
+        &pool_addr,
+        caller.clone(),
+        req.amount,
+        req.position.into(),
+    );
     cache.record_market_update_with_price(
         &result.market_state,
         if req.price > Wad::ZERO {

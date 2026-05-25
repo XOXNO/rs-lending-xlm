@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
 use common::types::{Account, AggregatorSwap, AssetConfig, PositionMode};
-use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -75,18 +75,22 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         convert_swap,
     } = params;
 
-    if collateral_token == debt_token {
-        panic_with_error!(env, GenericError::AssetsAreTheSame);
-    }
+    assert_with_error!(
+        env,
+        collateral_token != debt_token,
+        GenericError::AssetsAreTheSame
+    );
 
     // Allow-list rather than `!= Normal` so a future `PositionMode` variant
     // cannot silently slip through multiply.
-    if !matches!(
-        mode,
-        PositionMode::Multiply | PositionMode::Long | PositionMode::Short
-    ) {
-        panic_with_error!(env, CollateralError::InvalidPositionMode);
-    }
+    assert_with_error!(
+        env,
+        matches!(
+            mode,
+            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
+        ),
+        CollateralError::InvalidPositionMode
+    );
 
     validation::require_amount_positive(env, debt_to_flash_loan);
     // Rejects zero-floor swap.
@@ -105,9 +109,11 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskIncreasing);
 
     let collateral_config = cache.cached_asset_config(collateral_token);
-    if !collateral_config.is_collateralizable {
-        panic_with_error!(env, CollateralError::NotCollateral);
-    }
+    assert_with_error!(
+        env,
+        collateral_config.is_collateralizable,
+        CollateralError::NotCollateral
+    );
 
     let (account_id, mut account) = load_or_create_multiply_account(
         env,
@@ -241,9 +247,7 @@ fn load_or_create_multiply_account(
 
     let account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
-    if account.mode != mode {
-        panic_with_error!(env, GenericError::AccountModeMismatch);
-    }
+    assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
     (account_id, account)
 }
 

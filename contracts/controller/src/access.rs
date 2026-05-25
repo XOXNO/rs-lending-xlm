@@ -1,6 +1,8 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
-use soroban_sdk::{contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
+};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
 
@@ -109,9 +111,11 @@ impl Controller {
             .instance()
             .get(&ControllerKey::AppVersion)
             .unwrap_or(INITIAL_APP_VERSION);
-        if new_version <= current_version {
-            panic_with_error!(&env, GenericError::InternalError);
-        }
+        assert_with_error!(
+            &env,
+            new_version > current_version,
+            GenericError::InternalError
+        );
         env.storage()
             .instance()
             .set(&ControllerKey::AppVersion, &new_version);

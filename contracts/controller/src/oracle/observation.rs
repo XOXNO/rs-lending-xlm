@@ -2,7 +2,7 @@ use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{OracleProviderKind, OracleReadMode};
-use soroban_sdk::{panic_with_error, Env, U256};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
 // Max drift between the ledger clock and an oracle publication timestamp.
 const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
@@ -38,9 +38,7 @@ impl OracleObservation {
 }
 
 pub(crate) fn normalize_positive_price(env: &Env, price: i128, decimals: u32) -> i128 {
-    if price <= 0 {
-        panic_with_error!(env, OracleError::InvalidPrice);
-    }
+    assert_with_error!(env, price > 0, OracleError::InvalidPrice);
     Wad::from_token(price, decimals).raw()
 }
 
@@ -52,16 +50,16 @@ pub(crate) fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     let max_future_ts = now_secs
         .checked_add(MAX_FUTURE_SKEW_SECONDS)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    if feed_ts > max_future_ts {
-        panic_with_error!(env, OracleError::PriceFeedStale);
-    }
+    assert_with_error!(env, feed_ts <= max_future_ts, OracleError::PriceFeedStale);
 }
 
 pub(crate) fn validate_timestamp(env: &Env, now_secs: u64, feed_ts: u64, max_stale: u64) {
     check_not_future_at(env, now_secs, feed_ts);
-    if is_stale(now_secs, feed_ts, max_stale) {
-        panic_with_error!(env, OracleError::PriceFeedStale);
-    }
+    assert_with_error!(
+        env,
+        !is_stale(now_secs, feed_ts, max_stale),
+        OracleError::PriceFeedStale
+    );
 }
 
 // U256 to i128.
@@ -69,9 +67,7 @@ pub(crate) fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     let Some(raw) = value.to_u128() else {
         panic_with_error!(env, GenericError::MathOverflow);
     };
-    if raw > i128::MAX as u128 {
-        panic_with_error!(env, GenericError::MathOverflow);
-    }
+    assert_with_error!(env, raw <= i128::MAX as u128, GenericError::MathOverflow);
     raw as i128
 }
 

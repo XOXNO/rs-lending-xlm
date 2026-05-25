@@ -1,7 +1,7 @@
 use common::errors::FlashLoanError;
 use common::events::{emit_flash_loan, FlashLoanEvent};
 use common::math::fp::Bps;
-use soroban_sdk::{contractimpl, panic_with_error, Address, Bytes, Env, Executable};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env, Executable};
 use stellar_macros::when_not_paused;
 
 use crate::cache::ControllerCache;
@@ -41,9 +41,11 @@ pub fn process_flash_loan(
     validation::require_market_active(env, &mut cache, asset);
 
     let asset_config = cache.cached_asset_config(asset);
-    if !asset_config.is_flashloanable {
-        panic_with_error!(env, FlashLoanError::FlashloanNotEnabled);
-    }
+    assert_with_error!(
+        env,
+        asset_config.is_flashloanable,
+        FlashLoanError::FlashloanNotEnabled
+    );
     require_wasm_receiver(env, receiver);
 
     let fee = flash_loan_fee(env, asset_config.flashloan_fee, amount);
@@ -71,9 +73,11 @@ pub fn process_flash_loan(
 }
 
 fn require_wasm_receiver(env: &Env, receiver: &Address) {
-    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
-        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
-    }
+    assert_with_error!(
+        env,
+        matches!(receiver.executable(), Some(Executable::Wasm(_))),
+        FlashLoanError::InvalidFlashloanReceiver
+    );
 }
 
 fn flash_loan_fee(env: &Env, fee: Bps, amount: i128) -> i128 {

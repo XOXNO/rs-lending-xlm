@@ -1,8 +1,5 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-
-#[cfg(not(feature = "certora"))]
-mod abi;
 mod access;
 pub(crate) mod cache;
 mod config;
@@ -29,7 +26,10 @@ use soroban_sdk::{contract, contractmeta};
 
 contractmeta!(key = "name", val = "Lending Controller");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
-contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
+contractmeta!(
+    key = "repo",
+    val = "https://github.com/xoxno/rs-lending-xlm"
+);
 
 #[contract]
 pub struct Controller;

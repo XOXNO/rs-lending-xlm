@@ -2,7 +2,7 @@ use super::renew_protocol_shared_key;
 use common::constants::MAX_POOLS_LIST_ENTRIES;
 use common::errors::GenericError;
 use common::types::ControllerKey;
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 // Returns all asset addresses.
 pub(crate) fn get_pools_list(env: &Env) -> Vec<Address> {
@@ -26,9 +26,11 @@ pub(crate) fn add_to_pools_list(env: &Env, asset: &Address) {
     if list.iter().any(|existing| &existing == asset) {
         return;
     }
-    if list.len() >= MAX_POOLS_LIST_ENTRIES {
-        panic_with_error!(env, GenericError::InvalidPositionLimits);
-    }
+    assert_with_error!(
+        env,
+        list.len() < MAX_POOLS_LIST_ENTRIES,
+        GenericError::InvalidPositionLimits
+    );
     list.push_back(asset.clone());
     let key = ControllerKey::PoolsList;
     env.storage().persistent().set(&key, &list);

@@ -1,7 +1,9 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Ray, Wad};
 use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Vec,
+};
 use stellar_macros::when_not_paused;
 
 use super::EventContext;
@@ -80,7 +82,12 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     // Dust gate is scoped to the withdrawn assets — withdraw never mutates
     // borrow positions and must not be blocked by pre-existing positions
     // that drifted under the floor on assets the user did not touch.
-    require_no_supply_dust_for_assets(env, &mut cache, &account, &plan_assets(env, &withdrawal_plan));
+    require_no_supply_dust_for_assets(
+        env,
+        &mut cache,
+        &account,
+        &plan_assets(env, &withdrawal_plan),
+    );
 
     // Stage 6: State Persistence
     if account.is_empty() {
@@ -102,9 +109,7 @@ fn process_single_withdrawal(
     cache: &mut ControllerCache,
 ) {
     // `0` means withdraw all; negative withdrawals are never valid.
-    if amount < 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 
     let feed = cache.cached_price(asset);
 

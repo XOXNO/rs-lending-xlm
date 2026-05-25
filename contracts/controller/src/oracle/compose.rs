@@ -1,6 +1,6 @@
 use common::errors::OracleError;
 use common::types::{MarketOracleConfig, OracleStrategy};
-use soroban_sdk::panic_with_error;
+use soroban_sdk::{assert_with_error, panic_with_error};
 
 use super::observation::{is_stale, OracleObservation};
 use super::providers;
@@ -145,9 +145,11 @@ fn fallback_to_primary(
     cache: &ControllerCache,
     primary: OracleObservation,
 ) -> ResolvedOracleComponents {
-    if !cache.oracle_policy.allows_missing_twap_fallback() {
-        panic_with_error!(cache.env(), OracleError::NoLastPrice);
-    }
+    assert_with_error!(
+        cache.env(),
+        cache.oracle_policy.allows_missing_twap_fallback(),
+        OracleError::NoLastPrice
+    );
     ResolvedOracleComponents {
         primary_price_wad: Some(primary.price_wad),
         anchor_price_wad: None,

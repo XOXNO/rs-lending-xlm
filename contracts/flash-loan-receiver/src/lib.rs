@@ -10,8 +10,8 @@ use common::errors::GenericError;
 use common::types::Payment;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
-    symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
+    assert_with_error, contract, contractclient, contracterror, contractimpl, contracttype,
+    panic_with_error, symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
 };
 
 const TESTNET_CONTROLLER: &str = "CAYHSB4IPBJV6WIB2VJN5IMAVCAOUXHDLJTKWKBEQ4REIBC2RAWXQPEW";
@@ -160,9 +160,7 @@ fn authorize_token_approve(
 fn approve_under_repayment(env: &Env, asset: &Address, pool: &Address, amount: i128, fee: i128) {
     let shortfall = 1;
     let total = checked_total(env, amount, fee);
-    if shortfall >= total {
-        panic_with_error!(env, ReceiverError::InvalidShortfall);
-    }
+    assert_with_error!(env, shortfall < total, ReceiverError::InvalidShortfall);
 
     let partial = total
         .checked_sub(shortfall)

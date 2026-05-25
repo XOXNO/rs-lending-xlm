@@ -2,7 +2,7 @@ use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_D
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
-use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
 use crate::{helpers, storage};
@@ -21,39 +21,39 @@ pub fn require_asset_supported(env: &Env, cache: &mut ControllerCache, asset: &A
 
 pub fn require_market_active(env: &Env, cache: &mut ControllerCache, asset: &Address) {
     let market = cache.cached_market_config(asset);
-    if market.status != MarketStatus::Active {
-        panic_with_error!(env, GenericError::PairNotActive);
-    }
+    assert_with_error!(
+        env,
+        market.status == MarketStatus::Active,
+        GenericError::PairNotActive
+    );
 }
 
 pub fn require_account_owner_match(env: &Env, account: &Account, caller: &Address) {
-    if account.owner != *caller {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
-    }
+    assert_with_error!(
+        env,
+        account.owner == *caller,
+        GenericError::AccountNotInMarket
+    );
 }
 
 pub fn require_not_flash_loaning(env: &Env) {
-    if storage::is_flash_loan_ongoing(env) {
-        panic_with_error!(env, FlashLoanError::FlashLoanOngoing);
-    }
+    assert_with_error!(
+        env,
+        !storage::is_flash_loan_ongoing(env),
+        FlashLoanError::FlashLoanOngoing
+    );
 }
 
 pub fn require_amount_positive(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
 }
 
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
-    if payments.is_empty() {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
+    assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
 pub fn require_credit_not_above_sent(env: &Env, sent: i128, received: i128) {
-    if received > sent {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
+    assert_with_error!(env, received <= sent, GenericError::InvalidPayments);
 }
 
 pub fn require_healthy_account(env: &Env, cache: &mut ControllerCache, account: &Account) {
@@ -67,9 +67,7 @@ pub fn require_healthy_account(env: &Env, cache: &mut ControllerCache, account: 
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if hf < Wad::ONE {
-        panic_with_error!(env, CollateralError::InsufficientCollateral);
-    }
+    assert_with_error!(env, hf >= Wad::ONE, CollateralError::InsufficientCollateral);
 }
 
 pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Account) {
@@ -82,9 +80,11 @@ pub fn require_within_ltv(env: &Env, cache: &mut ControllerCache, account: &Acco
     let total_borrow_wad =
         helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
-    if ltv_collateral_wad < total_borrow_wad {
-        panic_with_error!(env, CollateralError::InsufficientCollateral);
-    }
+    assert_with_error!(
+        env,
+        ltv_collateral_wad >= total_borrow_wad,
+        CollateralError::InsufficientCollateral
+    );
 }
 
 pub fn validate_bulk_position_limits(
@@ -125,9 +125,11 @@ pub fn validate_bulk_position_limits(
     let total_positions = current_count
         .checked_add(new_positions_count)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    if total_positions > max_allowed {
-        panic_with_error!(env, CollateralError::PositionLimitExceeded);
-    }
+    assert_with_error!(
+        env,
+        total_positions <= max_allowed,
+        CollateralError::PositionLimitExceeded
+    );
 }
 
 pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
@@ -137,9 +139,11 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     if threshold_i <= ltv_i || threshold_i > BPS {
         panic_with_error!(env, CollateralError::InvalidLiqThreshold);
     }
-    if bonus_i > MAX_LIQUIDATION_BONUS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
+    assert_with_error!(
+        env,
+        bonus_i <= MAX_LIQUIDATION_BONUS,
+        CollateralError::InvalidLiqThreshold
+    );
 }
 
 pub fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
@@ -148,9 +152,11 @@ pub fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
         Ok(Ok(d)) => d,
         _ => panic_with_error!(env, GenericError::InvalidAsset),
     };
-    if !matches!(token_client.try_symbol(), Ok(Ok(_))) {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
+    assert_with_error!(
+        env,
+        matches!(token_client.try_symbol(), Ok(Ok(_))),
+        GenericError::InvalidAsset
+    );
     decimals
 }
 
@@ -162,21 +168,27 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
         config.liquidation_bonus_bps,
     );
 
-    if i128::from(config.liquidation_fees_bps) > BPS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
+    assert_with_error!(
+        env,
+        i128::from(config.liquidation_fees_bps) <= BPS,
+        CollateralError::InvalidLiqThreshold
+    );
 
     if config.supply_cap < 0 || config.borrow_cap < 0 {
         panic_with_error!(env, CollateralError::InvalidBorrowParams);
     }
 
-    if config.isolation_debt_ceiling_usd_wad < 0 {
-        panic_with_error!(env, CollateralError::InvalidBorrowParams);
-    }
+    assert_with_error!(
+        env,
+        config.isolation_debt_ceiling_usd_wad >= 0,
+        CollateralError::InvalidBorrowParams
+    );
 
-    if i128::from(config.flashloan_fee_bps) > MAX_FLASHLOAN_FEE_BPS {
-        panic_with_error!(env, FlashLoanError::StrategyFeeExceeds);
-    }
+    assert_with_error!(
+        env,
+        i128::from(config.flashloan_fee_bps) <= MAX_FLASHLOAN_FEE_BPS,
+        FlashLoanError::StrategyFeeExceeds
+    );
 
     let dust_disabled = config.min_collat_floor_usd_wad == 0 && config.min_debt_floor_usd_wad == 0;
     if !dust_disabled
@@ -189,9 +201,7 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
 
 // Validates oracle price bounds.
 pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
-    if last <= first {
-        panic_with_error!(env, OracleError::BadAnchorTolerances);
-    }
+    assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
     // Upper bound on `last` is enforced by the caller's range check via
     // `MAX_LAST_TOLERANCE`.
 }

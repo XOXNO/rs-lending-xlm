@@ -3,10 +3,14 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatorSwap, BatchSwap, DebtPosition,
 };
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec,
+};
 
 use crate::cache::ControllerCache;
-use crate::positions::dust::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
+use crate::positions::dust::{
+    require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets,
+};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest};
 use crate::{positions::borrow, positions::EventContext, storage, utils, validation};
@@ -219,9 +223,7 @@ pub(crate) fn validate_aggregator_swap(
     // Empty batch, empty path, and wrong-token batches are caller mistakes.
     // Report them as `InvalidPayments`, mirroring the rest of the
     // controller's "malformed input" surface.
-    if swap.paths.is_empty() {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
+    assert_with_error!(env, !swap.paths.is_empty(), GenericError::InvalidPayments);
     if amount_in <= 0 || swap.total_min_out <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
@@ -237,32 +239,30 @@ pub(crate) fn validate_aggregator_swap(
     let n = swap.paths.len();
     for i in 0..n {
         let path = validation::expect_invariant(env, swap.paths.get(i));
-        if path.hops.is_empty() {
-            panic_with_error!(env, GenericError::InvalidPayments);
-        }
-        if path.split_ppm == 0 {
-            panic_with_error!(env, GenericError::InvalidPayments);
-        }
+        assert_with_error!(env, !path.hops.is_empty(), GenericError::InvalidPayments);
+        assert_with_error!(env, path.split_ppm != 0, GenericError::InvalidPayments);
         sum_ppm = sum_ppm
             .checked_add(path.split_ppm)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidPayments));
 
         let first_hop = validation::expect_invariant(env, path.hops.get(0));
-        if first_hop.token_in != *token_in {
-            panic_with_error!(env, GenericError::WrongToken);
-        }
+        assert_with_error!(
+            env,
+            first_hop.token_in == *token_in,
+            GenericError::WrongToken
+        );
         let last_hop = validation::expect_invariant(env, path.hops.get(path.hops.len() - 1));
-        if last_hop.token_out != *token_out {
-            panic_with_error!(env, GenericError::WrongToken);
-        }
+        assert_with_error!(
+            env,
+            last_hop.token_out == *token_out,
+            GenericError::WrongToken
+        );
     }
     // PPM weights must sum to exactly 1_000_000. Anything else means the
     // off-chain quote was malformed; the router would also reject this
     // but failing fast in the controller keeps the panic site close to
     // the user-visible call.
-    if sum_ppm != 1_000_000 {
-        panic_with_error!(env, GenericError::InvalidPayments);
-    }
+    assert_with_error!(env, sum_ppm == 1_000_000, GenericError::InvalidPayments);
 }
 
 pub(crate) fn snapshot_swap_balances(
@@ -321,17 +321,21 @@ pub(crate) fn verify_router_input_spend(
     amount_in: i128,
 ) {
     let balance_after = token_in_client.balance(&env.current_contract_address());
-    if balance_after > balance_before {
-        panic_with_error!(env, GenericError::InternalError);
-    }
+    assert_with_error!(
+        env,
+        balance_after <= balance_before,
+        GenericError::InternalError
+    );
     let actual_in_spent = balance_before - balance_after;
     // Allow the router to spend less than `amount_in`; leftover input stays on
     // the controller and output verification still enforces `total_min_out`.
     // Reject overspend because it signals that the router or token contract
     // pulled more than the strategy committed to spend.
-    if actual_in_spent > amount_in {
-        panic_with_error!(env, GenericError::InternalError);
-    }
+    assert_with_error!(
+        env,
+        actual_in_spent <= amount_in,
+        GenericError::InternalError
+    );
 }
 
 pub(crate) fn verify_router_output(
@@ -351,9 +355,7 @@ pub(crate) fn verify_router_output(
     // already enforces `total_out >= total_min_out` and would have
     // panicked otherwise. Strategy entrypoints reject
     // `total_min_out <= 0` upfront.
-    if received < total_min_out {
-        panic_with_error!(env, GenericError::InternalError);
-    }
+    assert_with_error!(env, received >= total_min_out, GenericError::InternalError);
 
     received
 }

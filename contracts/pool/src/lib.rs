@@ -13,9 +13,9 @@ mod test_support;
 pub mod spec;
 
 use cache::Cache;
-use common::constants::{MS_PER_SECOND, RAY};
 #[cfg(test)]
 use common::constants::TTL_THRESHOLD_INSTANCE;
+use common::constants::{MS_PER_SECOND, RAY};
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::rates::update_supply_index;
@@ -25,13 +25,16 @@ use common::types::{
     PoolSyncData, ScaledPositionRaw,
 };
 use soroban_sdk::{
-    contract, contractimpl, contractmeta, panic_with_error, token, Address, Bytes, BytesN, Env,
-    IntoVal, Symbol,
+    assert_with_error, contract, contractimpl, contractmeta, panic_with_error, token, Address,
+    Bytes, BytesN, Env, IntoVal, Symbol,
 };
 
 contractmeta!(key = "name", val = "Liquidity Pool");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
-contractmeta!(key = "repo", val = "https://github.com/xoxno/rs-lending-xlm");
+contractmeta!(
+    key = "repo",
+    val = "https://github.com/xoxno/rs-lending-xlm"
+);
 
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -206,9 +209,11 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         require_nonneg_amount(&env, amount);
         let mut cache = Cache::load(&env);
 
-        if cache.supplied == Ray::ZERO {
-            panic_with_error!(&env, GenericError::NoSuppliersToReward);
-        }
+        assert_with_error!(
+            &env,
+            cache.supplied != Ray::ZERO,
+            GenericError::NoSuppliersToReward
+        );
 
         interest::global_sync(&env, &mut cache);
 
@@ -251,9 +256,11 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         tok.transfer(&pool_addr, &receiver, &amount);
 
         // Pre-callback sanity.
-        if tok.balance(&pool_addr) != expected_after_payout {
-            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
-        }
+        assert_with_error!(
+            &env,
+            tok.balance(&pool_addr) == expected_after_payout,
+            FlashLoanError::InvalidFlashloanRepay
+        );
 
         env.invoke_contract::<()>(
             &receiver,
@@ -270,18 +277,22 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         );
 
         // Post-callback: balance must not have been mutated.
-        if tok.balance(&pool_addr) != expected_after_payout {
-            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
-        }
+        assert_with_error!(
+            &env,
+            tok.balance(&pool_addr) == expected_after_payout,
+            FlashLoanError::InvalidFlashloanRepay
+        );
 
         // Authorize the pool to invoke transfer_from on the token contract.
         // This relies on the receiver having called `approve` on the token contract during the callback.
         authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
         tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
 
-        if tok.balance(&pool_addr) != expected_after_repay {
-            panic_with_error!(&env, FlashLoanError::InvalidFlashloanRepay);
-        }
+        assert_with_error!(
+            &env,
+            tok.balance(&pool_addr) == expected_after_repay,
+            FlashLoanError::InvalidFlashloanRepay
+        );
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
@@ -304,9 +315,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
-        if fee > amount {
-            panic_with_error!(&env, FlashLoanError::StrategyFeeExceeds);
-        }
+        assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
         let mut cache = Cache::load(&env);
         cache.require_reserves(amount);
@@ -370,9 +379,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         interest::global_sync(&env, &mut cache);
 
         // Defensive: revenue must be non-negative.
-        if cache.revenue.raw() < 0 {
-            panic_with_error!(&env, GenericError::MathOverflow);
-        }
+        assert_with_error!(&env, cache.revenue.raw() >= 0, GenericError::MathOverflow);
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 

@@ -5,9 +5,7 @@ use common::types::{ControllerKey, EModeAssetConfig, EModeCategoryRaw};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 pub(crate) fn get_emode_category(env: &Env, id: u32) -> EModeCategoryRaw {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::EModeCategory(id))
+    try_get_emode_category(env, id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound))
 }
 

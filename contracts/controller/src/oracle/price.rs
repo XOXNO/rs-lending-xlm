@@ -1,7 +1,7 @@
 use common::errors::{GenericError, OracleError};
 use common::rates::simulate_update_indexes;
 use common::types::{MarketIndex, MarketStatus, OracleSourceConfig, PriceFeedRaw};
-use soroban_sdk::{panic_with_error, Address};
+use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;
 use crate::cache::ControllerCache;
@@ -29,13 +29,17 @@ pub fn token_price(cache: &mut ControllerCache, asset: &Address) -> PriceFeedRaw
         OracleSourceConfig::Reflector(r) => &r.contract,
         OracleSourceConfig::RedStone(r) => &r.contract,
     };
-    if primary_contract == asset {
-        panic_with_error!(cache.env(), OracleError::OracleNotConfigured);
-    }
+    assert_with_error!(
+        cache.env(),
+        primary_contract != asset,
+        OracleError::OracleNotConfigured
+    );
     let resolved = compose::resolve_price(cache, &config);
-    if resolved.price_wad <= 0 {
-        panic_with_error!(cache.env(), OracleError::InvalidPrice);
-    }
+    assert_with_error!(
+        cache.env(),
+        resolved.price_wad > 0,
+        OracleError::InvalidPrice
+    );
     // Sanity price bounds.
     if config.max_sanity_price_wad <= 0
         || resolved.price_wad < config.min_sanity_price_wad

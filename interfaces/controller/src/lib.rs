@@ -2,8 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, PositionMode,
+    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView,
+    DebtPositionRaw, EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView,
+    PositionMode,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 

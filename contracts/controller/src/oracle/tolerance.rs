@@ -2,7 +2,7 @@ use common::constants::RAY;
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
 use common::types::OraclePriceFluctuation;
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::ControllerCache;
 
@@ -35,9 +35,11 @@ pub(crate) fn calculate_final_price(
                     .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
                     / 2
             } else {
-                if !cache.oracle_policy.allows_unsafe_deviation() {
-                    panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
-                }
+                assert_with_error!(
+                    env,
+                    cache.oracle_policy.allows_unsafe_deviation(),
+                    OracleError::UnsafePriceNotAllowed
+                );
                 // Use aggregator on high deviation.
                 if cache.oracle_policy.prefers_aggregator_on_deviation() {
                     agg_price

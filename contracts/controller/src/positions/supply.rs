@@ -4,7 +4,9 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
     Payment, PositionMode,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec,
+};
 use stellar_macros::when_not_paused;
 
 use super::dust::require_no_supply_dust_for_assets;
@@ -45,8 +47,14 @@ pub fn process_supply(
     // Aggregate once at the entrypoint; downstream stages — including the
     // post-flight dust scope — operate on the deduped plan.
     let deposit_plan = utils::aggregate_positive_payments(env, assets);
-    let (acct_id, mut account) =
-        resolve_supply_account(env, caller, account_id, e_mode_category, &deposit_plan, &mut cache);
+    let (acct_id, mut account) = resolve_supply_account(
+        env,
+        caller,
+        account_id,
+        e_mode_category,
+        &deposit_plan,
+        &mut cache,
+    );
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     process_deposit(env, caller, &mut account, &deposit_plan, &mut cache);
@@ -55,7 +63,12 @@ pub fn process_supply(
     // Dust gate is scoped to the assets supplied in this batch — supply
     // never mutates borrow positions and must not be blocked by pre-existing
     // positions whose USD value drifted under the floor from price moves.
-    require_no_supply_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &deposit_plan));
+    require_no_supply_dust_for_assets(
+        env,
+        &mut cache,
+        &account,
+        &utils::plan_assets(env, &deposit_plan),
+    );
 
     // Stage 6: State Persistence
     storage::set_supply_positions(env, acct_id, &account.supply_positions);
@@ -111,7 +124,14 @@ pub fn process_deposit(
     }
 
     prepare_deposit_plan(env, account, deposit_plan, cache, &effective_configs);
-    execute_deposit_plan(env, caller, account, deposit_plan, cache, &effective_configs);
+    execute_deposit_plan(
+        env,
+        caller,
+        account,
+        deposit_plan,
+        cache,
+        &effective_configs,
+    );
 }
 
 fn prepare_deposit_plan(
@@ -134,9 +154,11 @@ fn prepare_deposit_plan(
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset, true);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
 
-        if !asset_config.can_supply() {
-            panic_with_error!(env, CollateralError::NotCollateral);
-        }
+        assert_with_error!(
+            env,
+            asset_config.can_supply(),
+            CollateralError::NotCollateral
+        );
 
         emode::validate_isolated_collateral(env, account, &asset, &asset_config);
     }
@@ -272,9 +294,7 @@ fn pull_supply_tokens(
 }
 
 fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
-    if received <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    assert_with_error!(env, received > 0, GenericError::AmountMustBePositive);
     // Fee-on-transfer tokens may credit less.
     require_credit_not_above_sent(env, sent, received);
 }

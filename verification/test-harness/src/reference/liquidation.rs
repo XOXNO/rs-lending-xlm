@@ -599,7 +599,11 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
         // Liquidation fee is a market-level parameter sourced from the current
         // asset config (mirrors production `asset_config.liquidation_fees`),
         // not a per-position field.
-        let liq_fees_bps = t.ctrl_client().get_market_config(&asset).asset_config.liquidation_fees_bps;
+        let liq_fees_bps = t
+            .ctrl_client()
+            .get_market_config(&asset)
+            .asset_config
+            .liquidation_fees_bps;
         out.push(RefCollateralPosition {
             asset_id: i as u32,
             supply_scaled_ray: br_from_i128(position.scaled_amount_ray),

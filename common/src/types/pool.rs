@@ -1,7 +1,7 @@
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
-use soroban_sdk::{contracttype, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
 // Wire/storage form. Field names preserve the on-disk encoding.
 #[contracttype]
@@ -42,9 +42,11 @@ impl MarketParamsRaw {
     // Full boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
     // (beyond which `Ray::from_asset` would overflow).
     pub fn verify(&self, env: &Env) {
-        if self.asset_decimals > RAY_DECIMALS {
-            panic_with_error!(env, CollateralError::AssetDecimalsTooHigh);
-        }
+        assert_with_error!(
+            env,
+            self.asset_decimals <= RAY_DECIMALS,
+            CollateralError::AssetDecimalsTooHigh
+        );
         self.verify_rate_model(env);
     }
 }
@@ -117,9 +119,11 @@ pub struct InterestRateModel {
 
 impl InterestRateModel {
     pub fn verify(&self, env: &Env) {
-        if self.base_borrow_rate_ray < 0 {
-            panic_with_error!(env, CollateralError::BaseRateNegative);
-        }
+        assert_with_error!(
+            env,
+            self.base_borrow_rate_ray >= 0,
+            CollateralError::BaseRateNegative
+        );
         if self.slope1_ray < self.base_borrow_rate_ray
             || self.slope2_ray < self.slope1_ray
             || self.slope3_ray < self.slope2_ray
@@ -127,28 +131,40 @@ impl InterestRateModel {
         {
             panic_with_error!(env, CollateralError::SlopeNonMonotonic);
         }
-        if self.max_borrow_rate_ray <= self.base_borrow_rate_ray {
-            panic_with_error!(env, CollateralError::MaxRateBelowBase);
-        }
-        if self.max_borrow_rate_ray > MAX_BORROW_RATE_RAY {
-            panic_with_error!(env, CollateralError::MaxBorrowRateTooHigh);
-        }
-        if self.mid_utilization_ray <= 0 {
-            panic_with_error!(env, CollateralError::InvalidUtilRange);
-        }
-        if self.optimal_utilization_ray <= self.mid_utilization_ray {
-            panic_with_error!(env, CollateralError::InvalidUtilRange);
-        }
-        if self.optimal_utilization_ray >= RAY {
-            panic_with_error!(env, CollateralError::OptUtilTooHigh);
-        }
+        assert_with_error!(
+            env,
+            self.max_borrow_rate_ray > self.base_borrow_rate_ray,
+            CollateralError::MaxRateBelowBase
+        );
+        assert_with_error!(
+            env,
+            self.max_borrow_rate_ray <= MAX_BORROW_RATE_RAY,
+            CollateralError::MaxBorrowRateTooHigh
+        );
+        assert_with_error!(
+            env,
+            self.mid_utilization_ray > 0,
+            CollateralError::InvalidUtilRange
+        );
+        assert_with_error!(
+            env,
+            self.optimal_utilization_ray > self.mid_utilization_ray,
+            CollateralError::InvalidUtilRange
+        );
+        assert_with_error!(
+            env,
+            self.optimal_utilization_ray < RAY,
+            CollateralError::OptUtilTooHigh
+        );
         if self.max_utilization_ray < self.optimal_utilization_ray || self.max_utilization_ray > RAY
         {
             panic_with_error!(env, CollateralError::InvalidUtilRange);
         }
-        if i128::from(self.reserve_factor_bps) >= BPS {
-            panic_with_error!(env, CollateralError::InvalidReserveFactor);
-        }
+        assert_with_error!(
+            env,
+            i128::from(self.reserve_factor_bps) < BPS,
+            CollateralError::InvalidReserveFactor
+        );
     }
 }
 

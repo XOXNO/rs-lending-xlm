@@ -2,7 +2,9 @@ use common::errors::{CollateralError, EModeError, GenericError};
 use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PriceFeed,
 };
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec,
+};
 use stellar_macros::when_not_paused;
 
 use super::dust::require_no_borrow_dust_for_assets;
@@ -98,14 +100,26 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
     // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    process_borrow_plan(env, caller, account_id, &mut account, &borrow_plan, &mut cache);
+    process_borrow_plan(
+        env,
+        caller,
+        account_id,
+        &mut account,
+        &borrow_plan,
+        &mut cache,
+    );
 
     // Stage 5: Post-flight Risk Gates
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust gate is scoped to the borrowed assets — borrow never mutates
     // supply positions and must not be blocked by pre-existing borrow or
     // supply positions that drifted under the floor.
-    require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &borrow_plan));
+    require_no_borrow_dust_for_assets(
+        env,
+        &mut cache,
+        &account,
+        &utils::plan_assets(env, &borrow_plan),
+    );
 
     // Stage 6: State Persistence
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
@@ -153,9 +167,11 @@ fn validate_borrow_asset_preflight(
     emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, asset, false);
     emode::ensure_e_mode_compatible_with_asset(env, asset_config, account.e_mode_category_id);
 
-    if !asset_config.is_borrowable {
-        panic_with_error!(env, CollateralError::AssetNotBorrowable);
-    }
+    assert_with_error!(
+        env,
+        asset_config.is_borrowable,
+        CollateralError::AssetNotBorrowable
+    );
 }
 
 // Batch-borrow risk gate (first of two — the strategy-borrow path in
@@ -218,9 +234,11 @@ fn validate_siloed_borrow_set(
 
     for asset in final_assets {
         let config = cache.cached_asset_config(&asset);
-        if config.is_siloed_borrowing {
-            panic_with_error!(env, CollateralError::NotBorrowableSiloed);
-        }
+        assert_with_error!(
+            env,
+            !config.is_siloed_borrowing,
+            CollateralError::NotBorrowableSiloed
+        );
     }
 }
 
@@ -343,9 +361,11 @@ pub fn handle_isolated_debt(
         .checked_add(amount_in_usd_wad)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    if new_debt > collateral_config.isolation_debt_ceiling_usd.raw() {
-        panic_with_error!(env, EModeError::DebtCeilingReached);
-    }
+    assert_with_error!(
+        env,
+        new_debt <= collateral_config.isolation_debt_ceiling_usd.raw(),
+        EModeError::DebtCeilingReached
+    );
 
     // Write back through the cache; flush defers the storage write and emits
     // a single `UpdateDebtCeilingEvent` per asset at end-of-batch
@@ -366,8 +386,10 @@ fn validate_ltv_capacity(
         .checked_add(new_borrow_wad)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    if ltv_base_amount_wad < total_borrow_wad {
-        panic_with_error!(env, CollateralError::InsufficientCollateral);
-    }
+    assert_with_error!(
+        env,
+        ltv_base_amount_wad >= total_borrow_wad,
+        CollateralError::InsufficientCollateral
+    );
     total_borrow_wad
 }

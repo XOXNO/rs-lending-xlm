@@ -6,7 +6,7 @@ use common::types::{
     AssetConfigRaw, ControllerKey, InterestRateModel, MarketConfig, MarketOracleConfig,
     MarketParamsRaw, MarketStatus,
 };
-use soroban_sdk::{contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, xdr::ToXdr, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
@@ -117,17 +117,19 @@ fn validate_market_creation(
     config: &AssetConfigRaw,
     _token_decimals: u32,
 ) {
-    if params.asset_id != *asset {
-        panic_with_error!(env, GenericError::WrongToken);
-    }
+    assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
     #[cfg(not(feature = "testing"))]
-    if params.asset_decimals != _token_decimals {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
+    assert_with_error!(
+        env,
+        params.asset_decimals == _token_decimals,
+        GenericError::InvalidAsset
+    );
 
-    if !(MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&params.asset_decimals) {
-        panic_with_error!(env, GenericError::InvalidAsset);
-    }
+    assert_with_error!(
+        env,
+        (MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&params.asset_decimals),
+        GenericError::InvalidAsset
+    );
 
     validation::validate_asset_config(env, config);
     params.verify_rate_model(env);
@@ -142,13 +144,17 @@ pub fn create_liquidity_pool(
 ) -> Address {
     let token_decimals = validation::validate_and_fetch_token_decimals(env, asset);
 
-    if storage::has_market_config(env, asset) {
-        panic_with_error!(env, GenericError::AssetAlreadySupported);
-    }
+    assert_with_error!(
+        env,
+        !storage::has_market_config(env, asset),
+        GenericError::AssetAlreadySupported
+    );
 
-    if !storage::is_token_approved(env, asset) {
-        panic_with_error!(env, GenericError::TokenNotApproved);
-    }
+    assert_with_error!(
+        env,
+        storage::is_token_approved(env, asset),
+        GenericError::TokenNotApproved
+    );
 
     validate_market_creation(env, asset, params, config, token_decimals);
 
@@ -248,9 +254,11 @@ fn claim_revenue_for_asset_with_cache(
 ) -> i128 {
     validation::require_asset_supported(env, cache, asset);
 
-    if !storage::has_accumulator(env) {
-        panic_with_error!(env, OracleError::NoAccumulator);
-    }
+    assert_with_error!(
+        env,
+        storage::has_accumulator(env),
+        OracleError::NoAccumulator
+    );
 
     let pool_addr = cache.cached_pool_address(asset);
 
@@ -360,9 +368,7 @@ pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
 pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     let meta = storage::get_account_meta(env, account_id);
-    if meta.owner != *caller {
-        panic_with_error!(env, GenericError::AccountNotInMarket);
-    }
+    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
 
     storage::renew_user_account(env, account_id);
 }

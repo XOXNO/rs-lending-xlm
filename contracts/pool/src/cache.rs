@@ -3,9 +3,10 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
     MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolAmountMutation,
-    PoolKey, PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation, ScaledPositionRaw,
+    PoolKey, PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation,
+    ScaledPositionRaw,
 };
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 pub struct Cache {
     pub env: Env,
@@ -81,12 +82,11 @@ impl Cache {
 
     // Panics if on-chain balance can't cover amount.
     pub fn require_reserves(&self, amount: i128) {
-        if !self.has_reserves(amount) {
-            panic_with_error!(
-                self.env,
-                common::errors::CollateralError::InsufficientLiquidity
-            );
-        }
+        assert_with_error!(
+            self.env,
+            self.has_reserves(amount),
+            common::errors::CollateralError::InsufficientLiquidity
+        )
     }
 
     // Pool's live on-chain balance of asset (cross-contract read, by design).

@@ -3,28 +3,28 @@ use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec,
+};
 
 use crate::cache::Cache;
 use crate::interest;
 
 // Rejects negatives at every mutating ABI.
 pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
-    if amount < 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
 
 pub(crate) fn require_positive_amount(env: &Env, amount: i128) {
-    if amount <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
 }
 
 pub(crate) fn require_wasm_receiver(env: &Env, receiver: &Address) {
-    if !matches!(receiver.executable(), Some(Executable::Wasm(_))) {
-        panic_with_error!(env, FlashLoanError::InvalidFlashloanReceiver);
-    }
+    assert_with_error!(
+        env,
+        matches!(receiver.executable(), Some(Executable::Wasm(_))),
+        FlashLoanError::InvalidFlashloanReceiver
+    );
 }
 
 pub(crate) fn renew_pool_instance(env: &Env) {
@@ -46,9 +46,11 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, su
 
     let cap_ray = Ray::from_asset(supply_cap, cache.params.asset_decimals);
     let next_total = (cache.supplied + scaled_delta).mul(env, cache.supply_index);
-    if next_total > cap_ray {
-        panic_with_error!(env, CollateralError::SupplyCapReached);
-    }
+    assert_with_error!(
+        env,
+        next_total <= cap_ray,
+        CollateralError::SupplyCapReached
+    );
 }
 
 // Panics if adding scaled_delta would breach borrow_cap.
@@ -59,9 +61,11 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
 
     let cap_ray = Ray::from_asset(borrow_cap, cache.params.asset_decimals);
     let next_total = (cache.borrowed + scaled_delta).mul(env, cache.borrow_index);
-    if next_total > cap_ray {
-        panic_with_error!(env, CollateralError::BorrowCapReached);
-    }
+    assert_with_error!(
+        env,
+        next_total <= cap_ray,
+        CollateralError::BorrowCapReached
+    );
 }
 
 // Updates rate-model fields in stored MarketParams.
@@ -104,9 +108,11 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     // accrues, real utilization can exceed the cap while the scaled
     // ratio still looks compliant.
     let utilization = cache.calculate_utilization();
-    if utilization > cache.params.max_utilization {
-        panic_with_error!(env, CollateralError::UtilizationAboveMax);
-    }
+    assert_with_error!(
+        env,
+        utilization <= cache.params.max_utilization,
+        CollateralError::UtilizationAboveMax
+    );
 }
 
 // Rejects withdrawals leaving supplied == 0 and borrowed > 0.
@@ -127,9 +133,11 @@ pub(crate) fn apply_liquidation_fee(
     if !is_liquidation || protocol_fee == 0 {
         return gross_amount;
     }
-    if gross_amount < protocol_fee {
-        panic_with_error!(env, CollateralError::WithdrawLessThanFee);
-    }
+    assert_with_error!(
+        env,
+        gross_amount >= protocol_fee,
+        CollateralError::WithdrawLessThanFee
+    );
     let fee_ray = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
     interest::add_protocol_revenue_ray(cache, fee_ray);
     gross_amount - protocol_fee

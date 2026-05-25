@@ -1,9 +1,7 @@
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::{
-    Account, AccountPositionRaw, DebtPosition, Payment, RepayEntry, SeizeEntry,
-};
+use common::types::{Account, AccountPositionRaw, DebtPosition, Payment, RepayEntry, SeizeEntry};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::ControllerCache;
