@@ -1,3 +1,10 @@
+//! Global isolated-debt ceiling counters.
+//!
+//! One `IsolatedDebt(asset)` persistent entry per isolated asset tracks the
+//! aggregate USD debt (WAD) that has been borrowed against that asset while
+//! any account is in isolation mode on it. The counter is mutated only
+//! through the helpers here (and flushed via the cache in batch).
+
 use super::renew_protocol_shared_key;
 use common::types::ControllerKey;
 use soroban_sdk::{Address, Env};

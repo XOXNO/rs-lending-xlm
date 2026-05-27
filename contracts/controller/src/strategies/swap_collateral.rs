@@ -11,8 +11,7 @@ use crate::strategies::helpers::{
     strategy_finalize, swap_tokens, withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{
-    positions::emode, positions::supply, storage, validation, Controller, ControllerArgs,
-    ControllerClient,
+    emode, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
 };
 
 #[contractimpl]

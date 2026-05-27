@@ -1,11 +1,11 @@
 // Spot-price read via Reflector lastprice.
 
 use common::errors::OracleError;
-use common::types::{OracleReadMode, ReflectorSourceConfig};
+use common::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, Env};
 
+use super::reflector_lastprice_call;
 use crate::oracle::observation::OracleObservation;
-use crate::oracle::reflector::reflector_lastprice_call;
 
 use super::{observation_from_price_data, to_reflector_asset};
 
@@ -19,10 +19,5 @@ pub(crate) fn read_spot(
         assert_with_error!(env, !required, OracleError::NoLastPrice);
         return None;
     };
-    Some(observation_from_price_data(
-        env,
-        &pd,
-        config.decimals,
-        OracleReadMode::Spot,
-    ))
+    Some(observation_from_price_data(env, &pd, config.decimals))
 }

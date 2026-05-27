@@ -1,4 +1,12 @@
-// Oracle policy per entry point.
+//! Per-entrypoint oracle permissiveness policy (the heart of ADR 0004).
+//!
+//! The enum variants encode exactly which oracle failure modes a given
+//! operation is allowed to tolerate. The mapping from entrypoint to
+//! variant is the single source of truth for "when can the protocol
+//! still function with stale or deviated prices?"
+//!
+//! See the table and rationale in ADR 0004. The `Allowances` struct and
+//! the `is_*_allowed` methods are the implementation of that table.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OraclePolicy {
@@ -56,7 +64,7 @@ impl Allowances {
             Liquidation => Allowances {
                 disabled_market: false,
                 stale_source: false,
-                unsafe_deviation: true,
+                unsafe_deviation: false,
                 missing_twap_fallback: false,
                 prefer_aggregator_on_deviation: true,
             },
@@ -143,7 +151,10 @@ mod tests {
         let p = OraclePolicy::Liquidation;
         assert!(!p.allows_disabled_market());
         assert!(!p.allows_stale_source());
-        assert!(p.allows_unsafe_deviation());
+        // Hardened: liquidation rejects when PrimaryWithAnchor sources diverge
+        // beyond the configured last tolerance band (UnsafePriceNotAllowed).
+        // Unsafe deviation is only tolerated for single-source fallback paths.
+        assert!(!p.allows_unsafe_deviation());
         assert!(!p.allows_missing_twap_fallback());
         assert!(p.prefers_aggregator_on_deviation());
     }
@@ -156,5 +167,45 @@ mod tests {
         assert!(p.allows_unsafe_deviation());
         assert!(p.allows_missing_twap_fallback());
         assert!(!p.prefers_aggregator_on_deviation());
+    }
+
+    // --- Additional focused coverage for oracle policy composition ---
+    // These live inside the controller crate (no external harness) so they
+    // execute on every `cargo test -p controller` and give fast regression
+    // signal on the policy matrix that drives liquidation, strategies, and
+    // repay paths.
+
+    #[test]
+    fn test_liquidation_is_the_only_policy_that_prefers_aggregator() {
+        // Liquidation is unique: it hardens the unsafe-deviation gate (to
+        // protect against wrongful or excessive seizures) while still
+        // preferring the fresher aggregator price when inside the last band.
+        // All other policies either reject aggregator preference entirely or
+        // are not used for seizure accounting.
+        assert!(OraclePolicy::Liquidation.prefers_aggregator_on_deviation());
+        assert!(!OraclePolicy::RiskIncreasing.prefers_aggregator_on_deviation());
+        assert!(!OraclePolicy::RiskDecreasing.prefers_aggregator_on_deviation());
+        assert!(!OraclePolicy::Repay.prefers_aggregator_on_deviation());
+        assert!(!OraclePolicy::IsolatedRepay.prefers_aggregator_on_deviation());
+        assert!(!OraclePolicy::View.prefers_aggregator_on_deviation());
+    }
+
+    #[test]
+    fn test_repay_and_view_share_fully_permissive_allowances() {
+        // Repay and View have identical allowances by design. Both are
+        // intentionally the most lenient (disabled markets OK, stale and
+        // unsafe prices tolerated, TWAP fallback allowed). Repay uses this
+        // for user debt-reduction flows that must succeed even on degraded
+        // oracles; View uses it for read-only queries. The policy type
+        // still distinguishes intent for auditing and future evolution.
+        // (See also: Liquidation is the only one that prefers aggregator.)
+        assert_eq!(
+            OraclePolicy::Repay.allows_disabled_market(),
+            OraclePolicy::View.allows_disabled_market()
+        );
+        assert_eq!(
+            OraclePolicy::Repay.prefers_aggregator_on_deviation(),
+            OraclePolicy::View.prefers_aggregator_on_deviation()
+        );
     }
 }

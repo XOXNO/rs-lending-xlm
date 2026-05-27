@@ -1,19 +1,27 @@
-//! Certora harness substitute for `controller::oracle::tolerance`.
+//! Certora harness for `controller::oracle::tolerance`.
 //!
-//! Production `calculate_final_price` calls `is_within_anchor` to
-//! decide which branch (safe / aggregator / average) applies. The
-//! prover treats the I256-based ratio math as opaque, so
-//! [`is_within_anchor`] is replaced with a nondet bool here. The whole
-//! file is substituted (not just `is_within_anchor`) so the
-//! `calculate_final_price` body in this harness picks up the local
-//! summary at name-resolution time.
+//! `calculate_final_price` and `is_within_anchor` perform non-trivial
+// fixed-point ratio math that is expensive for the prover. This harness
+// replaces the tolerance decision logic with a sound nondet bool while
+// preserving the important control-flow branches and panic conditions.
+//!
+//! Lives separately so the clean production tolerance logic in `oracle/tolerance.rs`
+// can remain untouched and well-documented.
+//!
+//! Part of the broader strategy to keep expensive math out of the prover
+// while still exercising the policy branches that matter for rules.
 
+use common::constants::{
+    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
+};
 use common::errors::{GenericError, OracleError};
+use common::math::fp_core;
 use common::types::OraclePriceFluctuation;
 use cvlr::nondet::nondet;
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::ControllerCache;
+use crate::validation;
 
 pub(crate) fn calculate_final_price(
     cache: &ControllerCache,
@@ -80,4 +88,48 @@ pub(crate) fn is_within_anchor(
         return false;
     }
     nondet()
+}
+
+/// i128 to u32 (checked). Used only at config time.
+pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
+    u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+pub(crate) fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
+    let upper_bound = BPS
+        .checked_add(tolerance)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    let lower_bound = fp_core::mul_div_half_up(env, BPS, BPS, upper_bound);
+    (upper_bound, lower_bound)
+}
+
+pub(crate) fn validate_and_calculate_tolerances(
+    env: &Env,
+    first_tolerance: u32,
+    last_tolerance: u32,
+) -> OraclePriceFluctuation {
+    let first = i128::from(first_tolerance);
+    let last = i128::from(last_tolerance);
+    assert_with_error!(
+        env,
+        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first),
+        OracleError::BadFirstTolerance
+    );
+    assert_with_error!(
+        env,
+        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last),
+        OracleError::BadLastTolerance
+    );
+
+    validation::validate_oracle_bounds(env, first, last);
+
+    let (first_upper, first_lower) = calculate_tolerance_range(env, first);
+    let (last_upper, last_lower) = calculate_tolerance_range(env, last);
+
+    OraclePriceFluctuation {
+        first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),
+        first_lower_ratio_bps: bps_i128_to_u32(env, first_lower),
+        last_upper_ratio_bps: bps_i128_to_u32(env, last_upper),
+        last_lower_ratio_bps: bps_i128_to_u32(env, last_lower),
+    }
 }

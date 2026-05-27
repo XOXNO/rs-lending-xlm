@@ -1,16 +1,22 @@
-//! Certora harness substitute for `controller::oracle::reflector`.
+//! Certora harness substitute for the Reflector SEP-40 client surface.
 //!
-//! Under `--features certora`, this file replaces the production
-//! module so the prover sees nondet-bounded values for the SEP-40
-//! cross-contract reads. Without summaries every rule that touches a
-//! price feed becomes vacuous over havoced cross-contract returns.
+//! LEGACY / DEAD CODE (as of oracle providers/*/client.rs refactor):
+//! This file is NEVER included via any mod or #[path] under certora builds.
+//! It duplicates the active logic now in shared/summaries/reflector.rs
+//! (which uses apply_summary! wiring against the thin wrappers in
+//! prod client.rs).
 //!
-//! Re-exports the production types (`ReflectorAsset`, `ReflectorPriceData`,
-//! `ReflectorClient`) unchanged — only the three `reflector_*_call`
-//! wrapper functions are replaced.
+//! Kept only to avoid accidental deletion without audit. The providers
+//! client.rs + summaries pattern eliminated the need for this style of
+//! harness override for Reflector. Safe to delete after confirming no
+//! external references (grep finds none outside this file).
+//!
+//! The real client surface lives in
+//! `providers/reflector/client.rs` (canonical home). Summaries live in
+//! verification/certora/shared/summaries/reflector.rs .
 
 #[allow(dead_code)]
-#[path = "../../../../contracts/controller/src/oracle/reflector.rs"]
+#[path = "../../../../contracts/controller/src/oracle/providers/reflector/client.rs"]
 mod __prod;
 
 pub use __prod::{ReflectorAsset, ReflectorClient, ReflectorPriceData};

@@ -1,23 +1,31 @@
+//! Live probing and validation against external oracle contracts.
+//!
+//! This module contains all logic that makes cross-contract calls to
+//! Reflector or RedStone oracles during market configuration and TWAP
+//! history validation.
+
 use common::errors::{GenericError, OracleError};
 use common::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
-    OracleSourceConfig, OracleSourceConfigInput, OracleStrategy, RedStoneSourceConfig,
-    ReflectorSourceConfig,
+    OracleSourceConfig, OracleSourceConfigInput, RedStoneSourceConfig, ReflectorSourceConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::validation;
 
-use super::observation::{
+use super::super::observation::{
     millis_to_seconds, normalize_positive_price, u256_to_i128, validate_timestamp,
-    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
-    MIN_ORACLE_RESOLUTION_SECONDS, MIN_PRICE_STALE_SECONDS,
+    MIN_ORACLE_RESOLUTION_SECONDS,
 };
-use super::providers::redstone::{RedStonePriceData, RedStonePriceFeedClient, REDSTONE_DECIMALS};
-use super::providers::reflector::{min_twap_observations, to_reflector_asset};
-use super::reflector::{
-    reflector_base_call, reflector_lastprice_call, reflector_prices_call, ReflectorAsset,
-    ReflectorClient, ReflectorPriceData,
+use super::super::providers::redstone::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
+use super::super::providers::reflector::{
+    min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
+    reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
+    ReflectorPriceData,
+};
+use super::config::{
+    validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_sanity_bounds,
+    validate_twap_records,
 };
 
 pub(crate) fn validate_market_oracle_sources(
@@ -57,31 +65,7 @@ pub(crate) fn validate_market_oracle_sources(
     }
 }
 
-fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
-    let needs_anchor = config.strategy == OracleStrategy::PrimaryWithAnchor;
-    let has_anchor = !config.anchor.is_none();
-    assert_with_error!(
-        env,
-        needs_anchor == has_anchor,
-        GenericError::InvalidExchangeSrc
-    );
-
-    // Production rejects Single + Spot (INVARIANTS §4.3, ADR-0003); a TWAP
-    // or anchor cross-check is required.
-    #[cfg(not(feature = "testing"))]
-    {
-        if matches!(config.strategy, OracleStrategy::Single)
-            && matches!(
-                config.primary,
-                OracleSourceConfigInput::Reflector(ref r) if matches!(r.read_mode, OracleReadMode::Spot)
-            )
-        {
-            panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
-        }
-    }
-}
-
-fn validate_source(
+pub(crate) fn validate_source(
     env: &Env,
     source: &OracleSourceConfigInput,
     max_stale: u64,
@@ -90,10 +74,9 @@ fn validate_source(
         OracleSourceConfigInput::Reflector(config) => {
             validate_usd_base(env, &config.contract);
             let reflector_asset = to_reflector_asset(env, &config.asset);
-            let client = ReflectorClient::new(env, &config.contract);
-            let decimals = client.decimals();
+            let decimals = reflector_decimals_call(env, &config.contract);
             validate_decimals(env, decimals);
-            let resolution = client.resolution();
+            let resolution = reflector_resolution_call(env, &config.contract);
             if resolution < MIN_ORACLE_RESOLUTION_SECONDS || u64::from(resolution) > max_stale {
                 panic_with_error!(env, OracleError::InvalidOracleResolution);
             }
@@ -131,14 +114,13 @@ fn validate_source(
             // Redstone has no on-chain base() accessor; quote currency is
             // implicit in `feed_id`. See providers/redstone.rs for the full
             // identity-validation note.
-            let client = RedStonePriceFeedClient::new(env, &config.contract);
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
 
-            let price_data = client
-                .try_read_price_data_for_feed(&config.feed_id)
-                .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidTicker))
-                .unwrap_or_else(|_| panic_with_error!(env, GenericError::InvalidTicker));
+            let price_data = match read_price_data(env, &config.contract, &config.feed_id) {
+                Some(data) => data,
+                _ => panic_with_error!(env, GenericError::InvalidTicker),
+            };
             validate_redstone_feed(env, &price_data, config.max_stale_seconds, decimals);
 
             OracleSourceConfig::RedStone(RedStoneSourceConfig {
@@ -151,48 +133,11 @@ fn validate_source(
     }
 }
 
-fn validate_max_stale(env: &Env, max_stale: u64) {
-    assert_with_error!(
-        env,
-        (MIN_PRICE_STALE_SECONDS..=MAX_PRICE_STALE_SECONDS).contains(&max_stale),
-        OracleError::InvalidStalenessConfig
-    );
-}
-
-// Validate sanity bounds.
-fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
-    if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
-        panic_with_error!(env, OracleError::InvalidSanityBounds);
-    }
-    assert_with_error!(
-        env,
-        max_wad <= common::constants::MAX_REASONABLE_PRICE_WAD,
-        OracleError::InvalidSanityBounds
-    );
-}
-
 fn validate_usd_base(env: &Env, oracle: &Address) {
     match reflector_base_call(env, oracle) {
         ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {}
         _ => panic_with_error!(env, OracleError::InvalidOracleBase),
     }
-}
-
-fn validate_decimals(env: &Env, decimals: u32) {
-    assert_with_error!(
-        env,
-        (MIN_ORACLE_DECIMALS..=MAX_ORACLE_DECIMALS).contains(&decimals),
-        OracleError::InvalidOracleDecimals
-    );
-}
-
-fn validate_twap_records(env: &Env, records: u32) {
-    assert_with_error!(env, records != 0, OracleError::TwapInsufficientObservations);
-    assert_with_error!(
-        env,
-        records <= MAX_TWAP_RECORDS,
-        OracleError::InvalidOracleTokenType
-    );
 }
 
 fn validate_twap_history(

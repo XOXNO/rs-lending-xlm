@@ -1,15 +1,22 @@
 // Reflector (SEP-40) price provider.
 
+pub(crate) mod client; // Canonical home of the SEP-40 contract client surface + thin wrappers.
 mod spot;
 mod twap;
 
 use common::errors::OracleError;
-use common::types::{OracleAssetRef, OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
+use common::types::{OracleAssetRef, OracleReadMode, ReflectorSourceConfig};
 use soroban_sdk::{panic_with_error, Env};
 
-use super::super::observation::{check_not_future_at, normalize_positive_price, OracleObservation};
-use super::super::reflector::{ReflectorAsset, ReflectorPriceData};
+use super::super::observation::{build_observation, check_not_future_at, OracleObservation};
 use crate::cache::ControllerCache;
+
+// Re-export the full client surface so the rest of this provider subtree and
+// validation import from a single, obvious location.
+pub(crate) use client::{
+    reflector_base_call, reflector_decimals_call, reflector_lastprice_call, reflector_prices_call,
+    reflector_resolution_call, ReflectorAsset, ReflectorPriceData,
+};
 
 pub(crate) use twap::min_twap_observations;
 
@@ -41,18 +48,9 @@ pub(crate) fn observation_from_price_data(
     env: &Env,
     pd: &ReflectorPriceData,
     decimals: u32,
-    read_mode: OracleReadMode,
 ) -> OracleObservation {
     check_not_future_at(env, env.ledger().timestamp(), pd.timestamp);
-    OracleObservation {
-        price_wad: normalize_positive_price(env, pd.price, decimals),
-        raw_price: pd.price,
-        raw_decimals: decimals,
-        observed_at: pd.timestamp,
-        published_at: None,
-        provider: OracleProviderKind::ReflectorSep40,
-        read_mode,
-    }
+    build_observation(env, pd.price, decimals, pd.timestamp, None)
 }
 
 #[cfg(test)]

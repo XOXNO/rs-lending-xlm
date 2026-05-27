@@ -1,3 +1,12 @@
+//! Read-only views and liquidation estimation.
+//!
+//! All views deliberately use `ControllerCache::new_view` (no instance TTL
+//! bump, permissive `OraclePolicy::View`) so that front-ends and indexers
+//! can call them without rent side-effects and without being blocked by
+//! stale oracles on disabled markets.
+//!
+//! Aggregates are harnessed under certora.
+
 use common::constants::WAD;
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
@@ -10,6 +19,8 @@ mod aggregates;
 #[cfg(feature = "certora")]
 #[path = "../../../../verification/certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
+// ^ Replacement is tiny (just 3 summary re-exports). The aggregates are pure
+//   iteration over positions; summaries live in shared/summaries/mod.rs .
 
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 

@@ -9,10 +9,10 @@ use soroban_sdk::{
 };
 use stellar_macros::when_not_paused;
 
-use super::dust::require_no_supply_dust_for_assets;
-use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_supply_call;
+use crate::emode;
+use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation::*, Controller, ControllerArgs, ControllerClient};
 
@@ -30,7 +30,9 @@ impl Controller {
     }
 }
 
-// Processes supply batch.
+/// Full supply flow: auth, e-mode selection, risk-decreasing oracle policy,
+/// per-asset pool supplies, collateral enablement, dust enforcement,
+/// storage + batch events. Returns the (possibly newly created) account id.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -239,7 +241,7 @@ pub fn update_deposit_position(
 
     // Update the in-memory account. `process_supply` writes storage once at
     // the end of the batch.
-    update::update_or_remove_supply_position(account, req.asset, &position);
+    update_or_remove_supply_position(account, req.asset, &position);
 
     position
 }
@@ -353,7 +355,7 @@ fn create_account_for_first_asset(
     } else {
         None
     };
-    super::account::create_account(
+    crate::helpers::create_account(
         env,
         caller,
         e_mode_category,

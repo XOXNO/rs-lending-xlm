@@ -923,6 +923,36 @@ mod tests {
         assert_eq!(zero.checked_sub(&env, zero), zero);
     }
 
+    // ---- First `||` disjunct in checked_sub (`self.0 < 0`) ----------------
+    // Guard: `self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0`. With `self.0 = 0`
+    // and `rhs.0 = -1` the three operands are (F, T, F): only the SECOND
+    // disjunct is true. The original `||` chain still panics, but flipping
+    // the FIRST `||` (col 23) to `&&` yields `(F && T) || F = F` → no panic.
+    // Expecting the panic kills the `||→&&` mutant on the first operator.
+    // (The pre-existing `rejects_negative_self` tests use self=-1, rhs=0 →
+    // operands (T, F, T), which leave the first-`||→&&` mutant alive.)
+
+    #[test]
+    #[should_panic]
+    fn test_ray_checked_sub_negative_rhs_with_zero_self_panics() {
+        let env = Env::default();
+        let _ = Ray::from_raw(0).checked_sub(&env, Ray::from_raw(-1));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wad_checked_sub_negative_rhs_with_zero_self_panics() {
+        let env = Env::default();
+        let _ = Wad::from_raw(0).checked_sub(&env, Wad::from_raw(-1));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bps_checked_sub_negative_rhs_with_zero_self_panics() {
+        let env = Env::default();
+        let _ = Bps::from_raw(0i128).checked_sub(&env, Bps::from_raw(-1i128));
+    }
+
     // ---- Sub trait at equality returns zero (Wad / Bps) -------------------
     // Differentiates `result < 0` from `result <= 0` / `== 0` in Sub impls.
 

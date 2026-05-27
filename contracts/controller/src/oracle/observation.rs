@@ -1,7 +1,15 @@
+//! Oracle observation construction, normalization, staleness, and
+//! future-timestamp guards.
+//!
+//! This module is the single place that turns raw responses from Reflector
+//! or RedStone into the internal `OracleObservation` shape used by the
+//! rest of price resolution. It also owns all the clock-skew (`MAX_FUTURE_SKEW_SECONDS`)
+//! and freshness constants that appear in both production code and the
+//! oracle configuration validators.
+
 use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::math::fp::Wad;
-use common::types::{OracleProviderKind, OracleReadMode};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
 // Max drift between the ledger clock and an oracle publication timestamp.
@@ -17,16 +25,17 @@ pub(crate) const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 pub(crate) const MIN_ORACLE_DECIMALS: u32 = 1;
 pub(crate) const MAX_ORACLE_DECIMALS: u32 = 18;
 
-#[allow(dead_code)]
+/// Internal representation of a single oracle price observation.
+/// Used by the provider consumption logic and compose layer.
+///
+/// The struct can appear dead under the certora feature because price
+/// resolution is stubbed at a higher level.
+#[cfg_attr(feature = "certora", allow(dead_code))] // Present under certora harness replacement of price paths.
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
     pub price_wad: i128,
-    pub raw_price: i128,
-    pub raw_decimals: u32,
     pub observed_at: u64,
     pub published_at: Option<u64>,
-    pub provider: OracleProviderKind,
-    pub read_mode: OracleReadMode,
 }
 
 impl OracleObservation {
@@ -76,4 +85,22 @@ pub(crate) fn millis_to_seconds(env: &Env, timestamp_ms: u64) -> u64 {
     timestamp_ms
         .checked_div(MS_PER_SECOND)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+/// Shared constructor used by both oracle providers after they have performed
+/// their provider-specific validation (future-skew, positive price, staleness
+/// where applicable). This removes duplication of the final WAD normalization
+/// + struct assembly.
+pub(crate) fn build_observation(
+    env: &Env,
+    raw_price: i128,
+    decimals: u32,
+    observed_at: u64,
+    published_at: Option<u64>,
+) -> OracleObservation {
+    OracleObservation {
+        price_wad: normalize_positive_price(env, raw_price, decimals),
+        observed_at,
+        published_at,
+    }
 }

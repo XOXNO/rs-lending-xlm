@@ -1,3 +1,11 @@
+//! Price composition: primary vs anchor, strategy dispatch (SpotVsTwap /
+//! DualOracle), tolerance application, and final price selection.
+//!
+//! This is the narrow waist that turns two (or one) `OracleObservation`s
+//! into the single `PriceFeedRaw` that the rest of the controller sees.
+//! It is deliberately thin; all provider-specific logic lives in the
+//! provider modules, all tolerance math lives in `tolerance`.
+
 use common::errors::OracleError;
 use common::types::{MarketOracleConfig, OracleStrategy};
 use soroban_sdk::{assert_with_error, panic_with_error};
@@ -7,7 +15,7 @@ use super::providers;
 use super::tolerance::{calculate_final_price, is_within_anchor};
 use crate::cache::ControllerCache;
 
-#[cfg_attr(feature = "certora", allow(dead_code))]
+#[cfg_attr(feature = "certora", allow(dead_code))] // Struct only used via resolve_price in non-certora price.rs; harness replaces that module.
 pub(crate) struct ResolvedOraclePrice {
     pub price_wad: i128,
     pub timestamp: u64,
@@ -22,7 +30,7 @@ pub(crate) struct ResolvedOracleComponents {
     pub within_second_tolerance: bool,
 }
 
-#[cfg_attr(feature = "certora", allow(dead_code))]
+#[cfg_attr(feature = "certora", allow(dead_code))] // Fn only called from non-certora price.rs (harness replaces price resolution).
 pub(crate) fn resolve_price(
     cache: &mut ControllerCache,
     config: &MarketOracleConfig,

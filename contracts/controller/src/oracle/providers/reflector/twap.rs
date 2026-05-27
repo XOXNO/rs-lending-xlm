@@ -3,14 +3,14 @@
 use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::events::{emit_oracle_twap_degraded, OracleTwapDegradedEvent};
-use common::types::{OracleProviderKind, OracleReadMode, ReflectorSourceConfig};
+use common::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, panic_with_error};
 
+use super::reflector_prices_call;
 use crate::cache::ControllerCache;
 use crate::oracle::observation::{
     check_not_future_at, is_stale, normalize_positive_price, OracleObservation, MAX_TWAP_RECORDS,
 };
-use crate::oracle::reflector::reflector_prices_call;
 
 use super::{observation_from_price_data, spot::read_spot, to_reflector_asset};
 
@@ -77,8 +77,7 @@ pub(crate) fn read_twap(
             has_invalid_price = true;
             continue;
         }
-        let candidate =
-            observation_from_price_data(env, &pd, config.decimals, OracleReadMode::Spot);
+        let candidate = observation_from_price_data(env, &pd, config.decimals);
         if newest_valid
             .as_ref()
             .is_none_or(|current| candidate.observed_at > current.observed_at)
@@ -131,16 +130,13 @@ pub(crate) fn read_twap(
     let raw_price = sum / history.len() as i128;
     Some(OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),
-        raw_price,
-        raw_decimals: config.decimals,
         observed_at: oldest_ts,
         published_at: None,
-        provider: OracleProviderKind::ReflectorSep40,
-        read_mode: OracleReadMode::Twap(records),
     })
 }
 
-// Handles TWAP fallback.
+// TWAP fallback path (used when the primary spot feed is stale or degraded).
+// Returns the computed TWAP observation or falls back to the last known price.
 fn twap_fallback_or_panic(
     cache: &ControllerCache,
     config: &ReflectorSourceConfig,

@@ -1,6 +1,15 @@
-use common::constants::{
-    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
-};
+//! Owner- and role-gated configuration entrypoints (market listing,
+//! oracle wiring, e-mode, caps, aggregator, accumulator, etc.).
+//!
+//! These functions are deliberately separated from `router.rs` because they
+//! are almost entirely "write the new config record + emit event" with
+//! heavy validation. Keeping them here makes the privileged surface easy
+//! to review in one place.
+//!
+//! Pure tolerance band construction lives in `oracle::tolerance` (see
+//! `validate_and_calculate_tolerances`). E-mode category and asset
+//! mutation is owner-gated and keeps reverse-index invariants in sync.
+
 use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{
     emit_approve_token, emit_oracle_disabled, emit_remove_emode_asset, emit_update_accumulator,
@@ -11,16 +20,17 @@ use common::events::{
     UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
     UpdateEModeCategoryEvent, UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
-use common::math::fp_core;
+
 use common::types::{
     AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfigInput, MarketStatus,
-    OraclePriceFluctuation, PositionLimits,
+    PositionLimits,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable,
 };
 use stellar_macros::{only_owner, only_role};
 
+use crate::oracle::tolerance::validate_and_calculate_tolerances;
 use crate::oracle::validation::validate_market_oracle_sources;
 
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
@@ -391,50 +401,6 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     remove_emode_category_from_market_config(env, &asset, category_id);
 
     emit_remove_emode_asset(env, RemoveEModeAssetEvent { asset, category_id });
-}
-
-/// i128 to u32 (checked).
-fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
-    u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
-    let upper_bound = BPS
-        .checked_add(tolerance)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let lower_bound = fp_core::mul_div_half_up(env, BPS, BPS, upper_bound);
-    (upper_bound, lower_bound)
-}
-
-fn validate_and_calculate_tolerances(
-    env: &Env,
-    first_tolerance: u32,
-    last_tolerance: u32,
-) -> OraclePriceFluctuation {
-    let first = i128::from(first_tolerance);
-    let last = i128::from(last_tolerance);
-    assert_with_error!(
-        env,
-        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first),
-        OracleError::BadFirstTolerance
-    );
-    assert_with_error!(
-        env,
-        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last),
-        OracleError::BadLastTolerance
-    );
-
-    validation::validate_oracle_bounds(env, first, last);
-
-    let (first_upper, first_lower) = calculate_tolerance_range(env, first);
-    let (last_upper, last_lower) = calculate_tolerance_range(env, last);
-
-    OraclePriceFluctuation {
-        first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),
-        first_lower_ratio_bps: bps_i128_to_u32(env, first_lower),
-        last_upper_ratio_bps: bps_i128_to_u32(env, last_upper),
-        last_lower_ratio_bps: bps_i128_to_u32(env, last_lower),
-    }
 }
 
 pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleConfigInput) {

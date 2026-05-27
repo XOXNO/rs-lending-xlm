@@ -1,8 +1,21 @@
-//! Outbound cross-contract calls. Each submodule wraps one external
-//! contract ABI so the rest of the controller never reaches a Soroban
-//! `Client::new(...)` directly. Under `--features certora` each leaf
-//! is path-swapped to a harness file that returns bounded nondet
-//! values, isolating the prover from cross-contract havoc.
+//! Outbound cross-contract call surface (the only place that talks to pools
+//! and SAC tokens).
+//!
+//! Design rule (enforced by review and by the certora harness strategy):
+//! **no other module may ever construct a Soroban contract client**.
+//! All interaction with `pool_interface::LiquidityPoolClient` and token
+//! `transfer` / `balance` calls is funneled through the thin wrappers in
+//! `pool.rs` and `sac.rs`.
+//!
+//! Under the `certora` feature the submodules are completely replaced by
+//! harnesses (see harness/cross_contract/{pool,sac}.rs — thin re-exports of
+//! shared/summaries). This keeps the prover from having to model real token
+//! balances or pool internal state while still exercising the controller's
+//! call sites and authorization logic.
+//!
+//! See the sibling `pool.rs` header for the `ScaledPositionRaw` discipline.
+//! Compare to the cleaner providers/*/client.rs + shared summaries pattern
+//! used for oracles (avoids full module replacement where possible).
 
 #[cfg(not(feature = "certora"))]
 pub(crate) mod pool;

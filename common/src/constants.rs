@@ -38,8 +38,6 @@ pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
 
 pub const MS_PER_SECOND: u64 = 1_000;
 
-pub const K_SCALING_FACTOR: i128 = 20_000;
-
 pub const MIN_FIRST_TOLERANCE: i128 = 50;
 
 pub const MAX_FIRST_TOLERANCE: i128 = 5_000;

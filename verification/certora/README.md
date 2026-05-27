@@ -45,13 +45,25 @@ Certora builds:
 - The controller summary macro implementation lives in
   `verification/certora/controller/harness/summarized.rs`.
 - The controller storage compatibility adapter lives in
-  `verification/certora/controller/harness/storage.rs`.
+  `verification/certora/controller/harness/storage.rs` (augmentation pattern).
 - The common WASM harness lives in `verification/certora/common/spec/harness.rs`.
+- See controller/harness/ for the full set (helpers.rs is the most invasive
+  full-module replacement; oracle_* and cross_contract/ + views/ are narrower
+  cost-isolation replacements; oracle_reflector.rs is legacy/dead post-refactor).
 
 No rule bodies, CVLR imports, harness structs, or storage adapters are kept
 inside the production source tree. Summary call sites remain in production
 functions because CVLR/Soroban summaries must wrap the Rust function being
 summarized; the resolver and summary bodies stay in the verification tree.
+
+Controller harness philosophy (2026): follow the providers/*/client.rs +
+shared/summaries + apply_summary! pattern wherever possible (see oracle
+reflector client and cross-contract thin wrappers). Full #[path] module
+replacement is reserved for expensive leaf subsystems (price resolution,
+tolerance math, aggregates) or unavoidable shared buckets (helpers). The
+latter remains a maintainability hotspot; future work should carve thin
+wrappers for the heavy fns (calculate_account_totals) so the replacement
+surface shrinks.
 
 ## Proof Domains
 

@@ -1,3 +1,10 @@
+//! Ownership, roles (KEEPER / REVENUE / ORACLE), pause, and upgrade.
+//!
+//! Built on the `stellar_access` crate primitives. The three operational
+//! roles are the only way to reach privileged-but-not-owner entrypoints
+//! (index updates, revenue claims, oracle configuration). Pause is a
+//! global circuit-breaker that still allows certain read and repay paths.
+
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{

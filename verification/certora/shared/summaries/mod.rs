@@ -39,7 +39,7 @@ use crate::cache::ControllerCache;
 //   * `pool`       -- the `LiquidityPool` ABI in `pool/src/lib.rs`.
 //   * `sac`        -- the SAC `soroban_sdk::token::Client` ABI.
 //   * `reflector`  -- the SEP-40 Reflector oracle ABI in
-//     `controller/src/oracle/reflector.rs`.
+//     `controller/src/oracle/providers/reflector/client.rs` (canonical home).
 pub mod pool;
 pub mod reflector;
 pub mod sac;
@@ -49,6 +49,10 @@ pub mod sac;
 // ---------------------------------------------------------------------------
 
 /// Summary for `crate::oracle::token_price`.
+///
+/// This summary replaces the entire curated price resolution logic
+/// (providers + compose + tolerance + validation) so the prover does not
+/// traverse the real implementation in `oracle/`.
 ///
 /// Production guarantees (post-conditions):
 ///   * `price_wad > 0` (zero-or-negative panics with `InvalidPrice`).
@@ -73,9 +77,10 @@ pub fn token_price_summary(cache: &mut ControllerCache, _asset: &Address) -> Pri
 
 /// Summary for `crate::oracle::is_within_anchor`.
 ///
-/// Production guarantee: returns a boolean. The real implementation does an
-/// I256 ratio computation and BPS rescale; for rules that only care WHICH
-/// branch fires, a nondet bool is sound.
+/// The production implementation lives in the clean `oracle/tolerance.rs`.
+/// It performs expensive fixed-point math; this summary returns a sound
+/// nondet bool so rules can focus on the high-level tolerance policy
+/// branches without paying the math cost.
 pub fn is_within_anchor_summary(
     _env: &Env,
     _aggregator: i128,

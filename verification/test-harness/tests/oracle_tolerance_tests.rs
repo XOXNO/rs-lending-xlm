@@ -322,14 +322,17 @@ fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
 }
 
 #[test]
-fn test_unsafe_price_does_not_block_liquidation() {
-    // Liquidation must NOT hard-block on anchor deviation. The
-    // `OraclePolicy::Liquidation` variant tolerates spot-vs-anchor
-    // disagreement and resolves to the aggregator (live market) price so
-    // liquidations track the real market state. Pre-fix this same scenario
-    // panicked with `OracleError::UnsafePriceNotAllowed` and DoSed
-    // liquidators (Codex adversarial-review #1; see
-    // audit-research/STELLAR_AUDIT_FINDINGS.md §4.5).
+fn test_unsafe_price_blocks_liquidation() {
+    // Liquidation hard-blocks when the primary and anchor sources diverge
+    // beyond the last tolerance band: `OraclePolicy::Liquidation` rejects with
+    // `OracleError::UnsafePriceNotAllowed` rather than seizing collateral at a
+    // price only the spot source corroborates.
+    //
+    // Deliberate manipulation-over-availability tradeoff (auditors: this
+    // reverses the §4.5 deviation-tolerance posture). The two price sources are
+    // independent, so an attacker cannot hold them apart beyond both tolerance
+    // bands for long — sustained out-of-band divergence is either a real
+    // extreme event or requires manipulating both feeds at once.
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -352,17 +355,12 @@ fn test_unsafe_price_does_not_block_liquidation() {
     // Top up the liquidator so the seize path can actually pay.
     t.supply(LIQUIDATOR, "ETH", 5.0);
 
-    // Deviate the USDC safe price beyond tolerance. Pre-fix this panicked
-    // with UNSAFE_PRICE; post-fix the liquidation proceeds using the
-    // aggregator (USDC=$1) which is the live market reading.
+    // Deviate the USDC safe price beyond tolerance so the primary and anchor
+    // sources sit outside the last band; the liquidation price read rejects.
     t.set_safe_price("USDC", usd_cents(110), true, true);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert!(
-        result.is_ok(),
-        "liquidation must proceed under anchor deviation, got {:?}",
-        result
-    );
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 // ===========================================================================
@@ -825,23 +823,24 @@ fn test_mixed_tolerance_states() {
 }
 
 // ===========================================================================
-// 11. Denial of service on liquidation during a flash crash
+// 11. Liquidation rejects on out-of-band deviation during a flash crash
 // ===========================================================================
 
 #[test]
-fn test_liquidation_succeeds_under_flash_crash() {
-    // Regression for Codex adversarial-review finding #1 (see
-    // audit-research/STELLAR_AUDIT_FINDINGS.md §4.5). When the spot price
-    // and the slower-moving anchor disagree beyond the second tolerance
-    // (the canonical flash-crash signature), pre-fix `process_liquidation`
-    // ran under `OraclePolicy::RiskIncreasing` and hard-reverted with
-    // `OracleError::UnsafePriceNotAllowed`. Underwater accounts became
-    // un-liquidatable exactly when liquidations matter most, transferring
-    // the loss to lenders as bad debt.
+fn test_liquidation_blocked_under_flash_crash() {
+    // When the spot price and the slower-moving anchor disagree beyond the
+    // second tolerance (the canonical flash-crash signature), liquidation runs
+    // under `OraclePolicy::Liquidation` and rejects with
+    // `OracleError::UnsafePriceNotAllowed`: the protocol will not seize
+    // collateral at a price only the spot source corroborates.
     //
-    // Post-fix the policy is `OraclePolicy::Liquidation`: it still requires
-    // fresh, dual-sourced prices but resolves anchor deviation to the
-    // aggregator (live market) so liquidations track real market state.
+    // Deliberate manipulation-over-availability tradeoff (auditors: this
+    // reverses the §4.5 posture, which resolved the deviation to the aggregator
+    // so liquidations always proceeded). The sources are independent and
+    // out-of-band divergence is transient — the anchor catches up within its
+    // window — so the block is temporary rather than a durable DoS. Underwater
+    // positions become liquidatable again once the sources reconverge within
+    // tolerance.
     let mut t = setup();
     enable_dual_source(&t, "USDC");
     enable_dual_source(&t, "ETH");
@@ -874,19 +873,14 @@ fn test_liquidation_succeeds_under_flash_crash() {
     // Give the liquidator some USDC to perform the liquidation.
     t.supply(LIQUIDATOR, "USDC", 20_000.0);
 
-    // The liquidator attempts a partial liquidation.
+    // The liquidator attempts a partial liquidation while spot and anchor sit
+    // beyond the second tolerance band.
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 5_000.0);
 
-    // Post-fix: liquidation succeeds against the spot price. This is the
-    // borrower-painful but lender-protective choice — the alternative is
-    // bad debt that lenders absorb. Defenses against spot manipulation rely
-    // on the sanity-bound circuit breaker and the liquidator's own profit
-    // motive, not on hard-blocking the call.
-    assert!(
-        result.is_ok(),
-        "liquidation must proceed during a flash crash, got {:?}",
-        result
-    );
+    // The out-of-band deviation is rejected: the protocol will not liquidate
+    // against a price only the spot source corroborates. Liquidation resumes
+    // once the anchor catches up and the sources reconverge within tolerance.
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 // ===========================================================================

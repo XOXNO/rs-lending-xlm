@@ -1,3 +1,15 @@
+//! Liquidation and bad-debt cleanup flows.
+//!
+//! `liquidate` is the only flow allowed to seize collateral from a
+//! healthy-looking account (it first proves the account is underwater).
+//! It uses `OraclePolicy::RiskIncreasing` (or `Liquidation` variant) and
+//! therefore runs under the strictest oracle regime.
+//!
+//! The module also exposes the keeper-only `clean_bad_debt` path that
+//! socializes residual underwater debt after all rational liquidations
+//! have occurred (ADR 0007). Both paths share the math in the sibling
+//! `liquidation_math` module.
+
 use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::errors::{CollateralError, GenericError};
 use common::events::{emit_clean_bad_debt, CleanBadDebtEvent};
@@ -11,16 +23,17 @@ use soroban_sdk::{
 };
 use stellar_macros::{only_role, when_not_paused};
 
-use super::dust::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use super::liquidation_math::*;
 use super::repay::RepaymentRequest;
 use super::withdraw::{WithdrawFlags, WithdrawalRequest};
-use super::{repay, withdraw, EventContext};
+use super::{repay, withdraw};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_seize_position_call;
+use crate::cross_contract::sac::sac_transfer_call;
+use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
-use crate::positions;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
+use crate::utils::EventContext;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -44,7 +57,10 @@ impl Controller {
     }
 }
 
-// Executes liquidation.
+/// Liquidation entry: proves the account is underwater under the strict
+/// Liquidation oracle policy, executes repay + seize atomically via pools,
+/// applies liquidation bonus, refunds excess, and emits the batch events.
+/// Never trusts user-supplied prices.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -68,6 +84,14 @@ pub fn process_liquidation(
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
     // Liquidation reduces protocol exposure.
+    // The Liquidation policy (see oracle/policy.rs) is chosen over RiskDecreasing
+    // because liquidations, while net risk-reducing for the protocol, still
+    // perform seizures whose fairness depends on a defensible price. It
+    // therefore keeps strict staleness and deviation gates but *prefers the
+    // aggregator* (CEX spot) on tolerance breach — this maximizes the value
+    // the liquidator can repay against while the band check still prevents
+    // gross manipulation. This policy decision is the on-chain counterpart
+    // to the "why" documented in ADR 0003 for dual-source + tolerance design.
     let mut cache = ControllerCache::new(env, OraclePolicy::Liquidation);
 
     for (asset, _) in debt_payment_plan.iter() {
@@ -159,8 +183,8 @@ fn apply_liquidation_repayments(
         let entry = validation::expect_invariant(env, repaid.get(i));
 
         let pool_addr = cache.cached_pool_address(&entry.asset);
-        let token = soroban_sdk::token::Client::new(env, &entry.asset);
-        token.transfer(liquidator, &pool_addr, &entry.amount);
+        // All SAC transfers go through the wrapper so the harness can replace it.
+        sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
 
         let position: DebtPosition =
             (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
@@ -296,7 +320,7 @@ fn check_bad_debt_after_liquidation(
     account: &Account,
 ) {
     if account.borrow_positions.is_empty() {
-        positions::account::cleanup_account_if_empty(env, account, account_id);
+        helpers::cleanup_account_if_empty(env, account, account_id);
         return;
     }
 
@@ -402,7 +426,7 @@ fn execute_bad_debt_cleanup(
         },
     );
 
-    positions::account::remove_account(env, account_id);
+    helpers::remove_account(env, account_id);
 }
 
 fn seize_pool_position(

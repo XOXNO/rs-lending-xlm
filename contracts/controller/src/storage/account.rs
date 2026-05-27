@@ -1,3 +1,14 @@
+//! Account storage layout (meta + per-side position maps).
+//!
+//! See ADR 0002 for the rationale: separating supply and borrow maps lets
+//! supply-only and repay-only flows touch only the keys they actually need.
+//! `AccountMeta` carries the owner, isolation flag, and e-mode category;
+//! the two maps are keyed by asset and contain the risk-parameter snapshot
+//! that was active at position creation/adjustment time.
+//!
+//! All TTL renewal for user-owned keys goes through `renew_user_key`
+//! (called from the setters here).
+
 use super::renew_user_key;
 use common::errors::GenericError;
 use common::types::{

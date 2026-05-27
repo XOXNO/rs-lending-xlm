@@ -319,6 +319,10 @@ wasm-size-check: build
 # ---------------------------------------------------------------------------
 
 ## Run cargo-mutants on common/ + controller/src/helpers/.
+## We deliberately exclude verification/certora spec files because they
+## contain large amounts of test-only / modeling code that produces noisy
+## "missed" mutants and are not part of the production attack surface we
+## care about protecting with mutation testing.
 mutants:
 	@command -v cargo-mutants >/dev/null 2>&1 || { \
 		echo "cargo-mutants not installed. Install with:"; \
@@ -328,7 +332,9 @@ mutants:
 	cargo mutants --package common --package controller \
 		--file 'common/src/**/*.rs' \
 		--file 'contracts/controller/src/helpers/**/*.rs' \
-		-- --test-threads=1
+		--exclude '**/verification/**' \
+		--exclude '**/certora/**' \
+		--jobs 1
 
 # ---------------------------------------------------------------------------
 # Clean

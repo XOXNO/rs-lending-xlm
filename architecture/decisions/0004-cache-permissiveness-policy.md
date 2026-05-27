@@ -35,6 +35,9 @@ Centralize the policy in `OraclePolicy`
   normal repay.
 - `OraclePolicy::IsolatedRepay` — disabled-market pricing with strict
   stale/deviation/TWAP gates for isolated repay.
+- `OraclePolicy::Liquidation` — strict stale/deviation/TWAP gates for
+  liquidation and standalone bad-debt cleanup, but prefers the fresher
+  aggregator price when the sources stay inside the tolerance bands.
 - `OraclePolicy::View` — read-only disabled-market/permissive pricing.
 
 Per-flow assignment (`controller/src/positions/*.rs`,
@@ -43,7 +46,7 @@ Per-flow assignment (`controller/src/positions/*.rs`,
 | Flow                              | Oracle policy                      |
 | --------------------------------- | ---------------------------------- |
 | `borrow`                          | `RiskIncreasing`                   |
-| `liquidate`                       | `RiskIncreasing`                   |
+| `liquidate`, `clean_bad_debt`     | `Liquidation`                      |
 | `multiply`, `swap_*`              | `RiskIncreasing`                   |
 | `repay_debt_with_collateral`      | `RiskIncreasing`                   |
 | `update_account_threshold`        | `RiskIncreasing`                   |
@@ -112,6 +115,51 @@ Negative / accepted costs:
 - Permissive caches accept the safe price even when both sources have
   drifted in the same direction. The two-source design (ADR 0003)
   bounds this risk, and isolated debt opts out of the relaxation.
+
+## Revisions
+
+### 2026-05-27 — Liquidation hardens its deviation gate (reverses §4.5 / Codex adversarial-review finding #1)
+
+The original posture (tracked as `STELLAR_AUDIT_FINDINGS.md` §4.5,
+"Codex adversarial-review finding #1") had liquidation and standalone
+bad-debt cleanup *tolerate* primary/anchor deviation: outside the last
+tolerance band they resolved to the aggregator (live spot) price so
+liquidations always proceeded during a flash crash. The stated reason was
+that hard-blocking on deviation would DoS liquidators and leave underwater
+accounts un-liquidatable, dumping bad debt on lenders.
+
+That posture is now reversed. `OraclePolicy::Liquidation`
+(`controller/src/oracle/policy.rs`) sets `unsafe_deviation: false`:
+liquidation and bad-debt cleanup now **reject** with
+`OracleError::UnsafePriceNotAllowed` (error #205, `common/src/errors.rs:99`)
+when the primary and anchor sources diverge beyond the last tolerance band.
+The protocol will not seize collateral at a price only one source
+corroborates. The aggregator preference (`prefer_aggregator_on_deviation:
+true`) is retained, so when the sources stay inside the bands the fresher
+aggregator price is still used.
+
+Rationale (manipulation-over-availability tradeoff): the two oracle sources
+are independent, so an attacker cannot sustain an out-of-band divergence
+long enough to DoS liquidations — transient gaps fall inside the first two
+tolerance bands, which remain tolerated and aggregator-preferred. Only
+genuine extreme/out-of-band divergence rejects, and during a real flash
+crash the block is transient (the anchor/TWAP catches up within its window),
+so liquidations resume once the sources reconverge within tolerance. The
+protocol accepts this narrow availability window in exchange for never
+seizing collateral at a price only one source corroborates.
+
+This refines, but does not contradict, the "Permissive caches accept the
+safe price even when both sources have drifted" accepted cost above:
+liquidation is no longer a permissive cache for the deviation gate.
+
+Regression coverage:
+
+- `test_clean_bad_debt_rejected_under_oracle_deviation`
+  (`verification/test-harness/tests/keeper_tests.rs`)
+- `test_unsafe_price_blocks_liquidation`
+  (`verification/test-harness/tests/oracle_tolerance_tests.rs`)
+- `test_liquidation_blocked_under_flash_crash`
+  (`verification/test-harness/tests/oracle_tolerance_tests.rs`)
 
 ## References
 

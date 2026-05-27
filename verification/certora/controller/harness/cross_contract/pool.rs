@@ -16,3 +16,20 @@ pub(crate) use crate::spec::summaries::pool::{
     supply_summary as pool_supply_call, update_indexes_summary as pool_update_indexes_call,
     withdraw_summary as pool_withdraw_call,
 };
+
+// Void privileged-config calls have no return value to summarize, so the
+// prover treats them as no-ops. They exist only so the production import
+// path in `router.rs` resolves under the certora feature.
+use common::types::InterestRateModel;
+use soroban_sdk::{Address, BytesN, Env};
+
+pub(crate) fn pool_keepalive_call(_env: &Env, _pool_addr: &Address) {}
+
+pub(crate) fn pool_update_params_call(
+    _env: &Env,
+    _pool_addr: &Address,
+    _params: &InterestRateModel,
+) {
+}
+
+pub(crate) fn pool_upgrade_call(_env: &Env, _pool_addr: &Address, _new_wasm_hash: &BytesN<32>) {}

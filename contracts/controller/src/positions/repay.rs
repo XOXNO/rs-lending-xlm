@@ -5,12 +5,11 @@ use common::types::{Account, DebtPosition, Payment, PoolPositionMutation, PriceF
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::EventContext;
+use crate::utils::EventContext;
 
-use super::dust::require_no_borrow_dust_for_assets;
-use super::update;
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_repay_call;
+use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -33,7 +32,9 @@ impl Controller {
     }
 }
 
-// Processes repay batch.
+/// Repay flow (permissionless w.r.t. owner — liquidators and strategies may call).
+/// Uses repay-optimized oracle policy (more permissive under isolation).
+/// Over-repayment refunds the excess to the payer before events.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
     // Stage 1: Pipelined Context Check
     caller.require_auth();
@@ -146,11 +147,7 @@ pub fn execute_repayment(
         },
     );
 
-    update::update_or_remove_debt_position(
-        account,
-        req.asset,
-        &DebtPosition::from(&result.position),
-    );
+    update_or_remove_debt_position(account, req.asset, &DebtPosition::from(&result.position));
 
     if account.is_isolated {
         let feed = cache.cached_price(req.asset);

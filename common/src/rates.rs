@@ -451,6 +451,57 @@ mod tests {
         let _ = update_borrow_index(&env, old_index, factor);
     }
 
+    // `simulate_update_indexes` line 165: `if delta_ms == 0`. With a
+    // nonzero delta and live borrows the original computes accrual (indexes
+    // grow). Mutating `==` to `!=` flips the early-return guard so a
+    // nonzero delta returns the unchanged input indexes. Asserting the
+    // borrow index strictly increased kills the `==→!=` mutant.
+    #[test]
+    fn test_simulate_update_indexes_nonzero_delta_accrues() {
+        use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+        let env = Env::default();
+        let params = MarketParamsRaw {
+            max_borrow_rate_ray: RAY,
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY * 4 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 300 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: RAY * 95 / 100,
+            reserve_factor_bps: 1_000,
+            asset_id: soroban_sdk::Address::from_str(
+                &env,
+                "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+            ),
+            asset_decimals: 7,
+        };
+        let state = PoolStateRaw {
+            supplied_ray: 100 * RAY,
+            borrowed_ray: 60 * RAY,
+            revenue_ray: 0,
+            borrow_index_ray: RAY,
+            supply_index_ray: RAY,
+            last_timestamp: 0,
+        };
+        let sync = PoolSyncData { params, state };
+
+        // delta_ms > 0 → original accrues interest.
+        let one_year = MILLISECONDS_PER_YEAR;
+        let indexes = simulate_update_indexes(&env, one_year, &sync);
+        assert!(
+            indexes.borrow_index.raw() > RAY,
+            "borrow index must grow over a nonzero delta; got {}",
+            indexes.borrow_index.raw()
+        );
+        assert!(
+            indexes.supply_index.raw() > RAY,
+            "supply index must grow over a nonzero delta; got {}",
+            indexes.supply_index.raw()
+        );
+    }
+
     // Pins compound_interest against e^0.5 with tolerance tight enough to
     // detect a sign flip on any Taylor term (term2..term8). Truncation
     // bound at x = 0.5 is x^9/9! ≈ 5.4e-9 → 5.4e18 in Ray units.

@@ -1,3 +1,7 @@
+//! Contract error codes. Variant names are the canonical machine-readable
+//! conditions; docs below describe the protocol-level failure for auditors
+//! and indexers.
+
 use soroban_sdk::contracterror;
 
 #[contracterror]
@@ -25,6 +29,7 @@ pub enum GenericError {
     InvalidEndpoint = 19,
     InvalidShard = 20,
     InvalidOnedexPair = 21,
+    /// All mutating operations are rejected while the controller is paused.
     ContractPaused = 22,
     InvalidPositionType = 23,
     AccountNotFound = 24,
@@ -33,14 +38,18 @@ pub enum GenericError {
     AggregatorNotSet = 27,
     AccumulatorNotSet = 28,
     PositionLimitsNotSet = 29,
+    /// Pool storage record missing or never initialized for the asset.
     PoolNotInitialized = 30,
     PoolsListNotFound = 31,
     OwnerNotSet = 32,
+    /// Integer overflow/underflow in scaled balance or index math.
     MathOverflow = 33,
     InternalError = 34,
     TokenNotApproved = 35,
     InvalidPositionLimits = 36,
+    /// Rewards cannot be added when there are zero suppliers (would be lost).
     NoSuppliersToReward = 37,
+    /// Single-oracle (no TWAP/anchor) mode is rejected in production config.
     SpotOnlyNotProductionSafe = 38,
     AddOverflow = 39,
     SubUnderflow = 40,
@@ -54,6 +63,7 @@ pub enum GenericError {
 pub enum CollateralError {
     InsufficientCollateral = 100,
     HealthFactorTooHigh = 101,
+    /// Post-operation health factor would be below the liquidation threshold.
     HealthFactorTooLow = 102,
     TokenMismatch = 103,
     NotCollateral = 104,
@@ -64,6 +74,7 @@ pub enum CollateralError {
     PositionLimitExceeded = 109,
     PositionNotFound = 110,
     InvalidPositionMode = 111,
+    /// Pool on-chain balance or scaled reserves insufficient for the operation.
     InsufficientLiquidity = 112,
     InvalidLiqThreshold = 113,
     CannotCleanBadDebt = 114,
@@ -75,10 +86,12 @@ pub enum CollateralError {
     DebtPositionNotFound = 120,
     CollateralPositionNotFound = 121,
     CannotCloseWithRemainingDebt = 122,
+    /// Post-mutation pool state would violate the solvency invariant.
     PoolInsolvent = 123,
     PoolPaused = 124,
     DustFloorTooLow = 125,
     DustResidueNotAllowed = 126,
+    /// Operation would push utilization above the configured max.
     UtilizationAboveMax = 127,
     BaseRateNegative = 128,
     SlopeNonMonotonic = 129,
@@ -96,6 +109,7 @@ pub enum OracleError {
     OracleTokenNotFound = 202,
     OracleTokenExisting = 203,
     InvalidOracleTokenType = 204,
+    /// Price resolution policy rejected an unsafe or out-of-tolerance price.
     UnsafePriceNotAllowed = 205,
     PriceFeedStale = 206,
     BadFirstTolerance = 207,
@@ -124,6 +138,7 @@ pub enum OracleError {
 pub enum EModeError {
     EModeCategoryNotFound = 300,
     EModeCategoryDeprecated = 301,
+    /// E-mode and isolation mode cannot be combined on the same account.
     EModeWithIsolated = 302,
     MixIsolatedCollateral = 303,
     DebtCeilingReached = 304,
@@ -139,8 +154,10 @@ pub enum EModeError {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum FlashLoanError {
+    /// Re-entrancy guard: a flash loan or strategy is already executing in this tx.
     FlashLoanOngoing = 400,
     FlashloanNotEnabled = 401,
+    /// Flash-loan callback did not restore the expected pool balance.
     InvalidFlashloanRepay = 402,
     FlashloanReserve = 403,
     SwapCollateralNoIso = 404,

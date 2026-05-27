@@ -1,3 +1,12 @@
+//! E-mode application logic (boosting risk parameters for correlated assets).
+//!
+//! The actual category storage lives in `storage/emode`. This module only
+//! contains the pure "apply or ignore" transformation used at supply time
+//! and when reading effective asset config for risk calculations.
+//!
+//! Deprecated categories are silently ignored (no error) so that users
+//! with old positions are not suddenly bricked.
+
 use common::errors::{CollateralError, EModeError};
 use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};

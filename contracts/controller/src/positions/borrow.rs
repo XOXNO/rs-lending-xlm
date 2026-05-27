@@ -1,3 +1,11 @@
+//! Borrow (and strategy-internal borrow) flows.
+//!
+//! Borrow always uses `OraclePolicy::RiskIncreasing`. It is the primary
+//! path that can push an account into isolation mode and that mutates the
+//! global isolated-debt counters. The module therefore contains the
+//! special handling for `handle_isolated_debt` and the creation of
+//! strategy positions inside pools.
+
 use common::errors::{CollateralError, EModeError, GenericError};
 use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PriceFeed,
@@ -7,10 +15,10 @@ use soroban_sdk::{
 };
 use stellar_macros::when_not_paused;
 
-use super::dust::require_no_borrow_dust_for_assets;
-use super::{emode, update};
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
+use crate::emode;
+use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -83,7 +91,9 @@ pub fn handle_create_borrow_strategy(
     result.amount_received
 }
 
-// Processes borrow batch.
+/// Full borrow flow for an account: auth, oracle policy (risk-increasing),
+/// e-mode/config resolution, per-asset pool borrows, post-borrow health + dust
+/// validation, storage write, and batched position/market events.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     // Stage 1: Pipelined Context Check
     caller.require_auth();
@@ -128,9 +138,9 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     cache.emit_market_batch();
 }
 
-// Processes the borrow batch on an account. `borrow_plan` MUST be the
-// output of `utils::aggregate_positive_payments` — already deduped and with
-// every amount > 0. The entrypoint aggregates before this call.
+/// Internal executor for a validated, deduplicated borrow plan.
+/// Mutates the in-memory account, calls pools, records mutations for events.
+/// Caller guarantees `borrow_plan` is the output of `aggregate_positive_payments`.
 pub fn process_borrow_plan(
     env: &Env,
     caller: &Address,
@@ -332,7 +342,7 @@ fn record_borrow_update(
         &update.position,
         Some(update.price_wad),
     );
-    update::update_or_remove_debt_position(account, asset, &update.position);
+    update_or_remove_debt_position(account, asset, &update.position);
 }
 
 // Increments isolated-debt tracker and checks ceiling.

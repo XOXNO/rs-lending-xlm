@@ -532,4 +532,208 @@ mod tests {
         assert_eq!(back.supply_index_ray, raw.supply_index_ray);
         assert_eq!(back.last_timestamp, raw.last_timestamp);
     }
+
+    // ====================================================================
+    // InterestRateModel::verify — boundary coverage.
+    //
+    // The slope-monotonicity guard (pool.rs ~127-130) and the
+    // max-utilization guard (pool.rs ~159) are plain `if ... {
+    // panic_with_error! }` blocks, so their comparison/`||` operators are
+    // visible to the mutation engine. Each test below pins an exact
+    // boundary value so the original operator and its mutant diverge.
+    //
+    // The remaining checks (`base_borrow_rate_ray >= 0`,
+    // `max_borrow_rate_ray > base`, `<= MAX_BORROW_RATE_RAY`, `mid > 0`,
+    // `optimal > mid`, `optimal < RAY`, `reserve < BPS`) live inside
+    // `assert_with_error!`, whose condition is a macro argument invisible
+    // to cargo-mutants — structurally unkillable by mutation, so they are
+    // not targeted here.
+    // ====================================================================
+
+    fn valid_rate_model() -> InterestRateModel {
+        InterestRateModel {
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY / 10,
+            slope2_ray: RAY * 2 / 10,
+            slope3_ray: RAY * 3 / 10,
+            max_borrow_rate_ray: RAY,
+            mid_utilization_ray: RAY / 2,
+            optimal_utilization_ray: RAY * 8 / 10,
+            max_utilization_ray: RAY * 9 / 10,
+            reserve_factor_bps: 1_000,
+        }
+    }
+
+    #[test]
+    fn test_rate_model_verify_accepts_valid() {
+        let env = Env::default();
+        valid_rate_model().verify(&env);
+    }
+
+    // `replace InterestRateModel::verify with ()` (pool.rs:122): a no-op
+    // body would silently accept an invalid config. An invalid input that
+    // MUST panic catches the stubbed body.
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_rate_model_verify_body_is_not_a_noop() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.slope2_ray = m.slope1_ray - 1; // slope2 < slope1 → non-monotonic.
+        m.verify(&env);
+    }
+
+    // ---- Monotonic chain: `||` short-circuit (lines 128/129/130). -------
+    // For each disjunct, make EXACTLY that one strictly true and the
+    // others false. With `||` the whole guard is true → panic. Flipping
+    // any `||` to `&&` makes the guard false (the other operands are
+    // false) → no panic. Expecting the panic kills the `||→&&` mutants.
+
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_rate_model_monotonic_only_slope1_below_base_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        // slope1 < base, but keep slope2/slope3/max above their predecessors.
+        m.base_borrow_rate_ray = RAY * 2 / 10;
+        m.slope1_ray = RAY / 10;
+        m.slope2_ray = RAY * 3 / 10;
+        m.slope3_ray = RAY * 4 / 10;
+        m.max_borrow_rate_ray = RAY * 5 / 10;
+        m.verify(&env);
+    }
+
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_rate_model_monotonic_only_slope2_below_slope1_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        // slope2 < slope1 only.
+        m.slope1_ray = RAY * 3 / 10;
+        m.slope2_ray = RAY * 2 / 10;
+        m.slope3_ray = RAY * 4 / 10;
+        m.max_borrow_rate_ray = RAY * 5 / 10;
+        m.verify(&env);
+    }
+
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_rate_model_monotonic_only_slope3_below_slope2_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        // slope3 < slope2 only.
+        m.slope2_ray = RAY * 4 / 10;
+        m.slope3_ray = RAY * 3 / 10;
+        m.max_borrow_rate_ray = RAY * 5 / 10;
+        m.verify(&env);
+    }
+
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_rate_model_monotonic_only_max_below_slope3_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        // max < slope3 only, while max still > base (avoids MaxRateBelowBase).
+        m.slope3_ray = RAY * 5 / 10;
+        m.max_borrow_rate_ray = RAY * 3 / 10;
+        m.verify(&env);
+    }
+
+    // ---- Monotonic chain: `<` vs `<=`/`==` at exact equality. -----------
+    // At `a == b` the original `<` is FALSE (no panic via that disjunct),
+    // but `<=` and `==` are TRUE (would panic). Asserting NO panic kills
+    // both `<→<=` and `<→==` for each comparison.
+
+    #[test]
+    fn test_rate_model_monotonic_slope1_eq_base_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.slope1_ray = m.base_borrow_rate_ray; // slope1 == base.
+        m.verify(&env);
+    }
+
+    #[test]
+    fn test_rate_model_monotonic_slope2_eq_slope1_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.slope2_ray = m.slope1_ray; // slope2 == slope1.
+        m.verify(&env);
+    }
+
+    #[test]
+    fn test_rate_model_monotonic_slope3_eq_slope2_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.slope3_ray = m.slope2_ray; // slope3 == slope2.
+        m.verify(&env);
+    }
+
+    #[test]
+    fn test_rate_model_monotonic_max_eq_slope3_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.max_borrow_rate_ray = m.slope3_ray; // max == slope3.
+        m.verify(&env);
+    }
+
+    // ---- Max-utilization guard (line 159):
+    // `max_util < optimal || max_util > RAY`. ----------------------------
+
+    // `||→&&` (159:68): only the left disjunct true (max_util < optimal,
+    // and max_util <= RAY so the right is false). `||` → panic; `&&` →
+    // false → no panic.
+    #[test]
+    #[should_panic(expected = "#117")]
+    fn test_rate_model_max_util_below_optimal_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.max_utilization_ray = m.optimal_utilization_ray - 1;
+        m.verify(&env);
+    }
+
+    // `||→&&` also distinguished by the right disjunct alone: only
+    // max_util > RAY true (max_util >= optimal so left is false).
+    #[test]
+    #[should_panic(expected = "#117")]
+    fn test_rate_model_max_util_above_ray_panics() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.max_utilization_ray = RAY + 1;
+        m.verify(&env);
+    }
+
+    // `max_util < optimal`: `<` vs `<=`/`==` at exact equality
+    // (159:37). At max_util == optimal the original `<` is false; `<=`
+    // and `==` would be true. The right disjunct (max_util > RAY) is also
+    // false since optimal < RAY. No panic expected.
+    #[test]
+    fn test_rate_model_max_util_eq_optimal_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.max_utilization_ray = m.optimal_utilization_ray; // == optimal.
+        m.verify(&env);
+    }
+
+    // `max_util > RAY`: `>` vs `>=`/`==` at exact equality (159:96). At
+    // max_util == RAY the original `>` is false; `>=` and `==` would be
+    // true. Left disjunct false (RAY >= optimal). No panic expected.
+    #[test]
+    fn test_rate_model_max_util_eq_ray_does_not_panic() {
+        let env = Env::default();
+        let mut m = valid_rate_model();
+        m.max_utilization_ray = RAY; // == RAY (upper edge of valid range).
+        m.verify(&env);
+    }
+
+    // `verify_rate_model with ()` (pool.rs:39): the wrapper must delegate
+    // to `rate_model_view().verify()`. A no-op wrapper would accept an
+    // invalid rate model. Build a raw params with a non-monotonic slope
+    // and assert it panics.
+    #[test]
+    #[should_panic(expected = "#129")]
+    fn test_market_params_verify_rate_model_delegates() {
+        let env = Env::default();
+        let mut raw = sample_raw_params(&env);
+        raw.slope2_ray = raw.slope1_ray - 1; // slope2 < slope1.
+        raw.verify_rate_model(&env);
+    }
 }

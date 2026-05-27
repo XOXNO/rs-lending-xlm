@@ -332,17 +332,11 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
 
     // Get base config and apply e-mode override
     let mut asset_config = crate::storage::get_market_config(&e, &asset).asset_config;
-    let emode_cat = crate::positions::emode::e_mode_category(&e, category_id);
+    let emode_cat = crate::emode::e_mode_category(&e, category_id);
     let mut cache =
         crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
-    let emode_asset_cfg =
-        crate::positions::emode::token_e_mode_config(&e, &mut cache, category_id, &asset);
-    crate::positions::emode::apply_e_mode_to_asset_config(
-        &e,
-        &mut asset_config,
-        &emode_cat,
-        emode_asset_cfg,
-    );
+    let emode_asset_cfg = crate::emode::token_e_mode_config(&e, &mut cache, category_id, &asset);
+    crate::emode::apply_e_mode_to_asset_config(&e, &mut asset_config, &emode_cat, emode_asset_cfg);
 
     // After override: params must match the category, not the base config
     cvlr_assert!(asset_config.loan_to_value_bps == category.loan_to_value_bps);
@@ -482,7 +476,7 @@ fn emode_account_cannot_enter_isolation(e: Env, asset: Address, e_mode_category:
 
     // Calling the gate with `is_isolated_asset = true` and `e_mode_id > 0`
     // must panic with `EModeWithIsolated`.
-    crate::positions::emode::ensure_e_mode_compatible_with_asset(&e, &config, e_mode_category);
+    crate::emode::ensure_e_mode_compatible_with_asset(&e, &config, e_mode_category);
 
     // Unreachable: the gate must panic.
     cvlr_satisfy!(false);

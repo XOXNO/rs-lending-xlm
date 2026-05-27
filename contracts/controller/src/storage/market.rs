@@ -1,3 +1,10 @@
+//! Market configuration storage.
+//!
+//! `MarketConfig` (status, pool address, full `AssetConfig`, and the
+//! complete `MarketOracleConfig`) is the source of truth for every risk
+//! and oracle decision. It lives under a protocol-shared key and therefore
+//! receives the shared TTL policy via `renew_protocol_shared_key`.
+
 use super::renew_protocol_shared_key;
 use common::errors::GenericError;
 use common::types::{ControllerKey, MarketConfig};

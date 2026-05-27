@@ -1,10 +1,9 @@
 //! Summaries for the SEP-40 Reflector oracle ABI.
 //!
-//! The Reflector trait is declared in `controller/src/oracle/reflector.rs`
-//! via `#[contractclient(name = "ReflectorClient")]`. Production goes through
-//! `crate::oracle::token_price` -> `ReflectorClient::lastprice` /
-//! `ReflectorClient::prices`; these summaries constrain oracle outputs to the
-//! same domain expected by production price validation.
+//! The Reflector client interface lives in
+//! `controller/src/oracle/providers/reflector/client.rs` (the canonical home
+//! under the providers abstraction). Production goes through the thin wrappers
+//! in that module, which are the attachment points for these summaries.
 //!
 //! Soundness contract: each summary returns a value in the same domain as
 //! the production Reflector contract guarantees (price > 0, timestamps
@@ -19,7 +18,7 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
-use crate::oracle::reflector::{ReflectorAsset, ReflectorPriceData};
+use crate::oracle::providers::reflector::client::{ReflectorAsset, ReflectorPriceData};
 
 // ---------------------------------------------------------------------------
 // Bounds applied by the production staleness / sanity checks

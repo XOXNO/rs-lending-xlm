@@ -1,3 +1,11 @@
+//! Oracle provider abstraction layer.
+//!
+//! This module dispatches between different price providers (Reflector and
+//! RedStone today) using a uniform `OracleSourceConfig`.
+//!
+//! Each provider owns its contract client surface (under its own `client.rs`)
+//! and its consumption logic. This file only contains the top-level dispatch.
+
 pub(crate) mod redstone;
 pub(crate) mod reflector;
 

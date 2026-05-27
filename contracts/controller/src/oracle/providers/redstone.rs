@@ -1,34 +1,24 @@
-#![allow(dead_code)]
+// No file-level allow needed here anymore — the contractclient allow lives in client.rs.
 
-// Identity validation:
-// Redstone's `read_price_data_for_feed` ABI has no base/quote accessor (unlike
-// Reflector's `base()`). The quote currency is implicit in `feed_id`; on-chain
-// validation covers decimals, freshness, and sanity bounds only.
+//! RedStone Price Feed provider (consumption logic).
+//!
+//! The contract client surface lives in `client.rs` (following the clean
+//! pattern established by Reflector).
+//!
+//! This module now focuses on how the controller consumes RedStone prices.
 
 use common::errors::GenericError;
-use common::types::{OracleProviderKind, OracleReadMode, RedStoneSourceConfig};
-use soroban_sdk::{contractclient, contracttype, panic_with_error, Env, Error, String, U256};
+use common::types::RedStoneSourceConfig;
+use soroban_sdk::{panic_with_error, Env};
 
 use super::super::observation::{
-    check_not_future_at, millis_to_seconds, normalize_positive_price, u256_to_i128,
-    OracleObservation,
+    build_observation, check_not_future_at, millis_to_seconds, u256_to_i128, OracleObservation,
 };
 use crate::cache::ControllerCache;
 
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct RedStonePriceData {
-    pub price: U256,
-    pub package_timestamp: u64,
-    pub write_timestamp: u64,
-}
+mod client; // Canonical home of RedStone contract client types + trait.
 
-pub(crate) const REDSTONE_DECIMALS: u32 = 8;
-
-#[contractclient(name = "RedStonePriceFeedClient")]
-pub trait RedStoneMultiFeed {
-    fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error>;
-}
+pub(crate) use client::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
 
 pub(crate) fn read_redstone_source(
     cache: &ControllerCache,
@@ -36,10 +26,9 @@ pub(crate) fn read_redstone_source(
     required: bool,
 ) -> Option<OracleObservation> {
     let env = cache.env();
-    let client = RedStonePriceFeedClient::new(env, &config.contract);
 
-    let price_data = match client.try_read_price_data_for_feed(&config.feed_id) {
-        Ok(Ok(price_data)) => price_data,
+    let price_data = match read_price_data(env, &config.contract, &config.feed_id) {
+        Some(price_data) => price_data,
         _ if required => panic_with_error!(env, GenericError::InvalidTicker),
         _ => return None,
     };
@@ -63,13 +52,5 @@ fn observation_from_price_data(
     check_not_future_at(env, now_secs, write_ts);
 
     let raw_price = u256_to_i128(env, &price_data.price);
-    OracleObservation {
-        price_wad: normalize_positive_price(env, raw_price, decimals),
-        raw_price,
-        raw_decimals: decimals,
-        observed_at: write_ts,
-        published_at: Some(package_ts),
-        provider: OracleProviderKind::RedStonePriceFeed,
-        read_mode: OracleReadMode::Spot,
-    }
+    build_observation(env, raw_price, decimals, write_ts, Some(package_ts))
 }

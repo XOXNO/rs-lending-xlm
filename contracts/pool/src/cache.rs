@@ -21,7 +21,8 @@ pub struct Cache {
 }
 
 impl Cache {
-    // Loads params and state from instance storage.
+    /// Loads the pool's immutable params and mutable interest state from
+    /// instance storage. Panics with PoolNotInitialized if either record is absent.
     pub fn load(env: &Env) -> Self {
         let params: MarketParamsRaw = env
             .storage()
@@ -49,7 +50,8 @@ impl Cache {
         }
     }
 
-    // Writes current cache back to instance storage.
+    /// Persists the current interest state (indexes, supplied/borrowed totals,
+    /// revenue, last accrual timestamp) back to instance storage.
     pub fn save(&self) {
         let state = PoolStateRaw {
             supplied_ray: self.supplied.raw(),
@@ -63,7 +65,8 @@ impl Cache {
         self.env.storage().instance().set(&PoolKey::State, &state);
     }
 
-    // Current utilization in RAY.
+    /// Current utilization = total_borrowed_value / total_supplied_value (RAY).
+    /// Returns zero when supplied is zero (avoids div-by-zero).
     pub fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
@@ -74,13 +77,13 @@ impl Cache {
         common::rates::utilization(&self.env, total_borrowed, total_supplied)
     }
 
-    // Returns true if pool balance covers amount.
+    /// Returns true when the pool's current on-chain token balance is at least `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
         let reserves = self.live_reserves_for(&self.params.asset_id);
         reserves >= amount
     }
 
-    // Panics if on-chain balance can't cover amount.
+    /// Panics with InsufficientLiquidity if live on-chain balance < amount.
     pub fn require_reserves(&self, amount: i128) {
         assert_with_error!(
             self.env,

@@ -1,3 +1,34 @@
+//! Shared strategy machinery: aggregator validation, balance-delta safety,
+//! and the small state machines used by the four strategy flows.
+//!
+//! The critical security property (ADR 0005) is that the controller never
+//! trusts any numbers returned by the router. Instead:
+//! - `validate_aggregator_swap` checks the shape of the `AggregatorSwap`
+//!   the user supplied.
+//! - `snapshot_swap_balances` records the controller's own token balances
+//!   of the exact in/out assets before the call.
+//! - After the router call returns, `verify_router_input_spend` and
+//!   `verify_router_output` compare the *observed deltas* against the
+//!   user-committed `amount_in` / `total_min_out`.
+//!
+//! The `aggregator` submodule only exists to host the `#[contractclient]`
+//! trait (the usual `#[allow(dead_code)]` pattern).
+//!
+//! All four concrete strategies live in their sibling files and delegate
+//! the heavy lifting (and the router call) to helpers in this module.
+//!
+//! The delta-safety machinery (`validate_aggregator_swap`, `snapshot_swap_balances`,
+//! `verify_router_input_spend`, `verify_router_output`, `swap_tokens`, and the
+//! aggregator client trait) is intentionally colocated so the "never trust
+//! the router" invariant (ADR 0005) remains obvious and auditable in one place.
+//!
+//! Exactly four entrypoints depend on this surface (multiply, swap_collateral,
+//! swap_debt, repay_debt_with_collateral). It has zero references inside any
+//! Certora harness or spec. Dedicated adversarial coverage exists in
+//! `strategy_bad_router_tests.rs` (BadAggregator Refund/OverPull/OutputShortfall)
+//! and `strategy_panic_coverage_tests.rs`. Any future refactoring must keep
+//! the four defense functions + the client trait together.
+
 use common::errors::GenericError;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatorSwap, BatchSwap, DebtPosition,
@@ -8,19 +39,18 @@ use soroban_sdk::{
 };
 
 use crate::cache::ControllerCache;
-use crate::positions::dust::{
-    require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets,
-};
+use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest};
-use crate::{positions::borrow, positions::EventContext, storage, utils, validation};
+use crate::utils::EventContext;
+use crate::{positions::borrow, storage, utils, validation};
 
 // Router client.
 pub(crate) mod aggregator {
     use common::types::BatchSwap;
     use soroban_sdk::contractclient;
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Required: trait exists only for the macro to generate the client proxy.
     #[contractclient(name = "AggregatorClient")]
     pub trait Aggregator {
         fn batch_execute(env: soroban_sdk::Env, batch: BatchSwap) -> i128;

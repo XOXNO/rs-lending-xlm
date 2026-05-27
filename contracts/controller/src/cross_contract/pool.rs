@@ -6,10 +6,10 @@
 // params never cross the wire.
 
 use common::types::{
-    AccountPositionType, MarketStateSnapshot, PoolAmountMutation, PoolPositionMutation,
-    PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
+    AccountPositionType, InterestRateModel, MarketStateSnapshot, PoolAmountMutation,
+    PoolPositionMutation, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
-use soroban_sdk::{Address, Bytes, Env};
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 pub(crate) fn pool_supply_call(
     env: &Env,
@@ -123,4 +123,16 @@ pub(crate) fn pool_add_rewards_call(
 
 pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address) -> PoolSyncData {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data()
+}
+
+pub(crate) fn pool_update_params_call(env: &Env, pool_addr: &Address, params: &InterestRateModel) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_params(params)
+}
+
+pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).upgrade(new_wasm_hash)
+}
+
+pub(crate) fn pool_keepalive_call(env: &Env, pool_addr: &Address) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).keepalive()
 }

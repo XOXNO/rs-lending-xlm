@@ -1,3 +1,9 @@
+//! Pool registry and the canonical list of listed assets.
+//!
+//! The list is used by keepers for `update_indexes` and `keepalive_pools`
+//! sweeps. It is append-only from the perspective of normal operation
+//! (removals are not supported after listing).
+
 use super::renew_protocol_shared_key;
 use common::constants::MAX_POOLS_LIST_ENTRIES;
 use common::errors::GenericError;

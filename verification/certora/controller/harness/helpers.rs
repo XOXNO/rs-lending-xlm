@@ -1,33 +1,54 @@
 //! Certora harness substitute for `controller::helpers`.
 //!
 //! Under `--features certora`, `controller/src/lib.rs` path-swaps the
-//! `helpers` module to this file. The substitute re-exports every
-//! production helper unchanged except for the two paths that the
-//! prover must see as summaries:
+//! entire `helpers` module to this file (see lib.rs:9 and cross_contract
+//! pattern for comparison). This is the most invasive override in the
+//! controller harness layer because `helpers` acts as the shared
+//! primitives bucket (dust checks, account lifecycle, position map
+//! maintenance, and the heavy aggregate helpers) after a prior move
+//! from positions/ for visibility to strategies and core verbs.
 //!
-//! 1. [`calculate_account_totals`] — heavy I256 + Map-iteration body
-//!    replaced with a bounded nondet aggregate. Without the summary,
-//!    every rule that traverses this helper hits the prover's TAC
-//!    command-count budget.
-//! 2. [`calculate_linear_bonus`] — certora-only thin wrapper around
-//!    `calculate_linear_bonus_with_target` (target = 1.02 WAD). No
-//!    production caller, so it lives here rather than polluting prod.
+//! The substitute:
+//! - Pulls prod helpers/mod.rs via inner #[path] as __prod only for
+//!   re-export of the non-heavy fns (explicit list prevents silent drift).
+//! - Overrides [`calculate_account_totals`] with a sound nondet summary
+//!   (heavy Map iteration + I256).
+//! - Provides [`calculate_linear_bonus`] (certora-only, used by rules;
+//!   mirrors the boundary of the prod `calculate_linear_bonus_with_target`).
 //!
-//! The re-export list is enumerated explicitly so adding a new public
-//! helper in production surfaces here as a compile error — the harness
-//! cannot silently drift from the production surface.
+//! Known limitation (see oracle providers/*/client.rs success story):
+//! full module replacement here couples harness maintenance to every
+//! internal refactoring of helpers. Prefer thin-wrapper + apply_summary!
+//! for future heavy fns. The calculate_linear_bonus + estimate fns that
+//! rules expect are intentionally not forced into this surface.
+//!
+//! Migration target: Move `calculate_account_totals` to thin-wrapper + summarized! pattern.
 
 #[allow(dead_code)] // Prod has fns we don't re-export (we shadow them locally).
 #[path = "../../../../contracts/controller/src/helpers/mod.rs"]
 mod __prod;
 
 pub use __prod::{
-    calculate_health_factor, calculate_ltv_collateral_wad, estimate_liquidation_amount,
-    get_account_bonus_params, position_value, weighted_collateral,
+    calculate_health_factor,
+    calculate_ltv_collateral_wad,
+    calculate_total_debt_wad,
+    cleanup_account_if_empty,
+    create_account,
+    position_value,
+    remove_account,
+    require_no_borrow_dust_for_assets,
+    require_no_supply_dust_for_assets,
+    update_or_remove_debt_position,
+    update_or_remove_supply_position,
+    weighted_collateral,
+    // NOTE: estimate_liquidation_amount / get_account_bonus_params live in
+    // positions/liquidation_math (rules call via full path or via estimate
+    // wrappers). calculate_account_totals and calculate_linear_bonus are
+    // overridden locally below.
 };
 
 use common::math::fp::{Bps, Wad};
-use common::types::AccountPosition;
+use common::types::{AccountPosition, AccountPositionRaw, DebtPositionRaw};
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env, Map};
@@ -46,7 +67,7 @@ pub fn calculate_account_totals(
     _env: &Env,
     _cache: &mut ControllerCache,
     _supply_positions: &Map<Address, AccountPositionRaw>,
-    _borrow_positions: &Map<Address, AccountPositionRaw>,
+    _borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let total_collateral_raw: i128 = nondet();
     let total_debt_raw: i128 = nondet();

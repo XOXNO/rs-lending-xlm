@@ -6,12 +6,11 @@ use soroban_sdk::{
 };
 use stellar_macros::when_not_paused;
 
-use super::EventContext;
+use crate::utils::EventContext;
 
-use super::dust::require_no_supply_dust_for_assets;
-use super::update;
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::pool_withdraw_call;
+use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -50,7 +49,9 @@ impl Controller {
     }
 }
 
-// Processes withdraw batch.
+/// Withdraw flow: owner-auth only, risk policy chosen based on whether the
+/// account still has borrows after the withdrawal. Enforces health factor,
+/// dust floors, and max-utilization on the pool side.
 pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
     // Stage 1: Pipelined Context Check
     caller.require_auth();
@@ -172,7 +173,7 @@ pub fn execute_withdrawal(
     // pool does not echo.
     let mut result_position = *req.position;
     result_position.scaled_amount = Ray::from_raw(result.position.scaled_amount_ray);
-    update::update_or_remove_supply_position(account, req.asset, &result_position);
+    update_or_remove_supply_position(account, req.asset, &result_position);
 
     let _ = event_caller;
     cache.record_position_update(

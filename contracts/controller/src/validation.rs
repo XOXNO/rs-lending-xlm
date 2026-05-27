@@ -1,3 +1,22 @@
+//! Centralized guard clauses and shape validation used by every flow.
+//!
+//! The functions in this module are the *only* place that encodes the
+//! high-level safety rules:
+//! - "caller must be owner of account"
+//! - "market must be active (or the policy must allow disabled)"
+//! - "account must be healthy / within LTV after this operation"
+//! - "position count limits"
+//! - "asset config ranges (LTV < threshold, dust floors, caps, …)"
+//! - "oracle tolerance bounds at configuration time"
+//!
+//! Keeping them here (instead of scattered inside each positions/strategy
+//! file) makes the complete checklist easy to audit, easy to reference from
+//! certora rules (`boundary_rules`, `position_rules`), and easy to keep
+//! consistent when requirements evolve.
+//!
+//! Most functions panic via `panic_with_error!` or `assert_with_error!`;
+//! that is intentional — violating a guard is a protocol violation.
+
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use common::math::fp::Wad;
@@ -8,6 +27,15 @@ use crate::cache::ControllerCache;
 use crate::{helpers, storage};
 
 // Unwraps Option or panics with InternalError.
+//
+// InternalError is deliberately used here (rather than a domain-specific
+// Collateral/Oracle/Strategy error) because a missing entry at these call
+// sites violates an internal invariant of the controller's own data
+// construction: the Vec/Map was either built from storage we control or
+// length-checked immediately prior. A panic therefore signals either a
+// storage corruption path or a logic error in the caller, never malformed
+// user input. This grouping keeps the public error surface focused on
+// caller mistakes while still failing fast on broken assumptions.
 #[inline]
 pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))

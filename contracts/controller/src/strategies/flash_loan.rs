@@ -1,3 +1,13 @@
+//! User-facing flash-loan entrypoint and settlement.
+//!
+//! The implementation follows ADR 0006: the pool itself snapshots its
+//! balance, the receiver is called while the `FlashLoanOngoing` guard is
+//! held, and repayment is proven by the pool's post-callback balance
+//! (never by trusting a return value).
+//!
+//! The same guard flag is what makes strategy router callbacks
+//! non-reentrant into the rest of the controller.
+
 use common::errors::FlashLoanError;
 use common::events::{emit_flash_loan, FlashLoanEvent};
 use common::math::fp::Bps;

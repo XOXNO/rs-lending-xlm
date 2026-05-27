@@ -1,6 +1,12 @@
-//! Certora harness substitute for `controller::oracle::price`. Replaces
-//! the cache-aware price reads with bounded nondet returns so the prover
-//! doesn't traverse the primary/anchor composition pipeline.
+//! Certora harness for `controller::oracle::price`.
+//!
+//! Under the `certora` feature this replaces the real price resolution
+//! (including the entire primary/anchor/TWAP/tolerance pipeline) with
+//! nondet-bounded returns. This keeps prover cost low while still allowing
+// rules to reason about cache behavior and high-level price post-conditions.
+//!
+//! This harness is intentionally minimal — the real logic lives in the
+// curated `oracle/` structure (providers with client surfaces, split validation, etc.).
 
 use common::types::{MarketIndex, PriceFeedRaw};
 use soroban_sdk::Address;

@@ -1,3 +1,11 @@
+//! "Multiply" (levered long) strategy.
+//!
+//! Classic recursive borrow + supply in a single transaction via the
+//! aggregator. Uses `OraclePolicy::RiskIncreasing` and therefore the
+//! strictest pricing. All safety is provided by the helpers in the parent
+//! module; this file only wires the high-level steps and the initial
+//! supply event.
+
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::events::{emit_initial_multiply_payment, InitialMultiplyPaymentEvent};
 use common::types::{Account, AggregatorSwap, AssetConfig, PositionMode};

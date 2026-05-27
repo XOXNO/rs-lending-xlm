@@ -1,7 +1,36 @@
+//! Verification storage abstraction layer for Certora rules.
+//!
+//! This module provides safe, rule-friendly accessors over the controller's
+//! storage (and some derived market data from pools). It is the preferred
+//! way for spec rules to read account state, market configs, positions,
+//! e-mode data, etc., without directly navigating the raw storage keys or
+//! dealing with harness-replaced implementations.
+//!
+//! Responsibilities:
+//! - Expose common queries (get_position, get_account_attrs, market data, etc.)
+//! - Provide compatibility types (e.g. `CompatAssetConfig`) when production
+//!   types are inconvenient for rules.
+//! - Centralize any verification-specific fallbacks or transformations.
+//!
+//! Relationship to production:
+//! - Under normal builds this layer is not used.
+//! - Under `--features certora` the production storage is replaced (see
+//!   `storage/mod.rs`), and this module becomes the main read surface for
+//!   the prover.
+//!
+//! Design notes / limitations:
+//! - Some getters fall back to sensible defaults when data is missing
+//!   (common pattern for nondet-friendly rules).
+//! - A few submodules still reach `LiquidityPoolClient` directly for
+//!   `get_sync_data` (this is intentional and cheap to summarize).
+//!
+//! See also: `shared/summaries/`, the main `storage/` harness, and
+//! `oracle/validation/` for similar verification-only adapters.
+
 use super::*;
 use common::types::{
-    AccountAttributes, AccountPosition, AccountPositionType, AssetConfig, EModeAssetConfig,
-    MarketIndex, MarketParamsRaw, PositionMode,
+    AccountAttributes, AccountPosition, AccountPositionRaw, AccountPositionType, AssetConfig,
+    DebtPositionRaw, EModeAssetConfig, MarketIndex, MarketParamsRaw, PositionMode,
 };
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Map, Vec};

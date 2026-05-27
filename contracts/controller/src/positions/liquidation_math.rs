@@ -1,3 +1,16 @@
+//! Liquidation math & seizure accounting (the most subtle numeric core).
+//!
+//! This module is intentionally isolated because:
+//! - It implements the exact seize / repay formulas that must match the
+//!   certora `liquidation_rules` and the differential fuzzers.
+//! - It must handle the "bad debt" case where the bonus alone would
+//!   overdraw the remaining collateral (see ADR 0007).
+//! - The proportion math and the `LiquidationSnapshot` aggregator are
+//!   used by both the normal liquidation path and the bad-debt cleanup path.
+//!
+//! All public entry points in this file are `pub(crate)`; the external
+//! contract surface is `positions/liquidation.rs`.
+
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
@@ -328,6 +341,23 @@ pub fn calculate_linear_bonus_with_target(
 }
 
 // Estimates optimal debt repayment and bonus.
+//
+// Design rationale (see architecture/INVARIANTS.md §3.3):
+// Primary target (1.02 WAD) is attempted first: it leaves a 2% health-factor
+// buffer after liquidation so that tiny subsequent price moves or interest
+// accrual do not immediately re-trigger liquidations or produce griefing
+// liquidations on near-boundary accounts. The linear bonus interpolation
+// increases the liquidator's incentive as HF worsens, up to the configured max.
+// If the primary target cannot be met without violating other constraints,
+// fallback (1.01 WAD) is tried — a milder 1% buffer.
+// Only when neither target produces a solvent post-state do we fall back to
+// the "max collateral" seizure at base bonus. That path is guarded by the
+// post-HF check (`base_new_hf < snap.hf` is rejected) so we never *worsen*
+// the account's health factor — preserving the "liquidation must make
+// progress toward solvency" invariant even on deeply underwater positions.
+// This three-tier approach (primary → fallback → max-safe) balances
+// liquidator incentives, bad-debt minimization, and protection against
+// over-seizure, mirroring the "why" rigor in ADR 0003 for oracle decisions.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,

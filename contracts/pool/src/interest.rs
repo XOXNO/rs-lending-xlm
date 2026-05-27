@@ -8,7 +8,9 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-// TAYLOR Taylor expansion bound for compound_interest.
+/// Maximum chunk size for the Taylor-expansion-bounded compound interest loop.
+/// One year in ms; the rates math uses a bounded expansion that is only valid
+/// within this horizon.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 // Accrues interest from last_timestamp to current_timestamp.

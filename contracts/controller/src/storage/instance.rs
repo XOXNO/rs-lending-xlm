@@ -1,3 +1,17 @@
+//! Instance and session storage keys (non-persistent concerns).
+//!
+//! Two small concerns live outside the persistent `ControllerKey` tree:
+//!
+//! - `ApprovedToken` (instance storage) — single-use allow-list tokens that
+//!   have passed owner review and may be used to create a pool exactly once.
+//!   Consumed on successful `create_liquidity_pool`.
+//! - `FlashLoanOngoing` (temporary / session storage) — the re-entrancy
+//!   guard that makes the whole flash-loan + strategy surface single-flight.
+//!
+//! The tiered key enums (`LocalKey` vs `SessionKey`) exist precisely so
+//! that future non-persistent flags do not pollute the main persistent key
+//! enum. All access must go through the helpers here.
+
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};

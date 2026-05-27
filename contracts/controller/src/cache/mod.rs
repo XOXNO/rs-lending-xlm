@@ -1,3 +1,47 @@
+//! Transaction-scoped cache and deferred event batcher.
+//!
+//! `ControllerCache` is the single in-memory context object that *every*
+//! mutating (and most view) entrypoint must construct early. It exists for
+//! three interlocking reasons:
+//!
+//! 1. **Policy-driven oracle behavior (ADR 0004).** The cache is created with
+//!    a specific `OraclePolicy` chosen by the entrypoint. That policy then
+//!    governs every price read performed through `cached_price` /
+//!    `cached_market_index`. Risk-increasing flows pick `RiskIncreasing`
+//!    (strict); repay and certain supply-side flows pick the more permissive
+//!    variants. This is the mechanism that keeps the protocol usable under
+//!    degraded oracle conditions without compromising solvency gates.
+//!
+//! 2. **Storage & cross-contract coalescing.** Repeated reads of the same
+//!    market config, price, index, pool sync data, or e-mode membership are
+//!    satisfied from the maps. Pool sync data and asset indexes are fetched
+//!    lazily on first touch. This reduces ledger reads and makes the
+//!    hot paths predictable.
+//!
+//! 3. **Atomic batch events.** Position deltas and market state snapshots are
+//!    accumulated and emitted once at the end of a successful batch
+//!    (`emit_position_batch`, `emit_market_batch`). This gives integrators a
+//!    single, complete view of the net effect of a multi-asset call instead
+//!    of a storm of per-asset events, while still allowing intermediate
+//!    logic to record updates cheaply.
+//!
+//! # Usage discipline
+//!
+//! - Mutating flows: `ControllerCache::new(env, policy)` — also bumps the
+//!   controller instance TTL (Soroban rent).
+//! - Pure views / estimation: `ControllerCache::new_view(env)` — uses
+//!   `OraclePolicy::View` and performs no instance TTL bump.
+//! - After any position or market mutation, the caller is responsible for
+//!   calling the corresponding `emit_*` method exactly once before the
+//!   function returns. The cache itself never auto-emits on drop.
+//!
+//! Direct storage access from business logic is intentionally rare; the
+//! cache plus the thin helpers in `storage/` are the blessed paths.
+//!
+//! The struct is intentionally `pub` in its fields for the price/config
+//! caches (used by oracle resolution) while keeping the update vectors
+//! and isolated-debt scratchpad private to enforce the batch discipline.
+
 use common::constants::MS_PER_SECOND;
 use common::events::{
     emit_update_debt_ceiling_batch, emit_update_market_state_batch, emit_update_position_batch,

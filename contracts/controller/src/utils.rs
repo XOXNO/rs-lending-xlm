@@ -1,13 +1,20 @@
+//! Small shared utilities: payment aggregation, event context helpers,
+//! and re-exports of account lifecycle from helpers.
+//!
+//! These are called from many flows; they are pure or near-pure and have
+//! no policy or storage side effects of their own.
+
 use common::errors::GenericError;
 use common::types::Payment;
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Symbol, Vec};
 
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::validation;
 
-pub use crate::positions::account::{create_account, remove_account};
+pub use crate::helpers::{create_account, remove_account};
 
-// Deduplicates and sums payments.
+/// Deduplicates by asset and sums positive amounts only. Zero and negative
+/// entries are dropped (used by every mutating entrypoint before plan execution).
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
 }
@@ -23,7 +30,8 @@ pub fn plan_assets(env: &Env, plan: &Vec<Payment>) -> Vec<Address> {
     out
 }
 
-// Transfers asset and returns credited amount.
+/// Performs the SAC transfer and returns the actual credited amount measured
+/// at the recipient (defends against fee-on-transfer or hook surprises).
 pub fn transfer_and_measure_received(
     env: &Env,
     asset: &Address,
@@ -82,4 +90,13 @@ fn aggregate_payment_amount(
         .unwrap_or(0)
         .checked_add(amount)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+}
+
+/// Context for emitting position/debt update events from multiple paths
+/// (repay, withdraw, liquidation, strategies). Moved out of positions/ so it
+/// can be shared without pulling in the whole positions module.
+pub(crate) struct EventContext {
+    pub caller: Address,
+    pub event_caller: Address,
+    pub action: Symbol,
 }

@@ -8,8 +8,15 @@ use common::types::{
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
-// Controller interface.
 #[contractclient(name = "ControllerClient")]
+/// Primary user-facing contract interface for the lending protocol.
+///
+/// All position mutations (supply/borrow/withdraw/repay/liquidate) and the
+/// four strategies go through this surface. The controller owns all account
+/// state, risk parameters, oracle policy, and authorization; pools only
+/// custody tokens and interest math.
+///
+/// See `architecture/` for invariants and the per-decision ADRs.
 pub trait ControllerInterface {
     // --- Position operations ------------------------------------------------
 

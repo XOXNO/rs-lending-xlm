@@ -183,17 +183,22 @@ fn test_clean_bad_debt_rejects_above_threshold() {
 }
 
 // ---------------------------------------------------------------------------
-// 4b. test_clean_bad_debt_succeeds_under_oracle_deviation
+// 4b. test_clean_bad_debt_rejected_under_oracle_deviation
 // ---------------------------------------------------------------------------
 //
-// Standalone bad-debt cleanup used to build a `RiskIncreasing` oracle
-// cache, which would revert under primary/anchor deviation — exactly
-// when small unprofitable bad-debt accounts most need the keeper
-// backstop. The fix uses `OraclePolicy::Liquidation` (matching the
-// inline post-liquidation cleanup), tolerating anchor deviation and
-// resolving to the live aggregator price so cleanup proceeds.
+// Standalone bad-debt cleanup runs under `OraclePolicy::Liquidation`, which
+// hardens the unsafe-deviation gate: when the primary and anchor sources
+// diverge beyond the last tolerance band, the price read rejects with
+// `UnsafePriceNotAllowed` instead of resolving to a price only one source
+// corroborates. Cleanup is only permitted on prices both independent sources
+// agree on within tolerance.
+//
+// Deliberate manipulation-over-availability tradeoff (auditors: this reverses
+// the deviation-tolerance posture recorded in §4.5). The two oracles are
+// independent, so sustained out-of-band divergence is implausible — transient
+// gaps stay inside the tolerated bands — making the rejection window narrow.
 #[test]
-fn test_clean_bad_debt_succeeds_under_oracle_deviation() {
+fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     use test_harness::TIGHT_TOLERANCE;
 
     let mut t = LendingTest::new()
@@ -224,12 +229,12 @@ fn test_clean_bad_debt_succeeds_under_oracle_deviation() {
     // policy.)
     t.set_safe_price("USDC", usd_cents(100), false, false);
 
-    // With the `Liquidation` policy now used by
-    // `clean_bad_debt_standalone`, anchor deviation is tolerated and
-    // the live aggregator price (USDC = $0.01) drives the bad-debt
-    // accounting. The cleanup must proceed and zero out the position.
-    t.clean_bad_debt_for(ALICE);
-    t.assert_no_positions(ALICE);
+    // `clean_bad_debt_standalone` runs under the `Liquidation` policy: the
+    // out-of-band primary/anchor gap is rejected with `UnsafePriceNotAllowed`
+    // rather than resolving to the deviated aggregator price.
+    let account_id = t.resolve_account_id(ALICE);
+    let result = t.try_clean_bad_debt_by_id(account_id);
+    assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
 // ---------------------------------------------------------------------------
