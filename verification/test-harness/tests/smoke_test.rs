@@ -4,10 +4,7 @@ use test_harness::{
     days, eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, PositionType, ALICE,
     BOB, LIQUIDATOR, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_supply_creates_position
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_creates_position() {
@@ -29,10 +26,7 @@ fn test_supply_creates_position() {
     // Supply balance must be ~10_000.
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_supply_and_borrow
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_and_borrow() {
@@ -54,10 +48,7 @@ fn test_supply_and_borrow() {
     // Verify the borrow balance is ~1 ETH.
     t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_liquidation_after_price_drop
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_after_price_drop() {
@@ -91,10 +82,7 @@ fn test_liquidation_after_price_drop() {
         liq_usdc_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_interest_accrues
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_accrues() {
@@ -127,10 +115,7 @@ fn test_interest_accrues() {
         interest
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_withdraw_and_repay
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_and_repay() {
@@ -168,10 +153,7 @@ fn test_withdraw_and_repay() {
 
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_emode_higher_ltv
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_higher_ltv() {
@@ -202,10 +184,7 @@ fn test_emode_higher_ltv() {
         hf
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_revenue_accrues_over_time
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_revenue_accrues_over_time() {

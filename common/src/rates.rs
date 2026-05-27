@@ -5,7 +5,7 @@ use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
-// Computes borrow rate (per ms).
+/// Returns the per-millisecond borrow rate from the kinked utilization curve.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     let annual_rate = if utilization < params.mid_utilization {
         let contribution = utilization
@@ -33,7 +33,7 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
     capped.div_by_int(MILLISECONDS_PER_YEAR as i128)
 }
 
-// Computes deposit APR.
+/// Returns supplier rate after reserve factor, in per-millisecond RAY units.
 pub fn calculate_deposit_rate(
     env: &Env,
     utilization: Ray,
@@ -56,7 +56,7 @@ pub fn calculate_deposit_rate(
     Ray::from_raw(factor.apply_to(env, rate_x_util.raw()))
 }
 
-// Taylor series approximation of e^x.
+/// Approximates `e^(rate_per_ms * delta_ms)` using an 8-term Taylor series.
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;
@@ -104,7 +104,7 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     new_index
 }
 
-// Updates supply index.
+/// Increases the supply index by distributing RAY-denominated rewards.
 pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
@@ -121,7 +121,7 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     old_index.mul(env, factor)
 }
 
-// Splits interest into rewards and fees.
+/// Splits newly accrued borrow interest into supplier rewards and protocol fee.
 pub fn calculate_supplier_rewards(
     env: &Env,
     params: &MarketParams,
@@ -140,7 +140,7 @@ pub fn calculate_supplier_rewards(
     (supplier_rewards, protocol_fee)
 }
 
-// Returns utilization.
+/// Returns borrowed/supplied utilization, or zero when supplied is zero.
 pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     if supplied == Ray::ZERO {
         return Ray::ZERO;
@@ -148,12 +148,12 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
     borrowed.div(env, supplied)
 }
 
-// Unscales position.
+/// Converts scaled shares to underlying amount at `index`.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
 }
 
-// Simulates interest accrual.
+/// Simulates index accrual without mutating pool storage.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,

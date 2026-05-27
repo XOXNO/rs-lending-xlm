@@ -48,8 +48,7 @@ use utils::{
 #[contract]
 pub struct LiquidityPool;
 
-// Constructor lives in an inherent impl because Soroban constructors can't be
-// declared in traits.
+// Soroban constructors cannot be declared in contractclient traits.
 #[contractimpl]
 impl LiquidityPool {
     pub fn __constructor(env: Env, admin: Address, params: MarketParamsRaw) {
@@ -71,8 +70,7 @@ impl LiquidityPool {
     }
 }
 
-// Trait impl is the ABI surface: every method here must match
-// `pool_interface::LiquidityPoolInterface` exactly, enforced at `cargo check`.
+// This impl is the pool ABI; signatures must match `LiquidityPoolInterface`.
 #[contractimpl]
 impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
@@ -118,7 +116,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         scaled += scaled_debt;
         cache.borrowed += scaled_debt;
-        // Max-utilization ceiling.
+        // Borrow cannot leave the pool above its max-utilization cap.
         utils::require_utilization_below_max(&env, &cache);
 
         // CEI: snapshot + commit before external call.
@@ -138,7 +136,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         protocol_fee: i128,
     ) -> PoolPositionMutation {
         renew_pool_instance(&env);
-        // Controller uses i128::MAX for "withdraw all".
+        // Controller maps user amount `0` to this full-withdraw sentinel.
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
         let mut cache = Cache::load(&env);
@@ -154,7 +152,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
 
         cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
         scaled = scaled.checked_sub(&env, scaled_withdrawal);
-        // Max-utilization ceiling.
+        // User withdrawals cannot leave the pool above max utilization.
         if !is_liquidation {
             utils::require_utilization_below_max(&env, &cache);
         }
@@ -245,7 +243,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
-        // Snapshot balance locally to prevent settlement with different asset.
+        // Balance checks prevent repayment with any asset other than this pool's token.
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
@@ -255,7 +253,6 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
 
         tok.transfer(&pool_addr, &receiver, &amount);
 
-        // Pre-callback sanity.
         assert_with_error!(
             &env,
             tok.balance(&pool_addr) == expected_after_payout,
@@ -276,15 +273,14 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
                 .into_val(&env),
         );
 
-        // Post-callback: balance must not have been mutated.
+        // The callback must not retain funds or change the pool balance again.
         assert_with_error!(
             &env,
             tok.balance(&pool_addr) == expected_after_payout,
             FlashLoanError::InvalidFlashloanRepay
         );
 
-        // Authorize the pool to invoke transfer_from on the token contract.
-        // This relies on the receiver having called `approve` on the token contract during the callback.
+        // Receiver must approve `amount + fee` during the callback.
         authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
         tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
 
@@ -327,7 +323,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
         scaled += scaled_debt;
         cache.borrowed += scaled_debt;
-        // Max-utilization ceiling.
+        // Strategy debt cannot leave the pool above max utilization.
         utils::require_utilization_below_max(&env, &cache);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
@@ -355,18 +351,16 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         let scaled = Ray::from_raw(position.scaled_amount_ray);
         match side {
             AccountPositionType::Borrow => {
-                // Socialize bad debt.
                 let current_debt_ray = cache.unscale_borrow_ray(scaled);
                 interest::apply_bad_debt_to_supply_index(&mut cache, current_debt_ray);
                 cache.borrowed.checked_sub_assign(&env, scaled);
             }
             AccountPositionType::Deposit => {
-                // Absorb dust into revenue.
                 cache.revenue += scaled;
             }
         }
 
-        // Position is fully seized either way.
+        // The seized position is removed from the controller-owned account map.
         let mutation = cache.position_mutation(Ray::ZERO, 0);
         cache.save();
         mutation
@@ -378,12 +372,10 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
 
-        // Defensive: revenue must be non-negative.
         assert_with_error!(&env, cache.revenue.raw() >= 0, GenericError::MathOverflow);
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 
-        // Reject insolvent post-state.
         utils::require_solvent_withdraw_state(&env, &cache);
 
         // CEI: commit state before external call.
@@ -391,7 +383,6 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         cache.save();
 
         if amount_to_transfer > 0 {
-            // Revenue routes to pool owner.
             let owner = ownable::get_owner(&env)
                 .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
             cache.transfer_out(&owner, amount_to_transfer);
@@ -402,7 +393,7 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn update_params(env: Env, model: InterestRateModel) {
         renew_pool_instance(&env);
-        // Accrue at old rate model before applying new.
+        // Accrue at the old rate model before replacing it.
         let mut cache = Cache::load(&env);
         interest::global_sync(&env, &mut cache);
         cache.save();
@@ -421,8 +412,6 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     fn keepalive(env: Env) {
         renew_pool_instance(&env);
     }
-
-    // Read-only views.
 
     fn capital_utilisation(env: Env) -> i128 {
         views::capital_utilisation(&env)
@@ -471,10 +460,6 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
         PoolSyncData { params, state }
     }
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 mod tests;

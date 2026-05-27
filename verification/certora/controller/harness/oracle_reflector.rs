@@ -33,18 +33,12 @@ const MAX_CLOCK_SKEW_SECS: u64 = 60;
 // any `records`; bounding to 20 keeps Vec unrolling tractable while
 // covering every live TWAP/median read window.
 const MAX_PRICES_LEN: u32 = 20;
-
-// ---------------------------------------------------------------------------
 // Summary for `ReflectorClient::base`
-// ---------------------------------------------------------------------------
 
 pub(crate) fn reflector_base_call(env: &Env, _oracle: &Address) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "USD"))
 }
-
-// ---------------------------------------------------------------------------
 // Summary for `ReflectorClient::lastprice`
-// ---------------------------------------------------------------------------
 //
 // SEP-40 + controller post-conditions:
 //   * `None` when the asset is not configured.
@@ -64,10 +58,7 @@ pub(crate) fn reflector_lastprice_call(
         ReflectorPriceData { price, timestamp }
     })
 }
-
-// ---------------------------------------------------------------------------
 // Summary for `ReflectorClient::prices`
-// ---------------------------------------------------------------------------
 //
 // Production guarantees:
 //   * `None` when the asset is not configured.

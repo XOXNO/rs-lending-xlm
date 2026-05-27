@@ -54,10 +54,7 @@ use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::ControllerCache;
-
-// ---------------------------------------------------------------------------
 // Summary: `calculate_account_totals`
-// ---------------------------------------------------------------------------
 //
 // Production iterates `supply_positions` + `borrow_positions` and
 // aggregates per-asset USD-WAD values via the cache. The summary
@@ -82,10 +79,7 @@ pub fn calculate_account_totals(
         Wad::from_raw(weighted_coll_raw),
     )
 }
-
-// ---------------------------------------------------------------------------
 // Certora-only helper: `calculate_linear_bonus`
-// ---------------------------------------------------------------------------
 //
 // Spec rules in `liquidation_rules.rs` call this thin wrapper with the
 // production target of 1.02 WAD. Summary pins the production boundary:

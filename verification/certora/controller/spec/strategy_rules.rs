@@ -16,14 +16,8 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::types::{AccountPositionType, SwapSteps};
-
-// ===========================================================================
 // Strategy Rules
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 1: multiply creates both deposit and borrow positions (split per branch)
-// ---------------------------------------------------------------------------
 //
 // Split into per-branch rules with concrete inputs and bounded payment shapes
 // so the prover evaluates the position invariant without optional-input
@@ -178,10 +172,7 @@ fn multiply_with_initial_payment_third_token(
     cvlr_assert!(borrow_pos.is_some());
     cvlr_assert!(borrow_pos.unwrap().scaled_amount_ray > 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: multiply rejects same collateral and debt tokens
-// ---------------------------------------------------------------------------
 
 /// create_strategy (multiply) with collateral_token == debt_token must revert
 /// with AssetsAreTheSame. If execution reaches cvlr_satisfy!(false), the
@@ -217,10 +208,7 @@ fn multiply_rejects_same_tokens(
     // Must not reach here -- multiply should have reverted
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: multiply requires collateralizable asset
-// ---------------------------------------------------------------------------
 
 /// create_strategy with a non-collateralizable asset as collateral must revert.
 /// The code checks `collateral_config.is_collateralizable` and panics with
@@ -262,10 +250,7 @@ fn multiply_requires_collateralizable(
     // Must not reach here -- multiply should have reverted with NotCollateral
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: swap_debt conserves debt value
-// ---------------------------------------------------------------------------
 
 /// After swap_debt, the target debt position must exist and the source debt
 /// position must have decreased. At minimum, the target debt position exists
@@ -324,10 +309,7 @@ fn swap_debt_conserves_debt_value(
         None => cvlr_assert!(true), // Fully repaid and removed
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: swap_debt rejects same token
-// ---------------------------------------------------------------------------
 
 /// swap_debt with existing_debt_token == new_debt_token must revert with
 /// AssetsAreTheSame.
@@ -355,10 +337,7 @@ fn swap_debt_rejects_same_token(
     // Must not reach here -- swap_debt should have reverted
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 6: swap_collateral conserves collateral
-// ---------------------------------------------------------------------------
 
 /// After swap_collateral, the source collateral decreases and the target
 /// collateral increases.
@@ -419,10 +398,7 @@ fn swap_collateral_conserves_collateral(
         None => cvlr_assert!(true), // Fully withdrawn and removed
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 7: swap_collateral rejects same token
-// ---------------------------------------------------------------------------
 
 /// swap_collateral with current_collateral == new_collateral must revert.
 #[rule]
@@ -449,10 +425,7 @@ fn swap_collateral_rejects_same_token(
     // Must not reach here -- swap_collateral should have reverted
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 8: swap_collateral rejects isolated accounts
-// ---------------------------------------------------------------------------
 
 /// swap_collateral on an isolated account must revert with SwapCollateralNoIso.
 /// Isolated accounts have a single collateral asset that cannot be swapped.
@@ -486,11 +459,8 @@ fn swap_collateral_rejects_isolated(
     // Must not reach here -- swap_collateral should have reverted
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 9: repay_with_collateral reduces both debt and collateral (split per
 //         close_position branch)
-// ---------------------------------------------------------------------------
 //
 // The original `repay_with_collateral_reduces_both` havoced `close_position`
 // inside the compat shim. With `close_position = true`, production runs
@@ -627,14 +597,8 @@ fn repay_with_collateral_full_close_removes_account(
     );
     cvlr_assert!(collateral_after.is_none());
 }
-
-// ===========================================================================
 // Admin Operation Rules
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 10: clean_bad_debt requires qualification
-// ---------------------------------------------------------------------------
 
 /// `clean_bad_debt_standalone` (controller/src/positions/liquidation.rs:478)
 /// panics with `CannotCleanBadDebt` unless
@@ -683,10 +647,7 @@ fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
     // Must not reach here.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 11: clean_bad_debt zeros all positions
-// ---------------------------------------------------------------------------
 
 /// After clean_bad_debt on a qualifying account, all positions are zeroed:
 /// both supply and borrow position lists are empty.
@@ -709,10 +670,7 @@ fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     cvlr_assert!(deposit_list.is_empty());
     cvlr_assert!(borrow_list.is_empty());
 }
-
-// ---------------------------------------------------------------------------
 // Rule 12: claim_revenue returns amount bounded by pool revenue
-// ---------------------------------------------------------------------------
 
 /// claim_revenue returns amount > 0 only when pool has revenue. The returned
 /// amount must be non-negative and bounded by what the pool reports.
@@ -728,19 +686,13 @@ fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Addres
     // (pool.claim_revenue enforces this internally)
     cvlr_satisfy!(amount >= 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 13: DELETED -- claim_revenue_decreases_pool_revenue was vacuous.
 // The revenue_before was a nondet value not tied to actual pool state,
 // so the assertion `amount <= revenue_before` proved nothing.
 // The basic property (claim returns non-negative amount) is covered by
 // claim_revenue_transfers_to_accumulator, and pool-level revenue
 // accounting is tested in pool unit tests.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 14: strategy operations blocked during flash loan -- DELETED
-// ---------------------------------------------------------------------------
 //
 // The four endpoint-level rules (`strategy_blocked_during_flash_loan_multiply`,
 // `_swap_debt`, `_swap_collateral`, `_repay_with_collateral`) each paid the
@@ -750,9 +702,7 @@ fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Addres
 // directly against `validation::require_not_flash_loaning` -- every mutating
 // endpoint that calls the helper first inherits the property by construction.
 //
-// ===========================================================================
 // Sanity rules (reachability checks)
-// ===========================================================================
 
 #[rule]
 fn multiply_sanity(

@@ -6,10 +6,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_supply_single_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_single_asset() {
@@ -38,10 +35,7 @@ fn test_supply_single_asset() {
         coll
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_supply_to_existing_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_to_existing_account() {
@@ -66,10 +60,7 @@ fn test_supply_to_existing_account() {
         wallet_after_second
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_supply_multiple_assets_bulk
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_multiple_assets_bulk() {
@@ -125,10 +116,7 @@ fn test_supply_duplicate_isolated_asset_bulk_is_allowed() {
     t.assert_supply_count(ALICE, 1);
     t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_supply_creates_account_on_first_call
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_creates_account_on_first_call() {
@@ -141,10 +129,7 @@ fn test_supply_creates_account_on_first_call() {
     assert_eq!(accounts.len(), 1, "supply should auto-create an account");
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_supply_with_emode_category
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_with_emode_category() {
@@ -168,10 +153,7 @@ fn test_supply_with_emode_category() {
         "wallet should be ~0 after supply"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_supply_rejects_zero_amount
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_rejects_zero_amount() {
@@ -182,10 +164,7 @@ fn test_supply_rejects_zero_amount() {
     let result = t.try_supply(ALICE, "USDC", 0.0);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_supply_rejects_non_collateralizable
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_rejects_non_collateralizable() {
@@ -199,10 +178,7 @@ fn test_supply_rejects_non_collateralizable() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_supply_rejects_during_flash_loan
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_rejects_during_flash_loan() {
@@ -213,10 +189,7 @@ fn test_supply_rejects_during_flash_loan() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_supply_rejects_when_paused
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_rejects_when_paused() {
@@ -227,10 +200,7 @@ fn test_supply_rejects_when_paused() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_supply_cap_enforcement
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_cap_enforcement() {
@@ -247,10 +217,7 @@ fn test_supply_cap_enforcement() {
     let result = t.try_supply(ALICE, "USDC", 600.0);
     assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_supply_position_limit_exceeded
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_position_limit_exceeded() {
@@ -269,10 +236,7 @@ fn test_supply_position_limit_exceeded() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_supply_isolated_account_single_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_isolated_account_single_asset() {
@@ -295,10 +259,7 @@ fn test_supply_isolated_account_single_asset() {
         "wallet should be ~0 after supply"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_supply_isolated_rejects_second_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_isolated_rejects_second_asset() {
@@ -318,10 +279,7 @@ fn test_supply_isolated_rejects_second_asset() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_supply_emode_rejects_non_category_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_emode_rejects_non_category_asset() {
@@ -339,10 +297,7 @@ fn test_supply_emode_rejects_non_category_asset() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_supply_raw_precision
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_raw_precision() {

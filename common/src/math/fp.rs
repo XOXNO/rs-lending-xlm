@@ -1,4 +1,4 @@
-// Fixed-point types for the lending protocol.
+//! Fixed-point wrappers for RAY, WAD, and BPS protocol math.
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use soroban_sdk::{panic_with_error, Env};
@@ -14,7 +14,7 @@ impl Ray {
     pub const ONE: Ray = Ray(RAY);
     pub const ZERO: Ray = Ray(0);
 
-    // Lifts i128 to Ray.
+    /// Wraps a raw 27-decimal RAY value.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Ray(v.into())
@@ -25,57 +25,57 @@ impl Ray {
         self.0
     }
 
-    // Multiplies Ray.
+    /// Multiplies two RAY values with half-up rounding.
     pub fn mul(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, other.0, RAY))
     }
 
-    // Divides Ray.
+    /// Divides two RAY values with half-up rounding.
     pub fn div(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
-    // Divides Ray (floor).
+    /// Divides two RAY values with floor rounding for non-negative inputs.
     pub fn div_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
     }
 
-    // Divides by integer (half-up).
+    /// Divides by an integer with half-up rounding.
     pub fn div_by_int(self, n: i128) -> Ray {
         Ray(fp_core::div_by_int_half_up(self.0, n))
     }
 
-    // RAY to WAD.
+    /// Converts RAY to WAD with half-up rounding.
     pub fn to_wad(self) -> Wad {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
-    // Converts to asset decimals (half-up).
+    /// Converts RAY to asset units with half-up rounding.
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
     }
 
-    // Converts to asset decimals (floor). Use at credit-to-user boundaries.
+    /// Converts RAY to asset units rounded down for user credits.
     pub fn to_asset_floor(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_floor(self.0, RAY_DECIMALS, asset_decimals)
     }
 
-    // Converts to asset decimals (ceiling). Use at debit-from-user boundaries.
+    /// Converts RAY to asset units rounded up for user debits.
     pub fn to_asset_ceil(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_ceil(self.0, RAY_DECIMALS, asset_decimals)
     }
 
-    // Multiplies Ray (floor).
+    /// Multiplies two RAY values with floor rounding for non-negative inputs.
     pub fn mul_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, other.0, RAY))
     }
 
-    // Creates a Ray from a ratio of two integers.
+    /// Creates a RAY ratio from two integers with half-up rounding.
     pub fn from_fraction(env: &Env, numerator: i128, denominator: i128) -> Ray {
         Ray(fp_core::mul_div_half_up(env, numerator, RAY, denominator))
     }
 
-    // Upscales asset amount to RAY.
+    /// Converts asset units to RAY with half-up rounding.
     pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
             amount,
@@ -84,7 +84,7 @@ impl Ray {
         ))
     }
 
-    // Checked subtraction (rejects negative).
+    /// Subtracts two non-negative RAY values and rejects negative results.
     pub fn checked_sub(self, env: &Env, rhs: Ray) -> Ray {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -92,12 +92,12 @@ impl Ray {
         Ray(self.0 - rhs.0)
     }
 
-    // In-place checked subtraction.
+    /// In-place checked subtraction.
     pub fn checked_sub_assign(&mut self, env: &Env, rhs: Ray) {
         *self = self.checked_sub(env, rhs);
     }
 
-    // Checked addition.
+    /// Adds two RAY values and maps overflow to `MathOverflow`.
     pub fn checked_add(self, env: &Env, rhs: Ray) -> Ray {
         Ray(self
             .0
@@ -105,7 +105,7 @@ impl Ray {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    // Checked add-assign.
+    /// In-place checked addition.
     pub fn checked_add_assign(&mut self, env: &Env, rhs: Ray) {
         *self = self.checked_add(env, rhs);
     }
@@ -148,7 +148,7 @@ impl Wad {
     pub const ONE: Wad = Wad(WAD);
     pub const ZERO: Wad = Wad(0);
 
-    // Lifts i128 to Wad.
+    /// Wraps a raw 18-decimal WAD value.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Wad(v.into())
@@ -159,32 +159,32 @@ impl Wad {
         self.0
     }
 
-    // Multiplies Wad.
+    /// Multiplies two WAD values with half-up rounding.
     pub fn mul(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, other.0, WAD))
     }
 
-    // Divides Wad.
+    /// Divides two WAD values with half-up rounding.
     pub fn div(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, other.0))
     }
 
-    // Divides Wad (floor).
+    /// Divides two WAD values with floor rounding for non-negative inputs.
     pub fn div_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
-    // Upscales asset amount to Wad.
+    /// Converts asset units to WAD with half-up rounding.
     pub fn from_token(amount: i128, decimals: u32) -> Self {
         Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
     }
 
-    // Converts to asset amount.
+    /// Converts WAD to asset units with half-up rounding.
     pub fn to_token(self, decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
     }
 
-    // WAD to RAY.
+    /// Converts WAD to RAY with half-up rounding.
     pub fn to_ray(self) -> Ray {
         Ray(fp_core::rescale_half_up(self.0, WAD_DECIMALS, RAY_DECIMALS))
     }
@@ -205,7 +205,7 @@ impl Wad {
         }
     }
 
-    // Checked addition.
+    /// Adds two WAD values and maps overflow to `MathOverflow`.
     pub fn checked_add(self, env: &Env, rhs: Wad) -> Wad {
         Wad(self
             .0
@@ -213,12 +213,12 @@ impl Wad {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    // Checked add-assign.
+    /// In-place checked addition.
     pub fn checked_add_assign(&mut self, env: &Env, rhs: Wad) {
         *self = self.checked_add(env, rhs);
     }
 
-    // Checked subtraction.
+    /// Subtracts two non-negative WAD values and rejects negative results.
     pub fn checked_sub(self, env: &Env, rhs: Wad) -> Wad {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -226,7 +226,7 @@ impl Wad {
         Wad(self.0 - rhs.0)
     }
 
-    // In-place checked subtraction.
+    /// In-place checked subtraction.
     pub fn checked_sub_assign(&mut self, env: &Env, rhs: Wad) {
         *self = self.checked_sub(env, rhs);
     }
@@ -268,7 +268,7 @@ pub struct Bps(i128);
 impl Bps {
     pub const ONE: Bps = Bps(BPS);
 
-    // Lifts i128 to Bps.
+    /// Wraps a raw basis-point value where `10_000` equals 100%.
     #[inline]
     pub fn from_raw(v: impl Into<i128>) -> Self {
         Bps(v.into())
@@ -279,28 +279,28 @@ impl Bps {
         self.0
     }
 
-    // BPS to WAD ratio.
+    /// Converts BPS to a WAD ratio.
     pub fn to_wad(self, env: &Env) -> Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, BPS))
     }
 
-    // Applies ratio to amount.
+    /// Applies this BPS ratio to an integer amount with half-up rounding.
     pub fn apply_to(self, env: &Env, amount: i128) -> i128 {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
     }
 
-    // Applies ratio to Wad.
+    /// Applies this BPS ratio to a WAD value.
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)
     }
 
-    // Applies ratio to Ray.
+    /// Applies this BPS ratio to a RAY value.
     pub fn apply_to_ray(self, env: &Env, value: Ray) -> Ray {
         Ray(fp_core::mul_div_half_up(env, value.raw(), self.0, BPS))
     }
 
-    // Checked addition.
+    /// Adds two BPS values and maps overflow to `MathOverflow`.
     pub fn checked_add(self, env: &Env, rhs: Bps) -> Bps {
         Bps(self
             .0
@@ -308,7 +308,7 @@ impl Bps {
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)))
     }
 
-    // Checked subtraction.
+    /// Subtracts two non-negative BPS values and rejects negative results.
     pub fn checked_sub(self, env: &Env, rhs: Bps) -> Bps {
         if self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0 {
             panic_with_error!(env, GenericError::MathOverflow);
@@ -346,10 +346,6 @@ impl SubAssign for Bps {
         *self = *self - rhs;
     }
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 mod tests {
@@ -639,10 +635,7 @@ mod tests {
         let b = Bps::from_raw(2500);
         assert_eq!((a - b).raw(), 5000);
     }
-
-    // -----------------------------------------------------------------
     // Adversarial / edge-case coverage for the typed wrappers.
-    // -----------------------------------------------------------------
 
     // Ray::mul at the exact-half boundary. With `(a * b + RAY/2) / RAY`,
     // a value whose remainder is exactly `RAY/2` rounds up. Construct

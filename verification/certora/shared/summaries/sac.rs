@@ -21,10 +21,7 @@
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env};
-
-// ---------------------------------------------------------------------------
 // Transfer
-// ---------------------------------------------------------------------------
 
 /// Summary for `soroban_sdk::token::Client::transfer`.
 ///
@@ -47,10 +44,7 @@ pub fn transfer_summary(
 ) {
     cvlr_assume!(*amount >= 0);
 }
-
-// ---------------------------------------------------------------------------
 // Balance
-// ---------------------------------------------------------------------------
 
 /// Summary for `soroban_sdk::token::Client::balance`.
 ///
@@ -68,10 +62,7 @@ pub fn balance_summary(_env: &Env, _token: &Address, _account: &Address) -> i128
     cvlr_assume!(bal >= 0);
     bal
 }
-
-// ---------------------------------------------------------------------------
 // Approve / allowance
-// ---------------------------------------------------------------------------
 
 /// Summary for `soroban_sdk::token::Client::approve`.
 ///

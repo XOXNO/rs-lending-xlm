@@ -63,7 +63,7 @@ pub fn process_swap_debt(
     // Reject zero-floor swap requests at entry.
     validation::require_amount_positive(env, swap.total_min_out);
 
-    // Rejects swap if either side is siloed.
+    // Siloed debt cannot be swapped into or out of a multi-asset debt set.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);
     let new_debt_config = cache.cached_asset_config(new_debt_token);
     if existing_debt_config.is_siloed_borrowing || new_debt_config.is_siloed_borrowing {

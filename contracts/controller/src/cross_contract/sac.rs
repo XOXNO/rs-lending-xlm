@@ -1,4 +1,4 @@
-// Wrapper around Soroban Asset Contract (SAC).
+//! Soroban Asset Contract transfer wrapper used by controller flows.
 
 use soroban_sdk::{Address, Env};
 

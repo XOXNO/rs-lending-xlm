@@ -14,19 +14,19 @@ pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
 pub const MAX_LIQUIDATION_BONUS: i128 = 1_500;
 
-// Supply index floor.
+/// Minimum supply index after bad-debt socialization.
 pub const SUPPLY_INDEX_FLOOR_RAW: i128 = WAD;
 
-// Bad-debt threshold (USD-WAD).
+/// Collateral value at or below this USD WAD threshold may be socialized.
 pub const BAD_DEBT_USD_THRESHOLD: i128 = 5 * WAD;
 
-// Min dust floor (USD-WAD).
+/// Minimum non-zero dust floor accepted in market config, denominated in USD WAD.
 pub const MIN_DUST_FLOOR_WAD: i128 = 10 * WAD;
 
-// Max flash-loan fee (BPS).
+/// Maximum flash-loan and strategy fee in BPS.
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
-// Max annual borrow rate.
+/// Maximum annual borrow rate accepted by the interest model.
 pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
 
 // Ceiling on `borrow_index`. Bounds compounding so the i128 backing never
@@ -44,7 +44,7 @@ pub const MAX_FIRST_TOLERANCE: i128 = 5_000;
 
 pub const MIN_LAST_TOLERANCE: i128 = 150;
 
-// Max last tolerance (BPS).
+/// Maximum last-price tolerance in BPS.
 pub const MAX_LAST_TOLERANCE: i128 = 5_000;
 
 pub const ONE_DAY_LEDGERS: u32 = 17_280;

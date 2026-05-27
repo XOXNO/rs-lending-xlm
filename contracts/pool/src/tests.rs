@@ -190,10 +190,6 @@ fn assert_contract_error<T: core::fmt::Debug>(
         ),
     }
 }
-
-// -----------------------------------------------------------------------
-// Test: supply increases supplied_ray and returns the updated position.
-// -----------------------------------------------------------------------
 #[test]
 fn test_supply() {
     let t = TestSetup::new();
@@ -212,10 +208,6 @@ fn test_supply() {
     let supplied = client.supplied_amount();
     assert!(supplied > 0, "supplied_amount should be positive");
 }
-
-// -----------------------------------------------------------------------
-// Test: borrow decreases reserves and records debt.
-// -----------------------------------------------------------------------
 #[test]
 fn test_borrow() {
     let t = TestSetup::new();
@@ -327,10 +319,6 @@ fn test_borrow_rejects_when_reserves_are_insufficient() {
         common::errors::CollateralError::InsufficientLiquidity as u32,
     );
 }
-
-// -----------------------------------------------------------------------
-// Test: withdraw reduces supply and transfers tokens.
-// -----------------------------------------------------------------------
 #[test]
 fn test_withdraw() {
     let t = TestSetup::new();
@@ -463,10 +451,6 @@ fn test_withdraw_rejects_supplied_accounting_underflow() {
     ));
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
-
-// -----------------------------------------------------------------------
-// Test: repay reduces borrow and handles overpayment.
-// -----------------------------------------------------------------------
 #[test]
 fn test_repay() {
     let t = TestSetup::new();
@@ -510,10 +494,6 @@ fn test_repay_overpayment_reports_actual_applied_amount() {
     assert_eq!(final_pos.actual_amount, 100_0000000i128);
     assert_eq!(final_pos.position.scaled_amount_ray, 0);
 }
-
-// -----------------------------------------------------------------------
-// Test: interest accrual.
-// -----------------------------------------------------------------------
 #[test]
 fn test_interest_accrual() {
     let t = TestSetup::new();
@@ -542,10 +522,6 @@ fn test_interest_accrual() {
         "supply index should increase over time"
     );
 }
-
-// -----------------------------------------------------------------------
-// Test: flash loan.
-// -----------------------------------------------------------------------
 #[test]
 fn test_flash_loan() {
     let t = TestSetup::new();
@@ -743,10 +719,6 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
         common::errors::CollateralError::InsufficientLiquidity as u32,
     );
 }
-
-// -----------------------------------------------------------------------
-// Test: seize_position socializes bad debt.
-// -----------------------------------------------------------------------
 #[test]
 fn test_seize_position_bad_debt() {
     let t = TestSetup::new();
@@ -796,10 +768,6 @@ fn test_seize_position_rejects_borrowed_accounting_underflow() {
     );
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
-
-// -----------------------------------------------------------------------
-// Test: seize_position absorbs deposit dust.
-// -----------------------------------------------------------------------
 #[test]
 fn test_seize_position_deposit_dust() {
     let t = TestSetup::new();
@@ -822,10 +790,6 @@ fn test_seize_position_deposit_dust() {
         "protocol revenue should increase from absorbed dust"
     );
 }
-
-// -----------------------------------------------------------------------
-// Test: claim_revenue.
-// -----------------------------------------------------------------------
 #[test]
 fn test_claim_revenue() {
     let t = TestSetup::new();
@@ -1013,10 +977,6 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
         common::errors::CollateralError::MaxRateBelowBase as u32,
     );
 }
-
-// -----------------------------------------------------------------------
-// Test: views.
-// -----------------------------------------------------------------------
 #[test]
 fn test_views() {
     let t = TestSetup::new();
@@ -1065,10 +1025,7 @@ fn test_views() {
     t.advance_time(60);
     assert!(client.delta_time() > 0, "delta_time should be positive");
 }
-
-// -----------------------------------------------------------------------
 // Extra targeted coverage tests.
-// -----------------------------------------------------------------------
 
 // Liquidation fee on withdraw accrues to protocol revenue; user receives gross minus fee.
 #[test]

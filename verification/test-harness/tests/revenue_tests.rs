@@ -14,10 +14,7 @@ fn setup_accumulator(t: &LendingTest) {
         .register(test_harness::mock_reflector::MockReflector, ());
     t.ctrl_client().set_accumulator(&acc);
 }
-
-// ---------------------------------------------------------------------------
 // 1. test_claim_revenue_after_interest
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_claim_revenue_after_interest() {
@@ -60,10 +57,7 @@ fn test_claim_revenue_after_interest() {
         claimed
     );
 }
-
-// ---------------------------------------------------------------------------
 // 1b. test_claim_revenue_routes_through_controller_to_accumulator
-// ---------------------------------------------------------------------------
 
 /// Asserts the new revenue flow: pool transfers to its owner (the
 /// controller), which forwards to the accumulator in the same transaction.
@@ -122,10 +116,7 @@ fn test_claim_revenue_routes_through_controller_to_accumulator() {
         "pool must release exactly the claimed amount"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_claim_revenue_after_liquidation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_claim_revenue_after_liquidation() {
@@ -204,10 +195,7 @@ fn test_claim_revenue_after_liquidation() {
         "pool must release exactly the claimed amount"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_claim_revenue_zero_when_no_activity
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_claim_revenue_zero_when_no_activity() {
@@ -222,10 +210,7 @@ fn test_claim_revenue_zero_when_no_activity() {
     let claimed = t.claim_revenue("USDC");
     assert_eq!(claimed, 0, "claimed revenue should be 0 with no activity");
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_add_rewards_increases_supply_index
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_increases_supply_index() {
@@ -256,10 +241,7 @@ fn test_add_rewards_increases_supply_index() {
         increase
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_add_rewards_rejects_zero
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_rejects_zero() {
@@ -285,10 +267,7 @@ fn test_add_rewards_rejects_zero() {
         _ => panic!("add_rewards with 0 amount should fail"),
     }
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_revenue_role_required
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_revenue_role_required() {

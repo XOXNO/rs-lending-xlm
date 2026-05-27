@@ -1,10 +1,7 @@
 extern crate std;
 
 use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB};
-
-// ---------------------------------------------------------------------------
 // 1. test_interest_accrues_on_borrow
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_accrues_on_borrow() {
@@ -35,10 +32,7 @@ fn test_interest_accrues_on_borrow() {
         interest
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_interest_accrues_on_supply
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_accrues_on_supply() {
@@ -64,10 +58,7 @@ fn test_interest_accrues_on_supply() {
         supply_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_interest_rate_increases_with_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_rate_increases_with_utilization() {
@@ -94,10 +85,7 @@ fn test_interest_rate_increases_with_utilization() {
         rate_high
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_compound_interest_over_multiple_periods
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_compound_interest_over_multiple_periods() {
@@ -140,10 +128,7 @@ fn test_compound_interest_over_multiple_periods() {
         interest_q4
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_interest_zero_when_no_borrows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_zero_when_no_borrows() {
@@ -167,10 +152,7 @@ fn test_interest_zero_when_no_borrows() {
         diff
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_reserve_factor_splits_interest
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_reserve_factor_splits_interest() {
@@ -197,10 +179,7 @@ fn test_reserve_factor_splits_interest() {
         rev_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_advance_time_without_sync_stale
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_advance_time_without_sync_stale() {
@@ -225,10 +204,7 @@ fn test_advance_time_without_sync_stale() {
     let debt = t.borrow_balance(ALICE, "ETH");
     assert!(debt > 0.0, "borrow balance should be readable");
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_advance_and_sync_specific_markets
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_advance_and_sync_specific_markets() {

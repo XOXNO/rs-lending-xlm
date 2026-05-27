@@ -101,7 +101,6 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     );
 
     validation::require_amount_positive(env, debt_to_flash_loan);
-    // Rejects zero-floor swap.
     validation::require_amount_positive(env, swap.total_min_out);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(

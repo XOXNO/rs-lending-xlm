@@ -35,11 +35,8 @@ fn build_ctx_with_budget() -> LendingTest {
         .with_budget_enabled()
         .build()
 }
-
-// ---------------------------------------------------------------------------
 // Property 1: keepalive_accounts on random batches stays within budget or
 // fails cleanly with a budget error. Never produces an opaque panic.
-// ---------------------------------------------------------------------------
 
 proptest! {
     // Expensive setup: keep case count modest.
@@ -105,12 +102,9 @@ proptest! {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Property 2: `multiply` with realistic leverage (<= 3x) runs within the
 // default budget or fails cleanly. Catches cost-model violations on the
 // flash-loan + strategy path.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 4, ..ProptestConfig::default() })]

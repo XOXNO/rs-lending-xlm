@@ -9,8 +9,10 @@ use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
-    /// Supply `amount` of the pool's asset. Returns the new scaled position
-    /// and a snapshot of the pool state after interest accrual and cap check.
+    /// Supplies `amount` of the pool asset and returns the updated scaled share.
+    ///
+    /// Interest accrues first and the underlying post-supply total must remain
+    /// within `supply_cap`.
     fn supply(
         env: Env,
         position: ScaledPositionRaw,
@@ -18,8 +20,10 @@ pub trait LiquidityPoolInterface {
         supply_cap: i128,
     ) -> PoolPositionMutation;
 
-    /// Borrow `amount`. Caller must have authorized the controller.
-    /// Accrues interest, checks reserves + utilization cap, returns scaled debt.
+    /// Borrows `amount` to `caller` and returns the updated scaled debt share.
+    ///
+    /// Interest accrues first; reserves, borrow cap, and max utilization are
+    /// checked before the token transfer.
     fn borrow(
         env: Env,
         caller: Address,
@@ -28,8 +32,10 @@ pub trait LiquidityPoolInterface {
         borrow_cap: i128,
     ) -> PoolPositionMutation;
 
-    /// Withdraw up to `amount` (or all if i128::MAX). `is_liquidation` changes
-    /// fee handling. Returns the gross amount withdrawn before protocol fee.
+    /// Withdraws up to `amount`, or the full position when `amount == i128::MAX`.
+    ///
+    /// Liquidation calls may deduct `protocol_fee`; `actual_amount` remains the
+    /// gross withdrawn amount before that fee.
     fn withdraw(
         env: Env,
         caller: Address,
@@ -39,7 +45,9 @@ pub trait LiquidityPoolInterface {
         protocol_fee: i128,
     ) -> PoolPositionMutation;
 
-    /// Repay debt. Any overpayment is refunded to the caller immediately.
+    /// Repays debt and returns the updated scaled debt share.
+    ///
+    /// Any amount above the ceiling-rounded current debt is refunded to `caller`.
     fn repay(
         env: Env,
         caller: Address,
@@ -48,8 +56,9 @@ pub trait LiquidityPoolInterface {
     ) -> PoolPositionMutation;
     fn update_indexes(env: Env) -> MarketStateSnapshot;
     fn add_rewards(env: Env, amount: i128) -> MarketStateSnapshot;
-    /// Execute a flash loan. The receiver must repay amount+fee in the same tx.
-    /// Fee is added to protocol revenue.
+    /// Executes a flash loan that must be repaid with `amount + fee`.
+    ///
+    /// The fee is recorded as protocol revenue after the pool balance check.
     fn flash_loan(
         env: Env,
         initiator: Address,
@@ -59,8 +68,10 @@ pub trait LiquidityPoolInterface {
         data: Bytes,
     ) -> MarketStateSnapshot;
 
-    /// Strategy entry (used by controller for multiply/swap etc.). Borrows
-    /// `amount`, sends `amount - fee` to caller, records fee as revenue.
+    /// Creates strategy debt and sends `amount - fee` to `caller`.
+    ///
+    /// The fee is recorded as protocol revenue and `amount_received` is the net
+    /// asset amount made available to the strategy.
     fn create_strategy(
         env: Env,
         caller: Address,
@@ -70,17 +81,17 @@ pub trait LiquidityPoolInterface {
         borrow_cap: i128,
     ) -> PoolStrategyMutation;
 
-    /// Seize a fully written-down position (liquidation or bad-debt cleanup).
-    /// For borrows: socializes the debt by reducing the supply index.
-    /// For deposits: absorbs remaining dust into revenue.
+    /// Removes a fully seized position during liquidation or bad-debt cleanup.
+    ///
+    /// Borrow seizures reduce the supply index to socialize bad debt; deposit
+    /// seizures move residual scaled supply into revenue.
     fn seize_position(
         env: Env,
         side: AccountPositionType,
         position: ScaledPositionRaw,
     ) -> PoolPositionMutation;
 
-    /// Claim accumulated protocol revenue (owner only). Transfers the lesser
-    /// of on-chain reserves and claimable revenue.
+    /// Claims protocol revenue, capped by live reserves and claimable shares.
     fn claim_revenue(env: Env) -> PoolAmountMutation;
     fn update_params(env: Env, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);

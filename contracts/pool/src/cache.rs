@@ -92,13 +92,13 @@ impl Cache {
         )
     }
 
-    // Pool's live on-chain balance of asset (cross-contract read, by design).
+    /// Live on-chain balance for `asset` held by this pool contract.
     pub fn live_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
         let token = soroban_sdk::token::Client::new(&self.env, asset);
         token.balance(&self.env.current_contract_address())
     }
 
-    // Transfers pool asset to recipient.
+    /// Transfers pool asset to `recipient`; zero and negative amounts are no-ops.
     pub fn transfer_out(&self, recipient: &soroban_sdk::Address, amount: i128) {
         if amount <= 0 {
             return;
@@ -107,52 +107,55 @@ impl Cache {
         tok.transfer(&self.env.current_contract_address(), recipient, &amount);
     }
 
-    // Converts asset amount to RAY scaled supply.
+    /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.supply_index)
     }
 
-    // Converts asset amount to RAY scaled borrow.
+    /// Converts an asset amount into scaled debt shares at the current index.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.borrow_index)
     }
 
-    // Converts scaled supply to asset decimals (half-up).
+    /// Converts scaled supply shares to asset units using half-up rounding.
     pub fn unscale_supply(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.supply_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    // Floor-rounded; protocol-favor on credit-to-user boundaries (INVARIANTS §1.2).
+    /// Converts supply shares to asset units rounded down for user credits.
     pub fn unscale_supply_floor(&self, scaled: Ray) -> i128 {
         scaled
             .mul_floor(&self.env, self.supply_index)
             .to_asset_floor(self.params.asset_decimals)
     }
 
-    // Converts scaled borrow to asset decimals (half-up).
+    /// Converts scaled debt shares to asset units using half-up rounding.
     pub fn unscale_borrow(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset(self.params.asset_decimals)
     }
 
-    // Ceiling-rounded; protocol-favor on debit-from-user boundaries (INVARIANTS §1.2).
+    /// Converts debt shares to asset units rounded up for user debits.
     pub fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
         scaled
             .mul(&self.env, self.borrow_index)
             .to_asset_ceil(self.params.asset_decimals)
     }
 
-    // Converts scaled borrow to actual in RAY.
+    /// Converts scaled debt shares to underlying debt in RAY.
     pub fn unscale_borrow_ray(&self, scaled: Ray) -> Ray {
         scaled.mul(&self.env, self.borrow_index)
     }
 
-    // Resolves withdrawal amounts; full-close uses the floor readout.
+    /// Resolves a withdrawal into scaled shares and gross asset amount.
+    ///
+    /// Full-close uses floor rounding so the pool never over-credits the user
+    /// when burning the final scaled supply share.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
@@ -168,7 +171,7 @@ impl Cache {
         }
     }
 
-    // Burns reserve-covered protocol revenue.
+    /// Burns claimable revenue shares, capped by live reserves and scaled revenue.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
         let reserves = self.live_reserves_for(&self.params.asset_id);
         let treasury_actual = self.unscale_supply(self.revenue);
@@ -187,7 +190,9 @@ impl Cache {
         amount
     }
 
-    // Resolves repayment amounts; full-close uses the ceiling readout.
+    /// Resolves repayment into debt shares and overpayment refund.
+    ///
+    /// Full-close uses ceiling rounding so repayment cannot leave indexed dust.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
@@ -197,7 +202,7 @@ impl Cache {
         }
     }
 
-    // Current borrow and supply indexes (wire form for event embedding).
+    /// Current borrow and supply indexes in event/wire form.
     pub fn market_index(&self) -> MarketIndexRaw {
         MarketIndexRaw {
             borrow_index_ray: self.borrow_index.raw(),
@@ -205,7 +210,7 @@ impl Cache {
         }
     }
 
-    // Full market snapshot.
+    /// Snapshot emitted to indexers after each pool state mutation.
     pub fn market_snapshot(&self) -> MarketStateSnapshot {
         MarketStateSnapshot {
             asset: self.params.asset_id.clone(),
@@ -220,8 +225,7 @@ impl Cache {
         }
     }
 
-    // Position mutation snapshot. The pool returns only the scaled share; the
-    // controller owns any collateral risk params and merges this back.
+    /// Position mutation snapshot containing only the pool-owned scaled share.
     pub fn position_mutation(&self, scaled: Ray, actual_amount: i128) -> PoolPositionMutation {
         PoolPositionMutation {
             position: ScaledPositionRaw {
@@ -233,7 +237,7 @@ impl Cache {
         }
     }
 
-    // Revenue mutation snapshot.
+    /// Revenue claim mutation snapshot.
     pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
         PoolAmountMutation {
             market_state: self.market_snapshot(),
@@ -241,7 +245,7 @@ impl Cache {
         }
     }
 
-    // Strategy mutation snapshot.
+    /// Strategy borrow mutation snapshot, including net amount sent to caller.
     pub fn strategy_mutation(
         &self,
         scaled: Ray,
@@ -342,7 +346,6 @@ mod tests {
         });
     }
 
-    // Helper to build a fully-controlled cache for unit-level tests.
     fn cache_with(
         env: &Env,
         params: &MarketParamsRaw,

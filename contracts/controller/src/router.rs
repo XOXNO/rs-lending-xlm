@@ -1,16 +1,8 @@
-//! Distributed `#[contractimpl]` surface for the Controller contract.
+//! Public controller entrypoints that are not position verbs or strategies.
 //!
-//! The majority of the public entrypoints (user, keeper, revenue, owner,
-//! oracle-role) are defined in this file. Heavy lifting is delegated to
-//! the focused modules (`positions::*`, `strategies::*`, `config`, `storage`,
-//! etc.). A few privileged flows that are mostly "config plumbing" live
-//! entirely inside `config.rs`.
-//!
-//! Real orchestration that belongs on the privileged surface (market
-//! bootstrap with PendingOracle state, revenue SAC forwarding to the
-//! accumulator, keeper threshold propagation with HF gate, and keepalive
-//! families) remains here so the public contract interface stays easy to
-//! review in one place. All cross-contract calls go through `cross_contract/`.
+//! This module keeps market bootstrap, keeper index updates, revenue claiming,
+//! TTL keepalive, and threshold propagation on the contract surface while
+//! delegating pool and token calls through `cross_contract`.
 
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::events::{
@@ -149,7 +141,7 @@ impl Controller {
     }
 }
 
-// Syncs market indexes and cache.
+// Pool sync results become the canonical market-state batch for indexers.
 fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
@@ -159,7 +151,7 @@ fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Addr
     }
 }
 
-// Valid asset decimal bounds.
+// Supported SAC decimal range for RAY/WAD conversions.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
@@ -188,7 +180,7 @@ fn validate_market_creation(
     params.verify_rate_model(env);
 }
 
-// Deploys liquidity pool.
+/// Deploys a pool in `PendingOracle` state and consumes the token approval.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
@@ -230,7 +222,6 @@ pub fn create_liquidity_pool(
     };
     storage::set_market_config(env, asset, &market);
 
-    // Tracks in pools list.
     storage::add_to_pools_list(env, asset);
     storage::renew_controller_instance(env);
 
@@ -251,13 +242,12 @@ pub fn create_liquidity_pool(
         },
     );
 
-    // Consume approval.
     storage::set_token_approved(env, asset, false);
 
     pool_address
 }
 
-// Upgrades pool interest-rate model.
+/// Accrues pool indexes before replacing the pool interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_asset_supported(env, &mut cache, asset);
@@ -288,7 +278,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     );
 }
 
-// Upgrades pool WASM.
+/// Upgrades the deployed pool contract for `asset`.
 pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_asset_supported(env, &mut cache, asset);
@@ -296,7 +286,6 @@ pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<
     pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
 }
 
-// Claims pool revenue.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     asset: &Address,
@@ -330,7 +319,7 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
-// Claims revenue from multiple pools.
+/// Claims protocol revenue from each pool and forwards SAC balances to the accumulator.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
@@ -343,7 +332,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
     results
 }
 
-// Transfers rewards to pool and bumps index.
+/// Transfers rewards into a pool and increases the supply index for suppliers.
 pub fn add_reward(
     env: &Env,
     caller: &Address,
@@ -394,7 +383,6 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
         storage::renew_protocol_shared_key(env, &ControllerKey::Market(asset.clone()));
         storage::renew_isolated_debt_if_positive(env, &asset);
 
-        // E-mode memberships dedupe.
         for category_id in market.asset_config.e_mode_categories.iter() {
             if !emode_categories.contains(category_id) {
                 emode_categories.push_back(category_id);
@@ -410,7 +398,7 @@ pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
 pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
     for i in 0..account_ids.len() {
         let account_id = validation::expect_invariant(env, account_ids.get(i));
-        // renew_user_account is no-op if account missing.
+        // Missing accounts may already be closed; keepalive is best-effort.
         storage::renew_user_account(env, account_id);
     }
 }
@@ -434,12 +422,6 @@ pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     }
 }
 
-// =============================================================================
-// Keeper threshold propagation (moved from positions/threshold.rs so the
-// method remains part of the public contract interface while keeping
-// positions/ focused on the five core user actions).
-// =============================================================================
-
 const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 /// Per-account inputs for a keeper threshold propagation.
@@ -450,7 +432,6 @@ struct ThresholdUpdate<'a> {
     feed: &'a PriceFeed,
 }
 
-// Keeper-driven risk parameter propagation.
 fn update_position_threshold(
     env: &Env,
     account_id: u64,

@@ -6,10 +6,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     xlm_preset, LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_borrow_basic
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_basic() {
@@ -33,10 +30,7 @@ fn test_borrow_basic() {
         eth_wallet
     );
 }
-
-// ---------------------------------------------------------------------------
 // 1b. test_borrow_same_asset_xlm
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_same_asset_xlm() {
@@ -59,10 +53,7 @@ fn test_borrow_same_asset_xlm() {
         hf
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_borrow_multiple_assets_bulk
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_multiple_assets_bulk() {
@@ -117,10 +108,7 @@ fn test_borrow_duplicate_asset_bulk_accumulates_single_position() {
     );
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_borrow_rejects_exceeding_ltv
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rejects_exceeding_ltv() {
@@ -137,10 +125,7 @@ fn test_borrow_rejects_exceeding_ltv() {
     let result = t.try_borrow(ALICE, "ETH", 5.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_borrow_rejects_zero_amount
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rejects_zero_amount() {
@@ -156,10 +141,7 @@ fn test_borrow_rejects_zero_amount() {
     // validator failure.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_borrow_rejects_non_borrowable
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rejects_non_borrowable() {
@@ -176,10 +158,7 @@ fn test_borrow_rejects_non_borrowable() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_borrow_rejects_during_flash_loan
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rejects_during_flash_loan() {
@@ -194,10 +173,7 @@ fn test_borrow_rejects_during_flash_loan() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_borrow_rejects_when_paused
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rejects_when_paused() {
@@ -212,10 +188,7 @@ fn test_borrow_rejects_when_paused() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_borrow_cap_enforcement
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_cap_enforcement() {
@@ -234,10 +207,7 @@ fn test_borrow_cap_enforcement() {
     let result = t.try_borrow(ALICE, "ETH", 2.0);
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_borrow_position_limit_exceeded
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_position_limit_exceeded() {
@@ -255,10 +225,7 @@ fn test_borrow_position_limit_exceeded() {
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_borrow_siloed_asset_blocks_mixed
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_siloed_asset_blocks_mixed() {
@@ -296,10 +263,7 @@ fn test_borrow_bulk_rejects_siloed_asset_mixed_in_same_batch() {
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
     t.assert_borrow_count(ALICE, 0);
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_borrow_isolated_requires_enabled
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_isolated_requires_enabled() {
@@ -322,10 +286,7 @@ fn test_borrow_isolated_requires_enabled() {
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_borrow_isolated_debt_ceiling
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_isolated_debt_ceiling() {
@@ -350,10 +311,7 @@ fn test_borrow_isolated_debt_ceiling() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::DEBT_CEILING_REACHED);
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_borrow_emode_enhanced_ltv
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_emode_enhanced_ltv() {
@@ -384,10 +342,7 @@ fn test_borrow_emode_enhanced_ltv() {
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "should be healthy with e-mode LTV, HF = {}", hf);
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_borrow_at_ltv_limit_stays_healthy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_at_ltv_limit_stays_healthy() {
@@ -418,10 +373,7 @@ fn test_borrow_at_ltv_limit_stays_healthy() {
         hf
     );
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_borrow_bulk_passes_cumulative_hf_check
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_bulk_passes_cumulative_hf_check() {

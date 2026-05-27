@@ -10,7 +10,6 @@ use soroban_sdk::{
 use crate::cache::Cache;
 use crate::interest;
 
-// Rejects negatives at every mutating ABI.
 pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
@@ -33,12 +32,11 @@ pub(crate) fn renew_pool_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-// Returns true if cap is enabled.
 pub(crate) fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
-// Panics if adding scaled_delta would breach supply_cap.
+/// Rejects a supply that would put current underlying supply above the cap.
 pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, supply_cap: i128) {
     if !cap_is_enabled(supply_cap) {
         return;
@@ -53,7 +51,7 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, su
     );
 }
 
-// Panics if adding scaled_delta would breach borrow_cap.
+/// Rejects a borrow that would put current underlying debt above the cap.
 pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, borrow_cap: i128) {
     if !cap_is_enabled(borrow_cap) {
         return;
@@ -68,7 +66,6 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
     );
 }
 
-// Updates rate-model fields in stored MarketParams.
 pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     let mut params: MarketParamsRaw = env
         .storage()
@@ -89,7 +86,7 @@ pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     env.storage().instance().set(&PoolKey::Params, &params);
 }
 
-// Hard utilization ceiling.
+/// Rejects post-mutation utilization above the market's max-utilization cap.
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO {
         return;
@@ -115,14 +112,13 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
-// Rejects withdrawals leaving supplied == 0 and borrowed > 0.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO && cache.borrowed != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);
     }
 }
 
-// Deducts liquidation protocol_fee from gross_amount.
+/// Adds liquidation protocol fee to revenue and returns net collateral transfer.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

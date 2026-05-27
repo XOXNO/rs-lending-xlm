@@ -10,7 +10,7 @@ use common::errors::GenericError;
 use common::types::ControllerKey;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
-// Returns all asset addresses.
+/// Returns listed asset addresses from the controller pool registry.
 pub(crate) fn get_pools_list(env: &Env) -> Vec<Address> {
     env.storage()
         .persistent()
@@ -18,7 +18,6 @@ pub(crate) fn get_pools_list(env: &Env) -> Vec<Address> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-// Bumps PoolsList TTL.
 pub(crate) fn renew_pools_list(env: &Env) {
     let key = ControllerKey::PoolsList;
     if env.storage().persistent().has(&key) {
@@ -26,7 +25,7 @@ pub(crate) fn renew_pools_list(env: &Env) {
     }
 }
 
-// Adds asset to PoolsList. Idempotent and capped at MAX_POOLS_LIST_ENTRIES.
+/// Adds an asset to `PoolsList`; duplicate inserts are no-ops.
 pub(crate) fn add_to_pools_list(env: &Env, asset: &Address) {
     let mut list = get_pools_list(env);
     if list.iter().any(|existing| &existing == asset) {

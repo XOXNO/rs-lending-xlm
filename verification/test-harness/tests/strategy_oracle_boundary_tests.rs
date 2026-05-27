@@ -13,10 +13,7 @@ use common::constants::WAD;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usdc_preset, LendingTest, ALICE, BOB,
 };
-
-// ---------------------------------------------------------------------------
 // 1. Sanity-bound exact boundary
-// ---------------------------------------------------------------------------
 
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
@@ -71,10 +68,7 @@ fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }
-
-// ---------------------------------------------------------------------------
 // 2. Strategy borrow respects max-utilization cap
-// ---------------------------------------------------------------------------
 
 // A regular borrow that would push utilization above the cap is
 // rejected (covered by `max_utilization_tests.rs`). This pins that the

@@ -41,12 +41,9 @@ fn mint_to(t: &LendingTest, asset_name: &str, target: &Address, raw_amount: i128
     let market = t.resolve_market(asset_name);
     market.token_admin.mint(target, &raw_amount);
 }
-
-// ---------------------------------------------------------------------------
 // BadMode::Refund -- router returns token_in to the caller, violating the
 // `balance_in_after > balance_in_before` invariant. Must panic with
 // InternalError.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_swap_tokens_panics_when_router_refunds_token_in() {
@@ -82,8 +79,6 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
     // strategy.rs:474 -- if balance_in_after > balance_in_before, InternalError.
     assert_contract_error(result, errors::INTERNAL_ERROR);
 }
-
-// ---------------------------------------------------------------------------
 // BadMode::OverPull -- router pulls 2x the requested amount via
 // `token.transfer(sender, router, 2*amount_in)`. The new ABI has no SEP-41
 // allowance to overshoot, so the SAC's `transfer` either succeeds (if
@@ -92,7 +87,6 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
 // fails with the SAC's insufficient-balance error. Either way it's a
 // detectable adversary; the controller surfaces InternalError when the
 // over-spend lands.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
@@ -133,12 +127,9 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         result
     );
 }
-
-// ---------------------------------------------------------------------------
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
 // token_out. The controller's `received < amount_out_min` postcheck rejects
 // the swap immediately.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_swap_tokens_handles_zero_output_from_router() {

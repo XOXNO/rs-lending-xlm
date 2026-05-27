@@ -13,7 +13,7 @@ use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_po
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
-/// Bundle of per-call repayment inputs.
+/// Per-asset repayment inputs after the payer's transfer has been measured.
 pub(crate) struct RepaymentRequest<'a> {
     pub asset: &'a Address,
     pub position: &'a DebtPosition,
@@ -32,16 +32,15 @@ impl Controller {
     }
 }
 
-/// Repay flow (permissionless w.r.t. owner — liquidators and strategies may call).
-/// Uses repay-optimized oracle policy (more permissive under isolation).
-/// Over-repayment refunds the excess to the payer before events.
+/// Repays one or more debt assets for an account.
+///
+/// Account ownership is not required. The pool refunds any amount above the
+/// current ceiling-rounded debt to the payer.
 pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Vec<Payment>) {
-    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, payments);
 
-    // Stage 2: State Resolution
     let mut account = storage::get_account_borrow_only(env, account_id);
     let policy = if account.is_isolated {
         OraclePolicy::IsolatedRepay
@@ -50,14 +49,12 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     };
     let mut cache = ControllerCache::new(env, policy);
 
-    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
     for (asset, amount) in repayment_plan.iter() {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    // Stage 5: Post-flight Risk Gates
     // Dust gate is scoped to the repaid assets — repay never mutates
     // supply positions and must not be blocked by pre-existing borrow
     // positions that drifted under the floor on assets the user did
@@ -69,7 +66,6 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         &utils::plan_assets(env, &repayment_plan),
     );
 
-    // Stage 6: State Persistence
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
@@ -116,7 +112,7 @@ fn process_single_repay(
     );
 }
 
-// Executes pool repay.
+/// Calls the pool repay path and merges the returned scaled debt share.
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
@@ -170,7 +166,7 @@ pub fn execute_repayment(
     result
 }
 
-// Clears isolated debt.
+/// Clears isolated-debt accounting for a debt position that is being removed.
 pub fn clear_position_isolated_debt(
     env: &Env,
     asset: &Address,
@@ -235,7 +231,6 @@ fn adjust_isolated_debt_for_repay(
     }
 }
 
-// Decrements isolated debt tracker.
 fn adjust_isolated_debt_usd(
     env: &Env,
     account: &Account,

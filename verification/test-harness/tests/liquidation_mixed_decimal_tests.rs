@@ -14,11 +14,7 @@ use test_harness::presets::{
 };
 use test_harness::{helpers::usd, LendingTest};
 
-// ---------------------------------------------------------------------------
-// Token presets
-// ---------------------------------------------------------------------------
-
-// Helpers for custom decimal presets.
+/// Builds a market preset with caller-selected token decimals and price.
 fn make_market(name: &'static str, decimals: u32, price: i128, liquidity: f64) -> MarketPreset {
     MarketPreset {
         name,
@@ -73,11 +69,8 @@ fn sol_9() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-
-// ---------------------------------------------------------------------------
 // 1. Two collaterals (6-dec + 18-dec), single debt (8-dec).
 //    Seizure must proportionally convert back to BOTH asset decimals.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_two_collaterals_6dec_18dec_debt_8dec() {
@@ -147,11 +140,8 @@ fn test_liquidation_two_collaterals_6dec_18dec_debt_8dec() {
         debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. Asymmetric collateral: 90% in 6-dec, 10% in 18-dec.
 //    Verifies that small proportional seizure on 18-dec stays non-zero.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_asymmetric_90pct_6dec_10pct_18dec() {
@@ -209,10 +199,7 @@ fn test_liquidation_asymmetric_90pct_6dec_10pct_18dec() {
         ratio
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Multi-debt: repay both 6-dec and 18-dec debt tokens.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_multi_debt_6dec_and_18dec() {
@@ -267,11 +254,8 @@ fn test_liquidation_multi_debt_6dec_and_18dec() {
         sol_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. Multi-debt: repay 6-dec + 9-dec debt with 18-dec collateral.
 //    Verifies correct conversion when debt payments span decimal ranges.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_multi_debt_different_decimals() {
@@ -311,12 +295,9 @@ fn test_liquidation_multi_debt_different_decimals() {
         "DAI18 collateral seized"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. Bad-debt cleanup with mixed decimals.
 //    Verifies socialization works when collateral is near zero across
 //    different decimal tokens.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_bad_debt_cleanup_mixed_decimals() {
@@ -347,12 +328,9 @@ fn test_bad_debt_cleanup_mixed_decimals() {
     // overpayment or capped repayment). Just verify no panic occurred.
     // The bad-debt path seizes all collateral and socializes remaining debt.
 }
-
-// ---------------------------------------------------------------------------
 // 6. Liquidation preserves protocol-fee calculation across decimals.
 //    Protocol fee = bonus_portion * liquidation_fees_bps / BPS.
 //    Verifies the fee neither underflows for 6-dec nor overflows for 18-dec.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_protocol_fee_cross_decimal() {
@@ -392,12 +370,9 @@ fn test_liquidation_protocol_fee_cross_decimal() {
         debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. 4 collaterals x 4 debts -- ALL unique decimals (6,7,8,9,10,12,15,18).
 //    The ultimate cross-decimal liquidation stress test.
 //    If this exceeds Soroban's budget, it reveals the max position complexity.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_2x2_four_unique_decimals() {
@@ -495,10 +470,7 @@ fn test_liquidation_2x2_four_unique_decimals() {
         d8_before - d8_after, d9_before - d9_after,
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. 4 collaterals x 4 debts -- ALL 8 unique decimals (6,7,8,9,10,12,15,18)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_4x4_eight_unique_decimals() {

@@ -21,10 +21,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /// Numeric entropy extracted from a single snapshot file.
 ///
@@ -69,10 +66,7 @@ struct MarketStateFields {
     revenue_ray: Option<i128>,
     last_timestamp: Option<u64>,
 }
-
-// ---------------------------------------------------------------------------
 // Walking + parsing
-// ---------------------------------------------------------------------------
 
 fn walk_snapshots(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -323,10 +317,7 @@ fn extract_snapshot(path: &Path) -> Option<ExtractedFields> {
     harvest_structured(ledger_entries, &mut fields);
     Some(fields)
 }
-
-// ---------------------------------------------------------------------------
 // Packing (per target)
-// ---------------------------------------------------------------------------
 
 fn push_i128_le(buf: &mut Vec<u8>, v: i128) {
     buf.extend_from_slice(&v.to_le_bytes());
@@ -551,10 +542,7 @@ fn pack_flow_strategy(_f: &ExtractedFields) -> Vec<Vec<u8>> {
         vec![4, 0x08, 0x00],
     ]
 }
-
-// ---------------------------------------------------------------------------
 // Output
-// ---------------------------------------------------------------------------
 
 fn write_corpus(target: &str, inputs: Vec<Vec<u8>>, out_dir: &Path) -> std::io::Result<usize> {
     let target_dir = out_dir.join(target);
@@ -582,10 +570,7 @@ fn write_corpus(target: &str, inputs: Vec<Vec<u8>>, out_dir: &Path) -> std::io::
     }
     Ok(written)
 }
-
-// ---------------------------------------------------------------------------
 // Main
-// ---------------------------------------------------------------------------
 
 fn parse_args() -> PathBuf {
     let mut args = std::env::args().skip(1);

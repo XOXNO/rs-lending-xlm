@@ -28,8 +28,6 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
         })
         .count()
 }
-
-// ---------------------------------------------------------------------------
 // All event tests verify that operations emit events.
 //
 // Soroban event API note: `events().all().events().len()` returns the count
@@ -40,7 +38,6 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
 //
 // Full payload verification would require XDR decoding of Soroban event
 // data, which is impractical in integration tests.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_emits_events() {

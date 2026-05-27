@@ -131,7 +131,7 @@ pub fn process_swap_collateral(
     );
 }
 
-// Pre-flight guard for swap_collateral.
+/// Rejects replacement collateral that cannot be supplied after the swap.
 pub fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut ControllerCache,

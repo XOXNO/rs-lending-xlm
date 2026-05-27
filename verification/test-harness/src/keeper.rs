@@ -3,9 +3,7 @@ use soroban_sdk::Vec;
 use crate::context::LendingTest;
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Index management
-    // -----------------------------------------------------------------------
 
     /// Update indexes for specific markets (uses internal keeper).
     pub fn update_indexes_for(&self, assets: &[&str]) {
@@ -15,10 +13,7 @@ impl LendingTest {
         }
         self.ctrl_client().update_indexes(&self.keeper, &addrs);
     }
-
-    // -----------------------------------------------------------------------
     // Bad debt cleanup
-    // -----------------------------------------------------------------------
 
     /// Clean bad debt for a specific account (by user name).
     pub fn clean_bad_debt_for(&self, target_user: &str) {
@@ -42,10 +37,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // Account threshold propagation
-    // -----------------------------------------------------------------------
 
     /// Update account thresholds for a set of accounts on a given asset.
     pub fn update_account_threshold(&self, asset_name: &str, has_risks: bool, account_ids: &[u64]) {

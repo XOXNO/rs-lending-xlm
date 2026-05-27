@@ -5,10 +5,7 @@ use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
     STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_total_collateral_usd_multi_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_total_collateral_usd_multi_asset() {
@@ -29,10 +26,7 @@ fn test_total_collateral_usd_multi_asset() {
         total
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_total_borrow_usd_multi_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_total_borrow_usd_multi_asset() {
@@ -57,10 +51,7 @@ fn test_total_borrow_usd_multi_asset() {
         total
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_collateral_amount_for_missing_token
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_collateral_amount_for_missing_token() {
@@ -76,10 +67,7 @@ fn test_collateral_amount_for_missing_token() {
     let eth_balance = t.supply_balance_raw(ALICE, "ETH");
     assert_eq!(eth_balance, 0, "missing supply position should return 0");
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_borrow_amount_for_missing_token
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_amount_for_missing_token() {
@@ -96,10 +84,7 @@ fn test_borrow_amount_for_missing_token() {
     let usdc_borrow = t.borrow_balance_raw(ALICE, "USDC");
     assert_eq!(usdc_borrow, 0, "missing borrow position should return 0");
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_can_be_liquidated_returns_false_for_healthy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_can_be_liquidated_returns_false_for_healthy() {
@@ -120,10 +105,7 @@ fn test_can_be_liquidated_returns_false_for_healthy() {
     );
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_can_be_liquidated_when_unhealthy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_can_be_liquidated_when_unhealthy() {
@@ -147,10 +129,7 @@ fn test_can_be_liquidated_when_unhealthy() {
         "undercollateralized account should be liquidatable"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_get_all_markets_multiple
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_all_markets_multiple() {
@@ -177,10 +156,7 @@ fn test_get_all_markets_multiple() {
         markets.len()
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_get_all_markets_single
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_all_markets_single() {
@@ -196,10 +172,7 @@ fn test_get_all_markets_single() {
         markets.len()
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_get_account_owner_correct
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_account_owner_correct() {
@@ -215,10 +188,7 @@ fn test_get_account_owner_correct() {
         "account owner should match Alice's address"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_get_emode_category_view
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_emode_category_view() {
@@ -244,10 +214,7 @@ fn test_get_emode_category_view() {
         "emode bonus should be 200"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_get_isolated_debt_tracks_borrows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_isolated_debt_tracks_borrows() {
@@ -285,10 +252,7 @@ fn test_get_isolated_debt_tracks_borrows() {
         debt_after as f64 / wad as f64
     );
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_get_position_limits_default
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_position_limits_default() {
@@ -304,10 +268,7 @@ fn test_get_position_limits_default() {
         "default max borrow should be 10"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_get_position_limits_custom
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_position_limits_custom() {
@@ -326,10 +287,7 @@ fn test_get_position_limits_custom() {
         "custom max borrow should be 3"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_liquidation_estimations_basic
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_estimations_basic() {
@@ -380,10 +338,7 @@ fn test_liquidation_estimations_basic() {
         "expected non-empty protocol fee estimate"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_get_market_index_view
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_market_index_view() {
@@ -408,10 +363,7 @@ fn test_get_market_index_view() {
         "fresh borrow index should be 1.0 RAY"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 16. test_get_active_accounts_multiple
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_active_accounts_multiple() {
@@ -431,10 +383,7 @@ fn test_get_active_accounts_multiple() {
         "should contain both account IDs"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 17. test_get_asset_config_view
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_asset_config_view() {
@@ -453,10 +402,7 @@ fn test_get_asset_config_view() {
     );
     assert!(config.is_borrowable, "USDC should be borrowable");
 }
-
-// ---------------------------------------------------------------------------
 // 18. test_pool_address_view
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_pool_address_view() {
@@ -466,10 +412,7 @@ fn test_pool_address_view() {
     let expected = t.resolve_market("USDC").pool.clone();
     assert_eq!(pool_addr, expected, "pool address should match");
 }
-
-// ---------------------------------------------------------------------------
 // 19. test_collateral_amount_for_token_happy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_collateral_amount_for_token_happy() {
@@ -496,10 +439,7 @@ fn test_collateral_amount_for_token_happy() {
         amount
     );
 }
-
-// ---------------------------------------------------------------------------
 // 20. test_borrow_amount_for_token_happy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_amount_for_token_happy() {
@@ -525,10 +465,7 @@ fn test_borrow_amount_for_token_happy() {
         amount
     );
 }
-
-// ---------------------------------------------------------------------------
 // 21. test_liquidation_collateral_available_happy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_collateral_available_happy() {
@@ -559,10 +496,7 @@ fn test_liquidation_collateral_available_happy() {
         weighted_usd
     );
 }
-
-// ---------------------------------------------------------------------------
 // 22. test_ltv_collateral_in_usd_happy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_ltv_collateral_in_usd_happy() {

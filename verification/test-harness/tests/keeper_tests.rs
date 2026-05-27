@@ -21,7 +21,7 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
     })
 }
 
-// Returns (threshold, bonus, ltv) bps from the stored supply position.
+/// Returns stored supply risk fields as `(threshold, bonus, ltv)` BPS.
 fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
@@ -70,10 +70,7 @@ fn test_supply_roundtrip_preserves_risk_fields() {
          merge zeroed risk fields"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 1. test_update_indexes_refreshes_rates
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_indexes_refreshes_rates() {
@@ -100,10 +97,7 @@ fn test_update_indexes_refreshes_rates() {
         borrow_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_clean_bad_debt_removes_positions
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_clean_bad_debt_removes_positions() {
@@ -130,10 +124,7 @@ fn test_clean_bad_debt_removes_positions() {
     // After cleaning bad debt, positions must be removed.
     t.assert_no_positions(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_clean_bad_debt_rejects_healthy
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_clean_bad_debt_rejects_healthy() {
@@ -152,10 +143,7 @@ fn test_clean_bad_debt_rejects_healthy() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_clean_bad_debt_rejects_above_threshold
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_clean_bad_debt_rejects_above_threshold() {
@@ -181,10 +169,7 @@ fn test_clean_bad_debt_rejects_above_threshold() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
-
-// ---------------------------------------------------------------------------
 // 4b. test_clean_bad_debt_rejected_under_oracle_deviation
-// ---------------------------------------------------------------------------
 //
 // Standalone bad-debt cleanup runs under `OraclePolicy::Liquidation`, which
 // hardens the unsafe-deviation gate: when the primary and anchor sources
@@ -236,10 +221,7 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_update_account_threshold_safe
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_account_threshold_safe() {
@@ -271,10 +253,7 @@ fn test_update_account_threshold_safe() {
         hf_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_update_account_threshold_risky
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_account_threshold_risky() {
@@ -305,10 +284,7 @@ fn test_update_account_threshold_risky() {
         hf_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_update_account_threshold_rejects_low_hf
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_account_threshold_rejects_low_hf() {
@@ -336,10 +312,7 @@ fn test_update_account_threshold_rejects_low_hf() {
     let result = t.try_update_account_threshold("USDC", true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_update_account_threshold_deprecated_emode_uses_base_params
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_account_threshold_deprecated_emode_uses_base_params() {
@@ -364,10 +337,7 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
         "deprecated eMode categories should fall back to base asset thresholds during propagation"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_keeper_role_required
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_keeper_role_required() {

@@ -10,10 +10,6 @@ use test_harness::{
     LIQUIDATOR,
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Build a standard two-market test harness with USDC ($1) and ETH ($2000).
 fn setup() -> LendingTest {
     LendingTest::new()
@@ -54,10 +50,7 @@ fn set_dual_oracle_dex(t: &LendingTest, asset_name: &str, dex_oracle: Address) {
         t.env.storage().persistent().set(&key, &market);
     });
 }
-
-// ===========================================================================
 // 1. Price within first tolerance: all operations succeed
-// ===========================================================================
 
 #[test]
 fn test_safe_price_allows_all_operations() {
@@ -86,10 +79,7 @@ fn test_safe_price_allows_all_operations() {
     t.assert_supply_near(ALICE, "USDC", 99_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-
-// ===========================================================================
 // 2. Price within second tolerance: operations still succeed
-// ===========================================================================
 
 #[test]
 fn test_second_tolerance_allows_risk_decreasing() {
@@ -140,10 +130,7 @@ fn test_second_tolerance_allows_borrow() {
         eth_wallet
     );
 }
-
-// ===========================================================================
 // 3. Price beyond second tolerance: risk-increasing ops blocked
-// ===========================================================================
 
 #[test]
 fn test_unsafe_price_allows_supply() {
@@ -362,10 +349,7 @@ fn test_unsafe_price_blocks_liquidation() {
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-
-// ===========================================================================
 // 4. Staleness tests
-// ===========================================================================
 
 #[test]
 fn test_stale_price_allows_supply_without_price_read() {
@@ -479,10 +463,7 @@ fn test_dual_oracle_future_dex_reverts() {
     let result = t.try_borrow(ALICE, "ETH", 10.0);
     assert_contract_error(result, errors::PRICE_FEED_STALE);
 }
-
-// ===========================================================================
 // 5. Edge cases
-// ===========================================================================
 
 #[test]
 fn test_tolerance_at_exact_first_boundary() {
@@ -551,10 +532,7 @@ fn test_safe_price_below_aggregator_blocks_borrow() {
         "borrow should fail with safe price 10% below aggregator"
     );
 }
-
-// ===========================================================================
 // 6. Oracle tolerance config validation (controller side)
-// ===========================================================================
 
 #[test]
 fn test_tolerance_config_rejects_first_below_min() {
@@ -648,10 +626,7 @@ fn test_tolerance_config_valid_update() {
     let result = ctrl.try_edit_oracle_tolerance(&admin, &asset, &300, &600);
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }
-
-// ===========================================================================
 // 7. Config gap tests
-// ===========================================================================
 
 #[test]
 fn test_set_accumulator() {
@@ -750,10 +725,7 @@ fn test_edit_asset_in_e_mode_category() {
         "should no longer be borrowable after edit"
     );
 }
-
-// ===========================================================================
 // 8. Dual-source pricing: average price used in second tolerance zone
-// ===========================================================================
 
 #[test]
 fn test_second_tolerance_uses_average_price() {
@@ -774,10 +746,7 @@ fn test_second_tolerance_uses_average_price() {
     // The average price drives valuation.
     t.assert_healthy(ALICE);
 }
-
-// ===========================================================================
 // 9. Exchange source = 1 (safe price only)
-// ===========================================================================
 
 #[test]
 fn test_exchange_source_safe_only() {
@@ -795,10 +764,7 @@ fn test_exchange_source_safe_only() {
 
     t.assert_healthy(ALICE);
 }
-
-// ===========================================================================
 // 10. Multiple assets with different tolerance states
-// ===========================================================================
 
 #[test]
 fn test_mixed_tolerance_states() {
@@ -821,10 +787,7 @@ fn test_mixed_tolerance_states() {
         "borrow should fail when debt asset price is unsafe"
     );
 }
-
-// ===========================================================================
 // 11. Liquidation rejects on out-of-band deviation during a flash crash
-// ===========================================================================
 
 #[test]
 fn test_liquidation_blocked_under_flash_crash() {
@@ -861,10 +824,7 @@ fn test_liquidation_blocked_under_flash_crash() {
     // HF must be healthy.
     let hf_before = t.health_factor(ALICE);
     assert!(hf_before >= 1.0, "Alice should be healthy");
-
-    // ==========================================
     // The flash crash
-    // ==========================================
     // Spot ETH crashes to $1400 (a 30% drop). The anchor (TWAP) is slow and
     // still reads $1950. The deviation exceeds the second tolerance.
     t.set_price("ETH", usd(1400));
@@ -882,10 +842,7 @@ fn test_liquidation_blocked_under_flash_crash() {
     // once the anchor catches up and the sources reconverge within tolerance.
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
-
-// ===========================================================================
 // 12. Liquidation collateral extraction via second-tolerance averaging
-// ===========================================================================
 
 #[test]
 fn test_liquidation_collateral_extraction_via_averaging() {
@@ -957,10 +914,7 @@ fn test_liquidation_collateral_extraction_via_averaging() {
         received_collateral
     );
 }
-
-// ===========================================================================
 // 13. Sanity-bound circuit breaker
-// ===========================================================================
 //
 // Slender M-7 / STELLAR_AUDIT_FINDINGS.md §4.2: a per-market absolute
 // floor/ceiling must reject obviously-wrong oracle outputs (whether from a

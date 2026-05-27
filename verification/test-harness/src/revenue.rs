@@ -2,9 +2,7 @@ use crate::context::LendingTest;
 use crate::helpers::f64_to_i128;
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Revenue claims
-    // -----------------------------------------------------------------------
 
     /// Claim accrued protocol revenue for an asset.
     /// Uses admin (who has REVENUE role from constructor).
@@ -27,10 +25,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // External rewards
-    // -----------------------------------------------------------------------
 
     /// Add external reward tokens to a pool (increases supply index).
     /// Auto-mints tokens to admin before calling.

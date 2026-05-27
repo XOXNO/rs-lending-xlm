@@ -37,11 +37,8 @@ use test_harness::{
     auth, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
     BOB,
 };
-
-// ---------------------------------------------------------------------------
 // Adversarial aggregator that returns `amount_out_min * 99 / 100` to verify
 // that controller strategy swaps read the actual balance delta.
-// ---------------------------------------------------------------------------
 
 #[contract]
 pub struct ShortAggregator;
@@ -81,7 +78,7 @@ fn router_allowance(t: &LendingTest, asset_name: &str) -> i128 {
     tok.allowance(&t.controller, &t.aggregator)
 }
 
-// Helper: is the controller's flash-loan reentrancy guard cleared?
+/// Returns true when the controller flash-loan reentrancy guard is clear.
 fn flash_guard_cleared(t: &LendingTest) -> bool {
     t.env.as_contract(&t.controller, || {
         !t.env
@@ -91,10 +88,7 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
             .unwrap_or(false)
     })
 }
-
-// ---------------------------------------------------------------------------
 // Property 1: flash_loan success path
-// ---------------------------------------------------------------------------
 //
 // Under `without_auto_auth()` + an explicit MockAuth tree, drive the full
 // round trip (pool-owned callback and repayment pull) and assert:
@@ -103,7 +97,6 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 //   c. pool reserves grew by exactly `fee` (the supplied pool is otherwise
 //      unchanged -- the pool pulls `amount + fee`, where `amount` replays the
 //      outgoing transfer and `fee` is net-new).
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
@@ -159,8 +152,6 @@ proptest! {
             "reserves should gain exactly the flash-loan fee"
         );
     }
-
-    // ---------------------------------------------------------------------
     // Property 2: multiply (leverage) keeps HF >= 1, zeroes router allowance
     //
     // `multiply` uses `mock_all_auths` fine -- the strategy path never
@@ -174,7 +165,6 @@ proptest! {
     //   - The reentrancy guard is cleared.
     //   - On error: no partial state -- if try_multiply returns Err, no
     //     account is left behind for the caller.
-    // ---------------------------------------------------------------------
     #[test]
     fn prop_multiply_leverage_hf_safe(
         debt_units in 1u32..10u32,                // 1 ETH -- 10 ETH flash
@@ -230,14 +220,11 @@ proptest! {
             },
         }
     }
-
-    // ---------------------------------------------------------------------
     // Property 3: strategy swap_collateral balance-delta consistency
     //
     // Setup: supply USDC, swap_collateral into USDT. Use a mock router (the
     // default `MockAggregator`) that pays exactly `amount_out_min`. A valid
     // positive `amount_out_min` succeeds; `amount_out_min == 0` must fail.
-    // ---------------------------------------------------------------------
     #[test]
     fn prop_strategy_swap_collateral_balance_delta(
         withdraw_frac_bps in 100u32..5_000u32, // 1% -- 50% withdrawal
@@ -310,12 +297,9 @@ proptest! {
         prop_assert!(flash_guard_cleared(&t), "flash-loan guard must clear after swap_collateral");
     }
 }
-
-// ---------------------------------------------------------------------------
 // Property 4: `ShortAggregator` delivers 1% under `min_amount_out`.
 // The controller's `verify_router_output` reads the actual balance delta and
 // must reject with INTERNAL_ERROR.
-// ---------------------------------------------------------------------------
 proptest! {
     #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
 

@@ -47,12 +47,9 @@ pub trait ReflectorOracle {
 
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
-
-// -----------------------------------------------------------------------------
 // Thin wrappers — the only allowed call sites into external Reflector oracles.
 // These exist so that Certora can replace the cross-contract behavior with
 // sound nondeterministic models without touching the rest of the oracle logic.
-// -----------------------------------------------------------------------------
 
 pub(crate) fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()

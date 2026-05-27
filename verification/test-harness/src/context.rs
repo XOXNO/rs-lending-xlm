@@ -11,10 +11,7 @@ use crate::helpers::f64_to_i128;
 use crate::presets::{
     AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
 };
-
-// ---------------------------------------------------------------------------
 // Internal state types
-// ---------------------------------------------------------------------------
 
 pub struct UserState {
     pub address: Address,
@@ -37,10 +34,7 @@ pub struct MarketState {
     pub decimals: u32,
     pub price_wad: i128,
 }
-
-// ---------------------------------------------------------------------------
 // Builder types (pre-build configuration)
-// ---------------------------------------------------------------------------
 
 struct PendingMarket {
     name: &'static str,
@@ -71,10 +65,7 @@ struct PendingEMode {
     preset: EModeCategoryPreset,
     assets: Vec<(String, bool, bool)>, // (asset_name, can_collateral, can_borrow)
 }
-
-// ---------------------------------------------------------------------------
 // LendingTest
-// ---------------------------------------------------------------------------
 
 pub struct LendingTest {
     pub env: Env,
@@ -87,10 +78,7 @@ pub struct LendingTest {
     pub users: HashMap<String, UserState>,
     pub markets: HashMap<String, MarketState>,
 }
-
-// ---------------------------------------------------------------------------
 // Builder
-// ---------------------------------------------------------------------------
 
 pub struct LendingTestBuilder {
     pending_markets: Vec<PendingMarket>,
@@ -112,7 +100,6 @@ impl LendingTest {
         }
     }
 
-    // Helper: resolve user name -> address, creating if needed
     pub fn get_or_create_user(&mut self, name: &str) -> Address {
         if let Some(user) = self.users.get(name) {
             return user.address.clone();
@@ -146,7 +133,6 @@ impl LendingTest {
             })
     }
 
-    // Helper: resolve user name -> default account id, panic if ambiguous
     pub fn resolve_account_id(&self, name: &str) -> u64 {
         match self.find_account_id(name) {
             Some(id) => id,
@@ -163,7 +149,6 @@ impl LendingTest {
         })
     }
 
-    // Helper: resolve asset name -> MarketState, panic if not found
     pub fn resolve_market(&self, asset_name: &str) -> &MarketState {
         self.markets.get(asset_name).unwrap_or_else(|| {
             panic!(
@@ -180,17 +165,14 @@ impl LendingTest {
             .unwrap_or_else(|| panic!("market for asset '{:?}' not found", asset))
     }
 
-    // Helper: resolve asset name -> Address
     pub fn resolve_asset(&self, asset_name: &str) -> Address {
         self.resolve_market(asset_name).asset.clone()
     }
 
-    // Helper: get controller client
     pub fn ctrl_client(&self) -> controller::ControllerClient<'_> {
         controller::ControllerClient::new(&self.env, &self.controller)
     }
 
-    // Helper: get mock reflector client
     pub fn mock_reflector_client(&self) -> crate::mock_reflector::MockReflectorClient<'_> {
         crate::mock_reflector::MockReflectorClient::new(&self.env, &self.mock_reflector)
     }
@@ -208,7 +190,6 @@ impl LendingTest {
         self.find_account_id(user).unwrap_or(0)
     }
 
-    // Helper: get pool client for an asset
     #[allow(dead_code)]
     pub fn pool_client(&self, asset_name: &str) -> pool::LiquidityPoolClient<'_> {
         let market = self.resolve_market(asset_name);

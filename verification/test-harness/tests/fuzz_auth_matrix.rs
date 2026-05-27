@@ -94,11 +94,8 @@ fn sample_position_limits() -> common::types::PositionLimits {
 fn dummy_bytes_n(env: &soroban_sdk::Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
 }
-
-// ---------------------------------------------------------------------------
 // Matrix of privileged endpoints, each returning a Result<(), String>.
 // "CRITICAL: ..." means the auth gate is absent / weak.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]

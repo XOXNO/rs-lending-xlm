@@ -3,9 +3,13 @@ use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OraclePriceFluctuation {
+    /// Upper bound against the primary source's first comparison, in BPS.
     pub first_upper_ratio_bps: u32,
+    /// Lower bound against the primary source's first comparison, in BPS.
     pub first_lower_ratio_bps: u32,
+    /// Upper bound for primary/anchor last comparison, in BPS.
     pub last_upper_ratio_bps: u32,
+    /// Lower bound for primary/anchor last comparison, in BPS.
     pub last_lower_ratio_bps: u32,
 }
 
@@ -20,15 +24,20 @@ pub enum OracleProviderKind {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OracleAssetRef {
+    /// SEP-40 lookup by Stellar asset address.
     Stellar(Address),
+    /// SEP-40 lookup by symbol.
     Symbol(Symbol),
+    /// Provider-specific string identifier such as a RedStone feed id.
     String(String),
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OracleReadMode {
+    /// Read the latest provider price.
     Spot,
+    /// Read a time-weighted average over the requested record count.
     Twap(u32),
 }
 
@@ -36,7 +45,9 @@ pub enum OracleReadMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum OracleStrategy {
+    /// Use only the primary source.
     Single = 0,
+    /// Use primary plus anchor tolerance checks.
     PrimaryWithAnchor = 1,
 }
 
@@ -158,13 +169,17 @@ impl OracleSourceConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketOracleConfig {
+    /// Asset decimals used to convert token amounts before USD pricing.
     pub asset_decimals: u32,
+    /// Default staleness limit for sources that do not carry their own limit.
     pub max_price_stale_seconds: u64,
     pub tolerance: OraclePriceFluctuation,
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfig,
     pub anchor: OracleSourceConfigOption,
+    /// Inclusive lower sanity bound for final USD WAD price.
     pub min_sanity_price_wad: i128,
+    /// Inclusive upper sanity bound for final USD WAD price.
     pub max_sanity_price_wad: i128,
 }
 
@@ -207,16 +222,19 @@ pub struct MarketOracleConfigInput {
     pub max_sanity_price_wad: i128,
 }
 
-// Wire/storage form. Embedded in event payloads and SeizeEntry/RepayEntry.
+/// Oracle price payload embedded in liquidation entries and events.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PriceFeedRaw {
+    /// USD price in WAD.
     pub price_wad: i128,
+    /// Token decimals used for amount-to-WAD conversion.
     pub asset_decimals: u32,
+    /// Provider timestamp accepted by oracle policy.
     pub timestamp: u64,
 }
 
-// In-memory typed form. Used by every compute path.
+/// Typed oracle price used by controller math.
 #[derive(Clone, Copy, Debug)]
 pub struct PriceFeed {
     pub price: crate::math::fp::Wad,

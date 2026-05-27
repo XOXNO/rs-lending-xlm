@@ -9,14 +9,8 @@
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
-
-// ===========================================================================
 // E-Mode Asset Whitelist
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 1: emode_only_registered_assets
-// ---------------------------------------------------------------------------
 
 /// When an account has `e_mode_category_id > 0`, supplying an asset that is
 /// not registered in that category must revert. The rule constrains the asset
@@ -54,10 +48,7 @@ fn emode_only_registered_assets(
     // Unreachable: supply of unregistered asset in e-mode must revert
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: emode_borrow_only_registered_assets
-// ---------------------------------------------------------------------------
 
 /// When an account has e_mode_category > 0, borrowing an asset NOT registered
 /// in that category must revert. Mirror of `emode_only_registered_assets` but
@@ -88,10 +79,7 @@ fn emode_borrow_only_registered_assets(
     // Unreachable: borrow of unregistered asset in e-mode must revert
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: emode_only_borrowable_assets
-// ---------------------------------------------------------------------------
 
 /// When an account has e_mode_category > 0, borrowing an asset where
 /// `is_borrowable = false` in the EModeAssetConfig must revert.
@@ -123,10 +111,7 @@ fn emode_only_borrowable_assets(
     // Unreachable: borrow of non-borrowable e-mode asset must revert
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: emode_only_collateralizable_assets
-// ---------------------------------------------------------------------------
 
 /// Supplying an asset where `is_collateralizable = false` in the
 /// EModeAssetConfig must revert.
@@ -164,14 +149,8 @@ fn emode_only_collateralizable_assets(
     // Unreachable: supply of non-collateralizable e-mode asset must revert
     cvlr_satisfy!(false);
 }
-
-// ===========================================================================
 // Deprecated Category Blocking
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 4: deprecated_emode_blocks_new_supply
-// ---------------------------------------------------------------------------
 
 /// If EModeCategory.is_deprecated = true, new supply to an account in that
 /// category must revert. The protocol blocks new position creation in
@@ -207,10 +186,7 @@ fn deprecated_emode_blocks_new_supply(
     // Unreachable: supply into deprecated e-mode category must revert
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5b: deprecated_emode_blocks_new_borrow
-// ---------------------------------------------------------------------------
 
 /// If EModeCategory.is_deprecated = true, new borrow from an account in that
 /// category must revert. Mirror of `deprecated_emode_blocks_new_supply` but
@@ -240,10 +216,7 @@ fn deprecated_emode_blocks_new_borrow(
     // Unreachable: borrow from deprecated e-mode category must revert
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 6: deprecated_emode_allows_withdraw
-// ---------------------------------------------------------------------------
 
 /// Deprecated categories must still allow withdrawals. The rule asserts that
 /// the position changes: either the scaled amount decreases or the position is
@@ -300,14 +273,8 @@ fn deprecated_emode_allows_withdraw(
         }
     }
 }
-
-// ===========================================================================
 // E-Mode Parameter Override
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 6: emode_overrides_asset_params
-// ---------------------------------------------------------------------------
 
 /// When e-mode is active, effective LTV, threshold, and bonus must come from
 /// the category rather than the base asset config.
@@ -348,14 +315,8 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assert!(asset_config.is_collateralizable == cfg.is_collateralizable);
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
 }
-
-// ===========================================================================
 // E-Mode Category Lifecycle
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 8: emode_category_has_valid_params
-// ---------------------------------------------------------------------------
 
 /// Every non-deprecated e-mode category must have LTV < threshold.
 /// This is the same invariant as base asset config -- without it, a position
@@ -369,10 +330,7 @@ fn emode_category_has_valid_params(e: Env, category_id: u32) {
 
     cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 9: emode_remove_deprecated_only
-// ---------------------------------------------------------------------------
 
 /// Removing (deprecating) an e-mode category via `remove_e_mode_category`
 /// sets `is_deprecated = true`, clears the category asset map, and removes
@@ -451,14 +409,8 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     // Unreachable: adding asset to deprecated category must revert
     cvlr_satisfy!(false);
 }
-
-// ===========================================================================
 // Cross-Constraint with Isolation
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 10: emode_account_cannot_enter_isolation
-// ---------------------------------------------------------------------------
 
 /// An account with e_mode_category > 0 cannot have is_isolated = true.
 /// The production gate is `ensure_e_mode_compatible_with_asset`
@@ -551,10 +503,7 @@ fn emode_isolation_mutual_exclusion_after_multiply(
     let attrs = crate::storage::get_account_attrs(&e, acct_id);
     cvlr_assert!(!(attrs.is_isolated && attrs.e_mode_category_id > 0));
 }
-
-// ===========================================================================
 // Sanity (reachability checks -- ensures rules are not vacuously true)
-// ===========================================================================
 
 #[rule]
 fn emode_supply_sanity(

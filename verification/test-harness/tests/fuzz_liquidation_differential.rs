@@ -50,10 +50,7 @@ use num_rational::BigRational;
 use proptest::prelude::*;
 use test_harness::reference;
 use test_harness::{eth_preset, helpers::usd, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
-
-// ---------------------------------------------------------------------------
 // Bound constants
-// ---------------------------------------------------------------------------
 
 /// Allowed drift in USD-WAD space (10^-17 USD). Far smaller than dust.
 const ULP_BOUND_USD_WAD: i128 = 10;

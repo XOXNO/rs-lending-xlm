@@ -1,21 +1,5 @@
-//! Centralized guard clauses and shape validation used by every flow.
-//!
-//! The functions in this module are the *only* place that encodes the
-//! high-level safety rules:
-//! - "caller must be owner of account"
-//! - "market must be active (or the policy must allow disabled)"
-//! - "account must be healthy / within LTV after this operation"
-//! - "position count limits"
-//! - "asset config ranges (LTV < threshold, dust floors, caps, …)"
-//! - "oracle tolerance bounds at configuration time"
-//!
-//! Keeping them here (instead of scattered inside each positions/strategy
-//! file) makes the complete checklist easy to audit, easy to reference from
-//! certora rules (`boundary_rules`, `position_rules`), and easy to keep
-//! consistent when requirements evolve.
-//!
-//! Most functions panic via `panic_with_error!` or `assert_with_error!`;
-//! that is intentional — violating a guard is a protocol violation.
+//! Shared validation gates for account ownership, market status, health factor,
+//! LTV, position limits, asset config bounds, token shape, and oracle ranges.
 
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_LIQUIDATION_BONUS, MIN_DUST_FLOOR_WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
@@ -26,22 +10,15 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map,
 use crate::cache::ControllerCache;
 use crate::{helpers, storage};
 
-// Unwraps Option or panics with InternalError.
-//
-// InternalError is deliberately used here (rather than a domain-specific
-// Collateral/Oracle/Strategy error) because a missing entry at these call
-// sites violates an internal invariant of the controller's own data
-// construction: the Vec/Map was either built from storage we control or
-// length-checked immediately prior. A panic therefore signals either a
-// storage corruption path or a logic error in the caller, never malformed
-// user input. This grouping keeps the public error surface focused on
-// caller mistakes while still failing fast on broken assumptions.
+/// Unwraps a controller-built value or panics with `InternalError`.
+///
+/// Missing values here indicate corrupted storage or a caller logic bug after
+/// prior length/key checks, not malformed user input.
 #[inline]
 pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-// Rejects unsupported assets.
 pub fn require_asset_supported(env: &Env, cache: &mut ControllerCache, asset: &Address) {
     let _ = env;
     let _ = cache.cached_market_config(asset);
@@ -227,7 +204,6 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
     }
 }
 
-// Validates oracle price bounds.
 pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
     assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
     // Upper bound on `last` is enforced by the caller's range check via

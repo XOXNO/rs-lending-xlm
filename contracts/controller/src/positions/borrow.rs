@@ -1,10 +1,7 @@
-//! Borrow (and strategy-internal borrow) flows.
+//! Borrow and strategy-internal borrow flows.
 //!
-//! Borrow always uses `OraclePolicy::RiskIncreasing`. It is the primary
-//! path that can push an account into isolation mode and that mutates the
-//! global isolated-debt counters. The module therefore contains the
-//! special handling for `handle_isolated_debt` and the creation of
-//! strategy positions inside pools.
+//! Borrows use `OraclePolicy::RiskIncreasing`, update scaled debt shares, and
+//! increment isolated-debt counters when the account is isolated.
 
 use common::errors::{CollateralError, EModeError, GenericError};
 use common::types::{
@@ -40,7 +37,7 @@ impl Controller {
     }
 }
 
-// Strategy borrow path.
+/// Creates strategy debt in the pool and returns the asset amount received.
 pub fn handle_create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
@@ -91,15 +88,11 @@ pub fn handle_create_borrow_strategy(
     result.amount_received
 }
 
-/// Full borrow flow for an account: auth, oracle policy (risk-increasing),
-/// e-mode/config resolution, per-asset pool borrows, post-borrow health + dust
-/// validation, storage write, and batched position/market events.
+/// Borrows one or more assets after LTV pre-checks and final health validation.
 pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
-    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Stage 2: State Resolution
     let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
@@ -109,7 +102,6 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     // post-flight dust scope — operate on the deduped plan.
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
-    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     process_borrow_plan(
         env,
         caller,
@@ -119,7 +111,6 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
         &mut cache,
     );
 
-    // Stage 5: Post-flight Risk Gates
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust gate is scoped to the borrowed assets — borrow never mutates
     // supply positions and must not be blocked by pre-existing borrow or
@@ -131,7 +122,6 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
         &utils::plan_assets(env, &borrow_plan),
     );
 
-    // Stage 6: State Persistence
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
     cache.flush_isolated_debts();
     cache.emit_position_batch(account_id, &account);
@@ -151,7 +141,7 @@ pub fn process_borrow_plan(
 ) {
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
 
-    // Resolve effective asset configs.
+    // Reuse the same e-mode-adjusted config for validation and pool execution.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
     for (asset, _) in borrow_plan.iter() {
         let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
@@ -184,14 +174,8 @@ fn validate_borrow_asset_preflight(
     );
 }
 
-// Batch-borrow risk gate (first of two — the strategy-borrow path in
-// `handle_create_borrow_strategy` has its own checks and does not pass here).
-//   1. here — per-asset cumulative LTV against pre-borrow collateral
-//      (`validate_ltv_capacity`), so a borrow that would exceed LTV is
-//      rejected before any pool call.
-//   2. after `execute_borrow_plan`, in `borrow_batch` — final HF
-//      (`require_healthy_account`) against the post-borrow positions,
-//      catching any rounding the pre-check missed.
+// First borrow gate: cumulative LTV against pre-borrow collateral. The final
+// health-factor gate runs after pool calls and catches index/rounding effects.
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
@@ -345,7 +329,7 @@ fn record_borrow_update(
     update_or_remove_debt_position(account, asset, &update.position);
 }
 
-// Increments isolated-debt tracker and checks ceiling.
+/// Adds USD WAD debt to the isolated collateral tracker and checks its ceiling.
 pub fn handle_isolated_debt(
     env: &Env,
     cache: &mut ControllerCache,

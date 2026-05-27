@@ -5,10 +5,7 @@
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
-
-// ---------------------------------------------------------------------------
 // Rule 1: Flash-loan guard helper rejects calls when the flag is set
-// ---------------------------------------------------------------------------
 
 /// The helper is verified directly; controller paths that call it before
 /// mutating state inherit the same flash-loan exclusion property.
@@ -35,10 +32,7 @@ fn flash_loan_guard_allows_when_clear(e: Env) {
     // Reachable only when the guard returns.
     cvlr_satisfy!(true);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: Flash loan guard cleared after successful completion
-// ---------------------------------------------------------------------------
 
 /// After a successful flash loan (process_flash_loan returns without
 /// reverting), the FlashLoanOngoing guard must be reset to false.
@@ -116,10 +110,7 @@ fn flash_loan_guard_cleared_sanity(
     // for the post-state and the parent rule's PASS is vacuous.
     cvlr_satisfy!(!crate::storage::is_flash_loan_ongoing(&e));
 }
-
-// ---------------------------------------------------------------------------
 // Sanity
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn flash_loan_sanity(

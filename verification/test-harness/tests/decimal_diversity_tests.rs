@@ -13,10 +13,7 @@ use test_harness::presets::{
     MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, LIQUIDATOR,
 };
 use test_harness::{helpers::usd, LendingTest};
-
-// ---------------------------------------------------------------------------
 // Custom presets for diverse decimals.
-// ---------------------------------------------------------------------------
 
 fn usdc_6dec() -> MarketPreset {
     MarketPreset {
@@ -72,10 +69,7 @@ fn xlm_7dec() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-
-// ---------------------------------------------------------------------------
 // 1. Supply 6-decimal token, borrow 18-decimal token
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_6dec_borrow_18dec() {
@@ -101,10 +95,7 @@ fn test_supply_6dec_borrow_18dec() {
         hf
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. Supply 18-decimal token, borrow 6-decimal token
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_18dec_borrow_6dec() {
@@ -118,10 +109,7 @@ fn test_supply_18dec_borrow_6dec() {
     t.assert_borrow_near(ALICE, "USDC6", 5_000.0, 0.01);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 3. Supply 9-decimal token, borrow 8-decimal token
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_9dec_borrow_8dec() {
@@ -139,10 +127,7 @@ fn test_supply_9dec_borrow_8dec() {
     t.assert_borrow_near(ALICE, "WBTC8", 0.1, 0.0001);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 4. Four decimal types (6/8/9/18) in one account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_mixed_decimal_types_single_account() {
@@ -183,10 +168,7 @@ fn test_mixed_decimal_types_single_account() {
         total_debt
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. Tiny amounts with 18-decimal token (dust/underflow test)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_tiny_amounts_18dec() {
@@ -206,10 +188,7 @@ fn test_tiny_amounts_18dec() {
         supply
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. Large amounts with 6-decimal token (overflow test)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_large_amounts_6dec() {
@@ -227,10 +206,7 @@ fn test_large_amounts_6dec() {
     t.assert_borrow_near(ALICE, "DAI18", 200_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 7. Interest accrual preserves precision across decimals
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_accrual_mixed_decimals() {
@@ -267,10 +243,7 @@ fn test_interest_accrual_mixed_decimals() {
 
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 8. Repay with different decimal precision
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_cross_decimal() {
@@ -296,10 +269,7 @@ fn test_repay_cross_decimal() {
         remaining
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. Withdraw cross-decimal with HF check
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_cross_decimal_hf_check() {
@@ -317,10 +287,7 @@ fn test_withdraw_cross_decimal_hf_check() {
     t.assert_healthy(ALICE);
     t.assert_supply_near(ALICE, "USDC6", 7_000.0, 1.0);
 }
-
-// ---------------------------------------------------------------------------
 // 10. Liquidation across decimal boundaries (6-dec collateral, 18-dec debt)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_6dec_collateral_18dec_debt() {
@@ -355,10 +322,7 @@ fn test_liquidation_6dec_collateral_18dec_debt() {
         debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 11. Liquidation with 18-dec collateral, 6-dec debt
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_18dec_collateral_6dec_debt() {
@@ -383,10 +347,7 @@ fn test_liquidation_18dec_collateral_6dec_debt() {
     let debt_after = t.borrow_balance(ALICE, "USDC6");
     assert!(debt_after < 7_500.0, "Debt reduced, got {}", debt_after);
 }
-
-// ---------------------------------------------------------------------------
 // 12. Multi-user mixed decimals -- no cross-contamination
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multi_user_mixed_decimals() {
@@ -412,10 +373,7 @@ fn test_multi_user_mixed_decimals() {
     t.assert_supply_near(ALICE, "USDC6", 10_000.0, 1.0);
     t.assert_supply_near(BOB, "SOL9", 100.0, 0.1);
 }
-
-// ---------------------------------------------------------------------------
 // 13. 7-decimal low-value token (XLM at $0.10) -- many tokens, small USD value
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_low_value_high_quantity_7dec() {

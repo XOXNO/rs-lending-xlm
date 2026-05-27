@@ -6,10 +6,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
     BOB, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_create_normal_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_normal_account() {
@@ -23,10 +20,7 @@ fn test_create_normal_account() {
     assert_eq!(attrs.e_mode_category_id, 0);
     assert_eq!(attrs.mode, common::types::PositionMode::Normal);
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_create_emode_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_emode_account() {
@@ -45,10 +39,7 @@ fn test_create_emode_account() {
     assert_eq!(attrs.e_mode_category_id, 1);
     assert!(!attrs.is_isolated);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_create_isolated_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_isolated_account() {
@@ -68,10 +59,7 @@ fn test_create_isolated_account() {
     assert!(attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_create_account_full_custom
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_account_full_custom() {
@@ -86,10 +74,7 @@ fn test_create_account_full_custom() {
     assert!(!attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_remove_empty_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_remove_empty_account() {
@@ -107,10 +92,7 @@ fn test_remove_empty_account() {
         "account list should be empty after removal"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_remove_rejects_with_positions
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_remove_rejects_with_positions() {
@@ -124,10 +106,7 @@ fn test_remove_rejects_with_positions() {
         "remove should fail when account has positions"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_multiple_accounts_per_user
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiple_accounts_per_user() {
@@ -152,10 +131,7 @@ fn test_multiple_accounts_per_user() {
     let accounts = t.get_active_accounts(ALICE);
     assert!(accounts.len() >= 2, "should have at least 2 accounts");
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_account_auto_removed_after_full_repay_withdraw
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_account_auto_removed_after_full_repay_withdraw() {
@@ -181,10 +157,7 @@ fn test_account_auto_removed_after_full_repay_withdraw() {
         "account should be auto-removed when all positions empty"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_get_active_accounts
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_get_active_accounts() {
@@ -199,10 +172,7 @@ fn test_get_active_accounts() {
     let accounts_after = t.get_active_accounts(ALICE);
     assert_eq!(accounts_after.len(), 1);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_account_owner_verified
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_account_owner_verified() {

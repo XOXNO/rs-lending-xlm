@@ -4,9 +4,7 @@ use soroban_sdk::{Address, Symbol};
 use crate::context::LendingTest;
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Public accessors
-    // -----------------------------------------------------------------------
 
     /// Expose admin address for direct controller calls.
     pub fn admin(&self) -> Address {
@@ -17,10 +15,7 @@ impl LendingTest {
     pub fn controller_address(&self) -> Address {
         self.controller.clone()
     }
-
-    // -----------------------------------------------------------------------
     // Pause / Unpause
-    // -----------------------------------------------------------------------
 
     pub fn pause(&self) {
         self.ctrl_client().pause();
@@ -29,18 +24,12 @@ impl LendingTest {
     pub fn unpause(&self) {
         self.ctrl_client().unpause();
     }
-
-    // -----------------------------------------------------------------------
     // Accumulator / Aggregator
-    // -----------------------------------------------------------------------
 
     pub fn set_accumulator(&self, addr: &Address) {
         self.ctrl_client().set_accumulator(addr);
     }
-
-    // -----------------------------------------------------------------------
     // Asset config editing
-    // -----------------------------------------------------------------------
 
     /// Edit asset config at runtime via a closure that mutates the current config.
     pub fn edit_asset_config(
@@ -54,10 +43,7 @@ impl LendingTest {
         f(&mut config);
         ctrl.edit_asset_config(&asset, &config);
     }
-
-    // -----------------------------------------------------------------------
     // Position limits
-    // -----------------------------------------------------------------------
 
     pub fn set_position_limits(&self, max_supply: u32, max_borrow: u32) {
         let limits = common::types::PositionLimits {
@@ -66,10 +52,7 @@ impl LendingTest {
         };
         self.ctrl_client().set_position_limits(&limits);
     }
-
-    // -----------------------------------------------------------------------
     // Role management
-    // -----------------------------------------------------------------------
 
     pub fn grant_role(&self, user: &str, role: &str) {
         let addr = self.users.get(user).unwrap().address.clone();
@@ -88,20 +71,14 @@ impl LendingTest {
         self.ctrl_client()
             .has_role(&addr, &Symbol::new(&self.env, role))
     }
-
-    // -----------------------------------------------------------------------
     // Pool params upgrade
-    // -----------------------------------------------------------------------
 
     pub fn upgrade_pool_params(&self, asset_name: &str, params: InterestRateModel) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
             .upgrade_liquidity_pool_params(&asset, &params);
     }
-
-    // -----------------------------------------------------------------------
     // E-mode management
-    // -----------------------------------------------------------------------
 
     pub fn edit_e_mode_category(&self, category_id: u32, ltv: u32, threshold: u32, bonus: u32) {
         self.ctrl_client()

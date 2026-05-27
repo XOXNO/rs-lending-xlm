@@ -17,10 +17,7 @@ use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
     STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. E-mode threshold supersedes asset threshold for HF
-// ---------------------------------------------------------------------------
 
 // USDC asset threshold = 80 %. Stablecoin e-mode threshold = 98 %.
 // Position that is *liquidatable* in standard mode is still *healthy*
@@ -57,10 +54,7 @@ fn test_emode_threshold_supersedes_asset_threshold() {
     emode.set_price("USDC", usd_cents(93));
     emode.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 2. E-mode bonus consistency under deeper crashes
-// ---------------------------------------------------------------------------
 
 // Under a deep crash that triggers e-mode liquidation, the realized
 // bonus must stay bounded above by the e-mode max — far below the
@@ -107,10 +101,7 @@ fn test_emode_bonus_bounded_by_category_bonus() {
         realized_bonus
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Two-asset same-category collateral liquidation
-// ---------------------------------------------------------------------------
 
 // Position with collateral split across two e-mode assets (USDC + USDT)
 // and debt in USDT. Liquidation seizes USDC (the collateral side) and
@@ -160,10 +151,7 @@ fn test_emode_liquidation_with_split_collateral() {
         usdc_collat_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. Non-e-mode collateral cannot be added to e-mode account
-// ---------------------------------------------------------------------------
 
 // Pins that the e-mode supply gate rejects non-category assets even
 // after the position has been opened with category-allowed collateral.

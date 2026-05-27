@@ -135,8 +135,7 @@ pub(crate) fn read_twap(
     })
 }
 
-// TWAP fallback path (used when the primary spot feed is stale or degraded).
-// Returns the computed TWAP observation or falls back to the last known price.
+// Policy-controlled fallback when TWAP history is unavailable.
 fn twap_fallback_or_panic(
     cache: &ControllerCache,
     config: &ReflectorSourceConfig,

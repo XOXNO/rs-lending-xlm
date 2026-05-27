@@ -10,10 +10,7 @@ use common::constants::WAD;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
 };
-
-// ---------------------------------------------------------------------------
 // 1. Ceiling exact-at-limit accepted, +1 cent rejected
-// ---------------------------------------------------------------------------
 
 // The existing suite proves that a $6k borrow against a $5k ceiling
 // fails. This pins the *boundary*: a borrow exactly at the ceiling
@@ -49,10 +46,7 @@ fn test_isolated_ceiling_boundary_exact_then_overshoot() {
     let result = t.try_borrow(ALICE, "USDC", 1.0);
     assert_contract_error(result, errors::DEBT_CEILING_REACHED);
 }
-
-// ---------------------------------------------------------------------------
 // 2. Two isolated accounts on the same user are independent
-// ---------------------------------------------------------------------------
 
 // Pins that a user can hold two separate isolated accounts (one ETH,
 // one WBTC) and that the ceilings + debt trackers operate per-asset,
@@ -119,10 +113,7 @@ fn test_isolated_accounts_independent_across_assets() {
         wbtc_debt_usd
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Borrow at ceiling, partial repay, re-borrow up to ceiling
-// ---------------------------------------------------------------------------
 
 // Pins that the ceiling tracker decrements correctly on repay and that
 // the user can re-borrow up to the released headroom. Without correct

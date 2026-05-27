@@ -16,10 +16,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
         .map(|m| m.len())
         .unwrap_or(0)
 }
-
-// ---------------------------------------------------------------------------
 // Error code constants for assertions (from common/src/errors.rs)
-// ---------------------------------------------------------------------------
 
 pub mod errors {
     // GenericError
@@ -127,9 +124,7 @@ pub fn assert_contract_error<T: std::fmt::Debug>(
 }
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Health factor assertions
-    // -----------------------------------------------------------------------
 
     pub fn assert_healthy(&self, user: &str) {
         let hf = self.health_factor_raw(user);
@@ -173,10 +168,7 @@ impl LendingTest {
             actual
         );
     }
-
-    // -----------------------------------------------------------------------
     // Position assertions
-    // -----------------------------------------------------------------------
 
     pub fn assert_position_exists(&self, user: &str, asset_name: &str, pos_type: PositionType) {
         let account_id = self.resolve_account_id(user);
@@ -265,10 +257,7 @@ impl LendingTest {
             user, expected, count
         );
     }
-
-    // -----------------------------------------------------------------------
     // Balance assertions
-    // -----------------------------------------------------------------------
 
     pub fn assert_balance_eq(&self, user: &str, asset_name: &str, expected: f64) {
         let actual = self.token_balance(user, asset_name);
@@ -319,10 +308,7 @@ impl LendingTest {
             actual
         );
     }
-
-    // -----------------------------------------------------------------------
     // Pool assertions
-    // -----------------------------------------------------------------------
 
     pub fn assert_pool_has_liquidity(&self, asset_name: &str) {
         let reserves = self.pool_reserves(asset_name);

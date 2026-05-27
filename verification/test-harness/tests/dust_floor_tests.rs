@@ -16,10 +16,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
     LIQUIDATOR,
 };
-
-// ---------------------------------------------------------------------------
 // Open-time gate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_below_dust_floor_rejected() {
@@ -152,10 +149,7 @@ fn test_repay_not_blocked_by_price_crashed_other_borrow_position() {
         result
     );
 }
-
-// ---------------------------------------------------------------------------
 // Repay / withdraw partial-residue gates
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_partial_repay_leaving_dust_debt_rejected() {
@@ -201,10 +195,7 @@ fn test_withdraw_all_closes_position() {
     // `withdraw_all` is the closure helper — burns full position.
     t.withdraw_all(ALICE, "USDC");
 }
-
-// ---------------------------------------------------------------------------
 // Liquidation full-close-on-dust-residue
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_liquidation_expands_to_full_close_on_dust_residue() {

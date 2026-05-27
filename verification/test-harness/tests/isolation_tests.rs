@@ -7,10 +7,6 @@ use test_harness::{
     PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const ISOLATION_CEILING_WAD: i128 = 1_000_000 * WAD; // $1M in WAD
 
 fn setup_isolated() -> LendingTest {
@@ -30,10 +26,7 @@ fn setup_isolated() -> LendingTest {
         })
         .build()
 }
-
-// ---------------------------------------------------------------------------
 // 1. test_isolated_account_creation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_account_creation() {
@@ -44,10 +37,7 @@ fn test_isolated_account_creation() {
     let attrs = t.get_account_attributes(ALICE);
     assert!(attrs.is_isolated, "account should be isolated");
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_isolated_supply_single_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_supply_single_asset() {
@@ -62,10 +52,7 @@ fn test_isolated_supply_single_asset() {
         "ETH wallet should be ~0 after supply"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_isolated_rejects_second_collateral
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_rejects_second_collateral() {
@@ -77,10 +64,7 @@ fn test_isolated_rejects_second_collateral() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_isolated_borrow_enabled_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_borrow_enabled_asset() {
@@ -100,10 +84,7 @@ fn test_isolated_borrow_enabled_asset() {
     );
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_isolated_borrow_disabled_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_borrow_disabled_asset() {
@@ -115,10 +96,7 @@ fn test_isolated_borrow_disabled_asset() {
     let result = t.try_borrow(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_isolated_debt_ceiling_enforced
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_ceiling_enforced() {
@@ -143,10 +121,7 @@ fn test_isolated_debt_ceiling_enforced() {
     let result = t.try_borrow(ALICE, "USDC", 6_000.0);
     assert_contract_error(result, errors::DEBT_CEILING_REACHED);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_isolated_debt_decremented_on_repay
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_decremented_on_repay() {
@@ -168,10 +143,7 @@ fn test_isolated_debt_decremented_on_repay() {
         debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_isolated_debt_decremented_on_liquidation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_decremented_on_liquidation() {
@@ -196,10 +168,7 @@ fn test_isolated_debt_decremented_on_liquidation() {
         debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_isolated_rejects_emode
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_rejects_emode() {
@@ -222,10 +191,7 @@ fn test_isolated_rejects_emode() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_WITH_ISOLATED);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_isolated_rejects_swap_collateral
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_rejects_swap_collateral() {
@@ -238,10 +204,7 @@ fn test_isolated_rejects_swap_collateral() {
     // The contract panics with SwapCollateralNoIso (404) for isolated accounts.
     assert_contract_error(result, errors::SWAP_COLLATERAL_NO_ISO);
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_isolated_liquidation_works
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_liquidation_works() {
@@ -280,10 +243,7 @@ fn test_isolated_liquidation_works() {
     let liq_eth = t.token_balance(LIQUIDATOR, "ETH");
     assert!(liq_eth > 0.0, "liquidator should receive ETH collateral");
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_isolated_bad_debt_clears_isolated_tracker
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_bad_debt_clears_isolated_tracker() {

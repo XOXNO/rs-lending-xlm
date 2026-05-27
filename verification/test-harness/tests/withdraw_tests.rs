@@ -3,10 +3,7 @@ extern crate std;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, PositionType, ALICE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_withdraw_partial
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_partial() {
@@ -29,10 +26,7 @@ fn test_withdraw_partial() {
         wallet
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_withdraw_full_with_zero_amount
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_full_with_zero_amount() {
@@ -60,10 +54,7 @@ fn test_withdraw_full_with_zero_amount() {
         wallet
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_withdraw_multiple_assets
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_multiple_assets() {
@@ -85,10 +76,7 @@ fn test_withdraw_multiple_assets() {
     t.assert_balance_eq(ALICE, "USDC", 2_000.0);
     t.assert_balance_eq(ALICE, "ETH", 1.0);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_withdraw_rejects_position_not_found
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_rejects_position_not_found() {
@@ -104,10 +92,7 @@ fn test_withdraw_rejects_position_not_found() {
     let result = t.try_withdraw(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::POSITION_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_withdraw_rejects_exceeding_hf
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_rejects_exceeding_hf() {
@@ -126,10 +111,7 @@ fn test_withdraw_rejects_exceeding_hf() {
     let result = t.try_withdraw(ALICE, "USDC", 6_000.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_withdraw_allowed_without_borrows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_allowed_without_borrows() {
@@ -147,10 +129,7 @@ fn test_withdraw_allowed_without_borrows() {
     assert!(supply < 0.01, "supply should be ~0");
     t.assert_balance_eq(ALICE, "USDC", 10_000.0);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_withdraw_rejects_during_flash_loan
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_rejects_during_flash_loan() {
@@ -165,10 +144,7 @@ fn test_withdraw_rejects_during_flash_loan() {
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_withdraw_rejects_when_paused
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_rejects_when_paused() {
@@ -183,10 +159,7 @@ fn test_withdraw_rejects_when_paused() {
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_withdraw_removes_position_when_empty
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_removes_position_when_empty() {
@@ -206,10 +179,7 @@ fn test_withdraw_removes_position_when_empty() {
     t.assert_supply_count(ALICE, 1);
     t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_withdraw_cleans_up_empty_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_cleans_up_empty_account() {
@@ -230,10 +200,7 @@ fn test_withdraw_cleans_up_empty_account() {
         "account should be auto-removed when empty"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_withdraw_full_amount_returned
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_full_amount_returned() {
@@ -257,10 +224,7 @@ fn test_withdraw_full_amount_returned() {
         wallet_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_withdraw_raw_precision
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_raw_precision() {
@@ -284,10 +248,7 @@ fn test_withdraw_raw_precision() {
         remaining
     );
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_withdraw_rejects_when_above_ltv_but_hf_ok
-// ---------------------------------------------------------------------------
 //
 // Regression for the Slender C-1 class (see
 // `audit-research/STELLAR_AUDIT_FINDINGS.md` §4.4 and §2.1): borrow gates on
@@ -327,10 +288,7 @@ fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
     let result = t.try_withdraw(ALICE, "USDC", 1.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_withdraw_allowed_with_ltv_headroom
-// ---------------------------------------------------------------------------
 //
 // Positive companion to test 13: when the borrow is below the LTV ceiling, a
 // withdraw inside the headroom must succeed. Confirms the new LTV gate is

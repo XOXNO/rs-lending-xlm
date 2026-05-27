@@ -8,10 +8,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
     DEFAULT_TOLERANCE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_edit_asset_config
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_edit_asset_config() {
@@ -33,10 +30,7 @@ fn test_edit_asset_config() {
         "threshold should remain 8000"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_edit_asset_config_rejects_threshold_lte_ltv
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_edit_asset_config_rejects_threshold_lte_ltv() {
@@ -57,10 +51,7 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     };
     assert_contract_error(mapped, errors::INVALID_LIQ_THRESHOLD);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_set_position_limits
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_set_position_limits() {
@@ -118,10 +109,7 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
         ),
     }
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_pause_blocks_operations
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_pause_blocks_operations() {
@@ -143,10 +131,7 @@ fn test_pause_blocks_operations() {
     let borrow_result = t.try_borrow(ALICE, "ETH", 0.5);
     assert_contract_error(borrow_result, errors::CONTRACT_PAUSED);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_unpause_restores_operations
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_unpause_restores_operations() {
@@ -167,10 +152,7 @@ fn test_unpause_restores_operations() {
     let result = t.try_supply(ALICE, "USDC", 1000.0);
     assert!(result.is_ok(), "supply should work after unpause");
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_upgrade_pool_params
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_upgrade_pool_params() {
@@ -240,15 +222,12 @@ fn test_upgrade_liquidity_pool_params_alias() {
         rate_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6b. Regression: `max_borrow_rate_ray` cap (Taylor envelope)
 //
 // `validate_interest_rate_model` and `pool::update_params` reject any
 // `max_borrow_rate_ray > 2 * RAY` to keep `compound_interest`'s 8-term Taylor
 // approximation inside its documented `< 0.01 %` accuracy envelope. See
 // `architecture/MATH_REVIEW.md §0`.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
@@ -306,10 +285,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
         "borrow rate must remain readable after boundary upgrade",
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_configure_market_oracle
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_configure_market_oracle() {
@@ -340,10 +316,7 @@ fn test_configure_market_oracle() {
         "market should be Active after oracle config",
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_set_aggregator
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_set_aggregator() {
@@ -367,10 +340,7 @@ fn test_set_aggregator() {
     });
     assert_eq!(stored, new_aggregator, "aggregator must be persisted");
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_oracle_tolerance_validation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_oracle_tolerance_validation() {
@@ -387,10 +357,7 @@ fn test_oracle_tolerance_validation() {
     };
     assert_contract_error(mapped, errors::BAD_FIRST_TOLERANCE);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_grant_and_revoke_role
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_grant_and_revoke_role() {
@@ -416,10 +383,7 @@ fn test_grant_and_revoke_role() {
         "BOB should no longer have KEEPER role"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_role_enforcement_keeper
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_role_enforcement_keeper() {
@@ -439,10 +403,7 @@ fn test_role_enforcement_keeper() {
     };
     assert_contract_error(mapped, 2000);
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_role_enforcement_revenue
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_role_enforcement_revenue() {
@@ -463,10 +424,7 @@ fn test_role_enforcement_revenue() {
     };
     assert_contract_error(mapped, 2000);
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_role_enforcement_oracle
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_role_enforcement_oracle() {
@@ -496,10 +454,7 @@ fn test_role_enforcement_oracle() {
     };
     assert_contract_error(disable_result, 2000);
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_oracle_role_can_manage_oracle_endpoints
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_oracle_role_can_manage_oracle_endpoints() {
@@ -546,10 +501,7 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
         "disable_token_oracle must move market to Disabled (=2)",
     );
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_create_liquidity_pool_uniqueness
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_liquidity_pool_uniqueness() {
@@ -567,10 +519,7 @@ fn test_create_liquidity_pool_uniqueness() {
     };
     assert_contract_error(result, errors::ASSET_ALREADY_SUPPORTED);
 }
-
-// ---------------------------------------------------------------------------
 // 16. test_market_initialization_cascade
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_market_initialization_cascade() {

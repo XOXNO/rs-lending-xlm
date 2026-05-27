@@ -23,10 +23,6 @@ use common::rates::{
 };
 use common::types::MarketParams;
 
-// ---------------------------------------------------------------------------
-// Helper: build MarketParams from nondet values with valid-range assumptions
-// ---------------------------------------------------------------------------
-
 fn nondet_valid_params(e: &Env) -> MarketParams {
     let base_borrow_rate_ray: i128 = cvlr::nondet::nondet();
     let slope1_ray: i128 = cvlr::nondet::nondet();
@@ -82,10 +78,7 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
         asset_decimals,
     }
 }
-
-// ===========================================================================
 // Rule 1: Borrow rate at zero utilization equals base rate
-// ===========================================================================
 
 /// At 0% utilization, there is no slope contribution.
 /// The borrow rate must equal `base_borrow_rate / MILLISECONDS_PER_YEAR`
@@ -106,10 +99,7 @@ fn borrow_rate_zero_utilization(e: Env) {
 
     cvlr_assert!(rate.raw() == expected);
 }
-
-// ===========================================================================
 // Rule 2: Borrow rate is monotonically increasing with utilization
-// ===========================================================================
 
 /// For any two utilization values where util_a < util_b (both in [0, RAY]),
 /// the computed borrow rate must satisfy rate(util_a) <= rate(util_b).
@@ -187,10 +177,7 @@ fn borrow_rate_monotonic_in_region3(e: Env) {
 
     cvlr_assert!(rate_a <= rate_b);
 }
-
-// ===========================================================================
 // Rule 3: Borrow rate is capped at max_borrow_rate / MILLISECONDS_PER_YEAR
-// ===========================================================================
 
 /// For any utilization in [0, RAY], the borrow rate must never exceed
 /// `max_borrow_rate / MILLISECONDS_PER_YEAR`.
@@ -210,10 +197,7 @@ fn borrow_rate_capped(e: Env) {
     // Borrow rate must be non-negative (no negative interest)
     cvlr_assert!(rate.raw() >= 0);
 }
-
-// ===========================================================================
 // Rule 4: Borrow rate continuity at mid utilization boundary
-// ===========================================================================
 
 /// The rate at `mid - 1` (top of region 1) must be approximately equal to
 /// the rate at `mid` (bottom of region 2). No discontinuous jumps.
@@ -239,10 +223,7 @@ fn borrow_rate_continuity_at_mid(e: Env) {
     // Tolerance: 1 unit of the per-ms rate (rounding from integer division)
     cvlr_assert!(diff <= 1);
 }
-
-// ===========================================================================
 // Rule 5: Borrow rate continuity at optimal utilization boundary
-// ===========================================================================
 
 /// The rate at `optimal - 1` (top of region 2) must be approximately equal to
 /// the rate at `optimal` (bottom of region 3). No discontinuous jumps.
@@ -269,10 +250,7 @@ fn borrow_rate_continuity_at_optimal(e: Env) {
     // Tolerance: 1 unit of the per-ms rate (rounding from integer division)
     cvlr_assert!(diff <= 1);
 }
-
-// ===========================================================================
 // Rule 6: Deposit rate is zero when utilization is zero
-// ===========================================================================
 
 /// When utilization is 0, suppliers earn nothing regardless of borrow rate
 /// or reserve factor.
@@ -293,10 +271,7 @@ fn deposit_rate_zero_when_no_utilization(e: Env) {
 
     cvlr_assert!(rate == Ray::ZERO);
 }
-
-// ===========================================================================
 // Rule 7: Deposit rate is less than or equal to borrow rate * utilization
-// ===========================================================================
 
 /// The reserve factor takes a cut, so:
 ///   deposit_rate = util * borrow_rate * (1 - rf/BPS)
@@ -322,10 +297,7 @@ fn deposit_rate_less_than_borrow(e: Env) {
     // Allow +1 for half-up rounding tolerance
     cvlr_assert!(deposit_rate.raw() <= upper_bound + 1);
 }
-
-// ===========================================================================
 // Rule 8: Compound interest identity -- zero time yields RAY (1.0)
-// ===========================================================================
 
 /// When no time has elapsed (delta_ms == 0), the compound interest factor
 /// must be exactly RAY (1.0). No interest accrues in zero time.
@@ -338,10 +310,7 @@ fn compound_interest_identity(e: Env) {
 
     cvlr_assert!(factor == Ray::ONE);
 }
-
-// ===========================================================================
 // Rule 9: Compound interest is monotonically increasing in time
-// ===========================================================================
 
 /// For a fixed positive rate, compounding over a longer period must yield
 /// a factor at least as large as compounding over a shorter period.
@@ -364,10 +333,7 @@ fn compound_interest_monotonic_in_time(e: Env) {
 
     cvlr_assert!(factor2 >= factor1);
 }
-
-// ===========================================================================
 // Rule 10: Compound interest is monotonically increasing in rate
-// ===========================================================================
 
 /// For a fixed time period, a higher rate must produce a compound factor
 /// at least as large as a lower rate.
@@ -390,10 +356,7 @@ fn compound_interest_monotonic_in_rate(e: Env) {
 
     cvlr_assert!(factor2 >= factor1);
 }
-
-// ===========================================================================
 // Rule 11: Compound interest >= simple interest (e^x >= 1 + x)
-// ===========================================================================
 
 /// The Taylor expansion of e^x always exceeds the linear approximation
 /// `1 + x` for non-negative x, so compound interest never underestimates
@@ -424,10 +387,7 @@ fn compound_interest_ge_simple(e: Env) {
     // for tiny x.
     cvlr_assert!(factor.raw() >= simple - 2);
 }
-
-// ===========================================================================
 // Rule 12: Supplier rewards conservation -- no interest is lost
-// ===========================================================================
 
 /// The split of accrued interest into supplier rewards and protocol fee
 /// must be exact: `supplier_rewards + protocol_fee == accrued_interest`.
@@ -483,10 +443,7 @@ fn supplier_rewards_conservation(e: Env) {
     };
     cvlr_assert!(fee_diff <= 1);
 }
-
-// ===========================================================================
 // Rule 13: Borrow index update is monotonically increasing
-// ===========================================================================
 
 /// After applying a compound interest factor that is at least RAY, the updated
 /// borrow index must not decrease.
@@ -507,10 +464,7 @@ fn update_borrow_index_monotonic(e: Env) {
 
     cvlr_assert!(new_index.raw() >= old_index);
 }
-
-// ===========================================================================
 // Rule 14: Supply index update is monotonically increasing (non-bad-debt)
-// ===========================================================================
 
 /// When suppliers receive positive rewards (non-bad-debt path), the supply
 /// index must not decrease. It stays unchanged when rewards or supplied are zero.

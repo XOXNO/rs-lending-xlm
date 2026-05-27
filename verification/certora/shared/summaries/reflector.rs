@@ -19,10 +19,7 @@ use cvlr::nondet::{nondet, nondet_option};
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::oracle::providers::reflector::client::{ReflectorAsset, ReflectorPriceData};
-
-// ---------------------------------------------------------------------------
 // Bounds applied by the production staleness / sanity checks
-// ---------------------------------------------------------------------------
 
 /// Maximum clock skew tolerated by `crate::oracle::check_not_future`
 /// (60 seconds). Feed timestamps further in the future panic with
@@ -35,18 +32,12 @@ const MAX_CLOCK_SKEW_SECS: u64 = 60;
 /// every rule's read window (the largest production caller asks for the
 /// last few entries to compute a TWAP / median).
 const MAX_PRICES_LEN: u32 = 20;
-
-// ---------------------------------------------------------------------------
 // `base`
-// ---------------------------------------------------------------------------
 
 pub fn base_summary(env: &Env, _oracle: &Address) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "USD"))
 }
-
-// ---------------------------------------------------------------------------
 // `lastprice`
-// ---------------------------------------------------------------------------
 
 /// Summary for `ReflectorClient::lastprice`.
 ///
@@ -72,10 +63,7 @@ pub fn lastprice_summary(
         ReflectorPriceData { price, timestamp }
     })
 }
-
-// ---------------------------------------------------------------------------
 // `prices`
-// ---------------------------------------------------------------------------
 
 /// Summary for `ReflectorClient::prices`.
 ///

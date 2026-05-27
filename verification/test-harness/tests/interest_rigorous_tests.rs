@@ -2,8 +2,6 @@ extern crate std;
 
 use common::constants::RAY;
 use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL};
-
-// ===========================================================================
 // Rigorous interest tests: verify amounts, not just direction.
 //
 // The lending protocol's interest model:
@@ -15,12 +13,8 @@ use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALIC
 //
 // Key invariant:
 //   borrower_interest = supplier_interest + protocol_revenue
-// ===========================================================================
 
-// ---------------------------------------------------------------------------
-// Helper: read raw indexes from the pool.
-// ---------------------------------------------------------------------------
-
+/// Reads raw supply and borrow indexes from the controller's market view.
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
@@ -31,10 +25,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
         .unwrap();
     (idx.supply_index_ray, idx.borrow_index_ray)
 }
-
-// ---------------------------------------------------------------------------
 // 1. Verify borrow index matches compound interest formula
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_index_matches_compound_formula() {
@@ -70,10 +61,7 @@ fn test_borrow_index_matches_compound_formula() {
     // The index must rise strictly: compound interest > 0.
     assert!(bi_after > bi_before, "borrow index must increase");
 }
-
-// ---------------------------------------------------------------------------
 // 2. Verify supply index growth matches interest share
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_index_reflects_interest_minus_reserve_factor() {
@@ -120,10 +108,7 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
         bi_growth
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Accounting identity: borrower_interest = supplier_interest + protocol_revenue
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_accounting_identity() {
@@ -184,10 +169,7 @@ fn test_interest_accounting_identity() {
         borrower_interest, supplier_interest, protocol_revenue, ratio
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. Reserve factor split: protocol gets exactly reserve_factor% of interest
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_reserve_factor_exact_split() {
@@ -234,10 +216,7 @@ fn test_reserve_factor_exact_split() {
         supplier_share * 100.0
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. Index relationship: actual_amount = scaled_amount * index / RAY
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_scaled_amount_times_index_equals_actual() {
@@ -294,10 +273,7 @@ fn test_scaled_amount_times_index_equals_actual() {
         diff
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. 3-region rate curve verification with actual numbers
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rate_curve_three_regions() {
@@ -378,10 +354,7 @@ fn test_rate_curve_three_regions() {
         jump
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. Single sync vs multiple syncs produce similar results (Taylor approx)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_single_vs_multi_sync_taylor_accuracy() {
@@ -429,10 +402,7 @@ fn test_single_vs_multi_sync_taylor_accuracy() {
         interest_single, interest_multi, diff_pct
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. Supply index stays at 1.0 when no borrows (zero utilization)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_index_unchanged_without_borrows() {
@@ -457,10 +427,7 @@ fn test_supply_index_unchanged_without_borrows() {
         si_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. Multiple suppliers share interest proportionally
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiple_suppliers_share_proportionally() {
@@ -494,10 +461,7 @@ fn test_multiple_suppliers_share_proportionally() {
         ratio
     );
 }
-
-// ---------------------------------------------------------------------------
 // 10. Interest grows with time -- linear check at multiple points
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_interest_grows_with_time_checkpoints() {
@@ -553,10 +517,7 @@ fn test_interest_grows_with_time_checkpoints() {
         prev_interest
     );
 }
-
-// ---------------------------------------------------------------------------
 // 11. Pool solvency: supplied_value >= borrowed_value + revenue_value always
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_pool_solvency_invariant() {
@@ -606,10 +567,7 @@ fn test_pool_solvency_invariant() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
 // 12. Index values are accessible via pool.get_market_index and match expected
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_index_values_accessible_and_rational() {

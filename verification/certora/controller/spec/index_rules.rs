@@ -9,10 +9,7 @@ use soroban_sdk::{Address, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-
-// ---------------------------------------------------------------------------
 // Rule 1: Supply index never drops below the bad-debt floor
-// ---------------------------------------------------------------------------
 
 /// The supply index must always be >= `SUPPLY_INDEX_FLOOR_RAW`. The pool
 /// initialises the index at `RAY` and only ever decreases it via bad-debt
@@ -31,10 +28,7 @@ fn supply_index_above_floor(e: Env, asset: Address) {
 
     cvlr_assert!(cache_entry.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: Borrow index never drops below RAY (1.0)
-// ---------------------------------------------------------------------------
 
 /// The borrow index must always be >= RAY (10^27).
 /// A borrow index below 1.0 would mean debt shrinks over time without repayment.
@@ -48,10 +42,7 @@ fn borrow_index_gte_ray(e: Env, asset: Address) {
 
     cvlr_assert!(cache_entry.borrow_index_ray >= RAY);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: Borrow index monotonically increases after accrual
-// ---------------------------------------------------------------------------
 
 /// After interest accrual, the borrow index must not decrease.
 /// Violation would mean debt is being erased without repayment.
@@ -72,11 +63,8 @@ fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address,
 
     cvlr_assert!(borrow_after >= borrow_before);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: Supply index monotonically increases after accrual
 //         (except during bad debt socialization)
-// ---------------------------------------------------------------------------
 
 /// After interest accrual (non-bad-debt path), supply index must not decrease.
 #[rule]
@@ -93,10 +81,7 @@ fn supply_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address,
 
     cvlr_assert!(supply_after >= supply_before);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: Indexes unchanged when no time has elapsed
-// ---------------------------------------------------------------------------
 
 /// When delta_time == 0, compound_interest returns RAY (1.0), so both the
 /// borrow index and supply index must remain unchanged after an update.
@@ -130,10 +115,7 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     );
     cvlr_assert!(new_supply.raw() == old_supply_index);
 }
-
-// ---------------------------------------------------------------------------
 // Sanity
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn index_sanity(e: Env, asset: Address) {

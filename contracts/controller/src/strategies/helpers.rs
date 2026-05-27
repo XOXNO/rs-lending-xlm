@@ -1,33 +1,8 @@
-//! Shared strategy machinery: aggregator validation, balance-delta safety,
-//! and the small state machines used by the four strategy flows.
+//! Shared strategy helpers for aggregator swaps and balance-delta checks.
 //!
-//! The critical security property (ADR 0005) is that the controller never
-//! trusts any numbers returned by the router. Instead:
-//! - `validate_aggregator_swap` checks the shape of the `AggregatorSwap`
-//!   the user supplied.
-//! - `snapshot_swap_balances` records the controller's own token balances
-//!   of the exact in/out assets before the call.
-//! - After the router call returns, `verify_router_input_spend` and
-//!   `verify_router_output` compare the *observed deltas* against the
-//!   user-committed `amount_in` / `total_min_out`.
-//!
-//! The `aggregator` submodule only exists to host the `#[contractclient]`
-//! trait (the usual `#[allow(dead_code)]` pattern).
-//!
-//! All four concrete strategies live in their sibling files and delegate
-//! the heavy lifting (and the router call) to helpers in this module.
-//!
-//! The delta-safety machinery (`validate_aggregator_swap`, `snapshot_swap_balances`,
-//! `verify_router_input_spend`, `verify_router_output`, `swap_tokens`, and the
-//! aggregator client trait) is intentionally colocated so the "never trust
-//! the router" invariant (ADR 0005) remains obvious and auditable in one place.
-//!
-//! Exactly four entrypoints depend on this surface (multiply, swap_collateral,
-//! swap_debt, repay_debt_with_collateral). It has zero references inside any
-//! Certora harness or spec. Dedicated adversarial coverage exists in
-//! `strategy_bad_router_tests.rs` (BadAggregator Refund/OverPull/OutputShortfall)
-//! and `strategy_panic_coverage_tests.rs`. Any future refactoring must keep
-//! the four defense functions + the client trait together.
+//! Strategies never trust router-reported amounts. The controller validates the
+//! user-supplied route, snapshots token balances before the router call, and
+//! verifies input spend and output receipt from observed SAC balances.
 
 use common::errors::GenericError;
 use common::types::{
@@ -45,12 +20,11 @@ use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest};
 use crate::utils::EventContext;
 use crate::{positions::borrow, storage, utils, validation};
 
-// Router client.
 pub(crate) mod aggregator {
     use common::types::BatchSwap;
     use soroban_sdk::contractclient;
 
-    #[allow(dead_code)] // Required: trait exists only for the macro to generate the client proxy.
+    #[allow(dead_code)] // Generates the Soroban client proxy.
     #[contractclient(name = "AggregatorClient")]
     pub trait Aggregator {
         fn batch_execute(env: soroban_sdk::Env, batch: BatchSwap) -> i128;
@@ -196,7 +170,6 @@ pub(crate) fn swap_tokens(
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
-    // Validates swap commitment.
     validate_aggregator_swap(env, swap, token_in, token_out, amount_in);
 
     // Snapshot balances so `verify_router_output` can confirm the exact
@@ -242,7 +215,7 @@ pub(crate) fn swap_tokens(
     )
 }
 
-// Rejects batches that don't match strategy commitment.
+/// Rejects swap batches that do not match the strategy's committed assets and input.
 pub(crate) fn validate_aggregator_swap(
     env: &Env,
     swap: &AggregatorSwap,
@@ -306,8 +279,7 @@ pub(crate) fn snapshot_swap_balances(
     }
 }
 
-// Invokes the router under the flash-loan guard. Save+restore preserves
-// any pre-existing outer guard.
+/// Invokes the router while preserving any outer flash-loan guard.
 pub(crate) fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
@@ -321,7 +293,7 @@ pub(crate) fn call_router_with_reentrancy_guard(
     }
 }
 
-// Authorizes router token pull.
+/// Pre-authorizes the router to pull the strategy input token from the controller.
 pub(crate) fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
     let first_path = validation::expect_invariant(env, batch.paths.get(0));
     let first_hop = validation::expect_invariant(env, first_path.hops.get(0));
@@ -343,7 +315,7 @@ pub(crate) fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch
     env.authorize_as_current_contract(entries);
 }
 
-// Rejects overspend by router.
+/// Rejects router input-token spend above the controller's committed amount.
 pub(crate) fn verify_router_input_spend(
     env: &Env,
     token_in_client: &soroban_sdk::token::Client,

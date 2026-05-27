@@ -9,10 +9,7 @@ use soroban_sdk::Env;
 
 use common::constants::{RAY, WAD};
 use common::math::fp_core::{mul_div_half_up, mul_div_half_up_signed, rescale_half_up};
-
-// ---------------------------------------------------------------------------
 // Rule 1: mul_half_up is commutative -- mul_half_up(a, b, p) == mul_half_up(b, a, p)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn mul_half_up_commutative(e: Env) {
@@ -30,10 +27,7 @@ fn mul_half_up_commutative(e: Env) {
 
     cvlr_assert!(ab == ba);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: mul_half_up with zero -- mul_half_up(0, b, p) == 0 and mul_half_up(a, 0, p) == 0
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn mul_half_up_zero(e: Env) {
@@ -53,10 +47,7 @@ fn mul_half_up_zero(e: Env) {
     cvlr_assert!(zero_times_b == 0);
     cvlr_assert!(a_times_zero == 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: mul_half_up identity -- mul_half_up(a, RAY, RAY) == a (within +/-1)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn mul_half_up_identity(e: Env) {
@@ -74,10 +65,7 @@ fn mul_half_up_identity(e: Env) {
     // Exact equality since (a * RAY + HALF_RAY) / RAY = a when a >= 0
     cvlr_assert!(result == a);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: div_half_up is inverse of mul_half_up (within rounding tolerance)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn div_half_up_inverse(e: Env) {
@@ -98,10 +86,7 @@ fn div_half_up_inverse(e: Env) {
     // Two rounds of half-up rounding can introduce at most +/-1 each
     cvlr_assert!(recovered >= a - 2 && recovered <= a + 2);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: div_half_up with zero numerator -- div_half_up(0, b, RAY) == 0
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn div_half_up_zero_numerator(e: Env) {
@@ -116,10 +101,7 @@ fn div_half_up_zero_numerator(e: Env) {
 
     cvlr_assert!(result == 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 6: mul_half_up rounding direction -- never rounds below floor(a*b/p)
-// ---------------------------------------------------------------------------
 
 // Linear arithmetic property: result is no less than the mathematical floor of
 // `(a * b) / WAD`, captured by:
@@ -146,10 +128,7 @@ fn mul_half_up_rounding_direction(e: Env) {
     // a*b/WAD. Equivalently: result*WAD is at most (WAD - 1) below a*b.
     cvlr_assert!(result * WAD >= a * b - (WAD - 1));
 }
-
-// ---------------------------------------------------------------------------
 // Rule 7: div_half_up rounding direction -- rounds up when remainder >= b/2
-// ---------------------------------------------------------------------------
 
 // The two-sided linear envelope captures the half-up rounding contract:
 //
@@ -176,10 +155,7 @@ fn div_half_up_rounding_direction(e: Env) {
     cvlr_assert!(result * b >= a * WAD - (b - 1));
     cvlr_assert!(result * b <= a * WAD + b);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 8: rescale upscale is lossless -- rescale_half_up(x, 7, 18) * 10^(18-7) preserves value
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn rescale_upscale_lossless() {
@@ -197,10 +173,7 @@ fn rescale_upscale_lossless() {
     let factor = 10i128.pow(to - from);
     cvlr_assert!(upscaled == x * factor);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 9: rescale roundtrip -- rescale_half_up(rescale_half_up(x, 7, 18), 18, 7) approx x (within +/-1)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn rescale_roundtrip() {
@@ -221,10 +194,7 @@ fn rescale_roundtrip() {
     // So the roundtrip is exact for 7->18->7.
     cvlr_assert!(recovered == x);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 10: signed mul rounds away from zero for negative inputs
-// ---------------------------------------------------------------------------
 
 // Property: half-up signed rounding (away from zero) keeps `result * d`
 // within one full divisor `d` of the true product `a*b`. A one-sided bound
@@ -254,10 +224,7 @@ fn signed_mul_away_from_zero(e: Env) {
     cvlr_assert!(result * RAY >= a * b - RAY);
     cvlr_assert!(result * RAY <= a * b + RAY);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 11: I256 no overflow -- mul_half_up with max realistic values (RAY * RAY)
-// ---------------------------------------------------------------------------
 
 /// Verifies that mul_half_up with maximum realistic protocol values does not
 /// panic from I256-to-i128 conversion. The largest product in the protocol is
@@ -280,10 +247,7 @@ fn i256_no_overflow(e: Env) {
     cvlr_assert!(result >= 0);
     cvlr_assert!(result <= 100 * RAY + 1); // +1 for rounding
 }
-
-// ---------------------------------------------------------------------------
 // Rule 12: div_by_zero sanity -- div_half_up(a, 0, RAY) should be unreachable
-// ---------------------------------------------------------------------------
 
 /// Division by zero must cause a panic (Soroban I256 division by zero panics).
 /// This rule constrains the divisor to zero and attempts a division. If the

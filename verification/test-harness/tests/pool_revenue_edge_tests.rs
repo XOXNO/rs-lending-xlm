@@ -18,10 +18,7 @@ extern crate std;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
 };
-
-// ---------------------------------------------------------------------------
 // 1. add_rewards on a market drained back to zero suppliers
-// ---------------------------------------------------------------------------
 
 /// Re-triggers `NoSuppliersToReward` after a funded market is fully
 /// withdrawn. This exercises the zero-supply panic path after market activity,
@@ -46,10 +43,7 @@ fn test_add_rewards_rejects_after_full_withdrawal() {
     // crediting the reserve pot.
     t.add_rewards("USDC", 500.0);
 }
-
-// ---------------------------------------------------------------------------
 // 2. claim_revenue with revenue > 0 but reserves drained to exactly 0
-// ---------------------------------------------------------------------------
 
 /// Drives `claim_revenue` into the `else` branch where `amount_to_transfer`
 /// is zero because the pool's on-chain token balance has been borrowed away,
@@ -136,10 +130,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
         "reserves remain zero after a no-op claim"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. claim_revenue blocked when burning the last supply would leave debt
-// ---------------------------------------------------------------------------
 
 /// `burn_claimable_revenue` decrements both `cache.revenue` and
 /// `cache.supplied` by the revenue's scaled share. If the previous final

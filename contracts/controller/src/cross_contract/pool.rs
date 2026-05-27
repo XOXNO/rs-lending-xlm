@@ -1,9 +1,8 @@
-// Wrappers around LiquidityPool cross-contract ABI.
-//
-// The pool reasons only about scaled shares, so every wrapper takes a
-// `ScaledPositionRaw`. Callers convert their typed position (a collateral
-// `AccountPosition` or a `DebtPosition`) via the `From` impls; collateral risk
-// params never cross the wire.
+//! Liquidity pool ABI wrappers.
+//!
+//! Pool calls exchange `ScaledPositionRaw` only. Collateral risk parameters
+//! remain controller-owned and are merged back after the pool returns scaled
+//! supply or debt shares.
 
 use common::types::{
     AccountPositionType, InterestRateModel, MarketStateSnapshot, PoolAmountMutation,

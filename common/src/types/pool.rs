@@ -3,7 +3,10 @@ use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
-// Wire/storage form. Field names preserve the on-disk encoding.
+/// Persistent pool parameter encoding.
+///
+/// `*_ray` fields use 27-decimal RAY scale, `*_bps` fields use basis points,
+/// and `asset_decimals` is the SAC token decimal count used for conversions.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
@@ -51,7 +54,7 @@ impl MarketParamsRaw {
     }
 }
 
-// In-memory typed form. Used by every compute function.
+/// Typed pool parameters used by interest and cap math.
 #[derive(Clone, Debug)]
 pub struct MarketParams {
     pub max_borrow_rate: Ray,
@@ -168,8 +171,10 @@ impl InterestRateModel {
     }
 }
 
-// Wire/storage form. On-disk encoding: field-keyed map. Stored inside
-// `Map<Address, AccountPositionRaw>` and crossed on the controller↔pool wire.
+/// Persistent collateral position encoding.
+///
+/// `scaled_amount_ray` is a supply share, not current underlying balance.
+/// Risk fields are snapshotted by the controller for HF/LTV/liquidation math.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {
@@ -179,7 +184,7 @@ pub struct AccountPositionRaw {
     pub loan_to_value_bps: u32,
 }
 
-// In-memory typed form. Used by every compute path.
+/// Typed collateral position used by controller risk math.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
     pub scaled_amount: Ray,
@@ -210,10 +215,10 @@ impl From<&AccountPosition> for AccountPositionRaw {
     }
 }
 
-// Pool wire/return form. The pool reasons only about scaled shares; collateral
-// risk parameters live exclusively on the controller side. Every pool method
-// takes — and every pool mutation returns — this minimal shape so the pool ABI
-// is decoupled from the controller's per-side storage structs.
+/// Pool ABI position shape containing only scaled shares.
+///
+/// Collateral risk parameters stay on the controller and never cross the pool
+/// boundary.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScaledPositionRaw {
@@ -236,16 +241,16 @@ impl From<&DebtPosition> for ScaledPositionRaw {
     }
 }
 
-// Wire/storage form for debt positions. A borrow position carries only its
-// scaled share; the collateral risk params (threshold/bonus/ltv) are dead on
-// the debt side — HF math reads them from supply positions only.
+/// Persistent debt position encoding.
+///
+/// `scaled_amount_ray` is a borrow share, not current underlying debt.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DebtPositionRaw {
     pub scaled_amount_ray: i128,
 }
 
-// In-memory typed form for debt positions.
+/// Typed debt position used by borrow-index accounting.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DebtPosition {
     pub scaled_amount: Ray,
@@ -259,8 +264,7 @@ impl From<&DebtPositionRaw> for DebtPosition {
     }
 }
 
-// Pool returns the post-mutation scaled share; on the debt side that is the
-// whole position.
+// Pool returns the post-mutation scaled share, which is the full debt position.
 impl From<&ScaledPositionRaw> for DebtPosition {
     fn from(r: &ScaledPositionRaw) -> Self {
         Self {
@@ -277,8 +281,7 @@ impl From<&DebtPosition> for DebtPositionRaw {
     }
 }
 
-// Wire/storage form. Embedded in PoolPositionMutation / PoolStrategyMutation /
-// ControllerCache::market_indexes (Map values must be #[contracttype]).
+/// Borrow and supply indexes in RAY scale.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketIndexRaw {
@@ -286,7 +289,7 @@ pub struct MarketIndexRaw {
     pub supply_index_ray: i128,
 }
 
-// In-memory typed form. Used by every compute path.
+/// Typed borrow and supply indexes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MarketIndex {
     pub borrow_index: Ray,
@@ -314,14 +317,23 @@ impl From<&MarketIndex> for MarketIndexRaw {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketStateSnapshot {
+    /// Pool asset whose state was updated.
     pub asset: Address,
+    /// Millisecond timestamp used for the accrual checkpoint.
     pub timestamp: u64,
+    /// Supply index after accrual, in RAY.
     pub supply_index_ray: i128,
+    /// Borrow index after accrual, in RAY.
     pub borrow_index_ray: i128,
+    /// Live pool token balance in asset-native units despite the legacy suffix.
     pub reserves_ray: i128,
+    /// Total scaled supply shares.
     pub supplied_ray: i128,
+    /// Total scaled borrow shares.
     pub borrowed_ray: i128,
+    /// Scaled protocol revenue shares.
     pub revenue_ray: i128,
+    /// Optional USD WAD price used by the controller for this mutation.
     pub asset_price_wad: Option<i128>,
 }
 
@@ -365,7 +377,10 @@ pub enum PoolKey {
     State,
 }
 
-// Wire/storage form.
+/// Persistent pool accounting state.
+///
+/// Supply, borrow, and revenue totals are scaled shares; indexes convert them
+/// to current underlying amounts.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {
@@ -377,7 +392,7 @@ pub struct PoolStateRaw {
     pub last_timestamp: u64,
 }
 
-// In-memory typed form.
+/// Typed pool accounting state.
 #[derive(Clone, Debug)]
 pub struct PoolState {
     pub supplied: Ray,
@@ -532,8 +547,6 @@ mod tests {
         assert_eq!(back.supply_index_ray, raw.supply_index_ray);
         assert_eq!(back.last_timestamp, raw.last_timestamp);
     }
-
-    // ====================================================================
     // InterestRateModel::verify — boundary coverage.
     //
     // The slope-monotonicity guard (pool.rs ~127-130) and the
@@ -548,7 +561,6 @@ mod tests {
     // `assert_with_error!`, whose condition is a macro argument invisible
     // to cargo-mutants — structurally unkillable by mutation, so they are
     // not targeted here.
-    // ====================================================================
 
     fn valid_rate_model() -> InterestRateModel {
         InterestRateModel {

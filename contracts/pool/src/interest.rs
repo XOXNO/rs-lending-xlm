@@ -13,7 +13,7 @@ use crate::cache::Cache;
 /// within this horizon.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
-// Accrues interest from last_timestamp to current_timestamp.
+/// Accrues interest from the last pool timestamp to the current ledger timestamp.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
     let total_delta_ms = cache.current_timestamp.saturating_sub(cache.last_timestamp);
 
@@ -55,7 +55,7 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
-// Accrues a RAY-denominated fee to protocol revenue.
+/// Adds a RAY-denominated fee as scaled protocol revenue.
 pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if fee == Ray::ZERO {
         return;
@@ -72,7 +72,7 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     cache.supplied += fee_scaled;
 }
 
-// Socializes uncollectable debt by reducing the supply index.
+/// Socializes uncollectable debt by reducing the supply index.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 
@@ -98,10 +98,6 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
         new_supply_index
     };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

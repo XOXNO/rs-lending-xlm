@@ -73,13 +73,16 @@ impl From<OracleStrategy> for EventPricingMethod {
     }
 }
 
-// Position snapshot.
+/// Position snapshot emitted in account update events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountPosition {
+    /// Supply or borrow side for this position.
     pub position_type: EventAccountPositionType,
     pub asset_id: Address,
+    /// Scaled supply or debt shares, not current underlying amount.
     pub scaled_amount_ray: i128,
+    /// Account id associated with this position.
     pub account_nonce: u64,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
@@ -87,7 +90,6 @@ pub struct EventAccountPosition {
 }
 
 impl EventAccountPosition {
-    // Creates event payload.
     pub fn new(
         side: AccountPositionType,
         asset: Address,
@@ -106,14 +108,18 @@ impl EventAccountPosition {
     }
 }
 
-// Account attributes snapshot.
+/// Account attributes attached to position batch events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventAccountAttributes {
+    /// Account owner at the time the event is emitted.
     pub owner: Address,
+    /// True when the account is bound to a single isolated collateral asset.
     pub is_isolated_position: bool,
+    /// E-mode category id; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: EventPositionMode,
+    /// Isolated collateral asset when `is_isolated_position` is true.
     pub isolated_token: Option<Address>,
 }
 
@@ -318,6 +324,7 @@ pub struct UpdateMarketParamsEvent {
 #[contractevent(topics = ["market", "batch_state_update"])]
 #[derive(Clone, Debug)]
 pub struct UpdateMarketStateBatchEvent {
+    /// Pool accrual and accounting snapshots emitted after a successful batch.
     pub updates: Vec<crate::types::MarketStateSnapshot>,
 }
 
@@ -328,9 +335,13 @@ pub struct EventPositionDelta {
     pub action: Symbol,
     pub position_type: AccountPositionType,
     pub asset: Address,
+    /// Post-mutation scaled supply or debt shares.
     pub scaled_amount_ray: i128,
+    /// Supply index for deposits, borrow index for debts, in RAY.
     pub index_ray: i128,
+    /// Asset-native amount applied by the pool for this mutation.
     pub amount: i128,
+    /// USD WAD price used for this mutation when available.
     pub asset_price_wad: Option<i128>,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
@@ -362,10 +373,10 @@ impl EventPositionDelta {
         }
     }
 
-    // Debt-position delta. Debt positions carry no collateral risk params, so
-    // the risk fields are zeroed. CONSUMERS MUST gate interpretation of the
-    // risk fields on `position_type == Borrow` (a zero here means "N/A", not a
-    // configured 0% value).
+    /// Creates a debt-position delta with collateral risk fields set to zero.
+    ///
+    /// Consumers must treat those risk fields as not applicable for borrow
+    /// positions, not as configured 0% risk values.
     pub fn new_debt(
         action: Symbol,
         asset: Address,
@@ -392,8 +403,10 @@ impl EventPositionDelta {
 #[contractevent(topics = ["position", "batch_update"])]
 #[derive(Clone, Debug)]
 pub struct UpdatePositionBatchEvent {
+    /// Account whose positions changed.
     pub account_id: u64,
     pub account_attributes: EventAccountAttributes,
+    /// Net position deltas recorded during the successful transaction.
     pub updates: Vec<EventPositionDelta>,
 }
 
@@ -421,7 +434,7 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-// E-mode category snapshot.
+/// E-mode category snapshot emitted after category changes.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventEModeCategory {
@@ -469,6 +482,7 @@ pub struct RemoveEModeAssetEvent {
 #[derive(Clone, Debug)]
 pub struct UpdateDebtCeilingEvent {
     pub asset: Address,
+    /// Total isolated debt against `asset`, in USD WAD.
     pub total_debt_usd_wad: i128,
 }
 
@@ -476,12 +490,14 @@ pub struct UpdateDebtCeilingEvent {
 #[derive(Clone, Debug)]
 pub struct EventDebtCeilingEntry {
     pub asset: Address,
+    /// Total isolated debt against `asset`, in USD WAD.
     pub total_debt_usd_wad: i128,
 }
 
 #[contractevent(topics = ["debt", "ceiling_batch_update"])]
 #[derive(Clone, Debug)]
 pub struct UpdateDebtCeilingBatchEvent {
+    /// Final isolated-debt totals for assets touched in the transaction.
     pub updates: Vec<EventDebtCeilingEntry>,
 }
 
@@ -489,7 +505,9 @@ pub struct UpdateDebtCeilingBatchEvent {
 #[derive(Clone, Debug)]
 pub struct CleanBadDebtEvent {
     pub account_id: u64,
+    /// Debt written off by cleanup, in USD WAD.
     pub total_borrow_usd_wad: i128,
+    /// Collateral seized by cleanup, in USD WAD.
     pub total_collateral_usd_wad: i128,
 }
 

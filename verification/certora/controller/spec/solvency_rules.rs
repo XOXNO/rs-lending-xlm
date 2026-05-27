@@ -9,14 +9,8 @@ use soroban_sdk::{Address, Env, Map, Vec};
 
 use common::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
 use common::math::fp::{Ray, Wad};
-
-// ===========================================================================
 // Solvency Rules
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md Sec.12)
-// ---------------------------------------------------------------------------
 
 /// Claimed revenue must never exceed the pool's pre-call token reserves.
 /// Pool-side `claim_revenue` caps the transfer at `min(reserves, treasury_actual)`
@@ -36,10 +30,7 @@ fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
 
     cvlr_assert!(claimed <= pre_reserves);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3c: Utilization is zero when supplied_ray is zero  (INVARIANTS.md Sec.8)
-// ---------------------------------------------------------------------------
 
 /// Empty-market convention: if `state.supplied_ray == 0`, then
 /// `capital_utilisation() == 0`. Guards against divide-by-zero and pins
@@ -59,10 +50,7 @@ fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
 
     cvlr_assert!(pool_client.capital_utilisation() == 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3d: Isolation debt stays non-negative across repay  (INVARIANTS.md Sec.11)
-// ---------------------------------------------------------------------------
 
 /// `adjust_isolated_debt_usd` (controller/src/utils.rs:61-92) clamps at zero
 /// and applies a sub-$1 dust erasure. Given a non-negative pre-state, the
@@ -82,10 +70,7 @@ fn isolation_debt_never_negative_after_repay(
 
     cvlr_assert!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3e: Borrow respects pool reserves  (INVARIANTS.md Sec.13)
-// ---------------------------------------------------------------------------
 
 /// A successful borrow requires `pre_reserves >= amount`. The pool enforces
 /// this via `has_reserves(amount)` (`pool/src/lib.rs:139`); if the guard
@@ -106,10 +91,7 @@ fn borrow_respects_reserves(e: Env, caller: Address, asset: Address, amount: i12
     // If the borrow did not revert, reserves must have covered the amount.
     cvlr_assert!(pre_reserves >= amount);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3f: LTV borrow bound enforced (math-anchored)
-// ---------------------------------------------------------------------------
 
 /// After any successful borrow, the account's total debt (USD WAD) must not
 /// exceed its LTV-weighted collateral. Computed inline against the
@@ -161,10 +143,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
 
     cvlr_assert!(total_debt.raw() <= ltv_collateral.raw());
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3g: Supply index stays above floor across supply  (INVARIANTS.md Sec.7)
-// ---------------------------------------------------------------------------
 
 /// Bad-debt socialization clamps supply_index at `SUPPLY_INDEX_FLOOR_RAW`
 /// (`pool/src/interest.rs:14`). Outside that path the index only grows.
@@ -186,10 +165,7 @@ fn supply_index_above_floor_after_supply(e: Env, caller: Address, asset: Address
     let post = pool_client.get_sync_data();
     cvlr_assert!(post.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3h: Supply index does not decrease across borrow  (INVARIANTS.md Sec.7)
-// ---------------------------------------------------------------------------
 
 /// The only sanctioned path that decreases `supply_index` is
 /// `apply_bad_debt_to_supply_index`, invoked exclusively from
@@ -211,10 +187,7 @@ fn supply_index_monotonic_across_borrow(e: Env, caller: Address, asset: Address,
     let post = pool_client.get_sync_data();
     cvlr_assert!(post.state.supply_index_ray >= pre.state.supply_index_ray);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 14: Supply index grows slower than borrow index
-// ---------------------------------------------------------------------------
 
 /// When both indexes grow due to interest accrual, the supply index growth
 /// must be <= borrow index growth. The difference is the reserve factor cut.
@@ -257,14 +230,8 @@ fn supply_index_grows_slower(
     // Supply growth must not exceed borrow growth (reserve factor takes a cut)
     cvlr_assert!(supply_growth <= borrow_growth);
 }
-
-// ===========================================================================
 // Zero/Negative Amount Reverts
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 4: Supply rejects zero amount
-// ---------------------------------------------------------------------------
 
 /// Controller::supply with amount=0 must revert. The validation layer calls
 /// `require_amount_positive` which panics on amount <= 0.
@@ -285,10 +252,7 @@ fn supply_rejects_zero_amount(e: Env, caller: Address, e_mode_category: u32) {
     // If execution reaches here, zero-amount supply was accepted -- violation.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: Borrow rejects zero amount
-// ---------------------------------------------------------------------------
 
 /// Controller::borrow with amount=0 must revert.
 #[rule]
@@ -305,17 +269,11 @@ fn borrow_rejects_zero_amount(e: Env, caller: Address) {
     // If execution reaches here, zero-amount borrow was accepted -- violation.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 6: DELETED -- withdraw_rejects_zero_amount asserted a false invariant.
 // Production (`controller/src/positions/withdraw.rs:96`) treats `amount == 0`
 // as the documented `WITHDRAW_ALL_SENTINEL` (full-close) sentinel, not as a
 // rejection. The rule expected a revert that never happens.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 7: Repay rejects zero amount
-// ---------------------------------------------------------------------------
 
 /// Controller::repay with amount=0 must revert.
 #[rule]
@@ -332,14 +290,8 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
     // If execution reaches here, zero-amount repay was accepted -- violation.
     cvlr_satisfy!(false);
 }
-
-// ===========================================================================
 // Position Count Limits
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Rule 8: Supply position limit enforced
-// ---------------------------------------------------------------------------
 
 /// After an account has reached `max_supply_positions`, attempting to supply
 /// a NEW (not already held) asset must revert.
@@ -392,10 +344,7 @@ fn supply_position_limit_enforced(
     // If execution reaches here, position limit was not enforced -- violation.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 9: Borrow position limit enforced
-// ---------------------------------------------------------------------------
 
 /// After an account has reached `max_borrow_positions`, attempting to borrow
 /// a NEW asset must revert. Same loop-bounding strategy as Rule 8.
@@ -431,10 +380,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     // If execution reaches here, position limit was not enforced -- violation.
     cvlr_satisfy!(false);
 }
-
-// ===========================================================================
 // Sanity rules -- verify rules are reachable
-// ===========================================================================
 
 #[rule]
 fn solvency_sanity_supply(
@@ -471,18 +417,9 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
     crate::Controller::repay(e, caller, account_id, payments);
     cvlr_satisfy!(true);
 }
-
-// ===========================================================================
 // Attack Vector Defense Rules
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // Attack 1: Index Stale-Snapshot Arbitrage
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 15: index_cache_single_snapshot
-// ---------------------------------------------------------------------------
 
 /// `ControllerCache` stores market indexes per transaction. Repeated calls to
 /// `cached_market_index(asset)` for the same asset must return the same
@@ -502,14 +439,8 @@ fn index_cache_single_snapshot(e: Env, asset: Address) {
     cvlr_assert!(index1.supply_index_ray == index2.supply_index_ray);
     cvlr_assert!(index1.borrow_index_ray == index2.borrow_index_ray);
 }
-
-// ---------------------------------------------------------------------------
 // Attack 2: Rounding Dust Extraction
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 16: supply_withdraw_roundtrip_no_profit
-// ---------------------------------------------------------------------------
 
 /// Repeated tiny supply/withdraw must not extract meaningful dust. After a
 /// supply of amount X, converting to scaled and back to original must
@@ -547,10 +478,7 @@ fn supply_withdraw_roundtrip_no_profit(e: Env) {
     // The +1 tolerance accounts for half-up rounding on both div and mul.
     cvlr_assert!(recovered <= amount + 1);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 17: borrow_repay_roundtrip_no_profit
-// ---------------------------------------------------------------------------
 
 /// Repeated tiny borrow/repay must not reduce debt meaningfully via
 /// rounding. After a borrow of amount X, converting to scaled_debt and
@@ -586,14 +514,8 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
     // Debt owed must be >= original borrow minus rounding dust (at most 1 unit)
     cvlr_assert!(debt_owed >= amount - 1);
 }
-
-// ---------------------------------------------------------------------------
 // Attack 3: Oracle Band Consistency
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 18: price_cache_invalidation_after_swap
-// ---------------------------------------------------------------------------
 
 /// After `clean_prices_cache()`, the cache must be empty. A subsequent
 /// price lookup fetches fresh data rather than returning a stale value.
@@ -628,14 +550,8 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
     let cached_repopulated = cache.prices_cache.get(asset.clone());
     cvlr_assert!(cached_repopulated.is_some());
 }
-
-// ---------------------------------------------------------------------------
 // Attack 4: E-Mode/Isolation Transition
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 19: mode_transition_blocked_with_positions
-// ---------------------------------------------------------------------------
 
 /// An account with existing borrow positions cannot change its e_mode_category
 /// or is_isolated flag. The protocol enforces this by blocking borrow/supply
@@ -683,14 +599,8 @@ fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Addres
     // If execution reaches here, the mode transition was allowed -- violation.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Attack 5: Taylor Overflow at Extreme Inputs
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 20: compound_interest_bounded_output
-// ---------------------------------------------------------------------------
 
 /// For any valid rate (<= max_borrow_rate / MILLISECONDS_PER_YEAR) and
 /// time (<= MILLISECONDS_PER_YEAR), the compound interest factor must be
@@ -720,10 +630,7 @@ fn compound_interest_bounded_output(e: Env) {
     let upper_bound = 100_000 * RAY; // 10,000,000% -- generous upper bound
     cvlr_assert!(factor.raw() < upper_bound);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 21: compound_interest_no_wrap
-// ---------------------------------------------------------------------------
 
 /// The compound interest factor must be >= RAY for any non-negative rate
 /// and non-negative time. The Taylor expansion is: RAY + x + x^2/2 + ...
@@ -750,10 +657,7 @@ fn compound_interest_no_wrap(e: Env) {
     // and adds only non-negative terms. A value < RAY indicates overflow/wrap.
     cvlr_assert!(factor.raw() >= RAY);
 }
-
-// ===========================================================================
 // Sanity rules for attack vector defenses
-// ===========================================================================
 
 #[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {

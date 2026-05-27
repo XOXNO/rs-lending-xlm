@@ -159,7 +159,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .to_asset(feed.asset_decimals)
 }
 
-// Returns supply and borrow position maps.
+/// Returns raw scaled supply and debt maps for `account_id`.
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,

@@ -5,11 +5,7 @@ use common::types::AggregatorSwap;
 use soroban_sdk::Vec;
 use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
-// ---------------------------------------------------------------------------
-// Helper: build SwapSteps with a single hop that yields `min_amount_out` from
-// the mock swap router.
-// ---------------------------------------------------------------------------
-
+/// Placeholder swap that should only be used by tests failing before router execution.
 fn build_swap_steps(
     t: &LendingTest,
     _token_in: &str,
@@ -26,10 +22,7 @@ fn build_swap_steps(
         total_min_out: min_out,
     }
 }
-
-// ---------------------------------------------------------------------------
 // 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiply_rejects_non_borrowable_debt() {
@@ -54,10 +47,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
     );
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_multiply_rejects_non_collateralizable -- asserts NOT_COLLATERAL
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiply_rejects_non_collateralizable() {
@@ -80,10 +70,7 @@ fn test_multiply_rejects_non_collateralizable() {
     );
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_multiply_rejects_during_flash_loan -- asserts FLASH_LOAN_ONGOING
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiply_rejects_during_flash_loan() {
@@ -106,10 +93,7 @@ fn test_multiply_rejects_during_flash_loan() {
     );
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_swap_collateral_rejects_isolated -- asserts SWAP_COLLATERAL_NO_ISO
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_swap_collateral_rejects_isolated() {
@@ -131,10 +115,7 @@ fn test_swap_collateral_rejects_isolated() {
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::SWAP_COLLATERAL_NO_ISO);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_multiply_rejects_isolated_debt_ceiling_breach
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_multiply_rejects_isolated_debt_ceiling_breach() {

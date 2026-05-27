@@ -12,10 +12,7 @@ use common::constants::RAY;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
 };
-
-// ---------------------------------------------------------------------------
 // Borrow gate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_above_max_utilization_rejected() {
@@ -95,10 +92,7 @@ fn test_max_utilization_uses_index_aware_ratio() {
     let result = t.try_borrow(BOB, "USDC", 1.0);
     assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
 }
-
-// ---------------------------------------------------------------------------
 // Withdraw gate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_withdraw_pushing_above_max_utilization_rejected() {
@@ -119,10 +113,7 @@ fn test_withdraw_pushing_above_max_utilization_rejected() {
     let res = t.try_withdraw(ALICE, "USDC", 200.0);
     assert_contract_error(res, errors::UTILIZATION_ABOVE_MAX);
 }
-
-// ---------------------------------------------------------------------------
 // Zero-supply bypass regression
-// ---------------------------------------------------------------------------
 //
 // `require_utilization_below_max` previously short-circuited when
 // `cache.supplied == 0`, assuming accounting invariants made
@@ -174,10 +165,7 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
     };
     assert_contract_error(result, errors::POOL_INSOLVENT);
 }
-
-// ---------------------------------------------------------------------------
 // Admin-time validation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_update_params_rejects_max_below_optimal() {

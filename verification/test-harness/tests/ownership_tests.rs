@@ -19,10 +19,7 @@ fn fresh() -> LendingTest {
     let _ = t.get_or_create_user(BOB);
     t
 }
-
-// ---------------------------------------------------------------------------
 // transfer_ownership / accept_ownership — two-phase ownership transfer
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_transfer_and_accept_ownership_completes() {
@@ -86,10 +83,7 @@ fn test_transfer_ownership_to_self_keeps_roles() {
     let keeper = Symbol::new(&t.env, "KEEPER");
     assert!(ctrl.has_role(&admin, &keeper));
 }
-
-// ---------------------------------------------------------------------------
 // grant_role / revoke_role — owner-gated
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_grant_role_then_revoke_round_trip() {
@@ -111,10 +105,7 @@ fn test_has_role_false_for_unknown_address() {
     let keeper = Symbol::new(&t.env, "KEEPER");
     assert!(!t.ctrl_client().has_role(&stranger, &keeper));
 }
-
-// ---------------------------------------------------------------------------
 // pause / unpause — owner-gated
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_pause_unpause_round_trip() {
@@ -124,10 +115,7 @@ fn test_pause_unpause_round_trip() {
     t.pause();
     t.unpause();
 }
-
-// ---------------------------------------------------------------------------
 // app_version + migrate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_app_version_defaults_to_initial() {

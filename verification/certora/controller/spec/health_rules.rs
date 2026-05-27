@@ -74,10 +74,7 @@ fn inline_weighted_collateral_wad(
     }
     weighted
 }
-
-// ---------------------------------------------------------------------------
 // Rule 1: Health-factor safety after borrow (math-anchored)
-// ---------------------------------------------------------------------------
 
 /// After any successful borrow, the borrower's liquidation-threshold-weighted
 /// collateral must cover the total debt. Computed inline against the
@@ -105,10 +102,7 @@ fn hf_safe_after_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     // Safety: weighted collateral covers total debt.
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: Health-factor safety after withdraw (math-anchored)
-// ---------------------------------------------------------------------------
 
 /// After any successful withdraw, the withdrawer's weighted collateral must
 /// still cover total debt. Same math-anchored approach as Rule 1.
@@ -130,10 +124,7 @@ fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128)
 
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: Liquidation requires unhealthy account (math-anchored)
-// ---------------------------------------------------------------------------
 
 /// Liquidation must only be possible when the account is unhealthy
 /// (`weighted_collateral < total_debt`). The pre-state safety condition is
@@ -169,10 +160,7 @@ fn liquidation_requires_unhealthy_account(
     // Reaching this line means liquidation succeeded on a healthy account.
     cvlr_satisfy!(false);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: Supply preserves the safety inequality (math-anchored)
-// ---------------------------------------------------------------------------
 
 /// Supplying additional collateral must preserve the
 /// `weighted_collateral >= total_debt` safety inequality if it held before.
@@ -204,10 +192,7 @@ fn supply_cannot_decrease_hf(e: Env, caller: Address, asset: Address, amount: i1
     // with the pre-state safety inequality, the post-state remains safe.
     cvlr_assert!(post_weighted.raw() >= post_debt.raw());
 }
-
-// ---------------------------------------------------------------------------
 // Sanity rules (reachability checks -- ensures rules aren't vacuously true)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn hf_borrow_sanity(e: Env, caller: Address, asset: Address, amount: i128) {

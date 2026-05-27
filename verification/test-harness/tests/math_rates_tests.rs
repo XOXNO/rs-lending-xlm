@@ -7,14 +7,8 @@ use common::math::fp_core::{
 };
 use common::rates::*;
 use soroban_sdk::Env;
-
-// ===========================================================================
 // Math edge cases
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
 // 1. test_rescale_same_decimals
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rescale_same_decimals() {
@@ -22,10 +16,7 @@ fn test_rescale_same_decimals() {
     assert_eq!(rescale_half_up(0, 18, 18), 0);
     assert_eq!(rescale_half_up(-100, 6, 6), -100);
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_rescale_upscale
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rescale_upscale() {
@@ -33,10 +24,7 @@ fn test_rescale_upscale() {
     let result = rescale_half_up(100, 7, 18);
     assert_eq!(result, 100 * 100_000_000_000i128);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_rescale_downscale_half_up
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rescale_downscale_half_up() {
@@ -49,10 +37,7 @@ fn test_rescale_downscale_half_up() {
     let result = rescale_half_up(1_449_999_999_999i128, 18, 7);
     assert_eq!(result, 14);
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_mul_div_half_up_zero
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_mul_div_half_up_zero() {
@@ -61,10 +46,7 @@ fn test_mul_div_half_up_zero() {
     assert_eq!(mul_div_half_up(&env, RAY, 0, RAY), 0);
     assert_eq!(mul_div_half_up(&env, 0, 0, RAY), 0);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_mul_div_half_up_precision_boundary
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_mul_div_half_up_precision_boundary() {
@@ -77,10 +59,7 @@ fn test_mul_div_half_up_precision_boundary() {
     let result = mul_div_half_up(&env, 1, WAD / 2, WAD);
     assert_eq!(result, 1);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_div_half_up_exact
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_div_half_up_exact() {
@@ -89,10 +68,7 @@ fn test_div_half_up_exact() {
     let result = mul_div_half_up(&env, 10 * WAD, WAD, 2 * WAD);
     assert_eq!(result, 5 * WAD);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_div_half_up_rounds_up
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_div_half_up_rounds_up() {
@@ -101,10 +77,7 @@ fn test_div_half_up_rounds_up() {
     let result = mul_div_half_up(&env, 2 * WAD, WAD, 3 * WAD);
     assert_eq!(result, 666_666_666_666_666_667);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_mul_half_up_signed_negative
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_mul_half_up_signed_negative() {
@@ -117,10 +90,7 @@ fn test_mul_half_up_signed_negative() {
     let result = mul_div_half_up_signed(&env, -1, WAD / 2, WAD);
     assert_eq!(result, -1);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_div_half_up_signed_negative
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_div_half_up_signed_negative() {
@@ -134,10 +104,7 @@ fn test_div_half_up_signed_negative() {
     let result = mul_div_half_up_signed(&env, -WAD, WAD, 3 * WAD);
     assert_eq!(result, -333_333_333_333_333_333);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_div_by_int_half_up
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_div_by_int_half_up() {
@@ -148,10 +115,7 @@ fn test_div_by_int_half_up() {
     // 5 / 3 = 1.666..., half_b=1, (5+1)/3 = 2.
     assert_eq!(div_by_int_half_up(5, 3), 2);
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_wad_min_max
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_wad_min_max() {
@@ -166,10 +130,7 @@ fn test_wad_min_max() {
     assert_eq!(c.min(a), c, "min handles negatives");
     assert_eq!(c.max(a), a, "max handles negatives");
 }
-
-// ===========================================================================
 // Rates edge cases
-// ===========================================================================
 
 fn make_test_params() -> common::types::MarketParams {
     use common::math::fp::{Bps, Ray};
@@ -190,10 +151,7 @@ fn make_test_params() -> common::types::MarketParams {
         asset_decimals: 7,
     }
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_borrow_rate_zero_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rate_zero_utilization() {
@@ -204,10 +162,7 @@ fn test_borrow_rate_zero_utilization() {
     let expected = div_by_int_half_up(RAY / 100, MILLISECONDS_PER_YEAR as i128);
     assert_eq!(rate.raw(), expected);
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_borrow_rate_at_mid_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rate_at_mid_utilization() {
@@ -220,10 +175,7 @@ fn test_borrow_rate_at_mid_utilization() {
     let expected = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_borrow_rate_at_optimal_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rate_at_optimal_utilization() {
@@ -236,10 +188,7 @@ fn test_borrow_rate_at_optimal_utilization() {
     let expected = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_borrow_rate_full_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rate_full_utilization() {
@@ -250,10 +199,7 @@ fn test_borrow_rate_full_utilization() {
     let expected = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 16. test_borrow_rate_capped_at_max
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_rate_capped_at_max() {
@@ -264,10 +210,7 @@ fn test_borrow_rate_capped_at_max() {
     let max_rate = div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - max_rate).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 17. test_deposit_rate_zero_utilization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_deposit_rate_zero_utilization() {
@@ -280,10 +223,7 @@ fn test_deposit_rate_zero_utilization() {
     );
     assert_eq!(rate, Ray::ZERO);
 }
-
-// ---------------------------------------------------------------------------
 // 18. test_deposit_rate_with_reserve_factor
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_deposit_rate_with_reserve_factor() {
@@ -297,10 +237,7 @@ fn test_deposit_rate_with_reserve_factor() {
     let expected = RAY * 36 / 1000;
     assert!((rate.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 19. test_compound_interest_zero_delta
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_compound_interest_zero_delta() {
@@ -308,10 +245,7 @@ fn test_compound_interest_zero_delta() {
     let result = compound_interest(&env, Ray::from_raw(RAY / 10), 0);
     assert_eq!(result, Ray::ONE);
 }
-
-// ---------------------------------------------------------------------------
 // 20. test_compound_interest_one_year
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_compound_interest_one_year() {
@@ -333,10 +267,7 @@ fn test_compound_interest_one_year() {
         diff
     );
 }
-
-// ---------------------------------------------------------------------------
 // 21. test_utilization_zero_supply
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_utilization_zero_supply() {
@@ -346,10 +277,7 @@ fn test_utilization_zero_supply() {
         Ray::ZERO
     );
 }
-
-// ---------------------------------------------------------------------------
 // 22. test_utilization_over_one
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_utilization_over_one() {
@@ -358,10 +286,7 @@ fn test_utilization_over_one() {
     let expected = RAY * 3 / 2;
     assert!((util.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 23. test_supply_index_update_zero_rewards
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_index_update_zero_rewards() {
@@ -373,10 +298,7 @@ fn test_supply_index_update_zero_rewards() {
         "zero rewards should leave index unchanged"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 24. test_supply_index_update_with_rewards
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_index_update_with_rewards() {
@@ -390,10 +312,7 @@ fn test_supply_index_update_with_rewards() {
     let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 25. test_borrow_index_update
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_index_update() {
@@ -403,10 +322,7 @@ fn test_borrow_index_update() {
     let expected = RAY * 105 / 100;
     assert!((new_index.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 26. test_supplier_rewards_split
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supplier_rewards_split() {
@@ -430,10 +346,7 @@ fn test_supplier_rewards_split() {
         "rewards + fee should equal total interest"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 27. test_scaled_to_original
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_scaled_to_original_basic() {
@@ -446,10 +359,7 @@ fn test_scaled_to_original_basic() {
     let expected = 105 * RAY;
     assert!((result.raw() - expected).abs() <= 1);
 }
-
-// ---------------------------------------------------------------------------
 // 28. test_compound_interest_small_rate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_compound_interest_small_rate() {

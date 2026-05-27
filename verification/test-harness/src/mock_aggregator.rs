@@ -1,7 +1,5 @@
 use common::types::BatchSwap;
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
-
-// ---------------------------------------------------------------------------
 // MockAggregator
 //
 // Minimal stand-in for `stellar-router-contract::Router::batch_execute`. The
@@ -12,7 +10,6 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 //
 // Per-path allocation mirrors the router: `path_input = total_in *
 // split_ppm / 1_000_000`, last path absorbs PPM rounding.
-// ---------------------------------------------------------------------------
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 
@@ -63,8 +60,6 @@ impl MockAggregator {
         batch.total_min_out
     }
 }
-
-// ---------------------------------------------------------------------------
 // Adversarial aggregator for controller-side router validation.
 //
 // Three misbehaviors are supported via a simple mode enum stored in instance
@@ -77,7 +72,6 @@ impl MockAggregator {
 //      controller's `actual_in_spent > amount_in` guard must fire.
 //   3. OutputShortfall: pull input but skip the output transfer — the
 //      controller's `received < total_min_out` guard must fire.
-// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone, Copy)]

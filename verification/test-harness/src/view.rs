@@ -13,9 +13,7 @@ pub enum PositionType {
 }
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Health factor
-    // -----------------------------------------------------------------------
 
     pub fn health_factor(&self, user: &str) -> f64 {
         wad_to_f64(self.health_factor_raw(user))
@@ -34,10 +32,7 @@ impl LendingTest {
     pub fn health_factor_for_raw(&self, _user: &str, account_id: u64) -> i128 {
         self.ctrl_client().health_factor(&account_id)
     }
-
-    // -----------------------------------------------------------------------
     // Token balances (wallet)
-    // -----------------------------------------------------------------------
 
     pub fn token_balance(&self, user: &str, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -53,10 +48,7 @@ impl LendingTest {
         let tok = token::Client::new(&self.env, &market.asset);
         tok.balance(&user_state.address)
     }
-
-    // -----------------------------------------------------------------------
     // Position balances (protocol)
-    // -----------------------------------------------------------------------
 
     pub fn supply_balance(&self, user: &str, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -135,10 +127,7 @@ impl LendingTest {
 
         0
     }
-
-    // -----------------------------------------------------------------------
     // USD totals
-    // -----------------------------------------------------------------------
 
     pub fn total_collateral(&self, user: &str) -> f64 {
         wad_to_f64(self.total_collateral_raw(user))
@@ -159,10 +148,7 @@ impl LendingTest {
             .map(|account_id| self.ctrl_client().total_borrow_in_usd(&account_id))
             .unwrap_or(0)
     }
-
-    // -----------------------------------------------------------------------
     // Pool state
-    // -----------------------------------------------------------------------
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let raw = self.pool_client(asset_name).capital_utilisation();
@@ -184,18 +170,12 @@ impl LendingTest {
         let raw = self.pool_client(asset_name).deposit_rate();
         raw as f64 / RAY as f64
     }
-
-    // -----------------------------------------------------------------------
     // Revenue snapshots
-    // -----------------------------------------------------------------------
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
         self.pool_client(asset_name).protocol_revenue()
     }
-
-    // -----------------------------------------------------------------------
     // Liquidation status
-    // -----------------------------------------------------------------------
 
     pub fn can_be_liquidated(&self, user: &str) -> bool {
         self.find_account_id(user)
@@ -206,19 +186,13 @@ impl LendingTest {
     pub fn can_be_liquidated_by_id(&self, account_id: u64) -> bool {
         self.ctrl_client().health_factor(&account_id) < WAD
     }
-
-    // -----------------------------------------------------------------------
     // Isolated debt
-    // -----------------------------------------------------------------------
 
     pub fn get_isolated_debt(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().get_isolated_debt(&asset)
     }
-
-    // -----------------------------------------------------------------------
     // Account info
-    // -----------------------------------------------------------------------
 
     pub fn get_account_attributes(&self, user: &str) -> common::types::AccountAttributes {
         let account_id = self.resolve_account_id(user);

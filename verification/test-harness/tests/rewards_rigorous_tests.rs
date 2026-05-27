@@ -2,8 +2,6 @@ extern crate std;
 
 use common::constants::RAY;
 use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE};
-
-// ===========================================================================
 // Rigorous add_rewards tests: verify the supply index math.
 //
 // Formula: new_index = old_index * (1 + rewards / total_supplied_value),
@@ -15,7 +13,6 @@ use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL
 // 3. Borrow index stays untouched by add_rewards.
 // 4. Multiple add_rewards calls compound correctly.
 // 5. Rewards with zero supply are a no-op.
-// ===========================================================================
 
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
@@ -27,10 +24,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
         .unwrap();
     (idx.supply_index_ray, idx.borrow_index_ray)
 }
-
-// ---------------------------------------------------------------------------
 // 1. Supply index increases by correct ratio after add_rewards
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_index_increase_matches_formula() {
@@ -60,10 +54,7 @@ fn test_add_rewards_index_increase_matches_formula() {
         diff
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. Each supplier gets rewards proportional to their share
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_distributed_proportionally() {
@@ -107,10 +98,7 @@ fn test_add_rewards_distributed_proportionally() {
         total_distributed
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Borrow index is NOT affected by add_rewards
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_does_not_affect_borrow_index() {
@@ -141,10 +129,7 @@ fn test_add_rewards_does_not_affect_borrow_index() {
         bi_change_pct
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. Multiple add_rewards calls compound correctly
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_add_rewards_compounds_over_multiple_calls() {
@@ -181,10 +166,7 @@ fn test_add_rewards_compounds_over_multiple_calls() {
         after_3
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. Rewards with zero supply must be rejected (no silent token drop)
-// ---------------------------------------------------------------------------
 
 // The pool panics `NoSuppliersToReward` (error 37) when `cache.supplied == 0`
 // because `update_supply_index` would short-circuit and the transferred
@@ -197,10 +179,7 @@ fn test_add_rewards_rejects_when_no_supply() {
     // No one has supplied: supply_scaled = 0 → pool must reject.
     t.add_rewards("USDC", 1_000.0);
 }
-
-// ---------------------------------------------------------------------------
 // 6. Rewards + interest compound together correctly
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rewards_plus_interest_compound() {
@@ -246,10 +225,7 @@ fn test_rewards_plus_interest_compound() {
         "total gain should equal interest + rewards"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 7. Large rewards don't break accounting
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_large_rewards_accounting_stable() {
@@ -281,10 +257,7 @@ fn test_large_rewards_accounting_stable() {
         diff_pct
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. Four suppliers with different shares get exact proportional rewards
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_four_suppliers_exact_proportional_split() {
@@ -339,10 +312,7 @@ fn test_four_suppliers_exact_proportional_split() {
         total
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. Rewards after interest still distribute correctly
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_rewards_after_interest_proportional() {

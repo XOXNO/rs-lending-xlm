@@ -1,14 +1,9 @@
-//! Liquidation and bad-debt cleanup flows.
+//! Liquidation and keeper bad-debt cleanup.
 //!
-//! `liquidate` is the only flow allowed to seize collateral from a
-//! healthy-looking account (it first proves the account is underwater).
-//! It uses `OraclePolicy::RiskIncreasing` (or `Liquidation` variant) and
-//! therefore runs under the strictest oracle regime.
-//!
-//! The module also exposes the keeper-only `clean_bad_debt` path that
-//! socializes residual underwater debt after all rational liquidations
-//! have occurred (ADR 0007). Both paths share the math in the sibling
-//! `liquidation_math` module.
+//! Liquidation proves health factor is below one, prices debt and collateral
+//! with `OraclePolicy::Liquidation`, repays debt, seizes collateral, and refunds
+//! any payment above the calculated close amount. Bad-debt cleanup socializes
+//! residual debt only when collateral is below the configured USD threshold.
 
 use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::errors::{CollateralError, GenericError};
@@ -57,17 +52,13 @@ impl Controller {
     }
 }
 
-/// Liquidation entry: proves the account is underwater under the strict
-/// Liquidation oracle policy, executes repay + seize atomically via pools,
-/// applies liquidation bonus, refunds excess, and emits the batch events.
-/// Never trusts user-supplied prices.
+/// Liquidates an underwater account using protocol prices, bonus math, and pool calls.
 pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
     debt_payments: &Vec<Payment>,
 ) {
-    // Stage 1: Pipelined Context Check
     liquidator.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_non_empty_payments(env, debt_payments);
@@ -80,7 +71,6 @@ pub fn process_liquidation(
         GenericError::AccountNotInMarket
     );
 
-    // Stage 2: State Resolution
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
     // Liquidation reduces protocol exposure.
@@ -100,8 +90,6 @@ pub fn process_liquidation(
 
     let mut account = storage::get_account(env, account_id);
 
-    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
-    // Calculate seizure and repayment.
     let result = execute_liquidation(env, &account, &debt_payment_plan, &mut cache);
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -109,7 +97,6 @@ pub fn process_liquidation(
     apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
-    // Stage 5: Post-flight Risk Gates
     // Per-leg dust gate. Scoped to the assets the liquidation actually
     // touched (seized supply + repaid debt). Other positions on the
     // account that drifted under floor due to price moves are not the
@@ -129,8 +116,6 @@ pub fn process_liquidation(
         require_no_borrow_dust_for_assets(env, &mut cache, &account, &repaid_assets);
     }
 
-    // Stage 6: State Persistence
-    // Persist position updates.
     storage::set_supply_positions(env, account_id, &account.supply_positions);
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
 
@@ -344,7 +329,7 @@ fn check_bad_debt_after_liquidation(
     }
 }
 
-// Socializes bad debt by seizing collateral and writing off debt.
+/// Socializes small residual bad debt by seizing all collateral and debt shares.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // The success path removes the account entirely and the failure path
     // reverts atomically, so no upfront `renew_user_account` keep-alive is needed.

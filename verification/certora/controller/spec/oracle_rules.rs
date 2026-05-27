@@ -26,10 +26,7 @@ use common::types::{
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
     OracleStrategy, PriceFeedRaw, ReflectorSourceConfig,
 };
-
-// ---------------------------------------------------------------------------
 // Local helpers
-// ---------------------------------------------------------------------------
 
 /// Bounded production-realistic price range used across rules: positive and
 /// below `1e6 * WAD`. Tightening keeps the prover from chasing astronomical
@@ -91,10 +88,7 @@ fn pinned_market_config(
         },
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 1: Price staleness enforced
-// ---------------------------------------------------------------------------
 
 /// Production guarantees that `token_price` either panics or returns a feed
 /// whose timestamp is no further in the future than the cache clock plus the
@@ -123,10 +117,7 @@ fn price_staleness_enforced(e: Env, asset: Address, pool: Address, oracle: Addre
     let now_secs = cache.current_timestamp_ms / 1000;
     cvlr_assert!(feed.timestamp <= now_secs + 60); // 60-s clock-skew envelope
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: First tolerance band uses safe price
-// ---------------------------------------------------------------------------
 
 /// When the aggregator/safe deviation falls inside the first tolerance band,
 /// `calculate_final_price` returns the safe price (TWAP).
@@ -191,10 +182,7 @@ fn first_tolerance_uses_safe_price(
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: Second tolerance band uses average price
-// ---------------------------------------------------------------------------
 
 /// When the deviation falls inside the second band but outside the first,
 /// `calculate_final_price` returns `(aggregator + safe) / 2`.
@@ -257,10 +245,7 @@ fn second_tolerance_uses_average(
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: Beyond tolerance with permissive cache returns safe price
-// ---------------------------------------------------------------------------
 
 /// When the deviation exceeds the second tolerance band and the cache is
 /// permissive (`OraclePolicy::RiskDecreasing`), `calculate_final_price` returns
@@ -323,10 +308,7 @@ fn beyond_tolerance_permissive_returns_safe(
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: Price cache consistency
-// ---------------------------------------------------------------------------
 
 /// A second `token_price` call for the same asset hits the cache and returns
 /// the stored feed bit-for-bit.
@@ -362,10 +344,7 @@ fn price_cache_consistency(e: Env, asset: Address) {
     cvlr_assert!(feed.asset_decimals == seeded.asset_decimals);
     cvlr_assert!(feed.timestamp == seeded.timestamp);
 }
-
-// ---------------------------------------------------------------------------
 // Sanity rules (reachability checks)
-// ---------------------------------------------------------------------------
 
 /// Sanity: there exist bounded positive inputs for which `is_within_anchor`
 /// returns true. Bounded I256 traversal, one branch.

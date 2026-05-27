@@ -43,10 +43,7 @@ use crate::cache::ControllerCache;
 pub mod pool;
 pub mod reflector;
 pub mod sac;
-
-// ---------------------------------------------------------------------------
 // Oracle summaries
-// ---------------------------------------------------------------------------
 
 /// Summary for `crate::oracle::token_price`.
 ///
@@ -114,10 +111,7 @@ pub fn update_asset_index_summary(_cache: &mut ControllerCache, _asset: &Address
         borrow_index: Ray::from_raw(borrow_index_ray),
     }
 }
-
-// ---------------------------------------------------------------------------
 // Account-totals summary
-// ---------------------------------------------------------------------------
 
 /// Summary for `crate::helpers::calculate_account_totals`.
 ///
@@ -144,10 +138,7 @@ pub fn calculate_account_totals_summary(
         Wad::from_raw(weighted_coll_raw),
     )
 }
-
-// ---------------------------------------------------------------------------
 // Bonus summary -- the linear interpolation at `helpers::calculate_linear_bonus`
-// ---------------------------------------------------------------------------
 
 /// Summary for `crate::helpers::calculate_linear_bonus`.
 ///
@@ -171,10 +162,7 @@ pub fn calculate_linear_bonus_summary(_env: &Env, hf: Wad, base_bonus: Bps, max_
     }
     Bps::from_raw(bonus_raw)
 }
-
-// ---------------------------------------------------------------------------
 // Account-USD-aggregate view summaries
-// ---------------------------------------------------------------------------
 
 /// Summary for `crate::views::total_collateral_in_usd`.
 ///

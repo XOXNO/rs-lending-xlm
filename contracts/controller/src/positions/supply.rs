@@ -30,9 +30,10 @@ impl Controller {
     }
 }
 
-/// Full supply flow: auth, e-mode selection, risk-decreasing oracle policy,
-/// per-asset pool supplies, collateral enablement, dust enforcement,
-/// storage + batch events. Returns the (possibly newly created) account id.
+/// Supplies one or more assets, creating an account when `account_id == 0`.
+///
+/// Duplicate assets are aggregated before pool calls. The controller stores
+/// scaled supply shares returned by pools and emits one position/market batch.
 pub fn process_supply(
     env: &Env,
     caller: &Address,
@@ -40,11 +41,9 @@ pub fn process_supply(
     e_mode_category: u32,
     assets: &Vec<Payment>,
 ) -> u64 {
-    // Stage 1: Pipelined Context Check
     caller.require_auth();
     require_not_flash_loaning(env);
 
-    // Stage 2: State Resolution
     let mut cache = ControllerCache::new(env, OraclePolicy::RiskDecreasing);
     // Aggregate once at the entrypoint; downstream stages — including the
     // post-flight dust scope — operate on the deduped plan.
@@ -58,10 +57,8 @@ pub fn process_supply(
         &mut cache,
     );
 
-    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     process_deposit(env, caller, &mut account, &deposit_plan, &mut cache);
 
-    // Stage 5: Post-flight Risk Gates
     // Dust gate is scoped to the assets supplied in this batch — supply
     // never mutates borrow positions and must not be blocked by pre-existing
     // positions whose USD value drifted under the floor from price moves.
@@ -72,7 +69,6 @@ pub fn process_supply(
         &utils::plan_assets(env, &deposit_plan),
     );
 
-    // Stage 6: State Persistence
     storage::set_supply_positions(env, acct_id, &account.supply_positions);
     cache.emit_position_batch(acct_id, &account);
     cache.emit_market_batch();
@@ -80,7 +76,6 @@ pub fn process_supply(
     acct_id
 }
 
-// Resolves account ID and returns snapshot.
 fn resolve_supply_account(
     env: &Env,
     caller: &Address,
@@ -104,10 +99,7 @@ fn resolve_supply_account(
     }
 }
 
-// Processes the deposit batch on an account. `deposit_plan` MUST be the
-// output of `utils::aggregate_positive_payments` — already deduped and with
-// every amount > 0. Strategy callers that pass a single-element batch are
-// trivially aggregated; the supply entrypoint aggregates before this call.
+/// Applies an already-deduplicated positive deposit plan to an account.
 pub fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -115,10 +107,9 @@ pub fn process_deposit(
     deposit_plan: &Vec<Payment>,
     cache: &mut ControllerCache,
 ) {
-    // Fetch the e-mode category once and reuse across every iteration.
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
 
-    // Resolve effective asset configs once; both prepare and execute read them.
+    // Reuse the same e-mode-adjusted config for validation and pool execution.
     let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
     for (asset, _) in deposit_plan.iter() {
         let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
@@ -146,7 +137,6 @@ fn prepare_deposit_plan(
     validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
     validate_bulk_isolation(env, account, assets, cache);
 
-    // Caps verified post-transfer.
     for (asset, _) in assets {
         require_market_active(env, cache, &asset);
 
@@ -192,14 +182,14 @@ fn execute_deposit_plan(
     }
 }
 
-/// Per-call deposit inputs.
+/// Per-asset supply inputs used after e-mode config resolution.
 pub struct DepositRequest<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub asset_config: &'a AssetConfig,
 }
 
-// Updates deposit position and calls pool.
+/// Pulls tokens into the pool and merges the returned scaled supply share.
 pub fn update_deposit_position(
     env: &Env,
     account: &mut Account,
@@ -209,7 +199,7 @@ pub fn update_deposit_position(
 ) -> AccountPosition {
     let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
 
-    // Threshold only updated via keeper path.
+    // Liquidation threshold is updated only by the keeper propagation path.
     if position.loan_to_value != req.asset_config.loan_to_value {
         position.loan_to_value = req.asset_config.loan_to_value;
     }
@@ -239,8 +229,7 @@ pub fn update_deposit_position(
         None,
     );
 
-    // Update the in-memory account. `process_supply` writes storage once at
-    // the end of the batch.
+    // Storage is written once after the whole supply batch completes.
     update_or_remove_supply_position(account, req.asset, &position);
 
     position
@@ -297,7 +286,7 @@ fn pull_supply_tokens(
 
 fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
     assert_with_error!(env, received > 0, GenericError::AmountMustBePositive);
-    // Fee-on-transfer tokens may credit less.
+    // Fee-on-transfer tokens may credit less than the requested amount.
     require_credit_not_above_sent(env, sent, received);
 }
 
@@ -339,7 +328,6 @@ fn validate_bulk_isolation(
     }
 }
 
-// Creates account for supply entry point.
 fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,

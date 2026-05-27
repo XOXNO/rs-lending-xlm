@@ -14,10 +14,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE,
     BOB, LIQUIDATOR,
 };
-
-// ---------------------------------------------------------------------------
 // 1. Multiple borrows of the same siloed asset are allowed
-// ---------------------------------------------------------------------------
 
 // Pins that the "siloed = one debt" rule is per-asset, not per-borrow:
 // the user can stack multiple borrow operations on the same siloed
@@ -41,10 +38,7 @@ fn test_siloed_allows_repeated_same_asset_borrows() {
 
     t.assert_borrow_count(ALICE, 1); // still one debt entry (ETH)
 }
-
-// ---------------------------------------------------------------------------
 // 2. After full repay, account opens to a different asset
-// ---------------------------------------------------------------------------
 
 // Pins that the siloed restriction lifts once the siloed debt is fully
 // repaid. Without correct cleanup the account would be permanently
@@ -71,10 +65,7 @@ fn test_siloed_full_repay_lifts_restriction() {
     t.borrow(ALICE, "WBTC", 0.001);
     t.assert_borrow_count(ALICE, 1);
 }
-
-// ---------------------------------------------------------------------------
 // 3. Siloed restriction holds across liquidation
-// ---------------------------------------------------------------------------
 
 // A partial liquidation of a siloed position must keep the siloed
 // constraint live: the liquidator's debt-side payment must be the

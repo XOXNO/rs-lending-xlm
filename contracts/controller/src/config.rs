@@ -1,14 +1,8 @@
-//! Owner- and role-gated configuration entrypoints (market listing,
-//! oracle wiring, e-mode, caps, aggregator, accumulator, etc.).
+//! Owner- and role-gated configuration for markets, oracles, e-mode, caps,
+//! aggregator, accumulator, approved tokens, and pool templates.
 //!
-//! These functions are deliberately separated from `router.rs` because they
-//! are almost entirely "write the new config record + emit event" with
-//! heavy validation. Keeping them here makes the privileged surface easy
-//! to review in one place.
-//!
-//! Pure tolerance band construction lives in `oracle::tolerance` (see
-//! `validate_and_calculate_tolerances`). E-mode category and asset
-//! mutation is owner-gated and keeps reverse-index invariants in sync.
+//! These entrypoints validate the new config, update stable storage keys, and
+//! emit the event shape consumed by operators and indexers.
 
 use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{
@@ -424,7 +418,6 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         config.last_tolerance_bps,
     );
     let mut oracle_config = validate_market_oracle_sources(env, &asset, &config, tolerance);
-    // Persists config.
     if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
         oracle_config.asset_decimals = market.oracle_config.asset_decimals;
     }
@@ -470,7 +463,6 @@ pub fn disable_token_oracle(env: &Env, asset: Address) {
     emit_oracle_disabled(env, OracleDisabledEvent { asset });
 }
 
-// Helper to remove an E-mode category ID from a market configuration's categories list.
 fn remove_emode_category_from_market_config(env: &Env, asset: &Address, category_id: u32) {
     if let Some(mut market) = storage::try_get_market_config(env, asset) {
         if let Some(idx) = market

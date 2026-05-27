@@ -14,7 +14,7 @@ use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
 
-// Sentinel for full-position withdraw.
+// Pool ABI sentinel for full-position withdraw.
 const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 /// Per-call withdrawal inputs that travel together through the pipeline.
@@ -49,15 +49,13 @@ impl Controller {
     }
 }
 
-/// Withdraw flow: owner-auth only, risk policy chosen based on whether the
-/// account still has borrows after the withdrawal. Enforces health factor,
-/// dust floors, and max-utilization on the pool side.
+/// Withdraws collateral and re-checks LTV, health factor, and touched-asset dust.
+///
+/// User amount `0` maps to the pool's `i128::MAX` full-withdraw sentinel.
 pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
-    // Stage 1: Pipelined Context Check
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    // Stage 2: State Resolution
     let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
@@ -69,15 +67,12 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     };
     let mut cache = ControllerCache::new(env, policy);
 
-    // Stage 3 & 4: Pre-flight Validation & Core Pool Execution
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let withdrawal_plan = aggregate_payments(env, withdrawals, true);
     for (asset, amount) in withdrawal_plan.iter() {
         process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
     }
 
-    // Stage 5: Post-flight Risk Gates
-    // Enforce HF and LTV gates.
     validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust gate is scoped to the withdrawn assets — withdraw never mutates
@@ -90,7 +85,6 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
         &plan_assets(env, &withdrawal_plan),
     );
 
-    // Stage 6: State Persistence
     if account.is_empty() {
         remove_account(env, account_id);
     } else {
@@ -144,7 +138,7 @@ fn process_single_withdrawal(
     );
 }
 
-// Executes pool withdraw.
+/// Calls the pool and merges the returned scaled supply share into the account.
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,

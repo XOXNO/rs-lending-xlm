@@ -1,6 +1,6 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
-// (x * y + d/2) / d.
+/// Computes `(x * y) / d` with half-up rounding and I256 intermediate.
 pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -10,7 +10,7 @@ pub fn mul_div_half_up(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &product.div(&d256))
 }
 
-// (x * y) / d (floor).
+/// Computes `(x * y) / d` with floor rounding for non-negative inputs.
 pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -18,7 +18,7 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &x256.mul(&y256).div(&d256))
 }
 
-// (x * y) / d (signed half-up).
+/// Computes signed `(x * y) / d` with half-up rounding away from zero.
 pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let x256 = I256::from_i128(env, x);
     let y256 = I256::from_i128(env, y);
@@ -35,7 +35,7 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &rounded.div(&d256))
 }
 
-// Rescales precision.
+/// Rescales between decimal domains with half-up rounding on downscale.
 pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     if from_decimals == to_decimals {
         return a;
@@ -66,9 +66,7 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
-// Rescales precision, FLOOR-rounded (truncation toward zero on downscale).
-// Used at protocol-credit-to-user boundaries so the protocol never overpays
-// by 1 ulp on a half-up tie.
+/// Rescales and rounds down on downscale for user-credit boundaries.
 pub fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     if from_decimals == to_decimals {
         return a;
@@ -93,9 +91,7 @@ pub fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
-// Rescales precision, CEILING-rounded for non-negative inputs. Used at
-// protocol-debit-from-user boundaries so the user can never settle for
-// 1 ulp less than true debt.
+/// Rescales and rounds up on downscale for user-debit boundaries.
 pub fn rescale_ceil(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     if from_decimals == to_decimals {
         return a;
@@ -123,7 +119,7 @@ pub fn rescale_ceil(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     }
 }
 
-// Division with half-up rounding.
+/// Divides by a positive integer with half-up rounding.
 pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
     let half_b = b / 2;
@@ -136,7 +132,6 @@ pub fn div_by_int_half_up(a: i128, b: i128) -> i128 {
     }
 }
 
-// I256 to i128 (panics on overflow).
 fn to_i128(env: &Env, val: &I256) -> i128 {
     val.to_i128()
         .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
@@ -258,12 +253,6 @@ mod tests {
         assert_eq!(div_by_int_half_up(-6, 4), -2); // -1.5 -> -2
         assert_eq!(div_by_int_half_up(-5, 4), -1); // -1.25 -> -1 (remainder < 0.5).
     }
-
-    // -----------------------------------------------------------------
-    // Adversarial / edge-case coverage — additions to defend the
-    // half-rounding tie-breaker, the overflow boundary, and the
-    // negative-dividend behaviour that's documented but not exercised.
-    // -----------------------------------------------------------------
 
     // Exactly 0.5 — the half-up tie-breaker MUST round up for positive
     // results. `1 * 1 + 1 = 2; 2 / 2 = 1`. If the tie-breaker were

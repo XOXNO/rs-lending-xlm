@@ -1,12 +1,8 @@
-//! Per-entrypoint oracle permissiveness policy (the heart of ADR 0004).
+//! Per-entrypoint oracle failure policy.
 //!
-//! The enum variants encode exactly which oracle failure modes a given
-//! operation is allowed to tolerate. The mapping from entrypoint to
-//! variant is the single source of truth for "when can the protocol
-//! still function with stale or deviated prices?"
-//!
-//! See the table and rationale in ADR 0004. The `Allowances` struct and
-//! the `is_*_allowed` methods are the implementation of that table.
+//! Each controller flow chooses one variant before reading prices. The variant
+//! decides whether disabled markets, stale sources, out-of-band deviations, or
+//! missing TWAP history can be tolerated for that flow.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OraclePolicy {
@@ -18,7 +14,6 @@ pub enum OraclePolicy {
     View,
 }
 
-// Policy allowances.
 #[derive(Clone, Copy, Debug)]
 struct Allowances {
     disabled_market: bool,
@@ -32,7 +27,6 @@ impl Allowances {
     const fn for_policy(p: OraclePolicy) -> Self {
         use OraclePolicy::*;
         match p {
-            //                            disabled stale  unsafe   twap   prefer_agg
             RiskIncreasing => Allowances {
                 disabled_market: false,
                 stale_source: false,
@@ -96,7 +90,8 @@ impl OraclePolicy {
         Allowances::for_policy(self).missing_twap_fallback
     }
 
-    // Prefers aggregator on deviation.
+    /// Returns true only for liquidation, where in-band aggregator prices are
+    /// preferred for seizure fairness during primary/anchor disagreement.
     pub fn prefers_aggregator_on_deviation(self) -> bool {
         Allowances::for_policy(self).prefer_aggregator_on_deviation
     }

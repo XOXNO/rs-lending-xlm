@@ -1,15 +1,8 @@
-//! Liquidation math & seizure accounting (the most subtle numeric core).
+//! Liquidation close-amount, bonus, refund, and seizure accounting.
 //!
-//! This module is intentionally isolated because:
-//! - It implements the exact seize / repay formulas that must match the
-//!   certora `liquidation_rules` and the differential fuzzers.
-//! - It must handle the "bad debt" case where the bonus alone would
-//!   overdraw the remaining collateral (see ADR 0007).
-//! - The proportion math and the `LiquidationSnapshot` aggregator are
-//!   used by both the normal liquidation path and the bad-debt cleanup path.
-//!
-//! All public entry points in this file are `pub(crate)`; the external
-//! contract surface is `positions/liquidation.rs`.
+//! The formulas here must stay aligned with Certora liquidation rules and the
+//! differential fuzz reference. Amounts that cross price math are USD WAD;
+//! pool-facing seizure and repayment entries carry asset-native amounts.
 
 use common::constants::{MAX_LIQUIDATION_BONUS, WAD};
 use common::errors::{CollateralError, GenericError};
@@ -136,8 +129,7 @@ pub(crate) struct DustExpansionInputs<'a> {
     pub repay_usd: Wad,
 }
 
-/// Returns an updated `repay_usd` that expands to a full close when leaving
-/// residue would fall below dust floors.
+/// Expands to full close only when a partial close would leave sub-floor residue.
 pub(crate) fn expand_to_full_close_on_dust_residue(
     env: &Env,
     cache: &mut ControllerCache,
@@ -311,7 +303,7 @@ pub(crate) fn process_excess_payment(
     }
 }
 
-// Interpolates liquidation bonus linearly from base to max.
+/// Interpolates liquidation bonus from base to max as HF falls below target.
 pub fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -340,24 +332,8 @@ pub fn calculate_linear_bonus_with_target(
     Bps::from_raw(bonus.raw().min(MAX_LIQUIDATION_BONUS))
 }
 
-// Estimates optimal debt repayment and bonus.
-//
-// Design rationale (see architecture/INVARIANTS.md §3.3):
-// Primary target (1.02 WAD) is attempted first: it leaves a 2% health-factor
-// buffer after liquidation so that tiny subsequent price moves or interest
-// accrual do not immediately re-trigger liquidations or produce griefing
-// liquidations on near-boundary accounts. The linear bonus interpolation
-// increases the liquidator's incentive as HF worsens, up to the configured max.
-// If the primary target cannot be met without violating other constraints,
-// fallback (1.01 WAD) is tried — a milder 1% buffer.
-// Only when neither target produces a solvent post-state do we fall back to
-// the "max collateral" seizure at base bonus. That path is guarded by the
-// post-HF check (`base_new_hf < snap.hf` is rejected) so we never *worsen*
-// the account's health factor — preserving the "liquidation must make
-// progress toward solvency" invariant even on deeply underwater positions.
-// This three-tier approach (primary → fallback → max-safe) balances
-// liquidator incentives, bad-debt minimization, and protection against
-// over-seizure, mirroring the "why" rigor in ADR 0003 for oracle decisions.
+/// Estimates repayment and bonus using a 1.02 HF target, then 1.01 fallback,
+/// then max-collateral seizure at base bonus without worsening account HF.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -449,7 +425,7 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(snap.total_debt))
 }
 
-// Returns collateral-value-weighted average liquidation bonus.
+/// Returns the collateral-value-weighted base bonus and protocol max bonus.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut ControllerCache,

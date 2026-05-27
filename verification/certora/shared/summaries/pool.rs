@@ -26,10 +26,7 @@ use common::types::{
     AccountPosition, AccountPositionType, MarketIndex, MarketParamsRaw, MarketStateSnapshot,
     PoolAmountMutation, PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSyncData,
 };
-
-// ---------------------------------------------------------------------------
 // Shared helpers
-// ---------------------------------------------------------------------------
 
 /// Build a nondet `MarketIndex` satisfying the production invariants
 /// (`pool::interest::global_sync` + `apply_bad_debt_to_supply_index`):
@@ -79,10 +76,7 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
         asset_price_wad: None,
     }
 }
-
-// ---------------------------------------------------------------------------
 // Mutating endpoints
-// ---------------------------------------------------------------------------
 
 /// Summary for `pool::LiquidityPool::supply`.
 ///
@@ -362,11 +356,6 @@ pub fn claim_revenue_summary(_env: &Env, pool_addr: &Address) -> PoolAmountMutat
         actual_amount: amount,
     }
 }
-
-// ---------------------------------------------------------------------------
-// Read-only views
-// ---------------------------------------------------------------------------
-
 /// Summary for `pool::LiquidityPool::get_sync_data`.
 ///
 /// Production reads `(MarketParams, PoolState)` from instance storage. The
@@ -433,10 +422,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
         },
     }
 }
-
-// ---------------------------------------------------------------------------
 // Single-value view summaries
-// ---------------------------------------------------------------------------
 //
 // These five views (`reserves`, `supplied_amount`, `borrowed_amount`,
 // `protocol_revenue`, `capital_utilisation`) appear up to 4 times per rule
@@ -515,10 +501,7 @@ pub fn capital_utilisation_summary(_env: &Env) -> i128 {
     cvlr_assume!(util_ray <= RAY);
     util_ray
 }
-
-// ---------------------------------------------------------------------------
 // Joint pool view snapshot (cross-view consistency)
-// ---------------------------------------------------------------------------
 
 /// Joint snapshot of the four pool quantity views.
 ///
@@ -563,11 +546,8 @@ pub fn pool_snapshot_summary(_env: &Env) -> PoolViewsSnapshot {
         revenue,
     }
 }
-
-// ---------------------------------------------------------------------------
 // Re-export for monotone-index helpers (used by rules that compare against a
 // prior MarketIndex snapshot)
-// ---------------------------------------------------------------------------
 
 /// Public wrapper over `nondet_market_index_monotone` for rules that need to
 /// constrain a fresh MarketIndex against a prior snapshot without going

@@ -5,10 +5,7 @@ use common::types::{
     ReflectorSourceConfigInput,
 };
 use soroban_sdk::{Address, String};
-
-// ---------------------------------------------------------------------------
 // Price helpers (all return i128, WAD-scaled)
-// ---------------------------------------------------------------------------
 
 /// Whole-dollar price: usd(1) = 1 WAD, usd(2000) = 2000 WAD.
 pub const fn usd(n: i128) -> i128 {
@@ -24,10 +21,7 @@ pub const fn usd_cents(n: i128) -> i128 {
 pub const fn usd_frac(num: i128, den: i128) -> i128 {
     num * WAD / den
 }
-
-// ---------------------------------------------------------------------------
 // Time helpers (all return u64 seconds)
-// ---------------------------------------------------------------------------
 
 pub const fn days(n: u64) -> u64 {
     n * 86_400
@@ -44,10 +38,7 @@ pub const fn minutes(n: u64) -> u64 {
 pub const fn secs(n: u64) -> u64 {
     n
 }
-
-// ---------------------------------------------------------------------------
 // Amount helpers
-// ---------------------------------------------------------------------------
 
 /// Convert a human-readable amount to on-chain representation.
 /// tokens(1000, 7) = 1000_0000000.

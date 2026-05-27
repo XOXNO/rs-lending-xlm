@@ -2,10 +2,7 @@ use common::constants::RAY;
 use common::types::OraclePriceFluctuation;
 
 use crate::helpers::usd;
-
-// ---------------------------------------------------------------------------
 // Wallet name constants
-// ---------------------------------------------------------------------------
 
 pub const ALICE: &str = "alice";
 pub const BOB: &str = "bob";
@@ -14,10 +11,7 @@ pub const DAVE: &str = "dave";
 pub const EVE: &str = "eve";
 pub const LIQUIDATOR: &str = "liquidator";
 pub const KEEPER_USER: &str = "keeper";
-
-// ---------------------------------------------------------------------------
 // Market preset structs
-// ---------------------------------------------------------------------------
 
 pub struct MarketPreset {
     pub name: &'static str,
@@ -75,10 +69,7 @@ pub struct TolerancePreset {
     pub last_upper_bps: u32,
     pub last_lower_bps: u32,
 }
-
-// ---------------------------------------------------------------------------
 // Default configs
-// ---------------------------------------------------------------------------
 
 pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     loan_to_value_bps: 7500,
@@ -116,10 +107,7 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     max_utilization_ray: RAY * 95 / 100,
     reserve_factor_bps: 1000,
 };
-
-// ---------------------------------------------------------------------------
 // Market presets (functions instead of const due to f64 field)
-// ---------------------------------------------------------------------------
 
 pub fn usdc_preset() -> MarketPreset {
     MarketPreset {
@@ -180,20 +168,14 @@ pub fn xlm_preset() -> MarketPreset {
         params: DEFAULT_MARKET_PARAMS,
     }
 }
-
-// ---------------------------------------------------------------------------
 // E-Mode presets
-// ---------------------------------------------------------------------------
 
 pub const STABLECOIN_EMODE: EModeCategoryPreset = EModeCategoryPreset {
     ltv: 9700,
     threshold: 9800,
     bonus: 200,
 };
-
-// ---------------------------------------------------------------------------
 // Tolerance presets
-// ---------------------------------------------------------------------------
 
 pub const TIGHT_TOLERANCE: TolerancePreset = TolerancePreset {
     first_upper_bps: 100,
@@ -215,10 +197,7 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
     last_upper_bps: 1000,
     last_lower_bps: 1000,
 };
-
-// ---------------------------------------------------------------------------
 // Conversion helpers (preset -> contract types)
-// ---------------------------------------------------------------------------
 
 impl AssetConfigPreset {
     pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> common::types::AssetConfigRaw {

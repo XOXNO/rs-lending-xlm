@@ -1,24 +1,12 @@
-//! Instance and session storage keys (non-persistent concerns).
+//! Instance and temporary storage for non-market controller state.
 //!
-//! Two small concerns live outside the persistent `ControllerKey` tree:
-//!
-//! - `ApprovedToken` (instance storage) — single-use allow-list tokens that
-//!   have passed owner review and may be used to create a pool exactly once.
-//!   Consumed on successful `create_liquidity_pool`.
-//! - `FlashLoanOngoing` (temporary / session storage) — the re-entrancy
-//!   guard that makes the whole flash-loan + strategy surface single-flight.
-//!
-//! The tiered key enums (`LocalKey` vs `SessionKey`) exist precisely so
-//! that future non-persistent flags do not pollute the main persistent key
-//! enum. All access must go through the helpers here.
+//! `ApprovedToken` is a one-use instance allow-list for pool creation.
+//! `FlashLoanOngoing` is a temporary transaction guard that blocks re-entrant
+//! controller mutations during flash-loan and strategy callbacks.
 
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
-
-// Tier-tagged storage keys: every `LocalKey` lives in instance storage,
-// every `SessionKey` in temporary storage. Prefer these over adding new
-// variants to `ControllerKey`.
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -144,9 +132,8 @@ pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
-    // Reads consult both the SessionKey variant (writes go here) and the
-    // legacy ControllerKey variant so an in-place upgrade preserves any
-    // flag set by the previous revision.
+    // Keep the legacy key readable so an in-place upgrade cannot clear an
+    // already-set re-entrancy guard.
     let new_flag = env
         .storage()
         .temporary()

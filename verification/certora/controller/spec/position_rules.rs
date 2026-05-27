@@ -9,10 +9,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::types::AccountPositionType;
-
-// ---------------------------------------------------------------------------
 // Rule 1: Supply increases deposit position
-// ---------------------------------------------------------------------------
 
 /// After a successful supply, the user's deposit scaled amount for that asset
 /// must increase (or be created if it didn't exist).
@@ -40,10 +37,7 @@ fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i1
 
     cvlr_assert!(pos_after > pos_before);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: Borrow increases debt position
-// ---------------------------------------------------------------------------
 
 /// After a successful borrow, the user's borrow scaled amount must increase.
 #[rule]
@@ -69,10 +63,7 @@ fn borrow_increases_debt(e: Env, caller: Address, asset: Address, amount: i128) 
 
     cvlr_assert!(pos_after > pos_before);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: Full repay clears debt position
-// ---------------------------------------------------------------------------
 
 /// After repaying with an amount strictly larger than the outstanding debt,
 /// the borrow position must be zero (the pool refunds the surplus).
@@ -106,10 +97,7 @@ fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128)
 
     cvlr_assert!(pos_after == 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: Withdraw decreases deposit position
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -135,10 +123,7 @@ fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: 
 
     cvlr_assert!(pos_after < pos_before);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: Repay decreases debt position
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn repay_decreases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -164,10 +149,7 @@ fn repay_decreases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
 
     cvlr_assert!(pos_after < pos_before);
 }
-
-// ---------------------------------------------------------------------------
 // Sanity
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn supply_sanity(e: Env, caller: Address, asset: Address, amount: i128) {

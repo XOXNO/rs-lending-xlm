@@ -9,10 +9,7 @@ fn persistent_has(t: &LendingTest, key: &ControllerKey) -> bool {
     t.env
         .as_contract(&t.controller, || t.env.storage().persistent().has(key))
 }
-
-// ---------------------------------------------------------------------------
 // 1. test_isolated_debt_non_isolated_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_non_isolated_account() {
@@ -29,10 +26,7 @@ fn test_isolated_debt_non_isolated_account() {
     let debt = t.get_isolated_debt("ETH");
     assert_eq!(debt, 0, "non-isolated setup should have 0 isolated debt");
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_isolated_debt_dust_erasure
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_dust_erasure() {
@@ -78,10 +72,7 @@ fn test_isolated_debt_dust_erasure() {
         "zero isolated debt should remove the shared IsolatedDebt entry"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_isolated_debt_over_repay_clamps
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_isolated_debt_over_repay_clamps() {
@@ -120,10 +111,7 @@ fn test_isolated_debt_over_repay_clamps() {
         "full isolated repay should remove the shared IsolatedDebt entry"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_validate_healthy_passes
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_validate_healthy_passes() {
@@ -140,10 +128,7 @@ fn test_validate_healthy_passes() {
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.0, "HF should be > 1.0, got {}", hf);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_validate_healthy_fails
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_validate_healthy_fails() {
@@ -169,10 +154,7 @@ fn test_validate_healthy_fails() {
         "withdraw should fail when HF is below threshold"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_health_factor_no_debt_is_max
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_health_factor_no_debt_is_max() {
@@ -184,10 +166,7 @@ fn test_health_factor_no_debt_is_max() {
     let hf_raw = t.health_factor_raw(ALICE);
     assert_eq!(hf_raw, i128::MAX, "HF with no debt should be i128::MAX");
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_health_factor_changes_with_price
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_health_factor_changes_with_price() {
@@ -212,10 +191,7 @@ fn test_health_factor_changes_with_price() {
         hf_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_pool_borrow_rate_increases_with_borrows
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_pool_borrow_rate_increases_with_borrows() {
@@ -239,10 +215,7 @@ fn test_pool_borrow_rate_increases_with_borrows() {
         rate_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_borrow_exceeds_ltv_fails
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_borrow_exceeds_ltv_fails() {
@@ -258,10 +231,7 @@ fn test_borrow_exceeds_ltv_fails() {
     let result = t.try_borrow(ALICE, "ETH", 4.0);
     assert!(result.is_err(), "borrow exceeding LTV should fail");
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_total_debt_zero_after_full_repay
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_total_debt_zero_after_full_repay() {

@@ -6,10 +6,6 @@ use test_harness::{
     LIQUIDATOR,
 };
 
-// ---------------------------------------------------------------------------
-// Helpers: deterministic pseudo-random (Soroban lacks std::rand).
-// ---------------------------------------------------------------------------
-
 /// LCG for deterministic test "randomness".
 struct Rng(u64);
 
@@ -35,10 +31,7 @@ impl Rng {
         &items[idx]
     }
 }
-
-// ---------------------------------------------------------------------------
 // 1. Chaos: 15 users, random valid operations over 8 weeks, invariant check
-// ---------------------------------------------------------------------------
 
 /// Deterministic chaos scenario: 15 users, fixed-seed (42) LCG-driven
 /// scenario over 8 weeks with one ETH price oscillation. Assertions:
@@ -137,10 +130,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
 
     // Restore the price.
     t.set_price("ETH", usd(2000));
-
-    // -----------------------------------------------------------------------
     // Operation success tracking.
-    // -----------------------------------------------------------------------
 
     // Initial supplies use safe amounts, so all 15 supplies must succeed. Some
     // borrows and repays must also succeed.
@@ -150,10 +140,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         borrow_successes,
         borrow_failures
     );
-
-    // -----------------------------------------------------------------------
     // Invariant checks.
-    // -----------------------------------------------------------------------
 
     // 1. Every borrowing account must keep HF >= 1.0 or be cleaned up.
     for user in &users {
@@ -198,10 +185,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         assert!(rev >= 0, "{} revenue should be >= 0, got {}", asset, rev);
     }
 }
-
-// ---------------------------------------------------------------------------
 // 2. Full bank-run exit: everyone repays and withdraws, protocol solvent
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_chaos_bank_run_full_exit() {
@@ -299,10 +283,7 @@ fn test_chaos_bank_run_full_exit() {
         "ETH revenue should not decrease"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Sustained high utilization: verify rates stay sane over 1 year
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_chaos_sustained_high_utilization() {
@@ -372,10 +353,7 @@ fn test_chaos_sustained_high_utilization() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
 // 4. Rapid price oscillation: verify no wrongful liquidations
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_chaos_price_oscillation_no_wrongful_liquidation() {
@@ -411,10 +389,7 @@ fn test_chaos_price_oscillation_no_wrongful_liquidation() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
 // 5. Multi-market borrow/repay cycle: accounting consistency
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_chaos_multi_market_accounting() {
@@ -485,10 +460,7 @@ fn test_chaos_multi_market_accounting() {
         final_debt
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. Full keeper + revenue lifecycle in simulation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_chaos_keeper_revenue_lifecycle() {

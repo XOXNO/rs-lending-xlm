@@ -4,7 +4,10 @@ use crate::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, Debt
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
-// Wire/storage form. Embedded in MarketConfig (persistent storage value).
+/// Persistent asset risk and limit configuration.
+///
+/// `*_bps` fields use basis points. `*_usd_wad` floors and ceilings are
+/// denominated in USD WAD. `borrow_cap` and `supply_cap` use asset units.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AssetConfigRaw {
@@ -27,7 +30,7 @@ pub struct AssetConfigRaw {
     pub e_mode_categories: Vec<u32>,
 }
 
-// In-memory typed form. Used by every compute path.
+/// Typed asset risk and limit configuration.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
     pub loan_to_value: Bps,
@@ -140,14 +143,18 @@ impl AccountAttributes {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
+    /// Account owner authorized for supply, borrow, withdraw, and strategies.
     pub owner: Address,
+    /// True when the account is constrained to one isolated collateral asset.
     pub is_isolated: bool,
+    /// Active e-mode category; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
+    /// Isolated collateral asset when `is_isolated` is true.
     pub isolated_asset: Option<Address>,
 }
 
-// Wire/storage form. Stored under ControllerKey::EModeCategory(id).
+/// Persistent e-mode category definition.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeCategoryRaw {
@@ -158,7 +165,7 @@ pub struct EModeCategoryRaw {
     pub assets: Map<Address, EModeAssetConfig>,
 }
 
-// In-memory typed form. Used by the e-mode compute path.
+/// Typed e-mode category used when applying category overrides.
 #[derive(Clone, Debug)]
 pub struct EModeCategory {
     pub loan_to_value: Bps,
@@ -237,10 +244,15 @@ pub struct PaymentTuple {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationEstimate {
+    /// Collateral amounts expected to be seized, in asset-native units.
     pub seized_collaterals: Vec<PaymentTuple>,
+    /// Liquidation protocol fees deducted from seized collateral.
     pub protocol_fees: Vec<PaymentTuple>,
+    /// Debt-payment amounts expected to be refunded to the liquidator.
     pub refunds: Vec<PaymentTuple>,
+    /// Maximum debt payment accepted by the liquidation math, in USD WAD.
     pub max_payment_wad: i128,
+    /// Liquidation bonus used for the estimate, in BPS.
     pub bonus_rate_bps: i128,
 }
 
@@ -286,6 +298,7 @@ pub enum MarketStatus {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketConfig {
+    /// Pending markets cannot be used until oracle config is active.
     pub status: MarketStatus,
     pub asset_config: AssetConfigRaw,
     pub pool_address: Address,
@@ -295,12 +308,18 @@ pub struct MarketConfig {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
+    /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
+    /// True when the account is constrained to one isolated collateral asset.
     pub is_isolated: bool,
+    /// Active e-mode category; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
+    /// Isolated collateral asset when `is_isolated` is true.
     pub isolated_asset: Option<Address>,
+    /// Collateral positions keyed by asset.
     pub supply_positions: Map<Address, AccountPositionRaw>,
+    /// Debt positions keyed by asset.
     pub borrow_positions: Map<Address, DebtPositionRaw>,
 }
 

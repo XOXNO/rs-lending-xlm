@@ -9,17 +9,12 @@ use common::types::{
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
 #[contractclient(name = "ControllerClient")]
-/// Primary user-facing contract interface for the lending protocol.
+/// User-facing contract interface for lending accounts, markets, and views.
 ///
-/// All position mutations (supply/borrow/withdraw/repay/liquidate) and the
-/// four strategies go through this surface. The controller owns all account
-/// state, risk parameters, oracle policy, and authorization; pools only
-/// custody tokens and interest math.
-///
-/// See `architecture/` for invariants and the per-decision ADRs.
+/// The controller owns account state, risk checks, oracle policy, and pool
+/// coordination. Pools custody one asset and return scaled share mutations.
 pub trait ControllerInterface {
-    // --- Position operations ------------------------------------------------
-
+    /// Supplies assets into an existing account or creates one when `account_id == 0`.
     fn supply(
         env: Env,
         caller: Address,
@@ -28,12 +23,16 @@ pub trait ControllerInterface {
         assets: Vec<(Address, i128)>,
     ) -> u64;
 
+    /// Borrows assets after collateral, health-factor, cap, and oracle checks.
     fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>);
 
+    /// Withdraws collateral and rejects post-state LTV or health-factor violations.
     fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>);
 
+    /// Repays debt for an account; account ownership is not required.
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>);
 
+    /// Liquidates an underwater account and refunds payments above the close amount.
     fn liquidate(
         env: Env,
         liquidator: Address,
@@ -41,8 +40,7 @@ pub trait ControllerInterface {
         debt_payments: Vec<(Address, i128)>,
     );
 
-    // --- Strategies ---------------------------------------------------------
-
+    /// Opens or adjusts a leveraged position through an aggregator swap route.
     fn multiply(
         env: Env,
         caller: Address,
@@ -57,6 +55,7 @@ pub trait ControllerInterface {
         convert_swap: Option<AggregatorSwap>,
     ) -> u64;
 
+    /// Swaps an existing debt asset into a new debt asset through the aggregator.
     fn swap_debt(
         env: Env,
         caller: Address,
@@ -67,6 +66,7 @@ pub trait ControllerInterface {
         swap: AggregatorSwap,
     );
 
+    /// Swaps supplied collateral from one asset into another through the aggregator.
     fn swap_collateral(
         env: Env,
         caller: Address,
@@ -77,6 +77,7 @@ pub trait ControllerInterface {
         swap: AggregatorSwap,
     );
 
+    /// Uses collateral proceeds to repay debt through the aggregator.
     fn repay_debt_with_collateral(
         env: Env,
         caller: Address,
@@ -88,8 +89,7 @@ pub trait ControllerInterface {
         close_position: bool,
     );
 
-    // --- Flash loan and account TTL ----------------------------------------
-
+    /// Executes a flash loan through the selected pool and receiver contract.
     fn flash_loan(
         env: Env,
         caller: Address,
@@ -99,22 +99,28 @@ pub trait ControllerInterface {
         data: Bytes,
     );
 
+    /// Renews TTL for account storage keys after owner authorization.
     fn renew_account(env: Env, caller: Address, account_id: u64);
 
-    // --- Views --------------------------------------------------------------
-
+    /// Returns true when health factor is below one.
     fn can_be_liquidated(env: Env, account_id: u64) -> bool;
 
+    /// Returns account health factor in WAD; debt-free accounts return `i128::MAX`.
     fn health_factor(env: Env, account_id: u64) -> i128;
 
+    /// Returns total collateral value in USD WAD.
     fn total_collateral_in_usd(env: Env, account_id: u64) -> i128;
 
+    /// Returns total borrow value in USD WAD.
     fn total_borrow_in_usd(env: Env, account_id: u64) -> i128;
 
+    /// Returns current underlying collateral amount for one asset.
     fn collateral_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128;
 
+    /// Returns current underlying debt amount for one asset.
     fn borrow_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128;
 
+    /// Returns raw scaled supply and debt maps for an account.
     fn get_account_positions(
         env: Env,
         account_id: u64,
@@ -123,25 +129,34 @@ pub trait ControllerInterface {
         Map<Address, DebtPositionRaw>,
     );
 
+    /// Returns account mode, e-mode, and isolation attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
+    /// Returns market config for `asset`.
     fn get_market_config(env: Env, asset: Address) -> MarketConfig;
 
+    /// Returns e-mode category config by id.
     fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw;
 
+    /// Returns total isolated debt for an isolated collateral asset, in USD WAD.
     fn get_isolated_debt(env: Env, asset: Address) -> i128;
 
+    /// Returns config and oracle data for each requested market.
     fn get_all_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;
 
+    /// Returns indexes and price components for each requested market.
     fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView>;
 
+    /// Estimates liquidation seize, repay, refund, and bonus data.
     fn liquidation_estimations_detailed(
         env: Env,
         account_id: u64,
         debt_payments: Vec<(Address, i128)>,
     ) -> LiquidationEstimate;
 
+    /// Returns total collateral value available for liquidation, in USD WAD.
     fn liquidation_collateral_available(env: Env, account_id: u64) -> i128;
 
+    /// Returns collateral value counted toward LTV, in USD WAD.
     fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128;
 }

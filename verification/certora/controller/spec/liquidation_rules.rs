@@ -21,11 +21,8 @@ use common::types::AccountPositionType;
 // at 6 decimals), so any liquidation payment beyond that is irrelevant to
 // correctness and only serves to drive the prover into i128-overflow paths.
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
-
-// ---------------------------------------------------------------------------
 // Rule 1a (was: hf_improves_after_liquidation)
 // Liquidation strictly decreases scaled debt for the repaid asset.
-// ---------------------------------------------------------------------------
 
 /// Pinned-shape variant of "liquidation reduces debt": one supply asset,
 /// one borrow asset, account_id fixed. Replaces the heavyweight
@@ -73,11 +70,8 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
         None => cvlr_assert!(true), // fully closed
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 1b (was: hf_improves_after_liquidation, seizure leg)
 // Liquidation strictly decreases scaled collateral for the seized asset.
-// ---------------------------------------------------------------------------
 
 /// Pinned-shape variant of "liquidation reduces collateral": one supply
 /// asset, one borrow asset, account_id fixed. Mirrors the borrow-side rule
@@ -132,17 +126,11 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
         None => cvlr_assert!(true), // fully seized
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: DELETED -- no_over_liquidation was vacuous (tautology on min).
 // min(x, y) <= y is true by definition. The debt cap is already implicitly
 // tested by the strict-decrease rules above, which exercise the full
 // liquidation flow including the min-cap logic.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 3: Bonus bounded by MAX_LIQUIDATION_BONUS
-// ---------------------------------------------------------------------------
 
 /// The dynamic liquidation bonus must never exceed MAX_LIQUIDATION_BONUS
 /// (1500 BPS = 15%), regardless of how low the health factor drops.
@@ -169,26 +157,17 @@ fn bonus_bounded(e: Env, hf_wad: i128, base_bonus_bps: i128, max_bonus_bps: i128
 
     cvlr_assert!(bonus.raw() <= MAX_LIQUIDATION_BONUS);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: DELETED -- bonus_zero_at_threshold was provably wrong.
 // At HF=1.0 WAD, gap = (1.02 - 1.0)/1.02 = 0.0196, scale = 0.0392,
 // so bonus = base + 0.0392*(max-base), NOT base_bonus.
 // The correct boundary (HF=1.02 where gap=0 and bonus=base) is tested
 // by bonus_at_hf_exactly_102 in boundary_rules.rs.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 5: DELETED -- bonus_max_at_deep_underwater was unprovable under
 // the active `calculate_linear_bonus_summary` (which returns a nondet in
 // `[base, max]`). The boundary at HF >= 1.02 (bonus == base) is already
 // covered by `boundary_rules.rs::bonus_at_hf_exactly_102` against the
 // unsummarized `calculate_linear_bonus_with_target`.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 6: Seizure proportional to collateral value share
-// ---------------------------------------------------------------------------
 
 /// Each collateral asset is seized proportionally to its value share:
 /// `seizure_for_asset = total_seizure * (asset_value / total_collateral)`.
@@ -232,10 +211,7 @@ fn seizure_proportional(
         cvlr_assert!(seizure_a >= seizure_b);
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 7: Protocol fee on bonus portion only
-// ---------------------------------------------------------------------------
 
 /// Protocol fee = bonus_amount * liquidation_fees_bps / BPS.
 /// The fee is computed on the bonus portion (seizure - base), not the
@@ -284,8 +260,6 @@ fn protocol_fee_on_bonus_only(
     // Fee must be strictly less than total seizure (it's only on the bonus portion)
     cvlr_assert!(protocol_fee < seizure_amount);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 8: DELETED -- bad_debt_threshold was a propositional tautology
 // gated by the heaviest entry point in the spec (`clean_bad_debt_standalone`,
 // which iterates BOTH `supply_positions` and `borrow_positions` and per-asset
@@ -294,9 +268,6 @@ fn protocol_fee_on_bonus_only(
 // at concrete USD-threshold inputs, both already passing in the boundary
 // conf. Coverage lost: none -- the boundary rules cover both the qualifying
 // (==5) and non-qualifying (==6) sides of the predicate.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 9: DELETED -- bad_debt_supply_index_decreases asserted a relational
 // invariant on the pool's supply_index, which lives in a separate contract.
 // The controller-side `storage::market_index::get_market_index` reads via
@@ -305,18 +276,11 @@ fn protocol_fee_on_bonus_only(
 // nondets, so the assertion is always trivially satisfiable by the solver.
 // Coverage lost: none from the controller spec; this property must be
 // proven in the pool spec where supply_index lives.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 10: DELETED -- payment_dedup was vacuous (reimplements dedup locally).
 // The rule constructed a Map, inserted values, then asserted properties of
 // the Map it just built -- a tautology. Dedup correctness is covered by
 // liquidation integration tests.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 11: Ideal repayment targets HF = 1.02
-// ---------------------------------------------------------------------------
 
 /// The ideal repayment formula targets a post-liquidation HF of 1.02.
 /// Verify that `estimate_liquidation_amount` produces a value that, when
@@ -373,10 +337,7 @@ fn ideal_repayment_targets_102(
     let max_repayable = Wad::from_raw(total_collateral_wad).div(&e, one_plus_bonus);
     cvlr_assert!(ideal.raw() <= max_repayable.raw() + 1); // +1 for rounding tolerance
 }
-
-// ---------------------------------------------------------------------------
 // Sanity rules (reachability checks)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn liquidation_bonus_sanity(e: Env) {
@@ -420,10 +381,7 @@ fn estimate_liquidation_sanity(e: Env) {
         crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds);
     cvlr_satisfy!(ideal.raw() > 0);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 12 (added for liquidation price-trust hardening + Certora deepening)
-// ---------------------------------------------------------------------------
 /// Liquidation policy now disallows unsafe price deviation.
 ///
 /// With the change in OraclePolicy::Liquidation (unsafe_deviation: false),

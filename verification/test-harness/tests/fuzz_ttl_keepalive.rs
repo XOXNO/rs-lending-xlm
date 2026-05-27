@@ -34,13 +34,10 @@ use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALIC
 
 const USERS: &[&str] = &["alice", "bob", "carol", "dave", "eve"];
 const ASSETS: &[&str] = &["USDC", "ETH", "WBTC"];
-
-// ---------------------------------------------------------------------------
 // TTL read helpers. The testutils `get_ttl(key)` returns the *remaining*
 // ledgers until expiry (not the absolute
 // live_until_ledger). The assertion `remaining >= TTL_BUMP_*` is equivalent
 // to `live_until_ledger >= current + TTL_BUMP_*`.
-// ---------------------------------------------------------------------------
 
 fn persistent_ttl(t: &LendingTest, key: &ControllerKey) -> u32 {
     t.env
@@ -169,10 +166,7 @@ fn test_keepalive_shared_renews_positive_isolated_debt_entry() {
         min_ttl
     );
 }
-
-// ---------------------------------------------------------------------------
 // Property 1: keepalive_accounts bumps every position key.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
@@ -229,10 +223,7 @@ proptest! {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Property 2: keepalive_shared_state bumps per-market shared keys.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
@@ -286,10 +277,7 @@ proptest! {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Property 3: keepalive_pools forwards to each pool, bumping its instance TTL.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
@@ -333,8 +321,6 @@ proptest! {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Property 4: after a full withdraw, no orphan
 // SupplyPosition entry may remain, and AccountMeta.supply_assets must not
 // contain the asset.
@@ -342,7 +328,6 @@ proptest! {
 // The property verifies the controller storage layer where account keepalive
 // renews the side maps. If an orphan exists, keepalive can skip the
 // key while it remains persisted, allowing expiry to break invariants.
-// ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]

@@ -6,10 +6,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, usdt_stable_preset,
     LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_emode_category_creation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_category_creation() {
@@ -30,10 +27,7 @@ fn test_emode_category_creation() {
         "account should be in e-mode category 1"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_emode_enhanced_ltv_and_threshold
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_enhanced_ltv_and_threshold() {
@@ -60,10 +54,7 @@ fn test_emode_enhanced_ltv_and_threshold() {
         hf
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_emode_supply_with_category_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_supply_with_category_asset() {
@@ -82,10 +73,7 @@ fn test_emode_supply_with_category_asset() {
         "wallet should be ~0 after supply"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_emode_borrow_with_category_asset
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_borrow_with_category_asset() {
@@ -111,10 +99,7 @@ fn test_emode_borrow_with_category_asset() {
     );
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_emode_rejects_non_category_supply
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_rejects_non_category_supply() {
@@ -131,10 +116,7 @@ fn test_emode_rejects_non_category_supply() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_emode_rejects_non_category_borrow
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_rejects_non_category_borrow() {
@@ -152,10 +134,7 @@ fn test_emode_rejects_non_category_borrow() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_emode_rejects_with_isolation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_rejects_with_isolation() {
@@ -179,10 +158,7 @@ fn test_emode_rejects_with_isolation() {
     let result = t.try_supply(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_WITH_ISOLATED);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_emode_deprecated_blocks_new_accounts
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_deprecated_blocks_new_accounts() {
@@ -206,10 +182,7 @@ fn test_emode_deprecated_blocks_new_accounts() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_DEPRECATED);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_emode_edit_category_params
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_edit_category_params() {
@@ -231,10 +204,7 @@ fn test_emode_edit_category_params() {
     let result = t.try_borrow(ALICE, "USDT", 9_500.0);
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_emode_remove_category_deprecates
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_remove_category_deprecates() {
@@ -255,10 +225,7 @@ fn test_emode_remove_category_deprecates() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_DEPRECATED);
 }
-
-// ---------------------------------------------------------------------------
 // 11. test_emode_add_asset_to_category
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_add_asset_to_category() {
@@ -279,10 +246,7 @@ fn test_emode_add_asset_to_category() {
     t.borrow(ALICE, "USDT", 5_000.0);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 12. test_emode_remove_asset_from_category
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_remove_asset_from_category() {
@@ -304,10 +268,7 @@ fn test_emode_remove_asset_from_category() {
     let result = t.try_borrow(ALICE, "USDT", 5_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 13. test_emode_liquidation_uses_emode_bonus
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_liquidation_uses_emode_bonus() {
@@ -359,10 +320,7 @@ fn test_emode_liquidation_uses_emode_bonus() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
 // 14. test_emode_two_assets_same_category
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_two_assets_same_category() {
@@ -391,10 +349,7 @@ fn test_emode_two_assets_same_category() {
     t.assert_borrow_near(ALICE, "USDC", 2_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-
-// ---------------------------------------------------------------------------
 // 15. test_emode_rejects_threshold_lte_ltv
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_rejects_threshold_lte_ltv() {
@@ -412,10 +367,7 @@ fn test_emode_rejects_threshold_lte_ltv() {
     };
     assert_contract_error(flat, errors::INVALID_LIQ_THRESHOLD);
 }
-
-// ---------------------------------------------------------------------------
 // 16. test_emode_deprecated_category_operations_rejected
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_emode_deprecated_category_operations_rejected() {

@@ -6,10 +6,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, PositionType,
     ALICE, BOB,
 };
-
-// ---------------------------------------------------------------------------
 // 1. test_repay_partial
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_partial() {
@@ -32,10 +29,7 @@ fn test_repay_partial() {
     );
     t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
 }
-
-// ---------------------------------------------------------------------------
 // 2. test_repay_full_clears_position
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_full_clears_position() {
@@ -72,10 +66,7 @@ fn test_repay_full_clears_position() {
     // The borrow position must be removed.
     t.assert_borrow_count(ALICE, 0);
 }
-
-// ---------------------------------------------------------------------------
 // 3. test_repay_overpayment_refunded
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_overpayment_refunded() {
@@ -110,10 +101,7 @@ fn test_repay_overpayment_refunded() {
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(borrow < 0.01, "borrow should be ~0");
 }
-
-// ---------------------------------------------------------------------------
 // 4. test_repay_by_third_party
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_by_third_party() {
@@ -160,10 +148,7 @@ fn test_repay_by_third_party() {
         "Alice's wallet must be untouched by Bob's repay"
     );
 }
-
-// ---------------------------------------------------------------------------
 // 5. test_repay_multiple_assets
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_multiple_assets() {
@@ -225,10 +210,7 @@ fn test_repay_multiple_assets() {
         wbtc_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 6. test_repay_rejects_zero_amount
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_rejects_zero_amount() {
@@ -245,10 +227,7 @@ fn test_repay_rejects_zero_amount() {
     // failure in the validator chain.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
-
-// ---------------------------------------------------------------------------
 // 7. test_repay_rejects_position_not_found
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_rejects_position_not_found() {
@@ -263,10 +242,7 @@ fn test_repay_rejects_position_not_found() {
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::POSITION_NOT_FOUND);
 }
-
-// ---------------------------------------------------------------------------
 // 8. test_repay_rejects_during_flash_loan
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_rejects_during_flash_loan() {
@@ -282,10 +258,7 @@ fn test_repay_rejects_during_flash_loan() {
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-
-// ---------------------------------------------------------------------------
 // 9. test_repay_isolated_debt_decremented
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_isolated_debt_decremented() {
@@ -319,10 +292,7 @@ fn test_repay_isolated_debt_decremented() {
         debt_before, debt_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 10. test_repay_cleans_up_empty_account
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_repay_cleans_up_empty_account() {

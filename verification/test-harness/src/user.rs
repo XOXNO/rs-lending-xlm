@@ -5,9 +5,7 @@ use crate::context::{AccountEntry, LendingTest};
 use crate::helpers::f64_to_i128;
 
 impl LendingTest {
-    // -----------------------------------------------------------------------
     // Account creation
-    // -----------------------------------------------------------------------
 
     /// Create a normal account (e_mode=0, mode=Normal, not isolated).
     pub fn create_account(&mut self, user: &str) -> u64 {
@@ -133,10 +131,7 @@ impl LendingTest {
             user_state.default_account_id = Some(account_id);
         }
     }
-
-    // -----------------------------------------------------------------------
     // Supply
-    // -----------------------------------------------------------------------
 
     /// Supply tokens. Auto-creates user address and account on first call.
     /// Auto-mints tokens to the user before calling controller.
@@ -217,10 +212,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // Supply bulk
-    // -----------------------------------------------------------------------
 
     /// Supply multiple assets in a single controller call.
     /// Auto-mints tokens for each asset. Auto-creates account if needed.
@@ -251,10 +243,7 @@ impl LendingTest {
             self.register_account(user, returned_id, 0, PositionMode::Normal, false);
         }
     }
-
-    // -----------------------------------------------------------------------
     // Borrow
-    // -----------------------------------------------------------------------
 
     pub fn borrow(&mut self, user: &str, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -303,10 +292,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // Borrow bulk
-    // -----------------------------------------------------------------------
 
     /// Borrow multiple assets in a single controller call.
     /// HF check runs once AFTER all borrows (cumulative).
@@ -354,10 +340,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // Withdraw
-    // -----------------------------------------------------------------------
 
     pub fn withdraw(&mut self, user: &str, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -395,10 +378,7 @@ impl LendingTest {
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }
-
-    // -----------------------------------------------------------------------
     // Withdraw bulk
-    // -----------------------------------------------------------------------
 
     /// Withdraw multiple assets in a single controller call.
     /// HF check runs once AFTER all withdrawals (if borrows exist).
@@ -424,10 +404,7 @@ impl LendingTest {
         let ctrl = self.ctrl_client();
         ctrl.withdraw(&addr, &account_id, &soroban_withdrawals);
     }
-
-    // -----------------------------------------------------------------------
     // Repay
-    // -----------------------------------------------------------------------
 
     pub fn repay(&mut self, user: &str, asset_name: &str, amount: f64) {
         let decimals = self.resolve_market(asset_name).decimals;
@@ -448,10 +425,7 @@ impl LendingTest {
         let payments: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
         ctrl.repay(&addr, &account_id, &payments);
     }
-
-    // -----------------------------------------------------------------------
     // Repay bulk
-    // -----------------------------------------------------------------------
 
     /// Repay multiple assets in a single controller call.
     /// Auto-mints tokens for each repayment.
@@ -479,10 +453,7 @@ impl LendingTest {
         let ctrl = self.ctrl_client();
         ctrl.repay(&addr, &account_id, &soroban_payments);
     }
-
-    // -----------------------------------------------------------------------
     // Account removal
-    // -----------------------------------------------------------------------
 
     /// Remove an account (must have no positions).
     pub fn remove_account(&mut self, user: &str) {
@@ -543,10 +514,7 @@ impl LendingTest {
             Ok(())
         })
     }
-
-    // -----------------------------------------------------------------------
     // Withdraw all
-    // -----------------------------------------------------------------------
 
     /// Withdraw the entire position for an asset (passes amount=0 which means "withdraw all").
     pub fn withdraw_all(&mut self, user: &str, asset_name: &str) {
@@ -558,10 +526,7 @@ impl LendingTest {
         let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, 0i128)];
         ctrl.withdraw(&addr, &account_id, &withdrawals);
     }
-
-    // -----------------------------------------------------------------------
     // Repay (continued)
-    // -----------------------------------------------------------------------
 
     pub fn try_repay(
         &mut self,

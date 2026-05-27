@@ -11,10 +11,7 @@ use test_harness::{
     assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
     LIQUIDATOR,
 };
-
-// ---------------------------------------------------------------------------
 // HF boundary off-by-ones (Blend V2 L-05 class)
-// ---------------------------------------------------------------------------
 
 // At HF == 1.0 (against the *liquidation threshold*) the account is
 // healthy: `process_liquidation` rejects via `HealthFactorTooHigh`. The
@@ -106,10 +103,7 @@ fn test_liquidation_strictly_improves_hf() {
         hf_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // Bonus curve monotonicity + boundaries
-// ---------------------------------------------------------------------------
 
 // Sweeps liquidatable HF levels in the mild-underwater band where the
 // Dutch-auction bonus interpolates between base (5 %) and max (15 %).
@@ -218,10 +212,7 @@ fn test_liquidation_bonus_clamped_at_max() {
         realized_bonus
     );
 }
-
-// ---------------------------------------------------------------------------
 // Bad-debt threshold boundary ($5)
-// ---------------------------------------------------------------------------
 
 // Position with collateral well within the $5 bad-debt threshold AND
 // debt greater than collateral triggers socialization on liquidation.

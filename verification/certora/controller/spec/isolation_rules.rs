@@ -8,10 +8,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{MAX_LIQUIDATION_BONUS, RAY};
-
-// ---------------------------------------------------------------------------
 // Rule 1: LTV < liquidation_threshold (always)
-// ---------------------------------------------------------------------------
 
 /// For every registered asset, LTV must be strictly less than the liquidation
 /// threshold. Otherwise, a position could be simultaneously at max borrow
@@ -22,10 +19,7 @@ fn ltv_less_than_liquidation_threshold(e: Env, asset: Address) {
 
     cvlr_assert!(config.loan_to_value_bps < config.liquidation_threshold_bps);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 2: Liquidation bonus <= 15% (1500 BPS)
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn liquidation_bonus_capped(e: Env, asset: Address) {
@@ -33,10 +27,7 @@ fn liquidation_bonus_capped(e: Env, asset: Address) {
 
     cvlr_assert!(config.liquidation_bonus_bps <= MAX_LIQUIDATION_BONUS);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 3: Reserve factor < 100%
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn reserve_factor_bounded(e: Env, asset: Address) {
@@ -44,10 +35,7 @@ fn reserve_factor_bounded(e: Env, asset: Address) {
 
     cvlr_assert!(config.reserve_factor_bps < 10000); // < 100%
 }
-
-// ---------------------------------------------------------------------------
 // Rule 4: Optimal utilization > mid utilization and < 100%
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn utilization_params_ordered(e: Env, asset: Address) {
@@ -57,19 +45,13 @@ fn utilization_params_ordered(e: Env, asset: Address) {
     cvlr_assert!(params.optimal_utilization_ray > params.mid_utilization_ray);
     cvlr_assert!(params.optimal_utilization_ray < RAY); // < 100%
 }
-
-// ---------------------------------------------------------------------------
 // Rule 5: Isolation and E-Mode are mutually exclusive
 //
 // Inductive form lives in `emode_rules::emode_isolation_mutual_exclusion_after_supply`.
 // A read-only rule over havoced storage is vacuous because storage can
 // freely produce both flags set; the invariant only holds across the
 // writing entry points (supply/multiply) that mutate AccountMeta.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Rule 6: Isolated accounts have at most one collateral asset
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn isolated_single_collateral(e: Env, account_id: u64) {
@@ -95,10 +77,7 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Rule 7: Borrow in isolation mode respects debt ceiling
-// ---------------------------------------------------------------------------
 
 /// On the success path of an isolated borrow, the global isolated debt
 /// counter for the isolated collateral asset must:
@@ -143,10 +122,7 @@ fn isolation_debt_ceiling_respected(
     // (2) Ceiling never exceeded post-borrow.
     cvlr_assert!(debt_after <= market.asset_config.isolation_debt_ceiling_usd_wad);
 }
-
-// ---------------------------------------------------------------------------
 // Rule 7b: Repay in isolation mode strictly decreases the isolated-debt counter
-// ---------------------------------------------------------------------------
 
 /// A successful repayment of an isolated borrow must reduce the global
 /// `IsolatedDebt(asset)` counter. The post-condition handles the WAD
@@ -193,10 +169,7 @@ fn isolation_repay_decreases_counter(
     // strict decrease or a snapped-to-zero counter.
     cvlr_assert!(debt_after < debt_before || debt_after == 0);
 }
-
-// ---------------------------------------------------------------------------
 // Sanity
-// ---------------------------------------------------------------------------
 
 #[rule]
 fn isolation_sanity(e: Env, account_id: u64) {

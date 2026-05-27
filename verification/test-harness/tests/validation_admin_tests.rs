@@ -10,10 +10,7 @@ use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
     DEFAULT_TOLERANCE,
 };
-
-// ---------------------------------------------------------------------------
 // validate_bulk_isolation -- BulkSupplyNoIso (validation.rs:109)
-// ---------------------------------------------------------------------------
 //
 // `validate_bulk_isolation` panics with #405 when a batch of distinct assets
 // has length > 1 and the first asset is isolated, or when the account is
@@ -50,10 +47,7 @@ fn test_validate_bulk_isolation_rejects_isolated_first_asset_bulk() {
     ];
     t.ctrl_client().supply(&alice, &0u64, &0u32, &assets);
 }
-
-// ---------------------------------------------------------------------------
 // validate_interest_rate_model invariants
-// ---------------------------------------------------------------------------
 //
 // Driven via `upgrade_liquidity_pool_params`, which calls `validate_interest_rate_model`
 // directly with no other invariants in the way.
@@ -127,10 +121,7 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     irm.reserve_factor_bps = BPS as u32;
     t.ctrl_client().upgrade_liquidity_pool_params(&asset, &irm);
 }
-
-// ---------------------------------------------------------------------------
 // validate_asset_config invariants
-// ---------------------------------------------------------------------------
 //
 // Driven via `edit_asset_config`. The validator is also called from
 // `create_liquidity_pool`, but the edit path is shorter to set up.
@@ -174,10 +165,7 @@ fn test_validate_asset_config_accepts_flashloan_fee_at_cap() {
     let updated = ctrl.get_market_config(&asset).asset_config;
     assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS as u32);
 }
-
-// ---------------------------------------------------------------------------
 // configure_market_oracle error paths (config.rs:453, 479, 524)
-// ---------------------------------------------------------------------------
 
 fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
     let asset = t.resolve_market("USDC").asset.clone();
@@ -296,10 +284,7 @@ fn test_configure_market_oracle_rejects_missing_twap_history() {
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }
-
-// ---------------------------------------------------------------------------
 // emode.rs:95 -- EModeCategoryDeprecated rejection on user supply path
-// ---------------------------------------------------------------------------
 //
 // `remove_e_mode_category` flips `is_deprecated = true` and walks asset
 // reverse-indexes. A user attempting to supply with the deprecated category

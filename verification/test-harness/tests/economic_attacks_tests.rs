@@ -8,10 +8,7 @@ extern crate std;
 use test_harness::{
     eth_preset, helpers, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
 };
-
-// ---------------------------------------------------------------------------
 // 1. Donation attack defense
-// ---------------------------------------------------------------------------
 
 // Classic share-inflation attack: an attacker supplies a single dust
 // share, then donates a huge amount of underlying directly to the pool
@@ -64,10 +61,7 @@ fn test_donation_attack_does_not_inflate_share_price() {
         alice_supply_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 2. First-supplier cannot dilute later suppliers via tiny initial seed
-// ---------------------------------------------------------------------------
 
 // Pins that two supplies in sequence preserve proportional credit.
 // Without correct share math, a $1 first supply followed by a $10000
@@ -101,10 +95,7 @@ fn test_first_supplier_cannot_dilute_followers() {
         bob_after
     );
 }
-
-// ---------------------------------------------------------------------------
 // 3. Partial-liquidation chain converges (no infinite-loop griefing)
-// ---------------------------------------------------------------------------
 
 // A series of partial liquidations on a single underwater account must
 // converge: each partial payment increases HF (or cleans up dust), and

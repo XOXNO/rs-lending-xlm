@@ -4,10 +4,7 @@ use test_harness::{
     days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
     LIQUIDATOR,
 };
-
-// ===========================================================================
 // Test 1: Multi-user lending cycle over 4 weeks
-// ===========================================================================
 
 #[test]
 fn test_multi_user_lending_cycle() {
@@ -119,10 +116,7 @@ fn test_multi_user_lending_cycle() {
         revenue_usdc_final
     );
 }
-
-// ===========================================================================
 // Test 2: Full exit solvency (bank run)
-// ===========================================================================
 
 #[test]
 fn test_full_exit_solvency() {
@@ -204,10 +198,7 @@ fn test_full_exit_solvency() {
         revenue_usdc_before
     );
 }
-
-// ===========================================================================
 // Test 3: Cascading liquidations stability
-// ===========================================================================
 
 #[test]
 fn test_cascading_liquidations_stability() {
@@ -318,10 +309,7 @@ fn test_cascading_liquidations_stability() {
         "Eve should not be liquidatable (HF > 1.0)"
     );
 }
-
-// ===========================================================================
 // Test 4: Interest accrual consistency
-// ===========================================================================
 
 #[test]
 fn test_interest_accrual_consistency() {
@@ -392,10 +380,7 @@ fn test_interest_accrual_consistency() {
         total_supply_interest
     );
 }
-
-// ===========================================================================
 // Test 5: Position limit exactly at cap
-// ===========================================================================
 
 #[test]
 fn test_position_limit_exactly_at_cap() {
@@ -432,10 +417,7 @@ fn test_position_limit_exactly_at_cap() {
     t.assert_borrow_count(ALICE, 3);
     t.assert_healthy(ALICE);
 }
-
-// ===========================================================================
 // Test 6: Keeper index freshness matters
-// ===========================================================================
 
 #[test]
 fn test_keeper_index_freshness_matters() {

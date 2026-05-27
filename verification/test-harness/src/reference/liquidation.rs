@@ -30,10 +30,7 @@ use num_traits::{Signed, ToPrimitive, Zero};
 use common::constants::{BPS, MAX_LIQUIDATION_BONUS, RAY, WAD};
 
 use crate::context::LendingTest;
-
-// ---------------------------------------------------------------------------
 // Public types
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
 pub struct RefCollateralPosition {
@@ -74,10 +71,7 @@ pub struct RefLiquidationResult {
     /// Total collateral seized in USD WAD.
     pub total_seized_usd_wad: BigRational,
 }
-
-// ---------------------------------------------------------------------------
 // Small constant helpers
-// ---------------------------------------------------------------------------
 
 fn bi_one() -> BigInt {
     BigInt::from(1)
@@ -110,10 +104,7 @@ fn wad_scale() -> BigRational {
 fn bps_scale() -> BigRational {
     br_from_i128(BPS)
 }
-
-// ---------------------------------------------------------------------------
 // Rounding helpers
-// ---------------------------------------------------------------------------
 
 /// Half-up division of two BigInts (rounds .5 away from zero). Returns the
 /// quotient.
@@ -162,10 +153,7 @@ pub fn float_to_bigrational(x: f64, decimals: u32) -> BigRational {
     let raw = (x * 10f64.powi(decimals as i32)) as i128;
     br_from_i128(raw)
 }
-
-// ---------------------------------------------------------------------------
 // Internal math helpers (exact rationals, no rounding)
-// ---------------------------------------------------------------------------
 
 /// `position_value` in exact rationals, output scale = WAD.
 /// Matches `helpers::position_value`: actual = scaled * index / RAY, then
@@ -434,10 +422,7 @@ fn estimate_liquidation_amount(
         None => (d_max, base_bonus_bps.clone()),
     }
 }
-
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /// Compute liquidation outputs from a snapshot using exact rational math.
 /// Takes the debt payments as *token units* (pre-scaling); the reference
@@ -572,10 +557,7 @@ pub fn compute_liquidation(
         total_seized_usd_wad: total_seizure_usd,
     }
 }
-
-// ---------------------------------------------------------------------------
 // Snapshot helpers -- read from LendingTest views
-// ---------------------------------------------------------------------------
 
 fn account_id_for(t: &LendingTest, user: &str) -> Option<u64> {
     t.find_account_id(user)
@@ -641,10 +623,7 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     }
     out
 }
-
-// ---------------------------------------------------------------------------
 // Self-tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

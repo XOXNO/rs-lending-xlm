@@ -1,11 +1,7 @@
-//! E-mode application logic (boosting risk parameters for correlated assets).
+//! E-mode risk-parameter overrides for correlated asset categories.
 //!
-//! The actual category storage lives in `storage/emode`. This module only
-//! contains the pure "apply or ignore" transformation used at supply time
-//! and when reading effective asset config for risk calculations.
-//!
-//! Deprecated categories are silently ignored (no error) so that users
-//! with old positions are not suddenly bricked.
+//! Storage lives in `storage/emode`; this module applies active category
+//! overrides and rejects e-mode combinations that would violate isolation.
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
@@ -14,7 +10,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 use crate::cache::ControllerCache;
 use crate::storage;
 
-// Boosts risk parameters via e-mode.
+/// Applies active e-mode collateral and borrow flags to an asset config.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
@@ -33,7 +29,7 @@ pub fn apply_e_mode_to_asset_config(
     }
 }
 
-// Returns asset config with e-mode overrides.
+/// Returns market asset config after applicable e-mode overrides.
 pub fn effective_asset_config(
     env: &Env,
     account: &Account,
@@ -47,14 +43,14 @@ pub fn effective_asset_config(
     asset_config
 }
 
-// Rejects isolated asset in e-mode.
+/// Rejects isolated collateral when an account has an e-mode category.
 pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_id: u32) {
     if asset_config.is_isolated_asset && e_mode_id > 0 {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
 }
 
-// Returns e-mode asset config.
+/// Returns e-mode membership for `asset` after checking the market reverse index.
 pub fn token_e_mode_config(
     env: &Env,
     cache: &mut ControllerCache,
@@ -69,7 +65,7 @@ pub fn token_e_mode_config(
     let market = match cache.market_configs.get(asset.clone()) {
         Some(m) => m,
         None => {
-            // Use storage on cache miss.
+            // Cache misses fall back to stable market config storage.
             match crate::storage::try_get_market_config(env, asset) {
                 Some(m) => {
                     cache.market_configs.set(asset.clone(), m.clone());
@@ -90,7 +86,7 @@ pub fn token_e_mode_config(
     config
 }
 
-// Returns e-mode category.
+/// Returns the e-mode category unless `e_mode_id` is zero.
 pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     if e_mode_id == 0 {
         return None;
@@ -98,21 +94,20 @@ pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     Some((&storage::get_emode_category(env, e_mode_id)).into())
 }
 
-// Returns active e-mode category.
+/// Returns a non-deprecated e-mode category unless `e_mode_id` is zero.
 pub fn active_e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
     let category = e_mode_category(env, e_mode_id);
     ensure_e_mode_not_deprecated(env, &category);
     category
 }
 
-// Panics if deprecated.
 pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
     if let Some(cat) = category {
         assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     }
 }
 
-// Validates e-mode membership.
+/// Checks that the asset is allowed for supply or borrow in the account's e-mode.
 pub fn validate_e_mode_asset(
     env: &Env,
     cache: &mut ControllerCache,
@@ -138,7 +133,7 @@ pub fn validate_e_mode_asset(
     }
 }
 
-// Enforces isolated collateral exclusivity.
+/// Enforces the single-collateral-asset invariant for isolated accounts.
 pub fn validate_isolated_collateral(
     env: &Env,
     account: &Account,
@@ -167,7 +162,7 @@ pub fn validate_isolated_collateral(
     }
 }
 
-// Rejects e-mode + isolation.
+/// Rejects accounts that try to combine e-mode with isolation.
 pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category: u32, is_isolated: bool) {
     if e_mode_category > 0 && is_isolated {
         panic_with_error!(env, EModeError::EModeWithIsolated);

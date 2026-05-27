@@ -22,10 +22,7 @@ use test_harness::{
     assert_contract_error, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE,
     STABLECOIN_EMODE,
 };
-
-// ---------------------------------------------------------------------------
 // 1. keepalive_pools -- happy path with multiple assets + skip-on-missing.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_keepalive_pools_iterates_and_skips_unknown() {
@@ -48,13 +45,10 @@ fn test_keepalive_pools_iterates_and_skips_unknown() {
     // tolerate a missing market config without aborting.
     t.ctrl_client().keepalive_pools(&t.keeper, &assets);
 }
-
-// ---------------------------------------------------------------------------
 // 2. keepalive_shared_state -- exercises the deeper per-asset branches:
 //    `Market` and `IsolatedDebt` always; `AssetEModes`, `EModeCategory`,
 //    `EModeAssets` only when the asset belongs to at least one e-mode
 //    category.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_keepalive_shared_state_bumps_emode_keys() {
@@ -74,11 +68,8 @@ fn test_keepalive_shared_state_bumps_emode_keys() {
 
     t.ctrl_client().keepalive_shared_state(&t.keeper, &assets);
 }
-
-// ---------------------------------------------------------------------------
 // 3. upgrade_liquidity_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_upgrade_pool_admin_path() {
@@ -99,15 +90,12 @@ fn test_upgrade_pool_admin_path() {
     t.ctrl_client()
         .upgrade_liquidity_pool(&asset, &template_hash);
 }
-
-// ---------------------------------------------------------------------------
 // 4. TemplateEmpty -- create_liquidity_pool must panic with
 //    GenericError::TemplateEmpty (#5) when no pool template is set.
 //
 //    A fresh controller registered outside the LendingTest builder gives us
 //    a state where `has_pool_template == false` while still allowing us to
 //    pre-approve a token contract and reach the template check.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_create_liquidity_pool_panics_when_template_unset() {
@@ -141,8 +129,6 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
     };
     assert_contract_error(result, GenericError::TemplateNotSet as u32);
 }
-
-// ---------------------------------------------------------------------------
 // 5. Deprecated e-mode reject on the user path. Sequence:
 //      a) admin opens an e-mode category and adds USDC to it;
 //      b) ALICE opens an account in that category (still active);
@@ -155,7 +141,6 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
 //    is still active (the shim asserts non-deprecated, mirroring the
 //    on-chain `create_account` validation), so the reject must come from
 //    the supply path, not from account creation.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_supply_panics_on_deprecated_emode_category() {
