@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(clippy::too_many_arguments)]
 mod cache;
 mod interest;
 mod utils;
