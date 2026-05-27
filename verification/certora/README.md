@@ -21,14 +21,11 @@ verification/certora/
 ├── shared/          # reusable pool/SAC/oracle summaries and model helpers
 ├── profiles.json    # canonical profile manifest
 ├── run_profile.py   # profile runner
-├── compile_all.sh
-├── run_sanity.sh
-├── run_fast.sh
-├── run_core.sh
-├── run_heavy.sh
-├── run_manual.sh
-└── run_all.sh
+└── check_orphans.py # conf/spec/profile coverage check
 ```
+
+Each layer (`common`, `pool`, `controller`) carries its own `certora_build.py`,
+the per-crate build script the prover invokes via each conf's `build_script`.
 
 Each `confs/*.conf` file is a prover entry point for one bounded proof domain.
 Each `spec/*_rules.rs` file contains the corresponding Rust/Soroban rules
@@ -105,7 +102,7 @@ EVM-specific Aave/Solidity options are not copied into this Soroban suite.
 ## Profiles
 
 Profiles are defined once in `profiles.json` and executed through
-`run_profile.py`. The shell scripts are compatibility wrappers.
+`run_profile.py`.
 
 ```bash
 ./verification/certora/run_profile.py --list
@@ -121,7 +118,7 @@ Profile intent:
 | --- | --- |
 | `sanity` | Targeted reachability and non-vacuity smoke checks. |
 | `fast` | Stable CI profile: common math/rates, pool integrity, controller light safety. |
-| `core` | Manual audit profile: pool summaries, solvency, liquidation, isolation, strategy, boundary, Aave-parity. |
+| `core` | Manual audit profile: pool summaries, solvency, liquidation, isolation, strategy, boundary, account isolation, and market guards. |
 | `critical` | Small set of the highest-signal accounting and safety proofs. |
 | `heavy` | Split-parallel targeted configs for expensive properties. |
 | `manual` | `core` plus `heavy`. |
@@ -141,10 +138,13 @@ Preview commands without dispatching:
 
 ## Targeted Runs
 
-Full assurance sequence:
+Full assurance sequence (local compile checks, then hosted profiles):
 
 ```bash
-./verification/certora/compile_all.sh
+cargo check -p common --features certora
+cargo check -p pool --features certora --no-default-features
+cargo check -p controller --features certora --no-default-features
+python3 verification/certora/check_orphans.py
 ./verification/certora/run_profile.py sanity
 ./verification/certora/run_profile.py fast
 ./verification/certora/run_profile.py critical
@@ -165,7 +165,9 @@ Use the paired basic configs first when investigating vacuity:
 
 ```bash
 certoraSorobanProver verification/certora/pool/confs/summary-contract.conf
-certoraSorobanProver verification/certora/controller/confs/aave-parity.conf
+certoraSorobanProver verification/certora/controller/confs/account-isolation.conf
+certoraSorobanProver verification/certora/controller/confs/market-guard.conf
+certoraSorobanProver verification/certora/controller/confs/controller-pool-consistency-light.conf
 certoraSorobanProver verification/certora/controller/confs/solvency.conf
 certoraSorobanProver verification/certora/controller/confs/liquidation.conf
 ```
@@ -175,28 +177,15 @@ certoraSorobanProver verification/certora/controller/confs/liquidation.conf
 Compile all Certora feature paths and verify config/profile-to-rule coverage:
 
 ```bash
-./verification/certora/compile_all.sh
-```
-
-Equivalent direct checks:
-
-```bash
 cargo check -p common --features certora
 cargo check -p pool --features certora --no-default-features
 cargo check -p controller --features certora --no-default-features
 python3 verification/certora/check_orphans.py
 ```
 
-Current inventory:
-
-| Item | Count |
-| --- | ---: |
-| Certora conf files | 26 |
-| Source `#[rule]` functions | 210 |
-| Profiles | 7 |
-
-The orphan/profile check reports:
+`check_orphans.py` confirms every conf and profile rule resolves to a `#[rule]`
+function in the matching `spec/` tree, and prints the current inventory:
 
 ```text
-OK: 26 confs, 210 source rules, 7 profiles, zero orphans
+OK: 28 confs, 217 source rules, 7 profiles, zero orphans
 ```

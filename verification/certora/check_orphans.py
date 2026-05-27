@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-RULE_RE = re.compile(r"#\[rule\]\s*(?:pub\s+)?fn\s+(\w+)")
+RULE_RE = re.compile(r"#\[rule\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?fn\s+(\w+)")
 PROFILE_MANIFEST = ROOT / "profiles.json"
 
 

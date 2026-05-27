@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-Certora Sunbeam build script for the Stellar lending controller.
-
-This script is invoked by the Certora Prover to compile the controller
-contract to WASM. The prover provides the `cvlr` crate in its build
-environment, so the `certora` feature can compile the spec rules.
-"""
+"""Certora Soroban build script for the lending controller crate."""
 
 import argparse
 import json
@@ -15,48 +9,32 @@ import sys
 import tempfile
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-STELLAR_DIR = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
-CONTROLLER_DIR = os.path.join(STELLAR_DIR, "contracts", "controller")
+ROOT_DIR = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
+PACKAGE = "controller"
+PACKAGE_DIR = os.path.join(ROOT_DIR, "contracts", PACKAGE)
+SHARED_DIR = os.path.join(ROOT_DIR, "verification", "certora", "shared")
+TARGET_DIR = os.path.join(ROOT_DIR, "target", "certora", PACKAGE)
+EXECUTABLE = os.path.join(TARGET_DIR, "wasm32v1-none", "release", f"{PACKAGE}.wasm")
 
-# Build command: target wasm32v1-none, matching our contract build target.
-# Works only with a #![no_std]-patched cvlr-spec (see stellar/vendor/cvlr).
-# The [patch."https://github.com/Certora/cvlr.git"] entry in the workspace
-# Cargo.toml redirects cvlr-spec to the vendored copy.
-BUILD_CMD = (
-    f"cd {STELLAR_DIR} && "
-    f"stellar contract build --package controller --features certora"
-)
 
-# Source files the prover tracks for cache invalidation
-SOURCES = []
-for root_path in (
-    os.path.join(CONTROLLER_DIR, "src"),
-    os.path.join(PROJECT_DIR, "spec"),
-    os.path.join(PROJECT_DIR, "harness"),
-    os.path.join(PROJECT_DIR, "confs"),
-    os.path.join(STELLAR_DIR, "verification", "certora", "shared"),
-):
-    for root, dirs, files in os.walk(root_path):
-        for f in files:
-            if f.endswith(".rs") or f.endswith(".py") or f.endswith(".conf"):
-                SOURCES.append(os.path.join(root, f))
-
-for f in os.listdir(PROJECT_DIR):
-    if f.endswith(".py"):
-        SOURCES.append(os.path.join(PROJECT_DIR, f))
-
-COMMON_DIR = os.path.join(STELLAR_DIR, "common", "src")
-if os.path.isdir(COMMON_DIR):
-    for root, dirs, files in os.walk(COMMON_DIR):
-        for f in files:
-            if f.endswith(".rs"):
-                SOURCES.append(os.path.join(root, f))
-
-SOURCES.append(os.path.join(STELLAR_DIR, "Cargo.toml"))
-SOURCES.append(os.path.join(CONTROLLER_DIR, "Cargo.toml"))
-
-TARGET_DIR = os.path.join(STELLAR_DIR, "target", "certora", "controller")
-EXECUTABLE = os.path.join(TARGET_DIR, "wasm32v1-none", "release", "controller.wasm")
+def tracked_sources():
+    sources = [os.path.join(ROOT_DIR, "Cargo.toml"), os.path.join(PACKAGE_DIR, "Cargo.toml")]
+    for path in (
+        os.path.join(PACKAGE_DIR, "src"),
+        os.path.join(ROOT_DIR, "common", "src"),
+        os.path.join(PROJECT_DIR, "spec"),
+        os.path.join(PROJECT_DIR, "harness"),
+        os.path.join(PROJECT_DIR, "confs"),
+        SHARED_DIR,
+    ):
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                if name.endswith((".rs", ".py", ".conf")):
+                    sources.append(os.path.join(root, name))
+    for name in os.listdir(PROJECT_DIR):
+        if name.endswith(".py"):
+            sources.append(os.path.join(PROJECT_DIR, name))
+    return sources
 
 
 def main():
@@ -68,27 +46,20 @@ def main():
     parser.add_argument("--cargo_features", nargs="*", default=[])
     args = parser.parse_args()
 
-    # Build with stellar contract build (wasm32v1-none). Relies on the
-    # workspace [patch] redirect of cvlr-spec to the #![no_std]-patched
-    # vendored copy at stellar/vendor/cvlr.
-    cmd = BUILD_CMD
-    if args.cargo_features:
-        features = ",".join(args.cargo_features)
-        if "certora" not in args.cargo_features:
-            features = "certora," + features
-        cmd = (
-            f"cd {STELLAR_DIR} && "
-            f"stellar contract build --package controller --features {features}"
-        )
+    features = args.cargo_features or ["certora"]
+    if "certora" not in features:
+        features = ["certora", *features]
+    cmd = (
+        f"cd {ROOT_DIR} && "
+        f"stellar contract build --package {PACKAGE} --features {','.join(features)}"
+    )
 
-    # Run the build
     stdout_file = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) if not args.log else None
     stderr_file = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) if not args.log else None
-
     result = subprocess.run(
         cmd,
         shell=True,
-        cwd=STELLAR_DIR,
+        cwd=ROOT_DIR,
         env={**os.environ, "CARGO_TARGET_DIR": TARGET_DIR},
         stdout=stdout_file if stdout_file else None,
         stderr=stderr_file if stderr_file else None,
@@ -102,12 +73,9 @@ def main():
         stderr_file.close()
 
     success = result.returncode == 0 and os.path.exists(EXECUTABLE)
-
     output = {
-        "project_directory": STELLAR_DIR,
-        "sources": SOURCES,
-        # The prover expects a single path string, not a list. See
-        # Certora/sunbeam-tutorials certora_build.py for reference shape.
+        "project_directory": ROOT_DIR,
+        "sources": tracked_sources(),
         "executables": EXECUTABLE if success else "",
         "success": success,
         "return_code": result.returncode,

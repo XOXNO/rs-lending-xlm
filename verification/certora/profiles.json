@@ -86,10 +86,17 @@
                 ]
             },
             {
-                "conf": "verification/certora/controller/confs/aave-parity.conf",
+                "conf": "verification/certora/controller/confs/account-isolation.conf",
                 "args": [
                     "--rule",
-                    "controller_parity_reachability"
+                    "account_isolation_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/market-guard.conf",
+                "args": [
+                    "--rule",
+                    "market_guard_reachability"
                 ]
             }
         ],
@@ -154,7 +161,13 @@
                 "conf": "verification/certora/controller/confs/boundary.conf"
             },
             {
-                "conf": "verification/certora/controller/confs/aave-parity.conf"
+                "conf": "verification/certora/controller/confs/account-isolation.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/market-guard.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/controller-pool-consistency-light.conf"
             }
         ],
         "critical": [

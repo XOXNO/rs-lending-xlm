@@ -18,12 +18,12 @@ EXECUTABLE = os.path.join(TARGET_DIR, "wasm32v1-none", "release", f"{PACKAGE}.wa
 
 def tracked_sources():
     sources = [os.path.join(ROOT_DIR, "Cargo.toml"), os.path.join(PACKAGE_DIR, "Cargo.toml")]
-    for root_path in (
+    for path in (
         os.path.join(PACKAGE_DIR, "src"),
         os.path.join(PROJECT_DIR, "spec"),
         os.path.join(PROJECT_DIR, "confs"),
     ):
-        for root, _dirs, files in os.walk(root_path):
+        for root, _dirs, files in os.walk(path):
             for name in files:
                 if name.endswith((".rs", ".py", ".conf")):
                     sources.append(os.path.join(root, name))
