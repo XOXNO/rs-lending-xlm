@@ -13,19 +13,19 @@
 //! then emit batched events after storage is written.
 
 mod access;
-pub(crate) mod cache;
+mod cache;
 mod config;
-pub(crate) mod cross_contract;
+mod cross_contract;
 #[cfg(not(feature = "certora"))]
-pub(crate) mod helpers;
+mod helpers;
 #[cfg(feature = "certora")]
 #[path = "../../../verification/certora/controller/harness/helpers.rs"]
-pub(crate) mod helpers;
+mod helpers;
 // Certora replaces helper math with summaries to keep position-flow proofs
 // focused on controller state transitions.
-pub(crate) mod emode;
-pub(crate) mod oracle;
-pub(crate) mod positions;
+mod emode;
+mod oracle;
+mod positions;
 mod router;
 mod storage;
 mod strategies;

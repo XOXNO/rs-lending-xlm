@@ -107,11 +107,14 @@ pub fn process_liquidation(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
-    let will_socialize = post_total_debt > post_total_coll && post_total_coll <= bad_debt_threshold;
+    let will_socialize = is_socializable_bad_debt(
+        post_total_debt,
+        post_total_coll,
+        Wad::from_raw(BAD_DEBT_USD_THRESHOLD),
+    );
     if !will_socialize {
-        let seized_assets = seize_entry_assets(env, &result.seized);
-        let repaid_assets = repay_entry_assets(env, &result.repaid);
+        let seized_assets = unique_assets(env, &result.seized, |e| e.asset.clone());
+        let repaid_assets = unique_assets(env, &result.repaid, |e| e.asset.clone());
         require_no_supply_dust_for_assets(env, &mut cache, &account, &seized_assets);
         require_no_borrow_dust_for_assets(env, &mut cache, &account, &repaid_assets);
     }
@@ -127,24 +130,16 @@ pub fn process_liquidation(
     cache.emit_market_batch();
 }
 
-fn seize_entry_assets(env: &Env, seized: &Vec<SeizeEntry>) -> Vec<Address> {
+// Order-preserving unique asset list from any entry vector keyed by `asset_of`.
+fn unique_assets<T>(env: &Env, entries: &Vec<T>, asset_of: impl Fn(&T) -> Address) -> Vec<Address>
+where
+    T: soroban_sdk::TryFromVal<Env, soroban_sdk::Val>
+        + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
+{
     let mut out: Vec<Address> = Vec::new(env);
-    for i in 0..seized.len() {
-        let entry = validation::expect_invariant(env, seized.get(i));
-        if !out.contains(&entry.asset) {
-            out.push_back(entry.asset);
-        }
-    }
-    out
-}
-
-fn repay_entry_assets(env: &Env, repaid: &Vec<RepayEntry>) -> Vec<Address> {
-    let mut out: Vec<Address> = Vec::new(env);
-    for i in 0..repaid.len() {
-        let entry = validation::expect_invariant(env, repaid.get(i));
-        if !out.contains(&entry.asset) {
-            out.push_back(entry.asset);
-        }
+    for i in 0..entries.len() {
+        let entry = validation::expect_invariant(env, entries.get(i));
+        utils::push_unique_address(&mut out, asset_of(&entry));
     }
     out
 }
@@ -152,7 +147,6 @@ fn repay_entry_assets(env: &Env, repaid: &Vec<RepayEntry>) -> Vec<Address> {
 fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {
     EventContext {
         caller: liquidator.clone(),
-        event_caller: liquidator.clone(),
         action,
     }
 }
@@ -316,8 +310,11 @@ fn check_bad_debt_after_liquidation(
         &account.borrow_positions,
     );
 
-    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
-    if total_debt_usd > total_collateral_usd && total_collateral_usd <= bad_debt_threshold {
+    if is_socializable_bad_debt(
+        total_debt_usd,
+        total_collateral_usd,
+        Wad::from_raw(BAD_DEBT_USD_THRESHOLD),
+    ) {
         execute_bad_debt_cleanup(
             env,
             cache,
@@ -356,8 +353,11 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         &account.borrow_positions,
     );
 
-    let bad_debt_threshold = Wad::from_raw(BAD_DEBT_USD_THRESHOLD);
-    if !(total_debt_usd > total_collateral_usd && total_collateral_usd <= bad_debt_threshold) {
+    if !is_socializable_bad_debt(
+        total_debt_usd,
+        total_collateral_usd,
+        Wad::from_raw(BAD_DEBT_USD_THRESHOLD),
+    ) {
         panic_with_error!(env, CollateralError::CannotCleanBadDebt);
     }
 

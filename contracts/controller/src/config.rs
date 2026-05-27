@@ -29,6 +29,9 @@ use crate::oracle::validation::validate_market_oracle_sources;
 
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
+/// Max supply/borrow positions configurable per account.
+const POSITION_LIMIT_MAX: u32 = 10;
+
 #[contractimpl]
 impl Controller {
     #[only_owner]
@@ -223,8 +226,6 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     );
 }
 
-const POSITION_LIMIT_MAX: u32 = 10;
-
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0
@@ -317,11 +318,8 @@ pub fn add_asset_to_e_mode_category(
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
-    assert_with_error!(
-        env,
-        storage::has_market_config(env, &asset),
-        GenericError::AssetNotSupported
-    );
+    let mut market = storage::try_get_market_config(env, &asset)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AssetNotSupported));
 
     assert_with_error!(
         env,
@@ -335,7 +333,6 @@ pub fn add_asset_to_e_mode_category(
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
-    let mut market = storage::get_market_config(env, &asset);
     if !market.asset_config.e_mode_categories.contains(category_id) {
         market.asset_config.e_mode_categories.push_back(category_id);
         storage::set_market_config(env, &asset, &market);

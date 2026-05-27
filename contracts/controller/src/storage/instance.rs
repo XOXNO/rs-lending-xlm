@@ -65,21 +65,14 @@ pub(crate) fn set_aggregator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Aggregator, addr);
 }
 
-pub(crate) fn get_accumulator(env: &Env) -> Address {
-    env.storage()
-        .instance()
-        .get(&ControllerKey::Accumulator)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::AccumulatorNotSet))
+pub(crate) fn try_get_accumulator(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&ControllerKey::Accumulator)
 }
 
 pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
     env.storage()
         .instance()
         .set(&ControllerKey::Accumulator, addr);
-}
-
-pub(crate) fn has_accumulator(env: &Env) -> bool {
-    env.storage().instance().has(&ControllerKey::Accumulator)
 }
 
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {

@@ -89,7 +89,6 @@ pub fn process_repay_debt_with_collateral(
         env,
         &mut account,
         &mut cache,
-        caller,
         StrategyWithdraw {
             asset: collateral_token,
             amount: collateral_amount,
@@ -100,7 +99,6 @@ pub fn process_repay_debt_with_collateral(
 
     let debt_available = swap_or_net_collateral_to_debt(
         env,
-        caller,
         collateral_token,
         debt_token,
         actual_withdrawn,
@@ -122,7 +120,6 @@ pub fn process_repay_debt_with_collateral(
     close_remaining_collateral_if_requested(
         env,
         &mut account,
-        account_id,
         caller,
         &mut cache,
         close_position,
@@ -163,7 +160,6 @@ fn load_repay_with_collateral_positions(
 
 fn swap_or_net_collateral_to_debt(
     env: &Env,
-    caller: &Address,
     collateral_token: &Address,
     debt_token: &Address,
     collateral_amount: i128,
@@ -173,20 +169,12 @@ fn swap_or_net_collateral_to_debt(
         return collateral_amount;
     }
 
-    swap_tokens(
-        env,
-        collateral_token,
-        collateral_amount,
-        debt_token,
-        swap,
-        caller,
-    )
+    swap_tokens(env, collateral_token, collateral_amount, debt_token, swap)
 }
 
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     caller: &Address,
     cache: &mut ControllerCache,
     close_position: bool,
@@ -201,5 +189,5 @@ fn close_remaining_collateral_if_requested(
         CollateralError::CannotCloseWithRemainingDebt
     );
 
-    execute_withdraw_all(env, account, account_id, caller, cache);
+    execute_withdraw_all(env, account, caller, cache);
 }

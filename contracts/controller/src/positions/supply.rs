@@ -190,13 +190,13 @@ pub struct DepositRequest<'a> {
 }
 
 /// Pulls tokens into the pool and merges the returned scaled supply share.
-pub fn update_deposit_position(
+fn update_deposit_position(
     env: &Env,
     account: &mut Account,
     req: DepositRequest<'_>,
     caller: &Address,
     cache: &mut ControllerCache,
-) -> AccountPosition {
+) {
     let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
 
     // Liquidation threshold is updated only by the keeper propagation path.
@@ -231,8 +231,6 @@ pub fn update_deposit_position(
 
     // Storage is written once after the whole supply batch completes.
     update_or_remove_supply_position(account, req.asset, &position);
-
-    position
 }
 
 struct SupplyMarketUpdate {

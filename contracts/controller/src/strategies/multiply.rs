@@ -150,7 +150,6 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         swap_amount_in,
         collateral_token,
         swap,
-        caller,
     );
 
     let total_collateral = collateral_amount
@@ -216,7 +215,6 @@ fn collect_initial_multiply_payment(
                 *payment_amount,
                 collateral_token,
                 convert,
-                caller,
             );
         }
     }

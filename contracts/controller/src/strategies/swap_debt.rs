@@ -84,7 +84,6 @@ pub fn process_swap_debt(
         amount_received,
         existing_debt_token,
         swap,
-        caller,
     );
 
     let existing_pos: DebtPosition = (&account

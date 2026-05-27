@@ -91,7 +91,6 @@ pub fn process_swap_collateral(
         env,
         &mut account,
         &mut cache,
-        caller,
         StrategyWithdraw {
             asset: current_collateral,
             amount: from_amount,
@@ -106,7 +105,6 @@ pub fn process_swap_collateral(
         actual_withdrawn,
         new_collateral,
         swap,
-        caller,
     );
 
     let mut deposit_assets = Vec::new(env);

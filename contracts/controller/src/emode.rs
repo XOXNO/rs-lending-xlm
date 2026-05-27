@@ -44,8 +44,8 @@ pub fn effective_asset_config(
 }
 
 /// Rejects isolated collateral when an account has an e-mode category.
-pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_id: u32) {
-    if asset_config.is_isolated_asset && e_mode_id > 0 {
+pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_category_id: u32) {
+    if asset_config.is_isolated_asset && e_mode_category_id > 0 {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
 }
@@ -54,10 +54,10 @@ pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig
 pub fn token_e_mode_config(
     env: &Env,
     cache: &mut ControllerCache,
-    e_mode_id: u32,
+    e_mode_category_id: u32,
     asset: &Address,
 ) -> Option<EModeAssetConfig> {
-    if e_mode_id == 0 {
+    if e_mode_category_id == 0 {
         return None;
     }
 
@@ -77,26 +77,26 @@ pub fn token_e_mode_config(
     };
     assert_with_error!(
         env,
-        market.asset_config.e_mode_categories.contains(e_mode_id),
+        market.asset_config.e_mode_categories.contains(e_mode_category_id),
         EModeError::EModeCategoryNotFound
     );
 
-    let config = cache.cached_emode_asset(e_mode_id, asset);
+    let config = cache.cached_emode_asset(e_mode_category_id, asset);
     assert_with_error!(env, config.is_some(), EModeError::EModeCategoryNotFound);
     config
 }
 
-/// Returns the e-mode category unless `e_mode_id` is zero.
-pub fn e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
-    if e_mode_id == 0 {
+/// Returns the e-mode category unless `e_mode_category_id` is zero.
+pub fn e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCategory> {
+    if e_mode_category_id == 0 {
         return None;
     }
-    Some((&storage::get_emode_category(env, e_mode_id)).into())
+    Some((&storage::get_emode_category(env, e_mode_category_id)).into())
 }
 
-/// Returns a non-deprecated e-mode category unless `e_mode_id` is zero.
-pub fn active_e_mode_category(env: &Env, e_mode_id: u32) -> Option<EModeCategory> {
-    let category = e_mode_category(env, e_mode_id);
+/// Returns a non-deprecated e-mode category unless `e_mode_category_id` is zero.
+pub fn active_e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCategory> {
+    let category = e_mode_category(env, e_mode_category_id);
     ensure_e_mode_not_deprecated(env, &category);
     category
 }
@@ -163,8 +163,8 @@ pub fn validate_isolated_collateral(
 }
 
 /// Rejects accounts that try to combine e-mode with isolation.
-pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category: u32, is_isolated: bool) {
-    if e_mode_category > 0 && is_isolated {
+pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category_id: u32, is_isolated: bool) {
+    if e_mode_category_id > 0 && is_isolated {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
 }

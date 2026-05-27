@@ -11,7 +11,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Symbol
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::validation;
 
-pub use crate::helpers::{create_account, remove_account};
+pub(crate) use crate::helpers::{create_account, remove_account};
 
 /// Deduplicates by asset and sums positive amounts only. Zero and negative
 /// entries are dropped (used by every mutating entrypoint before plan execution).
@@ -28,6 +28,13 @@ pub fn plan_assets(env: &Env, plan: &Vec<Payment>) -> Vec<Address> {
         out.push_back(asset);
     }
     out
+}
+
+/// Appends `addr` to `out` only if not already present (order-preserving dedup).
+pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
+    if !out.contains(addr.clone()) {
+        out.push_back(addr);
+    }
 }
 
 /// Performs the SAC transfer and returns the actual credited amount measured
@@ -97,6 +104,5 @@ fn aggregate_payment_amount(
 /// can be shared without pulling in the whole positions module.
 pub(crate) struct EventContext {
     pub caller: Address,
-    pub event_caller: Address,
     pub action: Symbol,
 }

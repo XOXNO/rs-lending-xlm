@@ -50,14 +50,9 @@ pub(crate) struct SwapBalanceSnapshot {
     pub token_out: i128,
 }
 
-pub(crate) fn controller_event_context(
-    env: &Env,
-    caller: &Address,
-    action: Symbol,
-) -> EventContext {
+pub(crate) fn controller_event_context(env: &Env, action: Symbol) -> EventContext {
     EventContext {
         caller: env.current_contract_address(),
-        event_caller: caller.clone(),
         action,
     }
 }
@@ -77,7 +72,7 @@ pub(crate) fn open_strategy_borrow(
         &new_borrow_assets,
     );
 
-    borrow::handle_create_borrow_strategy(env, cache, account, asset, amount)
+    borrow::create_borrow_strategy(env, cache, account, asset, amount)
 }
 
 pub(crate) fn repay_debt_from_controller(
@@ -111,7 +106,7 @@ pub(crate) fn repay_debt_from_controller(
     repay::execute_repayment(
         env,
         account,
-        controller_event_context(env, caller, req.action),
+        controller_event_context(env, req.action),
         RepaymentRequest {
             asset: req.debt_token,
             position: req.debt_pos,
@@ -128,7 +123,6 @@ pub(crate) fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
     cache: &mut ControllerCache,
-    caller: &Address,
     req: StrategyWithdraw<'_>,
 ) -> i128 {
     let feed = cache.cached_price(req.asset);
@@ -138,7 +132,7 @@ pub(crate) fn withdraw_collateral_to_controller(
     withdraw::execute_withdrawal(
         env,
         account,
-        controller_event_context(env, caller, req.action),
+        controller_event_context(env, req.action),
         WithdrawalRequest {
             asset: req.asset,
             amount: req.amount,
@@ -155,15 +149,14 @@ pub(crate) fn withdraw_collateral_to_controller(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-// `_refund_to` is unused: router-leftover input stays on the controller
-// and is refunded by `refund_controller_balance_delta` at the strategy tail.
+// Router-leftover input stays on the controller and is refunded by
+// `refund_controller_balance_delta` at the strategy tail.
 pub(crate) fn swap_tokens(
     env: &Env,
     token_in: &Address,
     amount_in: i128,
     token_out: &Address,
     swap: &AggregatorSwap,
-    _refund_to: &Address,
 ) -> i128 {
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
@@ -381,9 +374,7 @@ pub(crate) fn refund_controller_balance_delta(
 fn addresses_from_slice(env: &Env, items: &[&Address]) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new(env);
     for addr in items {
-        if !out.contains(*addr) {
-            out.push_back((*addr).clone());
-        }
+        utils::push_unique_address(&mut out, (*addr).clone());
     }
     out
 }
@@ -435,7 +426,7 @@ pub(crate) fn strategy_finalize(
     require_no_borrow_dust_for_assets(env, cache, account, &borrow_touched);
 
     // Borrow-position-cap enforcement lives at each strategy entrypoint
-    // that actually opens debt (multiply, swap_debt) — mirrors `borrow_batch`'s
+    // that actually opens debt (multiply, swap_debt) — mirrors `process_borrow`'s
     // upfront check. Strategies that don't open debt (swap_collateral,
     // repay_debt_with_collateral) skip the cap check.
 
@@ -448,11 +439,9 @@ pub(crate) fn strategy_finalize(
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     destination: &Address,
     cache: &mut ControllerCache,
 ) {
-    let _ = account_id;
     // Collect keys to avoid borrowing issues during mutation.
     let deposit_keys: Vec<Address> = account.supply_positions.keys();
     for i in 0..deposit_keys.len() {
@@ -465,13 +454,11 @@ pub(crate) fn execute_withdraw_all(
                 .scaled_amount
                 .mul(env, market_index.supply_index)
                 .to_asset(feed.asset_decimals);
-            // `destination` doubles as `event_caller` — the user initiated this close.
             let _updated = withdraw::execute_withdrawal(
                 env,
                 account,
                 EventContext {
                     caller: destination.clone(),
-                    event_caller: destination.clone(),
                     action: symbol_short!("close_wd"),
                 },
                 WithdrawalRequest {

@@ -34,6 +34,17 @@ pub(crate) struct BonusBounds {
     pub max: Bps,
 }
 
+/// True when debt exceeds collateral and collateral is at or below the
+/// socialization threshold. Single source for the bad-debt predicate shared by
+/// the inline liquidation path and keeper-driven cleanup.
+pub(crate) fn is_socializable_bad_debt(
+    total_debt: Wad,
+    total_collateral: Wad,
+    threshold: Wad,
+) -> bool {
+    total_debt > total_collateral && total_collateral <= threshold
+}
+
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
@@ -51,6 +62,7 @@ pub(crate) fn calculate_seizure_proportions(
 
     (proportion_seized, bounds)
 }
+
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<Payment>,
@@ -100,6 +112,7 @@ pub(crate) fn calculate_repayment_amounts(
 
     (total_repaid_usd, repaid_tokens)
 }
+
 pub(crate) fn account_dust_floors(cache: &mut ControllerCache, account: &Account) -> (i128, i128) {
     let mut min_collat: i128 = 0;
     for asset in account.supply_positions.keys() {
@@ -117,6 +130,7 @@ pub(crate) fn account_dust_floors(cache: &mut ControllerCache, account: &Account
     }
     (min_collat, min_debt)
 }
+
 /// Inputs to the dust-residue full-close check. `payment_ceiling_usd` is an
 /// upper bound on what the liquidator has actually delivered — dust expansion
 /// may never price seizure beyond this amount, otherwise the liquidator would
@@ -176,6 +190,7 @@ pub(crate) fn expand_to_full_close_on_dust_residue(
         panic_with_error!(env, CollateralError::DustResidueNotAllowed);
     }
 }
+
 pub(crate) fn calculate_liquidation_amounts(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -190,6 +205,7 @@ pub(crate) fn calculate_liquidation_amounts(
 
     (final_repayment_usd, total_seizure_usd, bonus)
 }
+
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -256,6 +272,7 @@ pub(crate) fn calculate_seized_collateral(
 
     seized
 }
+
 pub(crate) fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,

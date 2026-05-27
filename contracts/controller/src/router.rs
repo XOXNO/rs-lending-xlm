@@ -10,11 +10,12 @@ use common::events::{
 };
 use common::math::fp::Wad;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, ControllerKey,
+    AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, ControllerKey,
     InterestRateModel, MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus, PriceFeed,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, symbol_short, xdr::ToXdr, Address, BytesN, Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, xdr::ToXdr, Address, BytesN,
+    Env, Vec,
 };
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
@@ -26,6 +27,12 @@ use crate::cross_contract::pool::{
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+
+// Supported SAC decimal range for RAY/WAD conversions.
+const MIN_ASSET_DECIMALS: u32 = 1;
+const MAX_ASSET_DECIMALS: u32 = 18;
+// Minimum post-update health factor for keeper threshold propagation.
+const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 #[contractimpl]
 impl Controller {
@@ -92,7 +99,7 @@ impl Controller {
     #[when_not_paused]
     #[only_role(caller, "REVENUE")]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
-        storage::renew_controller_instance(&env);
+        // Instance TTL is renewed by `ControllerCache::new` inside `claim_revenue`.
         let _ = caller;
         validation::require_not_flash_loaning(&env);
         claim_revenue(&env, assets)
@@ -100,7 +107,7 @@ impl Controller {
 
     #[only_role(caller, "REVENUE")]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
-        storage::renew_controller_instance(&env);
+        // Instance TTL is renewed by `ControllerCache::new` inside `add_rewards_batch`.
         validation::require_not_flash_loaning(&env);
         add_rewards_batch(&env, &caller, rewards);
     }
@@ -150,10 +157,6 @@ fn sync_market_indexes(env: &Env, cache: &mut ControllerCache, assets: &Vec<Addr
         cache.record_market_update(&state);
     }
 }
-
-// Supported SAC decimal range for RAY/WAD conversions.
-const MIN_ASSET_DECIMALS: u32 = 1;
-const MAX_ASSET_DECIMALS: u32 = 18;
 
 fn validate_market_creation(
     env: &Env,
@@ -293,11 +296,8 @@ fn claim_revenue_for_asset_with_cache(
 ) -> i128 {
     validation::require_asset_supported(env, cache, asset);
 
-    assert_with_error!(
-        env,
-        storage::has_accumulator(env),
-        OracleError::NoAccumulator
-    );
+    let accumulator = storage::try_get_accumulator(env)
+        .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
     let pool_addr = cache.cached_pool_address(asset);
 
@@ -306,7 +306,6 @@ fn claim_revenue_for_asset_with_cache(
     let amount = result.actual_amount;
 
     if amount > 0 {
-        let accumulator = storage::get_accumulator(env);
         sac_transfer_call(
             env,
             asset,
@@ -414,15 +413,12 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
 pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
     for i in 0..assets.len() {
         let asset = validation::expect_invariant(env, assets.get(i));
-        if !storage::has_market_config(env, &asset) {
+        let Some(market) = storage::try_get_market_config(env, &asset) else {
             continue;
-        }
-        let market = storage::get_market_config(env, &asset);
+        };
         pool_keepalive_call(env, &market.pool_address);
     }
 }
-
-const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
 
 /// Per-account inputs for a keeper threshold propagation.
 struct ThresholdUpdate<'a> {
@@ -494,15 +490,7 @@ fn update_position_threshold(
         }
     }
 
-    let mut account = Account {
-        owner: meta.owner.clone(),
-        is_isolated: meta.is_isolated,
-        e_mode_category_id: meta.e_mode_category_id,
-        mode: meta.mode,
-        isolated_asset: meta.isolated_asset.clone(),
-        supply_positions,
-        borrow_positions,
-    };
+    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     helpers::update_or_remove_supply_position(
         &mut account,
         asset,

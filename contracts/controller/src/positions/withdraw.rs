@@ -124,7 +124,6 @@ fn process_single_withdrawal(
         account,
         EventContext {
             caller: caller.clone(),
-            event_caller: caller.clone(),
             action: symbol_short!("withdraw"),
         },
         WithdrawalRequest {
@@ -147,11 +146,7 @@ pub fn execute_withdrawal(
     flags: WithdrawFlags,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
-    let EventContext {
-        caller,
-        event_caller,
-        action,
-    } = ctx;
+    let EventContext { caller, action } = ctx;
     let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_withdraw_call(
         env,
@@ -169,7 +164,6 @@ pub fn execute_withdrawal(
     result_position.scaled_amount = Ray::from_raw(result.position.scaled_amount_ray);
     update_or_remove_supply_position(account, req.asset, &result_position);
 
-    let _ = event_caller;
     cache.record_position_update(
         action,
         AccountPositionType::Deposit,

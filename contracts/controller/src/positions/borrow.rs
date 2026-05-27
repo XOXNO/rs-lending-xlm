@@ -33,12 +33,12 @@ struct BorrowUpdate {
 impl Controller {
     #[when_not_paused]
     pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>) {
-        borrow_batch(&env, &caller, account_id, &borrows);
+        process_borrow(&env, &caller, account_id, &borrows);
     }
 }
 
 /// Creates strategy debt in the pool and returns the asset amount received.
-pub fn handle_create_borrow_strategy(
+pub fn create_borrow_strategy(
     env: &Env,
     cache: &mut ControllerCache,
     account: &mut Account,
@@ -56,7 +56,7 @@ pub fn handle_create_borrow_strategy(
 
     let price_feed = cache.cached_price(debt_token);
 
-    handle_isolated_debt(env, cache, account, amount, &price_feed);
+    add_isolated_debt(env, cache, account, amount, &price_feed);
 
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
@@ -89,7 +89,7 @@ pub fn handle_create_borrow_strategy(
 }
 
 /// Borrows one or more assets after LTV pre-checks and final health validation.
-pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
+pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -102,14 +102,7 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
     // post-flight dust scope — operate on the deduped plan.
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
-    process_borrow_plan(
-        env,
-        caller,
-        account_id,
-        &mut account,
-        &borrow_plan,
-        &mut cache,
-    );
+    process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
 
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust gate is scoped to the borrowed assets — borrow never mutates
@@ -131,10 +124,9 @@ pub fn borrow_batch(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<
 /// Internal executor for a validated, deduplicated borrow plan.
 /// Mutates the in-memory account, calls pools, records mutations for events.
 /// Caller guarantees `borrow_plan` is the output of `aggregate_positive_payments`.
-pub fn process_borrow_plan(
+fn process_borrow_plan(
     env: &Env,
     caller: &Address,
-    account_id: u64,
     account: &mut Account,
     borrow_plan: &Vec<Payment>,
     cache: &mut ControllerCache,
@@ -148,7 +140,6 @@ pub fn process_borrow_plan(
         effective_configs.set(asset, (&cfg).into());
     }
 
-    let _ = account_id;
     prepare_borrow_plan(env, account, borrow_plan, cache, &effective_configs);
     execute_borrow_plan(env, caller, account, borrow_plan, cache, &effective_configs);
 }
@@ -204,7 +195,7 @@ fn prepare_borrow_plan(
         let feed = cache.cached_price(&asset);
         total_borrowed_wad =
             validate_ltv_capacity(env, ltv_collateral, total_borrowed_wad, amount, &feed);
-        handle_isolated_debt(env, cache, account, amount, &feed);
+        add_isolated_debt(env, cache, account, amount, &feed);
     }
 }
 
@@ -216,10 +207,10 @@ fn validate_siloed_borrow_set(
 ) {
     let mut final_assets: Vec<Address> = Vec::new(env);
     for asset in account.borrow_positions.keys() {
-        push_unique_asset(&mut final_assets, asset);
+        utils::push_unique_address(&mut final_assets, asset);
     }
     for (asset, _) in new_borrows {
-        push_unique_asset(&mut final_assets, asset);
+        utils::push_unique_address(&mut final_assets, asset);
     }
 
     if final_assets.len() <= 1 {
@@ -233,12 +224,6 @@ fn validate_siloed_borrow_set(
             !config.is_siloed_borrowing,
             CollateralError::NotBorrowableSiloed
         );
-    }
-}
-
-fn push_unique_asset(assets: &mut Vec<Address>, asset: Address) {
-    if !assets.contains(asset.clone()) {
-        assets.push_back(asset);
     }
 }
 
@@ -330,7 +315,7 @@ fn record_borrow_update(
 }
 
 /// Adds USD WAD debt to the isolated collateral tracker and checks its ceiling.
-pub fn handle_isolated_debt(
+pub fn add_isolated_debt(
     env: &Env,
     cache: &mut ControllerCache,
     account: &Account,

@@ -70,15 +70,15 @@ impl Controller {
     }
 
     pub fn get_market_config(env: Env, asset: Address) -> MarketConfig {
-        get_market_config_view(&env, &asset)
+        storage::get_market_config(&env, &asset)
     }
 
     pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw {
-        get_emode_category_view(&env, category_id)
+        storage::get_emode_category(&env, category_id)
     }
 
     pub fn get_isolated_debt(env: Env, asset: Address) -> i128 {
-        get_isolated_debt_view(&env, &asset)
+        storage::get_isolated_debt(&env, &asset)
     }
 
     pub fn get_all_markets_detailed(
@@ -180,18 +180,6 @@ pub fn get_account_positions(
 pub fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
     let meta = storage::get_account_meta(env, account_id);
     AccountAttributes::from(&meta)
-}
-
-pub fn get_market_config_view(env: &Env, asset: &Address) -> MarketConfig {
-    storage::get_market_config(env, asset)
-}
-
-pub fn get_emode_category_view(env: &Env, category_id: u32) -> EModeCategoryRaw {
-    storage::get_emode_category(env, category_id)
-}
-
-pub fn get_isolated_debt_view(env: &Env, asset: &Address) -> i128 {
-    storage::get_isolated_debt(env, asset)
 }
 
 pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {

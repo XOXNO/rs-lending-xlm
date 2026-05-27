@@ -99,7 +99,6 @@ fn process_single_repay(
         account,
         EventContext {
             caller: caller.clone(),
-            event_caller: caller.clone(),
             action: symbol_short!("repay"),
         },
         RepaymentRequest {
@@ -120,11 +119,7 @@ pub fn execute_repayment(
     req: RepaymentRequest<'_>,
     cache: &mut ControllerCache,
 ) -> PoolPositionMutation {
-    let EventContext {
-        caller,
-        event_caller: _,
-        action,
-    } = ctx;
+    let EventContext { caller, action } = ctx;
 
     let pool_addr = cache.cached_pool_address(req.asset);
     let result = pool_repay_call(

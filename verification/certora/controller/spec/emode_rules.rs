@@ -74,7 +74,7 @@ fn emode_borrow_only_registered_assets(
     // Attempt borrow -- must revert because asset is not in the category
     let mut borrows: Vec<(Address, i128)> = Vec::new(&e);
     borrows.push_back((asset, amount));
-    crate::positions::borrow::borrow_batch(&e, &caller, account_id, &borrows);
+    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows);
 
     // Unreachable: borrow of unregistered asset in e-mode must revert
     cvlr_satisfy!(false);
@@ -106,7 +106,7 @@ fn emode_only_borrowable_assets(
     // Attempt borrow -- must revert because asset is not borrowable in e-mode
     let mut borrows: Vec<(Address, i128)> = Vec::new(&e);
     borrows.push_back((asset, amount));
-    crate::positions::borrow::borrow_batch(&e, &caller, account_id, &borrows);
+    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows);
 
     // Unreachable: borrow of non-borrowable e-mode asset must revert
     cvlr_satisfy!(false);
@@ -211,7 +211,7 @@ fn deprecated_emode_blocks_new_borrow(
     // Attempt borrow -- must revert because category is deprecated
     let mut borrows: Vec<(Address, i128)> = Vec::new(&e);
     borrows.push_back((asset, amount));
-    crate::positions::borrow::borrow_batch(&e, &caller, account_id, &borrows);
+    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows);
 
     // Unreachable: borrow from deprecated e-mode category must revert
     cvlr_satisfy!(false);
@@ -532,6 +532,6 @@ fn emode_borrow_sanity(e: Env, caller: Address, account_id: u64, asset: Address,
 
     let mut borrows: Vec<(Address, i128)> = Vec::new(&e);
     borrows.push_back((asset, amount));
-    crate::positions::borrow::borrow_batch(&e, &caller, account_id, &borrows);
+    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows);
     cvlr_satisfy!(true);
 }
