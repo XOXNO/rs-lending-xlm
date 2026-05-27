@@ -79,7 +79,7 @@ impl Cache {
 
     /// Returns true when the pool's current on-chain token balance is at least `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
-        let reserves = self.live_reserves_for(&self.params.asset_id);
+        let reserves = self.live_reserves();
         reserves >= amount
     }
 
@@ -92,9 +92,9 @@ impl Cache {
         )
     }
 
-    /// Live on-chain balance for `asset` held by this pool contract.
-    pub fn live_reserves_for(&self, asset: &soroban_sdk::Address) -> i128 {
-        let token = soroban_sdk::token::Client::new(&self.env, asset);
+    /// Live on-chain balance of the pool's asset held by this contract.
+    pub fn live_reserves(&self) -> i128 {
+        let token = soroban_sdk::token::Client::new(&self.env, &self.params.asset_id);
         token.balance(&self.env.current_contract_address())
     }
 
@@ -173,7 +173,7 @@ impl Cache {
 
     /// Burns claimable revenue shares, capped by live reserves and scaled revenue.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
-        let reserves = self.live_reserves_for(&self.params.asset_id);
+        let reserves = self.live_reserves();
         let treasury_actual = self.unscale_supply(self.revenue);
         let amount = reserves.min(treasury_actual);
         if amount <= 0 {
@@ -217,7 +217,7 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
-            reserves_ray: self.live_reserves_for(&self.params.asset_id),
+            reserves_ray: self.live_reserves(),
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),
             revenue_ray: self.revenue.raw(),
@@ -452,7 +452,7 @@ mod tests {
     }
 
     // Note: `amount_mutation` / `burn_claimable_revenue` aren't unit-tested
-    // here because both call `live_reserves_for` (live token balance read),
+    // here because both call `live_reserves` (live token balance read),
     // and this module's `TestSetup` uses a generated address rather than a
     // registered Stellar Asset Contract. Both are exercised via lib.rs
     // ABI-level tests (`test_claim_revenue*`).

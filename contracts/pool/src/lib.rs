@@ -445,18 +445,10 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     }
 
     fn get_sync_data(env: Env) -> PoolSyncData {
-        let params: MarketParamsRaw = env
-            .storage()
-            .instance()
-            .get(&PoolKey::Params)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
-        let state: PoolStateRaw = env
-            .storage()
-            .instance()
-            .get(&PoolKey::State)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::PoolNotInitialized));
-
-        PoolSyncData { params, state }
+        PoolSyncData {
+            params: views::load_params(&env),
+            state: views::load_state(&env),
+        }
     }
 }
 
