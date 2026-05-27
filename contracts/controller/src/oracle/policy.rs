@@ -20,7 +20,6 @@ struct Allowances {
     stale_source: bool,
     unsafe_deviation: bool,
     missing_twap_fallback: bool,
-    prefer_aggregator_on_deviation: bool,
 }
 
 impl Allowances {
@@ -32,42 +31,39 @@ impl Allowances {
                 stale_source: false,
                 unsafe_deviation: false,
                 missing_twap_fallback: false,
-                prefer_aggregator_on_deviation: false,
             },
             RiskDecreasing => Allowances {
                 disabled_market: false,
                 stale_source: true,
                 unsafe_deviation: true,
                 missing_twap_fallback: true,
-                prefer_aggregator_on_deviation: false,
             },
             Repay => Allowances {
                 disabled_market: true,
                 stale_source: true,
                 unsafe_deviation: true,
                 missing_twap_fallback: true,
-                prefer_aggregator_on_deviation: false,
             },
             IsolatedRepay => Allowances {
                 disabled_market: true,
                 stale_source: false,
                 unsafe_deviation: false,
                 missing_twap_fallback: false,
-                prefer_aggregator_on_deviation: false,
             },
+            // Liquidation shares RiskIncreasing's strict allowances: every
+            // loosening is rejected. The variant stays distinct for intent and
+            // auditing, and so seizure accounting can never read a degraded price.
             Liquidation => Allowances {
                 disabled_market: false,
                 stale_source: false,
                 unsafe_deviation: false,
                 missing_twap_fallback: false,
-                prefer_aggregator_on_deviation: true,
             },
             View => Allowances {
                 disabled_market: true,
                 stale_source: true,
                 unsafe_deviation: true,
                 missing_twap_fallback: true,
-                prefer_aggregator_on_deviation: false,
             },
         }
     }
@@ -89,12 +85,6 @@ impl OraclePolicy {
     pub fn allows_missing_twap_fallback(self) -> bool {
         Allowances::for_policy(self).missing_twap_fallback
     }
-
-    /// Returns true only for liquidation, where in-band aggregator prices are
-    /// preferred for seizure fairness during primary/anchor disagreement.
-    pub fn prefers_aggregator_on_deviation(self) -> bool {
-        Allowances::for_policy(self).prefer_aggregator_on_deviation
-    }
 }
 
 #[cfg(test)]
@@ -108,7 +98,6 @@ mod tests {
         assert!(!p.allows_stale_source());
         assert!(!p.allows_unsafe_deviation());
         assert!(!p.allows_missing_twap_fallback());
-        assert!(!p.prefers_aggregator_on_deviation());
     }
 
     #[test]
@@ -118,7 +107,6 @@ mod tests {
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
         assert!(p.allows_missing_twap_fallback());
-        assert!(!p.prefers_aggregator_on_deviation());
     }
 
     #[test]
@@ -128,7 +116,6 @@ mod tests {
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
         assert!(p.allows_missing_twap_fallback());
-        assert!(!p.prefers_aggregator_on_deviation());
     }
 
     #[test]
@@ -138,11 +125,10 @@ mod tests {
         assert!(!p.allows_stale_source());
         assert!(!p.allows_unsafe_deviation());
         assert!(!p.allows_missing_twap_fallback());
-        assert!(!p.prefers_aggregator_on_deviation());
     }
 
     #[test]
-    fn test_liquidation_prefers_aggregator() {
+    fn test_liquidation_rejects_every_loosening() {
         let p = OraclePolicy::Liquidation;
         assert!(!p.allows_disabled_market());
         assert!(!p.allows_stale_source());
@@ -151,17 +137,15 @@ mod tests {
         // Unsafe deviation is only tolerated for single-source fallback paths.
         assert!(!p.allows_unsafe_deviation());
         assert!(!p.allows_missing_twap_fallback());
-        assert!(p.prefers_aggregator_on_deviation());
     }
 
     #[test]
-    fn test_view_permits_everything_except_aggregator_preference() {
+    fn test_view_permits_everything() {
         let p = OraclePolicy::View;
         assert!(p.allows_disabled_market());
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
         assert!(p.allows_missing_twap_fallback());
-        assert!(!p.prefers_aggregator_on_deviation());
     }
 
     // --- Additional focused coverage for oracle policy composition ---
@@ -171,18 +155,20 @@ mod tests {
     // repay paths.
 
     #[test]
-    fn test_liquidation_is_the_only_policy_that_prefers_aggregator() {
-        // Liquidation is unique: it hardens the unsafe-deviation gate (to
-        // protect against wrongful or excessive seizures) while still
-        // preferring the fresher aggregator price when inside the last band.
-        // All other policies either reject aggregator preference entirely or
-        // are not used for seizure accounting.
-        assert!(OraclePolicy::Liquidation.prefers_aggregator_on_deviation());
-        assert!(!OraclePolicy::RiskIncreasing.prefers_aggregator_on_deviation());
-        assert!(!OraclePolicy::RiskDecreasing.prefers_aggregator_on_deviation());
-        assert!(!OraclePolicy::Repay.prefers_aggregator_on_deviation());
-        assert!(!OraclePolicy::IsolatedRepay.prefers_aggregator_on_deviation());
-        assert!(!OraclePolicy::View.prefers_aggregator_on_deviation());
+    fn test_liquidation_matches_risk_increasing_allowances() {
+        // After hardening, Liquidation rejects the same loosenings as
+        // RiskIncreasing, so their allowance tables are identical. The variants
+        // stay distinct for intent and auditing; this guards the two tables
+        // against silently drifting apart.
+        let liq = OraclePolicy::Liquidation;
+        let inc = OraclePolicy::RiskIncreasing;
+        assert_eq!(liq.allows_disabled_market(), inc.allows_disabled_market());
+        assert_eq!(liq.allows_stale_source(), inc.allows_stale_source());
+        assert_eq!(liq.allows_unsafe_deviation(), inc.allows_unsafe_deviation());
+        assert_eq!(
+            liq.allows_missing_twap_fallback(),
+            inc.allows_missing_twap_fallback()
+        );
     }
 
     #[test]
@@ -193,14 +179,13 @@ mod tests {
         // for user debt-reduction flows that must succeed even on degraded
         // oracles; View uses it for read-only queries. The policy type
         // still distinguishes intent for auditing and future evolution.
-        // (See also: Liquidation is the only one that prefers aggregator.)
         assert_eq!(
             OraclePolicy::Repay.allows_disabled_market(),
             OraclePolicy::View.allows_disabled_market()
         );
         assert_eq!(
-            OraclePolicy::Repay.prefers_aggregator_on_deviation(),
-            OraclePolicy::View.prefers_aggregator_on_deviation()
+            OraclePolicy::Repay.allows_missing_twap_fallback(),
+            OraclePolicy::View.allows_missing_twap_fallback()
         );
     }
 }

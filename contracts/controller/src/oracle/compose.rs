@@ -90,14 +90,16 @@ pub(crate) fn resolve_components(
                 config.tolerance.first_upper_ratio_bps,
                 config.tolerance.first_lower_ratio_bps,
             );
-            let within_second = within_first
-                || is_within_anchor(
-                    cache.env(),
-                    anchor.price_wad,
-                    primary.price_wad,
-                    config.tolerance.last_upper_ratio_bps,
-                    config.tolerance.last_lower_ratio_bps,
-                );
+            // The second band is the wider `last` tolerance. `validate_oracle_bounds`
+            // enforces last > first, so the first band is a strict subset of the
+            // last; within_first therefore implies within_second.
+            let within_second = is_within_anchor(
+                cache.env(),
+                anchor.price_wad,
+                primary.price_wad,
+                config.tolerance.last_upper_ratio_bps,
+                config.tolerance.last_lower_ratio_bps,
+            );
             let timestamp = if final_price == primary.price_wad {
                 primary.timestamp()
             } else {

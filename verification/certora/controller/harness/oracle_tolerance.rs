@@ -55,11 +55,7 @@ pub(crate) fn calculate_final_price(
                 if !cache.oracle_policy.allows_unsafe_deviation() {
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }
-                if cache.oracle_policy.prefers_aggregator_on_deviation() {
-                    agg_price
-                } else {
-                    safe_price
-                }
+                safe_price
             }
         }
         (Some(agg_price), None) => agg_price,
