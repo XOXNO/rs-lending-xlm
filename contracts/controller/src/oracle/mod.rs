@@ -26,10 +26,7 @@ use crate::cache::ControllerCache;
 
 // Certora rules reach tolerance helpers through `crate::oracle::*`.
 #[cfg(feature = "certora")]
-pub(crate) use tolerance::{
-    bps_i128_to_u32, calculate_final_price, calculate_tolerance_range, is_within_anchor,
-    validate_and_calculate_tolerances,
-};
+pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 
 pub use price::{token_price, update_asset_index};
 
