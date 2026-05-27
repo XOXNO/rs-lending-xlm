@@ -26,7 +26,7 @@ fn supply_index_above_floor(e: Env, asset: Address) {
     // Load the current market index for the asset
     let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
 
-    cvlr_assert!(cache_entry.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
+    cvlr_assert!(cache_entry.supply_index.raw() >= SUPPLY_INDEX_FLOOR_RAW);
 }
 // Rule 2: Borrow index never drops below RAY (1.0)
 
@@ -40,7 +40,7 @@ fn borrow_index_gte_ray(e: Env, asset: Address) {
 
     let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
 
-    cvlr_assert!(cache_entry.borrow_index_ray >= RAY);
+    cvlr_assert!(cache_entry.borrow_index.raw() >= RAY);
 }
 // Rule 3: Borrow index monotonically increases after accrual
 
@@ -50,7 +50,7 @@ fn borrow_index_gte_ray(e: Env, asset: Address) {
 fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
     // Capture index before
     let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let borrow_before = index_before.borrow_index_ray;
+    let borrow_before = index_before.borrow_index.raw();
 
     // Trigger index update via any operation (supply triggers accrual)
     let amount: i128 = cvlr::nondet::nondet();
@@ -59,7 +59,7 @@ fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address,
 
     // Capture index after
     let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let borrow_after = index_after.borrow_index_ray;
+    let borrow_after = index_after.borrow_index.raw();
 
     cvlr_assert!(borrow_after >= borrow_before);
 }
@@ -70,14 +70,14 @@ fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address,
 #[rule]
 fn supply_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
     let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_before = index_before.supply_index_ray;
+    let supply_before = index_before.supply_index.raw();
 
     let amount: i128 = cvlr::nondet::nondet();
     cvlr_assume!(amount > 0);
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
     let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_after = index_after.supply_index_ray;
+    let supply_after = index_after.supply_index.raw();
 
     cvlr_assert!(supply_after >= supply_before);
 }
@@ -120,5 +120,5 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
 #[rule]
 fn index_sanity(e: Env, asset: Address) {
     let idx = crate::storage::market_index::get_market_index(&e, &asset);
-    cvlr_satisfy!(idx.supply_index_ray > 0 && idx.borrow_index_ray > 0);
+    cvlr_satisfy!(idx.supply_index.raw() > 0 && idx.borrow_index.raw() > 0);
 }

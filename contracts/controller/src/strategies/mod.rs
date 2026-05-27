@@ -26,7 +26,7 @@
 //! (ADR 0005); splitting would diffuse that invariant. The surface has
 //! four callers inside the crate and zero Certora harness references.
 
-mod flash_loan;
+pub(crate) mod flash_loan;
 pub(crate) mod helpers;
 mod multiply;
 mod repay_debt_with_collateral;

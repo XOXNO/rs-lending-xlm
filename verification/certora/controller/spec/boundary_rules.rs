@@ -64,7 +64,7 @@ fn borrow_rate_at_exact_zero_sanity(e: Env) {
 #[rule]
 fn borrow_rate_at_exact_mid_sanity(e: Env) {
     let params = boundary_test_params(&e);
-    let rate = calculate_borrow_rate(&e, Ray::from_raw(params.mid_utilization_ray), &params);
+    let rate = calculate_borrow_rate(&e, params.mid_utilization, &params);
     cvlr_satisfy!(rate.raw() > 0);
 }
 // Rule 3: borrow_rate_at_exact_optimal -- DELETED (strict-stronger duplicate).
@@ -76,7 +76,7 @@ fn borrow_rate_at_exact_mid_sanity(e: Env) {
 #[rule]
 fn borrow_rate_at_exact_optimal_sanity(e: Env) {
     let params = boundary_test_params(&e);
-    let rate = calculate_borrow_rate(&e, Ray::from_raw(params.optimal_utilization_ray), &params);
+    let rate = calculate_borrow_rate(&e, params.optimal_utilization, &params);
     cvlr_satisfy!(rate.raw() > 0);
 }
 // Rule 4: borrow_rate_at_100_percent -- DELETED (strict-stronger duplicate).

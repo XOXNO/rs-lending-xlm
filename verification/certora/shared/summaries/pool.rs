@@ -23,8 +23,8 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPosition, AccountPositionType, MarketIndex, MarketParamsRaw, MarketStateSnapshot,
-    PoolAmountMutation, PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSyncData,
+    AccountPositionType, MarketIndex, MarketParamsRaw, MarketStateSnapshot, PoolAmountMutation,
+    PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 // Shared helpers
 
@@ -89,7 +89,7 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
 pub fn supply_summary(
     _env: &Env,
     pool_addr: &Address,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     amount: i128,
     _supply_cap: i128,
 ) -> PoolPositionMutation {
@@ -121,7 +121,7 @@ pub fn borrow_summary(
     pool_addr: &Address,
     _caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     _borrow_cap: i128,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
@@ -154,7 +154,7 @@ pub fn withdraw_summary(
     pool_addr: &Address,
     _caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     _is_liquidation: bool,
     _protocol_fee: i128,
 ) -> PoolPositionMutation {
@@ -194,7 +194,7 @@ pub fn repay_summary(
     pool_addr: &Address,
     _caller: Address,
     amount: i128,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
@@ -278,7 +278,7 @@ pub fn create_strategy_summary(
     _env: &Env,
     pool_addr: &Address,
     _caller: Address,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
     _borrow_cap: i128,
@@ -325,7 +325,7 @@ pub fn seize_position_summary(
     _env: &Env,
     pool_addr: &Address,
     _side: AccountPositionType,
-    position: AccountPosition,
+    position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
     let mut zeroed = position.clone();
     zeroed.scaled_amount_ray = 0;

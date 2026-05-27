@@ -28,7 +28,7 @@
 #[path = "../../../../contracts/controller/src/helpers/mod.rs"]
 mod __prod;
 
-pub use __prod::{
+pub(crate) use __prod::{
     calculate_health_factor,
     calculate_ltv_collateral_wad,
     calculate_total_debt_wad,
@@ -48,7 +48,7 @@ pub use __prod::{
 };
 
 use common::math::fp::{Bps, Wad};
-use common::types::{AccountPosition, AccountPositionRaw, DebtPositionRaw};
+use common::types::{AccountPositionRaw, DebtPositionRaw};
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env, Map};

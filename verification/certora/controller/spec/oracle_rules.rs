@@ -22,7 +22,7 @@ use common::constants::{
     MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
 };
 use common::types::{
-    AssetConfig, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
+    AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
     OracleStrategy, PriceFeedRaw, ReflectorSourceConfig,
 };
@@ -45,7 +45,7 @@ fn pinned_market_config(
 ) -> MarketConfig {
     MarketConfig {
         status,
-        asset_config: AssetConfig {
+        asset_config: AssetConfigRaw {
             loan_to_value_bps: 7_500,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,

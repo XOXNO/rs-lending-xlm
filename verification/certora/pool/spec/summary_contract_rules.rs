@@ -3,7 +3,10 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
-use common::types::{AccountPosition, AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{
+    AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw, ScaledPositionRaw,
+};
+use pool_interface::LiquidityPoolInterface;
 
 fn params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -37,13 +40,9 @@ fn seed(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     env.storage().instance().set(&PoolKey::State, &state);
 }
 
-fn position(scaled: i128) -> AccountPosition {
-    AccountPosition {
+fn position(scaled: i128) -> ScaledPositionRaw {
+    ScaledPositionRaw {
         scaled_amount_ray: scaled,
-        liquidation_threshold_bps: 8_000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 1_000,
-        loan_to_value_bps: 7_500,
     }
 }
 

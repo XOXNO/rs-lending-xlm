@@ -73,7 +73,7 @@ fn flash_loan_guard_cleared_after_completion(
     // Execute the flash loan. Third-party paths (callback panic, pool-side
     // repay-shortfall panic) are out of the controller's reach; on those
     // revert paths Soroban rolls back state, which is the expected behaviour.
-    crate::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
+    crate::strategies::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
 
     // Successful path: production must clear the guard at flash_loan.rs:64.
     cvlr_assert!(!crate::storage::is_flash_loan_ongoing(&e));
@@ -104,7 +104,7 @@ fn flash_loan_guard_cleared_sanity(
     cvlr_assume!(market.status == common::types::MarketStatus::Active);
     drop(cache);
 
-    crate::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
+    crate::strategies::flash_loan::process_flash_loan(&e, &caller, &asset, amount, &receiver, &data);
 
     // Reachability: if this never satisfies, the prover never finds a witness
     // for the post-state and the parent rule's PASS is vacuous.

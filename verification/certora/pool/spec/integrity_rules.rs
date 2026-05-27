@@ -5,8 +5,10 @@ use soroban_sdk::{Address, Env};
 use common::constants::{BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
 use common::types::{
-    AccountPosition, AccountPositionType, InterestRateModel, MarketParamsRaw, PoolKey, PoolStateRaw,
+    AccountPositionType, InterestRateModel, MarketParamsRaw, PoolKey, PoolStateRaw,
+    ScaledPositionRaw,
 };
+use pool_interface::LiquidityPoolInterface;
 
 fn valid_params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -44,14 +46,8 @@ fn read_state(env: &Env) -> PoolStateRaw {
     env.storage().instance().get(&PoolKey::State).unwrap()
 }
 
-fn position(scaled_amount_ray: i128) -> AccountPosition {
-    AccountPosition {
-        scaled_amount_ray,
-        liquidation_threshold_bps: 8_000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 1_000,
-        loan_to_value_bps: 7_500,
-    }
+fn position(scaled_amount_ray: i128) -> ScaledPositionRaw {
+    ScaledPositionRaw { scaled_amount_ray }
 }
 
 #[rule]

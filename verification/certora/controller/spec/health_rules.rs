@@ -34,8 +34,8 @@ fn inline_total_borrow_wad(
         let value = crate::helpers::position_value(
             env,
             Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
+            market_index.borrow_index,
+            feed.price,
         );
         total += value;
     }
@@ -63,8 +63,8 @@ fn inline_weighted_collateral_wad(
         let value = crate::helpers::position_value(
             env,
             Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.supply_index_ray),
-            Wad::from_raw(feed.price_wad),
+            market_index.supply_index,
+            feed.price,
         );
         weighted += crate::helpers::weighted_collateral(
             env,

@@ -298,7 +298,9 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(asset_cats.contains(category_id));
 
     // Get base config and apply e-mode override
-    let mut asset_config = crate::storage::get_market_config(&e, &asset).asset_config;
+    let mut asset_config = common::types::AssetConfig::from(
+        &crate::storage::get_market_config(&e, &asset).asset_config,
+    );
     let emode_cat = crate::emode::e_mode_category(&e, category_id);
     let mut cache =
         crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
@@ -306,9 +308,11 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     crate::emode::apply_e_mode_to_asset_config(&e, &mut asset_config, &emode_cat, emode_asset_cfg);
 
     // After override: params must match the category, not the base config
-    cvlr_assert!(asset_config.loan_to_value_bps == category.loan_to_value_bps);
-    cvlr_assert!(asset_config.liquidation_threshold_bps == category.liquidation_threshold_bps);
-    cvlr_assert!(asset_config.liquidation_bonus_bps == category.liquidation_bonus_bps);
+    cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(category.loan_to_value_bps));
+    cvlr_assert!(
+        asset_config.liquidation_threshold.raw() == i128::from(category.liquidation_threshold_bps)
+    );
+    cvlr_assert!(asset_config.liquidation_bonus.raw() == i128::from(category.liquidation_bonus_bps));
 
     // Also verify collateral/borrow flags match the e-mode asset config
     let cfg = emode_asset.unwrap();
@@ -423,7 +427,9 @@ fn emode_account_cannot_enter_isolation(e: Env, asset: Address, e_mode_category:
     cvlr_assume!(e_mode_category > 0);
 
     // Asset is an isolated asset.
-    let config = crate::storage::get_market_config(&e, &asset).asset_config;
+    let config = common::types::AssetConfig::from(
+        &crate::storage::get_market_config(&e, &asset).asset_config,
+    );
     cvlr_assume!(config.is_isolated_asset);
 
     // Calling the gate with `is_isolated_asset = true` and `e_mode_id > 0`

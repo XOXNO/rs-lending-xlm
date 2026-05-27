@@ -135,8 +135,8 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
         let value = crate::helpers::position_value(
             &e,
             Ray::from_raw(position.scaled_amount_ray),
-            Ray::from_raw(market_index.borrow_index_ray),
-            Wad::from_raw(feed.price_wad),
+            market_index.borrow_index,
+            feed.price,
         );
         total_debt += value;
     }
@@ -206,8 +206,8 @@ fn supply_index_grows_slower(
 
     // Capture indexes before
     let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_before = index_before.supply_index_ray;
-    let borrow_before = index_before.borrow_index_ray;
+    let supply_before = index_before.supply_index.raw();
+    let borrow_before = index_before.borrow_index.raw();
 
     // Both must be initialized (>= RAY)
     cvlr_assume!(supply_before >= RAY);
@@ -221,8 +221,8 @@ fn supply_index_grows_slower(
 
     // Capture indexes after
     let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_after = index_after.supply_index_ray;
-    let borrow_after = index_after.borrow_index_ray;
+    let supply_after = index_after.supply_index.raw();
+    let borrow_after = index_after.borrow_index.raw();
 
     let supply_growth = supply_after - supply_before;
     let borrow_growth = borrow_after - borrow_before;
@@ -436,8 +436,8 @@ fn index_cache_single_snapshot(e: Env, asset: Address) {
     let index2 = cache.cached_market_index(&asset);
 
     // Both supply and borrow indexes must be identical
-    cvlr_assert!(index1.supply_index_ray == index2.supply_index_ray);
-    cvlr_assert!(index1.borrow_index_ray == index2.borrow_index_ray);
+    cvlr_assert!(index1.supply_index.raw() == index2.supply_index.raw());
+    cvlr_assert!(index1.borrow_index.raw() == index2.borrow_index.raw());
 }
 // Attack 2: Rounding Dust Extraction
 // Rule 16: supply_withdraw_roundtrip_no_profit
@@ -664,7 +664,7 @@ fn index_cache_snapshot_sanity(e: Env, asset: Address) {
     let mut cache =
         crate::cache::ControllerCache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
     let index = cache.cached_market_index(&asset);
-    cvlr_satisfy!(index.supply_index_ray >= RAY);
+    cvlr_satisfy!(index.supply_index.raw() >= RAY);
 }
 
 #[rule]
@@ -703,7 +703,7 @@ fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, 0, asset, amount);
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
 
     let post_supplied = pool_client.supplied_amount();
     cvlr_assert!(post_supplied <= supply_cap);

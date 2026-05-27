@@ -29,8 +29,8 @@
 
 use super::*;
 use common::types::{
-    AccountAttributes, AccountPosition, AccountPositionRaw, AccountPositionType, AssetConfig,
-    DebtPositionRaw, EModeAssetConfig, MarketIndex, MarketParamsRaw, PositionMode,
+    AccountAttributes, AccountPositionRaw, AccountPositionType, EModeAssetConfig, MarketIndex,
+    MarketParamsRaw, PositionMode,
 };
 use pool_interface::LiquidityPoolClient;
 use soroban_sdk::{Address, Env, Map, Vec};
@@ -41,7 +41,19 @@ pub fn get_position(
     position_type: AccountPositionType,
     asset: &Address,
 ) -> Option<AccountPositionRaw> {
-    try_get_position(env, account_id, position_type, asset)
+    match position_type {
+        AccountPositionType::Deposit => get_supply_positions(env, account_id).get(asset.clone()),
+        // Debt positions carry only the scaled share; risk params stay
+        // supply-side, so the collateral fields read as zero for debt.
+        AccountPositionType::Borrow => get_debt_positions(env, account_id)
+            .get(asset.clone())
+            .map(|debt| AccountPositionRaw {
+                scaled_amount_ray: debt.scaled_amount_ray,
+                liquidation_threshold_bps: 0,
+                liquidation_bonus_bps: 0,
+                loan_to_value_bps: 0,
+            }),
+    }
 }
 
 pub fn get_position_list(
@@ -49,12 +61,10 @@ pub fn get_position_list(
     account_id: u64,
     position_type: AccountPositionType,
 ) -> Vec<Address> {
-    let map = get_positions(env, account_id, position_type);
-    let mut out = Vec::new(env);
-    for asset in map.keys() {
-        out.push_back(asset);
+    match position_type {
+        AccountPositionType::Deposit => get_supply_positions(env, account_id).keys(),
+        AccountPositionType::Borrow => get_debt_positions(env, account_id).keys(),
     }
-    out
 }
 
 pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
@@ -116,7 +126,7 @@ pub mod asset_config {
     pub fn get_asset_config(env: &Env, asset: &Address) -> CompatAssetConfig {
         let market = get_market_config(env, asset);
         let sync = LiquidityPoolClient::new(env, &market.pool_address).get_sync_data();
-        let cfg: AssetConfig = market.asset_config;
+        let cfg = market.asset_config;
         CompatAssetConfig {
             loan_to_value_bps: cfg.loan_to_value_bps as i128,
             liquidation_threshold_bps: cfg.liquidation_threshold_bps as i128,
@@ -124,7 +134,7 @@ pub mod asset_config {
             liquidation_fees_bps: cfg.liquidation_fees_bps as i128,
             is_collateralizable: cfg.is_collateralizable,
             is_borrowable: cfg.is_borrowable,
-            has_emode: cfg.has_emode(),
+            has_emode: !cfg.e_mode_categories.is_empty(),
             is_isolated_asset: cfg.is_isolated_asset,
             is_siloed_borrowing: cfg.is_siloed_borrowing,
             is_flashloanable: cfg.is_flashloanable,
@@ -204,16 +214,20 @@ pub mod positions {
         position_type: AccountPositionType,
         asset: &Address,
     ) -> i128 {
-        try_get_position(env, account_id, position_type, asset)
+        super::get_position(env, account_id, position_type, asset)
             .map(|position| position.scaled_amount_ray)
             .unwrap_or(0)
     }
 
-    pub fn count_positions(env: &Env, account_id: u64, position_type: u32) -> u32 {
+    pub fn count_positions(env: &Env, account_id: u64, position_type: AccountPositionType) -> u32 {
         get_position_list(env, account_id, position_type).len()
     }
 
-    pub fn get_position_list(env: &Env, account_id: u64, position_type: u32) -> Vec<Address> {
+    pub fn get_position_list(
+        env: &Env,
+        account_id: u64,
+        position_type: AccountPositionType,
+    ) -> Vec<Address> {
         super::get_position_list(env, account_id, position_type)
     }
 }
