@@ -125,19 +125,9 @@ pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
-    // Keep the legacy key readable so an in-place upgrade cannot clear an
-    // already-set re-entrancy guard.
-    let new_flag = env
-        .storage()
-        .temporary()
-        .get::<_, bool>(&SessionKey::FlashLoanOngoing)
-        .unwrap_or(false);
-    if new_flag {
-        return true;
-    }
     env.storage()
         .temporary()
-        .get(&ControllerKey::FlashLoanOngoing)
+        .get(&SessionKey::FlashLoanOngoing)
         .unwrap_or(false)
 }
 
@@ -150,8 +140,5 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
         env.storage()
             .temporary()
             .remove(&SessionKey::FlashLoanOngoing);
-        env.storage()
-            .temporary()
-            .remove(&ControllerKey::FlashLoanOngoing);
     }
 }

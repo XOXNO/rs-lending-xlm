@@ -1,4 +1,3 @@
-use common::types::ControllerKey;
 use flash_loan_receiver::FlashLoanTestReceiver;
 use soroban_sdk::{Address, Bytes};
 
@@ -71,17 +70,7 @@ impl LendingTest {
     /// Set the flash loan ongoing flag directly (escape hatch for reentrancy tests).
     pub fn set_flash_loan_ongoing(&self, ongoing: bool) {
         self.env.as_contract(&self.controller, || {
-            if ongoing {
-                self.env
-                    .storage()
-                    .temporary()
-                    .set(&ControllerKey::FlashLoanOngoing, &true);
-            } else {
-                self.env
-                    .storage()
-                    .temporary()
-                    .remove(&ControllerKey::FlashLoanOngoing);
-            }
+            controller::test_support::set_flash_loan_ongoing(&self.env, ongoing);
         });
     }
 }

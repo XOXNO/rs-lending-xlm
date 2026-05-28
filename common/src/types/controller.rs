@@ -656,7 +656,6 @@ pub enum ControllerKey {
     AccountNonce,
     PositionLimits,
     LastEModeCategoryId,
-    FlashLoanOngoing,
     Market(Address),
     AccountMeta(u64),
     SupplyPositions(u64),

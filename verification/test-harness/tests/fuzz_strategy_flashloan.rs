@@ -80,13 +80,10 @@ fn router_allowance(t: &LendingTest, asset_name: &str) -> i128 {
 
 /// Returns true when the controller flash-loan reentrancy guard is clear.
 fn flash_guard_cleared(t: &LendingTest) -> bool {
-    t.env.as_contract(&t.controller, || {
-        !t.env
-            .storage()
-            .temporary()
-            .get::<_, bool>(&common::types::ControllerKey::FlashLoanOngoing)
-            .unwrap_or(false)
-    })
+    t.env
+        .as_contract(&t.controller, || {
+            !controller::test_support::is_flash_loan_ongoing(&t.env)
+        })
 }
 // Property 1: flash_loan success path
 //

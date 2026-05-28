@@ -1,7 +1,6 @@
 extern crate std;
 
 use common::math::fp::Bps;
-use common::types::ControllerKey;
 use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::ToXdr;
@@ -25,22 +24,10 @@ fn flash_fee(t: &LendingTest, asset_name: &str, amount: i128) -> i128 {
 }
 
 fn flash_guard_cleared(t: &LendingTest) -> bool {
-    t.env.as_contract(&t.controller, || {
-        !t.env
-            .storage()
-            .temporary()
-            .get::<_, bool>(&ControllerKey::FlashLoanOngoing)
-            .unwrap_or(false)
-    })
-}
-
-fn flash_guard_absent_from_instance(t: &LendingTest) -> bool {
-    t.env.as_contract(&t.controller, || {
-        !t.env
-            .storage()
-            .instance()
-            .has(&ControllerKey::FlashLoanOngoing)
-    })
+    t.env
+        .as_contract(&t.controller, || {
+            !controller::test_support::is_flash_loan_ongoing(&t.env)
+        })
 }
 
 fn pool_reserves(t: &LendingTest, asset_name: &str) -> i128 {
@@ -114,8 +101,8 @@ fn test_flash_loan_success_under_non_root_auth() {
         result
     );
     assert!(
-        flash_guard_absent_from_instance(&t),
-        "flash-loan guard must not persist in controller instance storage"
+        flash_guard_cleared(&t),
+        "flash-loan guard must clear after a successful flash loan"
     );
 }
 // 2. test_flash_loan_rejects_bad_repayment
