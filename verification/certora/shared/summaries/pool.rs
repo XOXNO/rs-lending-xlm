@@ -526,8 +526,9 @@ pub struct PoolViewsSnapshot {
 ///     the supplier-funded liquidity plus accrued protocol revenue.
 ///
 /// Reserves is left independent of the other three: SAC balance can drift
-/// from the accounting view via direct token transfers (production tracks
-/// this discrepancy via `transfer_and_measure_received`).
+/// from the accounting view via direct token transfers. Production does not
+/// reconcile this for trusted listed SACs; only the untrusted aggregator /
+/// flash-loan paths measure balance deltas.
 pub fn pool_snapshot_summary(_env: &Env) -> PoolViewsSnapshot {
     let reserves: i128 = nondet();
     let supplied: i128 = nondet();

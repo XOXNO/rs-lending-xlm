@@ -5,6 +5,7 @@
 //! any account is in isolation mode on it. The counter is mutated only
 //! through the helpers here (and flushed via the cache in batch).
 
+use super::renew_protocol_shared_key;
 use common::types::ControllerKey;
 use soroban_sdk::{Address, Env};
 
@@ -23,4 +24,8 @@ pub(crate) fn set_isolated_debt(env: &Env, asset: &Address, debt: i128) {
     }
 
     persistent.set(&key, &debt);
+    // Shared-tier TTL bump on every write, matching `set_market_config` and the
+    // other protocol-shared keys. Skipped on the remove branch above because
+    // `extend_ttl` panics on a missing key (soroban-sdk 26.x).
+    renew_protocol_shared_key(env, &key);
 }

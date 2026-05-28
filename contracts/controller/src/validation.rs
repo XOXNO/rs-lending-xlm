@@ -19,9 +19,10 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-pub fn require_asset_supported(env: &Env, cache: &mut ControllerCache, asset: &Address) {
-    let _ = env;
-    let _ = cache.cached_market_config(asset);
+/// Panics with the market-config error when `asset` has no market; the cache
+/// entry populated by the read is the "supported" signal callers rely on.
+pub fn require_asset_supported(_env: &Env, cache: &mut ControllerCache, asset: &Address) {
+    cache.cached_market_config(asset);
 }
 
 pub fn require_market_active(env: &Env, cache: &mut ControllerCache, asset: &Address) {
@@ -55,10 +56,6 @@ pub fn require_amount_positive(env: &Env, amount: i128) {
 
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
-}
-
-pub fn require_credit_not_above_sent(env: &Env, sent: i128, received: i128) {
-    assert_with_error!(env, received <= sent, GenericError::InvalidPayments);
 }
 
 pub fn require_healthy_account(env: &Env, cache: &mut ControllerCache, account: &Account) {

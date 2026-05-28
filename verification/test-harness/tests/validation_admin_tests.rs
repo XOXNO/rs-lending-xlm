@@ -236,6 +236,22 @@ fn test_configure_market_oracle_rejects_dual_without_dex() {
         .configure_market_oracle(&admin, &asset, &cfg);
 }
 
+// Identical primary and anchor collapse the dual-source diversity guarantee
+// (anchor compared against itself always passes the tolerance band) and are
+// rejected with InvalidExchangeSrc (#11).
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_configure_market_oracle_rejects_identical_primary_anchor() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    let mut cfg = base_oracle_config(&t);
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.anchor = OracleSourceConfigInputOption::Some(cfg.primary.clone());
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #220)")]
 fn test_configure_market_oracle_rejects_non_usd_base() {

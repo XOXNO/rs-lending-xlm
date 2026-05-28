@@ -2,9 +2,9 @@
 //!
 //! SAC token operations execute as cross-contract calls in the host. Without
 //! summarization the prover treats them as pure havoc -- every property that
-//! depends on `transfer_and_measure_received`, balance reads, or allowance
-//! tracking becomes vacuous because both the call's effect and its return
-//! value are unconstrained.
+//! depends on token transfers, balance reads, or allowance tracking becomes
+//! vacuous because both the call's effect and its return value are
+//! unconstrained.
 //!
 //! These summaries replace the heavy cross-contract path with the
 //! post-conditions production relies on: balances and allowances are
@@ -15,8 +15,8 @@
 //!
 //! Wiring: registered against `soroban_sdk::token::Client::*` via
 //! `cvlr_soroban_macros::apply_summary!` from the call sites in
-//! `controller/src/utils.rs::transfer_and_measure_received` and the
-//! flash-loan / strategy paths.
+//! `controller/src/utils.rs::transfer_amount` and the flash-loan / strategy
+//! paths.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
@@ -27,9 +27,9 @@ use soroban_sdk::{Address, Env};
 ///
 /// Production guarantees (SAC ABI):
 ///   * Asserts `amount >= 0`. Negative amounts panic in the host.
-///   * On insufficient balance the call panics; the controller's caller
-///     (`transfer_and_measure_received`) measures the post-balance delta to
-///     observe what actually moved.
+///   * On insufficient balance the call panics. Trusted 1:1 SAC transfers
+///     (`transfer_amount`) do not measure a balance delta; only the untrusted
+///     aggregator / flash-loan paths read post-balances to observe what moved.
 ///   * No return value.
 ///
 /// Bound: only the non-negative-amount precondition is enforced. The

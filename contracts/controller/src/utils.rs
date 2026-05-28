@@ -37,17 +37,23 @@ pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     }
 }
 
-/// Performs the SAC transfer and returns the actual credited amount measured
-/// at the recipient (defends against fee-on-transfer or hook surprises).
-pub fn transfer_and_measure_received(
+/// Transfers `amount` of `asset` from `from` to `to` and returns it.
+///
+/// The protocol only lists standard 1:1 SAC tokens (ADR-0006), so the amount
+/// that leaves `from` is exactly the amount that reaches `to`. There is no
+/// balance-delta measurement here: fee-on-transfer / rebasing / hook tokens
+/// are excluded by listing policy, not defended against at runtime. The
+/// untrusted aggregator path in `strategies` keeps its own balance-delta
+/// checks because the router — unlike a listed SAC — is not trusted.
+pub fn transfer_amount(
     env: &Env,
     asset: &Address,
     from: &Address,
     to: &Address,
     amount: i128,
-    balance_decrease_error: GenericError,
+    non_positive_error: GenericError,
 ) -> i128 {
-    assert_with_error!(env, amount > 0, balance_decrease_error);
+    assert_with_error!(env, amount > 0, non_positive_error);
     sac_transfer_call(env, asset, from, to, &amount);
     amount
 }

@@ -192,7 +192,7 @@ fn transfer_repayment_to_pool(
     cache: &mut ControllerCache,
 ) -> i128 {
     let pool_addr = cache.cached_pool_address(asset);
-    utils::transfer_and_measure_received(
+    utils::transfer_amount(
         env,
         asset,
         caller,

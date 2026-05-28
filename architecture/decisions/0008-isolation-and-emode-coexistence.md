@@ -103,6 +103,22 @@ Negative / accepted costs:
 - Strict oracle pricing on isolated `repay` reduces the surface where
   permissive pricing would otherwise let users repay; this is
   intentional and belongs in protocol risk disclosures.
+- The `IsolatedDebt(asset)` counter is **principal-in / (principal +
+  interest)-out**: borrow increments by borrowed principal, repay and
+  liquidation decrement by the repaid amount including accrued interest.
+  Interest accrues outside transactions and is never added on the increment
+  side, so the global per-asset counter drifts monotonically below true
+  aggregate outstanding isolated debt, and one account's interest-inflated
+  decrement can consume a sibling account's principal contribution. The
+  ceiling is therefore a **monitored soft bound**, not a hard cap on
+  marked-to-market aggregate exposure (drift is always permissive). Accepted
+  because every isolated position stays LTV-collateralized and independently
+  liquidatable, and operators monitor the counter and can pause / re-cap a
+  market. Making it a hard guarantee would require per-account contribution
+  tracking (clamp each decrement to that account's recorded contribution) or
+  a keeper recompute from live positions; deliberately deferred to keep the
+  hot path cheap. Documented in INVARIANTS §3.4; identified by the 2026-05-29
+  security audit.
 - Category-asset membership has two storage faces (category-side map
   and per-market reverse list); both must stay consistent. The
   controller updates both in `add_asset_to_e_mode_category` /

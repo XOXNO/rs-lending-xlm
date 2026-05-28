@@ -24,6 +24,18 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
         GenericError::InvalidExchangeSrc
     );
 
+    // A dual-source config must resolve to two distinct sources. Identical
+    // primary and anchor collapse SpotVsTwap/DualOracle to a single feed:
+    // `is_within_anchor` would compare a price against itself (~1.0), always
+    // pass the tolerance band, and silently void the diversity guarantee.
+    if let Some(anchor) = config.anchor.as_ref() {
+        assert_with_error!(
+            env,
+            config.primary != *anchor,
+            GenericError::InvalidExchangeSrc
+        );
+    }
+
     // Production rejects Single + Spot (INVARIANTS §4.3, ADR-0003); a TWAP
     // or anchor cross-check is required.
     #[cfg(not(feature = "testing"))]

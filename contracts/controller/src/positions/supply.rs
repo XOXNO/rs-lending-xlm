@@ -200,12 +200,8 @@ fn update_deposit_position(
     let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
 
     // Liquidation threshold is updated only by the keeper propagation path.
-    if position.loan_to_value != req.asset_config.loan_to_value {
-        position.loan_to_value = req.asset_config.loan_to_value;
-    }
-    if position.liquidation_bonus != req.asset_config.liquidation_bonus {
-        position.liquidation_bonus = req.asset_config.liquidation_bonus;
-    }
+    position.loan_to_value = req.asset_config.loan_to_value;
+    position.liquidation_bonus = req.asset_config.liquidation_bonus;
 
     let market_update = update_market_position(
         env,
@@ -268,24 +264,14 @@ fn pull_supply_tokens(
     pool_addr: &Address,
     amount: i128,
 ) -> i128 {
-    let received = utils::transfer_and_measure_received(
+    utils::transfer_amount(
         env,
         asset,
         caller,
         pool_addr,
         amount,
         GenericError::AmountMustBePositive,
-    );
-
-    validate_supply_credit(env, amount, received);
-
-    received
-}
-
-fn validate_supply_credit(env: &Env, sent: i128, received: i128) {
-    assert_with_error!(env, received > 0, GenericError::AmountMustBePositive);
-    // Fee-on-transfer tokens may credit less than the requested amount.
-    require_credit_not_above_sent(env, sent, received);
+    )
 }
 
 fn apply_pool_supply(

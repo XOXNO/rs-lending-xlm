@@ -285,6 +285,31 @@ Note: dust removal is applied on decrement. This is conservative for ceiling
 enforcement. Any reuse of the isolated-debt tracker for settlement accounting
 requires a separate review.
 
+Note (accepted limitation — soft bound, not a hard guarantee): the tracker is
+*asymmetric* across the interest dimension. Borrow increments by the borrowed
+**principal** valued at borrow-time price; repay and liquidation decrement by
+the repaid amount **including accrued interest** valued at current price
+(`scaled_amount * borrow_index -> to_asset`). Because interest accrues outside
+transactions and is never added on the increment side but is subtracted on the
+decrement side, the counter drifts monotonically *below* true aggregate
+outstanding isolated debt over time. As the counter is global per collateral
+asset (shared by every account isolated on it), one account's
+interest-inflated decrement can consume another account's still-outstanding
+principal contribution, freeing ceiling headroom below the configured cap.
+
+Consequence: `isolation_debt_ceiling_usd_wad` is a **monitored soft bound**,
+not a hard cap on marked-to-market aggregate exposure. The drift is always in
+the permissive direction (under-count), so aggregate exposure to a risky
+isolated asset can exceed the configured ceiling over long-lived, multi-account
+positions. This is accepted because (a) every individual isolated position
+remains LTV-collateralized and independently liquidatable, and (b) operators
+monitor `IsolatedDebt(asset)` and can pause or re-cap a market. It is **not**
+direct insolvency or theft. If the ceiling must become a hard guarantee, track
+each account's recorded contribution and clamp its decrement to that
+contribution (per-account isolated-debt key), or add a keeper recompute of the
+counter from live positions. See ADR 0008 (accepted-costs) and the 2026-05-29
+security audit.
+
 ---
 
 ## 4. Market and Oracle Configuration

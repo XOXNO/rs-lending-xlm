@@ -83,6 +83,7 @@ impl Controller {
         claim_revenue(&env, assets)
     }
 
+    #[when_not_paused]
     #[only_role(caller, "REVENUE")]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
         // Instance TTL is renewed by `ControllerCache::new` inside `add_rewards_batch`.
@@ -326,7 +327,7 @@ pub fn add_reward(
 
     let pool_addr = cache.cached_pool_address(asset);
 
-    let actual_received = utils::transfer_and_measure_received(
+    utils::transfer_amount(
         env,
         asset,
         caller,
@@ -335,7 +336,7 @@ pub fn add_reward(
         GenericError::AmountMustBePositive,
     );
 
-    let state = pool_add_rewards_call(env, &pool_addr, actual_received);
+    let state = pool_add_rewards_call(env, &pool_addr, amount);
     cache.record_market_update(&state);
 }
 
@@ -414,16 +415,10 @@ fn update_position_threshold(
     let cfg_ltv = asset_config.loan_to_value.raw() as u32;
     let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
     if has_risks {
-        if updated_pos.liquidation_threshold_bps != cfg_lt {
-            updated_pos.liquidation_threshold_bps = cfg_lt;
-        }
+        updated_pos.liquidation_threshold_bps = cfg_lt;
     } else {
-        if updated_pos.loan_to_value_bps != cfg_ltv {
-            updated_pos.loan_to_value_bps = cfg_ltv;
-        }
-        if updated_pos.liquidation_bonus_bps != cfg_bonus {
-            updated_pos.liquidation_bonus_bps = cfg_bonus;
-        }
+        updated_pos.loan_to_value_bps = cfg_ltv;
+        updated_pos.liquidation_bonus_bps = cfg_bonus;
     }
 
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);

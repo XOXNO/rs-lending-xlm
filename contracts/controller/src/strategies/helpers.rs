@@ -86,12 +86,11 @@ pub(crate) fn repay_debt_from_controller(
     let debt_feed = cache.cached_price(req.debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 
-    // Pool-balance delta accounting around the transfer mirrors plain
-    // `process_single_repay`: pass the amount that actually arrived to
-    // `pool::repay`, not the requested `debt_available`. Defends against any
-    // future onboarding of a fee-on-transfer or rebasing debt token where
-    // `debt_available - fee` reaches the pool.
-    let actual_arrived_at_pool = utils::transfer_and_measure_received(
+    // Listed debt tokens are standard 1:1 SACs (ADR-0006), so `debt_available`
+    // is exactly what reaches the pool — no balance-delta measurement on the
+    // trusted transfer. The router leftover refund below keeps its own balance
+    // snapshot because the aggregator, unlike the SAC, is untrusted.
+    utils::transfer_amount(
         env,
         req.debt_token,
         &env.current_contract_address(),
@@ -110,7 +109,7 @@ pub(crate) fn repay_debt_from_controller(
         RepaymentRequest {
             asset: req.debt_token,
             position: req.debt_pos,
-            amount: actual_arrived_at_pool,
+            amount: req.debt_available,
             price: debt_feed.price,
         },
         cache,
