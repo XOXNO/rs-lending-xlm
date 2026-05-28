@@ -163,6 +163,7 @@ impl Controller {
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
     }
 
+    #[cfg(any(test, feature = "testing"))]
     pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
         access_control::has_role(&env, &account, &role).is_some()
     }
