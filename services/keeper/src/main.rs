@@ -8,7 +8,7 @@ use keeper_bot::{
     discovery::{assert_keeper_role, self_check},
     metrics::{serve as serve_metrics, Metrics},
     scheduler::run as run_scheduler,
-    signer::vault::load_signer,
+    signer::{signer_from_mnemonic, vault::load_signer, Ed25519Signer},
     stellar::RpcClient,
 };
 use tokio_util::sync::CancellationToken;
@@ -25,6 +25,18 @@ struct Args {
     /// Simulate every planned tx but never submit. Useful for staging.
     #[arg(long, env = "KEEPER_DRY_RUN", default_value_t = false)]
     dry_run: bool,
+
+    /// Local-dev override: skip KeyVault and use this BIP-39 mnemonic
+    /// directly. INTENDED FOR DEVELOPMENT ONLY — production must source
+    /// the mnemonic from KeyVault.
+    #[arg(long, env = "KEEPER_MNEMONIC", hide_env_values = true)]
+    mnemonic: Option<String>,
+
+    /// Skip the boot-time KEEPER role check. Only useful when probing the
+    /// service with a throwaway signer that does not (and should not) hold
+    /// the role on-chain. DEV ONLY.
+    #[arg(long, env = "KEEPER_SKIP_ROLE_CHECK", default_value_t = false)]
+    skip_role_check: bool,
 }
 
 #[tokio::main]
@@ -43,7 +55,7 @@ async fn main() -> Result<()> {
     );
 
     let client = Arc::new(RpcClient::new(&cfg.rpc)?);
-    let signer = Arc::new(load_signer(&cfg.keyvault, &cfg.signer).await?);
+    let signer = Arc::new(resolve_signer(&args, &cfg).await?);
     let metrics = Arc::new(Metrics::new()?);
     let cancel = CancellationToken::new();
 
@@ -52,11 +64,20 @@ async fn main() -> Result<()> {
     info!(target: "keeper.boot", n_assets = pools.len(), "self-check passed");
 
     let signer_pk = signer.public_key_strkey();
-    if let Err(e) = assert_keeper_role(client.as_ref(), &cfg.contracts.controller, &signer_pk).await {
+    if args.skip_role_check {
+        warn!(
+            target: "keeper.boot",
+            signer = %signer_pk,
+            "DEV: skipping KEEPER role check (--skip-role-check)"
+        );
+    } else if let Err(e) =
+        assert_keeper_role(client.as_ref(), &cfg.contracts.controller, &signer_pk).await
+    {
         error!(target: "keeper.boot", error = ?e, "KEEPER role check failed — aborting");
         return Err(e);
+    } else {
+        info!(target: "keeper.boot", signer = %signer_pk, "KEEPER role check passed");
     }
-    info!(target: "keeper.boot", signer = %signer_pk, "KEEPER role check passed");
 
     // Spawn metrics surface.
     let metrics_handle = {
@@ -122,6 +143,17 @@ async fn wait_for_shutdown() {
         _ = sigterm.recv() => {},
         _ = sigint.recv() => {},
     }
+}
+
+async fn resolve_signer(args: &Args, cfg: &KeeperConfig) -> Result<Ed25519Signer> {
+    if let Some(mnemonic) = &args.mnemonic {
+        warn!(
+            target: "keeper.boot",
+            "DEV: using --mnemonic override; KeyVault NOT consulted"
+        );
+        return signer_from_mnemonic(mnemonic, &cfg.signer.derivation_path);
+    }
+    load_signer(&cfg.keyvault, &cfg.signer).await
 }
 
 fn init_tracing(level: &str, format: &str) -> Result<()> {

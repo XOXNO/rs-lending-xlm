@@ -72,6 +72,24 @@ AZURE_TENANT_ID=... AZURE_CLIENT_ID=... AZURE_CLIENT_SECRET=... \
   cargo run --release -- --config config/testnet.yaml --dry-run
 ```
 
+For local dev without Azure creds, two flags bypass production gates
+(both clearly log a DEV warning when used):
+
+```bash
+cargo run --release -- \
+  --config config/testnet-fast.yaml \
+  --dry-run \
+  --skip-role-check \
+  --mnemonic "$(your dev mnemonic; NEVER commit a real one)"
+```
+
+`testnet-fast.yaml` shortens the tick cadence to 20s so you can see a
+full discovery + plan cycle within a minute. Verified against live
+testnet 2026-05-28: 5 listed assets, 11 accounts, 33 batched keys read,
+one wasm-code entry inside the safety margin, both loops fire
+independently, `/health` + `/metrics` serve correctly, SIGTERM shuts
+both loops down cleanly.
+
 ## Docker build
 
 `mx-keyvault` is a private dep. Pass `~/.git-credentials` (or an SSH agent
