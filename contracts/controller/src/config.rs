@@ -286,8 +286,7 @@ pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus:
 }
 
 pub fn remove_e_mode_category(env: &Env, id: u32) {
-    let mut cat = storage::try_get_emode_category(env, id)
-        .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    let mut cat = storage::get_emode_category(env, id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     cat.is_deprecated = true;
 
@@ -314,8 +313,7 @@ pub fn add_asset_to_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    let cat = storage::try_get_emode_category(env, category_id)
-        .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
     let mut market = storage::try_get_market_config(env, &asset)
@@ -355,8 +353,7 @@ pub fn edit_asset_in_e_mode_category(
     can_collateral: bool,
     can_borrow: bool,
 ) {
-    let cat = storage::try_get_emode_category(env, category_id)
-        .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
+    let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     assert_with_error!(
         env,
@@ -395,10 +392,7 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
 }
 
 pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleConfigInput) {
-    let mut market = match storage::try_get_market_config(env, &asset) {
-        Some(m) => m,
-        None => panic_with_error!(env, GenericError::AssetNotSupported),
-    };
+    let mut market = storage::get_market_config(env, &asset);
 
     assert_with_error!(
         env,

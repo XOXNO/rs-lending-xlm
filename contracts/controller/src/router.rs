@@ -124,7 +124,11 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
 
         // Propagates threshold updates with safety buffer.
-        let mut cache = ControllerCache::new(&env, OraclePolicy::RiskIncreasing);
+        let risk = match has_risks {
+            true => OraclePolicy::RiskIncreasing,
+            false => OraclePolicy::RiskDecreasing,
+        };
+        let mut cache = ControllerCache::new(&env, risk);
         validation::require_asset_supported(&env, &mut cache, &asset);
 
         let base_config = cache.cached_asset_config(&asset);

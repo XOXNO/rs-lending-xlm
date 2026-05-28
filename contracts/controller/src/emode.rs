@@ -44,7 +44,11 @@ pub fn effective_asset_config(
 }
 
 /// Rejects isolated collateral when an account has an e-mode category.
-pub fn ensure_e_mode_compatible_with_asset(env: &Env, asset_config: &AssetConfig, e_mode_category_id: u32) {
+pub fn ensure_e_mode_compatible_with_asset(
+    env: &Env,
+    asset_config: &AssetConfig,
+    e_mode_category_id: u32,
+) {
     if asset_config.is_isolated_asset && e_mode_category_id > 0 {
         panic_with_error!(env, EModeError::EModeWithIsolated);
     }
@@ -66,18 +70,17 @@ pub fn token_e_mode_config(
         Some(m) => m,
         None => {
             // Cache misses fall back to stable market config storage.
-            match crate::storage::try_get_market_config(env, asset) {
-                Some(m) => {
-                    cache.market_configs.set(asset.clone(), m.clone());
-                    m
-                }
-                None => panic_with_error!(env, EModeError::EModeCategoryNotFound),
-            }
+            let m = crate::storage::get_market_config(env, asset);
+            cache.market_configs.set(asset.clone(), m.clone());
+            m
         }
     };
     assert_with_error!(
         env,
-        market.asset_config.e_mode_categories.contains(e_mode_category_id),
+        market
+            .asset_config
+            .e_mode_categories
+            .contains(e_mode_category_id),
         EModeError::EModeCategoryNotFound
     );
 
