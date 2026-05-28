@@ -62,6 +62,13 @@ pub struct ScheduleConfig {
     pub account_chunk: usize,
     pub asset_chunk: usize,
     pub max_txs_per_tick: usize,
+    /// When true, the keeper runs the periodic `update_indexes(assets)` sweep
+    /// alongside the TTL pass. This is the only call that requires the
+    /// signer to hold the on-chain KEEPER role. When false (default), the
+    /// keeper operates in pure-TTL mode and needs no role — anyone with
+    /// XLM for fees can run it.
+    #[serde(default)]
+    pub enable_index_refresh: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

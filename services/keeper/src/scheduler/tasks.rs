@@ -1,17 +1,25 @@
 //! Translate a discovery snapshot into a list of `TxJob`s the submitter can
 //! run. Pure function — no I/O.
+//!
+//! v2 design: TTL bumping is **permissionless**, so the planner emits a
+//! single stream of `ExtendFootprintTtl` ops covering every entry whose
+//! `live_until` is below the safety margin (persistent storage, contract
+//! instances, wasm code). The keeper's signer does not need any on-chain
+//! role for these.
+//!
+//! The only operation that still requires the KEEPER role is
+//! `update_indexes`, which mutates pool state (interest accrual) and is
+//! the controller's only legitimate way to advance pool indexes from off
+//! chain.
 
 use anyhow::Result;
-use stellar_xdr::curr::{LedgerKey, ScVal};
+use stellar_xdr::curr::LedgerKey;
 use tracing::debug;
 
 use crate::config::ScheduleConfig;
 use crate::discovery::DiscoverySnapshot;
-use crate::keys::contract_code_key;
 use crate::policy::{needs_bump, BumpReason};
-use crate::stellar::invoke::{
-    keepalive_accounts, keepalive_pools, keepalive_shared_state, update_indexes,
-};
+use crate::stellar::invoke::update_indexes;
 use crate::stellar::ttl::extend_footprint_ttl;
 use crate::stellar::TxJob;
 
@@ -26,66 +34,48 @@ pub struct PlannerInput<'a> {
 
 pub struct PlannedWork {
     pub jobs: Vec<TxJob>,
-    pub assets_needing_shared_bump: Vec<[u8; 32]>,
-    pub assets_needing_pool_bump: Vec<[u8; 32]>,
-    pub accounts_needing_bump: Vec<u64>,
-    pub wasm_extend_targets: Vec<LedgerKey>,
+    pub extend_targets: Vec<LedgerKey>,
 }
+
+/// Conservative cap on how many LedgerKeys to pack into a single
+/// `ExtendFootprintTtl` op's read-only footprint. Soroban's per-tx footprint
+/// limit is much higher (200+ entries) but a smaller bucket keeps the
+/// per-op fee bounded and recoverable if a single tx is rejected.
+const MAX_KEYS_PER_EXTEND_OP: usize = 60;
 
 pub fn plan(input: &PlannerInput<'_>) -> Result<PlannedWork> {
     let snapshot = input.snapshot;
     let current_ledger = snapshot.current_ledger;
     let safety = input.safety_ledgers;
 
-    let mut assets_needing_shared_bump = Vec::new();
-    let mut assets_needing_pool_bump = Vec::new();
-    let mut accounts_needing_bump = Vec::new();
+    let mut extend_targets: Vec<LedgerKey> = Vec::new();
+    let mut counts = TierCounts::default();
 
     for row in &snapshot.persistent_entries {
-        let reason = needs_bump(row.live_until_ledger, current_ledger, safety);
-        if matches!(reason, BumpReason::Missing) {
-            continue;
-        }
-        // Pull asset / id out of the LedgerKey for routing.
-        match classify_persistent_key(&row.key) {
-            Some(PersistentClass::Market(asset)) => {
-                push_unique(&mut assets_needing_shared_bump, asset);
-                push_unique(&mut assets_needing_pool_bump, asset);
-            }
-            Some(PersistentClass::IsolatedDebt(asset)) => {
-                push_unique(&mut assets_needing_shared_bump, asset);
-            }
-            Some(PersistentClass::EModeCategory(_)) => {
-                // Covered transitively by keepalive_shared_state for the
-                // assets referencing the category. No-op here.
-            }
-            Some(PersistentClass::AccountTriplet(id)) => {
-                push_unique(&mut accounts_needing_bump, id);
-            }
-            Some(PersistentClass::PoolsList) | None => {
-                // PoolsList rides along with keepalive_shared_state; missing
-                // routing for a key we don't recognize is logged but skipped.
-            }
+        if needs_bump_decisive(&row.live_until_ledger, current_ledger, safety) {
+            extend_targets.push(row.key.clone());
+            counts.persistent += 1;
         }
     }
-
-    let mut wasm_extend_targets = Vec::new();
+    for row in &snapshot.instance_entries {
+        if needs_bump_decisive(&row.live_until_ledger, current_ledger, safety) {
+            extend_targets.push(row.key.clone());
+            counts.instance += 1;
+        }
+    }
     for row in &snapshot.wasm_code_entries {
-        let reason = needs_bump(row.live_until_ledger, current_ledger, safety);
-        if matches!(reason, BumpReason::Missing) {
-            continue;
-        }
-        if let LedgerKey::ContractCode(code) = &row.key {
-            wasm_extend_targets.push(LedgerKey::ContractCode(code.clone()));
+        if needs_bump_decisive(&row.live_until_ledger, current_ledger, safety) {
+            extend_targets.push(row.key.clone());
+            counts.wasm += 1;
         }
     }
-    // Pool template hash always carried, even if discovery row was absent
-    // (defensive — a brand-new deploy may not have the entry yet).
-    let _ = contract_code_key; // imported for completeness
 
     let mut jobs = Vec::new();
 
-    // -- update_indexes runs on a different cadence; gate by caller flag --
+    for chunk in extend_targets.chunks(MAX_KEYS_PER_EXTEND_OP) {
+        jobs.push(extend_footprint_ttl(chunk, extend_to_ledgers())?);
+    }
+
     if input.run_index_refresh && !snapshot.assets.is_empty() {
         for chunk in snapshot.assets.chunks(input.schedule.asset_chunk.max(1)) {
             let assets: Vec<[u8; 32]> = chunk.to_vec();
@@ -93,52 +83,34 @@ pub fn plan(input: &PlannerInput<'_>) -> Result<PlannedWork> {
         }
     }
 
-    // -- keepalive_shared_state batches --
-    for chunk in assets_needing_shared_bump.chunks(input.schedule.asset_chunk.max(1)) {
-        let assets: Vec<[u8; 32]> = chunk.to_vec();
-        jobs.push(keepalive_shared_state(
-            input.controller_id,
-            input.caller_strkey,
-            &assets,
-        )?);
-    }
-
-    // -- keepalive_pools batches --
-    for chunk in assets_needing_pool_bump.chunks(input.schedule.asset_chunk.max(1)) {
-        let assets: Vec<[u8; 32]> = chunk.to_vec();
-        jobs.push(keepalive_pools(input.controller_id, input.caller_strkey, &assets)?);
-    }
-
-    // -- keepalive_accounts batches --
-    for chunk in accounts_needing_bump.chunks(input.schedule.account_chunk.max(1)) {
-        let ids: Vec<u64> = chunk.to_vec();
-        jobs.push(keepalive_accounts(input.controller_id, input.caller_strkey, &ids)?);
-    }
-
-    // -- ExtendFootprintTtl batch (single tx covers all wasm hashes) --
-    if !wasm_extend_targets.is_empty() {
-        let extend_to = extend_to_ledgers();
-        jobs.push(extend_footprint_ttl(&wasm_extend_targets, extend_to)?);
-    }
-    let _ = current_ledger; // silenced once bump_target_ledger goes away
-
     debug!(
         target: "keeper.scheduler",
         n_jobs = jobs.len(),
-        n_shared_assets = assets_needing_shared_bump.len(),
-        n_pool_assets = assets_needing_pool_bump.len(),
-        n_accounts = accounts_needing_bump.len(),
-        n_wasm = wasm_extend_targets.len(),
+        persistent_below_margin = counts.persistent,
+        instance_below_margin = counts.instance,
+        wasm_below_margin = counts.wasm,
+        index_refresh_jobs = input.run_index_refresh as u32 * (snapshot.assets.len() as u32).div_ceil(input.schedule.asset_chunk.max(1) as u32),
         "plan built"
     );
 
     Ok(PlannedWork {
         jobs,
-        assets_needing_shared_bump,
-        assets_needing_pool_bump,
-        accounts_needing_bump,
-        wasm_extend_targets,
+        extend_targets,
     })
+}
+
+#[derive(Default)]
+struct TierCounts {
+    persistent: usize,
+    instance: usize,
+    wasm: usize,
+}
+
+fn needs_bump_decisive(live_until: &Option<u32>, current_ledger: u32, safety: u32) -> bool {
+    !matches!(
+        needs_bump(*live_until, current_ledger, safety),
+        BumpReason::Missing
+    )
 }
 
 /// Ledgers-from-now to extend wasm-code entries to.
@@ -158,89 +130,86 @@ fn extend_to_ledgers() -> u32 {
     535_679
 }
 
-#[derive(Debug)]
-enum PersistentClass {
-    Market([u8; 32]),
-    IsolatedDebt([u8; 32]),
-    EModeCategory(#[allow(dead_code)] u32),
-    AccountTriplet(u64),
-    PoolsList,
-}
-
-fn classify_persistent_key(key: &LedgerKey) -> Option<PersistentClass> {
-    let LedgerKey::ContractData(cd) = key else {
-        return None;
-    };
-    let ScVal::Vec(Some(inner)) = &cd.key else { return None };
-    if inner.0.is_empty() {
-        return None;
-    }
-    let ScVal::Symbol(name) = &inner.0[0] else { return None };
-    let name = name.0.to_utf8_string_lossy();
-    use stellar_xdr::curr::{ContractId, Hash, ScAddress};
-    match (name.as_str(), inner.0.get(1)) {
-        ("PoolsList", _) => Some(PersistentClass::PoolsList),
-        ("Market", Some(ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))))) => {
-            Some(PersistentClass::Market(*b))
-        }
-        ("IsolatedDebt", Some(ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))))) => {
-            Some(PersistentClass::IsolatedDebt(*b))
-        }
-        ("EModeCategory", Some(ScVal::U32(id))) => Some(PersistentClass::EModeCategory(*id)),
-        ("AccountMeta", Some(ScVal::U64(id)))
-        | ("SupplyPositions", Some(ScVal::U64(id)))
-        | ("BorrowPositions", Some(ScVal::U64(id))) => Some(PersistentClass::AccountTriplet(*id)),
-        _ => None,
-    }
-}
-
-fn push_unique<T: PartialEq>(buf: &mut Vec<T>, item: T) {
-    if !buf.iter().any(|existing| existing == &item) {
-        buf.push(item);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::DiscoverySnapshot;
+    use crate::stellar::client::LedgerEntryQuery;
     use stellar_xdr::curr::{
         ContractDataDurability, ContractId, Hash, LedgerKey, LedgerKeyContractData, ScAddress,
-        ScSymbol, ScVal, ScVec, StringM, VecM,
+        ScVal,
     };
 
-    fn make_key(variant: &str, arg: Option<ScVal>) -> LedgerKey {
-        let mut elems = vec![ScVal::Symbol(ScSymbol(
-            StringM::<32>::try_from(variant).unwrap(),
-        ))];
-        if let Some(v) = arg {
-            elems.push(v);
+    fn fake_query(live_until: Option<u32>) -> LedgerEntryQuery {
+        LedgerEntryQuery {
+            key: LedgerKey::ContractData(LedgerKeyContractData {
+                contract: ScAddress::Contract(ContractId(Hash([0u8; 32]))),
+                key: ScVal::LedgerKeyContractInstance,
+                durability: ContractDataDurability::Persistent,
+            }),
+            value: None,
+            live_until_ledger: live_until,
         }
-        let vec_m: VecM<ScVal> = elems.try_into().unwrap();
-        LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash([0u8; 32]))),
-            key: ScVal::Vec(Some(ScVec(vec_m))),
-            durability: ContractDataDurability::Persistent,
+    }
+
+    #[test]
+    fn skips_entries_above_safety_margin() {
+        let mut snap = DiscoverySnapshot {
+            current_ledger: 100,
+            ..Default::default()
+        };
+        // Plenty of headroom — should be skipped.
+        snap.instance_entries.push(fake_query(Some(100 + 600_000)));
+
+        let cfg = ScheduleConfig {
+            ttl_tick_seconds: 0,
+            index_tick_seconds: 0,
+            ttl_safety_margin_days: 14,
+            account_chunk: 50,
+            asset_chunk: 20,
+            max_txs_per_tick: 50,
+            enable_index_refresh: false,
+        };
+        let plan = plan(&PlannerInput {
+            snapshot: &snap,
+            schedule: &cfg,
+            controller_id: &[0u8; 32],
+            caller_strkey: "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6",
+            safety_ledgers: 14 * 17_280,
+            run_index_refresh: false,
         })
+        .unwrap();
+        assert_eq!(plan.jobs.len(), 0);
     }
 
     #[test]
-    fn classifies_market_key() {
-        let k = make_key(
-            "Market",
-            Some(ScVal::Address(ScAddress::Contract(ContractId(Hash([7u8; 32]))))),
-        );
-        assert!(matches!(
-            classify_persistent_key(&k),
-            Some(PersistentClass::Market(b)) if b == [7u8; 32]
-        ));
-    }
-
-    #[test]
-    fn classifies_account_triplet() {
-        let k = make_key("AccountMeta", Some(ScVal::U64(99)));
-        assert!(matches!(
-            classify_persistent_key(&k),
-            Some(PersistentClass::AccountTriplet(99))
-        ));
+    fn batches_below_margin_into_chunked_extend_ops() {
+        let mut snap = DiscoverySnapshot {
+            current_ledger: 100,
+            ..Default::default()
+        };
+        for _ in 0..125 {
+            snap.persistent_entries.push(fake_query(Some(100 + 1_000)));
+        }
+        let cfg = ScheduleConfig {
+            ttl_tick_seconds: 0,
+            index_tick_seconds: 0,
+            ttl_safety_margin_days: 14,
+            account_chunk: 50,
+            asset_chunk: 20,
+            max_txs_per_tick: 50,
+            enable_index_refresh: false,
+        };
+        let plan = plan(&PlannerInput {
+            snapshot: &snap,
+            schedule: &cfg,
+            controller_id: &[0u8; 32],
+            caller_strkey: "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6",
+            safety_ledgers: 14 * 17_280,
+            run_index_refresh: false,
+        })
+        .unwrap();
+        // 125 keys at 60 per op → 3 jobs.
+        assert_eq!(plan.jobs.len(), 3);
     }
 }

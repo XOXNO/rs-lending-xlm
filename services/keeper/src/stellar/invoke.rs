@@ -1,4 +1,9 @@
-//! `InvokeHostFunction` op builders for the controller's keeper endpoints.
+//! `InvokeHostFunction` op builders for the controller's keeper endpoints
+//! that the keeper still needs.
+//!
+//! After the permissionless-TTL refactor only `update_indexes` remains —
+//! the only off-chain entry point that mutates pool state and therefore
+//! still requires the KEEPER role.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -9,72 +14,8 @@ use stellar_xdr::curr::{
 use crate::stellar::tx::TxKind;
 use crate::stellar::TxJob;
 
-/// `controller.keepalive_shared_state(caller, assets)`.
-pub fn keepalive_shared_state(
-    controller_id: &[u8; 32],
-    caller_strkey: &str,
-    assets: &[[u8; 32]],
-) -> Result<TxJob> {
-    invoke_with_caller_and_assets(
-        TxKind::KeepaliveShared,
-        "keepalive_shared_state",
-        controller_id,
-        caller_strkey,
-        assets,
-    )
-}
-
-/// `controller.keepalive_pools(caller, assets)`.
-pub fn keepalive_pools(
-    controller_id: &[u8; 32],
-    caller_strkey: &str,
-    assets: &[[u8; 32]],
-) -> Result<TxJob> {
-    invoke_with_caller_and_assets(
-        TxKind::KeepalivePools,
-        "keepalive_pools",
-        controller_id,
-        caller_strkey,
-        assets,
-    )
-}
-
-/// `controller.keepalive_accounts(caller, account_ids)`.
-pub fn keepalive_accounts(
-    controller_id: &[u8; 32],
-    caller_strkey: &str,
-    ids: &[u64],
-) -> Result<TxJob> {
-    let caller = caller_address(caller_strkey)?;
-    let ids_vec: Vec<ScVal> = ids.iter().copied().map(ScVal::U64).collect();
-    let args_vec: VecM<ScVal> = vec![caller, ScVal::Vec(Some(ScVec(into_vec_m(ids_vec)?)))]
-        .try_into()
-        .map_err(|_| anyhow!("too many args"))?;
-    Ok(TxJob {
-        kind: TxKind::KeepaliveAccounts,
-        op: invoke_op(controller_id, "keepalive_accounts", args_vec)?,
-        initial_soroban_data: None,
-    })
-}
-
 /// `controller.update_indexes(caller, assets)`.
 pub fn update_indexes(
-    controller_id: &[u8; 32],
-    caller_strkey: &str,
-    assets: &[[u8; 32]],
-) -> Result<TxJob> {
-    invoke_with_caller_and_assets(
-        TxKind::UpdateIndexes,
-        "update_indexes",
-        controller_id,
-        caller_strkey,
-        assets,
-    )
-}
-
-fn invoke_with_caller_and_assets(
-    kind: TxKind,
-    function: &str,
     controller_id: &[u8; 32],
     caller_strkey: &str,
     assets: &[[u8; 32]],
@@ -89,8 +30,8 @@ fn invoke_with_caller_and_assets(
             .try_into()
             .map_err(|_| anyhow!("too many args"))?;
     Ok(TxJob {
-        kind,
-        op: invoke_op(controller_id, function, args_vec)?,
+        kind: TxKind::UpdateIndexes,
+        op: invoke_op(controller_id, "update_indexes", args_vec)?,
         initial_soroban_data: None,
     })
 }

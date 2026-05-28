@@ -64,11 +64,20 @@ async fn main() -> Result<()> {
     info!(target: "keeper.boot", n_assets = pools.len(), "self-check passed");
 
     let signer_pk = signer.public_key_strkey();
+    // KEEPER role is only required when the operator enables the
+    // update_indexes loop. Pure-TTL mode uses permissionless
+    // ExtendFootprintTtl ops and needs no on-chain role.
     if args.skip_role_check {
         warn!(
             target: "keeper.boot",
             signer = %signer_pk,
             "DEV: skipping KEEPER role check (--skip-role-check)"
+        );
+    } else if !cfg.schedule.enable_index_refresh {
+        info!(
+            target: "keeper.boot",
+            signer = %signer_pk,
+            "pure-TTL mode (enable_index_refresh=false); no role check needed"
         );
     } else if let Err(e) =
         assert_keeper_role(client.as_ref(), &cfg.contracts.controller, &signer_pk).await
@@ -112,7 +121,9 @@ async fn main() -> Result<()> {
         std::time::Duration::from_secs(30),
         async {
             let _ = scheduler.ttl_task.await;
-            let _ = scheduler.index_task.await;
+            if let Some(index) = scheduler.index_task {
+                let _ = index.await;
+            }
             let _ = metrics_handle.await;
         },
     )

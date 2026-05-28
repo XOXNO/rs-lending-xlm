@@ -36,9 +36,6 @@ pub struct TxJob {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxKind {
-    KeepaliveShared,
-    KeepalivePools,
-    KeepaliveAccounts,
     ExtendFootprintTtl,
     UpdateIndexes,
 }
@@ -46,9 +43,6 @@ pub enum TxKind {
 impl TxKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::KeepaliveShared => "keepalive_shared_state",
-            Self::KeepalivePools => "keepalive_pools",
-            Self::KeepaliveAccounts => "keepalive_accounts",
             Self::ExtendFootprintTtl => "extend_footprint_ttl",
             Self::UpdateIndexes => "update_indexes",
         }

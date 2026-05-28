@@ -31,6 +31,7 @@ schedule:
   account_chunk: 50
   asset_chunk: 20
   max_txs_per_tick: 5
+  enable_index_refresh: false
 
 metrics:
   bind: 0.0.0.0:9090

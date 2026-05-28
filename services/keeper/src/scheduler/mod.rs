@@ -23,7 +23,7 @@ use self::tasks::{plan, PlannerInput};
 
 pub struct SchedulerHandle {
     pub ttl_task: tokio::task::JoinHandle<()>,
-    pub index_task: tokio::task::JoinHandle<()>,
+    pub index_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 pub async fn run(
@@ -42,7 +42,11 @@ pub async fn run(
         cancel.clone(),
         dry_run,
     );
-    let index = spawn_index_loop(cfg, client, signer, metrics, cancel, dry_run);
+    let index = if cfg.schedule.enable_index_refresh {
+        Some(spawn_index_loop(cfg, client, signer, metrics, cancel, dry_run))
+    } else {
+        None
+    };
     Ok(SchedulerHandle {
         ttl_task: ttl,
         index_task: index,
@@ -170,8 +174,9 @@ async fn run_index_tick(
         safety_ledgers: cfg.safety_margin_ledgers(),
         run_index_refresh: true,
     })?;
-    // The index loop only ships the update_indexes jobs; drop the keepalive
-    // batches the planner also produced — they're owned by the ttl loop.
+    // The index loop only ships the update_indexes jobs; ExtendFootprintTtl
+    // batches the planner also produced belong to the TTL loop and are
+    // dropped here to avoid double-bumping the same entries.
     let jobs: Vec<_> = plan
         .jobs
         .into_iter()
