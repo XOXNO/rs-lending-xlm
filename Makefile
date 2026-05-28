@@ -440,7 +440,7 @@ fuzz-coverage-clean:
 # ---------------------------------------------------------------------------
 
 PROPTEST_TESTS := fuzz_multi_asset_solvency fuzz_conservation fuzz_auth_matrix \
-                  fuzz_ttl_keepalive fuzz_budget_metering \
+                  fuzz_budget_metering \
                   fuzz_strategy_flashloan fuzz_liquidation_differential
 PROPTEST_CASES ?= 256
 

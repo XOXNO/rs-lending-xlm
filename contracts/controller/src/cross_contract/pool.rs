@@ -131,7 +131,3 @@ pub(crate) fn pool_update_params_call(env: &Env, pool_addr: &Address, params: &I
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).upgrade(new_wasm_hash)
 }
-
-pub(crate) fn pool_keepalive_call(env: &Env, pool_addr: &Address) {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).keepalive()
-}

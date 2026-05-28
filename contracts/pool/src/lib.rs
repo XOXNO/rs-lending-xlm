@@ -12,8 +12,6 @@ mod test_support;
 pub mod spec;
 
 use cache::Cache;
-#[cfg(test)]
-use common::constants::TTL_THRESHOLD_INSTANCE;
 use common::constants::{MS_PER_SECOND, RAY};
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
@@ -405,11 +403,6 @@ impl pool_interface::LiquidityPoolInterface for LiquidityPool {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_pool_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
-    }
-
-    #[only_owner]
-    fn keepalive(env: Env) {
-        renew_pool_instance(&env);
     }
 
     fn capital_utilisation(env: Env) -> i128 {

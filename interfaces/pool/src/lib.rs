@@ -95,7 +95,6 @@ pub trait LiquidityPoolInterface {
     fn claim_revenue(env: Env) -> PoolAmountMutation;
     fn update_params(env: Env, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
-    fn keepalive(env: Env);
     fn capital_utilisation(env: Env) -> i128;
     fn reserves(env: Env) -> i128;
     fn deposit_rate(env: Env) -> i128;

@@ -3,7 +3,6 @@ extern crate std;
 use super::*;
 use common::constants::{BPS, RAY};
 use common::types::ScaledPositionRaw;
-use soroban_sdk::testutils::storage::Instance as InstanceTestUtils;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
@@ -1399,59 +1398,3 @@ fn test_constructor_rejects_invalid_rate_model() {
     let _ = env.register(LiquidityPool, (admin, params));
 }
 
-// Verifies keepalive bumps the instance TTL by at least TTL_THRESHOLD_INSTANCE.
-#[test]
-fn test_keepalive_bumps_ttl() {
-    let t = TestSetup::new();
-    let client = t.client();
-
-    // Admin-authorized call succeeds. `env.mock_all_auths()` covers the
-    // `#[only_owner]` gate. The host auto-records the auth requirement,
-    // proving the endpoint calls `ownable::enforce_owner_auth`.
-    client.keepalive();
-
-    // Assert the instance entry TTL was extended. `get_ttl` returns the
-    // live_until ledger; reading from inside the pool contract frame is
-    // required, since `.instance()` is keyed by current_contract_address.
-    let live_until = t
-        .env
-        .as_contract(&t.pool, || t.env.storage().instance().get_ttl());
-    let current = t.env.ledger().sequence();
-    assert!(
-        live_until >= current + TTL_THRESHOLD_INSTANCE,
-        "keepalive must bump instance TTL by at least TTL_THRESHOLD_INSTANCE: current={}, live_until={}",
-        current,
-        live_until
-    );
-}
-
-// Without mock_all_auths, a non-admin call must panic (auth gate enforced).
-#[test]
-#[should_panic]
-fn test_keepalive_rejects_non_admin() {
-    let env = Env::default();
-    test_support::init_ledger(&env);
-
-    let admin = Address::generate(&env);
-    let asset_address = env
-        .register_stellar_asset_contract_v2(admin.clone())
-        .address()
-        .clone();
-    let params = MarketParamsRaw {
-        max_borrow_rate_ray: RAY,
-        base_borrow_rate_ray: RAY / 100,
-        slope1_ray: RAY * 4 / 100,
-        slope2_ray: RAY * 10 / 100,
-        slope3_ray: RAY * 80 / 100,
-        mid_utilization_ray: RAY * 50 / 100,
-        optimal_utilization_ray: RAY * 80 / 100,
-        max_utilization_ray: RAY * 95 / 100,
-        reserve_factor_bps: 1000,
-        asset_id: asset_address,
-        asset_decimals: 7,
-    };
-    let pool = env.register(LiquidityPool, (admin, params));
-    let client = LiquidityPoolClient::new(&env, &pool);
-    // No mock_all_auths and no admin auth: must panic.
-    client.keepalive();
-}

@@ -1,7 +1,7 @@
 //! Public controller entrypoints that are not position verbs or strategies.
 //!
 //! This module keeps market bootstrap, keeper index updates, revenue claiming,
-//! TTL keepalive, and threshold propagation on the contract surface while
+//! and threshold propagation on the contract surface while
 //! delegating pool and token calls through `cross_contract`.
 
 use common::errors::{CollateralError, GenericError, OracleError};
@@ -10,8 +10,8 @@ use common::events::{
 };
 use common::math::fp::Wad;
 use common::types::{
-    AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, ControllerKey,
-    InterestRateModel, MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus, PriceFeed,
+    AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, InterestRateModel,
+    MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus, PriceFeed,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, xdr::ToXdr, Address, BytesN,
@@ -21,7 +21,7 @@ use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::ControllerCache;
 use crate::cross_contract::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_keepalive_call, pool_update_indexes_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call,
     pool_update_params_call, pool_upgrade_call,
 };
 use crate::cross_contract::sac::sac_transfer_call;
@@ -49,28 +49,6 @@ impl Controller {
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
         renew_account(&env, &caller, account_id);
-    }
-
-    #[only_role(caller, "KEEPER")]
-    pub fn keepalive_accounts(env: Env, caller: Address, account_ids: Vec<u64>) {
-        storage::renew_controller_instance(&env);
-        let _ = caller;
-        keepalive_accounts(&env, &account_ids);
-    }
-
-    #[only_role(caller, "KEEPER")]
-    pub fn keepalive_pools(env: Env, caller: Address, assets: Vec<Address>) {
-        storage::renew_controller_instance(&env);
-        let _ = caller;
-        keepalive_pools(&env, &assets);
-    }
-
-    #[only_role(caller, "KEEPER")]
-    pub fn keepalive_shared_state(env: Env, caller: Address, assets: Vec<Address>) {
-        // `keepalive_shared_state` already bumps the controller instance
-        // (see inner fn at the bottom of this file) — listing for documentation.
-        let _ = caller;
-        keepalive_shared_state(&env, &assets);
     }
 
     #[only_owner]
@@ -366,58 +344,12 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<
     cache.emit_market_batch();
 }
 
-pub fn keepalive_shared_state(env: &Env, assets: &soroban_sdk::Vec<Address>) {
-    storage::renew_controller_instance(env);
-    storage::renew_pools_list(env);
-
-    let mut emode_categories = soroban_sdk::Vec::new(env);
-
-    for i in 0..assets.len() {
-        let asset = validation::expect_invariant(env, assets.get(i));
-        let market = match storage::try_get_market_config(env, &asset) {
-            Some(m) => m,
-            None => continue,
-        };
-
-        storage::renew_protocol_shared_key(env, &ControllerKey::Market(asset.clone()));
-        storage::renew_isolated_debt_if_positive(env, &asset);
-
-        for category_id in market.asset_config.e_mode_categories.iter() {
-            if !emode_categories.contains(category_id) {
-                emode_categories.push_back(category_id);
-            }
-        }
-    }
-
-    for category_id in emode_categories {
-        storage::renew_protocol_shared_key(env, &ControllerKey::EModeCategory(category_id));
-    }
-}
-
-pub fn keepalive_accounts(env: &Env, account_ids: &soroban_sdk::Vec<u64>) {
-    for i in 0..account_ids.len() {
-        let account_id = validation::expect_invariant(env, account_ids.get(i));
-        // Missing accounts may already be closed; keepalive is best-effort.
-        storage::renew_user_account(env, account_id);
-    }
-}
-
 pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     let meta = storage::get_account_meta(env, account_id);
     assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
 
     storage::renew_user_account(env, account_id);
-}
-
-pub fn keepalive_pools(env: &Env, assets: &soroban_sdk::Vec<Address>) {
-    for i in 0..assets.len() {
-        let asset = validation::expect_invariant(env, assets.get(i));
-        let Some(market) = storage::try_get_market_config(env, &asset) else {
-            continue;
-        };
-        pool_keepalive_call(env, &market.pool_address);
-    }
 }
 
 /// Per-account inputs for a keeper threshold propagation.

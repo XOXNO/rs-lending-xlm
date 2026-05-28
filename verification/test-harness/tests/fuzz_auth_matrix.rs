@@ -255,15 +255,6 @@ proptest! {
         expect_rejected("update_indexes (KEEPER)", || {
             ctrl.set_auths(&no_auths).try_update_indexes(&random_addr, &empty_assets)
         }).unwrap();
-        expect_rejected("keepalive_shared_state (KEEPER)", || {
-            ctrl.set_auths(&no_auths).try_keepalive_shared_state(&random_addr, &empty_assets)
-        }).unwrap();
-        expect_rejected("keepalive_accounts (KEEPER)", || {
-            ctrl.set_auths(&no_auths).try_keepalive_accounts(&random_addr, &empty_ids)
-        }).unwrap();
-        expect_rejected("keepalive_pools (KEEPER)", || {
-            ctrl.set_auths(&no_auths).try_keepalive_pools(&random_addr, &empty_assets)
-        }).unwrap();
         expect_rejected("clean_bad_debt (KEEPER)", || {
             ctrl.set_auths(&no_auths).try_clean_bad_debt(&random_addr, &0u64)
         }).unwrap();

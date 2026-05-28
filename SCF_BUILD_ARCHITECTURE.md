@@ -76,7 +76,7 @@ flowchart TB
 
     User -->|"supply, borrow, repay, withdraw, liquidate, flash_loan, strategies"| Controller
     Owner -->|"config, pause, upgrade, market listing"| Controller
-    Keeper -->|"index sync, threshold updates, TTL keepalive, bad-debt cleanup"| Controller
+    Keeper -->|"index sync, threshold updates, bad-debt cleanup"| Controller
     OracleRole -->|"oracle configuration"| Controller
     RevenueRole -->|"revenue claim, reward injection"| Controller
 
@@ -130,8 +130,10 @@ Implemented entrypoints (`controller/src/*`):
 - Pool parameter and pool WASM upgrades (`upgrade_pool_params`,
   `upgrade_pool`).
 - `claim_revenue`, `add_rewards`.
-- TTL keepalive: `keepalive_shared_state`, `keepalive_accounts`,
-  `keepalive_pools`.
+- TTL keepalive: performed off-chain by the keeper service
+  (`services/keeper`) via permissionless `ExtendFootprintTtl` operations.
+  No on-chain endpoint or role is required for TTL bumping; any wallet
+  with XLM for fees can keep the protocol's storage alive.
 - `pause`, `unpause`, `transfer_ownership`, `accept_ownership`,
   `grant_role`, `revoke_role`, `upgrade`.
 - View surface: health, collateral, debt, positions, account attributes,
@@ -171,7 +173,7 @@ isolation rules.
 `LiquidityPoolInterface` trait. Mutating: `supply`, `borrow`, `withdraw`,
 `repay`, `update_indexes`, `add_rewards`, `flash_loan`, `create_strategy`,
 `seize_position`, `claim_revenue`,
-`update_params`, `upgrade`, `keepalive`. Read-only: `capital_utilisation`,
+`update_params`, `upgrade`. Read-only: `capital_utilisation`,
 `reserves`, `deposit_rate`, `borrow_rate`, `protocol_revenue`,
 `supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`.
 
@@ -780,8 +782,9 @@ Owner plus three roles (`controller/src/access.rs`):
   parameter and pool WASM upgrades, token-listing approval,
   `grant_role`/`revoke_role`.
 - `KEEPER` (`#[only_role(caller, "KEEPER")]`): `update_indexes`,
-  `update_account_threshold`, `clean_bad_debt`, `keepalive_shared_state`,
-  `keepalive_accounts`, `keepalive_pools`.
+  `update_account_threshold`, `clean_bad_debt`. TTL keepalive is no
+  longer an on-chain endpoint — see Section 5 for the off-chain
+  `ExtendFootprintTtl` flow.
 - `ORACLE`: `configure_market_oracle`, `edit_oracle_tolerance`,
   `disable_token_oracle`.
 - `REVENUE`: `claim_revenue`, `add_rewards`.
@@ -858,12 +861,17 @@ Soroban storage is partitioned by entry kind:
   `BorrowPositions(id)`.
 - **Pool Instance** (`PoolKey::Params`, `PoolKey::State`).
 
-TTL is bumped explicitly:
+TTL is bumped two ways:
 
-- `keepalive_shared_state(assets)`,
-- `keepalive_accounts(account_ids)`,
-- `keepalive_pools(assets)`,
-- ad-hoc instance bumps in market and pool configuration paths.
+- **In-band**: every mutating contract entrypoint refreshes the
+  controller's own instance entry, the per-account user keys it touches,
+  and the per-asset shared keys it reads via its internal `renew_*`
+  helpers. Activity on the protocol keeps the entries it touches alive.
+- **Out-of-band**: the off-chain keeper service
+  (`services/keeper`) issues permissionless `ExtendFootprintTtl`
+  operations against every storage entry, contract instance, and wasm
+  code entry whose `live_until` is inside the configured safety margin.
+  The signer needs no on-chain role — only XLM for fees.
 
 The split of account state per side lets each flow read/write only the side
 it mutates.
@@ -997,7 +1005,7 @@ Operational maintenance:
 flowchart TD
     Monitor["Off-chain monitoring"] --> A{"Action"}
     A -->|index freshness| K1["KEEPER: update_indexes"]
-    A -->|TTL window| K2["KEEPER: keepalive_*"]
+    A -->|TTL window| K2["Keeper service: ExtendFootprintTtl (no role)"]
     A -->|threshold migration| K3["KEEPER: update_account_threshold"]
     A -->|bad debt| K4["KEEPER: clean_bad_debt"]
     A -->|oracle outage| O1["ORACLE: disable_token_oracle / reconfigure"]
