@@ -77,7 +77,6 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | `fuzz_multi_asset_solvency` | Random multi-asset operations preserve global solvency invariants. |
 | `fuzz_conservation` | Pool/user accounting conservation and non-negative reserves. |
 | `fuzz_auth_matrix` | Privileged controller endpoints reject missing or wrong authorization. |
-| `fuzz_ttl_keepalive` | Keepalive calls extend expected contract storage keys. |
 | `fuzz_budget_metering` | Realistic batches fail cleanly under default Soroban budget limits. |
 | `fuzz_strategy_flashloan` | Strategy safety, router allowance cleanup, and flash-loan regression coverage. |
 | `fuzz_liquidation_differential` | Production liquidation math against an exact `BigRational` reference. |

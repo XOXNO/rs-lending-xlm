@@ -2,17 +2,17 @@
 //!
 //! The default `LendingTest::new().build()` path calls `reset_unlimited()` +
 //! `disable_resource_limits()`, so most correctness tests ignore Soroban's
-//! cost model. Mainnet enforces these limits, and pathological batch sizes
-//! (e.g. `keepalive_accounts([N IDs])`) never hit the real ceiling in the
-//! default harness.
+//! cost model. Mainnet enforces these limits.
 //!
 //! This file opts in to Soroban's default budget via
-//! `LendingTestBuilder::with_budget_enabled()` and fuzzes batch sizes.
+//! `LendingTestBuilder::with_budget_enabled()` and fuzzes inputs to verify
+//! that on-chain calls stay within budget or fail cleanly with a budget
+//! error — never producing an opaque host panic.
 //!
 //! Acceptable outcomes:
 //!   * `Ok(_)` -- operation stays within budget.
 //!   * `Err(ExceededLimit)` or any Soroban-host budget panic -- the cost
-//!     model correctly rejects the oversized batch. Whitelist this.
+//!     model correctly rejects the oversized input. Whitelist this.
 //!
 //! Unacceptable:
 //!   * Any *other* panic. The cost model must produce clean errors, never
@@ -23,7 +23,7 @@ extern crate std;
 use common::types::PositionMode;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Vec as SVec};
+use soroban_sdk::Address;
 use test_harness::{eth_preset, usdc_preset, wbtc_preset, LendingTest};
 
 /// Build a harness with Soroban's default budget and resource limits enabled.
@@ -35,76 +35,10 @@ fn build_ctx_with_budget() -> LendingTest {
         .with_budget_enabled()
         .build()
 }
-// Property 1: keepalive_accounts on random batches stays within budget or
-// fails cleanly with a budget error. Never produces an opaque panic.
 
-proptest! {
-    // Expensive setup: keep case count modest.
-    #![proptest_config(ProptestConfig { cases: 8, ..ProptestConfig::default() })]
-
-    #[test]
-    fn prop_keepalive_batch_stays_in_budget(
-        num_accounts in 1usize..=50,
-        // Keep the overall input small to avoid multi-minute proptest blowouts.
-        _assets_per_account in 1usize..=5,
-    ) {
-        let mut t = build_ctx_with_budget();
-
-        // Create accounts without any supply (cheap setup; keepalive still
-        // exercises the per-id path through `try_get_account` + user-key renewal).
-        // create_account generates synthetic IDs and only bumps the
-        // AccountNonce -- very cheap.
-        let mut ids = SVec::<u64>::new(&t.env);
-        for i in 0..num_accounts {
-            // Fresh user per account so create_account succeeds.
-            let name = std::format!("u{}", i);
-            let id = t.create_account(&name);
-            ids.push_back(id);
-        }
-
-        // Call keepalive_accounts; assert only acceptable outcomes.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            t.ctrl_client().try_keepalive_accounts(&t.keeper, &ids)
-        }));
-
-        match result {
-            Ok(Ok(Ok(()))) => {
-                // Call succeeded within budget -- fine.
-            }
-            Ok(Ok(Err(_))) => {
-                // Contract-level Err -- acceptable (e.g. not-found short-circuit).
-            }
-            Ok(Err(_)) => {
-                // Host-level Err (InvokeError including budget-exceeded). Acceptable.
-            }
-            Err(payload) => {
-                // Opaque panic -- classify. Soroban host panics include
-                // "budget", "exceeded", or "limit" in the message.
-                let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else if let Some(s) = payload.downcast_ref::<std::string::String>() {
-                    s.clone()
-                } else {
-                    std::string::String::from("<non-string panic payload>")
-                };
-                let low = msg.to_lowercase();
-                let is_budget = low.contains("budget")
-                    || low.contains("exceeded")
-                    || low.contains("limit")
-                    || low.contains("cpu")
-                    || low.contains("memory");
-                prop_assert!(
-                    is_budget,
-                    "CRITICAL: opaque panic outside budget category: {}",
-                    msg
-                );
-            }
-        }
-    }
-}
-// Property 2: `multiply` with realistic leverage (<= 3x) runs within the
-// default budget or fails cleanly. Catches cost-model violations on the
-// flash-loan + strategy path.
+// `multiply` with realistic leverage (<= 3x) runs within the default budget
+// or fails cleanly. Catches cost-model violations on the flash-loan +
+// strategy path.
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 4, ..ProptestConfig::default() })]

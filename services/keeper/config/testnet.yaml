@@ -1,0 +1,41 @@
+network: testnet
+
+rpc:
+  url: https://soroban-testnet.stellar.org
+  passphrase: "Test SDF Network ; September 2015"
+  timeout_seconds: 30
+
+contracts:
+  controller: CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA
+  pool_wasm_hash: a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa
+  flash_loan_receiver: CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ
+
+keyvault:
+  url: https://my-vault.vault.azure.net
+  secret_name: keeper-mnemonic-testnet
+
+signer:
+  derivation_path: "m/44'/148'/0'"
+
+fees:
+  base_fee_stroops: 100
+  resource_fee_multiplier: 1.20
+
+schedule:
+  ttl_tick_seconds: 21600        # 6 h
+  index_tick_seconds: 3600       # 1 h
+  ttl_safety_margin_days: 14
+  account_chunk: 50
+  asset_chunk: 20
+  max_txs_per_tick: 50
+  # Set to true to enable update_indexes(assets) — requires the signer to
+  # hold the on-chain KEEPER role. Default (false) runs pure-TTL only and
+  # needs no role grant.
+  enable_index_refresh: false
+
+metrics:
+  bind: 0.0.0.0:9090
+
+log:
+  level: info
+  format: json

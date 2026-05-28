@@ -1,74 +1,27 @@
-//! Coverage for keeper / admin entry points exposed by the controller
+//! Coverage for admin entry points exposed by the controller
 //! (`controller/src/router.rs`) and the user-visible deprecated-eMode reject
 //! path (`controller/src/positions/emode.rs:95`).
 //!
 //! Each test is intentionally narrow:
-//!   - happy keepalive paths drive the keeper-signature branches and the
-//!     per-asset bumps inside `keepalive_shared_state` and `keepalive_pools`;
-//!   - skip-on-missing branches hit the `!has_market_config` early-continue
-//!     in both loops by appending an unregistered asset address;
 //!   - `upgrade_liquidity_pool` is exercised against a known-good wasm hash;
 //!   - `TemplateEmpty` is reached on a freshly-registered controller that has
 //!     no pool template set;
 //!   - the deprecated-eMode reject runs the full `add -> remove -> supply`
 //!     sequence so that `active_e_mode_category` panics with #301.
+//!
+//! Off-chain TTL keepalive used to be tested here against the controller's
+//! `keepalive_*` endpoints. Those endpoints were removed in favour of
+//! permissionless `ExtendFootprintTtl` ops driven by the off-chain keeper
+//! service (`services/keeper`), which has its own integration tests.
 extern crate std;
 
 use common::errors::{EModeError, GenericError};
 use common::types::{ControllerKey, EModeCategoryRaw};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, BytesN, Vec};
-use test_harness::{
-    assert_contract_error, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE,
-    STABLECOIN_EMODE,
-};
-// 1. keepalive_pools -- happy path with multiple assets + skip-on-missing.
+use soroban_sdk::{Address, BytesN};
+use test_harness::{assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
 
-#[test]
-fn test_keepalive_pools_iterates_and_skips_unknown() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
-
-    // Build an asset list that mixes registered markets and a stray address
-    // with no market config so the loop hits both branches.
-    let stray = Address::generate(&t.env);
-    let mut assets: Vec<Address> = Vec::new(&t.env);
-    assets.push_back(t.resolve_asset("USDC"));
-    assets.push_back(stray);
-    assets.push_back(t.resolve_asset("ETH"));
-    assets.push_back(t.resolve_asset("WBTC"));
-
-    // Must not panic; the keeper signature is satisfied and the loop must
-    // tolerate a missing market config without aborting.
-    t.ctrl_client().keepalive_pools(&t.keeper, &assets);
-}
-// 2. keepalive_shared_state -- exercises the deeper per-asset branches:
-//    `Market` and `IsolatedDebt` always; `AssetEModes`, `EModeCategory`,
-//    `EModeAssets` only when the asset belongs to at least one e-mode
-//    category.
-
-#[test]
-fn test_keepalive_shared_state_bumps_emode_keys() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .build();
-
-    // Stray address triggers the skip-on-missing branch.
-    let stray = Address::generate(&t.env);
-    let mut assets: Vec<Address> = Vec::new(&t.env);
-    assets.push_back(t.resolve_asset("USDC")); // member of e-mode 1
-    assets.push_back(t.resolve_asset("ETH")); // no e-mode -> AssetEModes empty
-    assets.push_back(stray); // no market config -> skip
-
-    t.ctrl_client().keepalive_shared_state(&t.keeper, &assets);
-}
-// 3. upgrade_liquidity_pool -- admin path. Reuses the pool template hash so the Soroban
+// 1. upgrade_liquidity_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
 
 #[test]
@@ -90,7 +43,8 @@ fn test_upgrade_pool_admin_path() {
     t.ctrl_client()
         .upgrade_liquidity_pool(&asset, &template_hash);
 }
-// 4. TemplateEmpty -- create_liquidity_pool must panic with
+
+// 2. TemplateEmpty -- create_liquidity_pool must panic with
 //    GenericError::TemplateEmpty (#5) when no pool template is set.
 //
 //    A fresh controller registered outside the LendingTest builder gives us
@@ -129,7 +83,8 @@ fn test_create_liquidity_pool_panics_when_template_unset() {
     };
     assert_contract_error(result, GenericError::TemplateNotSet as u32);
 }
-// 5. Deprecated e-mode reject on the user path. Sequence:
+
+// 3. Deprecated e-mode reject on the user path. Sequence:
 //      a) admin opens an e-mode category and adds USDC to it;
 //      b) ALICE opens an account in that category (still active);
 //      c) admin removes (deprecates) the category;
