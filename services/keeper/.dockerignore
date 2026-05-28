@@ -1,0 +1,9 @@
+target/
+**/target/
+.git/
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+*.tmp
