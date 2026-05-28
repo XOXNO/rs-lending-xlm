@@ -92,10 +92,17 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         job.initial_soroban_data.clone(),
     )?;
 
+    // The RPC rejects `authMode` on non-invoke operations
+    // ("cannot set authMode with non-InvokeHostFunction operations"), so we
+    // only pass an auth mode for actual contract invocations.
+    let auth_mode = match job.kind {
+        TxKind::ExtendFootprintTtl => None,
+        _ => Some(stellar_rpc_client::AuthMode::Enforce),
+    };
     let sim = ctx
         .client
         .inner()
-        .simulate_transaction_envelope(&envelope, Some(stellar_rpc_client::AuthMode::Enforce))
+        .simulate_transaction_envelope(&envelope, auth_mode)
         .await
         .context("simulate_transaction_envelope")?;
 
@@ -107,6 +114,20 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
     let soroban_data = sim
         .transaction_data()
         .map_err(|e| anyhow!("decode simulation transaction_data: {e}"))?;
+
+    if matches!(job.kind, TxKind::ExtendFootprintTtl) {
+        debug!(
+            target: "keeper.tx",
+            kind = %job.kind.as_str(),
+            instructions = soroban_data.resources.instructions,
+            disk_read_bytes = soroban_data.resources.disk_read_bytes,
+            write_bytes = soroban_data.resources.write_bytes,
+            ro_keys = soroban_data.resources.footprint.read_only.len(),
+            rw_keys = soroban_data.resources.footprint.read_write.len(),
+            resource_fee = soroban_data.resource_fee,
+            "sim returned soroban_data for extend"
+        );
+    }
 
     // Enforce expectation: only source-account auth is acceptable in v1.
     enforce_source_account_auth(&sim, &job).context("auth shape check")?;

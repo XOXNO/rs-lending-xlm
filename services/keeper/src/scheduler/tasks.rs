@@ -117,9 +117,10 @@ pub fn plan(input: &PlannerInput<'_>) -> Result<PlannedWork> {
 
     // -- ExtendFootprintTtl batch (single tx covers all wasm hashes) --
     if !wasm_extend_targets.is_empty() {
-        let extend_to = bump_target_ledger(current_ledger);
+        let extend_to = extend_to_ledgers();
         jobs.push(extend_footprint_ttl(&wasm_extend_targets, extend_to)?);
     }
+    let _ = current_ledger; // silenced once bump_target_ledger goes away
 
     debug!(
         target: "keeper.scheduler",
@@ -140,10 +141,21 @@ pub fn plan(input: &PlannerInput<'_>) -> Result<PlannedWork> {
     })
 }
 
-fn bump_target_ledger(current_ledger: u32) -> u32 {
-    // Match the contracts' shared-tier bump: 180 days.
-    const ONE_DAY_LEDGERS: u32 = 17_280;
-    current_ledger.saturating_add(180 * ONE_DAY_LEDGERS)
+/// Ledgers-from-now to extend wasm-code entries to.
+///
+/// `ExtendFootprintTtlOp.extend_to` is a *count of ledgers from the
+/// current ledger* (not an absolute sequence number), and Stellar caps it
+/// at the network's `max_entry_ttl`. Protocol 26 testnet & mainnet sit at
+/// 3,110,400 ledgers (~180 days), but ExtendFootprintTtl ops have a
+/// stricter per-op cap. The well-known safe value used by SDF examples is
+/// **535,679** (≈ 31 days), which is also the `MAX_LEDGERS_TO_EXTEND`
+/// constant in stellar-core. Any value above that returns
+/// `OpInner(ExtendFootprintTtl(Malformed))` at submission time.
+///
+/// We extend to 535,679 every tick; with a tick cadence well under that
+/// window, entries stay perpetually fresh.
+fn extend_to_ledgers() -> u32 {
+    535_679
 }
 
 #[derive(Debug)]
