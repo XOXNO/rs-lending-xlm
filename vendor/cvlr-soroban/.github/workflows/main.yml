@@ -1,0 +1,21 @@
+name: Rust Code Quality Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  lint-and-format-check:
+    name: Lint and Format Rust Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check Code Formatting with `cargo fmt`
+        run: cargo fmt -- --check
+
+      - name: Run Clippy Linting
+        run: cargo clippy -- --deny warnings

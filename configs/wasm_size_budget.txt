@@ -1,0 +1,8 @@
+# WASM size budget, in bytes, per release artifact under
+# target/wasm32v1-none/release.
+# Format: <wasm filename> <max bytes>
+
+controller.wasm 165000
+pool.wasm 42000
+common.wasm 21000
+flash_loan_receiver.wasm 27000

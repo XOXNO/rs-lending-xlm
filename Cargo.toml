@@ -1,0 +1,62 @@
+[workspace]
+members = [
+    "common",
+    "interfaces/pool",
+    "interfaces/controller",
+    "contracts/pool",
+    "contracts/controller",
+    "contracts/flash-loan-receiver",
+    "verification/test-harness",
+]
+exclude = ["verification/fuzz", "vendor"]
+resolver = "2"
+
+[workspace.dependencies]
+# F.2: pinned exactly during the audit window. Revert to caret post-audit.
+soroban-sdk = "=26.0.0"
+stellar-access = "=0.7.1"
+stellar-contract-utils = "=0.7.1"
+stellar-macros = "=0.7.1"
+
+# Certora formal verification (only compiled with `certora` feature).
+# F.1: upstream is still pinned, with local patches below for audit fixes.
+cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
+cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+
+
+# Vendored cvlr with #![no_std] patched onto cvlr-spec. Upstream cvlr-spec
+# is missing this attribute, which prevents compilation against the
+# wasm32v1-none target used by recent soroban-sdk releases. Track upstream fix and
+# remove this patch once it lands.
+[patch."https://github.com/Certora/cvlr.git"]
+cvlr = { path = "vendor/cvlr/cvlr" }
+cvlr-asserts = { path = "vendor/cvlr/cvlr-asserts" }
+cvlr-early-panic = { path = "vendor/cvlr/cvlr-early-panic" }
+cvlr-log = { path = "vendor/cvlr/cvlr-log" }
+cvlr-nondet = { path = "vendor/cvlr/cvlr-nondet" }
+cvlr-decimal = { path = "vendor/cvlr/cvlr-decimal" }
+cvlr-derive = { path = "vendor/cvlr/cvlr-derive" }
+cvlr-fixed = { path = "vendor/cvlr/cvlr-fixed" }
+cvlr-macros = { path = "vendor/cvlr/cvlr-macros" }
+cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
+
+[patch."https://github.com/Certora/cvlr-soroban.git"]
+cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
+cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }
+cvlr-soroban-derive = { path = "vendor/cvlr-soroban/cvlr-soroban-derive" }
+
+[patch.crates-io]
+stellar-access = { path = "vendor/openzeppelin/stellar-access" }
+stellar-contract-utils = { path = "vendor/openzeppelin/stellar-contract-utils" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = "fat"

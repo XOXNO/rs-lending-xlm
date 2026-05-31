@@ -1,0 +1,43 @@
+[package]
+name = "cvlr"
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[package.metadata.release]
+pre-release-replacements = [
+  {file="../README.md", search="[*][*]Current release:[*][*] `[a-z0-9\\.-]+`", replace="**Current release:** `{{version}}`"} ,
+  {file="../CHANGELOG.md", search="Unreleased", replace="{{version}}", min=1},
+  {file="../CHANGELOG.md", search="\\.\\.\\.HEAD", replace="...{{tag_name}}", exactly=1},
+  {file="../CHANGELOG.md", search="ReleaseDate", replace="{{date}}", min=1},
+  {file="../CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n## [Unreleased] - ReleaseDate\n", exactly=1},
+  {file="../CHANGELOG.md", search="<!-- next-url -->", replace="<!-- next-url -->\n[Unreleased]: https://github.com/crate-ci/cargo-release/compare/{{tag_name}}...HEAD", exactly=1},
+]
+
+[features]
+default = ["cvlr-nondet/std"]
+vacuity = ["cvlr-asserts/vacuity"]
+rt = ["cvlr-asserts/rt", "cvlr-mathint/rt", "cvlr-log/rt", "cvlr-nondet/rt"]
+no-loc = ["cvlr-log/no-loc", "cvlr-asserts/no-loc"]
+
+[dependencies]
+cvlr-asserts = { workspace = true }
+cvlr-mathint = { workspace = true }
+cvlr-log = { workspace = true }
+cvlr-nondet = { workspace = true, default-features = false}
+cvlr-macros = { workspace = true }
+cvlr-early-panic = { workspace = true }
+cvlr-hook = { workspace = true }
+cvlr-derive = { workspace = true }
+cvlr-decimal = { workspace = true }
+cvlr-fixed = { workspace = true }
+cvlr-spec = { workspace = true }
+

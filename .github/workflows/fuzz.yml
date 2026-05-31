@@ -1,0 +1,167 @@
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+    paths:
+      - 'common/**'
+      - 'contracts/pool/**'
+      - 'contracts/controller/**'
+      - 'verification/test-harness/**'
+      - 'verification/fuzz/**'
+  schedule:
+    # Nightly long-run at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: 'Seconds per function-level target'
+        required: false
+        default: '300'
+      proptest_cases:
+        description: 'Cases per contract-level property test'
+        required: false
+        default: '5000'
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pin untrusted workflow_dispatch inputs into env to avoid injection.
+  FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
+  PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
+
+jobs:
+  # PR gate: fast smoke (5 min total).
+  pr-smoke:
+    if: github.event_name == 'pull_request'
+    name: Fuzz smoke (PR)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Install Rust nightly (for cargo-fuzz)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            verification/fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
+
+      - name: Install stellar-cli
+        run: |
+          STELLAR_VERSION=26.0.0
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | tar -xz -C "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/stellar"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      - name: Build pool WASM (required by test-harness)
+        run: stellar contract build
+
+      - name: Function-level fuzz (30s each)
+        run: make fuzz FUZZ_TIME=30
+
+      - name: Contract-level fuzz smoke (60s each)
+        # PR-only smoke; full long-run lives in the nightly job below.
+        run: make fuzz-contract FUZZ_TIME=60
+
+      - name: Contract-level proptest (256 cases each)
+        run: make proptest PROPTEST_CASES=256
+
+  miri:
+    if: github.event_name == 'pull_request'
+    name: Miri pass (common + pool::interest + controller::helpers)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - run: make miri-all
+
+  # Nightly: long run, surfaces findings into issues on failure.
+  nightly-long:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Fuzz long run
+    runs-on: self-hosted
+    # Self-hosted runner — no GitHub-imposed cap. 24h ceiling lets the
+    # nightly fuzz crank FUZZ_TIME well beyond the prior 30-min default
+    # without the workflow killing it midway.
+    timeout-minutes: 1440
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            verification/fuzz/target
+          key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
+
+      - name: Install stellar-cli
+        run: |
+          STELLAR_VERSION=26.0.0
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | tar -xz -C "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/stellar"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      - name: Build pool WASM
+        run: stellar contract build
+
+      - name: Function-level fuzz (long)
+        env:
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
+        run: make fuzz FUZZ_TIME="$FUZZ_TIME"
+
+      - name: Contract-level fuzz (long)
+        env:
+          FUZZ_TIME: ${{ env.FUZZ_TIME_INPUT || '1800' }}
+        run: make fuzz-contract FUZZ_TIME="$FUZZ_TIME"
+
+      - name: Contract-level proptest (long)
+        env:
+          PROPTEST_CASES: ${{ env.PROPTEST_CASES_INPUT || '50000' }}
+        run: make proptest PROPTEST_CASES="$PROPTEST_CASES"
+
+      - name: Upload fuzz artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            verification/fuzz/artifacts/
+            verification/test-harness/tests/*.proptest-regressions

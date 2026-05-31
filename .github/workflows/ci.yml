@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, feat/*, rc/*]
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  checks: write
+  contents: write
+  id-token: write
+  pull-requests: write
+  statuses: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install stellar-cli
+        run: |
+          STELLAR_VERSION=26.0.0
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | tar -xz -C "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/stellar"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      - name: Build contracts
+        run: stellar contract build
+
+      - name: WASM size budget
+        run: make wasm-size-check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (fuzz crate, workspace-excluded)
+        run: make clippy-fuzz
+
+  security-scan:
+    name: Security Scan (OpenZeppelin)
+    runs-on: self-hosted
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32v1-none
+
+      - name: Install soroban-scanner
+        # Installs from XOXNO's fork of soroban-security-detectors-sdk, pinned
+        # by commit SHA for reproducibility. The fork carries six patches on
+        # top of upstream `main` (commit f3888e0):
+        #   1. tolerate non-UTF-8 byte-string literals (upstream panics on
+        #      `b"a\xc3\x28d"` in soroban-sdk-25.x unit tests);
+        #   2. accept `extern "C" { ... }` foreign modules (upstream hits
+        #      `todo!("Should not appear")` on vendored FFI crates such as
+        #      `vendor/cvlr`);
+        #   3. warn-and-continue on unparseable files instead of aborting the
+        #      whole workspace scan;
+        #   4. `--exclude <substring>...` CLI flag that skips matching paths
+        #      during file discovery (see scan steps below);
+        #   5. run the scan on a 4 GiB-stack worker thread (upstream's
+        #      symbol resolver overflows the default 8 MiB main-thread stack
+        #      on real workspaces; the Linux self-hosted runner needed more
+        #      headroom than macOS);
+        #   6. canonicalize corpus keys so the symbol resolver's internal
+        #      canonical-path lookups hit.
+        # When upstream ships these, switch the --git URL back to
+        # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
+        run: |
+          cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
+            --rev 43231611f039c444c4a1db0ef2ef25c3257afff1 \
+            soroban-security-detectors-runner
+
+      - name: Run security detectors
+        # run_scanner.sh invokes soroban-scanner with the audit-gate scope
+        # (--exclude vendor/ target/ .certora_internal) and retries up to
+        # 5 times to absorb upstream's non-deterministic stack-overflow.
+        # Output is piped through scope_scanner_output.py, which narrows
+        # findings to the deployable crates (common, pool-interface, pool,
+        # controller) — verification/test-harness and verification/fuzz stay in the scan
+        # corpus so the symbol resolver can see cross-crate references
+        # (passing a smaller corpus makes the resolver recurse unboundedly),
+        # but their findings are noise for an audit gate.
+        run: .github/scripts/run_scanner.sh
+
+      - name: Run security detectors (strict)
+        if: github.event_name == 'pull_request'
+        run: |
+          .github/scripts/run_scanner.sh | tee scan-results.txt
+          if grep -q "CRITICAL\|HIGH" scan-results.txt; then
+            echo "::error::Security scan found CRITICAL or HIGH severity issues"
+            exit 1
+          fi

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 10e0aca8f35bad8e1ab425c21d71c95dc1e11d6c1ae156898f4cdcf054b54dbd # shrinks to supply_usdc = 1000, borrow_eth_frac_bps = 7008, eth_price_rise_bps = 5221, liq_repay_frac_bps = 500
+cc a07cc4705a018ea4654247f2c7d8ad297b9dbc947c105b8d5c13552bc49d2994 # shrinks to supply_usdc = 1000, borrow_eth_frac_bps = 6762, eth_price_rise_bps = 5775, liq_repay_frac_bps = 1133
+cc db4eda120d0a8553a9a58b491fa387f6cfadac84ba96d7348076512a9029be03 # shrinks to supply_usdc = 1000, borrow_eth_frac_bps = 6446, eth_price_rise_bps = 13140, liq_repay_frac_bps = 8471
