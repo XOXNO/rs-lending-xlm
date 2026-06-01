@@ -27,7 +27,7 @@ impl Controller {
     // settle another account's debt — needed by liquidators and debt-swap
     // strategies — and repay can't harm the owner.
     #[when_not_paused]
-    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<Payment>) {
+    pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
 }
@@ -78,7 +78,7 @@ fn process_single_repay(
     amount: i128,
     cache: &mut Cache,
 ) {
-    validation::require_amount_positive(env, amount);
+    validation::require_positive_amount(env, amount);
 
     let position: DebtPosition = (&account
         .borrow_positions

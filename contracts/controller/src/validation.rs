@@ -50,9 +50,7 @@ pub fn require_not_flash_loaning(env: &Env) {
     );
 }
 
-pub fn require_amount_positive(env: &Env, amount: i128) {
-    assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
-}
+pub use common::validation::{require_positive_amount, require_wasm_receiver};
 
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);

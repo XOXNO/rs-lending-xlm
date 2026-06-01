@@ -98,8 +98,8 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         CollateralError::InvalidPositionMode
     );
 
-    validation::require_amount_positive(env, debt_to_flash_loan);
-    validation::require_amount_positive(env, swap.total_min_out);
+    validation::require_positive_amount(env, debt_to_flash_loan);
+    validation::require_positive_amount(env, swap.total_min_out);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
@@ -186,7 +186,7 @@ fn collect_initial_multiply_payment(
     let mut debt_extra = 0;
 
     if let Some((payment_token, payment_amount)) = initial_payment.as_ref() {
-        validation::require_amount_positive(env, *payment_amount);
+        validation::require_positive_amount(env, *payment_amount);
 
         let payment_tok = soroban_sdk::token::Client::new(env, payment_token);
         payment_tok.transfer(caller, env.current_contract_address(), payment_amount);

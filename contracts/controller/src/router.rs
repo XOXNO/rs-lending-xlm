@@ -304,7 +304,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
 /// Transfers rewards into a pool and increases the supply index for suppliers.
 pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, cache: &mut Cache) {
     validation::require_asset_supported(env, cache, asset);
-    validation::require_amount_positive(env, amount);
+    validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address(asset);
 

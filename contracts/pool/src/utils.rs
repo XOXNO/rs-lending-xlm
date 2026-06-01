@@ -1,30 +1,16 @@
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
-use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{
-    assert_with_error, panic_with_error, Address, Env, Executable, IntoVal, Symbol, Vec,
-};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, IntoVal, Symbol, Vec};
 
 use crate::cache::Cache;
 use crate::interest;
 
-pub(crate) fn require_nonneg_amount(env: &Env, amount: i128) {
-    assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
-}
-
-pub(crate) fn require_positive_amount(env: &Env, amount: i128) {
-    assert_with_error!(env, amount > 0, GenericError::AmountMustBePositive);
-}
-
-pub(crate) fn require_wasm_receiver(env: &Env, receiver: &Address) {
-    assert_with_error!(
-        env,
-        matches!(receiver.executable(), Some(Executable::Wasm(_))),
-        FlashLoanError::InvalidFlashloanReceiver
-    );
-}
+pub(crate) use common::validation::{
+    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+};
 
 pub(crate) fn renew_pool_instance(env: &Env) {
     env.storage()

@@ -58,9 +58,9 @@ pub fn process_swap_debt(
     // Strategy borrows are risk-increasing.
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
 
-    validation::require_amount_positive(env, new_debt_amount);
+    validation::require_positive_amount(env, new_debt_amount);
     // Reject zero-floor swap requests at entry.
-    validation::require_amount_positive(env, swap.total_min_out);
+    validation::require_positive_amount(env, swap.total_min_out);
 
     // Siloed debt cannot be swapped into or out of a multi-asset debt set.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);

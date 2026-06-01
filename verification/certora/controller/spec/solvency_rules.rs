@@ -234,7 +234,7 @@ fn supply_index_grows_slower(
 // Rule 4: Supply rejects zero amount
 
 /// Controller::supply with amount=0 must revert. The validation layer calls
-/// `require_amount_positive` which panics on amount <= 0.
+/// `require_positive_amount` which panics on amount <= 0.
 ///
 /// Pattern: call the function, then cvlr_satisfy!(false) -- if the prover can
 /// reach the satisfy, the revert did not happen (violation).

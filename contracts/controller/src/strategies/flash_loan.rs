@@ -11,7 +11,7 @@
 use common::errors::FlashLoanError;
 use common::events::FlashLoanEvent;
 use common::math::fp::Bps;
-use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env, Executable};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -45,7 +45,7 @@ pub fn process_flash_loan(
     caller.require_auth();
 
     validation::require_not_flash_loaning(env);
-    validation::require_amount_positive(env, amount);
+    validation::require_positive_amount(env, amount);
 
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_market_active(env, &mut cache, asset);
@@ -56,7 +56,7 @@ pub fn process_flash_loan(
         asset_config.is_flashloanable,
         FlashLoanError::FlashloanNotEnabled
     );
-    require_wasm_receiver(env, receiver);
+    validation::require_wasm_receiver(env, receiver);
 
     let fee = flash_loan_fee(env, asset_config.flashloan_fee, amount);
     let pool_addr = cache.cached_pool_address(asset);
@@ -78,14 +78,6 @@ pub fn process_flash_loan(
         fee,
     }
     .publish(env);
-}
-
-fn require_wasm_receiver(env: &Env, receiver: &Address) {
-    assert_with_error!(
-        env,
-        matches!(receiver.executable(), Some(Executable::Wasm(_))),
-        FlashLoanError::InvalidFlashloanReceiver
-    );
 }
 
 fn flash_loan_fee(env: &Env, fee: Bps, amount: i128) -> i128 {

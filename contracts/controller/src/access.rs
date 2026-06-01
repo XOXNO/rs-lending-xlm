@@ -163,11 +163,6 @@ impl Controller {
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
-        access_control::has_role(&env, &account, &role).is_some()
-    }
-
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         storage::renew_controller_instance(&env);
@@ -192,5 +187,18 @@ impl Controller {
         let new_owner = ownable::get_owner(&env)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
         sync_owner_access_control(&env, &previous_owner, &new_owner);
+    }
+}
+
+// `has_role` is exposed only under test/`testing`. It lives in a dedicated,
+// fully cfg-gated `#[contractimpl]` block so the method and its macro-generated
+// dispatch are stripped together; gating it inside the main impl block leaves a
+// dangling dispatch reference when the feature is off (E0425 under feature
+// unification across contract crates).
+#[cfg(any(test, feature = "testing"))]
+#[contractimpl]
+impl Controller {
+    pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
+        access_control::has_role(&env, &account, &role).is_some()
     }
 }

@@ -19,7 +19,6 @@
 //!   - All view functions: `capital_utilisation`, `reserves`,
 //!     `deposit_rate`, `borrow_rate`, `protocol_revenue`,
 //!     `supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`
-//!   - `keepalive` (TTL extension path)
 //!
 //! Invariants asserted each iteration:
 //!   - `supplied_amount >= borrowed_amount` (supply floor)
@@ -50,7 +49,8 @@ struct In {
     max_pct: u16,
     reserve_pct: u8,
     // Sequence of (price_wad, time_advance_ms, op_kind) ops.
-    // op_kind dispatches: update_indexes / add_rewards / keepalive / view-only.
+    // op_kind dispatches: update_indexes / add_rewards / view-only.
+    // (TTL extension is exercised by update_indexes via load_synced_cache.)
     ops: [(u32, u32, u8); 8],
 }
 
@@ -123,7 +123,7 @@ fuzz_target!(|i: In| {
         cur_ts_s = cur_ts_s.saturating_add(dt_s);
         env.ledger().set_timestamp(cur_ts_s);
 
-        match op_kind % 4 {
+        match op_kind % 3 {
             0 => {
                 // update_indexes — interest accrual path. Use try_* so
                 // rejected calls (e.g. math overflow on extreme inputs)
@@ -150,10 +150,6 @@ fuzz_target!(|i: In| {
                 // supplied == 0. Expected; swallow via try_*.
                 let amount = ((*price_raw as i128) % 10_000_000) + 1;
                 let _ = pool.try_add_rewards(&amount);
-            }
-            2 => {
-                // keepalive — TTL extension path.
-                let _ = pool.try_keepalive();
             }
             _ => {
                 // Pure-view sweep — read-only functions shouldn't fail

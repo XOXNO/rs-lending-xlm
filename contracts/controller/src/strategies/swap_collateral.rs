@@ -73,9 +73,9 @@ pub fn process_swap_collateral(
     };
     let mut cache = Cache::new(env, policy);
 
-    validation::require_amount_positive(env, from_amount);
+    validation::require_positive_amount(env, from_amount);
     // Reject zero-floor swap requests at entry.
-    validation::require_amount_positive(env, swap.total_min_out);
+    validation::require_positive_amount(env, swap.total_min_out);
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 

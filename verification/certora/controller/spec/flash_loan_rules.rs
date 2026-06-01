@@ -56,7 +56,7 @@ fn flash_loan_guard_cleared_after_completion(
 ) {
     // Bound the controller-side revert paths so the rule's PASS does not
     // silently come from one of these short-circuits.
-    cvlr_assume!(amount > 0); // require_amount_positive (validation.rs:45-49)
+    cvlr_assume!(amount > 0); // require_positive_amount (common::validation)
     cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e)); // require_not_flash_loaning
 
     // Constrain the asset to a flashloanable, active market. Otherwise

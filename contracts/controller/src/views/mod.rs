@@ -270,8 +270,7 @@ pub fn liquidation_estimations_detailed(
 
     let mut refunds_view = Vec::new(env);
     for i in 0..result.refunds.len() {
-        let (asset, amount) = validation::expect_invariant(env, result.refunds.get(i));
-        refunds_view.push_back(PaymentTuple { asset, amount });
+        refunds_view.push_back(validation::expect_invariant(env, result.refunds.get(i)));
     }
 
     LiquidationEstimate {

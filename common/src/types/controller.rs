@@ -281,7 +281,7 @@ pub struct RepayEntry {
 pub struct LiquidationResult {
     pub seized: Vec<SeizeEntry>,
     pub repaid: Vec<RepayEntry>,
-    pub refunds: Vec<crate::types::shared::Payment>,
+    pub refunds: Vec<PaymentTuple>,
     pub max_debt_usd: i128,
     pub bonus_bps: i128,
 }

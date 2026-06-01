@@ -66,10 +66,10 @@ pub fn process_repay_debt_with_collateral(
 
     caller.require_auth();
     validation::require_not_flash_loaning(env);
-    validation::require_amount_positive(env, collateral_amount);
+    validation::require_positive_amount(env, collateral_amount);
     // Same-asset short-circuit has no swap, so the slippage floor does not apply.
     if collateral_token != debt_token {
-        validation::require_amount_positive(env, swap.total_min_out);
+        validation::require_positive_amount(env, swap.total_min_out);
     }
 
     // Same-asset flow is intentional: self-collateralized positions

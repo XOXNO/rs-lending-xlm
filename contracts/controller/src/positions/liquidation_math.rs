@@ -7,7 +7,9 @@
 use common::constants::{BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::{Account, AccountPositionRaw, DebtPosition, Payment, RepayEntry, SeizeEntry};
+use common::types::{
+    Account, AccountPositionRaw, DebtPosition, Payment, PaymentTuple, RepayEntry, SeizeEntry,
+};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::Cache;
@@ -67,7 +69,7 @@ pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<Payment>,
     account: &Account,
-    refunds: &mut Vec<Payment>,
+    refunds: &mut Vec<PaymentTuple>,
     cache: &mut Cache,
 ) -> (Wad, Vec<RepayEntry>) {
     let mut total_repaid_usd = Wad::ZERO;
@@ -94,7 +96,10 @@ pub(crate) fn calculate_repayment_amounts(
         let mut payment_amount = amount;
         if payment_amount > actual_debt {
             let excess = payment_amount - actual_debt;
-            refunds.push_back((asset.clone(), excess));
+            refunds.push_back(PaymentTuple {
+                asset: asset.clone(),
+                amount: excess,
+            });
             payment_amount = actual_debt;
         }
 
@@ -266,7 +271,7 @@ pub(crate) fn calculate_seized_collateral(
 pub(crate) fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
-    refunds: &mut Vec<Payment>,
+    refunds: &mut Vec<PaymentTuple>,
     excess_usd: Wad,
 ) {
     let mut remaining_excess_usd = excess_usd;
@@ -289,7 +294,10 @@ pub(crate) fn process_excess_payment(
             let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
             let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
 
-            refunds.push_back((entry.asset.clone(), refund_amount));
+            refunds.push_back(PaymentTuple {
+                asset: entry.asset.clone(),
+                amount: refund_amount,
+            });
             repaid_tokens.set(
                 current_index,
                 RepayEntry {
@@ -302,7 +310,10 @@ pub(crate) fn process_excess_payment(
             );
             remaining_excess_usd = Wad::ZERO;
         } else {
-            refunds.push_back((entry.asset, entry.amount));
+            refunds.push_back(PaymentTuple {
+                asset: entry.asset,
+                amount: entry.amount,
+            });
             repaid_tokens.remove(current_index);
             remaining_excess_usd -= usd;
         }
