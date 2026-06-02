@@ -185,9 +185,8 @@ pub(crate) fn swap_tokens(
     // stays on the controller; the output minimum guards what we received.
     verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
 
-    // Re-check the received delta controller-side: this is the strategy's
-    // primary slippage guard, not merely a sanity check on the router's own
-    // `total_out >= total_min_out` enforcement.
+    // Controller-side slippage guard — the strategy's primary check, not just a
+    // sanity check on the router's own `total_out >= total_min_out`.
     verify_router_output(
         env,
         &token_out_client,
@@ -211,10 +210,9 @@ fn validate_aggregator_swap(
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 
-    // Each path must declare a non-zero PPM share and run token_in -> token_out.
-    // There are no per-path amounts to validate (the router derives them from
-    // split_ppm), and quote-vs-settlement rounding drift is irrelevant: the
-    // controller sources `amount_in` from its actual withdrawal delta, not the quote.
+    // Each path declares a non-zero PPM share and runs token_in -> token_out.
+    // No per-path amounts to validate (router derives them from split_ppm), and
+    // rounding drift is irrelevant: amount_in is the actual withdrawal delta.
     let mut sum_ppm: u32 = 0;
     for path in swap.paths.iter() {
         assert_with_error!(env, !path.hops.is_empty(), GenericError::InvalidPayments);
@@ -301,8 +299,7 @@ fn verify_router_input_spend(
     );
     let actual_in_spent = balance_before - balance_after;
     // Allow underspend (leftover stays on the controller; output still enforces
-    // `total_min_out`), but reject overspend — it means the router or token
-    // pulled more than the strategy committed.
+    // `total_min_out`); reject overspend — router/token pulled more than committed.
     assert_with_error!(
         env,
         actual_in_spent <= amount_in,
@@ -316,8 +313,7 @@ fn verify_router_output(
     balance_before: i128,
     total_min_out: i128,
 ) -> i128 {
-    // Received must be non-negative; a decrease indicates aggregator or token
-    // misbehavior.
+    // Received must be non-negative; a decrease means aggregator/token misbehavior.
     let received = balance_delta(env, token_out_client, balance_before);
 
     // Defense-in-depth slippage check: the router already enforces
@@ -365,7 +361,6 @@ pub(crate) struct StrategyTouched<'a> {
     pub borrow_assets: &'a [&'a Address],
 }
 
-// Persists state and flushes isolated debt.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -385,8 +380,7 @@ pub(crate) fn strategy_finalize(
     }
 
     // Re-check HF and LTV against a fresh price cache after the leveraged
-    // mutation. LTV must be re-checked on every collateral-reducing or
-    // debt-shifting path so a strategy cannot exit above the LTV ceiling.
+    // mutation, so a strategy cannot exit above the LTV ceiling.
     cache.prices_cache = soroban_sdk::Map::new(env);
     validation::require_within_ltv(env, cache, account);
     validation::require_healthy_account(env, cache, account);
@@ -406,7 +400,6 @@ pub(crate) fn strategy_finalize(
     cache.emit_market_batch();
 }
 
-// Withdraws all supply positions to destination.
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,

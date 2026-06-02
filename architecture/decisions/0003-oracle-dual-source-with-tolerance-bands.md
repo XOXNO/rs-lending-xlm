@@ -5,6 +5,15 @@
 - Deciders: XOXNO Lending contract team
 - Supersedes: none
 
+> [!NOTE]
+> The decision below is recorded as made on 2026-05-05, using the
+> `ExchangeSource` model (`SpotOnly` / `SpotVsTwap` / `DualOracle`,
+> `OracleProviderConfig`). The implementation has since evolved to the
+> `OracleStrategy` model (`Single` / `PrimaryWithAnchor`) with Reflector and
+> RedStone sources; the core decision — dual-source pricing validated by
+> tolerance bands — still holds. See `SCF_BUILD_ARCHITECTURE.md` §9 for the
+> current model. This ADR is preserved as a point-in-time record.
+
 ## Context
 
 A lending protocol depends on price honesty for every solvency-relevant
@@ -25,7 +34,7 @@ spot and TWAP queries. Two practical risks dominate:
 ## Decision
 
 Resolve every price through `oracle::token_price`
-(`controller/src/oracle/mod.rs`), normalized to WAD, with the following
+(`contracts/controller/src/oracle/mod.rs`), normalized to WAD, with the following
 shape:
 
 **Two validation strategies.** Configured per market in
@@ -58,7 +67,7 @@ decimals match the token contract, CEX `lastprice` exists, DEX
 
 **Unconditional clock-skew gate.** `check_not_future` rejects oracle
 timestamps more than 60 seconds in the future regardless of cache mode.
-Future-dated oracles are always rejected (`controller/src/oracle/mod.rs:186`).
+Future-dated oracles are always rejected (`contracts/controller/src/oracle/mod.rs:186`).
 
 ## Alternatives Considered
 
@@ -101,9 +110,9 @@ Negative / accepted costs:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing).
-- `controller/src/oracle/mod.rs::token_price`,
-  `controller/src/oracle/mod.rs::calculate_final_price`,
-  `controller/src/oracle/mod.rs::check_not_future`
-- `controller/src/oracle/reflector.rs`
-- `controller/src/config.rs::configure_market_oracle`
-- `common/src/constants.rs::{MIN_FIRST_TOLERANCE, MAX_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, MAX_LAST_TOLERANCE}`
+- `contracts/controller/src/oracle/mod.rs::token_price`,
+  `contracts/controller/src/oracle/mod.rs::calculate_final_price`,
+  `contracts/controller/src/oracle/mod.rs::check_not_future`
+- `contracts/controller/src/oracle/providers/reflector/`
+- `contracts/controller/src/config.rs::configure_market_oracle`
+- `common/src/constants/` (`MIN_FIRST_TOLERANCE`, `MAX_FIRST_TOLERANCE`, `MIN_LAST_TOLERANCE`, `MAX_LAST_TOLERANCE`)

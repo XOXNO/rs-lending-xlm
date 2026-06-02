@@ -59,9 +59,8 @@ pub fn process_supply(
 
     process_deposit(env, caller, &mut account, &deposit_plan, &mut cache);
 
-    // Dust gate is scoped to this batch's assets: supply never mutates borrow
-    // positions, so it must not be blocked by pre-existing positions whose USD
-    // value drifted under the floor from price moves.
+    // Dust gate scoped to this batch's assets: supply never mutates borrow
+    // positions, so pre-existing under-floor positions (price drift) must not block it.
     require_no_supply_dust_for_assets(
         env,
         &mut cache,
@@ -213,8 +212,7 @@ fn update_deposit_position(
         caller,
     );
 
-    // Emit with the exact supply index the pool used for this mutation, not a
-    // re-read.
+    // Emit with the exact supply index the pool used, not a re-read.
     cache.record_position_update(
         symbol_short!("supply"),
         AccountPositionType::Deposit,

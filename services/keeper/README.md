@@ -1,8 +1,10 @@
 # keeper-bot
 
-Off-chain Rust service that keeps the XOXNO Lending Soroban protocol's
-storage and wasm-code entries alive by extending their TTL before they fall
-inside the configured safety margin.
+On Soroban, stored data is rented: every entry has a time-to-live (TTL), and if
+its TTL runs out the entry is archived and the contract stops working until it is
+restored. This keeper is the off-chain Rust service that quietly pays that rent —
+it keeps the XOXNO Lending protocol's storage and wasm-code entries alive by
+extending their TTL before they fall inside the configured safety margin.
 
 Per TTL tick the service:
 

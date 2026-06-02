@@ -548,17 +548,12 @@ mod tests {
     }
     // InterestRateModel::verify — boundary coverage.
     //
-    // The slope-monotonicity guard (pool.rs ~127-130) and the
-    // max-utilization guard (pool.rs ~159) are plain `if ... {
-    // panic_with_error! }` blocks, so their comparison/`||` operators are
-    // visible to the mutation engine. Each test below pins an exact
-    // boundary value so the original operator and its mutant diverge.
-    //
-    // The remaining checks (`base_borrow_rate_ray >= 0`,
-    // `max_borrow_rate_ray > base`, `<= MAX_BORROW_RATE_RAY`, `mid > 0`,
-    // `optimal > mid`, `optimal < RAY`, `reserve < BPS`) live inside
-    // `assert_with_error!`, whose condition is a macro argument invisible
-    // to cargo-mutants — structurally unkillable by mutation, so they are
+    // The slope-monotonicity and max-utilization guards are plain `if { panic }`
+    // blocks, so their comparison/`||` operators are visible to the mutation
+    // engine; each test below pins an exact boundary so the operator and its
+    // mutant diverge. The `assert_with_error!` checks (base >= 0, max > base,
+    // <= MAX_BORROW_RATE_RAY, mid > 0, optimal > mid, optimal < RAY, reserve <
+    // BPS) hide their condition in a macro arg — invisible to cargo-mutants, so
     // not targeted here.
 
     fn valid_rate_model() -> InterestRateModel {
@@ -581,9 +576,8 @@ mod tests {
         valid_rate_model().verify(&env);
     }
 
-    // `replace InterestRateModel::verify with ()` (pool.rs:122): a no-op
-    // body would silently accept an invalid config. An invalid input that
-    // MUST panic catches the stubbed body.
+    // `replace verify with ()`: a no-op body would silently accept an invalid
+    // config; an invalid input that MUST panic catches the stubbed body.
     #[test]
     #[should_panic(expected = "#129")]
     fn test_rate_model_verify_body_is_not_a_noop() {
@@ -593,11 +587,10 @@ mod tests {
         m.verify(&env);
     }
 
-    // ---- Monotonic chain: `||` short-circuit (lines 128/129/130). -------
-    // For each disjunct, make EXACTLY that one strictly true and the
-    // others false. With `||` the whole guard is true → panic. Flipping
-    // any `||` to `&&` makes the guard false (the other operands are
-    // false) → no panic. Expecting the panic kills the `||→&&` mutants.
+    // ---- Monotonic chain: `||` short-circuit. ---------------------------
+    // Each test makes exactly one disjunct true, the rest false: `||` → panic,
+    // but flipping any `||` to `&&` → false → no panic. Expecting the panic
+    // kills the `||→&&` mutants.
 
     #[test]
     #[should_panic(expected = "#129")]
@@ -650,9 +643,8 @@ mod tests {
     }
 
     // ---- Monotonic chain: `<` vs `<=`/`==` at exact equality. -----------
-    // At `a == b` the original `<` is FALSE (no panic via that disjunct),
-    // but `<=` and `==` are TRUE (would panic). Asserting NO panic kills
-    // both `<→<=` and `<→==` for each comparison.
+    // At `a == b` the original `<` is false (no panic) but `<=`/`==` would
+    // panic. Asserting NO panic kills both `<→<=` and `<→==`.
 
     #[test]
     fn test_rate_model_monotonic_slope1_eq_base_does_not_panic() {
@@ -686,12 +678,10 @@ mod tests {
         m.verify(&env);
     }
 
-    // ---- Max-utilization guard (line 159):
-    // `max_util < optimal || max_util > RAY`. ----------------------------
+    // ---- Max-utilization guard: `max_util < optimal || max_util > RAY`. --
 
-    // `||→&&` (159:68): only the left disjunct true (max_util < optimal,
-    // and max_util <= RAY so the right is false). `||` → panic; `&&` →
-    // false → no panic.
+    // `||→&&`: only the left disjunct true (max_util < optimal, right false);
+    // `||` → panic, `&&` → no panic.
     #[test]
     #[should_panic(expected = "#117")]
     fn test_rate_model_max_util_below_optimal_panics() {
@@ -712,10 +702,9 @@ mod tests {
         m.verify(&env);
     }
 
-    // `max_util < optimal`: `<` vs `<=`/`==` at exact equality
-    // (159:37). At max_util == optimal the original `<` is false; `<=`
-    // and `==` would be true. The right disjunct (max_util > RAY) is also
-    // false since optimal < RAY. No panic expected.
+    // `max_util < optimal`, `<` vs `<=`/`==` at equality: at max_util == optimal
+    // the original `<` is false; `<=`/`==` would be true. Right disjunct also
+    // false (optimal < RAY). No panic expected.
     #[test]
     fn test_rate_model_max_util_eq_optimal_does_not_panic() {
         let env = Env::default();
@@ -724,9 +713,8 @@ mod tests {
         m.verify(&env);
     }
 
-    // `max_util > RAY`: `>` vs `>=`/`==` at exact equality (159:96). At
-    // max_util == RAY the original `>` is false; `>=` and `==` would be
-    // true. Left disjunct false (RAY >= optimal). No panic expected.
+    // `max_util > RAY`, `>` vs `>=`/`==` at equality: at max_util == RAY the
+    // original `>` is false; `>=`/`==` would be true. Left disjunct false. No panic.
     #[test]
     fn test_rate_model_max_util_eq_ray_does_not_panic() {
         let env = Env::default();
@@ -735,10 +723,9 @@ mod tests {
         m.verify(&env);
     }
 
-    // `verify_rate_model with ()` (pool.rs:39): the wrapper must delegate
-    // to `rate_model_view().verify()`. A no-op wrapper would accept an
-    // invalid rate model. Build a raw params with a non-monotonic slope
-    // and assert it panics.
+    // `verify_rate_model with ()`: the wrapper must delegate to
+    // `rate_model_view().verify()`; a no-op would accept an invalid model.
+    // Pass non-monotonic slopes and assert it panics.
     #[test]
     #[should_panic(expected = "#129")]
     fn test_market_params_verify_rate_model_delegates() {

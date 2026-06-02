@@ -634,10 +634,7 @@ mod tests {
     }
     // Adversarial / edge-case coverage for the typed wrappers.
 
-    // Ray::mul at the exact-half boundary. With `(a * b + RAY/2) / RAY`,
-    // a value whose remainder is exactly `RAY/2` rounds up. Construct
-    // `a = 1, b = RAY/2 + 1` so the product is `RAY/2 + 1` and the
-    // exact division equals 0.500…01 → rounds to 1 (last ulp).
+    // Ray::mul on exact products (0.5*1, 0.5*0.5) — no half-up tie-breaker engaged.
     #[test]
     fn test_ray_mul_rounds_half_up() {
         let env = Env::default();
@@ -658,9 +655,8 @@ mod tests {
         let _ = Ray::ONE.div(&env, Ray::ZERO);
     }
 
-    // Ray::mul overflow: with i128::MAX in both operands the intermediate
-    // I256 holds the product but the post-`/RAY` result still overflows
-    // i128 → `MathOverflow`.
+    // Ray::mul overflow: i128::MAX in both operands; the I256 intermediate holds
+    // the product but the post-`/RAY` result overflows i128 → `MathOverflow`.
     #[test]
     #[should_panic]
     fn test_ray_mul_overflow_panics() {
@@ -726,9 +722,8 @@ mod tests {
         assert_eq!(a.max(b), b);
     }
 
-    // Wad::max strictly-greater branch — `self > other` returns `self`.
-    // The existing `test_wad_min_max` covers self < other; this covers
-    // the symmetric `self > other` direction.
+    // Wad::max strictly-greater branch (`self > other` returns `self`) —
+    // the symmetric case to `test_wad_min_max`'s self < other.
     #[test]
     fn test_wad_max_returns_self_when_strictly_greater() {
         let a = Wad::from(100);
@@ -737,8 +732,8 @@ mod tests {
         assert_eq!(b.min(a), b);
     }
 
-    // Env-aware checked add / sub coverage. The trait `+` panics with a
-    // string; these new methods panic with `GenericError::MathOverflow`.
+    // Env-aware checked add/sub: the trait `+` panics with a string; these methods
+    // panic with `GenericError::MathOverflow`.
 
     #[test]
     fn test_ray_checked_add_ok() {
@@ -853,9 +848,8 @@ mod tests {
         assert_eq!(Bps::ONE.apply_to_ray(&env, r).raw(), r.raw());
     }
 
-    // Bps overflow at the conversion boundary: 10000 BPS = WAD ratio.
-    // bps > BPS produces a ratio > 1, which is a misuse but the math
-    // doesn't panic — just produces a larger Wad. Pin the behaviour.
+    // bps > BPS produces a ratio > 1 (misuse) but doesn't panic — just a larger
+    // Wad. Pin that behaviour.
     #[test]
     fn test_bps_to_wad_above_one_does_not_panic() {
         let env = Env::default();
@@ -871,9 +865,8 @@ mod tests {
         assert_eq!(x.div_by_int(2).raw(), -4);
     }
 
-    // Ray::div_floor with positive remainder truncates toward zero. The
-    // existing test pins one ratio; this one pins the floor-vs-half
-    // divergence explicitly.
+    // Ray::div_floor truncates toward zero; this pins the floor-vs-half-up
+    // divergence explicitly (vs the single ratio in `test_ray_div_floor`).
     #[test]
     fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
         let env = Env::default();
@@ -912,13 +905,10 @@ mod tests {
     }
 
     // ---- First `||` disjunct in checked_sub (`self.0 < 0`) ----------------
-    // Guard: `self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0`. With `self.0 = 0`
-    // and `rhs.0 = -1` the three operands are (F, T, F): only the SECOND
-    // disjunct is true. The original `||` chain still panics, but flipping
-    // the FIRST `||` (col 23) to `&&` yields `(F && T) || F = F` → no panic.
-    // Expecting the panic kills the `||→&&` mutant on the first operator.
-    // (The pre-existing `rejects_negative_self` tests use self=-1, rhs=0 →
-    // operands (T, F, T), which leave the first-`||→&&` mutant alive.)
+    // Guard is `self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0`. With self=0, rhs=-1
+    // the operands are (F, T, F): only the second is true, so flipping the first
+    // `||` to `&&` would drop the panic. Expecting it kills that mutant — which
+    // the `rejects_negative_self` tests (self=-1, rhs=0) leave alive.
 
     #[test]
     #[should_panic]

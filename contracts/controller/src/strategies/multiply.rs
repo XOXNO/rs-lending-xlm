@@ -64,7 +64,6 @@ impl Controller {
     }
 }
 
-// Opens leveraged position.
 pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);

@@ -441,11 +441,10 @@ mod tests {
         let _ = update_borrow_index(&env, old_index, factor);
     }
 
-    // `simulate_update_indexes` line 165: `if delta_ms == 0`. With a
-    // nonzero delta and live borrows the original computes accrual (indexes
-    // grow). Mutating `==` to `!=` flips the early-return guard so a
-    // nonzero delta returns the unchanged input indexes. Asserting the
-    // borrow index strictly increased kills the `==→!=` mutant.
+    // `simulate_update_indexes` early-return guard `if delta_ms == 0`: with a
+    // nonzero delta and live borrows the original accrues (indexes grow).
+    // Mutating `==`→`!=` would return the input indexes unchanged; asserting the
+    // borrow index strictly increased kills that mutant.
     #[test]
     fn test_simulate_update_indexes_nonzero_delta_accrues() {
         use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};

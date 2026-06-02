@@ -121,9 +121,8 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     cache.emit_market_batch();
 }
 
-/// Internal executor for a validated, deduplicated borrow plan.
-/// Mutates the in-memory account, calls pools, records mutations for events.
-/// Caller guarantees `borrow_plan` is the output of `aggregate_positive_payments`.
+/// Executes a validated, deduplicated borrow plan (`aggregate_positive_payments`
+/// output): mutates the account, calls pools, records mutations for events.
 fn process_borrow_plan(
     env: &Env,
     caller: &Address,

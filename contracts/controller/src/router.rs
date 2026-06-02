@@ -132,7 +132,6 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
     for asset in assets {
         let pool_addr = cache.cached_pool_address(&asset);
         let state = pool_update_indexes_call(env, &pool_addr);
-        // Refresh cache for subsequent reads.
         cache.record_market_update(&state);
     }
 }

@@ -24,8 +24,8 @@ accounting.
 ## Decision
 
 Centralize the policy in `OraclePolicy`
-(`controller/src/oracle/policy.rs`) and pass it through `Cache`
-(`controller/src/cache/mod.rs`):
+(`contracts/controller/src/oracle/policy.rs`) and pass it through `Cache`
+(`contracts/controller/src/cache/mod.rs`):
 
 - `OraclePolicy::RiskIncreasing` — strict pricing for paths that can add
   borrow risk or liquidate an account.
@@ -40,8 +40,8 @@ Centralize the policy in `OraclePolicy`
   aggregator price when the sources stay inside the tolerance bands.
 - `OraclePolicy::View` — read-only disabled-market/permissive pricing.
 
-Per-flow assignment (`controller/src/positions/*.rs`,
-`controller/src/strategy.rs`, `controller/src/flash_loan.rs`):
+Per-flow assignment (`contracts/controller/src/positions/*.rs`,
+`contracts/controller/src/strategies/`, `contracts/controller/src/strategies/flash_loan.rs`):
 
 | Flow                              | Oracle policy                      |
 | --------------------------------- | ---------------------------------- |
@@ -79,7 +79,7 @@ applies in every mode.
 For `repay`, isolation accounts use the strict deviation/staleness gates
 because the global `IsolatedDebt(asset)` counter is updated in USD WAD
 and would drift if priced under a degraded feed
-(`controller/src/positions/repay.rs`).
+(`contracts/controller/src/positions/repay.rs`).
 
 ## Alternatives Considered
 
@@ -129,7 +129,7 @@ that hard-blocking on deviation would DoS liquidators and leave underwater
 accounts un-liquidatable, dumping bad debt on lenders.
 
 That posture is now reversed. `OraclePolicy::Liquidation`
-(`controller/src/oracle/policy.rs`) sets `unsafe_deviation: false`:
+(`contracts/controller/src/oracle/policy.rs`) sets `unsafe_deviation: false`:
 liquidation and bad-debt cleanup now **reject** with
 `OracleError::UnsafePriceNotAllowed` (error #205, `common/src/errors.rs:99`)
 when the primary and anchor sources diverge beyond the last tolerance band.
@@ -164,8 +164,8 @@ Regression coverage:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing — cache modes).
-- `controller/src/cache/mod.rs::{new, new_view}`
-- `controller/src/oracle/policy.rs`
-- `controller/src/oracle/{sources.rs,tolerance.rs}`
-- `controller/src/positions/repay.rs`
-- `controller/src/positions/withdraw.rs`
+- `contracts/controller/src/cache/mod.rs::{new, new_view}`
+- `contracts/controller/src/oracle/policy.rs`
+- `contracts/controller/src/oracle/{sources.rs,tolerance.rs}`
+- `contracts/controller/src/positions/repay.rs`
+- `contracts/controller/src/positions/withdraw.rs`

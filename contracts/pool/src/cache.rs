@@ -452,15 +452,13 @@ mod tests {
         });
     }
 
-    // Note: `amount_mutation` / `burn_claimable_revenue` aren't unit-tested
-    // here because both call `live_reserves` (live token balance read),
-    // and this module's `TestSetup` uses a generated address rather than a
-    // registered Stellar Asset Contract. Both are exercised via lib.rs
-    // ABI-level tests (`test_claim_revenue*`).
+    // `amount_mutation` / `burn_claimable_revenue` aren't unit-tested here: both
+    // read live token balance via `live_reserves`, but this `TestSetup` uses a
+    // generated address, not a registered SAC. Covered by lib.rs ABI tests
+    // (`test_claim_revenue*`).
 
-    // Sub-tests for `Ray::checked_sub_assign` are covered by withdraw/seize
-    // panic tests at the ABI layer, but a direct unit test gives a faster
-    // failure signal when the helper is touched.
+    // `Ray::checked_sub_assign` is covered by withdraw/seize panic tests at the ABI
+    // layer; this direct unit test gives a faster signal when the helper is touched.
     #[test]
     #[should_panic(expected = "Error(Contract, #33)")]
     fn test_ray_checked_sub_assign_panics_on_underflow() {

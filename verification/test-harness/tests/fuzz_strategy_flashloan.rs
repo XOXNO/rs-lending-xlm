@@ -156,7 +156,6 @@ proptest! {
     // ratios and asserts:
     //
     //   - HF >= 1.0 after a successful multiply (the contract's invariant).
-    //   - The controller holds ZERO allowance on the router after the call
     //   - The controller holds zero allowance on the router after the call.
     //   - The reentrancy guard is cleared.
     //   - On error: no partial state -- if try_multiply returns Err, no

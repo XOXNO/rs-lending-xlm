@@ -1,17 +1,7 @@
-//! RedStone Price Feed client surface (canonical home).
-//!
-//! This module owns the complete external contract surface for RedStone
-//! multi-feed oracles:
-//!
-//! - `RedStonePriceData` — the on-chain price data type.
-//! - `REDSTONE_DECIMALS` constant (hard-coded to 8).
-//! - `RedStoneMultiFeed` trait with `#[contractclient]`.
-//!
-//! All production code that needs to talk to a RedStone oracle should go
-//! through types/wrappers originating here.
-//!
-//! The `#[allow(dead_code)]` on the trait is required — it exists only for
-//! the macro to generate the client proxy.
+//! RedStone Price Feed client surface — the canonical, only home for cross-contract
+//! calls to RedStone multi-feed oracles. Owns `RedStonePriceData`, the
+//! `REDSTONE_DECIMALS` constant (8), and the `RedStoneMultiFeed` `#[contractclient]`
+//! trait. All production code reaches RedStone through the wrappers here.
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, U256};
 
@@ -31,12 +21,9 @@ pub trait RedStoneMultiFeed {
     fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error>;
 }
 
-/// Thin wrapper around the RedStone multi-feed client.
-/// All production code should prefer this (or higher-level wrappers) over
-/// constructing `RedStonePriceFeedClient` directly.
-///
-/// Returns `Some(data)` on success, `None` on any failure (matching the
-/// existing consumption pattern in this provider).
+/// Thin wrapper around the RedStone multi-feed client; preferred over constructing
+/// `RedStonePriceFeedClient` directly. Returns `Some(data)` on success, `None` on
+/// any failure (matching this provider's consumption pattern).
 pub(crate) fn read_price_data(
     env: &Env,
     contract: &Address,

@@ -7,7 +7,6 @@ use test_harness::{
     wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
 };
 // Multiply happy paths
-// test_multiply_creates_leveraged_position
 //
 // Full multiply flow:
 //   1. Flash-borrow 1 ETH ($2000).
@@ -58,7 +57,6 @@ fn test_multiply_creates_leveraged_position() {
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
     assert!(hf < 2.0, "HF should be reasonable, got {}", hf);
 }
-// test_multiply_mode_long
 // Mode=2 (Long): same flow, with a different mode stored on the account.
 
 #[test]
@@ -108,7 +106,6 @@ fn test_multiply_mode_long() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// test_multiply_mode_short
 // Mode=3 (Short).
 
 #[test]
@@ -158,7 +155,6 @@ fn test_multiply_mode_short() {
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
-// test_multiply_wbtc_collateral
 // Different asset pair: borrow USDC with WBTC collateral.
 
 #[test]
@@ -202,7 +198,6 @@ fn test_multiply_wbtc_collateral() {
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
 // Swap debt happy paths
-// test_swap_debt_replaces_borrow
 //
 // Setup: supply USDC, borrow ETH.
 // Swap debt: ETH -> WBTC (borrow WBTC, swap to ETH, repay ETH).
@@ -242,7 +237,6 @@ fn test_swap_debt_replaces_borrow() {
     let hf = t.health_factor(ALICE);
     assert!(hf >= 1.0, "HF should be >= 1.0 after swap_debt, got {}", hf);
 }
-// test_swap_debt_partial
 //
 // Swap only part of the debt: source and target borrows coexist.
 
@@ -284,7 +278,6 @@ fn test_swap_debt_partial() {
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
 // Swap collateral happy paths
-// test_swap_collateral_replaces_supply
 //
 // Setup: supply USDC, borrow ETH.
 // Swap collateral: USDC -> ETH (withdraw USDC, swap to ETH, deposit ETH).
@@ -333,7 +326,6 @@ fn test_swap_collateral_replaces_supply() {
         hf
     );
 }
-// test_swap_collateral_no_borrows
 // Swap collateral with no borrows: the HF check is skipped.
 
 #[test]
@@ -365,7 +357,6 @@ fn test_swap_collateral_no_borrows() {
         usdc_supply
     );
 }
-// test_repay_debt_with_collateral_reduces_positions
 //
 // Setup: supply USDC, borrow ETH.
 // Repay with collateral: USDC -> ETH (withdraw USDC, swap to ETH, repay
@@ -411,7 +402,6 @@ fn test_repay_debt_with_collateral_reduces_positions() {
     );
 }
 // E-mode strategy tests
-// test_multiply_emode_stablecoin
 //
 // E-mode multiply with stablecoins: borrow USDT, deposit USDC.
 // E-mode parameters: LTV=97%, LT=98%, bonus=2%.
@@ -471,7 +461,6 @@ fn test_multiply_emode_stablecoin() {
     assert!(hf_f64 >= 1.0, "e-mode HF should be >= 1.0, got {}", hf_f64);
 }
 // Strategy with large amounts (stress)
-// test_multiply_large_amounts
 // Multiply with large borrow amounts to verify no overflow occurs.
 
 #[test]
@@ -519,7 +508,6 @@ fn test_multiply_large_amounts() {
     assert!(hf >= 1.0, "HF should be >= 1.0, got {}", hf);
 }
 // Multiple users
-// test_multiply_two_users
 // Two users multiply independently.
 
 #[test]
@@ -603,7 +591,6 @@ fn test_multiply_two_users() {
     assert!(bob_hf >= 1.0, "Bob HF should be >= 1.0, got {}", bob_hf);
 }
 // Swap debt preserves health
-// test_swap_debt_to_costlier_debt_preserves_minimum_hf
 // Swap 10 ETH ($20k) debt -> 0.5 WBTC ($30k) debt: USD debt grows, so HF
 // shrinks but must stay >= 1.0. Pinning the strict direction verifies that
 // new debt is recorded and source debt is reduced.

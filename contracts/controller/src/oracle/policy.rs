@@ -131,9 +131,8 @@ mod tests {
         let p = OraclePolicy::Liquidation;
         assert!(!p.allows_disabled_market());
         assert!(!p.allows_stale_source());
-        // Hardened: liquidation rejects when PrimaryWithAnchor sources diverge
-        // beyond the configured last tolerance band (UnsafePriceNotAllowed).
-        // Unsafe deviation is only tolerated for single-source fallback paths.
+        // Liquidation rejects PrimaryWithAnchor divergence beyond the last
+        // tolerance band; unsafe deviation is tolerated only on single-source paths.
         assert!(!p.allows_unsafe_deviation());
         assert!(!p.allows_missing_twap_fallback());
     }
@@ -147,18 +146,13 @@ mod tests {
         assert!(p.allows_missing_twap_fallback());
     }
 
-    // --- Additional focused coverage for oracle policy composition ---
-    // These live inside the controller crate (no external harness) so they
-    // execute on every `cargo test -p controller` and give fast regression
-    // signal on the policy matrix that drives liquidation, strategies, and
-    // repay paths.
+    // In-crate (no external harness) so they run on every `cargo test -p
+    // controller`, giving fast regression signal on the policy matrix.
 
     #[test]
     fn test_liquidation_matches_risk_increasing_allowances() {
-        // After hardening, Liquidation rejects the same loosenings as
-        // RiskIncreasing, so their allowance tables are identical. The variants
-        // stay distinct for intent and auditing; this guards the two tables
-        // against silently drifting apart.
+        // Liquidation and RiskIncreasing have identical allowance tables; they
+        // stay distinct for intent/auditing. Guards against silent drift.
         let liq = OraclePolicy::Liquidation;
         let inc = OraclePolicy::RiskIncreasing;
         assert_eq!(liq.allows_disabled_market(), inc.allows_disabled_market());
@@ -172,12 +166,9 @@ mod tests {
 
     #[test]
     fn test_repay_and_view_share_fully_permissive_allowances() {
-        // Repay and View have identical allowances by design. Both are
-        // intentionally the most lenient (disabled markets OK, stale and
-        // unsafe prices tolerated, TWAP fallback allowed). Repay uses this
-        // for user debt-reduction flows that must succeed even on degraded
-        // oracles; View uses it for read-only queries. The policy type
-        // still distinguishes intent for auditing and future evolution.
+        // Repay and View share the most-lenient allowances by design: Repay so
+        // debt-reduction succeeds on degraded oracles, View for read-only
+        // queries. Distinct types preserve intent for auditing.
         assert_eq!(
             OraclePolicy::Repay.allows_disabled_market(),
             OraclePolicy::View.allows_disabled_market()

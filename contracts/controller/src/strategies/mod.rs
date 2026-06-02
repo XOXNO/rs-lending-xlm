@@ -1,30 +1,20 @@
 //! Leveraged / rebalancing strategies + flash-loan surface.
 //!
-//! This module groups all flows that either (a) cross the external
-//! aggregator router or (b) require the flash-loan single-flight guard.
+//! Groups all flows that cross the external aggregator router or need the
+//! flash-loan single-flight guard.
 //!
-//! ## Why these files live together
-//!
-//! - The four "strategy" entrypoints (`multiply`, `swap_collateral`,
-//!   `swap_debt`, `repay_debt_with_collateral`) all accept an
-//!   `AggregatorSwap` and must defend against a malicious router using
-//!   exactly the same pre-snapshot / post-delta verification (ADR 0005).
-//!   The shared code lives in `helpers`.
-//! - `flash_loan` (the user-facing flash-loan primitive) uses the same
-//!   guard flag and the same pool callback pattern. Placing it here is an
-//!   implementation detail, not a statement that flash loans are
-//!   "strategies". It keeps the guarded-execution machinery in one place.
+//! The four strategy entrypoints (`multiply`, `swap_collateral`, `swap_debt`,
+//! `repay_debt_with_collateral`) accept an `AggregatorSwap` and share the exact
+//! pre-snapshot / post-delta defense against a malicious router (ADR 0005); that
+//! shared code (balance-delta machinery + router client trait) lives in `helpers`,
+//! kept together so the invariant is not diffused. `flash_loan` sits here too —
+//! an implementation detail, not a claim that flash loans are "strategies" —
+//! because it uses the same guard flag and pool-callback pattern.
 //!
 //! All strategy flows still go through the normal position primitives
-//! (`positions::borrow`, `positions::withdraw`, etc.) and therefore
-//! inherit the same risk model, oracle policy, and event batching. The
-//! only extra surface is the untrusted router boundary.
-//!
-//! See `helpers.rs` for the balance-delta machinery and the router client
-//! trait definition. The four strategy entrypoints and `helpers` stay
-//! together because they share the exact same untrusted-router defense
-//! (ADR 0005); splitting would diffuse that invariant. The surface has
-//! four callers inside the crate and zero Certora harness references.
+//! (`positions::borrow`, `positions::withdraw`, …) and inherit the same risk
+//! model, oracle policy, and event batching; the only extra surface is the
+//! untrusted router boundary.
 
 pub(crate) mod flash_loan;
 pub(crate) mod helpers;

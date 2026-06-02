@@ -23,11 +23,8 @@ pub(crate) const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 pub(crate) const MIN_ORACLE_DECIMALS: u32 = 1;
 pub(crate) const MAX_ORACLE_DECIMALS: u32 = 18;
 
-/// Internal representation of a single oracle price observation.
-/// Used by the provider consumption logic and compose layer.
-///
-/// The struct can appear dead under the certora feature because price
-/// resolution is stubbed at a higher level.
+/// Internal representation of a single oracle price observation, used by the
+/// provider consumption logic and compose layer.
 #[cfg_attr(feature = "certora", allow(dead_code))] // Dead when certora stubs price paths.
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
@@ -83,9 +80,8 @@ pub(crate) fn millis_to_seconds(env: &Env, timestamp_ms: u64) -> u64 {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Shared constructor used by both oracle providers after they have performed
-/// their provider-specific validation (future-skew, positive price, staleness
-/// where applicable). This removes duplication of the final WAD normalization
+/// Shared constructor used by both oracle providers after their provider-specific
+/// validation (future-skew, positive price, staleness): final WAD normalization
 /// + struct assembly.
 pub(crate) fn build_observation(
     env: &Env,

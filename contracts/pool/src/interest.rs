@@ -8,9 +8,8 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-/// Maximum chunk size for the Taylor-expansion-bounded compound interest loop.
-/// One year in ms; the rates math uses a bounded expansion that is only valid
-/// within this horizon.
+/// Maximum chunk for the compound-interest loop: one year in ms. The rates math
+/// uses a Taylor expansion only valid within this horizon.
 const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Accrues interest from the last pool timestamp to the current ledger timestamp.

@@ -35,13 +35,13 @@ accrual.
 Socialize uncollectable debt by reducing the pool's `supply_index_ray`,
 floored at `SUPPLY_INDEX_FLOOR_RAW`.
 
-**Trigger** (`controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`):
+**Trigger** (`contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`):
 After liquidation, if for an account
 `collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD) and
 `debt > collateral`, the controller invokes `seize_position(Borrow)` on
 each remaining debt asset's pool.
 
-**Reduction** (`pool/src/interest.rs::apply_bad_debt_to_supply_index`):
+**Reduction** (`contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`):
 
 - `total_supplied_value = supplied * supply_index`.
 - `capped = min(bad_debt, total_supplied_value)`.
@@ -103,7 +103,7 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §10.5 (Liquidation and Bad Debt), §15
   (Implemented Safety Checks).
-- `pool/src/interest.rs::apply_bad_debt_to_supply_index`
-- `controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`
-- `common/src/constants.rs::{SUPPLY_INDEX_FLOOR_RAW, BAD_DEBT_USD_THRESHOLD}`
+- `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
+- `contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`
+- `common/src/constants/` (`SUPPLY_INDEX_FLOOR_RAW`, `BAD_DEBT_USD_THRESHOLD`)
 - `common/src/events.rs::PoolInsolventEvent`

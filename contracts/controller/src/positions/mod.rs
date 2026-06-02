@@ -1,19 +1,11 @@
 //! Core position lifecycle operations.
 //!
-//! Each submodule implements one public entrypoint plus its internal
-//! `process_*` pipeline. The split exists so that:
-//!
-//! - Supply and repay (credit-side or debt-reduction) can be optimized to
-//!   touch only one side of the account storage (ADR 0002).
-//! - Every flow has a single, reviewable place that declares its
-//!   `OraclePolicy`, runs the exact pre- and post-flight risk gates, and
-//!   records the precise event deltas.
-//! - Liquidation math is isolated in its own file because it is the most
-//!   subtle numeric component and is heavily exercised by both the Rust
-//!   tests and the certora rules.
-//!
-//! All public functions are re-exported via `#[contractimpl]` blocks in the
-//! individual files (the `Controller` impl is distributed across modules).
+//! Each submodule implements one public entrypoint plus its internal `process_*`
+//! pipeline. The split lets supply and repay touch only one side of account
+//! storage (ADR 0002), gives every flow a single reviewable place for its
+//! `OraclePolicy` + risk gates + event deltas, and isolates the subtle, heavily
+//! tested liquidation math in its own file. Public functions are re-exported via
+//! per-file `#[contractimpl]` blocks (the `Controller` impl is distributed).
 //!
 //! Common stages in every flow:
 //! 1. Auth + flash-loan guard

@@ -30,7 +30,7 @@ controller's own token balances before and after the call.
 The controller measures what crossed the router boundary instead of trusting
 router-reported amounts.
 
-**Pre-call shape validation** (`controller/src/strategy.rs::validate_aggregator_swap`):
+**Pre-call shape validation** (`contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`):
 
 - `paths` is non-empty.
 - `amount_in > 0` and `total_min_out > 0`.
@@ -94,8 +94,8 @@ Negative / accepted costs:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §11.1 (Strategies).
-- `controller/src/strategy.rs::validate_aggregator_swap`
-- `controller/src/strategy.rs::snapshot_swap_balances`
-- `controller/src/strategy.rs::verify_router_input_spend`
-- `controller/src/strategy.rs::verify_router_output`
-- `controller/src/storage/instance.rs::set_flash_loan_ongoing`
+- `contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`
+- `contracts/controller/src/strategies/helpers.rs::snapshot_swap_balances`
+- `contracts/controller/src/strategies/helpers.rs::verify_router_input_spend`
+- `contracts/controller/src/strategies/helpers.rs::verify_router_output`
+- `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`

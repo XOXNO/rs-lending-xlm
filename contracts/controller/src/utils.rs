@@ -19,9 +19,8 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Pa
     aggregate_payments(env, payments, false)
 }
 
-// Asset addresses from an already-aggregated payment plan. The aggregation
-// step (`aggregate_positive_payments` / `aggregate_payments`) guarantees
-// uniqueness, so this is just a tuple-to-address projection — no dedup.
+// Asset addresses from an already-aggregated plan: aggregation guarantees
+// uniqueness, so this is a tuple-to-address projection — no dedup.
 pub fn plan_assets(env: &Env, plan: &Vec<Payment>) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new(env);
     for (asset, _) in plan {
@@ -39,12 +38,10 @@ pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
 
 /// Transfers `amount` of `asset` from `from` to `to` and returns it.
 ///
-/// The protocol only lists standard 1:1 SAC tokens (ADR-0006), so the amount
-/// that leaves `from` is exactly the amount that reaches `to`. There is no
-/// balance-delta measurement here: fee-on-transfer / rebasing / hook tokens
-/// are excluded by listing policy, not defended against at runtime. The
-/// untrusted aggregator path in `strategies` keeps its own balance-delta
-/// checks because the router — unlike a listed SAC — is not trusted.
+/// Listed tokens are standard 1:1 SACs (ADR-0006), so the amount leaving `from`
+/// reaches `to` exactly — no balance-delta check (fee-on-transfer / rebasing /
+/// hook tokens are excluded by listing policy, not defended at runtime). The
+/// untrusted aggregator path in `strategies` keeps its own delta checks.
 pub fn transfer_amount(
     env: &Env,
     asset: &Address,
@@ -105,9 +102,8 @@ fn aggregate_payment_amount(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Context for emitting position/debt update events from multiple paths
-/// (repay, withdraw, liquidation, strategies). Moved out of positions/ so it
-/// can be shared without pulling in the whole positions module.
+/// Context for emitting position/debt update events, shared across repay,
+/// withdraw, liquidation, and strategies (lives here to avoid a positions/ dep).
 pub(crate) struct EventContext {
     pub caller: Address,
     pub action: Symbol,

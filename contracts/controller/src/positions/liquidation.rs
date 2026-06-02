@@ -73,10 +73,9 @@ pub fn process_liquidation(
 
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation policy over RiskDecreasing: seizure fairness needs a defensible
-    // price, so it keeps strict staleness/deviation gates but prefers the aggregator
-    // (CEX spot) on tolerance breach to maximize repayable value while the band check
-    // still blocks gross manipulation (ADR 0003: dual-source + tolerance).
+    // Liquidation policy: seizure fairness needs a defensible price, so it keeps
+    // strict staleness/deviation gates but prefers the aggregator (CEX spot) on
+    // tolerance breach; the band check still blocks manipulation (ADR 0003).
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
     for (asset, _) in debt_payment_plan.iter() {
@@ -91,8 +90,7 @@ pub fn process_liquidation(
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
     // Per-leg dust gate scoped to the assets this liquidation touched (seized supply
-    // + repaid debt). Other positions that drifted under floor on price moves are not
-    // this call's concern and must not block it.
+    // + repaid debt); positions that drifted under floor on price moves must not block it.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
         env,
         &mut cache,
@@ -318,10 +316,9 @@ fn check_bad_debt_after_liquidation(
 /// Socializes small residual bad debt by seizing all collateral and debt shares.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // Success removes the account; failure reverts atomically, so no upfront keep-alive.
-    // Cleanup is risk-reducing: blocking on oracle deviation trades a recoverable
-    // price-uncertainty event for permanent bad debt. Use the same `Liquidation` policy
-    // as the inline path so the keeper call doesn't revert through the backstop in
-    // exactly the oracle conditions that make these accounts unprofitable to clear.
+    // Cleanup is risk-reducing, so it uses the same `Liquidation` policy as the inline
+    // path — blocking on oracle deviation would trade recoverable uncertainty for
+    // permanent bad debt in exactly the conditions these accounts need clearing.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
     let account = storage::get_account(env, account_id);
 

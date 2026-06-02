@@ -46,9 +46,8 @@ pub(crate) fn calculate_final_price(
                     .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
                     / 2
             } else {
-                // Beyond the last band: only single-source fallback policies
-                // tolerate this divergence; all others (incl. liquidation) revert.
-                // When tolerated, keep the safe price.
+                // Beyond the last band: only single-source fallback policies tolerate
+                // this divergence (all others, incl. liquidation, revert); keep safe price.
                 assert_with_error!(
                     env,
                     cache.oracle_policy.allows_unsafe_deviation(),
@@ -100,14 +99,10 @@ pub(crate) fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i1
     (upper_bound, lower_bound)
 }
 
-/// Validates the first/last tolerance inputs against constants and
-/// `validate_oracle_bounds`, then constructs the four ratio BPS fields
-/// for `OraclePriceFluctuation`.
-///
-/// This is the single place that turns raw BPS tolerance inputs (from
-/// `configure_market_oracle` / `edit_oracle_tolerance`) into the
-/// persisted band struct. Kept pure so it can live in the tolerance
-/// module alongside the runtime decision logic.
+/// Validates the first/last tolerance inputs and builds the four ratio BPS
+/// fields of `OraclePriceFluctuation`. The single place that turns raw BPS
+/// inputs (`configure_market_oracle` / `edit_oracle_tolerance`) into the
+/// persisted band struct; kept pure to live beside the runtime decision logic.
 pub(crate) fn validate_and_calculate_tolerances(
     env: &Env,
     first_tolerance: u32,

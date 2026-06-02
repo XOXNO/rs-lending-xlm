@@ -1,22 +1,11 @@
-//! Reflector SEP-40 client interface (canonical home).
+//! Reflector SEP-40 client interface — the canonical, only home for cross-contract
+//! calls to Reflector oracles. Owns the SEP-40 ABI types, the `ReflectorOracle`
+//! `#[contractclient]` trait, and the `pub(crate)` call wrappers.
 //!
-//! This module owns the complete external contract surface for Reflector oracles:
-//!
-//! - `ReflectorAsset` and `ReflectorPriceData` — the on-chain types used in the SEP-40 ABI.
-//! - `ReflectorOracle` trait annotated with `#[contractclient(name = "ReflectorClient")]`.
-//! - The thin `pub(crate)` wrapper functions that are the only allowed way for this
-//!   crate to perform cross-contract calls to a Reflector oracle.
-//!
-//! # Design Principles
-//! - All direct interaction with the external Reflector contract happens here.
-//! - Consumption logic (Spot vs TWAP dispatch, asset mapping, fallback behavior,
-//!   observation construction) lives in sibling modules (`spot.rs`, `twap.rs`).
-//! - This separation makes the security boundary obvious and keeps the Certora
-//!   harness surface small and stable.
-//!
-//! The `#[allow(dead_code)]` on the trait is required and intentional. The trait
-//! exists solely for the `contractclient` macro to generate the proxy type
-//! `ReflectorClient`. Its methods are never called directly as Rust trait methods.
+//! Consumption logic (Spot vs TWAP dispatch, asset mapping, fallback, observation
+//! construction) lives in sibling modules (`spot.rs`, `twap.rs`). Keeping all
+//! external interaction here makes the security boundary obvious and keeps the
+//! Certora harness surface small and stable.
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Symbol, Vec};
 
@@ -47,9 +36,8 @@ pub trait ReflectorOracle {
 
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
-// Thin wrappers — the only allowed call sites into external Reflector oracles.
-// These exist so that Certora can replace the cross-contract behavior with
-// sound nondeterministic models without touching the rest of the oracle logic.
+// Thin wrappers — the only call sites into external Reflector oracles, so Certora
+// can replace the cross-contract behavior with sound nondet models in isolation.
 
 pub(crate) fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()
@@ -72,9 +60,8 @@ pub(crate) fn reflector_prices_call(
     ReflectorClient::new(env, oracle).prices(asset, &records)
 }
 
-/// Additional wrappers used exclusively during market oracle configuration
-/// validation. They are kept here so every cross-contract call to a Reflector
-/// oracle is still routed through this module.
+/// Wrappers used only during market-oracle config validation; kept here so every
+/// cross-contract Reflector call routes through this module.
 pub(crate) fn reflector_decimals_call(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).decimals()
 }

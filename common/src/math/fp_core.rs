@@ -260,9 +260,8 @@ mod tests {
         assert_eq!(div_by_int_half_up(-5, 4), -1); // -1.25 -> -1 (remainder < 0.5).
     }
 
-    // Exactly 0.5 — the half-up tie-breaker MUST round up for positive
-    // results. `1 * 1 + 1 = 2; 2 / 2 = 1`. If the tie-breaker were
-    // half-even or half-down this would return 0.
+    // Exactly 0.5 must round up for positive results (half-up): 1*1+1=2, 2/2=1.
+    // Half-even or half-down would return 0.
     #[test]
     fn test_mul_div_half_up_exact_half_rounds_up() {
         let env = Env::default();
@@ -273,11 +272,9 @@ mod tests {
         assert_eq!(mul_div_half_up(&env, 7, 1, 2), 4);
     }
 
-    // Negative product with `mul_div_half_up`: the function is documented
-    // as half-up for positive results. For negatives the `+ d/2` step
-    // pulls the result toward zero, so -1.5 rounds to -1 (NOT -2). This
-    // is the trap: consumers wanting Banker's-rounding-style symmetric
-    // behaviour must use `mul_div_half_up_signed` instead.
+    // mul_div_half_up on negatives: the `+ d/2` step pulls toward zero, so -1.5
+    // rounds to -1 (not -2). The trap — consumers needing symmetric rounding must
+    // use `mul_div_half_up_signed`.
     #[test]
     fn test_mul_div_half_up_negative_rounds_toward_zero() {
         let env = Env::default();
@@ -287,10 +284,8 @@ mod tests {
         assert_eq!(mul_div_half_up(&env, -3, 1, 2), -1);
     }
 
-    // I256 intermediate is wide enough to hold any `i128 * i128`. Result
-    // fits i128 only if `|x * y| / d <= i128::MAX`. With x = y = i128::MAX
-    // and d = 1, the result is i128::MAX² which overflows i128 →
-    // `to_i128` panics with `MathOverflow`.
+    // I256 holds any i128*i128, but the result fits i128 only if |x*y|/d <= i128::MAX.
+    // Here x=y=i128::MAX, d=1 → i128::MAX² overflows → `to_i128` panics (`MathOverflow`).
     #[test]
     #[should_panic]
     fn test_mul_div_half_up_overflow_panics() {
@@ -298,10 +293,9 @@ mod tests {
         let _ = mul_div_half_up(&env, i128::MAX, i128::MAX, 1);
     }
 
-    // `mul_div_floor` is named "floor" but Rust integer `/` truncates
-    // toward zero. For negatives the two semantics diverge: true floor of
-    // -7/3 is -3, truncation is -2. Pin the documented behaviour so a
-    // future name change to "trunc" doesn't silently flip semantics.
+    // `mul_div_floor` truncates toward zero (Rust `/`), not true floor: for -7/3,
+    // floor is -3 but truncation is -2. Pin this so a rename to "trunc" can't
+    // silently flip semantics.
     #[test]
     fn test_mul_div_floor_negative_truncates_toward_zero() {
         let env = Env::default();
@@ -333,9 +327,8 @@ mod tests {
         assert_eq!(mul_div_half_up_signed(&env, -5, 1, 2), -3);
     }
 
-    // Signed variant — product exactly zero takes the `>=` branch (adds
-    // +half), which is mathematically equivalent to no rounding offset
-    // here since 0 + half then / d = 0.
+    // Signed variant, product zero: takes the `>=` branch (+half), but 0+half then
+    // /d = 0, so no rounding offset.
     #[test]
     fn test_mul_div_half_up_signed_zero_input() {
         let env = Env::default();
@@ -376,9 +369,8 @@ mod tests {
         assert_eq!(rescale_half_up(0, 0, 0), 0);
     }
 
-    // Downscale `checked_pow` overflow — `from - to >= 39` exceeds 10^38
-    // (i128 cap). Confirms the `expect("downscale factor overflow")`
-    // fires rather than silently wrapping.
+    // Downscale `checked_pow` overflow: `from - to >= 39` exceeds 10^38 (i128 cap);
+    // confirms the `expect("downscale factor overflow")` fires, not silent wrap.
     #[test]
     #[should_panic(expected = "downscale factor overflow")]
     fn test_rescale_downscale_factor_overflow_panics() {
@@ -493,11 +485,9 @@ mod tests {
         let _ = rescale_ceil(i128::MAX, 0, 1);
     }
 
-    // Downscale with `to_decimals > 0`. The `from - to` arithmetic gets
-    // collapsed under `to == 0` (the case the older tests covered), so
-    // these pin the subtraction direction explicitly. A `+` mutation would
-    // overflow `10^(from + to)` and panic instead of producing the floor
-    // / ceil result.
+    // Downscale with `to_decimals > 0`: pins the `from - to` subtraction direction
+    // explicitly (older tests used to == 0). A `+` mutation would overflow
+    // `10^(from + to)` and panic instead of returning the floor/ceil result.
 
     #[test]
     fn test_rescale_floor_downscale_to_nonzero_decimals() {

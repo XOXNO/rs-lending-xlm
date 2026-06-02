@@ -81,7 +81,6 @@ impl Controller {
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
 
-        // Grant roles.
         access_control::set_admin(&env, &admin);
         let keeper_role = Symbol::new(&env, KEEPER_ROLE);
         access_control::grant_role_no_auth(&env, &admin, &keeper_role, &admin);
@@ -190,11 +189,10 @@ impl Controller {
     }
 }
 
-// `has_role` is exposed only under test/`testing`. It lives in a dedicated,
-// fully cfg-gated `#[contractimpl]` block so the method and its macro-generated
-// dispatch are stripped together; gating it inside the main impl block leaves a
-// dangling dispatch reference when the feature is off (E0425 under feature
-// unification across contract crates).
+// `has_role` is test/`testing`-only. It needs its own fully cfg-gated
+// `#[contractimpl]` so the method and its macro-generated dispatch strip
+// together; gating inside the main impl leaves a dangling dispatch when the
+// feature is off (E0425 under cross-crate feature unification).
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Controller {
