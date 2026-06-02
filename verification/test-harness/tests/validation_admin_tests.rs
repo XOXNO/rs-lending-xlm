@@ -5,7 +5,7 @@ use common::types::{
     InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy,
 };
-use soroban_sdk::{vec, Address, Symbol};
+use soroban_sdk::{vec, Address, String, Symbol};
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
     DEFAULT_TOLERANCE,
@@ -267,6 +267,32 @@ fn test_configure_market_oracle_rejects_identical_primary_anchor() {
     let mut cfg = base_oracle_config(&t);
     cfg.strategy = OracleStrategy::PrimaryWithAnchor;
     cfg.anchor = OracleSourceConfigInputOption::Some(cfg.primary.clone());
+    t.ctrl_client()
+        .configure_market_oracle(&admin, &asset, &cfg);
+}
+
+// Two RedStone sources on the same contract and feed differ only in the
+// policy-only `max_stale_seconds`, so they read the same underlying feed and
+// collapse the dual-source diversity guarantee. Rejected with InvalidExchangeSrc
+// (#11) at shape validation even though the configs are not byte-equal.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
+    // The diversity check runs before any live feed read, so a placeholder
+    // contract address suffices; both sources share it (and the feed id) on
+    // purpose so they resolve to the same underlying feed.
+    let redstone = t.mock_reflector.clone();
+    let feed_id = String::from_str(&t.env, "BTC");
+
+    let mut cfg = base_oracle_config(&t);
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.primary = test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 600);
+    cfg.anchor = OracleSourceConfigInputOption::Some(
+        test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 900),
+    );
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }

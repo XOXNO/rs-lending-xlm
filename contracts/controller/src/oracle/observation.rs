@@ -74,10 +74,9 @@ pub(crate) fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     raw as i128
 }
 
-pub(crate) fn millis_to_seconds(env: &Env, timestamp_ms: u64) -> u64 {
-    timestamp_ms
-        .checked_div(MS_PER_SECOND)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+pub(crate) fn millis_to_seconds(timestamp_ms: u64) -> u64 {
+    // `MS_PER_SECOND` is a nonzero constant, so this division cannot fail.
+    timestamp_ms / MS_PER_SECOND
 }
 
 /// Shared constructor used by both oracle providers after their provider-specific

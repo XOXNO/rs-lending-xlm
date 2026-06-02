@@ -34,16 +34,23 @@ not by per-account writes.
 
 **Per-side storage split.** Account state is partitioned into three keys:
 
-- `ControllerKey::AccountMeta(u64)` — owner, isolation/e-mode flags.
-- `ControllerKey::SupplyPositions(u64)` — `Map<Address, AccountPosition>`.
-- `ControllerKey::BorrowPositions(u64)` — `Map<Address, AccountPosition>`.
+- `ControllerKey::AccountMeta(u64)` — owner, isolation/e-mode flags, position
+  mode, and isolated asset.
+- `ControllerKey::SupplyPositions(u64)` — `Map<Address, AccountPositionRaw>`.
+- `ControllerKey::BorrowPositions(u64)` — `Map<Address, DebtPositionRaw>`.
 
-`AccountPosition` stores
-`scaled_amount_ray`, `liquidation_threshold_bps`, `liquidation_bonus_bps`,
-`liquidation_fees_bps`, `loan_to_value_bps`. The asset is the enclosing
-map key; the side is the enclosing storage key; the account id is the
-key discriminant. Risk parameters are an open-time snapshot (see ADR
-0008 for liquidation-threshold updates).
+The two sides store distinct persistent (`#[contracttype]`) shapes. The
+collateral side stores `AccountPositionRaw` — `scaled_amount_ray`,
+`liquidation_threshold_bps`, `liquidation_bonus_bps`, `loan_to_value_bps` — an
+open-time snapshot of the collateral's risk parameters. The debt side stores
+`DebtPositionRaw`, which carries only `scaled_amount_ray`; debt-side risk
+parameters are read from live market config rather than snapshotted. The typed
+in-memory `AccountPosition` / `DebtPosition` (Ray/Bps) are derived from these
+raw forms. The asset is the enclosing map key; the side is the enclosing
+storage key; the account id is the key discriminant. Liquidation-threshold
+updates to a live position are applied by the keeper-gated
+`update_account_threshold` (`contracts/controller/src/router.rs`), which
+requires a health-factor buffer for risk-increasing changes.
 
 ## Alternatives Considered
 
@@ -66,13 +73,19 @@ key discriminant. Risk parameters are an open-time snapshot (see ADR
 Positive:
 
 - Interest accrual is `O(1)` per pool: index motion replaces account sweeps.
-- Supply-only and repay-only flows touch only the relevant side; debt-free
-  withdraws skip loading borrow state entirely
-  (`contracts/controller/src/positions/withdraw.rs`).
+- Supply-only and repay-only flows mutate only the relevant side; a debt-free
+  withdraw still loads the full account record but takes the permissive
+  `RiskDecreasing` oracle path instead of the risk-increasing health-factor
+  path (`process_withdraw` selects the policy by whether `borrow_positions` is
+  empty, `contracts/controller/src/positions/withdraw.rs`).
 - Health-factor checks load both sides only where actually required.
-- Storage TTL is partitioned: `keepalive_accounts` bumps account-side
-  entries; pool TTL is bumped on every pool mutation
-  (`contracts/controller/src/storage/ttl.rs`, `contracts/controller/src/router.rs`).
+- Storage TTL is partitioned: account-side entries are renewed by the account
+  owner via the on-chain `renew_account` entrypoint (owner-authenticated,
+  `contracts/controller/src/router.rs`), and any party can extend their
+  footprint TTL permissionlessly through off-chain `ExtendFootprintTtl` ops run
+  by the keeper (`services/keeper`); the controller instance is bumped by
+  `renew_controller_instance` and pool instance TTL on every pool mutation
+  (`contracts/controller/src/storage/ttl.rs`).
 
 Negative / accepted costs:
 
@@ -82,8 +95,9 @@ Negative / accepted costs:
   (`contracts/controller/src/cache/mod.rs::cached_market_index`).
 - Index updates must be guarded against degenerate states; see ADR 0007
   (bad-debt socialization floor).
-- Bulk position limits (`PositionLimits`, validated cap 32 per side at
-  `set_position_limits`) are required to bound the size of each map.
+- Bulk position limits (`PositionLimits`, validated cap `POSITION_LIMIT_MAX`
+  = 10 per side at `set_position_limits`) are required to bound the size of
+  each map.
 
 ## References
 

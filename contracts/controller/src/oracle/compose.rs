@@ -1,5 +1,5 @@
-//! Price composition: primary vs anchor, strategy dispatch (SpotVsTwap /
-//! DualOracle), tolerance application, and final price selection.
+//! Price composition: primary vs anchor, strategy dispatch (`Single` /
+//! `PrimaryWithAnchor`), tolerance application, and final price selection.
 //!
 //! This is the narrow waist that turns two (or one) `OracleObservation`s
 //! into the single `PriceFeedRaw` that the rest of the controller sees.

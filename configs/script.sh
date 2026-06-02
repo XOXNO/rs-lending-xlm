@@ -121,12 +121,6 @@ get_redstone_adapter() {
     get_network_value "redstone_adapter_contract"
 }
 
-get_redstone_feed() {
-    local feed=$1
-    jq -r --arg network "$NETWORK" --arg feed "$feed" \
-        '.[$network].redstone_feeds[$feed] // empty' "$NETWORKS_FILE"
-}
-
 get_signer_address() {
     echo "$SIGNER_ADDRESS"
 }

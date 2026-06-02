@@ -41,8 +41,13 @@ Adopt a controller-and-pool topology:
   pools.
 - Pools are deployed deterministically by the controller (salt derived from
   the asset address) with the controller as owner and asset
-  `MarketParams` as constructor input
-  (`contracts/controller/src/router.rs::create_liquidity_pool`).
+  `MarketParamsRaw` as constructor input
+  (`contracts/controller/src/router.rs::create_liquidity_pool`). Listing is
+  owner-gated: `create_liquidity_pool` is `#[only_owner]` and consumes a
+  single-use owner token allow-list (it asserts `storage::is_token_approved`
+  then clears it via `storage::set_token_approved(asset, false)`). Pools are
+  created in `MarketStatus::PendingOracle` and become usable only after the
+  oracle is configured (ADR 0003).
 
 ## Alternatives Considered
 
@@ -81,8 +86,9 @@ Negative / accepted costs:
   `ExtendFootprintTtl` via `services/keeper`).
 - The controller becomes a single point of upgrade for all account logic;
   mitigated by `upgrade()` auto-pausing
-  (`contracts/controller/src/access.rs`) and two-step ownership transfer
-  (see ADR 0009).
+  (`contracts/controller/src/access.rs`), a version-monotonic owner-gated
+  `migrate(new_version)` that requires `new_version > current_version`, and
+  two-step ownership transfer (see ADR 0009).
 
 ## References
 

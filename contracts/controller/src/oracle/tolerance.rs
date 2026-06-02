@@ -1,7 +1,15 @@
 //! Primary vs Anchor tolerance logic.
 //!
-//! Deviation checks and final price selection between primary (safe) and
-//! anchor (aggregator) sources against the configured tolerance bands.
+//! Deviation checks and final-price selection between the `primary` price and
+//! the `anchor` price against the configured tolerance bands. The primary is
+//! the value the protocol prices on; the anchor is the cross-check.
+//!
+//! Vocabulary note: the public price-component ABI
+//! (`common::types` view fields) names these `safe_price_wad` and
+//! `aggregator_price_wad` — i.e. `safe = primary`, `aggregator = anchor`. This
+//! module (and the rest of the oracle code) uses `primary`/`anchor`
+//! consistently; the view boundary in `oracle::mod::price_components` maps to
+//! the ABI names.
 //!
 //! Deliberately pure (no oracle client knowledge) so Certora can summarize it
 //! without affecting the rest of price resolution.
@@ -19,45 +27,44 @@ use crate::validation;
 
 pub(crate) fn calculate_final_price(
     cache: &Cache,
-    aggregator: Option<i128>,
-    safe: Option<i128>,
+    anchor: Option<i128>,
+    primary: Option<i128>,
     tolerance: &OraclePriceFluctuation,
 ) -> i128 {
     let env = cache.env();
-    match (aggregator, safe) {
-        (Some(agg_price), Some(safe_price)) => {
+    match (anchor, primary) {
+        (Some(anchor_price), Some(primary_price)) => {
             if is_within_anchor(
                 env,
-                agg_price,
-                safe_price,
+                anchor_price,
+                primary_price,
                 tolerance.first_upper_ratio_bps,
                 tolerance.first_lower_ratio_bps,
             ) {
-                safe_price
+                primary_price
             } else if is_within_anchor(
                 env,
-                agg_price,
-                safe_price,
+                anchor_price,
+                primary_price,
                 tolerance.last_upper_ratio_bps,
                 tolerance.last_lower_ratio_bps,
             ) {
-                agg_price
-                    .checked_add(safe_price)
+                anchor_price
+                    .checked_add(primary_price)
                     .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
                     / 2
             } else {
                 // Beyond the last band: only single-source fallback policies tolerate
-                // this divergence (all others, incl. liquidation, revert); keep safe price.
-                assert_with_error!(
-                    env,
-                    cache.oracle_policy.allows_unsafe_deviation(),
-                    OracleError::UnsafePriceNotAllowed
-                );
-                safe_price
+                // this divergence (all others, incl. liquidation, revert); keep the
+                // primary price.
+                if !cache.oracle_policy.allows_unsafe_deviation() {
+                    panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
+                }
+                primary_price
             }
         }
-        (Some(agg_price), None) => agg_price,
-        (None, Some(safe_price)) => safe_price,
+        (Some(anchor_price), None) => anchor_price,
+        (None, Some(primary_price)) => primary_price,
         (None, None) => {
             panic_with_error!(env, OracleError::NoLastPrice);
         }
@@ -66,17 +73,17 @@ pub(crate) fn calculate_final_price(
 
 pub(crate) fn is_within_anchor(
     env: &Env,
-    aggregator: i128,
-    safe: i128,
+    anchor: i128,
+    primary: i128,
     upper_bound_ratio: u32,
     lower_bound_ratio: u32,
 ) -> bool {
-    if aggregator == 0 {
+    if anchor == 0 {
         return false;
     }
-    // safe/aggregator are same-scale (Wad) i128 prices; ratio = safe * RAY /
-    // aggregator at RAY precision, then rescaled RAY->BPS for comparison.
-    let ratio_ray = fp_core::mul_div_half_up(env, safe, RAY, aggregator);
+    // primary/anchor are same-scale (Wad) i128 prices; ratio = primary * RAY /
+    // anchor at RAY precision, then rescaled RAY->BPS for comparison.
+    let ratio_ray = fp_core::mul_div_half_up(env, primary, RAY, anchor);
     let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4);
     let upper = i128::from(upper_bound_ratio);
     let lower = i128::from(lower_bound_ratio);

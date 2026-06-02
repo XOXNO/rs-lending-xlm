@@ -173,13 +173,13 @@ fn validate_redstone_feed(env: &Env, pd: &RedStonePriceData, max_stale: u64, dec
     validate_timestamp(
         env,
         now,
-        millis_to_seconds(env, pd.package_timestamp),
+        millis_to_seconds(pd.package_timestamp),
         max_stale,
     );
     validate_timestamp(
         env,
         now,
-        millis_to_seconds(env, pd.write_timestamp),
+        millis_to_seconds(pd.write_timestamp),
         max_stale,
     );
 }

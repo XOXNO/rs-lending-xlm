@@ -4,7 +4,6 @@
     {
       "name": "USDC",
       "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
@@ -56,6 +55,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 1000
       },
       "asset_config": {
@@ -80,7 +80,6 @@
     {
       "name": "XLM",
       "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
@@ -132,6 +131,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 1500
       },
       "asset_config": {
@@ -156,7 +156,6 @@
     {
       "name": "EURC",
       "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
@@ -208,6 +207,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 1000
       },
       "asset_config": {
@@ -232,7 +232,6 @@
     {
       "name": "USTRY",
       "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 300,
@@ -284,6 +283,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 2000
       },
       "asset_config": {
@@ -308,7 +308,6 @@
     {
       "name": "CETES",
       "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 400,
@@ -360,6 +359,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 2000
       },
       "asset_config": {
@@ -384,7 +384,6 @@
     {
       "name": "TESOURO",
       "asset_address": "CD6M4R2322BYCY2LNWM74PEBQAQ63SA3DUJLI3L4225U4ZVCLMSCBCIS",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 400,
@@ -436,6 +435,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 2000
       },
       "asset_config": {
@@ -460,7 +460,6 @@
     {
       "name": "BTC",
       "asset_address": "CBFQUEIH6Y2AMDEG5J5GBRHCQRANBOYP7M5K6YFZH4DEYSR2V4POSFQI",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
@@ -512,6 +511,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "650000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 1500
       },
       "asset_config": {
@@ -536,7 +536,6 @@
     {
       "name": "ETH",
       "asset_address": "CBH4M45TQBLDPXOK6L7VYKMEJWFITBOL64BN3WDAIIDT4LNUTWTTOCKF",
-      "decimals": 7,
       "oracle": {
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
@@ -588,6 +587,7 @@
         "slope3_ray": "1500000000000000000000000000",
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "650000000000000000000000000",
+        "max_utilization_ray": "950000000000000000000000000",
         "reserve_factor_bps": 1500
       },
       "asset_config": {

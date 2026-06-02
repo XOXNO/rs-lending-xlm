@@ -3,6 +3,15 @@
 //! Providers return USD WAD prices plus timestamps and decimals. The controller
 //! composes primary and optional anchor sources, applies the caller's
 //! `OraclePolicy`, and stores the market index used by risk checks.
+//!
+//! Price flow: `price::token_price` → `compose::resolve_components` (read the
+//! `primary` source and, under `PrimaryWithAnchor`, the `anchor`) →
+//! `tolerance::calculate_final_price` (band selection) → the unconditional
+//! `price::token_price` gates (positive price, sanity bounds, clock-skew). The
+//! caller's `OraclePolicy` (`policy.rs`) decides what degradation may be
+//! tolerated. The `primary` is the value the protocol prices on; the `anchor`
+//! is the independent cross-check. (The public ABI view fields name these
+//! `safe_price_wad`/`aggregator_price_wad` — see `PriceComponents`.)
 
 mod compose;
 mod observation;
@@ -30,6 +39,11 @@ pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 
 pub use price::{token_price, update_asset_index};
 
+/// Per-source breakdown of a resolved price, exposed for views. Field names
+/// mirror the public ABI: `aggregator_price_wad` is the **anchor** source and
+/// `safe_price_wad` is the **primary** source. Internal code uses
+/// `primary`/`anchor`; `price_components` below is the boundary that maps the
+/// internal names to these ABI names.
 pub struct PriceComponents {
     pub aggregator_price_wad: Option<i128>,
     pub safe_price_wad: Option<i128>,

@@ -144,8 +144,8 @@ pub(crate) fn withdraw_collateral_to_controller(
     balance_delta(env, &token, balance_before)
 }
 
-// Router-leftover input stays on the controller and is refunded by
-// `refund_controller_balance_delta` at the strategy tail.
+// Any router-leftover input (underspend) stays on the controller;
+// `verify_router_input_spend` bounds overspend, not underspend.
 pub(crate) fn swap_tokens(
     env: &Env,
     token_in: &Address,

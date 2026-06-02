@@ -29,33 +29,52 @@ way out and verifying the post-repay balance against that snapshot.
 Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
 `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`.
 
-**Pool execution** (`flash_loan`):
+**Pool execution** (`flash_loan(initiator, receiver, amount, fee, data)`,
+`contracts/pool/src/lib.rs`):
 
 1. `#[only_owner]` (controller-only).
-2. Reject negative fee (`NegativeFlashLoanFee` otherwise).
-3. `interest::global_sync` then `cache.has_reserves(amount)`.
-4. Snapshot the pool's token balance in a local variable.
-5. Transfer `amount` to the receiver.
-6. Invoke `execute_flash_loan(initiator, asset, amount, fee, pool, data)` on
+2. `require_positive_amount(amount)` then `require_nonneg_amount(fee)`; both
+   reject with `GenericError::AmountMustBePositive`.
+3. `load_synced_cache` (runs `renew_pool_instance` then
+   `interest::global_sync`), then `cache.require_reserves(amount)` (rejects
+   with `CollateralError::InsufficientLiquidity`).
+4. `require_wasm_receiver(receiver)` — the pool re-checks the receiver is a
+   deployed Wasm contract.
+5. Snapshot `pre_balance = token.balance(pool)`; derive
+   `expected_after_payout = pre_balance - amount` and
+   `expected_after_repay = pre_balance + fee`.
+6. Transfer `amount` to the receiver, then assert the balance equals
+   `expected_after_payout` (`InvalidFlashloanRepay`) — *before* the callback.
+7. Invoke `execute_flash_loan(initiator, asset, amount, fee, pool, data)` on
    the receiver. `data` is opaque to the controller and pool.
-7. Require the pool balance to still equal `pre_balance - amount`, rejecting
-   push-style or wrong-asset settlement.
-8. Pull `amount + fee` from the receiver with SAC `transfer_from`, where the
-   pool is the spender approved by the receiver during the callback.
-9. Assert `balance_after == pre_balance + fee`; any mismatch reverts with
-   `InvalidFlashloanRepay`.
-10. Record the fee as protocol revenue
-   (`interest::add_protocol_revenue`).
+8. Assert the balance *again* equals `expected_after_payout`
+   (`InvalidFlashloanRepay`); the callback must not retain funds or otherwise
+   move the pool balance.
+9. `authorize_token_transfer_from` (the pool self-authorizes its own
+   `transfer_from` spender leg via `env.authorize_as_current_contract`; the
+   receiver authorizes the debit of its own balance during the callback), then
+   `transfer_from(spender=pool, from=receiver, to=pool, amount + fee)`.
+10. Assert `balance_after == expected_after_repay`; any mismatch reverts with
+    `InvalidFlashloanRepay`.
+11. Convert the fee to RAY (`Ray::from_asset(fee, asset_decimals)`) and record
+    it as protocol revenue (`interest::add_protocol_revenue_ray`).
 
-**Controller-side guards** (`contracts/controller/src/strategies/flash_loan.rs`):
+**Controller-side guards** (`contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`;
+the entrypoint signature is `flash_loan(caller, asset, amount, receiver, data)`):
 
+- `#[when_not_paused]` on the entrypoint.
 - `caller.require_auth()`.
-- `require_market_active(asset)`, `is_flashloanable`, `amount > 0`.
+- `require_not_flash_loaning()` rejects re-entry with
+  `FlashLoanError::FlashLoanOngoing` (the single-flight guard shared with the
+  strategy and router entrypoints).
+- `require_positive_amount(amount)`, `require_market_active(asset)`, and
+  `is_flashloanable` (`FlashLoanError::FlashloanNotEnabled` otherwise).
 - Require the receiver to be a deployed Wasm contract.
-- Set `FlashLoanOngoing = true` for the entire call window
-  (single-flight reentrancy guard, also used by strategies).
-- Compute `fee` from `flashloan_fee_bps` (capped at `MAX_FLASHLOAN_FEE_BPS`
-  = 500 bps at listing time).
+- Set `FlashLoanOngoing = true` for the entire call window.
+- Compute `fee` from `flashloan_fee` via `flash_loan_fee`, which floors a
+  positive-rate dust fee up to 1 unit. The rate is capped at
+  `MAX_FLASHLOAN_FEE_BPS` = 500 bps at listing time
+  (`FlashLoanError::StrategyFeeExceeds`).
 
 ## Alternatives Considered
 
@@ -99,5 +118,8 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §11.2 (Flash Loans).
 - `contracts/pool/src/lib.rs::flash_loan`
+- `contracts/pool/src/interest.rs::add_protocol_revenue_ray`
 - `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`
-- `common/src/constants/` (`MAX_FLASHLOAN_FEE_BPS`)
+- `contracts/controller/src/validation.rs::require_not_flash_loaning`
+- `common/src/constants/controller.rs` (`MAX_FLASHLOAN_FEE_BPS` = 500)
+- `common/src/errors.rs` (`FlashLoanError::{InvalidFlashloanRepay, FlashloanNotEnabled, StrategyFeeExceeds, FlashLoanOngoing}`)

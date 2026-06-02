@@ -14,11 +14,13 @@ mistakes, or delayed incident response can convert into real user losses
 quickly as TVL accumulates.
 
 The protocol already has runtime safety controls: the controller starts
-paused, owner-gated upgrades auto-pause the controller, pools are owned by
-the controller, oracle pricing has strict and permissive cache modes, and
-keepers can update indexes, extend TTLs, update thresholds, and clean bad
-debt. The launch policy defines when those controls are sufficient for
-mainnet users and how exposure grows after launch.
+paused, the controller self-upgrade (`upgrade`) auto-pauses, pools are owned by
+the controller, oracle pricing has per-entrypoint strict and permissive
+policies, and keepers can update indexes, update thresholds, and clean bad
+debt. Account-owner auth keeps user TTLs alive (`renew_account`) and the keeper
+service runs the off-chain footprint-TTL flow. The launch policy defines when
+those controls are sufficient for mainnet users and how exposure grows after
+launch.
 
 The policy covers four operational questions:
 
@@ -66,6 +68,12 @@ Initial exposure is intentionally small:
 - Flash-loan exposure is bounded by each pool's available liquidity and the
   per-market launch caps.
 
+These USD figures are off-chain launch policy. On-chain, each pool enforces
+per-asset `supply_cap` / `borrow_cap` denominated in **asset units** via
+`enforce_supply_cap` / `enforce_borrow_cap` (`contracts/pool/src/lib.rs`);
+operators set those unit caps to realize the per-market USD policy. There is no
+protocol-wide TVL or borrow USD cap in contract code.
+
 Caps may be raised only after each stage runs for at least 7 consecutive days
 without unresolved P0/P1 incidents, unexplained accounting drift, oracle
 misconfiguration, or missed keeper/TTL maintenance. Each increase requires an
@@ -83,7 +91,11 @@ Mainnet authority is separated by responsibility:
   roles are assigned.
 - `KEEPER`, `ORACLE`, and `REVENUE` roles must be held by separate operational
   addresses or automation identities. A single hot key must not hold owner and
-  all operational roles.
+  all operational roles. Note that `accept_ownership` (`sync_owner_access_control`)
+  grants all three operational roles to the incoming owner and revokes them from
+  the previous owner, so immediately after an ownership transfer the new owner
+  transiently holds every role; operators must then `revoke_role` from the owner
+  and `grant_role` to the separated operational addresses to restore separation.
 - Non-emergency owner actions that change code, templates, or material risk
   configuration receive 48 hours of off-chain notice before execution.
 - Emergency pause remains immediate. The owner may pause without notice for

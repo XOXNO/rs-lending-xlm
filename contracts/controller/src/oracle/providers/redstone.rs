@@ -45,8 +45,8 @@ fn observation_from_price_data(
     price_data: &RedStonePriceData,
     decimals: u32,
 ) -> OracleObservation {
-    let package_ts = millis_to_seconds(env, price_data.package_timestamp);
-    let write_ts = millis_to_seconds(env, price_data.write_timestamp);
+    let package_ts = millis_to_seconds(price_data.package_timestamp);
+    let write_ts = millis_to_seconds(price_data.write_timestamp);
     let now_secs = env.ledger().timestamp();
     check_not_future_at(env, now_secs, package_ts);
     check_not_future_at(env, now_secs, write_ts);

@@ -73,9 +73,11 @@ pub fn process_liquidation(
 
     let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation policy: seizure fairness needs a defensible price, so it keeps
-    // strict staleness/deviation gates but prefers the aggregator (CEX spot) on
-    // tolerance breach; the band check still blocks manipulation (ADR 0003).
+    // Liquidation policy: seizure needs a defensible price, so it denies every
+    // loosening (stale/deviation/TWAP). Beyond the last tolerance band it
+    // reverts (`UnsafePriceNotAllowed`) rather than seize at a price only one
+    // source corroborates; inside the bands the standard primary/midpoint
+    // selection applies (ADR 0004).
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
     for (asset, _) in debt_payment_plan.iter() {

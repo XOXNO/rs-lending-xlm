@@ -28,7 +28,15 @@ markets or invalidating live accounts that referenced it.
 ## Decision
 
 Isolation is account-level state; e-mode is category state plus a
-per-market reverse membership list.
+per-market reverse membership list. The two are **mutually exclusive per
+account**: an account is either isolated or in an e-mode category, never both.
+This is enforced at account creation by
+`emode::validate_e_mode_isolation_exclusion` (panics
+`EModeError::EModeWithIsolated` when `e_mode_category_id > 0 && is_isolated`,
+called from `create_account`) and re-checked at runtime by
+`emode::ensure_e_mode_compatible_with_asset` on deposit, borrow, and collateral
+swap, which rejects using an isolated-asset collateral while an e-mode category
+is active. Only siloed borrowing composes with each of them.
 
 **Isolation** (`AccountMeta.is_isolated`, `isolated_asset`):
 
@@ -53,9 +61,11 @@ per-market reverse membership list.
   the account selected.
 - Category id `0` is the sentinel for "no e-mode" (cache short-circuits
   on `category_id == 0`, see `cached_emode_asset`).
-- A category is selected at account creation. Switching categories
-  requires the account to be in a state compatible with the new
-  parameters; otherwise creating a new account is the supported path.
+- A category is selected at account creation and is **immutable** thereafter —
+  `e_mode_category_id` has no setter anywhere in the controller. The deposit
+  entrypoint rejects (`EModeError::EModeMismatch`) a non-zero category that
+  differs from the account's stored category. Changing category means creating
+  a new account.
 - `remove_e_mode_category` flags the category deprecated, clears its
   asset map, and removes its id from each member market's reverse
   list. Deprecated categories remain readable; new activity is blocked.
@@ -120,17 +130,27 @@ Negative / accepted costs:
   hot path cheap. Documented in INVARIANTS §3.4; identified by the 2026-05-29
   security audit.
 - Category-asset membership has two storage faces (category-side map
-  and per-market reverse list); both must stay consistent. The
-  controller updates both in `add_asset_to_e_mode_category` /
-  `edit_asset_in_e_mode_category` / `remove_asset_from_e_mode`.
+  and per-market reverse list); both must stay consistent. The controller
+  updates both faces in `config::add_asset_to_e_mode_category` and
+  `config::remove_asset_from_e_mode`; `config::edit_asset_in_e_mode_category`
+  rewrites only the category-side `EModeAssetConfig` flags, because membership
+  (and thus the reverse list) is unchanged.
 
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §12 (E-Mode, Isolation, and Siloed
-  Borrowing).
-- `contracts/controller/src/emode.rs`
+  Borrowing), `architecture/INVARIANTS.md` §3.4 (Isolation Debt).
+- `contracts/controller/src/emode.rs` (runtime helpers:
+  `validate_e_mode_isolation_exclusion`, `ensure_e_mode_compatible_with_asset`,
+  `apply_e_mode_to_asset_config`, `validate_isolated_collateral`)
+- `contracts/controller/src/config.rs` (e-mode admin:
+  `edit_e_mode_category`, `remove_e_mode_category`,
+  `add_asset_to_e_mode_category`, `edit_asset_in_e_mode_category`,
+  `remove_asset_from_e_mode`)
 - `contracts/controller/src/positions/borrow.rs` (siloed/isolated/e-mode checks)
-- `contracts/controller/src/cache/mod.rs::cached_emode_asset`
-- `contracts/controller/src/utils.rs` (isolated-debt accounting helpers)
+- `contracts/controller/src/positions/isolated_debt.rs` (isolated-debt helpers:
+  `add_isolated_debt`, `adjust_isolated_debt_usd`,
+  `adjust_isolated_debt_for_repay`, `clear_position_isolated_debt`)
+- `contracts/controller/src/cache/mod.rs::{cached_emode_asset, flush_isolated_debts}`
 - `common/src/types/` (`AccountMeta`, `EModeCategory`,
   `EModeAssetConfig`)

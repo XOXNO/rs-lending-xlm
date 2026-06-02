@@ -36,34 +36,47 @@ Socialize uncollectable debt by reducing the pool's `supply_index_ray`,
 floored at `SUPPLY_INDEX_FLOOR_RAW`.
 
 **Trigger** (`contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`):
-After liquidation, if for an account
-`collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD) and
-`debt > collateral`, the controller invokes `seize_position(Borrow)` on
-each remaining debt asset's pool.
+After a liquidation, the account is socializable when
+`is_socializable_bad_debt` holds — `debt > collateral` and
+`collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD)
+(`contracts/controller/src/positions/liquidation_math.rs`). The controller
+then runs `execute_bad_debt_cleanup`, which seizes **both** sides of the
+account: each supply (`Deposit`) position and each debt (`Borrow`) position is
+passed to the asset's pool via `pool.seize_position(side, position)`. On
+completion it publishes `CleanBadDebtEvent { account_id,
+total_borrow_usd_wad, total_collateral_usd_wad }`
+(`common/src/events.rs`) and removes the account.
 
-**Reduction** (`contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`):
+**Reduction** — only the `Borrow`-side seizure moves the index. On the pool's
+`seize_position` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
+scaled amount to pool revenue (no index motion); a `Borrow` seizure unscales
+the debt and calls
+`contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`:
 
 - `total_supplied_value = supplied * supply_index`.
 - `capped = min(bad_debt, total_supplied_value)`.
 - `reduction_factor = (total_supplied_value - capped) / total_supplied_value`.
 - `new_supply_index = supply_index * reduction_factor`.
-- If the candidate index falls below 1/10 of the prior index, emit
-  `PoolInsolventEvent` for off-chain monitoring with
-  `bad_debt_ratio_bps`, `old_supply_index_ray`, `new_supply_index_ray`.
-- Final write floors at `SUPPLY_INDEX_FLOOR_RAW` (10^18 raw Ray =
-  10^-9 decimal). Revenue accrual paths additionally short-circuit when
+- Final write floors at `SUPPLY_INDEX_FLOOR_RAW` (defined `= WAD`; 10^18 raw
+  Ray = 10^-9 decimal). Revenue accrual paths additionally short-circuit when
   `index <= floor` so a near-zero index cannot divide-by-zero.
 
-**Standalone path**: `clean_bad_debt(account_id)` is a `KEEPER`-only
-entrypoint for accounts whose bad-debt state needs to be applied
-outside a liquidation event.
+A severe single-step reduction is not emitted as a dedicated event; it is
+observable through the controller's emitted market-state snapshot.
+
+**Standalone path**: `clean_bad_debt(account_id)` is a `#[when_not_paused]`,
+`KEEPER`-only entrypoint (it also calls `require_not_flash_loaning`) for
+accounts whose bad-debt state needs to be applied outside a liquidation event;
+it reverts with `CollateralError::CannotCleanBadDebt` when the account is not
+socializable.
 
 ## Alternatives Considered
 
 - **Auto-pause the market on bad debt.** Rejected: the loss has already
   occurred. Pausing penalizes future suppliers and borrowers and
-  obscures the financial reality. The pool emits `PoolInsolventEvent`
-  for monitoring; the owner can still pause manually if warranted.
+  obscures the financial reality. The cleanup path emits `CleanBadDebtEvent`
+  and updates market state for monitoring; the owner can still pause manually
+  if warranted.
 - **Insurance fund instead of socialization.** Rejected for launch:
   requires a separate accounting surface and capital provisioning model.
   The current design uses the supply-side claim to express loss
@@ -83,8 +96,9 @@ Positive:
 
 - Loss attribution is explicit and immediate: suppliers see the index
   step down.
-- `PoolInsolventEvent` gives operators a high-signal trigger for
-  out-of-band action (pause, communication, root-cause).
+- `CleanBadDebtEvent` and the emitted market-state snapshot give operators a
+  high-signal trigger for out-of-band action (pause, communication,
+  root-cause).
 - Floor preserves the numerical health of all downstream math.
 - Per-account work stays at zero — index motion captures the
   socialization.
@@ -96,8 +110,9 @@ Negative / accepted costs:
 - The `BAD_DEBT_USD_THRESHOLD = $5` heuristic for triggering
   socialization is a tunable; audit and launch review cover threshold
   sensitivity.
-- The 90% single-step drop signal is informational; the pool does not
-  self-pause.
+- A severe single-step index drop has no dedicated on-chain signal and the
+  pool does not self-pause; operators detect it from the emitted market-state
+  snapshot.
 
 ## References
 
@@ -105,5 +120,6 @@ Negative / accepted costs:
   (Implemented Safety Checks).
 - `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index`
 - `contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`
-- `common/src/constants/` (`SUPPLY_INDEX_FLOOR_RAW`, `BAD_DEBT_USD_THRESHOLD`)
-- `common/src/events.rs::PoolInsolventEvent`
+- `common/src/constants/pool.rs` (`SUPPLY_INDEX_FLOOR_RAW` = `WAD`),
+  `common/src/constants/controller.rs` (`BAD_DEBT_USD_THRESHOLD` = `5 * WAD`)
+- `common/src/events.rs::CleanBadDebtEvent`

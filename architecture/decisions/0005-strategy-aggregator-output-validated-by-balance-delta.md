@@ -30,14 +30,18 @@ controller's own token balances before and after the call.
 The controller measures what crossed the router boundary instead of trusting
 router-reported amounts.
 
-**Pre-call shape validation** (`contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`):
+**Pre-call shape validation** (`contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`).
+`amount_in` is not a field of `AggregatorSwap` (whose only scalar field is
+`total_min_out`); it is the strategy's own measured leg delta — the withdrawn
+or borrowed amount — passed into `swap_tokens` and bound to `BatchSwap.total_in`:
 
-- `paths` is non-empty.
-- `amount_in > 0` and `total_min_out > 0`.
-- Each path has non-empty `hops` and `split_ppm > 0`.
-- `sum(split_ppm) == 1_000_000`.
+- `paths` is non-empty (else `InvalidPayments`).
+- `amount_in > 0` and `total_min_out > 0` (else `AmountMustBePositive`).
+- Each path has non-empty `hops` and `split_ppm > 0` (else `InvalidPayments`).
+- `sum(split_ppm) == 1_000_000` (else `InvalidPayments`).
 - First-hop `token_in` equals the strategy's input token; last-hop
-  `token_out` equals the strategy's output token, on every path.
+  `token_out` equals the strategy's output token, on every path (else
+  `WrongToken`).
 
 **Pre-call balance snapshot** (`snapshot_swap_balances`): the controller
 records its own balances of both the input and output tokens.
@@ -54,9 +58,20 @@ pre-authorizes a single input-token pull from itself.
 - `verify_router_output` rejects when the post-call output delta is
   below `total_min_out`.
 
+Both delta checks currently surface their rejection as the generic
+`GenericError::InternalError`.
+
 **Reentrancy**: the router call runs inside the flash-loan single-flight
-guard (`FlashLoanOngoing`), so any controller mutation entered from the
-router callback path reverts.
+guard. `call_router_with_reentrancy_guard` sets `FlashLoanOngoing`
+(`storage::set_flash_loan_ongoing`) for the duration of the call and clears it
+only if it was not already set (`previously_set`), so a swap nested inside an
+outer flash-loan flow keeps the guard live. Every position, strategy, and
+router flow calls `require_not_flash_loaning`
+(`contracts/controller/src/validation.rs`) on entry, so any such controller
+mutation entered from the router callback path reverts with
+`FlashLoanError::FlashLoanOngoing`. (Owner-/role-gated admin entrypoints —
+config, access control, upgrades — and the owner-authenticated `renew_account`
+TTL entrypoint are not on this guard.)
 
 ## Alternatives Considered
 
@@ -86,7 +101,10 @@ Positive:
 
 Negative / accepted costs:
 
-- Two extra `token.balance` calls per strategy (one per side).
+- Four `token.balance` reads per swap: both sides are snapshotted before the
+  router call (`snapshot_swap_balances`) and both re-read after — input via
+  `verify_router_input_spend`, output via `verify_router_output`. A `multiply`
+  with a cross-token initial payment runs two swaps, doubling this.
 - Off-chain integrators must build `AggregatorSwap` shapes that match
   the strategy's input and output tokens exactly; mismatches revert
   with `InvalidPayments` or `WrongToken`.
@@ -99,3 +117,5 @@ Negative / accepted costs:
 - `contracts/controller/src/strategies/helpers.rs::verify_router_input_spend`
 - `contracts/controller/src/strategies/helpers.rs::verify_router_output`
 - `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`
+- `contracts/controller/src/validation.rs::require_not_flash_loaning`
+- `common/src/types/aggregator.rs` (`AggregatorSwap`, `BatchSwap`)
