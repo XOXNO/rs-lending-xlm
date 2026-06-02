@@ -26,12 +26,12 @@ is different in ways that affect the safest implementation:
 
 Settle flash loans by snapshotting the pool's own token balance on the
 way out and verifying the post-repay balance against that snapshot.
-Implementation in `pool/src/lib.rs::flash_loan`, orchestrated by
-`controller/src/flash_loan.rs::process_flash_loan`.
+Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
+`contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`.
 
 **Pool execution** (`flash_loan`):
 
-1. `verify_admin` (controller-only).
+1. `#[only_owner]` (controller-only).
 2. Reject negative fee (`NegativeFlashLoanFee` otherwise).
 3. `interest::global_sync` then `cache.has_reserves(amount)`.
 4. Snapshot the pool's token balance in a local variable.
@@ -47,7 +47,7 @@ Implementation in `pool/src/lib.rs::flash_loan`, orchestrated by
 10. Record the fee as protocol revenue
    (`interest::add_protocol_revenue`).
 
-**Controller-side guards** (`controller/src/flash_loan.rs`):
+**Controller-side guards** (`contracts/controller/src/strategies/flash_loan.rs`):
 
 - `caller.require_auth()`.
 - `require_market_active(asset)`, `is_flashloanable`, `amount > 0`.
@@ -98,6 +98,6 @@ Negative / accepted costs:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §11.2 (Flash Loans).
-- `pool/src/lib.rs::flash_loan`
-- `controller/src/flash_loan.rs::process_flash_loan`
-- `common/src/constants.rs::MAX_FLASHLOAN_FEE_BPS`
+- `contracts/pool/src/lib.rs::flash_loan`
+- `contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`
+- `common/src/constants/` (`MAX_FLASHLOAN_FEE_BPS`)

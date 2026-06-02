@@ -1,9 +1,11 @@
 # Protocol Invariants
 
 This document summarizes the safety properties the lending protocol is expected
-to preserve at runtime. It is intended for auditors, researchers, integrators,
-and operators who need a concise map of how the protocol protects solvency,
-accounting, and oracle-dependent state.
+to preserve at runtime. An **invariant** is a rule that must stay true at every
+moment — before and after every operation. If one ever breaks, the protocol has
+a bug. This document is the catalog of those rules, written for auditors,
+researchers, integrators, and operators who need a concise map of how the
+protocol protects solvency, accounting, and oracle-dependent state.
 
 Runtime behavior is defined by the Rust contracts. References use module paths
 rather than line numbers so the document remains stable as the code evolves.
@@ -19,7 +21,7 @@ rather than line numbers so the document remains stable as the code evolves.
 
 Evidence references:
 
-- Runtime code: `common/src/*`, `pool/src/*`, `controller/src/*`
+- Runtime code: `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*`
 - Certora rules: `verification/certora/{common,pool,controller}/spec/*_rules.rs`
 - Fuzz/property tests: `verification/fuzz/fuzz_targets/*`, `verification/test-harness/tests/*`
 
@@ -35,7 +37,7 @@ decimals. Prices and solvency are WAD. Rates and indexes are RAY.
 
 | Runtime | Verification |
 |---|---|
-| `common::fp`, `common::fp_core`, `common::rates` | `math_rules`, `fp_math`, `fp_ops` |
+| `common::math::fp`, `common::math::fp_core`, `common::rates` | `math_rules`, `fp_math`, `fp_ops` |
 
 ### 1.2 Rounding
 
@@ -51,7 +53,7 @@ Expected tolerance is at most half of one target-precision unit per operation.
 
 | Runtime | Verification |
 |---|---|
-| `common::fp_core::mul_div_half_up`, `Bps`, `Wad`, `Ray` | `math_rules`, `fp_math` |
+| `common::math::fp_core::mul_div_half_up`, `Bps`, `Wad`, `Ray` | `math_rules`, `fp_math` |
 
 ### 1.3 Scaled Balance Reconstruction
 
@@ -67,7 +69,7 @@ With a fixed scaled amount, increasing indexes imply increasing actual balances.
 
 | Runtime | Verification |
 |---|---|
-| `pool/src/lib.rs`, `pool/src/cache.rs`, `pool/src/views.rs`, `common::rates::scaled_to_original` | `index_rules`, `position_rules`, `rates_and_index` |
+| `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `contracts/pool/src/views.rs`, `common::rates::scaled_to_original` | `index_rules`, `position_rules`, `rates_and_index` |
 
 ### 1.4 Borrow Index
 
@@ -83,7 +85,7 @@ long idle periods into bounded chunks before applying compound interest.
 
 | Runtime | Verification |
 |---|---|
-| `common::rates`, `pool/src/interest.rs` | `index_rules`, `interest_rules`, `rates_and_index` |
+| `common::rates`, `contracts/pool/src/interest.rs` | `index_rules`, `interest_rules`, `rates_and_index` |
 
 ### 1.5 Supply Index
 
@@ -99,7 +101,7 @@ short-circuit at or below that floor.
 
 | Runtime | Verification |
 |---|---|
-| `common::rates::update_supply_index`, `pool/src/interest.rs`, `common/src/constants.rs` | `index_rules`, `interest_rules` |
+| `common::rates::update_supply_index`, `contracts/pool/src/interest.rs`, `common/src/constants/` | `index_rules`, `interest_rules` |
 
 ### 1.6 Empty-Market Utilization
 
@@ -113,7 +115,7 @@ When supplied value is zero, utilization is defined as zero.
 
 | Runtime | Verification |
 |---|---|
-| `pool/src/cache.rs`, `pool/src/views.rs`, `common::rates::utilization` | `interest_rules` |
+| `contracts/pool/src/cache.rs`, `contracts/pool/src/views.rs`, `common::rates::utilization` | `interest_rules` |
 
 ---
 
@@ -133,7 +135,7 @@ accrued_interest = supplier_rewards + protocol_fee
 
 | Runtime | Verification |
 |---|---|
-| `common::rates::calculate_supplier_rewards`, `pool/src/interest.rs` | `interest_rules`, `rates_and_index` |
+| `common::rates::calculate_supplier_rewards`, `contracts/pool/src/interest.rs` | `interest_rules`, `rates_and_index` |
 
 ```mermaid
 flowchart LR
@@ -161,7 +163,7 @@ with the supply index until claimed.
 
 | Runtime | Verification |
 |---|---|
-| `pool/src/interest.rs`, `pool/src/lib.rs::claim_revenue`, `pool/src/lib.rs::seize_position` | `solvency_rules`, `flow_e2e` |
+| `contracts/pool/src/interest.rs`, `contracts/pool/src/lib.rs::claim_revenue`, `contracts/pool/src/lib.rs::seize_position` | `solvency_rules`, `flow_e2e` |
 
 ### 2.3 Reserve Availability
 
@@ -171,7 +173,7 @@ capped to the currently available reserves.
 
 | Runtime | Verification |
 |---|---|
-| `pool/src/cache.rs::has_reserves`, `pool/src/lib.rs`, controller borrow/withdraw/flash-loan paths | `boundary_rules`, `flash_loan_rules`, `flow_e2e` |
+| `contracts/pool/src/cache.rs::has_reserves`, `contracts/pool/src/lib.rs`, controller borrow/withdraw/flash-loan paths | `boundary_rules`, `flash_loan_rules`, `flow_e2e` |
 
 ### 2.4 Revenue Claim
 
@@ -181,7 +183,7 @@ the proportional scaled revenue. The burn preserves `revenue_ray <= supplied_ray
 
 | Runtime | Verification |
 |---|---|
-| `pool/src/lib.rs::claim_revenue`, `controller/src/router.rs::claim_revenue` | `solvency_rules`, `boundary_rules` |
+| `contracts/pool/src/lib.rs::claim_revenue`, `contracts/controller/src/router.rs::claim_revenue` | `solvency_rules`, `boundary_rules` |
 
 ### 2.5 Flash-Loan Repayment
 
@@ -197,7 +199,7 @@ post-repayment balance.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/flash_loan.rs`, `pool/src/lib.rs::flash_loan` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
+| `contracts/controller/src/strategies/flash_loan.rs`, `contracts/pool/src/lib.rs::flash_loan` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
 
 ---
 
@@ -221,7 +223,7 @@ Rules:
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/helpers/mod.rs`, borrow/withdraw/liquidation paths | `health_rules`, `solvency_rules`, `liquidation_rules`, `flow_e2e` |
+| `contracts/controller/src/helpers/mod.rs`, borrow/withdraw/liquidation paths | `health_rules`, `solvency_rules`, `liquidation_rules`, `flow_e2e` |
 
 ### 3.2 Borrow Admission
 
@@ -236,7 +238,7 @@ Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/positions/borrow.rs`, `controller/src/validation.rs` | `boundary_rules`, `position_rules` |
+| `contracts/controller/src/positions/borrow.rs`, `contracts/controller/src/validation.rs` | `boundary_rules`, `position_rules` |
 
 ### 3.3 Liquidation Progress
 
@@ -246,7 +248,7 @@ for unrecoverable accounts. The fallback path must not worsen account health.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/helpers/mod.rs`, `controller/src/positions/liquidation.rs`, `pool/src/lib.rs::seize_position` | `liquidation_rules`, `solvency_rules`, `fuzz_liquidation_differential` |
+| `contracts/controller/src/helpers/mod.rs`, `contracts/controller/src/positions/liquidation.rs`, `contracts/pool/src/lib.rs::seize_position` | `liquidation_rules`, `solvency_rules`, `fuzz_liquidation_differential` |
 
 ```mermaid
 flowchart TD
@@ -279,7 +281,7 @@ on decrement to avoid persistent dust.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/positions/borrow.rs::handle_isolated_debt`, `controller/src/utils.rs::adjust_isolated_debt_usd`, `controller/src/cache/mod.rs` | `isolation_rules`, `fuzz_multi_asset_solvency` |
+| `contracts/controller/src/positions/isolated_debt.rs` (`adjust_isolated_debt_usd`, `adjust_isolated_debt_for_repay`), `contracts/controller/src/cache/mod.rs` | `isolation_rules`, `fuzz_multi_asset_solvency` |
 
 Note: dust removal is applied on decrement. This is conservative for ceiling
 enforcement. Any reuse of the isolated-debt tracker for settlement accounting
@@ -320,45 +322,51 @@ Market configuration must preserve:
 
 - `liquidation_threshold_bps > loan_to_value_bps`
 - `liquidation_threshold_bps <= BPS`
-- `liquidation_bonus_bps <= MAX_LIQUIDATION_BONUS`
+- `liquidation_threshold_bps * (BPS + liquidation_bonus_bps) <= BPS * BPS`
+  (derived per-asset seizure ceiling; there is no flat `MAX_LIQUIDATION_BONUS`)
 - `liquidation_fees_bps <= BPS`
 - `flashloan_fee_bps <= MAX_FLASHLOAN_FEE_BPS`
 - non-negative supply cap, borrow cap, and isolation debt ceiling
+- dust floors are zero (disabled) or `>= MIN_DUST_FLOOR_WAD`
 - `reserve_factor_bps < BPS`
-- `0 < mid_utilization_ray < optimal_utilization_ray < RAY`
+- `0 < mid_utilization_ray < optimal_utilization_ray < RAY` and
+  `optimal_utilization_ray <= max_utilization_ray <= RAY`
 - monotonic rate slopes bounded by `MAX_BORROW_RATE_RAY`
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/validation.rs`, `controller/src/config.rs`, `pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
+| `contracts/controller/src/validation.rs`, `contracts/controller/src/config.rs`, `contracts/pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
 
 ### 4.2 Oracle Configuration
 
 For each active market:
 
 - token decimals are read from the token contract
-- CEX oracle decimals are read from the CEX oracle
-- DEX oracle decimals are read when configured
+- per-source oracle decimals are read from each configured source (Reflector
+  decimals in `[1, 18]`; RedStone fixed)
+- strategy and anchor are consistent (`PrimaryWithAnchor` ⇔ an anchor exists)
+  and `primary != anchor`
 - required feeds must resolve during configuration
-- `twap_records <= 12`
+- `twap_records <= 12` for any Reflector `Twap` source
 - stale-price window is within `[60, 86_400]` seconds
+- sanity bounds satisfy `0 < min_sanity_price_wad < max_sanity_price_wad`
 - `first_tolerance_bps < last_tolerance_bps`
 
 Required decimals are discovered on-chain, not supplied by operators.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/config.rs`, `controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
+| `contracts/controller/src/config.rs`, `contracts/controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
 
 ### 4.3 Price Resolution
 
-Supported modes:
+Supported strategies (`OracleStrategy`):
 
-- `SpotOnly`: development/testing path; rejected in non-testing market
-  configuration.
-- `SpotVsTwap`: CEX spot checked against CEX TWAP.
-- `DualOracle`: DEX spot checked against CEX TWAP; stale or unavailable DEX
-  data degrades to CEX TWAP.
+- `Single`: primary source only. A `Single` + Reflector `Spot` configuration is
+  rejected in non-testing builds.
+- `PrimaryWithAnchor`: primary checked against an anchor source; a missing,
+  unreadable, or stale-and-unusable anchor degrades to the primary only where
+  the active policy allows it.
 
 If both aggregator and safe prices are available:
 
@@ -371,7 +379,7 @@ Future-dated oracle samples beyond the clock-skew window always revert.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/oracle/mod.rs`, `controller/src/cache/mod.rs` | `oracle_rules` |
+| `contracts/controller/src/oracle/mod.rs`, `contracts/controller/src/cache/mod.rs` | `oracle_rules` |
 
 ```mermaid
 flowchart TD
@@ -379,13 +387,11 @@ flowchart TD
     B -->|yes| Z["return cached feed"]
     B -->|no| C{"market usable?"}
     C -->|no| R1["revert"]
-    C -->|yes| D{"exchange source"}
-    D -->|SpotOnly| S["CEX spot"]
-    D -->|SpotVsTwap| T["CEX spot + CEX TWAP"]
-    D -->|DualOracle| U["CEX TWAP + optional DEX spot"]
-    S --> E["staleness and future checks"]
+    C -->|yes| D{"OracleStrategy"}
+    D -->|Single| S["primary source"]
+    D -->|PrimaryWithAnchor| T["primary + anchor"]
+    S --> E["staleness, sanity, and future checks"]
     T --> E
-    U --> E
     E --> F{"within first band?"}
     F -->|yes| G["safe price"]
     F -->|no| H{"within last band?"}
@@ -410,25 +416,27 @@ protocol-level risk decisions.
 
 | Runtime | Verification |
 |---|---|
-| `pool-interface/src/lib.rs`, `controller/Cargo.toml`, `pool/src/lib.rs::verify_admin` | build graph, controller-to-pool tests |
+| `interfaces/pool/src/lib.rs`, `contracts/controller/Cargo.toml`, `contracts/pool/src/lib.rs` (`#[only_owner]`) | build graph, controller-to-pool tests |
 
 ### 5.2 Account Storage
 
 Account state is split into:
 
 - `AccountMeta(account_id)`
-- `SupplyPositions(account_id): Map<Address, AccountPosition>`
-- `BorrowPositions(account_id): Map<Address, AccountPosition>`
+- `SupplyPositions(account_id): Map<Address, AccountPositionRaw>`
+- `BorrowPositions(account_id): Map<Address, DebtPositionRaw>`
 
-The asset is the map key. The position side is the storage family.
-`AccountPosition` does not duplicate asset, account id, or side.
+The asset is the map key. The position side is the storage family. Collateral
+positions (`AccountPositionRaw`) carry the open-time risk snapshot; debt
+positions (`DebtPositionRaw`) carry only the scaled share. Neither duplicates
+asset, account id, or side.
 
 Side-map writes remove empty maps and bump account metadata TTL when metadata
 exists. Account removal removes metadata and both side maps.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/storage/account.rs` | `position_rules`, storage tests |
+| `contracts/controller/src/storage/account.rs` | `position_rules`, storage tests |
 
 ### 5.3 TTL Maintenance
 
@@ -438,7 +446,7 @@ position maps, and pool instance state.
 
 | Runtime | Verification |
 |---|---|
-| `controller/src/storage/ttl.rs`, controller keepalive paths, `pool/src/lib.rs::keepalive` | `fuzz_ttl_keepalive` |
+| `contracts/controller/src/storage/ttl.rs`, on-chain `renew_account`, off-chain keeper `ExtendFootprintTtl` | `account_ttl_regression_tests` |
 
 ---
 

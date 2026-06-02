@@ -147,8 +147,8 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §13 (Access Control and Operations), §16
   (Verification Surface), §17 (Deployment and Operations), §19 (Status).
-- `controller/src/access.rs`
-- `controller/src/router.rs`
-- `controller/src/storage/ttl.rs`
+- `contracts/controller/src/access.rs`
+- `contracts/controller/src/router.rs`
+- `contracts/controller/src/storage/ttl.rs`
 - `architecture/INVARIANTS.md`
 - `verification/certora/README.md`

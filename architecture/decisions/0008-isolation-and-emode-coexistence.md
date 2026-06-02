@@ -128,9 +128,9 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §12 (E-Mode, Isolation, and Siloed
   Borrowing).
-- `controller/src/positions/emode.rs`
-- `controller/src/positions/borrow.rs` (siloed/isolated/e-mode checks)
-- `controller/src/cache/mod.rs::cached_emode_asset`
-- `controller/src/utils.rs` (isolated-debt accounting helpers)
-- `common/src/types.rs` (`AccountMeta`, `EModeCategory`,
+- `contracts/controller/src/emode.rs`
+- `contracts/controller/src/positions/borrow.rs` (siloed/isolated/e-mode checks)
+- `contracts/controller/src/cache/mod.rs::cached_emode_asset`
+- `contracts/controller/src/utils.rs` (isolated-debt accounting helpers)
+- `common/src/types/` (`AccountMeta`, `EModeCategory`,
   `EModeAssetConfig`)

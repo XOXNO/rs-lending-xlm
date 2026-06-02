@@ -1,5 +1,10 @@
 # Certora Formal Verification
 
+Formal verification is the strongest form of testing: instead of trying a handful
+of example inputs, a prover mathematically checks that a property holds for
+*every* possible input — or returns a concrete counterexample that breaks it.
+Certora is the tool that does this for the lending protocol's most critical rules.
+
 This directory contains the Certora Soroban verification surface for the
 lending protocol. It is organized by proof boundary: fixed-point libraries,
 pool accounting, controller safety, and shared summaries.
@@ -36,7 +41,7 @@ compiled only with the `certora` Cargo feature.
 The production crates keep only the minimum Rust hooks needed for Soroban
 Certora builds:
 
-- `common/src/lib.rs`, `pool/src/lib.rs`, and `controller/src/lib.rs` include
+- `common/src/lib.rs`, `contracts/pool/src/lib.rs`, and `contracts/controller/src/lib.rs` include
   external `verification/certora/**/spec` modules behind `#[cfg(feature =
   "certora")]`.
 - The controller summary macro implementation lives in

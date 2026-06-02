@@ -7,8 +7,8 @@ controller-and-pool architecture: the controller owns account state, oracle
 validation, risk checks, liquidations, flash loans, and strategy entrypoints;
 each pool owns custody and accounting for exactly one listed asset.
 
-This repository contains the Soroban contracts, deployment tooling,
-architecture records, and verification assets for the protocol.
+This repository holds the contracts, deployment tooling, architecture records,
+and verification assets.
 
 > [!IMPORTANT]
 > The protocol is pre-audit. Mainnet launch is gated by the hardening policy in
@@ -18,21 +18,21 @@ architecture records, and verification assets for the protocol.
 
 ## Quick Links
 
-- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md) - system topology,
+- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md) — system topology,
   contract boundaries, launch gates, and verification acceptance criteria.
-- [Protocol invariants](./architecture/INVARIANTS.md) - fixed-point domains,
+- [Protocol invariants](./architecture/INVARIANTS.md) — fixed-point domains,
   solvency rules, oracle constraints, and accounting invariants.
-- [Architecture decisions](./architecture/decisions/README.md) - ADRs for the
+- [Architecture decisions](./architecture/decisions/README.md) — ADRs for the
   load-bearing design choices.
-- [Certora verification](./verification/certora/README.md) - proof domains,
+- [Certora verification](./verification/certora/README.md) — proof domains,
   profiles, and local prover commands.
-- [Security policy](./SECURITY.md) - private vulnerability reporting and safe
+- [Security policy](./SECURITY.md) — private vulnerability reporting and safe
   harbor.
-- [Contributing guide](./CONTRIBUTING.md) - local checks, change expectations,
+- [Contributing guide](./CONTRIBUTING.md) — local checks, change expectations,
   and pull request requirements.
-- [Code of conduct](./CODE_OF_CONDUCT.md) - expected conduct and reporting.
+- [Code of conduct](./CODE_OF_CONDUCT.md) — expected conduct and reporting.
 
-## Architecture At A Glance
+## Architecture at a Glance
 
 ```mermaid
 flowchart LR
@@ -46,39 +46,43 @@ flowchart LR
     PoolB --> TokenB["Token B"]
 ```
 
-- **Controller**: user-facing coordinator for accounts, market setup, risk,
-  liquidation, flash loans, and strategies.
+- **Controller**: the single user-facing contract; coordinates accounts, market
+  setup, risk, liquidation, flash loans, and strategies.
 - **Pool**: one contract per listed asset; custody, indexes, reserves,
   protocol revenue, rate updates, and flash-loan settlement.
-- **Common**: fixed-point math, constants, events, errors, and shared ABI
-  types.
-- **Pool interface**: typed Soroban trait used for controller-to-pool calls.
+- **Common**: fixed-point math, constants, events, errors, and shared ABI types.
+- **Pool interface**: typed Soroban trait for controller-to-pool calls.
 - **Verification harnesses**: integration tests, property tests, fuzz targets,
   and Certora specs.
 
 ## Design Model
 
-- **Scaled balances**: supply and borrow positions are stored in RAY precision
-  against pool indexes; interest accrues by index movement, not account sweeps.
-- **Explicit numeric domains**: token-native amounts stay at the token
-  boundary; USD values and health factor use WAD; rates and indexes use RAY.
-- **Oracle policy**: risk-increasing flows use strict price validation;
-  selected risk-decreasing paths can use permissive cache modes.
-- **Risk modes**: normal, isolation mode, e-mode, and siloed borrowing are
-  enforced by the controller.
-- **Flash loans**: pools settle by balance snapshot and post-repayment balance
-  check, matching Soroban's invocation-scoped authorization model.
-- **Bad debt**: unrecoverable residual debt is socialized through the affected
-  pool's supply index with a numerical floor.
+- **Scaled balances**: positions are stored in RAY against per-pool indexes;
+  interest accrues by moving one shared index, not by sweeping accounts.
+- **Numeric domains**: token-native at the token boundary, WAD for USD values
+  and health factor, RAY for rates and indexes.
+- **Oracle policy**: risk-increasing actions require strict, fully validated
+  prices; risk-reducing actions may accept looser prices.
+- **Risk modes**: the controller enforces normal, isolation, e-mode, and siloed
+  borrowing.
+- **Flash loans**: pools settle by balance snapshot and post-repayment check,
+  matching Soroban's invocation-scoped authorization.
+- **Bad debt**: unrecoverable residual debt is socialized through the pool's
+  supply index, floored to a minimum.
 
 ## Repository Map
 
 ```text
 rs-lending-xlm/
 ├── common/             # Shared math, types, events, constants, and errors
-├── controller/         # Accounts, risk, oracle, liquidation, strategy logic
-├── pool/               # Asset pool accounting, indexes, revenue, flash loans
-├── pool-interface/     # Cross-contract ABI used by the controller
+├── contracts/
+│   ├── controller/     # Accounts, risk, oracle, liquidation, strategy logic
+│   ├── pool/           # Asset pool accounting, indexes, revenue, flash loans
+│   └── flash-loan-receiver/  # Reference flash-loan receiver (tests/examples)
+├── interfaces/
+│   ├── controller/     # Controller external ABI trait and client
+│   └── pool/           # Cross-contract pool ABI used by the controller
+├── services/           # Off-chain keeper service (separate workspace)
 ├── verification/       # Certora specs, test harness, fuzzing, corpora
 ├── architecture/       # Invariants, ADRs, and architecture reference material
 ├── configs/            # Market, network, and deployment configuration inputs
@@ -87,13 +91,13 @@ rs-lending-xlm/
 
 ## Requirements
 
-Install the toolchain and contract tooling before building:
+Required:
 
 - Rust from [rust-toolchain.toml](./rust-toolchain.toml).
 - Stellar CLI with Soroban contract support.
 - `wasm32v1-none`, installed through the configured Rust toolchain.
 
-Optional tools:
+Optional:
 
 - `cargo-llvm-cov` for coverage reports.
 - `cargo-fuzz` and nightly Rust for fuzz targets.
@@ -124,9 +128,9 @@ Use `make help` to see the full command surface.
 | `make clippy` | Run clippy with warnings denied. |
 | `make coverage-merged` | Generate merged controller, pool, and harness coverage. |
 
-## Verification And Audit
+## Verification and Audit
 
-The repository contains layered verification:
+Verification is layered:
 
 - Rust unit tests in production crates.
 - Soroban integration tests in `verification/test-harness`.
@@ -141,13 +145,15 @@ Baseline local checks:
 cargo test --workspace
 make test
 make test-pool
-./verification/certora/compile_all.sh
+cargo check -p common --features certora
+cargo check -p pool --features certora --no-default-features
+cargo check -p controller --features certora --no-default-features
 ```
 
 Mainnet launch uses the stronger acceptance matrix in
 [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#16-verification-surface).
 
-## Deployment And Operations
+## Deployment and Operations
 
 Deployment is Makefile-driven and requires the Stellar CLI, configured network
 settings, and a funded signer:
@@ -185,7 +191,7 @@ agreement with XOXNO.
 
 ## Contributing
 
-Protocol changes preserve the accounting, authorization, oracle, and solvency
-invariants documented in [architecture/INVARIANTS.md](./architecture/INVARIANTS.md)
-and include relevant verification output and launch-risk notes. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) before opening issues or pull requests.
+Every protocol change must preserve the accounting, authorization, oracle, and
+solvency invariants in [INVARIANTS.md](./architecture/INVARIANTS.md), and include
+the relevant verification output and launch-risk notes. Read
+[CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or pull request.

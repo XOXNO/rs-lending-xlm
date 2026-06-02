@@ -29,7 +29,7 @@ reconstructed at read time:
 - `borrow_actual = scaled_debt * borrow_index / RAY`
 
 Indexes are advanced by `interest::global_sync` before each pool mutation
-(`pool/src/interest.rs`). Interest accrues to all holders by index motion,
+(`contracts/pool/src/interest.rs`). Interest accrues to all holders by index motion,
 not by per-account writes.
 
 **Per-side storage split.** Account state is partitioned into three keys:
@@ -55,7 +55,7 @@ key discriminant. Risk parameters are an open-time snapshot (see ADR
   every supply or repay would read and write a record containing the
   unrelated side's positions. The split keeps `process_supply` to the
   supply side and `process_repay` to the borrow side
-  (`controller/src/positions/supply.rs`, `controller/src/positions/repay.rs`).
+  (`contracts/controller/src/positions/supply.rs`, `contracts/controller/src/positions/repay.rs`).
 - **Per-asset per-account entries (one storage key per (account, asset, side)).**
   Rejected: explodes Soroban entry count for accounts with multiple positions
   and multiplies TTL bumps. The map-inside-key form lets a flow read or
@@ -68,18 +68,18 @@ Positive:
 - Interest accrual is `O(1)` per pool: index motion replaces account sweeps.
 - Supply-only and repay-only flows touch only the relevant side; debt-free
   withdraws skip loading borrow state entirely
-  (`controller/src/positions/withdraw.rs`).
+  (`contracts/controller/src/positions/withdraw.rs`).
 - Health-factor checks load both sides only where actually required.
 - Storage TTL is partitioned: `keepalive_accounts` bumps account-side
   entries; pool TTL is bumped on every pool mutation
-  (`controller/src/storage/ttl.rs`, `controller/src/router.rs`).
+  (`contracts/controller/src/storage/ttl.rs`, `contracts/controller/src/router.rs`).
 
 Negative / accepted costs:
 
 - Reading an actual amount requires multiplying by an index that may have
   drifted since last sync; the controller cache memoizes per-asset
   `MarketIndex` to avoid recomputation
-  (`controller/src/cache/mod.rs::cached_market_index`).
+  (`contracts/controller/src/cache/mod.rs::cached_market_index`).
 - Index updates must be guarded against degenerate states; see ADR 0007
   (bad-debt socialization floor).
 - Bulk position limits (`PositionLimits`, validated cap 32 per side at
@@ -89,8 +89,8 @@ Negative / accepted costs:
 
 - `SCF_BUILD_ARCHITECTURE.md` §5 (Account and Storage Model), §8
   (Fixed-Point Domains).
-- `controller/src/positions/supply.rs::process_supply`
-- `controller/src/positions/repay.rs::process_repay`
-- `controller/src/positions/withdraw.rs`
-- `pool/src/interest.rs::global_sync`
-- `common/src/constants.rs::{RAY, WAD, BPS}`
+- `contracts/controller/src/positions/supply.rs::process_supply`
+- `contracts/controller/src/positions/repay.rs::process_repay`
+- `contracts/controller/src/positions/withdraw.rs`
+- `contracts/pool/src/interest.rs::global_sync`
+- `common/src/constants/` (`RAY`, `WAD`, `BPS`)

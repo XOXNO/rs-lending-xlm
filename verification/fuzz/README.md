@@ -1,5 +1,9 @@
 # Fuzzing
 
+A fuzzer hammers the code with huge numbers of random and adversarial inputs,
+looking for any that make it crash, panic, or break an accounting rule — the
+edge cases a human writing example tests would never think to try.
+
 This directory contains the protocol's `cargo-fuzz` package. It is kept under
 `verification/` because it is audit and assurance infrastructure, not
 production contract code.
