@@ -6,8 +6,9 @@
 
 use common::errors::{GenericError, OracleError};
 use common::types::{
-    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, OracleReadMode,
-    OracleSourceConfig, OracleSourceConfigInput, RedStoneSourceConfig, ReflectorSourceConfig,
+    MarketOracleConfig, MarketOracleConfigInput, MarketStatus, OraclePriceFluctuation,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigInput, RedStoneSourceConfig,
+    ReflectorSourceConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -43,10 +44,11 @@ pub(crate) fn validate_market_oracle_sources(
     );
 
     let asset_decimals = validation::validate_and_fetch_token_decimals(env, asset);
-    let primary = validate_source(env, &config.primary, config.max_price_stale_seconds);
+    let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
         Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
             env,
+            asset,
             anchor,
             config.max_price_stale_seconds,
         )),
@@ -67,12 +69,13 @@ pub(crate) fn validate_market_oracle_sources(
 
 pub(crate) fn validate_source(
     env: &Env,
+    asset: &Address,
     source: &OracleSourceConfigInput,
     max_stale: u64,
 ) -> OracleSourceConfig {
     match source {
         OracleSourceConfigInput::Reflector(config) => {
-            validate_usd_base(env, &config.contract);
+            validate_base(env, asset, &config.contract);
             let reflector_asset = to_reflector_asset(env, &config.asset);
             let decimals = reflector_decimals_call(env, &config.contract);
             validate_decimals(env, decimals);
@@ -133,10 +136,46 @@ pub(crate) fn validate_source(
     }
 }
 
-fn validate_usd_base(env: &Env, oracle: &Address) {
+/// A Reflector oracle is acceptable when its base currency is USD, or when it
+/// quotes in a Stellar asset (e.g. the USDC-denominated DEX oracle) whose quote
+/// asset is itself a configured, Active, USD-quoted market. The latter lets the
+/// read path reprice token/quote into token/USD via the quote market's own
+/// oracle (see `providers::reflector::reprice_to_usd`).
+///
+/// Requiring the quote to be USD-quoted is the one-hop rule: a Stellar-quoted
+/// market can never serve as another market's quote, so quote references cannot
+/// form a cycle (a Stellar-quoted node is never the target of a quote edge).
+fn validate_base(env: &Env, asset: &Address, oracle: &Address) {
     match reflector_base_call(env, oracle) {
         ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {}
+        ReflectorAsset::Stellar(quote) => {
+            // A market may not be quoted in itself: the quote check below reads
+            // the asset's pre-update config, so a self-quote would slip past it
+            // and only revert at read time via the host recursion cap.
+            assert_with_error!(env, &quote != asset, OracleError::InvalidOracleBase);
+            validate_quote_is_usd_market(env, &quote);
+        }
         _ => panic_with_error!(env, OracleError::InvalidOracleBase),
+    }
+}
+
+fn validate_quote_is_usd_market(env: &Env, quote: &Address) {
+    let market = crate::storage::try_get_market_config(env, quote)
+        .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
+    assert_with_error!(
+        env,
+        market.status == MarketStatus::Active,
+        OracleError::InvalidOracleBase
+    );
+    match &market.oracle_config.primary {
+        // RedStone feeds are USD-denominated by construction.
+        OracleSourceConfig::RedStone(_) => {}
+        // A Reflector quote source must itself be USD-based: this forbids a
+        // quote chain and keeps the conversion exactly one hop.
+        OracleSourceConfig::Reflector(r) => match reflector_base_call(env, &r.contract) {
+            ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {}
+            _ => panic_with_error!(env, OracleError::InvalidOracleBase),
+        },
     }
 }
 
