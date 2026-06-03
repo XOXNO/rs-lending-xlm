@@ -4,6 +4,7 @@ use crate::types::{
     Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, DebtPosition,
     EModeAssetConfig, EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation,
     OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
+    ReflectorBase,
 };
 
 #[contracttype]
@@ -181,6 +182,7 @@ pub struct EventOracleProvider {
     pub primary_asset: Option<Address>,
     pub primary_symbol: Option<Symbol>,
     pub primary_feed_id: Option<String>,
+    pub primary_quote_token: Option<Address>,
     pub primary_read_mode: u32,
     pub primary_twap_records: u32,
     pub primary_decimals: u32,
@@ -191,6 +193,7 @@ pub struct EventOracleProvider {
     pub anchor_asset: Option<Address>,
     pub anchor_symbol: Option<Symbol>,
     pub anchor_feed_id: Option<String>,
+    pub anchor_quote_token: Option<Address>,
     pub anchor_read_mode: u32,
     pub anchor_twap_records: u32,
     pub anchor_decimals: u32,
@@ -224,6 +227,7 @@ impl EventOracleProvider {
             primary_asset: primary.asset,
             primary_symbol: primary.symbol,
             primary_feed_id: primary.feed_id,
+            primary_quote_token: primary.quote_token,
             primary_read_mode: primary.read_mode,
             primary_twap_records: primary.twap_records,
             primary_decimals: primary.decimals,
@@ -234,6 +238,7 @@ impl EventOracleProvider {
             anchor_asset: anchor.as_ref().and_then(|source| source.asset.clone()),
             anchor_symbol: anchor.as_ref().and_then(|source| source.symbol.clone()),
             anchor_feed_id: anchor.as_ref().and_then(|source| source.feed_id.clone()),
+            anchor_quote_token: anchor.as_ref().and_then(|source| source.quote_token.clone()),
             anchor_read_mode: anchor_or_zero(anchor.as_ref(), |source| source.read_mode),
             anchor_twap_records: anchor_or_zero(anchor.as_ref(), |source| source.twap_records),
             anchor_decimals: anchor_or_zero(anchor.as_ref(), |source| source.decimals),
@@ -263,6 +268,10 @@ struct EventOracleSource {
     asset: Option<Address>,
     symbol: Option<Symbol>,
     feed_id: Option<String>,
+    /// Quote currency the feed is denominated in: `None` for USD-quoted feeds,
+    /// `Some(token)` for feeds quoted via a Stellar token (e.g. USDC SAC) that
+    /// the contract reprices to USD. `None` for RedStone (USD by feed id).
+    quote_token: Option<Address>,
     read_mode: u32,
     twap_records: u32,
     decimals: u32,
@@ -280,12 +289,17 @@ impl EventOracleSource {
                     OracleAssetRef::String(feed_id) => (None, None, Some(feed_id.clone())),
                 };
                 let (read_mode, twap_records) = read_mode_parts(&config.read_mode);
+                let quote_token = match &config.base {
+                    ReflectorBase::Usd => None,
+                    ReflectorBase::Quoted(quote) => Some(quote.clone()),
+                };
                 Self {
                     provider: OracleProviderKind::ReflectorSep40 as u32,
                     contract: config.contract.clone(),
                     asset,
                     symbol,
                     feed_id,
+                    quote_token,
                     read_mode,
                     twap_records,
                     decimals: config.decimals,
@@ -299,6 +313,7 @@ impl EventOracleSource {
                 asset: None,
                 symbol: None,
                 feed_id: Some(config.feed_id.clone()),
+                quote_token: None,
                 read_mode: 0,
                 twap_records: 0,
                 decimals: config.decimals,
@@ -806,6 +821,77 @@ mod tests {
         assert_eq!(provider.anchor_twap_records, 0);
         assert_eq!(provider.anchor_max_stale_seconds, 900);
         assert!(provider.anchor_contract.is_some());
+    }
+
+    #[test]
+    fn update_asset_oracle_event_nests_oracle_fields_under_oracle_key() {
+        extern crate std;
+        use soroban_sdk::testutils::Events;
+        use soroban_sdk::xdr::{ContractEventBody, ScVal};
+        use std::string::{String, ToString};
+        use std::vec::Vec as StdVec;
+
+        fn map_keys(v: &ScVal) -> StdVec<String> {
+            match v {
+                ScVal::Map(Some(m)) => m
+                    .iter()
+                    .filter_map(|e| match &e.key {
+                        ScVal::Symbol(s) => Some(s.to_string()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => StdVec::new(),
+            }
+        }
+        fn nested<'a>(v: &'a ScVal, key: &str) -> &'a ScVal {
+            match v {
+                ScVal::Map(Some(m)) => m
+                    .iter()
+                    .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.to_string() == key))
+                    .map(|e| &e.val)
+                    .expect("nested key present"),
+                _ => panic!("not a map"),
+            }
+        }
+
+        let (env, contract) = setup();
+        env.as_contract(&contract, || {
+            let asset = dummy_address(&env);
+            let market = dummy_market_config(&env);
+            UpdateAssetOracleEvent {
+                asset: asset.clone(),
+                oracle: EventOracleProvider::from_market(&env, &asset, &market),
+            }
+            .publish(&env);
+        });
+
+        let all = env.events().all();
+        let xdr_events = all.events();
+        let last = xdr_events.last().expect("event published");
+        let ContractEventBody::V0(body) = &last.body;
+        let data = &body.data;
+
+        // The event data exposes only the two struct fields at the top level;
+        // sanity bounds and quote tokens are NOT top-level.
+        let top = map_keys(data);
+        assert!(top.iter().any(|k| k == "oracle"), "top keys: {:?}", top);
+        assert!(top.iter().any(|k| k == "asset"));
+        assert!(!top.iter().any(|k| k == "min_sanity_price_wad"));
+        assert!(!top.iter().any(|k| k == "primary_quote_token"));
+
+        // Sanity bounds and per-source quote tokens live inside `oracle`.
+        let oracle_keys = map_keys(nested(data, "oracle"));
+        for expected in [
+            "min_sanity_price_wad",
+            "max_sanity_price_wad",
+            "primary_quote_token",
+            "anchor_quote_token",
+        ] {
+            assert!(
+                oracle_keys.iter().any(|k| k == expected),
+                "missing {expected} in oracle keys: {oracle_keys:?}"
+            );
+        }
     }
 
     // ---------- emit_* helpers ----------

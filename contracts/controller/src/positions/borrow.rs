@@ -3,7 +3,7 @@
 //! Borrows use `OraclePolicy::RiskIncreasing`, update scaled debt shares, and
 //! increment isolated-debt counters when the account is isolated.
 
-use common::errors::{CollateralError, EModeError, GenericError};
+use common::errors::{CollateralError, EModeError};
 use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PriceFeed,
 };
@@ -105,6 +105,10 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
 
     process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
 
+    // LTV gate runs post-pool so collateral and debt valuation reuse the market
+    // indexes the pool borrow just wrote into the cache, sparing a redundant
+    // get_sync_data read. A failure here panics and reverts the atomic tx.
+    validate_borrow_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
     // Scope the dust gate to borrowed assets only: borrow never mutates supply,
     // so it must not be blocked by pre-existing positions that drifted under the floor.
@@ -164,8 +168,9 @@ fn validate_borrow_asset_preflight(
     );
 }
 
-// First gate: cumulative LTV against pre-borrow collateral. The final
-// health-factor gate runs post-pool-call to catch index/rounding effects.
+// Cheap pre-pool gates: emptiness, position limits, market-active, siloed set,
+// per-asset borrowability, and isolated-debt ceilings. The LTV valuation runs
+// post-pool in `validate_borrow_ltv` to reuse the borrow's cached market index.
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
@@ -181,19 +186,12 @@ fn prepare_borrow_plan(
     }
     validate_siloed_borrow_set(env, cache, account, assets);
 
-    let ltv_collateral =
-        helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
-    let mut total_borrowed_wad =
-        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
-
     for (asset, amount) in assets {
         let asset_config: AssetConfig =
             (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
         validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
 
         let feed = cache.cached_price(&asset);
-        total_borrowed_wad =
-            validate_ltv_capacity(env, ltv_collateral, total_borrowed_wad, amount, &feed);
         add_isolated_debt(env, cache, account, amount, &feed);
     }
 }
@@ -313,22 +311,18 @@ fn record_borrow_update(
     update_or_remove_debt_position(account, asset, &update.position);
 }
 
-fn validate_ltv_capacity(
-    env: &Env,
-    ltv_base_amount_wad: i128,
-    borrowed_amount_wad: i128,
-    amount: i128,
-    feed: &PriceFeed,
-) -> i128 {
-    let new_borrow_wad = feed.usd_value_wad(env, amount).raw();
-    let total_borrow_wad = borrowed_amount_wad
-        .checked_add(new_borrow_wad)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+// Post-pool LTV gate: LTV-weighted collateral must cover total debt. Both
+// valuations read the market indexes the pool borrow cached, so this shares the
+// reads with the subsequent health-factor gate and triggers no get_sync_data.
+fn validate_borrow_ltv(env: &Env, cache: &mut Cache, account: &Account) {
+    let ltv_collateral =
+        helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
+    let total_borrowed_wad =
+        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     assert_with_error!(
         env,
-        ltv_base_amount_wad >= total_borrow_wad,
+        ltv_collateral >= total_borrowed_wad,
         CollateralError::InsufficientCollateral
     );
-    total_borrow_wad
 }
