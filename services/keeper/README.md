@@ -4,7 +4,8 @@ On Soroban, stored data is rented: every entry has a time-to-live (TTL), and if
 its TTL runs out the entry is archived and the contract stops working until it is
 restored. This keeper is the off-chain Rust service that quietly pays that rent —
 it keeps the XOXNO Lending protocol's storage and wasm-code entries alive by
-extending their TTL before they fall inside the configured safety margin.
+extending their TTL before they fall inside the configured safety margin, and
+restores any that have already lapsed.
 
 Per TTL tick the service:
 
@@ -14,14 +15,20 @@ Per TTL tick the service:
    - the controller's persistent keys — `PoolsList`, and per-asset `Market`
      (which embeds each asset's oracle config) and `IsolatedDebt`, plus each
      `EModeCategory`;
+   - the controller's access-control role keys (`ExistingRoles`, and per-role
+     `RoleAccountsCount` / `RoleAccounts` / `HasRole` for `KEEPER` / `REVENUE` /
+     `ORACLE`), which the contract self-extends only when a role-gated call
+     reads them — so an idle protocol would otherwise let them archive;
    - each pool's instance entry and the flash-loan receiver's instance entry;
    - the wasm-code entries for the controller, pool template, and flash-loan
      receiver.
-2. **Decides** which of those are inside the safety margin (default 14 days on
-   testnet, 21 on mainnet).
-3. **Submits** one or more chunked `ExtendFootprintTtl` ops covering exactly
-   those entries. This operation is permissionless — the signer needs no
-   on-chain role, only XLM for fees.
+2. **Decides**, per entry: live and inside the safety margin (default 14 days on
+   testnet, 21 on mainnet) → extend; already lapsed but data still present →
+   restore; healthy or never-written → skip.
+3. **Submits** chunked `ExtendFootprintTtl` ops for the in-margin entries, and
+   `RestoreFootprint` ops for the archived ones (freshly-restored entries are
+   then extended to the cap the same tick). Both ops are permissionless — the
+   signer needs no on-chain role, only XLM for fees and rent.
 
 The keeper deliberately does **not** renew the per-user triplets
 (`AccountMeta`, `SupplyPositions`, `BorrowPositions`): a user auto-bumps their
@@ -53,13 +60,14 @@ services/keeper/
     ├── config.rs            # YAML loader / validator
     ├── signer/              # KeyVault fetch + SLIP-0010 derivation
     ├── stellar/             # RPC, tx pipeline, op builders
-    ├── keys.rs              # ControllerKey → ScVal encoding
-    ├── discovery.rs         # tick-time state read + self-check + role gate
-    ├── scheduler/           # tick loops, planner, per-tick budget
-    ├── policy.rs            # bump-or-not decision
+    ├── keys.rs              # ControllerKey + access-control key → ScVal encoding
+    ├── discovery.rs         # tick-time state read (incl. role keys) + self-check
+    ├── scheduler/           # tick loops, extend/restore planner, per-tick budget
+    ├── policy.rs            # per-entry extend / restore / skip decision
     ├── metrics.rs           # Prometheus surface + /health
     └── bin/
-        └── prove_permissionless.rs  # diagnostic: extend storage with no role
+        ├── prove_permissionless.rs  # diagnostic: extend storage with no role
+        └── inspect_ttls.rs          # diagnostic: per-key TTL / restore-vs-extend table
 ```
 
 ## SDK stack
@@ -131,8 +139,12 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
 
 - **Health**: `GET :9090/health` returns `ok` once boot completed.
 - **Metrics**: `GET :9090/metrics` (Prometheus text format).
-- **Dry run**: `--dry-run` (or `KEEPER_DRY_RUN=1`) — simulates everything,
-  never submits.
+- **Dry run**: `--dry-run` (or `KEEPER_DRY_RUN=1`) — runs discovery and planning,
+  then **simulates** each planned extend / restore against the RPC and logs
+  whether it would be accepted (`sim ok` with the resource fee, or
+  `sim REJECTED`). Submits nothing, and needs no funded signer (simulation uses
+  sequence `0`). Use it to confirm restores of currently-archived keys before
+  trusting them.
 - **Boot safety**: an encoding self-check reads `PoolsList` from the live
   controller and refuses to start if the `ControllerKey` encoding has drifted.
   When `enable_index_refresh` is on, the keeper additionally simulates

@@ -14,11 +14,13 @@ use crate::config::KeeperConfig;
 use crate::discovery::{snapshot, ContractIds};
 use crate::metrics::Metrics;
 use crate::signer::Ed25519Signer;
-use crate::stellar::tx::{submit_with_sim, SubmitOutcome, TxContext};
+use crate::stellar::tx::{simulate_job, submit_with_sim, SimReport, SubmitOutcome, TxContext};
 use crate::stellar::{RpcClient, TxJob};
 
 use self::budget::TickBudget;
-use self::tasks::{plan_extends, plan_index_refresh};
+use self::tasks::{
+    plan_extends, plan_extends_for_keys, plan_index_refresh, plan_restores, restored_keys,
+};
 
 pub struct SchedulerHandle {
     pub ttl_task: tokio::task::JoinHandle<()>,
@@ -131,8 +133,42 @@ async fn run_ttl_tick(
     let snap = snapshot(client, ids, cfg.schedule.asset_chunk).await?;
     record_snapshot_metrics(metrics, &snap);
 
-    let jobs = plan_extends(&snap, cfg.safety_margin_ledgers())?;
-    drive_jobs(cfg, client, signer, metrics, jobs, dry_run, "ttl").await
+    let safety = cfg.safety_margin_ledgers();
+    let restore_jobs = plan_restores(&snap, safety)?;
+    let extend_jobs = plan_extends(&snap, safety)?;
+
+    // Freshly-restored entries come back at the network-minimum TTL, so extend
+    // them to the cap the same tick — but only after the restores land, since an
+    // extend over a still-archived entry is rejected.
+    let restored = restored_keys(&restore_jobs);
+    metrics.entries_archived.set(restored.len() as i64);
+    let post_restore_extends = plan_extends_for_keys(&restored)?;
+
+    // One budget for the whole tick — restores and extends share the cap so a
+    // tick never submits more than `max_txs_per_tick` transactions in total.
+    // Restores go first (they unblock the protocol); extends defer if the cap
+    // is hit and retry next tick.
+    let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
+    let ctx = tx_context(cfg, client, signer);
+
+    if dry_run {
+        drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
+        drive_jobs(&ctx, metrics, extend_jobs, dry_run, "ttl", &mut budget).await?;
+        if !post_restore_extends.is_empty() {
+            info!(
+                target: "keeper.scheduler",
+                restored = restored.len(),
+                "[dry-run] would extend restored keys after restore lands (not simulated — would fail pre-restore)"
+            );
+        }
+        return Ok(());
+    }
+
+    // Production: restores first, then in-margin + just-restored extends.
+    drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
+    let mut extends = extend_jobs;
+    extends.extend(post_restore_extends);
+    drive_jobs(&ctx, metrics, extends, dry_run, "ttl", &mut budget).await
 }
 
 async fn run_index_tick(
@@ -155,7 +191,25 @@ async fn run_index_tick(
         &snap.assets,
         cfg.schedule.asset_chunk,
     )?;
-    drive_jobs(cfg, client, signer, metrics, jobs, dry_run, "index").await
+    let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
+    let ctx = tx_context(cfg, client, signer);
+    drive_jobs(&ctx, metrics, jobs, dry_run, "index", &mut budget).await
+}
+
+/// Build the per-tx submission context from config + connections.
+fn tx_context<'a>(
+    cfg: &'a KeeperConfig,
+    client: &'a RpcClient,
+    signer: &'a Ed25519Signer,
+) -> TxContext<'a> {
+    TxContext {
+        client,
+        signer,
+        network_passphrase: &cfg.rpc.passphrase,
+        base_fee_stroops: cfg.fees.base_fee_stroops,
+        resource_fee_multiplier: cfg.fees.resource_fee_multiplier,
+        poll_timeout_seconds: cfg.rpc.timeout_seconds as u32,
+    }
 }
 
 fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::DiscoverySnapshot) {
@@ -164,28 +218,17 @@ fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::Discovery
 }
 
 async fn drive_jobs(
-    cfg: &KeeperConfig,
-    client: &RpcClient,
-    signer: &Ed25519Signer,
+    ctx: &TxContext<'_>,
     metrics: &Metrics,
     jobs: Vec<TxJob>,
     dry_run: bool,
     loop_label: &str,
+    budget: &mut TickBudget,
 ) -> Result<()> {
-    let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
     metrics
         .jobs_planned
         .with_label_values(&[loop_label])
         .inc_by(jobs.len() as u64);
-
-    let ctx = TxContext {
-        client,
-        signer,
-        network_passphrase: &cfg.rpc.passphrase,
-        base_fee_stroops: cfg.fees.base_fee_stroops,
-        resource_fee_multiplier: cfg.fees.resource_fee_multiplier,
-        poll_timeout_seconds: cfg.rpc.timeout_seconds as u32,
-    };
 
     for job in jobs {
         if !budget.try_spend() {
@@ -199,14 +242,40 @@ async fn drive_jobs(
         }
         let kind = job.kind;
         if dry_run {
-            info!(target: "keeper.scheduler", kind = kind.as_str(), "[dry-run] would submit");
-            metrics
-                .tx_total
-                .with_label_values(&[kind.as_str(), "dry_run"])
-                .inc();
+            match simulate_job(ctx, &job).await {
+                Ok(SimReport::Ok { resource_fee, read_only, read_write }) => {
+                    info!(
+                        target: "keeper.scheduler",
+                        kind = kind.as_str(),
+                        resource_fee,
+                        read_only,
+                        read_write,
+                        "[dry-run] sim ok — would submit"
+                    );
+                    metrics
+                        .tx_total
+                        .with_label_values(&[kind.as_str(), "dry_run_ok"])
+                        .inc();
+                }
+                Ok(SimReport::Rejected(reason)) => {
+                    warn!(
+                        target: "keeper.scheduler",
+                        kind = kind.as_str(),
+                        %reason,
+                        "[dry-run] sim REJECTED"
+                    );
+                    metrics
+                        .sim_failures
+                        .with_label_values(&[kind.as_str(), classify_reason(&reason)])
+                        .inc();
+                }
+                Err(e) => {
+                    error!(target: "keeper.scheduler", kind = kind.as_str(), error = ?e, "[dry-run] sim pipeline error");
+                }
+            }
             continue;
         }
-        match submit_with_sim(&ctx, job).await {
+        match submit_with_sim(ctx, job).await {
             Ok(SubmitOutcome::Success(_)) => {
                 metrics
                     .tx_total

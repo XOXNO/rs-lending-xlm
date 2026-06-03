@@ -37,6 +37,7 @@ pub struct TxJob {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxKind {
     ExtendFootprintTtl,
+    RestoreFootprint,
     UpdateIndexes,
 }
 
@@ -44,8 +45,15 @@ impl TxKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::ExtendFootprintTtl => "extend_footprint_ttl",
+            Self::RestoreFootprint => "restore_footprint",
             Self::UpdateIndexes => "update_indexes",
         }
+    }
+
+    /// Permissionless footprint ops carry no host-function result and no
+    /// contract auth — only `update_indexes` requires source-account auth.
+    fn is_footprint_op(self) -> bool {
+        matches!(self, Self::ExtendFootprintTtl | Self::RestoreFootprint)
     }
 }
 
@@ -84,27 +92,9 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         .await
         .with_context(|| format!("look up sequence for {source_strkey}"))?;
 
-    let envelope = build_envelope(
-        &source_strkey,
-        source_seq.saturating_add(1),
-        ctx.base_fee_stroops,
-        op,
-        initial_soroban_data,
-    )?;
-
-    // The RPC rejects `authMode` on non-invoke operations
-    // ("cannot set authMode with non-InvokeHostFunction operations"), so we
-    // only pass an auth mode for actual contract invocations.
-    let auth_mode = match kind {
-        TxKind::ExtendFootprintTtl => None,
-        _ => Some(stellar_rpc_client::AuthMode::Enforce),
-    };
-    let sim = ctx
-        .client
-        .inner()
-        .simulate_transaction_envelope(&envelope, auth_mode)
-        .await
-        .context("simulate_transaction_envelope")?;
+    let (envelope, sim) =
+        build_and_simulate(ctx, kind, op, initial_soroban_data, source_seq.saturating_add(1))
+            .await?;
 
     if let Some(err) = sim.error {
         warn!(target: "keeper.tx", kind = %kind.as_str(), error = %err, "simulation rejected job");
@@ -115,7 +105,7 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         .transaction_data()
         .map_err(|e| anyhow!("decode simulation transaction_data: {e}"))?;
 
-    if matches!(kind, TxKind::ExtendFootprintTtl) {
+    if kind.is_footprint_op() {
         debug!(
             target: "keeper.tx",
             kind = %kind.as_str(),
@@ -157,6 +147,79 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
     submit_polling(ctx.client.inner(), &signed, ctx.poll_timeout_seconds, kind).await
 }
 
+/// Outcome of simulating a job without submitting it.
+#[derive(Debug)]
+pub enum SimReport {
+    Ok {
+        resource_fee: i64,
+        read_only: usize,
+        read_write: usize,
+    },
+    Rejected(String),
+}
+
+/// Build a job's envelope and simulate it, returning both so the submit path
+/// can reuse the envelope. The RPC rejects `authMode` on non-invoke operations,
+/// so footprint ops (extend / restore) pass no auth mode.
+async fn build_and_simulate(
+    ctx: &TxContext<'_>,
+    kind: TxKind,
+    op: Operation,
+    initial_soroban_data: Option<SorobanTransactionData>,
+    seq_num: i64,
+) -> Result<(
+    TransactionEnvelope,
+    stellar_rpc_client::SimulateTransactionResponse,
+)> {
+    let source_strkey = ctx.signer.public_key_strkey();
+    let envelope = build_envelope(
+        &source_strkey,
+        seq_num,
+        ctx.base_fee_stroops,
+        op,
+        initial_soroban_data,
+    )?;
+    let auth_mode = if kind.is_footprint_op() {
+        None
+    } else {
+        Some(stellar_rpc_client::AuthMode::Enforce)
+    };
+    let sim = ctx
+        .client
+        .inner()
+        .simulate_transaction_envelope(&envelope, auth_mode)
+        .await
+        .context("simulate_transaction_envelope")?;
+    Ok((envelope, sim))
+}
+
+/// Simulate a job without submitting — the `--dry-run` path. Proves the RPC
+/// would accept the op (extend / restore / invoke) and reports its resource
+/// fee + footprint. Uses sequence `0`: nothing is submitted, so the simulator
+/// ignores it and no funded signer is required.
+pub async fn simulate_job(ctx: &TxContext<'_>, job: &TxJob) -> Result<SimReport> {
+    let (_envelope, sim) = build_and_simulate(
+        ctx,
+        job.kind,
+        job.op.clone(),
+        job.initial_soroban_data.clone(),
+        0,
+    )
+    .await?;
+
+    if let Some(err) = sim.error {
+        return Ok(SimReport::Rejected(err));
+    }
+    let data = sim
+        .transaction_data()
+        .map_err(|e| anyhow!("decode simulation transaction_data: {e}"))?;
+    Ok(SimReport::Ok {
+        resource_fee: data.resource_fee,
+        read_only: data.resources.footprint.read_only.len(),
+        read_write: data.resources.footprint.read_write.len(),
+    })
+}
+
 fn enforce_source_account_auth(
     sim: &stellar_rpc_client::SimulateTransactionResponse,
     kind: TxKind,
@@ -165,10 +228,10 @@ fn enforce_source_account_auth(
         .results()
         .map_err(|e| anyhow!("decode sim results: {e}"))?;
 
-    // ExtendFootprintTTL has no host-function result.
-    if matches!(kind, TxKind::ExtendFootprintTtl) {
+    // Footprint ops (extend / restore) carry no host-function result.
+    if kind.is_footprint_op() {
         if !results.is_empty() {
-            warn!(target: "keeper.tx", "extend_footprint_ttl unexpectedly returned host-function results — ignoring");
+            warn!(target: "keeper.tx", kind = %kind.as_str(), "footprint op unexpectedly returned host-function results — ignoring");
         }
         return Ok(());
     }

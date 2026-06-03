@@ -10,7 +10,8 @@ use tracing::{debug, info, warn};
 
 use crate::config::ContractsConfig;
 use crate::keys::{
-    contract_code_key, contract_instance_key, ControllerInstanceKey, ControllerPersistentKey,
+    contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
+    ControllerPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, muxed_account_from_strkey, LedgerEntryQuery, RpcClient,
@@ -122,6 +123,10 @@ pub async fn snapshot(
         }
     }
 
+    // -- Access-control role keys (ExistingRoles, per-role RoleAccountsCount,
+    //    per-(role,index) RoleAccounts, per-(holder,role) HasRole) --
+    persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
+
     // -- Instance entries (controller + each pool + flash receiver) --
     let mut instance_keys = Vec::with_capacity(pool_contract_ids.len() + 2);
     instance_keys.push(contract_instance_key(&controller_id));
@@ -152,6 +157,121 @@ pub async fn snapshot(
         wasm_code_entries,
         account_nonce,
     })
+}
+
+/// Operational roles assumed when `ExistingRoles` itself cannot be read.
+const DEFAULT_ROLES: [&str; 3] = ["KEEPER", "REVENUE", "ORACLE"];
+
+/// Read the controller's access-control persistent keys so the keeper keeps
+/// them alive. They self-extend only when a role-gated call reads them, so an
+/// idle protocol silently lets them archive. Archived-but-present entries are
+/// still decodable (the RPC returns their data), so enumeration works even when
+/// the role bookkeeping has already lapsed.
+async fn discover_role_keys(
+    client: &RpcClient,
+    controller_id: &[u8; 32],
+    chunk_size: usize,
+) -> Result<Vec<LedgerEntryQuery>> {
+    let mut rows: Vec<LedgerEntryQuery> = Vec::new();
+
+    // ExistingRoles → the set of role names to enumerate.
+    let existing_key = AccessControlPersistentKey::ExistingRoles.to_ledger_key(controller_id)?;
+    let existing_rows = client.get_ledger_entries(&[existing_key]).await?;
+    let roles = extract_existing_roles(&existing_rows)
+        .unwrap_or_else(|| DEFAULT_ROLES.iter().map(|s| s.to_string()).collect());
+    rows.extend(existing_rows);
+
+    // Per-role RoleAccountsCount.
+    let count_keys = roles
+        .iter()
+        .map(|r| AccessControlPersistentKey::RoleAccountsCount(r.clone()).to_ledger_key(controller_id))
+        .collect::<Result<Vec<_>>>()?;
+    let count_rows = client.get_ledger_entries(&count_keys).await?;
+    let counts: Vec<(String, u32)> = roles
+        .iter()
+        .cloned()
+        .zip(count_rows.iter().map(|r| extract_u32(r).unwrap_or(0)))
+        .collect();
+    rows.extend(count_rows);
+
+    // Per-(role, index) RoleAccounts; the value names the holder address.
+    let mut ra_keys = Vec::new();
+    let mut ra_meta: Vec<String> = Vec::new();
+    for (role, count) in &counts {
+        for index in 0..*count {
+            ra_keys.push(
+                AccessControlPersistentKey::RoleAccounts(role.clone(), index)
+                    .to_ledger_key(controller_id)?,
+            );
+            ra_meta.push(role.clone());
+        }
+    }
+    let mut ra_rows = Vec::with_capacity(ra_keys.len());
+    for chunk in ra_keys.chunks(chunk_size.max(1)) {
+        ra_rows.extend(client.get_ledger_entries(chunk).await?);
+    }
+
+    // Per-(holder, role) HasRole, built from the holders just read.
+    let mut hr_keys = Vec::new();
+    for (role, row) in ra_meta.iter().zip(ra_rows.iter()) {
+        if let Some(addr) = extract_address(row) {
+            hr_keys.push(
+                AccessControlPersistentKey::HasRole(addr, role.clone())
+                    .to_ledger_key(controller_id)?,
+            );
+        }
+    }
+    rows.extend(ra_rows);
+    for chunk in hr_keys.chunks(chunk_size.max(1)) {
+        rows.extend(client.get_ledger_entries(chunk).await?);
+    }
+
+    debug!(
+        target: "keeper.discovery",
+        roles = roles.len(),
+        role_entries = rows.len(),
+        "role keys discovered"
+    );
+    Ok(rows)
+}
+
+/// Decode `ExistingRoles` (`Vec<Symbol>`) into role-name strings.
+fn extract_existing_roles(rows: &[LedgerEntryQuery]) -> Option<Vec<String>> {
+    let LedgerEntryData::ContractData(cd) = rows.first()?.value.as_ref()? else {
+        return None;
+    };
+    let ScVal::Vec(Some(vec)) = &cd.val else {
+        return None;
+    };
+    let out: Vec<String> = vec
+        .0
+        .iter()
+        .filter_map(|v| match v {
+            ScVal::Symbol(ScSymbol(s)) => Some(s.to_utf8_string_lossy()),
+            _ => None,
+        })
+        .collect();
+    (!out.is_empty()).then_some(out)
+}
+
+fn extract_u32(row: &LedgerEntryQuery) -> Option<u32> {
+    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
+        return None;
+    };
+    match cd.val {
+        ScVal::U32(n) => Some(n),
+        _ => None,
+    }
+}
+
+fn extract_address(row: &LedgerEntryQuery) -> Option<ScAddress> {
+    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
+        return None;
+    };
+    match &cd.val {
+        ScVal::Address(addr) => Some(addr.clone()),
+        _ => None,
+    }
 }
 
 /// Walk a Market entry's `ScVal::Map` and pull out the `pool_address` field.
