@@ -1,30 +1,27 @@
 extern crate std;
 
-use common::types::{AggregatorSwap, ControllerKey, MarketConfig};
+use common::types::{ControllerKey, MarketConfig, StrategySwap};
 use soroban_sdk::token;
-use soroban_sdk::Vec;
+use soroban_sdk::Bytes;
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, usd,
-    usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB,
-    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
+    mock_swap_payload_xdr, usd, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
+    MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
 };
 
 /// Placeholder swap that should only be used by tests failing before router execution.
 fn build_swap_steps(
     t: &LendingTest,
-    _token_in: &str,
-    _token_out: &str,
+    token_in: &str,
+    token_out: &str,
     min_out: i128,
-) -> AggregatorSwap {
-    // Placeholder fixture for compile-clean tests. The new aggregator ABI
-    // requires per-path SwapHop entries; tests that actually exercise the
-    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
-    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
-    // error-path tests pass through this without reaching swap_tokens.
-    AggregatorSwap {
-        paths: Vec::new(&t.env),
-        total_min_out: min_out,
-    }
+) -> StrategySwap {
+    mock_swap_payload_xdr(
+        &t.env,
+        t.resolve_asset(token_in),
+        t.resolve_asset(token_out),
+        min_out,
+    )
 }
 
 fn dai_preset() -> MarketPreset {
@@ -1181,27 +1178,15 @@ fn test_swap_collateral_no_borrows_skip_hf() {
         usdc_supply_after
     );
 }
-// Attack vectors
-// An empty hops vec underflows: swap_tokens reads steps.hops.len() - 1.
-// This must panic and crash gracefully.
-
 #[test]
-fn test_strategy_empty_swap_steps_multiply() {
+fn test_strategy_empty_swap_payload_multiply() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Build empty swap steps. `total_min_out=0` trips the strategy's
-    // entry-point `require_amount_positive(swap.total_min_out)` check.
-    let empty_steps = AggregatorSwap {
-        paths: soroban_sdk::Vec::new(&t.env),
-        total_min_out: 0,
-    };
+    let empty_steps = Bytes::new(&t.env);
 
-    // Must fail: empty hops cause underflow in swap_tokens
-    // (steps.hops.len() - 1 on an empty vec). The error happens after
-    // create_strategy, inside swap_tokens.
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -1210,9 +1195,8 @@ fn test_strategy_empty_swap_steps_multiply() {
         common::types::PositionMode::Multiply,
         &empty_steps,
     );
-    // The controller rejects `amount_out_min <= 0` at the multiply entrypoint
-    // with AmountMustBePositive.
-    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
+    // The controller rejects empty opaque swap bytes before routing.
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
 #[test]

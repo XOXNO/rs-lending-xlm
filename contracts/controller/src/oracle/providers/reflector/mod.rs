@@ -7,10 +7,10 @@ mod twap;
 use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::types::{
-    MarketStatus, OracleAssetRef, OracleReadMode, OracleSourceConfig, PriceFeedRaw,
+    MarketStatus, OracleAssetRef, OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase,
     ReflectorSourceConfig,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Symbol};
+use soroban_sdk::{panic_with_error, Address, Env};
 
 use super::super::observation::{build_observation, check_not_future_at, OracleObservation};
 use crate::cache::Cache;
@@ -43,25 +43,25 @@ pub(crate) fn read_reflector_source(
             twap::read_twap(cache, config, records, max_stale, required)
         }
     };
-    observation.map(|obs| reprice_to_usd(cache, &config.contract, obs))
+    observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
 
-/// Convert a Reflector observation into USD WAD.
+/// Convert a Reflector observation into USD WAD using the base captured at
+/// config time (no live `base()` call).
 ///
-/// A USD-quoted oracle (`base() == Other("USD")`) is returned unchanged. A
-/// Stellar-quoted oracle (e.g. the USDC-denominated DEX oracle, `base() ==
-/// Stellar(quote)`) reports token/quote; multiply by the quote asset's own USD
-/// price (`resolve_usd_quote`) to obtain token/USD.
+/// `ReflectorBase::Usd` is returned unchanged. `ReflectorBase::Quoted(quote)`
+/// (e.g. the USDC-denominated DEX oracle) reports token/quote; multiply by the
+/// quote asset's own USD price (`resolve_usd_quote`) to obtain token/USD.
 fn reprice_to_usd(
     cache: &mut Cache,
-    oracle: &Address,
+    base: &ReflectorBase,
     obs: OracleObservation,
 ) -> OracleObservation {
-    let env = cache.env().clone();
-    match reflector_base_call(&env, oracle) {
-        ReflectorAsset::Other(symbol) if symbol == Symbol::new(&env, "USD") => obs,
-        ReflectorAsset::Stellar(quote) => {
-            let quote_feed = resolve_usd_quote(cache, &quote);
+    match base {
+        ReflectorBase::Usd => obs,
+        ReflectorBase::Quoted(quote) => {
+            let env = cache.env().clone();
+            let quote_feed = resolve_usd_quote(cache, quote);
             let price_usd = Wad::from(obs.price_wad)
                 .mul(&env, Wad::from(quote_feed.price_wad))
                 .raw();
@@ -74,7 +74,6 @@ fn reprice_to_usd(
                 published_at: obs.published_at,
             }
         }
-        _ => panic_with_error!(&env, OracleError::InvalidOracleBase),
     }
 }
 
@@ -96,8 +95,9 @@ fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
         // RedStone feeds are USD-denominated by construction.
         OracleSourceConfig::RedStone(_) => {}
         // A Reflector quote source must itself be USD-based (no chaining).
-        OracleSourceConfig::Reflector(r) => match reflector_base_call(&env, &r.contract) {
-            ReflectorAsset::Other(symbol) if symbol == Symbol::new(&env, "USD") => {}
+        // Read the base cached at config time — no live `base()` call.
+        OracleSourceConfig::Reflector(r) => match &r.base {
+            ReflectorBase::Usd => {}
             _ => panic_with_error!(&env, OracleError::InvalidOracleBase),
         },
     }

@@ -451,6 +451,21 @@ impl LendingTestBuilder {
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, pm.decimals);
             token_admin.mint(&pool_address, &liquidity_amount);
 
+            // Reserves are tracked as internal `cash`; seed it to match the
+            // minted liquidity so the pool has borrowable reserves (a real
+            // deployment accrues cash through the supply flow instead).
+            env.as_contract(&pool_address, || {
+                let mut state: common::types::PoolStateRaw = env
+                    .storage()
+                    .instance()
+                    .get(&common::types::PoolKey::State)
+                    .unwrap();
+                state.cash += liquidity_amount;
+                env.storage()
+                    .instance()
+                    .set(&common::types::PoolKey::State, &state);
+            });
+
             markets.insert(
                 pm.name.to_string(),
                 MarketState {

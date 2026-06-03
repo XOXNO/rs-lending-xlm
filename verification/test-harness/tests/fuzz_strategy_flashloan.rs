@@ -11,8 +11,8 @@
 //! This harness covers:
 //!
 //! - Router allowance is zero after a strategy swap.
-//! - Router under-delivery is rejected by controller-side balance checks.
-//! - `amount_out_min <= 0` is rejected on strategy entrypoints.
+//! - Zero router output is rejected by controller-side balance checks.
+//! - Empty swap payloads are rejected before routing.
 //! - `swap_collateral` uses the actual withdrawn delta when calling the router.
 //!
 //! ## Explicit auth trees
@@ -32,13 +32,14 @@ extern crate std;
 use common::constants::WAD;
 use common::types::PositionMode;
 use proptest::prelude::*;
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, xdr::FromXdr, Address, Bytes, Env};
 use test_harness::{
-    auth, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    BOB,
+    auth, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset, LendingTest,
+    MockSwapPayload, ALICE, BOB,
 };
-// Adversarial aggregator that returns `amount_out_min * 99 / 100` to verify
-// that controller strategy swaps read the actual balance delta.
+// Adversarial aggregator that pulls input but returns no output. The
+// controller cannot decode slippage from opaque bytes, but it still rejects
+// a zero observed output delta.
 
 #[contract]
 pub struct ShortAggregator;
@@ -47,26 +48,15 @@ pub struct ShortAggregator;
 impl ShortAggregator {
     pub fn __constructor(_env: Env, _admin: Address) {}
 
-    /// Mirrors the router ABI but delivers 1% less than `total_min_out`.
-    pub fn batch_execute(env: Env, batch: common::types::BatchSwap) -> i128 {
-        batch.sender.require_auth();
+    pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
+        sender.require_auth();
         let router = env.current_contract_address();
-        let path = batch.paths.get(0).unwrap();
-        let first_hop = path.hops.get(0).unwrap();
-        let last_hop = path.hops.get(path.hops.len() - 1).unwrap();
+        let payload = MockSwapPayload::from_xdr(&env, &swap_xdr).expect("mock payload must decode");
 
-        let in_client = token::Client::new(&env, &first_hop.token_in);
-        in_client.transfer(&batch.sender, &router, &batch.total_in);
+        let in_client = token::Client::new(&env, &payload.token_in);
+        in_client.transfer(&sender, &router, &total_in);
 
-        // Deliver 1% less than `total_min_out` so the controller's
-        // post-call balance delta falls below the slippage floor and
-        // the strategy aborts.
-        let delivered = batch.total_min_out * 99 / 100;
-        if delivered > 0 {
-            let out_client = token::Client::new(&env, &last_hop.token_out);
-            out_client.transfer(&router, &batch.sender, &delivered);
-        }
-        delivered
+        0
     }
 }
 
@@ -184,10 +174,8 @@ proptest! {
         let eth_decimals = t.resolve_market("ETH").decimals;
         let min_out_raw = (usdc_out as i128) * 10i128.pow(usdc_decimals);
         // Strategy `multiply` swaps the flash-borrowed `eth_amount` ETH
-        // into USDC; controller's `validate_aggregator_swap` requires the
-        // path's `amount_in` to match the controller's actual swap
-        // amount. There's no `initial_payment` on this path so
-        // `swap_amount_in == debt_to_flash_loan` exactly.
+        // into USDC. There's no `initial_payment` on this path, so
+        // `swap_amount_in == debt_to_flash_loan` before flash fee accounting.
         let amount_in_raw = (eth_amount as i128) * 10i128.pow(eth_decimals);
         let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
 
@@ -218,12 +206,12 @@ proptest! {
     // Property 3: strategy swap_collateral balance-delta consistency
     //
     // Setup: supply USDC, swap_collateral into USDT. Use a mock router (the
-    // default `MockAggregator`) that pays exactly `amount_out_min`. A valid
-    // positive `amount_out_min` succeeds; `amount_out_min == 0` must fail.
+    // default `MockAggregator`) that pays the amount encoded in the opaque
+    // payload. A valid non-empty payload succeeds; empty bytes must fail.
     #[test]
     fn prop_strategy_swap_collateral_balance_delta(
         withdraw_frac_bps in 100u32..5_000u32, // 1% -- 50% withdrawal
-        min_out_valid in any::<bool>(),
+        payload_valid in any::<bool>(),
     ) {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
@@ -238,10 +226,10 @@ proptest! {
         // Pre-fund router with enough USDT.
         t.fund_router("USDT", withdraw_amount * 2.0);
 
-        // Use either an invalid zero minimum or a reasonable positive value.
+        // Use either an invalid empty payload or a reasonable positive payload.
         let usdt_decimals = t.resolve_market("USDT").decimals;
         let usdc_decimals = t.resolve_market("USDC").decimals;
-        let min_out_raw = if min_out_valid {
+        let min_out_raw = if payload_valid {
             (withdraw_amount as i128) * 10i128.pow(usdt_decimals)
         } else {
             0
@@ -249,27 +237,19 @@ proptest! {
         // `swap_collateral` swaps `actual_withdrawn` (= withdraw_amount
         // for non-rebasing tokens) of the source collateral.
         let amount_in_raw = (withdraw_amount as i128) * 10i128.pow(usdc_decimals);
-        let steps = if min_out_valid {
+        let steps = if payload_valid {
             build_aggregator_swap(&t, "USDC", "USDT", amount_in_raw, min_out_raw)
         } else {
-            // Build an invalid batch with `total_min_out == 0` so the
-            // strategy entrypoint rejects it before routing.
-            common::types::AggregatorSwap {
-                paths: soroban_sdk::Vec::new(&t.env),
-                total_min_out: 0,
-            }
+            Bytes::new(&t.env)
         };
 
         let result = t.try_swap_collateral(ALICE, "USDC", withdraw_amount, "USDT", &steps);
 
-        if !min_out_valid {
-            // amount_out_min == 0 must be rejected. The exact error
-            // surface depends on where the check lives (SwapSteps validation
-            // in controller::validation or the router itself). Either way,
-            // the call must fail.
+        if !payload_valid {
+            // Empty opaque swap payloads must be rejected before routing.
             prop_assert!(
                 result.is_err(),
-                "swap_collateral with amount_out_min == 0 must be rejected (M-10)"
+                "swap_collateral with empty swap payload must be rejected"
             );
         } else if result.is_ok() {
             // The USDC supply position shrinks by approximately
@@ -292,7 +272,7 @@ proptest! {
         prop_assert!(flash_guard_cleared(&t), "flash-loan guard must clear after swap_collateral");
     }
 }
-// Property 4: `ShortAggregator` delivers 1% under `min_amount_out`.
+// Property 4: `ShortAggregator` returns no output.
 // The controller's `verify_router_output` reads the actual balance delta and
 // must reject with INTERNAL_ERROR.
 proptest! {
@@ -307,13 +287,13 @@ proptest! {
             .with_market(eth_preset())
             .build();
 
-        // Route swaps through an adversarial aggregator that under-delivers by 1%.
+        // Route swaps through an adversarial aggregator that withholds output.
         let admin = t.admin.clone();
         let short = t.env.register(ShortAggregator, (admin,));
         t.ctrl_client().set_aggregator(&short);
 
-        // Fund the short aggregator with output tokens so it can transfer
-        // the (under-delivered) amount to the controller.
+        // Keep the normal funded-router setup so the failure is isolated to
+        // the zero output delta.
         let eth_amount = debt_units as f64;
         let usdc_amount = eth_amount * 2_000.0;
         let usdc_decimals = t.resolve_market("USDC").decimals;
@@ -321,7 +301,7 @@ proptest! {
         let min_out_raw = (usdc_amount as i128) * 10i128.pow(usdc_decimals);
         let amount_in_raw = (eth_amount as i128) * 10i128.pow(eth_decimals);
 
-        // Mint USDC to the short aggregator so it has output to send.
+        // Mint USDC to mirror the standard funded router setup.
         let usdc_addr = t.resolve_asset("USDC");
         let usdc_admin = soroban_sdk::token::StellarAssetClient::new(&t.env, &usdc_addr);
         usdc_admin.mint(&short, &(min_out_raw * 2));
@@ -329,8 +309,8 @@ proptest! {
         let steps = build_aggregator_swap(&t, "ETH", "USDC", amount_in_raw, min_out_raw);
         let result = t.try_multiply(ALICE, "USDC", eth_amount, "ETH", PositionMode::Multiply, &steps);
 
-        // Under-delivery must be detected by either controller output
-        // verification or router slippage validation.
+        // Zero output must be detected by controller output verification or
+        // router-side validation.
         prop_assert!(
             result.is_err(),
             "ShortAggregator under-delivery must be rejected (M-09)"

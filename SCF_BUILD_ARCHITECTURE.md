@@ -109,8 +109,8 @@ Boundaries enforced in code:
   maintenance, and WASM-upgrade endpoints are owner-gated through `#[only_owner]`.
 - Aggregator-router output is validated by balance-delta checks: the
   controller snapshots its token balances, authorizes a single pull of the
-  committed input amount, and verifies on return that the output delta meets
-  `total_min_out` (`contracts/controller/src/strategies/helpers.rs`).
+  committed input amount, and verifies on return that the output delta is
+  positive (`contracts/controller/src/strategies/helpers.rs`).
 - Oracle prices are validated before use: market status, oracle configuration
   presence, freshness, future-timestamp guard, source/strategy policy, sanity
   bounds, and deviation tolerance (`contracts/controller/src/oracle/price.rs`).
@@ -714,31 +714,23 @@ flowchart TD
 All four require account-owner authorization and run market, oracle, e-mode,
 isolation, cap, and health checks shared with the underlying flows.
 
-`AggregatorSwap` shape (see `common/src/types/aggregator.rs`):
+`StrategySwap` shape (see `common/src/types/aggregator.rs`):
 
-- one or more `SwapPath`s,
-- per-path `split_ppm` (parts per million),
-- per-hop `token_in`, `token_out`, `pool`, `venue`, `fee_bps`,
-- aggregate `total_min_out`.
+- opaque `Bytes` decoded only by the aggregator/router.
 
-`validate_aggregator_swap` (`contracts/controller/src/strategies/helpers.rs`) rejects:
+`validate_strategy_swap` (`contracts/controller/src/strategies/helpers.rs`) rejects
+`amount_in <= 0` or empty swap bytes. Lending does not inspect route paths,
+venues, pools, hops, endpoint tokens, slippage floor, or referral id.
 
-- empty `paths`,
-- `amount_in <= 0` or `total_min_out <= 0`,
-- empty `hops` for any path,
-- per-path `split_ppm == 0`,
-- `sum_ppm != 1_000_000`,
-- first hop `token_in != input token`,
-- last hop `token_out != output token`.
-
-The router is invoked through `aggregator::AggregatorClient::batch_execute`
-with `BatchSwap { sender = current_contract_address, total_in, total_min_out,
-referral_id = 0, paths }`. The controller snapshots its input and output
-token balances around the call:
+The router is invoked through `aggregator::AggregatorClient::execute_strategy`
+with `sender = current_contract_address`, `total_in`, and the opaque swap
+bytes. The aggregator payload owns endpoint validation, slippage, and route
+execution.
+The controller snapshots its input and output token balances around the call:
 
 - If post-call input spend exceeds the committed `total_in`, the call
   reverts.
-- If post-call output delta is below `total_min_out`, the call reverts.
+- If post-call output delta is not positive, the call reverts.
 
 The router call runs while the flash-loan single-flight flag is set, so
 mutating controller endpoints reject re-entry during routing.
@@ -753,18 +745,19 @@ sequenceDiagram
     participant T as Tokens
     participant O as Reflector
 
-    U->>C: strategy call with AggregatorSwap
+    U->>C: strategy call with StrategySwap
     C->>C: require_auth, owner match, validate mode + market rules
     C->>O: strict price for risk-bearing legs
     C->>P: initial borrow / withdraw leg
     P-->>C: actual amount, updated index
-    C->>C: validate_aggregator_swap
+    C->>C: validate_strategy_swap
     C->>T: snapshot controller balances
     C->>C: authorize router pull (total_in)
-    C->>R: batch_execute(BatchSwap)
+    C->>R: execute_strategy(sender, total_in, swap_xdr)
+    R->>R: decode opaque swap bytes
     R->>T: route via venues
     C->>T: read post-route balances
-    C->>C: input spend ≤ total_in, output delta ≥ total_min_out
+    C->>C: input spend <= total_in, output delta > 0
     C->>P: final supply / repay leg
     C->>C: post-flow health check + persist account sides
 ```

@@ -62,7 +62,7 @@ pub fn multiply_args(
     debt_amount: i128,
     debt_token: &Address,
     mode: common::types::PositionMode,
-    steps: &common::types::AggregatorSwap,
+    steps: &common::types::StrategySwap,
 ) -> Vec<Val> {
     (
         caller.clone(),
@@ -74,7 +74,7 @@ pub fn multiply_args(
         mode,
         steps.clone(),
         None::<(Address, i128)>,
-        None::<common::types::AggregatorSwap>,
+        None::<common::types::StrategySwap>,
     )
         .into_val(env)
 }
@@ -88,7 +88,7 @@ pub fn swap_collateral_args(
     current_collateral: &Address,
     from_amount: i128,
     new_collateral: &Address,
-    steps: &common::types::AggregatorSwap,
+    steps: &common::types::StrategySwap,
 ) -> Vec<Val> {
     (
         caller.clone(),
@@ -109,7 +109,7 @@ pub fn swap_debt_args(
     existing_debt: &Address,
     new_amount: i128,
     new_debt: &Address,
-    steps: &common::types::AggregatorSwap,
+    steps: &common::types::StrategySwap,
 ) -> Vec<Val> {
     (
         caller.clone(),
@@ -131,7 +131,7 @@ pub fn repay_debt_with_collateral_args(
     collateral: &Address,
     collateral_amount: i128,
     debt: &Address,
-    steps: &common::types::AggregatorSwap,
+    steps: &common::types::StrategySwap,
     close_position: bool,
 ) -> Vec<Val> {
     (

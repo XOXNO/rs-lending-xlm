@@ -6,8 +6,8 @@
 
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::events::InitialMultiplyPaymentEvent;
-use common::types::{Account, AggregatorSwap, AssetConfig, PositionMode};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env};
+use common::types::{Account, AssetConfig, PositionMode, StrategySwap};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -25,9 +25,9 @@ pub struct MultiplyParams<'a> {
     pub debt_to_flash_loan: i128,
     pub debt_token: &'a Address,
     pub mode: PositionMode,
-    pub swap: &'a AggregatorSwap,
+    pub swap: &'a StrategySwap,
     pub initial_payment: Option<(Address, i128)>,
-    pub convert_swap: Option<AggregatorSwap>,
+    pub convert_swap: Option<StrategySwap>,
 }
 
 #[contractimpl]
@@ -42,9 +42,9 @@ impl Controller {
         debt_to_flash_loan: i128,
         debt_token: Address,
         mode: PositionMode,
-        swap: AggregatorSwap,
+        swap: Bytes,
         initial_payment: Option<(Address, i128)>,
-        convert_swap: Option<AggregatorSwap>,
+        convert_swap: Option<Bytes>,
     ) -> u64 {
         process_multiply(
             &env,
@@ -98,7 +98,6 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     );
 
     validation::require_positive_amount(env, debt_to_flash_loan);
-    validation::require_positive_amount(env, swap.total_min_out);
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
@@ -179,7 +178,7 @@ fn collect_initial_multiply_payment(
     collateral_token: &Address,
     debt_token: &Address,
     initial_payment: &Option<(Address, i128)>,
-    convert_swap: &Option<AggregatorSwap>,
+    convert_swap: &Option<StrategySwap>,
 ) -> (i128, i128) {
     let mut collateral_amount = 0;
     let mut debt_extra = 0;

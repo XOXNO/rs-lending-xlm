@@ -10,30 +10,26 @@
 //!   * `swap_tokens` post-failure allowance state.
 extern crate std;
 
-use common::types::AggregatorSwap;
+use common::types::StrategySwap;
 use soroban_sdk::token;
-use soroban_sdk::Vec;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
-use test_harness::{apply_flash_fee, build_aggregator_swap};
+use test_harness::{apply_flash_fee, build_aggregator_swap, mock_swap_payload_xdr};
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
 
 fn build_swap_steps(
     t: &LendingTest,
-    _token_in: &str,
-    _token_out: &str,
+    token_in: &str,
+    token_out: &str,
     min_out: i128,
-) -> AggregatorSwap {
-    // Placeholder fixture for compile-clean tests. The new aggregator ABI
-    // requires per-path SwapHop entries; tests that actually exercise the
-    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
-    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
-    // error-path tests pass through this without reaching swap_tokens.
-    AggregatorSwap {
-        paths: Vec::new(&t.env),
-        total_min_out: min_out,
-    }
+) -> StrategySwap {
+    mock_swap_payload_xdr(
+        &t.env,
+        t.resolve_asset(token_in),
+        t.resolve_asset(token_out),
+        min_out,
+    )
 }
 
 fn flatten<T>(
@@ -498,8 +494,8 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
 
     // Bob tries to reuse Alice's account. He fails at the owner check
     // BEFORE swap_tokens runs, so an empty placeholder fixture is fine —
-    // its `total_min_out > 0` satisfies the entry-point validation, and
-    // the owner check fires next.
+    // the non-empty payload satisfies local swap validation, and the owner
+    // check fires next.
     t.fund_router("USDC", 3_000.0);
     let steps2 = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let bob = t.get_or_create_user(BOB);

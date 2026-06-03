@@ -473,6 +473,7 @@ mod tests {
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
             last_timestamp: 0,
+            cash: 40_000_000,
         };
         let sync = PoolSyncData { params, state };
 

@@ -99,7 +99,7 @@
           "values": null
         },
         "min_sanity_price_wad": "45000000000000000",
-        "max_sanity_price_wad": "155000000000000000"
+        "max_sanity_price_wad": "500000000000000000"
       },
       "market_params": {
         "max_borrow_rate_ray": "2000000000000000000000000000",

@@ -35,7 +35,7 @@ use stellar_fuzz::{
     snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
 };
 
-use common::types::{AggregatorSwap, PositionMode};
+use common::types::{PositionMode, StrategySwap};
 
 const ASSETS: [&str; 3] = ["USDC", "ETH", "XLM"];
 const MAX_OPS: usize = 6;
@@ -93,37 +93,19 @@ fn pick_mode(bits: u8) -> PositionMode {
     }
 }
 
-/// Build a single-hop `SwapSteps` from `token_in` to `token_out` with a
-/// permissive `amount_out_min` (just 1 token-unit). The mock aggregator
-/// delivers exactly `amount_out_min`, so a small value keeps the op from
+/// Build a bytes-only `StrategySwap` with a permissive output
+/// (just 1 token-unit). The mock aggregator delivers exactly that, so a
+/// small value keeps the op from
 /// exhausting the router funding and lets many ops chain in one sequence.
 /// Strategy correctness is asserted via HF floor + reserve checks, not via
 /// matching a specific swap rate.
-use common::types::{SwapPath, SwapHop, SwapVenue};
-use soroban_sdk::testutils::Address;
-
-fn build_steps(t: &LendingTest, token_in: &str, token_out: &str) -> AggregatorSwap {
-    let token_in_addr = t.resolve_asset(token_in);
-    let token_out_addr = t.resolve_asset(token_out);
-    let dummy_pool = soroban_sdk::Address::generate(&t.env);
-
-    let hop = SwapHop {
-        fee_bps: 30,
-        pool: dummy_pool,
-        token_in: token_in_addr,
-        token_out: token_out_addr,
-        venue: SwapVenue::Soroswap,
-    };
-
-    let path = SwapPath {
-        hops: soroban_sdk::vec![&t.env, hop],
-        split_ppm: 1_000_000,
-    };
-
-    AggregatorSwap {
-        paths: soroban_sdk::vec![&t.env, path],
-        total_min_out: 1,
-    }
+fn build_steps(t: &LendingTest, token_in: &str, token_out: &str) -> StrategySwap {
+    test_harness::mock_swap_payload_xdr(
+        &t.env,
+        t.resolve_asset(token_in),
+        t.resolve_asset(token_out),
+        1,
+    )
 }
 
 /// Pre-fund the aggregator with a generous amount of every asset so the

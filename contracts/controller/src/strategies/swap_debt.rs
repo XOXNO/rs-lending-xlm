@@ -1,6 +1,8 @@
 use common::errors::{CollateralError, GenericError};
-use common::types::{AggregatorSwap, DebtPosition};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env};
+use common::types::{DebtPosition, StrategySwap};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -20,7 +22,7 @@ impl Controller {
         existing_debt_token: Address,
         amount: i128,
         new_debt_token: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
     ) {
         process_swap_debt(
             &env,
@@ -41,7 +43,7 @@ pub fn process_swap_debt(
     existing_debt_token: &Address,
     new_debt_amount: i128,
     new_debt_token: &Address,
-    swap: &AggregatorSwap,
+    swap: &StrategySwap,
 ) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -59,8 +61,6 @@ pub fn process_swap_debt(
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
 
     validation::require_positive_amount(env, new_debt_amount);
-    // Reject zero-floor swap requests at entry.
-    validation::require_positive_amount(env, swap.total_min_out);
 
     // Siloed debt cannot be swapped into or out of a multi-asset debt set.
     let existing_debt_config = cache.cached_asset_config(existing_debt_token);

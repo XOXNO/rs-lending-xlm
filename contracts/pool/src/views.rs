@@ -122,6 +122,7 @@ mod tests {
                 borrow_index_ray: 3 * RAY,
                 supply_index_ray: 2 * RAY,
                 last_timestamp: 950_000,
+                cash: 50_000_000,
             };
             let contract = env.register(crate::LiquidityPool, (admin.clone(), params.clone()));
 

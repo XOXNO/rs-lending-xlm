@@ -4,7 +4,7 @@
 //! flash-loan single-flight guard.
 //!
 //! The four strategy entrypoints (`multiply`, `swap_collateral`, `swap_debt`,
-//! `repay_debt_with_collateral`) accept an `AggregatorSwap` and share the exact
+//! `repay_debt_with_collateral`) accept an opaque `StrategySwap` and share the exact
 //! pre-snapshot / post-delta defense against a malicious router (ADR 0005); that
 //! shared code (balance-delta machinery + router client trait) lives in `helpers`,
 //! kept together so the invariant is not diffused. `flash_loan` sits here too —

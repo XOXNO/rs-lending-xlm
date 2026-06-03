@@ -196,6 +196,8 @@ pub struct EventOracleProvider {
     pub anchor_decimals: u32,
     pub anchor_resolution_seconds: u32,
     pub anchor_max_stale_seconds: u64,
+    pub min_sanity_price_wad: i128,
+    pub max_sanity_price_wad: i128,
 }
 
 impl EventOracleProvider {
@@ -241,6 +243,8 @@ impl EventOracleProvider {
             anchor_max_stale_seconds: anchor_or_zero(anchor.as_ref(), |source| {
                 source.max_stale_seconds
             }),
+            min_sanity_price_wad: market.oracle_config.min_sanity_price_wad,
+            max_sanity_price_wad: market.oracle_config.max_sanity_price_wad,
         }
     }
 }
@@ -323,6 +327,7 @@ pub struct CreateMarketEvent {
     pub slope3: i128,
     pub mid_utilization: i128,
     pub optimal_utilization: i128,
+    pub max_utilization: i128,
     pub reserve_factor: u32,
     pub market_address: Address,
     pub config: AssetConfigRaw,
@@ -339,6 +344,7 @@ pub struct UpdateMarketParamsEvent {
     pub slope3_ray: i128,
     pub mid_utilization_ray: i128,
     pub optimal_utilization_ray: i128,
+    pub max_utilization_ray: i128,
     pub reserve_factor_bps: u32,
 }
 
@@ -592,7 +598,8 @@ mod tests {
     use crate::types::{
         AssetConfigRaw, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
         OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
-        OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorSourceConfig,
+        OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorBase,
+        ReflectorSourceConfig,
     };
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{contract, vec, BytesN, Vec};
@@ -655,6 +662,7 @@ mod tests {
                     read_mode: OracleReadMode::Twap(12),
                     decimals: 14,
                     resolution_seconds: 300,
+                    base: ReflectorBase::Usd,
                 }),
                 anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
                     ReflectorSourceConfig {
@@ -663,6 +671,7 @@ mod tests {
                         read_mode: OracleReadMode::Spot,
                         decimals: 7,
                         resolution_seconds: 300,
+                        base: ReflectorBase::Usd,
                     },
                 )),
                 min_sanity_price_wad: 0,
@@ -818,6 +827,7 @@ mod tests {
                 slope3: 0,
                 mid_utilization: 0,
                 optimal_utilization: 0,
+                max_utilization: 0,
                 reserve_factor: 0,
                 market_address: asset.clone(),
                 config: dummy_asset_config(&env),
@@ -833,6 +843,7 @@ mod tests {
                 slope3_ray: 0,
                 mid_utilization_ray: 0,
                 optimal_utilization_ray: 0,
+                max_utilization_ray: 0,
                 reserve_factor_bps: 0,
             }
             .publish(&env);

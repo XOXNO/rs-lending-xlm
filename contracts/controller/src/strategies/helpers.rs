@@ -1,13 +1,11 @@
 //! Shared strategy helpers for aggregator swaps and balance-delta checks.
 //!
-//! Strategies never trust router-reported amounts. The controller validates the
-//! user-supplied route, snapshots token balances before the router call, and
-//! verifies input spend and output receipt from observed SAC balances.
+//! Strategies never trust router-reported amounts. The controller treats route
+//! bytes as opaque, snapshots token balances before the router call, and verifies
+//! input spend and output receipt from observed SAC balances.
 
 use common::errors::GenericError;
-use common::types::{
-    Account, AccountPosition, AccountPositionType, AggregatorSwap, BatchSwap, DebtPosition,
-};
+use common::types::{Account, AccountPosition, AccountPositionType, DebtPosition, StrategySwap};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Symbol, Vec,
@@ -21,13 +19,12 @@ use crate::utils::EventContext;
 use crate::{positions::borrow, storage, utils, validation};
 
 pub(crate) mod aggregator {
-    use common::types::BatchSwap;
-    use soroban_sdk::contractclient;
+    use soroban_sdk::{contractclient, Address, Bytes, Env};
 
     #[allow(dead_code)] // Generates the Soroban client proxy.
     #[contractclient(name = "AggregatorClient")]
     pub trait Aggregator {
-        fn batch_execute(env: soroban_sdk::Env, batch: BatchSwap) -> i128;
+        fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128;
     }
 }
 
@@ -151,92 +148,38 @@ pub(crate) fn swap_tokens(
     token_in: &Address,
     amount_in: i128,
     token_out: &Address,
-    swap: &AggregatorSwap,
+    swap: &StrategySwap,
 ) -> i128 {
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
     let token_in_client = soroban_sdk::token::Client::new(env, token_in);
 
-    validate_aggregator_swap(env, swap, token_in, token_out, amount_in);
+    validate_strategy_swap(env, swap, amount_in);
 
     // Snapshot balances so `verify_router_output` can check the exact delta —
     // a defensive guard against future router ABI drift.
     let balance_before = snapshot_swap_balances(env, &token_in_client, &token_out_client);
 
-    // `sender` is forced to the controller (never user input) to close any
-    // spoof path; `total_in` is the controller's authoritative withdrawal
-    // amount; `referral_id = 0` disables router fees.
-    let batch = BatchSwap {
-        paths: swap.paths.clone(),
-        referral_id: 0,
-        sender: env.current_contract_address(),
-        total_in: amount_in,
-        total_min_out: swap.total_min_out,
-    };
-
     // Pre-authorize only the router's input-token pull; its other transfers
     // are router-initiated and covered by direct-caller attestation.
-    pre_authorize_router_pulls(env, &router_addr, &batch);
+    pre_authorize_router_pull(env, &router_addr, token_in, amount_in);
 
-    call_router_with_reentrancy_guard(env, &router, &batch);
+    call_router_with_reentrancy_guard(env, &router, amount_in, swap);
 
     // Defense-in-depth: reject any pull above the committed input. Underspend
-    // stays on the controller; the output minimum guards what we received.
+    // stays on the controller; the aggregator payload enforces slippage.
     verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
 
-    // Controller-side slippage guard — the strategy's primary check, not just a
-    // sanity check on the router's own `total_out >= total_min_out`.
-    verify_router_output(
-        env,
-        &token_out_client,
-        balance_before.token_out,
-        swap.total_min_out,
-    )
+    verify_router_output(env, &token_out_client, balance_before.token_out)
 }
 
-/// Rejects swap batches that do not match the strategy's committed assets and input.
-fn validate_aggregator_swap(
-    env: &Env,
-    swap: &AggregatorSwap,
-    token_in: &Address,
-    token_out: &Address,
-    amount_in: i128,
-) {
-    // Malformed batches are caller mistakes — reported as `InvalidPayments`,
-    // matching the controller's other malformed-input surfaces.
-    assert_with_error!(env, !swap.paths.is_empty(), GenericError::InvalidPayments);
-    if amount_in <= 0 || swap.total_min_out <= 0 {
+/// Rejects swap requests with impossible controller-side bounds.
+fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
+    if amount_in <= 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
-
-    // Each path declares a non-zero PPM share and runs token_in -> token_out.
-    // No per-path amounts to validate (router derives them from split_ppm), and
-    // rounding drift is irrelevant: amount_in is the actual withdrawal delta.
-    let mut sum_ppm: u32 = 0;
-    for path in swap.paths.iter() {
-        assert_with_error!(env, !path.hops.is_empty(), GenericError::InvalidPayments);
-        assert_with_error!(env, path.split_ppm != 0, GenericError::InvalidPayments);
-        sum_ppm = sum_ppm
-            .checked_add(path.split_ppm)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InvalidPayments));
-
-        let first_hop = validation::expect_invariant(env, path.hops.get(0));
-        assert_with_error!(
-            env,
-            first_hop.token_in == *token_in,
-            GenericError::WrongToken
-        );
-        let last_hop = validation::expect_invariant(env, path.hops.get(path.hops.len() - 1));
-        assert_with_error!(
-            env,
-            last_hop.token_out == *token_out,
-            GenericError::WrongToken
-        );
-    }
-    // PPM weights must sum to exactly 1_000_000; the router would also reject
-    // a bad sum, but failing fast here keeps the panic close to the caller.
-    assert_with_error!(env, sum_ppm == 1_000_000, GenericError::InvalidPayments);
+    assert_with_error!(env, !swap.is_empty(), GenericError::InvalidPayments);
 }
 
 fn snapshot_swap_balances(
@@ -254,28 +197,33 @@ fn snapshot_swap_balances(
 fn call_router_with_reentrancy_guard(
     env: &Env,
     router: &aggregator::AggregatorClient,
-    batch: &BatchSwap,
+    amount_in: i128,
+    swap: &StrategySwap,
 ) {
     let previously_set = storage::is_flash_loan_ongoing(env);
     storage::set_flash_loan_ongoing(env, true);
-    let _ = router.batch_execute(batch);
+    let sender = env.current_contract_address();
+    let _ = router.execute_strategy(&sender, &amount_in, swap);
     if !previously_set {
         storage::set_flash_loan_ongoing(env, false);
     }
 }
 
 /// Pre-authorizes the router to pull the strategy input token from the controller.
-fn pre_authorize_router_pulls(env: &Env, router_addr: &Address, batch: &BatchSwap) {
-    let first_path = validation::expect_invariant(env, batch.paths.get(0));
-    let first_hop = validation::expect_invariant(env, first_path.hops.get(0));
+fn pre_authorize_router_pull(
+    env: &Env,
+    router_addr: &Address,
+    token_in: &Address,
+    amount_in: i128,
+) {
     let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
-            contract: first_hop.token_in.clone(),
+            contract: token_in.clone(),
             fn_name: symbol_short!("transfer"),
             args: (
                 env.current_contract_address(),
                 router_addr.clone(),
-                batch.total_in,
+                amount_in,
             )
                 .into_val(env),
         },
@@ -298,8 +246,9 @@ fn verify_router_input_spend(
         GenericError::InternalError
     );
     let actual_in_spent = balance_before - balance_after;
-    // Allow underspend (leftover stays on the controller; output still enforces
-    // `total_min_out`); reject overspend — router/token pulled more than committed.
+    // Allow underspend (leftover stays on the controller; the aggregator
+    // payload enforces slippage); reject overspend — router/token pulled more
+    // than committed.
     assert_with_error!(
         env,
         actual_in_spent <= amount_in,
@@ -311,14 +260,13 @@ fn verify_router_output(
     env: &Env,
     token_out_client: &soroban_sdk::token::Client,
     balance_before: i128,
-    total_min_out: i128,
 ) -> i128 {
     // Received must be non-negative; a decrease means aggregator/token misbehavior.
     let received = balance_delta(env, token_out_client, balance_before);
 
-    // Defense-in-depth slippage check: the router already enforces
-    // `total_out >= total_min_out`; entrypoints reject `total_min_out <= 0`.
-    assert_with_error!(env, received >= total_min_out, GenericError::InternalError);
+    // The aggregator payload owns slippage. The controller still requires an
+    // observable positive output delta from the trusted aggregator call.
+    assert_with_error!(env, received > 0, GenericError::InternalError);
 
     received
 }

@@ -219,7 +219,7 @@ fn test_swap_debt_replaces_borrow() {
     assert!(initial_eth > 0.9, "should have ~1 ETH borrow");
 
     // Swap ETH debt -> WBTC debt. Borrow 1 WBTC ($60000), swap to ETH (need
-    // enough to repay 1 ETH). min_amount_out = 1_0000000 raw ETH (1 ETH).
+    // enough to repay 1 ETH). min_out = 1_0000000 raw ETH (1 ETH).
     t.fund_router("ETH", 1.0);
     // swap_debt borrows 1.0 WBTC (7 decimals = 10_000_000 raw) minus 9bps flash fee.
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 1_0000000);
@@ -610,7 +610,7 @@ fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
     assert!(hf_before >= 1.0);
 
     // Swap 10 ETH debt into 0.5 WBTC debt ($30,000 at $60k each). The swap
-    // output must cover 10 ETH of repayment, so `min_amount_out` is 10 ETH.
+    // output must cover 10 ETH of repayment, so `min_out` is 10 ETH.
     t.fund_router("ETH", 10.0);
     // swap_debt borrows 0.5 WBTC (7 decimals = 5_000_000 raw) minus 9bps flash fee.
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(5_000_000), 10_0000000);

@@ -10,16 +10,15 @@
 The protocol exposes leveraged and rebalancing strategies (`multiply`,
 `swap_collateral`, `swap_debt`, `repay_debt_with_collateral`) that route
 through an external aggregator router. The aggregator accepts an
-off-chain-built `AggregatorSwap` shape (multi-path, multi-hop, per-path
-PPM splits) and is expected to produce at least `total_min_out` of the
-output token in exchange for at most `total_in` of the input token.
+off-chain-built opaque swap payload and is expected to enforce endpoint tokens,
+slippage, referrals, and route execution in exchange for at most `total_in` of
+the input token.
 
 Two failure modes have to be defended against without trusting the
 router's bookkeeping:
 
 1. The router pulls more input than committed.
-2. The router returns less output than committed (or returns the wrong
-   token entirely).
+2. The router returns no output, sends the wrong token, or misreports output.
 
 A naive design accepts the router's reported numbers. A more defensive
 design treats the router as untrusted at the boundary and verifies the
@@ -30,33 +29,34 @@ controller's own token balances before and after the call.
 The controller measures what crossed the router boundary instead of trusting
 router-reported amounts.
 
-**Pre-call shape validation** (`contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`).
-`amount_in` is not a field of `AggregatorSwap` (whose only scalar field is
-`total_min_out`); it is the strategy's own measured leg delta — the withdrawn
-or borrowed amount — passed into `swap_tokens` and bound to `BatchSwap.total_in`:
+**Pre-call strategy-bound validation** (`contracts/controller/src/strategies/helpers.rs::validate_strategy_swap`).
+`StrategySwap` is just opaque `Bytes`; `amount_in` is the strategy's own
+measured leg delta — the withdrawn or borrowed amount — passed into
+`swap_tokens` and bound to `execute_strategy.total_in`. The controller
+validates only:
 
-- `paths` is non-empty (else `InvalidPayments`).
-- `amount_in > 0` and `total_min_out > 0` (else `AmountMustBePositive`).
-- Each path has non-empty `hops` and `split_ppm > 0` (else `InvalidPayments`).
-- `sum(split_ppm) == 1_000_000` (else `InvalidPayments`).
-- First-hop `token_in` equals the strategy's input token; last-hop
-  `token_out` equals the strategy's output token, on every path (else
-  `WrongToken`).
+- `amount_in > 0` (else `AmountMustBePositive`).
+- swap bytes are non-empty (else `InvalidPayments`).
+- `token_in` and `token_out` are the strategy-known assets selected by the
+  lending flow, not values decoded from the swap payload.
+
+The route itself is opaque `Bytes` owned by the aggregator/router ABI. The
+controller does not decode or validate paths, hops, pools, venues, or splits.
 
 **Pre-call balance snapshot** (`snapshot_swap_balances`): the controller
 records its own balances of both the input and output tokens.
 
-**On-call binding**: the on-the-wire `BatchSwap.sender` is forced to the
-controller; `total_in` is the controller's committed input amount;
-`referral_id = 0` disables router-side fee paths. The controller
-pre-authorizes a single input-token pull from itself.
+**On-call binding**: the on-the-wire `execute_strategy.sender` is forced to the
+controller and `total_in` is the controller's committed input amount. The
+opaque swap bytes are forwarded unchanged. The controller pre-authorizes a
+single input-token pull from itself.
 
 **Post-call delta verification**:
 
 - `verify_router_input_spend` rejects any post-call input spend exceeding
   the committed `amount_in`. Underspend stays on the controller.
-- `verify_router_output` rejects when the post-call output delta is
-  below `total_min_out`.
+- `verify_router_output` rejects when the post-call output delta is not
+  positive.
 
 Both delta checks currently surface their rejection as the generic
 `GenericError::InternalError`.
@@ -79,13 +79,13 @@ TTL entrypoint are not on this guard.)
   ABI drift could silently misreport. Balance deltas are a check the
   router cannot lie about.
 - **Per-hop on-chain validation.** Rejected: duplicates the router's job
-  and fights the aggregator design. The controller does not need
-  per-hop visibility, only the aggregate input and output deltas.
+  and fights the aggregator design. The controller does not need per-hop
+  visibility, only the aggregate input and output deltas.
 - **Quote-driven `amount_in` from off-chain.** Rejected: the controller
   uses its own withdrawal/borrow delta as `amount_in`, not the
   off-chain quote. Quote drift (off-chain price moved between quote
-  and execution) is therefore irrelevant; the only post-condition is
-  `total_min_out`.
+  and execution) is therefore irrelevant to input authorization; slippage is
+  enforced by the aggregator payload.
 
 ## Consequences
 
@@ -105,17 +105,18 @@ Negative / accepted costs:
   router call (`snapshot_swap_balances`) and both re-read after — input via
   `verify_router_input_spend`, output via `verify_router_output`. A `multiply`
   with a cross-token initial payment runs two swaps, doubling this.
-- Off-chain integrators must build `AggregatorSwap` shapes that match
-  the strategy's input and output tokens exactly; mismatches revert
-  with `InvalidPayments` or `WrongToken`.
+- Off-chain integrators must build route bytes that the aggregator can decode.
+  Lending will not reject malformed route internals before the router call; it
+  only enforces the strategy-owned input amount, selected assets, and positive
+  output delta.
 
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §11.1 (Strategies).
-- `contracts/controller/src/strategies/helpers.rs::validate_aggregator_swap`
+- `contracts/controller/src/strategies/helpers.rs::validate_strategy_swap`
 - `contracts/controller/src/strategies/helpers.rs::snapshot_swap_balances`
 - `contracts/controller/src/strategies/helpers.rs::verify_router_input_spend`
 - `contracts/controller/src/strategies/helpers.rs::verify_router_output`
 - `contracts/controller/src/storage/instance.rs::set_flash_loan_ongoing`
 - `contracts/controller/src/validation.rs::require_not_flash_loaning`
-- `common/src/types/aggregator.rs` (`AggregatorSwap`, `BatchSwap`)
+- `common/src/types/aggregator.rs` (`StrategySwap`)

@@ -389,6 +389,10 @@ pub struct PoolStateRaw {
     pub borrow_index_ray: i128,
     pub supply_index_ray: i128,
     pub last_timestamp: u64,
+    /// Liquid token units the pool holds (available reserves), tracked
+    /// internally on each in/out flow instead of reading the token balance —
+    /// so direct donations cannot inflate borrowable liquidity.
+    pub cash: i128,
 }
 
 /// Typed pool accounting state.
@@ -400,6 +404,8 @@ pub struct PoolState {
     pub borrow_index: Ray,
     pub supply_index: Ray,
     pub last_timestamp: u64,
+    /// Liquid token units held by the pool (available reserves).
+    pub cash: i128,
 }
 
 impl From<&PoolStateRaw> for PoolState {
@@ -411,6 +417,7 @@ impl From<&PoolStateRaw> for PoolState {
             borrow_index: Ray::from(r.borrow_index_ray),
             supply_index: Ray::from(r.supply_index_ray),
             last_timestamp: r.last_timestamp,
+            cash: r.cash,
         }
     }
 }
@@ -424,6 +431,7 @@ impl From<&PoolState> for PoolStateRaw {
             borrow_index_ray: t.borrow_index.raw(),
             supply_index_ray: t.supply_index.raw(),
             last_timestamp: t.last_timestamp,
+            cash: t.cash,
         }
     }
 }
@@ -536,9 +544,11 @@ mod tests {
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
             last_timestamp: 1_700_000_000_000,
+            cash: 40_000_000,
         };
         let typed = PoolState::from(&raw);
         let back = PoolStateRaw::from(&typed);
+        assert_eq!(back.cash, raw.cash);
         assert_eq!(back.supplied_ray, raw.supplied_ray);
         assert_eq!(back.borrowed_ray, raw.borrowed_ray);
         assert_eq!(back.revenue_ray, raw.revenue_ray);

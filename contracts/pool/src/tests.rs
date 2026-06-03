@@ -101,6 +101,15 @@ impl TestSetup {
         let token_admin = token::StellarAssetClient::new(&env, &asset_address);
         token_admin.mint(&pool_address, &100_000_000_000_000i128);
 
+        // Seed internal `cash` to match the minted balance: reserves are now
+        // tracked internally, so the pool's starting liquidity lives in `cash`.
+        env.as_contract(&pool_address, || {
+            let mut state: PoolStateRaw =
+                env.storage().instance().get(&PoolKey::State).unwrap();
+            state.cash = 100_000_000_000_000i128;
+            env.storage().instance().set(&PoolKey::State, &state);
+        });
+
         TestSetup {
             env,
             admin,
@@ -414,6 +423,10 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
     let borrower = Address::generate(&t.env);
     let borrow_pos = t.borrow_position();
     client.borrow(&borrower, &99_999_990_000_000i128, &borrow_pos, &i128::MAX);
+
+    // Reserves are tracked as `cash`; drain it below the withdrawal amount so
+    // the insufficient-liquidity guard fires.
+    t.edit_state(|s| s.cash = 5_000_000_000i128);
 
     let user = Address::generate(&t.env);
     let result = flatten_contract_result(client.try_withdraw(
@@ -831,6 +844,10 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     let supply_pos = t.deposit_position();
     let oversized_supply = client.supply(&supply_pos, &200_000_000_000_000i128, &i128::MAX);
     let _ = client.seize_position(&AccountPositionType::Deposit, &oversized_supply.position);
+
+    // Reserves (cash) below the revenue treasury → claim caps at reserves and
+    // leaves residual revenue.
+    t.edit_state(|s| s.cash = 100_000_000_000_000i128);
 
     let claimed = client.claim_revenue().actual_amount;
     let remaining_revenue = client.protocol_revenue();

@@ -161,6 +161,7 @@ mod tests {
                 borrow_index_ray: RAY,
                 supply_index_ray: RAY,
                 last_timestamp: 0,
+                cash: 0,
             });
             let (rev_before, supp_before) = (cache.revenue, cache.supplied);
             add_protocol_revenue_ray(&mut cache, Ray::ZERO);
@@ -183,6 +184,7 @@ mod tests {
                 borrow_index_ray: RAY,
                 supply_index_ray: SUPPLY_INDEX_FLOOR_RAW - 1,
                 last_timestamp: 0,
+                cash: 0,
             });
             let (rev_before, supp_before) = (cache.revenue, cache.supplied);
 
@@ -205,6 +207,7 @@ mod tests {
                 borrow_index_ray: RAY,
                 supply_index_ray: RAY,
                 last_timestamp: 0,
+                cash: 0,
             });
             let index_before = cache.supply_index;
             apply_bad_debt_to_supply_index(&mut cache, Ray::from(5 * RAY));
@@ -225,6 +228,7 @@ mod tests {
                 borrow_index_ray: RAY,
                 supply_index_ray: RAY, // total supply value = 10 * RAY
                 last_timestamp: 0,
+                cash: 0,
             });
 
             // bad_debt > total_supplied -> capped path + >90% reduction
@@ -255,6 +259,7 @@ mod tests {
                 // Supply index ~1.0 means total_supplied_value ~= 1000*RAY.
                 supply_index_ray: RAY,
                 last_timestamp: 0,
+                cash: 0,
             });
             let old_index = cache.supply_index.raw();
 
@@ -280,6 +285,7 @@ mod tests {
                 borrow_index_ray: RAY,
                 supply_index_ray: RAY,
                 last_timestamp: 0,
+                cash: 0,
             });
             let old_index = cache.supply_index.raw();
 

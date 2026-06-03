@@ -46,10 +46,14 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         resolved.price_wad > 0,
         OracleError::InvalidPrice
     );
-    // Sanity price bounds.
-    if config.max_sanity_price_wad <= 0
-        || resolved.price_wad < config.min_sanity_price_wad
-        || resolved.price_wad > config.max_sanity_price_wad
+    // Sanity price bounds. Risk-decreasing flows (supply, repay, view) tolerate
+    // an out-of-bounds price the same way they tolerate stale/deviated sources:
+    // they can only reduce account risk, and any value extraction needs a
+    // risk-increasing flow that re-resolves the price with sanity enforced.
+    if !cache.oracle_policy.allows_sanity_violation()
+        && (config.max_sanity_price_wad <= 0
+            || resolved.price_wad < config.min_sanity_price_wad
+            || resolved.price_wad > config.max_sanity_price_wad)
     {
         panic_with_error!(cache.env(), OracleError::SanityBoundViolated);
     }

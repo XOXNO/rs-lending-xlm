@@ -2,9 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountAttributes, AccountPositionRaw, AggregatorSwap, AssetExtendedConfigView,
-    DebtPositionRaw, EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView,
-    PositionMode,
+    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
+    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, PositionMode,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
@@ -40,7 +39,7 @@ pub trait ControllerInterface {
         debt_payments: Vec<(Address, i128)>,
     );
 
-    /// Opens or adjusts a leveraged position through an aggregator swap route.
+    /// Opens or adjusts a leveraged position through an opaque aggregator route.
     fn multiply(
         env: Env,
         caller: Address,
@@ -50,9 +49,9 @@ pub trait ControllerInterface {
         debt_to_flash_loan: i128,
         debt_token: Address,
         mode: PositionMode,
-        swap: AggregatorSwap,
+        swap: Bytes,
         initial_payment: Option<(Address, i128)>,
-        convert_swap: Option<AggregatorSwap>,
+        convert_swap: Option<Bytes>,
     ) -> u64;
 
     /// Swaps an existing debt asset into a new debt asset through the aggregator.
@@ -63,7 +62,7 @@ pub trait ControllerInterface {
         existing_debt_token: Address,
         amount: i128,
         new_debt_token: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
     );
 
     /// Swaps supplied collateral from one asset into another through the aggregator.
@@ -74,7 +73,7 @@ pub trait ControllerInterface {
         current_collateral: Address,
         amount: i128,
         new_collateral: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
     );
 
     /// Uses collateral proceeds to repay debt through the aggregator.
@@ -85,7 +84,7 @@ pub trait ControllerInterface {
         collateral_token: Address,
         collateral_amount: i128,
         debt_token: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
         close_position: bool,
     );
 

@@ -24,7 +24,7 @@ use common::constants::{
 use common::types::{
     AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
-    OracleStrategy, PriceFeedRaw, ReflectorSourceConfig,
+    OracleStrategy, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 // Local helpers
 
@@ -81,6 +81,7 @@ fn pinned_market_config(
                 read_mode: OracleReadMode::Spot,
                 decimals: 14,
                 resolution_seconds: 300,
+                base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,
             min_sanity_price_wad: 0,

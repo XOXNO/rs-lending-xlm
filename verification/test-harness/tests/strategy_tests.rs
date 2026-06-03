@@ -1,26 +1,25 @@
 extern crate std;
 
 use common::constants::WAD;
-use common::types::AggregatorSwap;
-use soroban_sdk::Vec;
-use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
+use common::types::StrategySwap;
+use test_harness::{
+    assert_contract_error, errors, eth_preset, mock_swap_payload_xdr, usdc_preset, LendingTest,
+    ALICE,
+};
 
 /// Placeholder swap that should only be used by tests failing before router execution.
 fn build_swap_steps(
     t: &LendingTest,
-    _token_in: &str,
-    _token_out: &str,
+    token_in: &str,
+    token_out: &str,
     min_out: i128,
-) -> AggregatorSwap {
-    // Placeholder fixture for compile-clean tests. The new aggregator ABI
-    // requires per-path SwapHop entries; tests that actually exercise the
-    // swap path must build a real `AggregatorSwap` inline (with `SwapPath`
-    // / `SwapHop` matching the strategy's amount_in and tokens). Pre-swap
-    // error-path tests pass through this without reaching swap_tokens.
-    AggregatorSwap {
-        paths: Vec::new(&t.env),
-        total_min_out: min_out,
-    }
+) -> StrategySwap {
+    mock_swap_payload_xdr(
+        &t.env,
+        t.resolve_asset(token_in),
+        t.resolve_asset(token_out),
+        min_out,
+    )
 }
 // 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
 
@@ -168,8 +167,8 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
     // Provide the initial payment as collateral to the multiply function.
     // Because the collateral is isolated, multiply must create an isolated
     // account and enforce the $100 ceiling on the USDC debt leg.
-    // amount_out_min = 1 is a positive sentinel; this test fails before
-    // reaching the swap router.
+    // The encoded payload is non-empty; this test fails before reaching the
+    // swap router.
     let steps = build_swap_steps(&t, "USDC", "SHITCOIN", 1);
 
     // Call multiply directly using the raw client.

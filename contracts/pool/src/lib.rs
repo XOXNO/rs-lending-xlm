@@ -70,6 +70,7 @@ impl LiquidityPool {
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
             last_timestamp: env.ledger().timestamp() * MS_PER_SECOND,
+            cash: 0,
         };
         env.storage().instance().set(&PoolKey::State, &state);
     }
@@ -95,6 +96,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         scaled += scaled_amount;
         cache.supplied += scaled_amount;
+        // Controller already transferred `amount` into the pool before this call.
+        cache.cash += amount;
 
         cache.save();
         cache.position_mutation(scaled, amount)
@@ -122,6 +125,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.borrowed += scaled_debt;
         // Borrow cannot leave the pool above its max-utilization cap.
         utils::require_utilization_below_max(&env, &cache);
+        cache.cash -= amount;
 
         // CEI: snapshot + commit before external call.
         cache.save();
@@ -159,6 +163,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             utils::require_utilization_below_max(&env, &cache);
         }
         utils::require_solvent_withdraw_state(&env, &cache);
+        cache.cash -= net_transfer;
 
         // CEI: snapshot + commit before external call.
         cache.save();
@@ -181,6 +186,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         scaled = scaled.checked_sub(&env, scaled_repay);
         cache.borrowed.checked_sub_assign(&env, scaled_repay);
+        // Controller moved `amount` in; the `overpayment` is refunded below.
+        cache.cash += amount - overpayment;
 
         // CEI: snapshot + commit before external call.
         cache.save();
@@ -208,6 +215,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let amount = Ray::from_asset(amount_raw, cache.params.asset_decimals);
         cache.supply_index = update_supply_index(&env, cache.supplied, cache.supply_index, amount);
+        // Controller transferred `amount_raw` of reward tokens into the pool.
+        cache.cash += amount_raw;
 
         cache.save();
         cache.market_snapshot()
@@ -279,6 +288,9 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
+        // Net token effect: out `amount`, back `amount + fee` → +fee. The loan
+        // uses direct token transfers (with balance assertions), not transfer_out.
+        cache.cash += fee;
 
         cache.save();
         cache.market_snapshot()
@@ -315,6 +327,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
 
         let amount_to_send = amount - fee;
+        cache.cash -= amount_to_send;
 
         // CEI: snapshot + commit before external call.
         cache.save();
@@ -357,6 +370,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         let amount_to_transfer = cache.burn_claimable_revenue();
 
         utils::require_solvent_withdraw_state(&env, &cache);
+        cache.cash -= amount_to_transfer;
 
         // CEI: commit state before external call.
         cache.save();

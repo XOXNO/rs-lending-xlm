@@ -1,6 +1,8 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
-use common::types::{Account, AccountPosition, AccountPositionType, AggregatorSwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env};
+use common::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -22,7 +24,7 @@ impl Controller {
         current_collateral: Address,
         amount: i128,
         new_collateral: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
     ) {
         process_swap_collateral(
             &env,
@@ -44,7 +46,7 @@ pub fn process_swap_collateral(
     current_collateral: &Address,
     from_amount: i128,
     new_collateral: &Address,
-    swap: &AggregatorSwap,
+    swap: &StrategySwap,
 ) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -74,8 +76,6 @@ pub fn process_swap_collateral(
     let mut cache = Cache::new(env, policy);
 
     validation::require_positive_amount(env, from_amount);
-    // Reject zero-floor swap requests at entry.
-    validation::require_positive_amount(env, swap.total_min_out);
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 

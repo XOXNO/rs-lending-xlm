@@ -20,8 +20,8 @@ use test_harness::{
 
 // All three adversarial tests below `multiply` 1.0 ETH (raw 10_000_000 at
 // 7 decimals). After the 9bps flash fee the controller actually swaps
-// `apply_flash_fee(10_000_000)`; the fixture path must match that value
-// for `validate_aggregator_swap` to accept the batch.
+// `apply_flash_fee(10_000_000)`; the fixture keeps that value at the call site
+// for readability, while the controller supplies the authoritative router input.
 const SWAP_REQUESTED_ETH: i128 = 10_000_000;
 const SWAP_MIN_OUT_USDC: i128 = 30_000_000_000;
 
@@ -53,8 +53,8 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         .build();
 
     let bad = install_bad_router(&t, BadMode::Refund);
-    // Seed the bad router with USDC output so it can satisfy the swap's
-    // `amount_out_min` transfer before the adversarial token_in refund.
+    // Seed the bad router with USDC output so it can satisfy the mock output
+    // transfer before the adversarial token_in refund.
     mint_to(&t, "USDC", &bad, 300_000_000_000); // 3000 USDC
                                                 // Seed the bad router with ETH so it can perform the net-positive refund
                                                 // back to the controller (violating the balance_in_after invariant).
@@ -128,8 +128,8 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
     );
 }
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
-// token_out. The controller's `received < amount_out_min` postcheck rejects
-// the swap immediately.
+// token_out. The controller's positive output-delta check rejects the swap
+// immediately.
 
 #[test]
 fn test_swap_tokens_handles_zero_output_from_router() {
@@ -156,7 +156,7 @@ fn test_swap_tokens_handles_zero_output_from_router() {
         &steps,
     );
 
-    // amount_out_min postcheck in `strategy::swap_tokens` rejects the
+    // The positive output-delta check in `strategy::swap_tokens` rejects the
     // shortfall immediately with INTERNAL_ERROR.
     assert_contract_error(result, errors::INTERNAL_ERROR);
 }

@@ -215,6 +215,7 @@ pub fn create_liquidity_pool(
         slope3: params.slope3_ray,
         mid_utilization: params.mid_utilization_ray,
         optimal_utilization: params.optimal_utilization_ray,
+        max_utilization: params.max_utilization_ray,
         reserve_factor: params.reserve_factor_bps,
         market_address: pool_address.clone(),
         config: config.clone(),
@@ -250,6 +251,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
         slope3_ray: params.slope3_ray,
         mid_utilization_ray: params.mid_utilization_ray,
         optimal_utilization_ray: params.optimal_utilization_ray,
+        max_utilization_ray: params.max_utilization_ray,
         reserve_factor_bps: params.reserve_factor_bps,
     }
     .publish(env);

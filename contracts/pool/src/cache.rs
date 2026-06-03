@@ -19,6 +19,9 @@ pub struct Cache {
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
+    /// Liquid token units held by the pool (available reserves), tracked
+    /// internally instead of reading the on-chain token balance.
+    pub cash: i128,
 }
 
 impl Cache {
@@ -50,6 +53,7 @@ impl Cache {
             last_timestamp: state.last_timestamp,
             current_timestamp: timestamp,
             params: market_params,
+            cash: state.cash,
         }
     }
 
@@ -63,6 +67,7 @@ impl Cache {
             borrow_index_ray: self.borrow_index.raw(),
             supply_index_ray: self.supply_index.raw(),
             last_timestamp: self.last_timestamp,
+            cash: self.cash,
         };
 
         self.env.storage().instance().set(&PoolKey::State, &state);
@@ -95,10 +100,11 @@ impl Cache {
         )
     }
 
-    /// Live on-chain balance of the pool's asset held by this contract.
+    /// Available reserves = internally-tracked `cash` (liquid token units the
+    /// pool holds). Replaces a live `token.balance()` read so donations cannot
+    /// inflate borrowable liquidity and so flows avoid a cross-contract call.
     pub fn live_reserves(&self) -> i128 {
-        let token = soroban_sdk::token::Client::new(&self.env, &self.params.asset_id);
-        token.balance(&self.env.current_contract_address())
+        self.cash
     }
 
     /// Transfers pool asset to `recipient`; zero and negative amounts are no-ops.
@@ -341,6 +347,7 @@ mod tests {
                 last_timestamp: 0,
                 current_timestamp: 1_000_000,
                 params: (&t.params).into(),
+                cash: 0,
             };
 
             assert_eq!(cache.calculate_utilization(), Ray::ZERO);
@@ -366,6 +373,7 @@ mod tests {
             last_timestamp: 0,
             current_timestamp: 1_000_000,
             params: params.into(),
+            cash: 0,
         }
     }
 

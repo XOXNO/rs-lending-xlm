@@ -2,7 +2,7 @@ extern crate std;
 
 use common::types::{
     OracleAssetRef, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
-    ReflectorSourceConfig,
+    ReflectorBase, ReflectorSourceConfig,
 };
 use soroban_sdk::Address;
 use test_harness::{
@@ -46,6 +46,7 @@ fn set_dual_oracle_dex(t: &LendingTest, asset_name: &str, dex_oracle: Address) {
                 read_mode: OracleReadMode::Spot,
                 decimals: 14,
                 resolution_seconds: 300,
+                base: ReflectorBase::Usd,
             }));
         t.env.storage().persistent().set(&key, &market);
     });

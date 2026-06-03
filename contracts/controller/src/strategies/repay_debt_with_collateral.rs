@@ -1,6 +1,8 @@
 use common::errors::CollateralError;
-use common::types::{Account, AccountPosition, AggregatorSwap, DebtPosition};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env};
+use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -17,7 +19,7 @@ pub struct RepayWithCollateralParams<'a> {
     pub collateral_token: &'a Address,
     pub collateral_amount: i128,
     pub debt_token: &'a Address,
-    pub swap: &'a AggregatorSwap,
+    pub swap: &'a StrategySwap,
     pub close_position: bool,
 }
 
@@ -31,7 +33,7 @@ impl Controller {
         collateral_token: Address,
         collateral_amount: i128,
         debt_token: Address,
-        swap: AggregatorSwap,
+        swap: Bytes,
         close_position: bool,
     ) {
         process_repay_debt_with_collateral(
@@ -67,10 +69,6 @@ pub fn process_repay_debt_with_collateral(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, collateral_amount);
-    // Same-asset short-circuit has no swap, so the slippage floor does not apply.
-    if collateral_token != debt_token {
-        validation::require_positive_amount(env, swap.total_min_out);
-    }
 
     // Same-asset flow is intentional: self-collateralized positions
     // (e.g. stablecoin/stablecoin) net both legs atomically, no aggregator route.
@@ -150,7 +148,7 @@ fn swap_or_net_collateral_to_debt(
     collateral_token: &Address,
     debt_token: &Address,
     collateral_amount: i128,
-    swap: &AggregatorSwap,
+    swap: &StrategySwap,
 ) -> i128 {
     if collateral_token == debt_token {
         return collateral_amount;

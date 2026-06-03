@@ -94,6 +94,16 @@ impl OracleSourceConfigInputOption {
     }
 }
 
+/// Quote base of a Reflector oracle, captured once at config time so the read
+/// path never calls `base()`. `Usd` = the feed is already token/USD; `Quoted`
+/// = token/quote, repriced via the quote market's own USD oracle.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReflectorBase {
+    Usd,
+    Quoted(Address),
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReflectorSourceConfig {
@@ -102,6 +112,9 @@ pub struct ReflectorSourceConfig {
     pub read_mode: OracleReadMode,
     pub decimals: u32,
     pub resolution_seconds: u32,
+    /// Quote base captured at config time; the read path reads this instead of
+    /// calling the oracle's `base()`.
+    pub base: ReflectorBase,
 }
 
 #[contracttype]
@@ -201,6 +214,8 @@ impl MarketOracleConfig {
                 read_mode: OracleReadMode::Spot,
                 decimals,
                 resolution_seconds: 0,
+                // Pending sentinel is never read (PendingOracle rejects reads).
+                base: ReflectorBase::Usd,
             }),
             anchor: OracleSourceConfigOption::None,
             min_sanity_price_wad: 0,
@@ -289,6 +304,7 @@ mod tests {
             read_mode: OracleReadMode::Twap(5),
             decimals: 14,
             resolution_seconds: 300,
+            base: ReflectorBase::Usd,
         }
     }
 
