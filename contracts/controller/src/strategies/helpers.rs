@@ -14,7 +14,9 @@ use soroban_sdk::{
 use crate::cache::Cache;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
-use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest};
+use crate::positions::withdraw::{
+    self, WithdrawFlags, WithdrawalRequest, WITHDRAW_ALL_SENTINEL,
+};
 use crate::utils::EventContext;
 use crate::{positions::borrow, storage, utils, validation};
 
@@ -327,9 +329,11 @@ pub(crate) fn strategy_finalize(
         storage::set_debt_positions(env, account_id, &account.borrow_positions);
     }
 
-    // Re-check HF and LTV against a fresh price cache after the leveraged
-    // mutation, so a strategy cannot exit above the LTV ceiling.
-    cache.prices_cache = soroban_sdk::Map::new(env);
+    // Re-check the LTV ceiling and health factor against the post-mutation
+    // positions so a strategy cannot exit above the LTV ceiling. Prices are not
+    // re-read: every oracle source is an external feed (Reflector/RedStone)
+    // fixed for the ledger, so the strategy's own swap cannot move a valuation
+    // price within this atomic tx — the cached prices equal a fresh read.
     validation::require_within_ltv(env, cache, account);
     validation::require_healthy_account(env, cache, account);
     // Enforce the per-asset dust floor on the legs this strategy mutated
@@ -360,11 +364,7 @@ pub(crate) fn execute_withdraw_all(
         if let Some(pos) = account.supply_positions.get(asset.clone()) {
             let pos: AccountPosition = (&pos).into();
             let feed = cache.cached_price(&asset);
-            let market_index = cache.cached_market_index(&asset);
-            let full_amount = pos
-                .scaled_amount
-                .mul(env, market_index.supply_index)
-                .to_asset(feed.asset_decimals);
+            // Same full-close signal as public `withdraw(..., amount: 0)`.
             withdraw::execute_withdrawal(
                 env,
                 account,
@@ -374,7 +374,7 @@ pub(crate) fn execute_withdraw_all(
                 },
                 WithdrawalRequest {
                     asset: &asset,
-                    amount: full_amount,
+                    amount: WITHDRAW_ALL_SENTINEL,
                     position: &pos,
                     price: feed.price,
                 },

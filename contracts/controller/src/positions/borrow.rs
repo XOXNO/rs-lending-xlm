@@ -18,7 +18,7 @@ use crate::emode;
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::add_isolated_debt;
-use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Result of a single pool borrow/strategy call, ready to be reflected onto
 /// the account's borrow position.
@@ -108,7 +108,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     // LTV gate runs post-pool so collateral and debt valuation reuse the market
     // indexes the pool borrow just wrote into the cache, sparing a redundant
     // get_sync_data read. A failure here panics and reverts the atomic tx.
-    validate_borrow_ltv(env, &mut cache, &account);
+    validation::require_within_ltv(env, &mut cache, &account);
     validation::require_healthy_account(env, &mut cache, &account);
     // Scope the dust gate to borrowed assets only: borrow never mutates supply,
     // so it must not be blocked by pre-existing positions that drifted under the floor.
@@ -170,7 +170,7 @@ fn validate_borrow_asset_preflight(
 
 // Cheap pre-pool gates: emptiness, position limits, market-active, siloed set,
 // per-asset borrowability, and isolated-debt ceilings. The LTV valuation runs
-// post-pool in `validate_borrow_ltv` to reuse the borrow's cached market index.
+// post-pool in `require_within_ltv` to reuse the borrow's cached market index.
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
@@ -309,20 +309,4 @@ fn record_borrow_update(
         Some(update.price_wad),
     );
     update_or_remove_debt_position(account, asset, &update.position);
-}
-
-// Post-pool LTV gate: LTV-weighted collateral must cover total debt. Both
-// valuations read the market indexes the pool borrow cached, so this shares the
-// reads with the subsequent health-factor gate and triggers no get_sync_data.
-fn validate_borrow_ltv(env: &Env, cache: &mut Cache, account: &Account) {
-    let ltv_collateral =
-        helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
-    let total_borrowed_wad =
-        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
-
-    assert_with_error!(
-        env,
-        ltv_collateral >= total_borrowed_wad,
-        CollateralError::InsufficientCollateral
-    );
 }

@@ -14,8 +14,8 @@ use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
 
-// Pool ABI sentinel for full-position withdraw.
-const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
+/// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
+pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 /// Per-call withdrawal inputs that travel together through the pipeline.
 pub(crate) struct WithdrawalRequest<'a> {
