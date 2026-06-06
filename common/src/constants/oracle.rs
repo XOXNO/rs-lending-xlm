@@ -1,11 +1,14 @@
 // Protocol-wide upper bound for operator-supplied per-asset sanity caps.
 pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * super::WAD;
 
-pub const MIN_FIRST_TOLERANCE: i128 = 50;
+/// Minimum first-price tolerance input (BPS) for `configure_market_oracle`.
+pub const MIN_FIRST_TOLERANCE: u32 = 50;
 
-pub const MAX_FIRST_TOLERANCE: i128 = 5_000;
+/// Maximum first-price tolerance input (BPS).
+pub const MAX_FIRST_TOLERANCE: u32 = 5_000;
 
-pub const MIN_LAST_TOLERANCE: i128 = 150;
+/// Minimum last-price tolerance input (BPS).
+pub const MIN_LAST_TOLERANCE: u32 = 150;
 
-/// Maximum last-price tolerance in BPS.
-pub const MAX_LAST_TOLERANCE: i128 = 5_000;
+/// Maximum last-price tolerance input (BPS).
+pub const MAX_LAST_TOLERANCE: u32 = 5_000;

@@ -490,7 +490,7 @@ fn emode_isolation_mutual_exclusion_after_multiply(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: common::types::SwapSteps,
+    steps: common::types::StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     // `compat::multiply` panics on `mode > 3`; constrain to a valid mode.

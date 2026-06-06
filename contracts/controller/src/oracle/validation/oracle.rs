@@ -15,7 +15,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 use crate::validation;
 
 use super::super::observation::{
-    millis_to_seconds, normalize_positive_price, u256_to_i128, validate_timestamp,
+    millis_to_seconds, u256_to_i128, validate_positive_price_timestamps,
     MIN_ORACLE_RESOLUTION_SECONDS,
 };
 use super::super::providers::redstone::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
@@ -206,24 +206,29 @@ fn validate_twap_history(
 }
 
 fn validate_reflector_feed(env: &Env, pd: &ReflectorPriceData, max_stale: u64, decimals: u32) {
-    let _ = normalize_positive_price(env, pd.price, decimals);
-    validate_timestamp(env, env.ledger().timestamp(), pd.timestamp, max_stale);
+    let now = env.ledger().timestamp();
+    let _ = validate_positive_price_timestamps(
+        env,
+        pd.price,
+        decimals,
+        now,
+        &[pd.timestamp],
+        max_stale,
+    );
 }
 
 fn validate_redstone_feed(env: &Env, pd: &RedStonePriceData, max_stale: u64, decimals: u32) {
     let raw_price = u256_to_i128(env, &pd.price);
-    let _ = normalize_positive_price(env, raw_price, decimals);
     let now = env.ledger().timestamp();
-    validate_timestamp(
+    let _ = validate_positive_price_timestamps(
         env,
+        raw_price,
+        decimals,
         now,
-        millis_to_seconds(pd.package_timestamp),
-        max_stale,
-    );
-    validate_timestamp(
-        env,
-        now,
-        millis_to_seconds(pd.write_timestamp),
+        &[
+            millis_to_seconds(pd.package_timestamp),
+            millis_to_seconds(pd.write_timestamp),
+        ],
         max_stale,
     );
 }

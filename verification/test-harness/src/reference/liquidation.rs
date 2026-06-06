@@ -1,3 +1,5 @@
+#![cfg(feature = "reference-math")]
+
 //! Exact-arithmetic reference implementation of the liquidation math.
 //!
 //! Mirrors the production chain in `controller/src/positions/liquidation.rs`

@@ -35,3 +35,39 @@ pub(crate) fn add_to_pools_list(env: &Env, asset: &Address) {
     env.storage().persistent().set(&key, &list);
     renew_protocol_shared_key(env, &key);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Controller;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env};
+
+    #[test]
+    fn test_add_to_pools_list_duplicate_is_noop() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(Controller, (admin,));
+        env.as_contract(&contract_id, || {
+            let asset = Address::generate(&env);
+            add_to_pools_list(&env, &asset);
+            assert_eq!(get_pools_list(&env).len(), 1);
+            add_to_pools_list(&env, &asset);
+            assert_eq!(get_pools_list(&env).len(), 1);
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_add_to_pools_list_rejects_beyond_max_entries() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(Controller, (admin,));
+        env.as_contract(&contract_id, || {
+            for _ in 0..MAX_POOLS_LIST_ENTRIES {
+                add_to_pools_list(&env, &Address::generate(&env));
+            }
+            add_to_pools_list(&env, &Address::generate(&env));
+        });
+    }
+}

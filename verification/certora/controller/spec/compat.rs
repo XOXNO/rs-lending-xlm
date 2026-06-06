@@ -1,4 +1,4 @@
-use common::types::{Payment, PositionMode, SwapSteps};
+use common::types::{Payment, PositionMode, StrategySwap};
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};
@@ -46,7 +46,7 @@ pub fn multiply(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) -> u64 {
     let mode = match mode {
         0 => PositionMode::Normal,
@@ -60,7 +60,7 @@ pub fn multiply(
     // branches in `process_multiply` are explored.
     let account_id: u64 = nondet();
 
-    // Havoc `initial_payment` across {None, Some(asset, amount)}. SwapSteps has
+    // Havoc `initial_payment` across {None, Some(asset, amount)}. StrategySwap has
     // no Nondet impl, so reuse the rule-provided `steps` for `convert_steps`.
     let take_initial: bool = nondet();
     let initial_payment: Option<Payment> = if take_initial {
@@ -70,7 +70,7 @@ pub fn multiply(
         None
     };
     let take_convert: bool = nondet();
-    let convert_steps: Option<SwapSteps> = if take_convert {
+    let convert_steps: Option<StrategySwap> = if take_convert {
         Some(steps.clone())
     } else {
         None
@@ -101,7 +101,7 @@ pub fn repay_debt_with_collateral(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     let close_position: bool = nondet();
     crate::Controller::repay_debt_with_collateral(
@@ -131,7 +131,7 @@ pub fn multiply_minimal(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) -> u64 {
     let mode = match mode {
         0 => PositionMode::Normal,
@@ -167,7 +167,7 @@ pub fn repay_debt_with_collateral_minimal(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     crate::Controller::repay_debt_with_collateral(
         env,
@@ -192,7 +192,7 @@ pub fn repay_debt_with_collateral_close(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     crate::Controller::repay_debt_with_collateral(
         env,
@@ -217,7 +217,7 @@ pub fn multiply_basic(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) -> u64 {
     let mode = match mode {
         0 => PositionMode::Normal,
@@ -253,7 +253,7 @@ pub fn multiply_with_initial_payment_collateral(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
     initial_amount: i128,
 ) -> u64 {
     let mode = match mode {
@@ -291,10 +291,10 @@ pub fn multiply_with_initial_payment_third_token(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
     third_token: Address,
     initial_amount: i128,
-    convert_steps: SwapSteps,
+    convert_steps: StrategySwap,
 ) -> u64 {
     let mode = match mode {
         0 => PositionMode::Normal,

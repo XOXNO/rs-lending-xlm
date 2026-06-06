@@ -23,14 +23,14 @@ use crate::cross_contract::pool::{
 };
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
-use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{
+    helpers::{self, THRESHOLD_UPDATE_MIN_HF_RAW},
+    storage, utils, validation, Controller, ControllerArgs, ControllerClient,
+};
 
 // Supported SAC decimal range for RAY/WAD conversions.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
-// Minimum post-update health factor for keeper threshold propagation.
-const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
-
 #[contractimpl]
 impl Controller {
     #[when_not_paused]

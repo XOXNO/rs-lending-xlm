@@ -2,7 +2,7 @@
 //! LTV, position limits, asset config bounds, token shape, and oracle ranges.
 
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD};
-use common::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
+use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
@@ -200,8 +200,102 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
     }
 }
 
-pub fn validate_oracle_bounds(env: &Env, first: i128, last: i128) {
-    assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
-    // Upper bound on `last` is enforced by the caller's range check via
-    // `MAX_LAST_TOLERANCE`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::constants::{MAX_FLASHLOAN_FEE_BPS, WAD};
+    use common::types::{Account, AccountPositionType, AssetConfigRaw};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, Vec};
+
+    fn sample_asset_config(env: &Env) -> AssetConfigRaw {
+        AssetConfigRaw {
+            loan_to_value_bps: 7_500,
+            liquidation_threshold_bps: 8_000,
+            liquidation_bonus_bps: 500,
+            liquidation_fees_bps: 100,
+            is_collateralizable: true,
+            is_borrowable: true,
+            is_isolated_asset: false,
+            is_siloed_borrowing: false,
+            is_flashloanable: true,
+            isolation_borrow_enabled: true,
+            isolation_debt_ceiling_usd_wad: 1_000 * WAD,
+            flashloan_fee_bps: 9,
+            borrow_cap: 1_000_000,
+            supply_cap: 5_000_000,
+            min_collat_floor_usd_wad: 10 * WAD,
+            min_debt_floor_usd_wad: 10 * WAD,
+            e_mode_categories: Vec::new(env),
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_risk_bounds_rejects_threshold_above_bps() {
+        let env = Env::default();
+        validate_risk_bounds(&env, 5_000, 10_001, 100);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_asset_config_rejects_negative_supply_cap() {
+        let env = Env::default();
+        let mut cfg = sample_asset_config(&env);
+        cfg.supply_cap = -1;
+        validate_asset_config(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_asset_config_rejects_dust_floor_below_minimum() {
+        let env = Env::default();
+        let mut cfg = sample_asset_config(&env);
+        cfg.min_collat_floor_usd_wad = MIN_DUST_FLOOR_WAD - 1;
+        validate_asset_config(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_asset_config_rejects_flashloan_fee_above_cap() {
+        let env = Env::default();
+        let mut cfg = sample_asset_config(&env);
+        cfg.flashloan_fee_bps = (MAX_FLASHLOAN_FEE_BPS + 1) as u32;
+        validate_asset_config(&env, &cfg);
+    }
+
+    #[test]
+    fn test_validate_bulk_position_limits_dedupes_duplicate_assets() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+        let asset = Address::generate(&env);
+        let owner = Address::generate(&env);
+        let account = Account {
+            owner,
+            supply_positions: Map::new(&env),
+            borrow_positions: Map::new(&env),
+            e_mode_category_id: 0,
+            mode: common::types::PositionMode::Normal,
+            is_isolated: false,
+            isolated_asset: None,
+        };
+        let assets: Vec<(Address, i128)> = Vec::from_array(
+            &env,
+            [
+                (asset.clone(), 100),
+                (asset.clone(), 200),
+            ],
+        );
+        env.as_contract(&contract_id, || {
+            validate_bulk_position_limits(
+                &env,
+                &account,
+                AccountPositionType::Deposit,
+                &assets,
+            );
+        });
+    }
 }
+
+

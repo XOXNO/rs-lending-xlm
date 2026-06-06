@@ -1,3 +1,5 @@
+#![cfg(feature = "reference-math")]
+
 //! Reference implementations of protocol math using exact rational arithmetic
 //! (`num_rational::BigRational`) for differential testing against the
 //! production i128-backed half-up implementations.

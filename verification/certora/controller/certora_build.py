@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Certora Soroban build script for the lending controller crate."""
+"""Certora Soroban build script — returns prebuilt controller WASM (no cloud rebuild)."""
 
 import argparse
 import json
 import os
-import subprocess
 import sys
-import tempfile
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
+SHARED_DIR = os.path.join(ROOT_DIR, "verification", "certora", "shared")
+sys.path.insert(0, SHARED_DIR)
+
+from certora_wasm import certora_wasm_path  # noqa: E402
+
 PACKAGE = "controller"
 PACKAGE_DIR = os.path.join(ROOT_DIR, "contracts", PACKAGE)
-SHARED_DIR = os.path.join(ROOT_DIR, "verification", "certora", "shared")
-TARGET_DIR = os.path.join(ROOT_DIR, "target", "certora", PACKAGE)
-EXECUTABLE = os.path.join(TARGET_DIR, "wasm32v1-none", "release", f"{PACKAGE}.wasm")
+EXECUTABLE = certora_wasm_path(PACKAGE, ROOT_DIR)
 
 
 def tracked_sources():
@@ -46,49 +47,23 @@ def main():
     parser.add_argument("--cargo_features", nargs="*", default=[])
     args = parser.parse_args()
 
-    features = args.cargo_features or ["certora"]
-    if "certora" not in features:
-        features = ["certora", *features]
-    cmd = (
-        f"cd {ROOT_DIR} && "
-        f"stellar contract build --package {PACKAGE} --features {','.join(features)}"
-    )
-
-    stdout_file = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) if not args.log else None
-    stderr_file = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) if not args.log else None
-    result = subprocess.run(
-        cmd,
-        shell=True,
-        cwd=ROOT_DIR,
-        env={**os.environ, "CARGO_TARGET_DIR": TARGET_DIR},
-        stdout=stdout_file if stdout_file else None,
-        stderr=stderr_file if stderr_file else None,
-    )
-
-    stdout_path = stdout_file.name if stdout_file else None
-    stderr_path = stderr_file.name if stderr_file else None
-    if stdout_file:
-        stdout_file.close()
-    if stderr_file:
-        stderr_file.close()
-
-    success = result.returncode == 0 and os.path.exists(EXECUTABLE)
+    success = EXECUTABLE.is_file()
     output = {
         "project_directory": ROOT_DIR,
         "sources": tracked_sources(),
-        "executables": EXECUTABLE if success else "",
+        "executables": str(EXECUTABLE) if success else "",
         "success": success,
-        "return_code": result.returncode,
+        "return_code": 0 if success else 1,
     }
-    if stdout_path:
-        output["stdout_log"] = stdout_path
-    if stderr_path:
-        output["stderr_log"] = stderr_path
+    if not success:
+        output["error"] = (
+            f"missing {EXECUTABLE}; run `make certora-wasm` before submitting jobs"
+        )
 
     text = json.dumps(output, indent=2)
     if args.output:
-        with open(args.output, "w") as f:
-            f.write(text)
+        with open(args.output, "w") as handle:
+            handle.write(text)
     elif args.json:
         print(text)
 

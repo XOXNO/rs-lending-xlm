@@ -10,8 +10,7 @@
 //! `price::token_price` gates (positive price, sanity bounds, clock-skew). The
 //! caller's `OraclePolicy` (`policy.rs`) decides what degradation may be
 //! tolerated. The `primary` is the value the protocol prices on; the `anchor`
-//! is the independent cross-check. (The public ABI view fields name these
-//! `safe_price_wad`/`aggregator_price_wad` — see `PriceComponents`.)
+//! is the independent cross-check.
 
 mod compose;
 mod observation;
@@ -33,34 +32,19 @@ use soroban_sdk::Address;
 
 use crate::cache::Cache;
 
+pub use compose::ResolvedOracleComponents;
+
 // Certora rules reach tolerance helpers through `crate::oracle::*`.
 #[cfg(feature = "certora")]
 pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 
+#[cfg(feature = "certora")]
+pub(crate) use compose::certora;
+
 pub use price::{token_price, update_asset_index};
 
-/// Per-source breakdown of a resolved price, exposed for views. Field names
-/// mirror the public ABI: `aggregator_price_wad` is the **anchor** source and
-/// `safe_price_wad` is the **primary** source. Internal code uses
-/// `primary`/`anchor`; `price_components` below is the boundary that maps the
-/// internal names to these ABI names.
-pub struct PriceComponents {
-    pub aggregator_price_wad: Option<i128>,
-    pub safe_price_wad: Option<i128>,
-    pub final_price_wad: i128,
-    pub within_first_tolerance: bool,
-    pub within_second_tolerance: bool,
-}
-
-pub fn price_components(cache: &mut Cache, asset: &Address) -> PriceComponents {
+pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
     let market = cache.cached_market_config(asset);
     let configs = market.oracle_config;
-    let components = compose::resolve_components(cache, &configs);
-    PriceComponents {
-        aggregator_price_wad: components.anchor_price_wad,
-        safe_price_wad: components.primary_price_wad,
-        final_price_wad: components.final_price_wad,
-        within_first_tolerance: components.within_first_tolerance,
-        within_second_tolerance: components.within_second_tolerance,
-    }
+    compose::resolve_components(cache, &configs)
 }

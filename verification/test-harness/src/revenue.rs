@@ -50,4 +50,24 @@ impl LendingTest {
         let rewards = soroban_sdk::vec![&self.env, (asset, amount)];
         self.ctrl_client().add_rewards(&self.admin, &rewards);
     }
+
+    /// Try add rewards -- returns Result.
+    pub fn try_add_rewards(
+        &self,
+        asset_name: &str,
+        amount: f64,
+    ) -> Result<(), soroban_sdk::Error> {
+        let decimals = self.resolve_market(asset_name).decimals;
+        let raw = f64_to_i128(amount, decimals);
+        let asset = self.resolve_asset(asset_name);
+        let market = self.resolve_market(asset_name);
+
+        market.token_admin.mint(&self.admin, &raw);
+        let rewards = soroban_sdk::vec![&self.env, (asset, raw)];
+        match self.ctrl_client().try_add_rewards(&self.admin, &rewards) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
 }

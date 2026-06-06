@@ -1,6 +1,5 @@
 // TWAP read via Reflector prices.
 
-use common::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::events::OracleTwapDegradedEvent;
 use common::types::ReflectorSourceConfig;
@@ -68,11 +67,7 @@ pub(crate) fn read_twap(
     let mut newest_valid: Option<OracleObservation> = None;
     let mut has_invalid_price = false;
     for pd in history.iter() {
-        check_not_future_at(
-            env,
-            cache.current_timestamp_ms / MS_PER_SECOND,
-            pd.timestamp,
-        );
+        check_not_future_at(env, cache.ledger_timestamp_secs(), pd.timestamp);
         if pd.price <= 0 {
             has_invalid_price = true;
             continue;
@@ -112,11 +107,7 @@ pub(crate) fn read_twap(
         );
     }
 
-    if is_stale(
-        cache.current_timestamp_ms / MS_PER_SECOND,
-        oldest_ts,
-        max_stale,
-    ) {
+    if is_stale(cache.ledger_timestamp_secs(), oldest_ts, max_stale) {
         return twap_fallback_or_panic(
             cache,
             config,
@@ -143,7 +134,7 @@ fn twap_fallback_or_panic(
     fallback: Option<OracleObservation>,
     err: OracleError,
 ) -> Option<OracleObservation> {
-    if cache.oracle_policy.allows_missing_twap_fallback() {
+    if cache.oracle_policy.allows_degraded_dual_source() {
         OracleTwapDegradedEvent {
             oracle: config.contract.clone(),
             reason_code: err as u32,

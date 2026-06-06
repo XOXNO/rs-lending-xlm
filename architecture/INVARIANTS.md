@@ -368,18 +368,22 @@ Supported strategies (`OracleStrategy`):
   unreadable, or stale-and-unusable anchor degrades to the primary only where
   the active policy allows it.
 
-If both aggregator and safe prices are available:
+If both anchor and primary prices are available:
 
-1. Inside the first tolerance band, return the safe price.
+1. Inside the first tolerance band, return the primary price.
 2. Inside the last tolerance band, return the midpoint.
 3. Outside the last tolerance band, strict paths revert and permissive paths
-   return the safe price.
+   return the primary price.
+
+`PrimaryWithAnchor` may degrade to primary-only when the anchor is missing,
+unreadable, or stale-and-unusable, but only if the active `OraclePolicy`
+allows `allows_degraded_dual_source`.
 
 Future-dated oracle samples beyond the clock-skew window always revert.
 
 | Runtime | Verification |
 |---|---|
-| `contracts/controller/src/oracle/mod.rs`, `contracts/controller/src/cache/mod.rs` | `oracle_rules` |
+| `contracts/controller/src/oracle/mod.rs`, `contracts/controller/src/oracle/compose.rs`, `contracts/controller/src/cache/mod.rs` | `oracle_rules` (policy branches, harness-summarised), `oracle_compose_rules` (dual-source degradation), `tolerance_math_rules` (production ratio-band math), oracle tests |
 
 ```mermaid
 flowchart TD

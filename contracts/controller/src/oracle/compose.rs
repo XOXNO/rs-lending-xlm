@@ -15,13 +15,7 @@ use super::providers;
 use super::tolerance::{calculate_final_price, is_within_anchor};
 use crate::cache::Cache;
 
-#[cfg_attr(feature = "certora", allow(dead_code))] // Struct only used via resolve_price in non-certora price.rs; harness replaces that module.
-pub(crate) struct ResolvedOraclePrice {
-    pub price_wad: i128,
-    pub timestamp: u64,
-}
-
-pub(crate) struct ResolvedOracleComponents {
+pub struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
@@ -30,12 +24,13 @@ pub(crate) struct ResolvedOracleComponents {
     pub within_second_tolerance: bool,
 }
 
-#[cfg_attr(feature = "certora", allow(dead_code))] // Fn only called from non-certora price.rs (harness replaces price resolution).
-pub(crate) fn resolve_price(cache: &mut Cache, config: &MarketOracleConfig) -> ResolvedOraclePrice {
-    let components = resolve_components(cache, config);
-    ResolvedOraclePrice {
-        price_wad: components.final_price_wad,
-        timestamp: components.timestamp,
+impl ResolvedOracleComponents {
+    /// Maps to `MarketIndexView` ABI fields: `safe_price_wad` = primary,
+    /// `aggregator_price_wad` = anchor (each falls back to `final_price_wad`).
+    pub fn to_abi_prices(&self) -> (i128, i128) {
+        let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
+        let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
+        (safe_price_wad, aggregator_price_wad)
     }
 }
 
@@ -87,9 +82,9 @@ pub(crate) fn resolve_components(
                 config.tolerance.first_upper_ratio_bps,
                 config.tolerance.first_lower_ratio_bps,
             );
-            // The second band is the wider `last` tolerance. `validate_oracle_bounds`
-            // enforces last > first, so the first band is a strict subset of the
-            // last; within_first therefore implies within_second.
+            // The second band is the wider `last` tolerance. `require_last_tolerance_gt_first`
+            // enforces last > first at configure time, so the first band is a strict
+            // subset of the last; within_first therefore implies within_second.
             let within_second = is_within_anchor(
                 cache.env(),
                 anchor.price_wad,
@@ -117,7 +112,7 @@ pub(crate) fn resolve_components(
 
 fn validate_primary_freshness(cache: &Cache, observation: &OracleObservation, max_stale: u64) {
     if is_stale(
-        cache.current_timestamp_ms / 1000,
+        cache.ledger_timestamp_secs(),
         observation.timestamp(),
         max_stale,
     ) && !cache.oracle_policy.allows_stale_source()
@@ -128,7 +123,7 @@ fn validate_primary_freshness(cache: &Cache, observation: &OracleObservation, ma
 
 fn anchor_is_usable(cache: &Cache, observation: &OracleObservation, max_stale: u64) -> bool {
     if is_stale(
-        cache.current_timestamp_ms / 1000,
+        cache.ledger_timestamp_secs(),
         observation.timestamp(),
         max_stale,
     ) {
@@ -143,7 +138,7 @@ fn anchor_is_usable(cache: &Cache, observation: &OracleObservation, max_stale: u
 fn fallback_to_primary(cache: &Cache, primary: OracleObservation) -> ResolvedOracleComponents {
     assert_with_error!(
         cache.env(),
-        cache.oracle_policy.allows_missing_twap_fallback(),
+        cache.oracle_policy.allows_degraded_dual_source(),
         OracleError::NoLastPrice
     );
     ResolvedOracleComponents {
@@ -153,5 +148,35 @@ fn fallback_to_primary(cache: &Cache, primary: OracleObservation) -> ResolvedOra
         timestamp: primary.timestamp(),
         within_first_tolerance: false,
         within_second_tolerance: false,
+    }
+}
+
+/// Certora-only hooks for compose policy and degradation paths.
+#[cfg(feature = "certora")]
+pub(crate) mod certora {
+    use super::*;
+
+    pub fn observation(price_wad: i128, timestamp: u64) -> OracleObservation {
+        OracleObservation {
+            price_wad,
+            observed_at: timestamp,
+            published_at: None,
+        }
+    }
+
+    pub fn fallback_to_primary(
+        cache: &Cache,
+        primary_price_wad: i128,
+        timestamp: u64,
+    ) -> ResolvedOracleComponents {
+        super::fallback_to_primary(cache, observation(primary_price_wad, timestamp))
+    }
+
+    pub fn anchor_is_usable(
+        cache: &Cache,
+        observation: &OracleObservation,
+        max_stale: u64,
+    ) -> bool {
+        super::anchor_is_usable(cache, observation, max_stale)
     }
 }

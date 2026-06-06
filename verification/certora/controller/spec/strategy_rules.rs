@@ -15,7 +15,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::BAD_DEBT_USD_THRESHOLD;
-use common::types::{AccountPositionType, SwapSteps};
+use common::types::{AccountPositionType, StrategySwap};
 // Strategy Rules
 // Rule 1: multiply creates both deposit and borrow positions (split per branch)
 //
@@ -36,7 +36,7 @@ fn multiply_basic(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(collateral_token != debt_token);
@@ -84,7 +84,7 @@ fn multiply_with_initial_payment_collateral(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
     initial_amount: i128,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
@@ -132,10 +132,10 @@ fn multiply_with_initial_payment_third_token(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
     third_token: Address,
     initial_amount: i128,
-    convert_steps: SwapSteps,
+    convert_steps: StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(initial_amount > 0);
@@ -185,7 +185,7 @@ fn multiply_rejects_same_tokens(
     token: Address,
     debt_to_flash_loan: i128,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!((1..=3).contains(&mode));
@@ -222,7 +222,7 @@ fn multiply_requires_collateralizable(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(collateral_token != debt_token);
@@ -264,7 +264,7 @@ fn swap_debt_conserves_debt_value(
     existing_debt_token: Address,
     new_debt_amount: i128,
     new_debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(new_debt_amount > 0);
     cvlr_assume!(existing_debt_token != new_debt_token);
@@ -320,7 +320,7 @@ fn swap_debt_rejects_same_token(
     account_id: u64,
     token: Address,
     new_debt_amount: i128,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(new_debt_amount > 0);
 
@@ -349,7 +349,7 @@ fn swap_collateral_conserves_collateral(
     current_collateral: Address,
     from_amount: i128,
     new_collateral: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(from_amount > 0);
     cvlr_assume!(current_collateral != new_collateral);
@@ -408,7 +408,7 @@ fn swap_collateral_rejects_same_token(
     account_id: u64,
     token: Address,
     from_amount: i128,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(from_amount > 0);
 
@@ -437,7 +437,7 @@ fn swap_collateral_rejects_isolated(
     current_collateral: Address,
     from_amount: i128,
     new_collateral: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(from_amount > 0);
     cvlr_assume!(current_collateral != new_collateral);
@@ -480,7 +480,7 @@ fn repay_with_collateral_reduces_both_no_close(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(collateral_amount > 0);
     cvlr_assume!(collateral_token != debt_token);
@@ -548,7 +548,7 @@ fn repay_with_collateral_full_close_removes_account(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(collateral_amount > 0);
     cvlr_assume!(collateral_token != debt_token);
@@ -711,7 +711,7 @@ fn multiply_sanity(
     collateral_token: Address,
     debt_to_flash_loan: i128,
     debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     cvlr_assume!(collateral_token != debt_token);
@@ -737,7 +737,7 @@ fn swap_debt_sanity(
     existing_debt_token: Address,
     new_debt_amount: i128,
     new_debt_token: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(new_debt_amount > 0);
     cvlr_assume!(existing_debt_token != new_debt_token);
@@ -762,7 +762,7 @@ fn swap_collateral_sanity(
     current_collateral: Address,
     from_amount: i128,
     new_collateral: Address,
-    steps: SwapSteps,
+    steps: StrategySwap,
 ) {
     cvlr_assume!(from_amount > 0);
     cvlr_assume!(current_collateral != new_collateral);

@@ -1,21 +1,4 @@
-//! Fuzz target for the `common::math::fp` helpers outside the direct coverage of
-//! `fp_math` and `rates_and_index`:
-//!
-//!   - Ray ↔ Wad ↔ asset/token conversions (`to_wad`, `to_asset`,
-//!     `from_asset`, `Wad::from_token`, `Wad::to_token`, `Bps::to_wad`).
-//!   - Wad arithmetic (`mul`, `div`, `div_floor`, `min`, `max`).
-//!   - Bps scaling (`apply_to`, `apply_to_wad`) under realistic ratios.
-//!   - Add / Sub impls via `a + b - b == a` roundtrips.
-//!
-//! Invariants enforced (all per-op; see inline comments):
-//!   - Roundtrip identity within documented ulp bounds.
-//!   - Non-expansion for Bps ≤ BPS (`apply_to(x) ≤ x + 1`).
-//!   - Sign preservation.
-//!   - `min ≤ max` ordering.
-//!   - Floor vs half-up: `div_floor(a, b) ≤ div(a, b)`.
-//!
-//! Inputs are clamped to protocol-realistic magnitudes (≤ 10^24). Anything
-//! larger triggers `MathOverflow` panics and is skipped as out of domain.
+//! `common::math::fp` type ops: Ray/Wad/Bps roundtrips, mul/div, token conversion.
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};

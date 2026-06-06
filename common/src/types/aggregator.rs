@@ -6,5 +6,3 @@ use soroban_sdk::Bytes;
 /// the bytes to the configured aggregator, while enforcing its own concrete
 /// token balance deltas around the call.
 pub type StrategySwap = Bytes;
-
-pub type SwapSteps = StrategySwap;

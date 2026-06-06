@@ -26,7 +26,7 @@ impl LendingTest {
         });
 
         // Refresh oracle prices to prevent staleness
-        self.refresh_all_prices();
+        self.refresh_oracle_prices();
     }
 
     /// Advance the ledger timestamp WITHOUT refreshing oracle prices.
@@ -69,14 +69,6 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         ctrl.update_indexes(&self.keeper, &assets);
-    }
-
-    fn refresh_all_prices(&self) {
-        let mock_reflector = self.mock_reflector_client();
-        for market in self.markets.values() {
-            mock_reflector.set_price(&market.asset, &market.price_wad);
-            mock_reflector.set_twap_price(&market.asset, &market.price_wad);
-        }
     }
 
     fn sync_all_markets(&self) {

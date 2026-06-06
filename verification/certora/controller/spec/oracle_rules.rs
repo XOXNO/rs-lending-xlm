@@ -138,10 +138,10 @@ fn first_tolerance_uses_safe_price(
 ) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(i128::from(first_upper_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_upper_bps) <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
 
     // Permissive risk-decreasing policy avoids any panic for
     // out-of-tolerance scenarios; this rule only exercises the first-band
@@ -203,14 +203,14 @@ fn second_tolerance_uses_average(
 ) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(i128::from(first_upper_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_upper_bps) <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(last_upper_bps) >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_upper_bps) <= MAX_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_lower_bps) >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_lower_bps) <= MAX_LAST_TOLERANCE);
+    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(last_upper_bps >= MIN_LAST_TOLERANCE);
+    cvlr_assume!(last_upper_bps <= MAX_LAST_TOLERANCE);
+    cvlr_assume!(last_lower_bps >= MIN_LAST_TOLERANCE);
+    cvlr_assume!(last_lower_bps <= MAX_LAST_TOLERANCE);
     cvlr_assume!(last_upper_bps >= first_upper_bps);
     cvlr_assume!(last_lower_bps >= first_lower_bps);
 
@@ -265,14 +265,14 @@ fn beyond_tolerance_permissive_returns_safe(
 ) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(i128::from(first_upper_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_upper_bps) <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(first_lower_bps) <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(i128::from(last_upper_bps) >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_upper_bps) <= MAX_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_lower_bps) >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(i128::from(last_lower_bps) <= MAX_LAST_TOLERANCE);
+    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
+    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
+    cvlr_assume!(last_upper_bps >= MIN_LAST_TOLERANCE);
+    cvlr_assume!(last_upper_bps <= MAX_LAST_TOLERANCE);
+    cvlr_assume!(last_lower_bps >= MIN_LAST_TOLERANCE);
+    cvlr_assume!(last_lower_bps <= MAX_LAST_TOLERANCE);
 
     // Permissive cache: risk-decreasing ops (repay, views) opt in.
     let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);

@@ -16,13 +16,7 @@ mod access;
 mod cache;
 mod config;
 mod cross_contract;
-#[cfg(not(feature = "certora"))]
 mod helpers;
-#[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/harness/helpers.rs"]
-mod helpers;
-// Certora replaces helper math with summaries to keep position-flow proofs
-// focused on controller state transitions.
 mod emode;
 mod oracle;
 mod positions;

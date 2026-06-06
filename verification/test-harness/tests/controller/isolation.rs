@@ -1,0 +1,483 @@
+use common::constants::WAD;
+
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest,
+    PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
+};
+
+const ISOLATION_CEILING_WAD: i128 = 1_000_000 * WAD; // $1M in WAD
+
+fn setup_isolated() -> LendingTest {
+    LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market(wbtc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ISOLATION_CEILING_WAD;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .with_market_config("WBTC", |cfg| {
+            cfg.isolation_borrow_enabled = false;
+        })
+        .build()
+}
+// 1. test_isolated_account_creation
+
+#[test]
+fn test_isolated_account_creation() {
+    let mut t = setup_isolated();
+    let account_id = t.create_isolated_account(ALICE, "ETH");
+    assert!(account_id > 0, "should create isolated account");
+
+    let attrs = t.get_account_attributes(ALICE);
+    assert!(attrs.is_isolated, "account should be isolated");
+}
+// 2. test_isolated_supply_single_asset
+
+#[test]
+fn test_isolated_supply_single_asset() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+
+    t.assert_position_exists(ALICE, "ETH", PositionType::Supply);
+    t.assert_supply_near(ALICE, "ETH", 5.0, 0.01);
+    assert!(
+        t.token_balance(ALICE, "ETH") < 0.0001,
+        "ETH wallet should be ~0 after supply"
+    );
+}
+// 3. test_isolated_rejects_second_collateral
+
+#[test]
+fn test_isolated_rejects_second_collateral() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+
+    // Try to supply USDC as a second collateral in an isolated account.
+    let result = t.try_supply(ALICE, "USDC", 1_000.0);
+    assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
+}
+// 4. test_isolated_borrow_enabled_asset
+
+#[test]
+fn test_isolated_borrow_enabled_asset() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0); // ~$10,000
+
+    // USDC has isolation_borrow_enabled = true.
+    t.borrow(ALICE, "USDC", 5_000.0);
+    t.assert_position_exists(ALICE, "USDC", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "USDC", 5_000.0, 1.0);
+    let usdc_wallet = t.token_balance(ALICE, "USDC");
+    assert!(
+        (usdc_wallet - 5_000.0).abs() < 1.0,
+        "Alice should receive ~5000 USDC, got {}",
+        usdc_wallet
+    );
+    t.assert_healthy(ALICE);
+}
+// 5. test_isolated_borrow_disabled_asset
+
+#[test]
+fn test_isolated_borrow_disabled_asset() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+
+    // WBTC has isolation_borrow_enabled = false.
+    let result = t.try_borrow(ALICE, "WBTC", 0.01);
+    assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
+}
+// 6. test_isolated_debt_ceiling_enforced
+
+#[test]
+fn test_isolated_debt_ceiling_enforced() {
+    // Use a very small ceiling.
+    let small_ceiling: i128 = 5_000 * WAD; // $5000 WAD
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = small_ceiling;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0); // ~$10,000
+
+    // Try to borrow beyond the $5000 ceiling.
+    let result = t.try_borrow(ALICE, "USDC", 6_000.0);
+    assert_contract_error(result, errors::DEBT_CEILING_REACHED);
+}
+// 7. test_isolated_debt_decremented_on_repay
+
+#[test]
+fn test_isolated_debt_decremented_on_repay() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+    t.borrow(ALICE, "USDC", 5_000.0);
+
+    let debt_before = t.get_isolated_debt("ETH");
+    assert!(debt_before > 0, "isolated debt should be tracked");
+
+    t.repay(ALICE, "USDC", 2_000.0);
+
+    let debt_after = t.get_isolated_debt("ETH");
+    assert!(
+        debt_after < debt_before,
+        "isolated debt should decrease after repay: before={}, after={}",
+        debt_before,
+        debt_after
+    );
+}
+// 8. test_isolated_debt_decremented_on_liquidation
+
+#[test]
+fn test_isolated_debt_decremented_on_liquidation() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0); // ~$10,000
+    t.borrow(ALICE, "USDC", 5_000.0);
+
+    let debt_before = t.get_isolated_debt("ETH");
+
+    // Drop ETH price to make Alice liquidatable.
+    t.set_price("ETH", usd(500));
+    t.assert_liquidatable(ALICE);
+
+    t.liquidate(LIQUIDATOR, ALICE, "USDC", 2_000.0);
+
+    let debt_after = t.get_isolated_debt("ETH");
+    assert!(
+        debt_after < debt_before,
+        "isolated debt should decrease after liquidation: before={}, after={}",
+        debt_before,
+        debt_after
+    );
+}
+// 9. test_isolated_rejects_emode
+
+#[test]
+fn test_isolated_rejects_emode() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ISOLATION_CEILING_WAD;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "ETH", true, true)
+        .build();
+
+    // Drive the contract path: an e-mode account that supplies an isolated
+    // asset must be rejected with EModeWithIsolated (302). The harness's
+    // `create_account_*` helpers bypass the contract validator.
+    t.create_emode_account(ALICE, 1);
+    let result = t.try_supply(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::EMODE_WITH_ISOLATED);
+}
+// 10. test_isolated_rejects_swap_collateral
+
+#[test]
+fn test_isolated_rejects_swap_collateral() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+
+    let steps = t.mock_swap_steps("ETH", "USDC", usd(2000));
+    let result = t.try_swap_collateral(ALICE, "ETH", 1.0, "USDC", &steps);
+    // The contract panics with SwapCollateralNoIso (404) for isolated accounts.
+    assert_contract_error(result, errors::SWAP_COLLATERAL_NO_ISO);
+}
+// 11. test_isolated_liquidation_works
+
+#[test]
+fn test_isolated_liquidation_works() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+    t.borrow(ALICE, "USDC", 5_000.0);
+
+    // Drop ETH price moderately to make Alice mildly liquidatable.
+    // At $1000: collateral = $5000, threshold 80% => weighted = $4000,
+    // debt = $5000 => HF = 0.8.
+    t.set_price("ETH", usd(1000));
+    t.assert_liquidatable(ALICE);
+
+    let debt_before = t.borrow_balance(ALICE, "USDC");
+    let iso_debt_before = t.get_isolated_debt("ETH");
+    t.liquidate(LIQUIDATOR, ALICE, "USDC", 1_000.0);
+    let debt_after = t.borrow_balance(ALICE, "USDC");
+    let iso_debt_after = t.get_isolated_debt("ETH");
+
+    assert!(
+        debt_after < debt_before,
+        "debt should decrease after liquidation: before={}, after={}",
+        debt_before,
+        debt_after
+    );
+
+    assert!(
+        iso_debt_after < iso_debt_before,
+        "isolated debt tracker should decrement: before={}, after={}",
+        iso_debt_before,
+        iso_debt_after
+    );
+
+    // The liquidator should have received ETH collateral.
+    let liq_eth = t.token_balance(LIQUIDATOR, "ETH");
+    assert!(liq_eth > 0.0, "liquidator should receive ETH collateral");
+}
+// 12. test_isolated_bad_debt_clears_isolated_tracker
+
+#[test]
+fn test_isolated_bad_debt_clears_isolated_tracker() {
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ISOLATION_CEILING_WAD;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 0.1); // ~$200
+    t.borrow(ALICE, "USDC", 100.0);
+
+    let iso_debt_before = t.get_isolated_debt("ETH");
+    assert!(iso_debt_before > 0, "isolated debt should be tracked");
+
+    // Crash ETH price severely.
+    t.set_price("ETH", usd(50));
+    t.assert_liquidatable(ALICE);
+
+    // Liquidate -- bad-debt handling must engage for tiny underwater positions.
+    t.liquidate(LIQUIDATOR, ALICE, "USDC", 100.0);
+
+    // After liquidation + bad-debt cleanup, the account is removed
+    // (collateral was tiny, so bad-debt cleanup socializes the loss).
+    // The isolated-debt tracker must be cleared to zero.
+    let iso_debt_after = t.get_isolated_debt("ETH");
+    assert_eq!(
+        iso_debt_after, 0,
+        "isolated debt tracker must be cleared to zero after bad-debt cleanup, got {}",
+        iso_debt_before,
+    );
+}
+
+// --- isolation_boundary (merged) ---
+
+#[test]
+fn test_isolated_ceiling_boundary_exact_then_overshoot() {
+    let ceiling_usd: f64 = 5_000.0;
+    let ceiling_wad: i128 = (ceiling_usd as i128) * WAD;
+
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ceiling_wad;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    // Bob provides USDC liquidity so Alice's borrow doesn't trip the
+    // utilization cap.
+    t.supply(BOB, "USDC", 100_000.0);
+
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0); // $10k @ $2000
+
+    // Borrow exactly $5000 — at the ceiling. Must succeed.
+    t.borrow(ALICE, "USDC", ceiling_usd);
+
+    // Attempt $1 more — must trip the ceiling.
+    let result = t.try_borrow(ALICE, "USDC", 1.0);
+    assert_contract_error(result, errors::DEBT_CEILING_REACHED);
+}
+// 2. Two isolated accounts on the same user are independent
+
+// Pins that a user can hold two separate isolated accounts (one ETH,
+// one WBTC) and that the ceilings + debt trackers operate per-asset,
+// not per-user. Without this independence, the isolated-debt tracker
+// would aggregate across accounts and double-count.
+#[test]
+fn test_isolated_accounts_independent_across_assets() {
+    use test_harness::wbtc_preset;
+
+    let ceiling_eth_wad: i128 = 10_000 * WAD;
+    let ceiling_wbtc_wad: i128 = 20_000 * WAD;
+
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market(wbtc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ceiling_eth_wad;
+        })
+        .with_market_config("WBTC", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ceiling_wbtc_wad;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    t.supply(BOB, "USDC", 100_000.0);
+
+    let eth_account = t.create_isolated_account(ALICE, "ETH");
+    t.supply_to(ALICE, eth_account, "ETH", 5.0);
+    t.borrow_to(ALICE, eth_account, "USDC", 4_000.0);
+
+    let wbtc_account = t.create_isolated_account(ALICE, "WBTC");
+    t.supply_to(ALICE, wbtc_account, "WBTC", 0.5);
+    t.borrow_to(ALICE, wbtc_account, "USDC", 8_000.0);
+
+    // Each tracker holds only its own ledger.
+    let eth_isolated_debt = t.get_isolated_debt("ETH");
+    let wbtc_isolated_debt = t.get_isolated_debt("WBTC");
+
+    assert!(
+        eth_isolated_debt > 0 && wbtc_isolated_debt > 0,
+        "both trackers should be live (eth={}, wbtc={})",
+        eth_isolated_debt,
+        wbtc_isolated_debt
+    );
+
+    // ETH tracker must be ≈ $4000 (in WAD), not $12000. Within rounding.
+    let eth_debt_usd = eth_isolated_debt / WAD;
+    assert!(
+        (3_990..=4_010).contains(&eth_debt_usd),
+        "ETH isolated tracker must reflect only ETH-account debt, got {} (~ ${})",
+        eth_isolated_debt,
+        eth_debt_usd
+    );
+    let wbtc_debt_usd = wbtc_isolated_debt / WAD;
+    assert!(
+        (7_990..=8_010).contains(&wbtc_debt_usd),
+        "WBTC isolated tracker must reflect only WBTC-account debt, got {} (~ ${})",
+        wbtc_isolated_debt,
+        wbtc_debt_usd
+    );
+}
+// 3. Borrow at ceiling, partial repay, re-borrow up to ceiling
+
+// Pins that the ceiling tracker decrements correctly on repay and that
+// the user can re-borrow up to the released headroom. Without correct
+// decrement the tracker would permanently consume ceiling capacity.
+#[test]
+fn test_isolated_ceiling_releases_capacity_on_repay() {
+    let ceiling_wad: i128 = 5_000 * WAD;
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market(usdc_preset())
+        .with_market_config("ETH", |cfg| {
+            cfg.is_isolated_asset = true;
+            cfg.isolation_debt_ceiling_usd_wad = ceiling_wad;
+        })
+        .with_market_config("USDC", |cfg| {
+            cfg.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    t.supply(BOB, "USDC", 100_000.0);
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+
+    // Step 1: borrow up to ceiling.
+    t.borrow(ALICE, "USDC", 5_000.0);
+    let debt_after_borrow = t.get_isolated_debt("ETH");
+
+    // Step 2: repay half. Tracker should drop ~50 %.
+    t.repay(ALICE, "USDC", 2_500.0);
+    let debt_after_repay = t.get_isolated_debt("ETH");
+    assert!(
+        debt_after_repay < debt_after_borrow,
+        "tracker must decrement on repay: before={} after={}",
+        debt_after_borrow,
+        debt_after_repay
+    );
+
+    // Step 3: borrow into the released headroom. Borrowing $2400 with
+    // ~$2500 headroom must succeed (small interest accrual buffer).
+    t.borrow(ALICE, "USDC", 2_400.0);
+
+    // Borrowing another $300 (well past headroom) must hit the ceiling.
+    let result = t.try_borrow(ALICE, "USDC", 300.0);
+    assert_contract_error(result, errors::DEBT_CEILING_REACHED);
+}
+
+// --- audit_p0 isolation repay ---
+
+// IsolatedRepay denies stale TWAP history; ordinary Repay allows the fallback.
+#[test]
+fn test_isolated_repay_rejects_stale_twap_history() {
+    let mut t = LendingTest::new()
+        .with_market(eth_preset())
+        .with_market_config("ETH", |c| {
+            c.is_isolated_asset = true;
+            c.isolation_debt_ceiling_usd_wad = 1_000_000 * WAD;
+        })
+        .with_market(usdc_preset())
+        .with_market_config("USDC", |c| {
+            c.isolation_borrow_enabled = true;
+        })
+        .with_dust_disabled_all_markets()
+        .build();
+    t.set_oracle_primary_anchor("USDC");
+    t.set_oracle_primary_anchor("ETH");
+    t.set_safe_price("USDC", WAD, true, true);
+    t.set_safe_price("ETH", WAD * 2_000, true, true);
+
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 5.0);
+    t.borrow(ALICE, "USDC", 2_000.0);
+
+    // Repay prices the debt asset (USDC); IsolatedRepay rejects stale TWAP there.
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &5);
+
+    let result = t.try_repay(ALICE, "USDC", 500.0);
+    assert_contract_error(result, errors::PRICE_FEED_STALE);
+}
+
+#[test]
+fn test_non_isolated_repay_allows_stale_twap_fallback() {
+    let mut t = LendingTest::new().dual_source_two_asset();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 0.5);
+
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &5);
+
+    t.repay(ALICE, "ETH", 0.1);
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 0.5,
+        "ordinary repay should succeed under permissive Repay oracle policy"
+    );
+}
+

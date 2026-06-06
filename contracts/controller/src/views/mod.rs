@@ -223,12 +223,7 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
         let asset = validation::expect_invariant(env, assets.get(i));
         let index = cache.cached_market_index(&asset);
         let components = price_components(&mut cache, &asset);
-        let safe_price_wad = components
-            .safe_price_wad
-            .unwrap_or(components.final_price_wad);
-        let aggregator_price_wad = components
-            .aggregator_price_wad
-            .unwrap_or(components.final_price_wad);
+        let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
 
         result.push_back(MarketIndexView {
             asset,

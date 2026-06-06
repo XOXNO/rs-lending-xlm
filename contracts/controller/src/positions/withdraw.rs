@@ -10,7 +10,10 @@ use crate::utils::EventContext;
 
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_withdraw_call;
-use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_position};
+use crate::helpers::{
+    refresh_supply_risk_params_for_asset, require_no_supply_dust_for_assets,
+    update_or_remove_supply_position,
+};
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -157,10 +160,11 @@ pub fn execute_withdrawal(
         flags.protocol_fee,
     );
     cache.record_market_update_with_price(&result.market_state, Some(req.price.raw()));
-    // Merge ONLY the scaled share back; preserve the collateral risk params the
-    // pool does not echo.
     let mut result_position = *req.position;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+    if !flags.is_liquidation {
+        refresh_supply_risk_params_for_asset(env, cache, account, req.asset, &mut result_position);
+    }
     update_or_remove_supply_position(account, req.asset, &result_position);
 
     cache.record_position_update(

@@ -72,12 +72,33 @@ pub fn calculate_account_totals(
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
-    // Private implementation can be summarized for Certora without changing callers.
     _calculate_account_totals_impl(env, cache, supply_positions, borrow_positions)
 }
 
-/// Internal implementation of the account total aggregation logic.
+#[cfg(not(feature = "certora"))]
 fn _calculate_account_totals_impl(
+    env: &Env,
+    cache: &mut Cache,
+    supply_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
+) -> (Wad, Wad, Wad) {
+    calculate_account_totals_body(env, cache, supply_positions, borrow_positions)
+}
+
+#[cfg(feature = "certora")]
+cvlr_soroban_macros::apply_summary!(
+    crate::spec::summaries::calculate_account_totals_summary,
+    pub(crate) fn _calculate_account_totals_impl(
+        env: &Env,
+        cache: &mut Cache,
+        supply_positions: &Map<Address, AccountPositionRaw>,
+        borrow_positions: &Map<Address, DebtPositionRaw>,
+    ) -> (Wad, Wad, Wad) {
+        calculate_account_totals_body(env, cache, supply_positions, borrow_positions)
+    }
+);
+
+fn calculate_account_totals_body(
     env: &Env,
     cache: &mut Cache,
     supply_positions: &Map<Address, AccountPositionRaw>,
@@ -104,6 +125,13 @@ fn _calculate_account_totals_impl(
     let total_debt = calculate_total_debt_wad(env, cache, borrow_positions);
 
     (total_collateral, total_debt, weighted_coll)
+}
+
+/// Thin Certora entry used by liquidation rules; production callers use
+/// `calculate_linear_bonus_with_target` in `positions/liquidation_math`.
+#[cfg(feature = "certora")]
+pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
+    crate::spec::summaries::calculate_linear_bonus_summary(env, hf, base_bonus, max_bonus)
 }
 
 pub fn calculate_total_debt_wad(

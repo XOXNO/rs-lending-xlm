@@ -32,6 +32,7 @@ fn seed(env: &Env, admin: Address, asset: Address) {
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
             last_timestamp: env.ledger().timestamp() * 1000,
+            cash: 75 * RAY,
         },
     );
 }

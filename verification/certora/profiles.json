@@ -72,7 +72,7 @@
                 ]
             },
             {
-                "conf": "verification/certora/controller/confs/solvency.conf",
+                "conf": "verification/certora/controller/confs/solvency-roundtrip.conf",
                 "args": [
                     "--rule",
                     "solvency_sanity_supply"
@@ -97,6 +97,20 @@
                 "args": [
                     "--rule",
                     "market_guard_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/oracle-compose.conf",
+                "args": [
+                    "--rule",
+                    "oracle_compose_reachability"
+                ]
+            },
+            {
+                "conf": "verification/certora/controller/confs/tolerance-math.conf",
+                "args": [
+                    "--rule",
+                    "tolerance_math_reachability"
                 ]
             }
         ],
@@ -129,6 +143,12 @@
                 "conf": "verification/certora/controller/confs/oracle.conf"
             },
             {
+                "conf": "verification/certora/controller/confs/oracle-compose.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/tolerance-math.conf"
+            },
+            {
                 "conf": "verification/certora/controller/confs/flash_loan.conf"
             },
             {
@@ -146,10 +166,25 @@
                 "conf": "verification/certora/pool/confs/additivity.conf"
             },
             {
-                "conf": "verification/certora/controller/confs/solvency.conf"
+                "conf": "verification/certora/controller/confs/solvency-reserves.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/solvency-borrow.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/solvency-index.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/solvency-roundtrip.conf"
             },
             {
                 "conf": "verification/certora/controller/confs/liquidation.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/oracle-compose.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/tolerance-math.conf"
             },
             {
                 "conf": "verification/certora/controller/confs/isolation.conf"
@@ -158,7 +193,13 @@
                 "conf": "verification/certora/controller/confs/strategy.conf"
             },
             {
-                "conf": "verification/certora/controller/confs/boundary.conf"
+                "conf": "verification/certora/controller/confs/boundary-math.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/boundary-rates.conf"
+            },
+            {
+                "conf": "verification/certora/controller/confs/boundary-oracle.conf"
             },
             {
                 "conf": "verification/certora/controller/confs/account-isolation.conf"

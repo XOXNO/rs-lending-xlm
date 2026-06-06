@@ -1,17 +1,5 @@
-//! Unified fuzz target for the three pure-math primitives in `common::math::fp_core`:
-//! `mul_div_half_up`, `div_by_int_half_up`, and `rescale_half_up`.
-//!
-//! A shared 35-byte input layout dispatches to the correct arm via `kind % 3`,
-//! allowing libFuzzer to mutate bytes across related arithmetic operations
-//! while keeping invariants per arm:
-//!
-//! - MulDiv (commutativity, identity, zero-absorbing, half-up bound)
-//! - DivByInt (away-from-zero sign, error bound, f64 differential)
-//! - Rescale (roundtrip, downscale bound, sign preservation, away-from-zero)
-//!
-//! Inputs are clamped to protocol-realistic magnitudes (≤ 10^30). Values above
-//! that range exercise MathOverflow paths that are legitimate protocol
-//! behaviour, so they are treated as "out of domain" rather than defects.
+//! `fp_core` primitives: `mul_div_half_up`, `div_by_int_half_up`, `rescale_half_up`.
+//! Inputs clamped to protocol-realistic magnitudes; overflow paths are out-of-domain.
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};

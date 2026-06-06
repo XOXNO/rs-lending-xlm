@@ -80,7 +80,7 @@ Per-flow assignment (`contracts/controller/src/positions/*.rs`,
 - **Staleness** (`contracts/controller/src/oracle/compose.rs`,
   `validate_primary_freshness` / `anchor_is_usable`): strict policies revert
   (`OracleError::PriceFeedStale`); permissive caches accept the feed.
-- **Missing anchor / degraded TWAP** (`allows_missing_twap_fallback`): two
+- **Missing anchor / degraded TWAP** (`allows_degraded_dual_source`): two
   distinct degradations share this allowance. (a) When the anchor *source* is
   absent, unreadable, or stale-unusable, `compose::fallback_to_primary` drops
   the anchor and prices off the primary alone — strict policies instead fail

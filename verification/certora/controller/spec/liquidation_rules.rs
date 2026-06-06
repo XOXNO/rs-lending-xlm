@@ -405,28 +405,5 @@ fn estimate_liquidation_sanity(e: Env) {
         crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds);
     cvlr_satisfy!(ideal.raw() > 0);
 }
-// Rule 12 (added for liquidation price-trust hardening + Certora deepening)
-/// Liquidation policy now disallows unsafe price deviation.
-///
-/// With the change in OraclePolicy::Liquidation (unsafe_deviation: false),
-/// any PrimaryWithAnchor liquidation that would have used a final price
-/// outside the configured *last* tolerance band now hits
-/// OracleError::UnsafePriceNotAllowed in calculate_final_price before any
-/// debt reduction or seizure occurs.
-///
-/// This enforces: liquidation only executes when the two oracles report
-/// prices within tolerance (self-healing when oracles publish convergent
-/// fresh prices). Matches the "do not allow liquidation when prices are
-/// for sure wrong" requirement while preserving tx-rejection self-heal
-/// (no on-chain circuit breaker).
-///
-/// The oracle_tolerance harness + existing liquidation_strictly_* rules
-/// + this policy assertion together prove the combined invariant under
-/// the certora feature (WASM-level, per soroban skill recommendation for
-/// high-assurance DeFi like Blend).
-#[rule]
-fn liquidation_policy_enforces_price_convergence() {
-    let p = crate::oracle::policy::OraclePolicy::Liquidation;
-    cvlr_assert!(!p.allows_unsafe_deviation());
-    cvlr_satisfy!(true);
-}
+// Rule 12: dual-source price-trust under liquidation policy is proved end-to-end
+// in `tolerance_math_rules::liquidation_rejects_unsafe_dual_source_prices`.

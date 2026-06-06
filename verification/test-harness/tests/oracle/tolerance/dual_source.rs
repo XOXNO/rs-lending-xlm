@@ -1,0 +1,254 @@
+use super::{enable_dual_source, set_dual_oracle_dex, setup};
+use soroban_sdk::Address;
+use test_harness::{
+    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+    LIQUIDATOR,
+};
+
+// 8. Dual-source pricing: average price used in second tolerance zone
+
+#[test]
+fn test_second_tolerance_uses_average_price() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // Aggregator: $1.00, Safe: $1.03 (3% deviation, between first 2% and
+    // last 5%). Average price = ($1.00 + $1.03) / 2 = $1.015. Collateral
+    // value is therefore slightly higher with the average than with the
+    // aggregator alone.
+    t.set_safe_price("USDC", usd_cents(103), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+
+    // The average price drives valuation.
+    t.assert_healthy(ALICE);
+}
+// 9. Exchange source = 1 (safe price only)
+
+#[test]
+fn test_exchange_source_safe_only() {
+    let mut t = setup();
+    t.set_oracle_primary_anchor("USDC");
+    t.set_oracle_primary_anchor("ETH");
+
+    // Set safe prices (used because exchange_source=1).
+    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+
+    // Operations succeed using the safe price alone.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+
+    t.assert_healthy(ALICE);
+}
+// 10. Multiple assets with different tolerance states
+
+#[test]
+fn test_mixed_tolerance_states() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // USDC: within first tolerance (matching prices).
+    t.set_safe_price("USDC", usd(1), true, true);
+
+    // ETH: beyond second tolerance (10% deviation).
+    t.set_safe_price("ETH", usd(2200), true, true);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+
+    // Borrowing ETH must fail: ETH's price is beyond the second tolerance.
+    let result = t.try_borrow(ALICE, "ETH", 10.0);
+    assert!(
+        result.is_err(),
+        "borrow should fail when debt asset price is unsafe"
+    );
+}
+// 11. Liquidation rejects on out-of-band deviation during a flash crash
+
+#[test]
+fn test_liquidation_blocked_under_flash_crash() {
+    // When the spot price and the slower-moving anchor disagree beyond the
+    // second tolerance (the canonical flash-crash signature), liquidation runs
+    // under `OraclePolicy::Liquidation` and rejects with
+    // `OracleError::UnsafePriceNotAllowed`: the protocol will not seize
+    // collateral at a price only the spot source corroborates.
+    //
+    // Deliberate manipulation-over-availability tradeoff (auditors: this
+    // reverses the §4.5 posture, which resolved the deviation to the aggregator
+    // so liquidations always proceeded). The sources are independent and
+    // out-of-band divergence is transient — the anchor catches up within its
+    // window — so the block is temporary rather than a durable DoS. Underwater
+    // positions become liquidatable again once the sources reconverge within
+    // tolerance.
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // Perfect market conditions.
+    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_price("USDC", usd(1));
+    t.set_price("ETH", usd(2000));
+
+    // Provide initial liquidity.
+    t.supply(test_harness::KEEPER_USER, "USDC", 100_000.0);
+
+    // Alice supplies ETH and borrows the maximum USDC.
+    t.supply(ALICE, "ETH", 10.0); // 20,000 USD collateral
+    t.borrow(ALICE, "USDC", 15_000.0); // LTV is ~0.8 for ETH, so borrow up to the limit
+
+    // HF must be healthy.
+    let hf_before = t.health_factor(ALICE);
+    assert!(hf_before >= 1.0, "Alice should be healthy");
+    // The flash crash
+    // Spot ETH crashes to $1400 (a 30% drop). The anchor (TWAP) is slow and
+    // still reads $1950. The deviation exceeds the second tolerance.
+    t.set_price("ETH", usd(1400));
+    t.set_safe_price("ETH", usd(1950), true, true);
+
+    // Give the liquidator some USDC to perform the liquidation.
+    t.supply(LIQUIDATOR, "USDC", 20_000.0);
+
+    // The liquidator attempts a partial liquidation while spot and anchor sit
+    // beyond the second tolerance band.
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 5_000.0);
+
+    // The out-of-band deviation is rejected: the protocol will not liquidate
+    // against a price only the spot source corroborates. Liquidation resumes
+    // once the anchor catches up and the sources reconverge within tolerance.
+    assert_contract_error(result, errors::UNSAFE_PRICE);
+}
+// 12. Liquidation collateral extraction via second-tolerance averaging
+
+#[test]
+fn test_liquidation_collateral_extraction_via_averaging() {
+    let mut t = setup();
+    enable_dual_source(&t, "USDC");
+    enable_dual_source(&t, "ETH");
+
+    // Start with perfect market conditions.
+    t.set_safe_price("USDC", usd(1), true, true);
+    t.set_safe_price("ETH", usd(2000), true, true);
+    t.set_price("USDC", usd(1));
+    t.set_price("ETH", usd(2000));
+
+    // Provide initial liquidity.
+    t.supply(test_harness::KEEPER_USER, "USDC", 100_000.0);
+
+    // Raise ETH LTV and threshold to make the position very sensitive.
+    // Apply this before supplying so the position records these values.
+    t.edit_asset_config("ETH", |c| {
+        c.loan_to_value_bps = 9450;
+        c.liquidation_threshold_bps = 9500;
+    });
+
+    // Use a loose tolerance to allow a wide 10% averaging band.
+    t.set_oracle_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
+
+    // Alice supplies ETH (20,000 USD collateral).
+    t.supply(ALICE, "ETH", 10.0);
+
+    // Alice borrows heavily: 18,900 USDC against 19,000 max LTV.
+    t.borrow(ALICE, "USDC", 18_900.0);
+
+    // Give the liquidator USDC to perform the liquidation.
+    t.supply(LIQUIDATOR, "USDC", 20_000.0);
+
+    // Spot falls to 1820 while the averaged price stays at 1910.
+    // Threshold value = 10 * 1910 * 0.95 = 18,145, below the 18,900 debt.
+
+    t.set_price("ETH", usd(1820));
+    t.set_safe_price("ETH", usd(2000), true, true);
+
+    let liquidator_eth_before = t.token_balance(LIQUIDATOR, "ETH");
+
+    // Attempt liquidation under the averaged price.
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDC", 5_000.0);
+
+    assert!(
+        result.is_ok(),
+        "Liquidation should succeed because 9% deviation is within loose 10% band!"
+    );
+
+    let liquidator_eth_after = t.token_balance(LIQUIDATOR, "ETH");
+    let received_collateral = liquidator_eth_after - liquidator_eth_before;
+
+    // Debt = 5000, bonus = 5%, total claim = 5250 USD.
+    // At the averaged price of 1910, this is 2.7486 ETH.
+
+    assert!(
+        received_collateral > 2.7,
+        "Liquidator successfully extracted excess collateral via averaging exploit: {}",
+        received_collateral
+    );
+
+    // The averaged price yields more seized ETH than a 2000 USD reference
+    // price would.
+    assert!(
+        received_collateral > 2.74,
+        "Liquidator successfully extracted excess collateral via averaging exploit: {}",
+        received_collateral
+    );
+}
+// 13. Sanity-bound circuit breaker
+//
+// Slender M-7 / STELLAR_AUDIT_FINDINGS.md §4.2: a per-market absolute
+// floor/ceiling must reject obviously-wrong oracle outputs (whether from a
+// genuine feed bug or a brief spot manipulation under the `Liquidation`
+// policy). Sentinel `max_sanity_price_wad == 0` keeps the check disabled for
+// the rest of the test corpus; this test opts in by writing tight bounds
+// directly to storage.
+
+fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller, || {
+        let key = common::types::ControllerKey::Market(asset.clone());
+        let mut market: common::types::MarketConfig =
+            t.env.storage().persistent().get(&key).unwrap();
+        market.oracle_config.min_sanity_price_wad = min_wad;
+        market.oracle_config.max_sanity_price_wad = max_wad;
+        t.env.storage().persistent().set(&key, &market);
+    });
+}
+
+#[test]
+fn test_sanity_bound_blocks_price_above_ceiling() {
+    let mut t = setup();
+    // Default ETH price is $2,000. Cap at $1,500 → reads must revert.
+    set_sanity_bounds(&t, "ETH", usd(100), usd(1_500));
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
+}
+
+#[test]
+fn test_sanity_bound_blocks_price_below_floor() {
+    let mut t = setup();
+    // Default ETH price is $2,000. Floor at $3,000 → reads must revert.
+    set_sanity_bounds(&t, "ETH", usd(3_000), usd(10_000));
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
+}
+
+// Disabled-bounds state is no longer reachable through the normal
+// config flow (`validate_sanity_bounds` rejects `0 < min < max`
+// violations at admin time), but direct storage tampering remains a
+// theoretical attack surface. The runtime read path defends against
+// it by treating `max == 0` as a sanity-violation panic. This pins
+// that behaviour.
+#[test]
+fn test_sanity_bound_tampered_zero_state_rejected_at_runtime() {
+    let mut t = setup();
+    set_sanity_bounds(&t, "ETH", 0, 0);
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let result = t.try_borrow(ALICE, "ETH", 1.0);
+    assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
+}

@@ -10,24 +10,6 @@ use crate::types::{
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
-pub enum EventAccountPositionType {
-    None = 0,
-    Deposit = 1,
-    Borrow = 2,
-}
-
-impl From<AccountPositionType> for EventAccountPositionType {
-    fn from(value: AccountPositionType) -> Self {
-        match value {
-            AccountPositionType::Deposit => Self::Deposit,
-            AccountPositionType::Borrow => Self::Borrow,
-        }
-    }
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
 pub enum EventPositionMode {
     None = 0,
     Multiply = 1,
@@ -70,41 +52,6 @@ impl From<OracleStrategy> for EventPricingMethod {
         match value {
             OracleStrategy::Single => Self::Instant,
             OracleStrategy::PrimaryWithAnchor => Self::Mix,
-        }
-    }
-}
-
-/// Position snapshot emitted in account update events.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventAccountPosition {
-    /// Supply or borrow side for this position.
-    pub position_type: EventAccountPositionType,
-    pub asset_id: Address,
-    /// Scaled supply or debt shares, not current underlying amount.
-    pub scaled_amount_ray: i128,
-    /// Account id associated with this position.
-    pub account_nonce: u64,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub loan_to_value_bps: u32,
-}
-
-impl EventAccountPosition {
-    pub fn new(
-        side: AccountPositionType,
-        asset: Address,
-        account_id: u64,
-        position: &AccountPosition,
-    ) -> Self {
-        Self {
-            position_type: side.into(),
-            asset_id: asset,
-            scaled_amount_ray: position.scaled_amount.raw(),
-            account_nonce: account_id,
-            liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
-            liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
-            loan_to_value_bps: position.loan_to_value.raw() as u32,
         }
     }
 }
@@ -238,7 +185,9 @@ impl EventOracleProvider {
             anchor_asset: anchor.as_ref().and_then(|source| source.asset.clone()),
             anchor_symbol: anchor.as_ref().and_then(|source| source.symbol.clone()),
             anchor_feed_id: anchor.as_ref().and_then(|source| source.feed_id.clone()),
-            anchor_quote_token: anchor.as_ref().and_then(|source| source.quote_token.clone()),
+            anchor_quote_token: anchor
+                .as_ref()
+                .and_then(|source| source.quote_token.clone()),
             anchor_read_mode: anchor_or_zero(anchor.as_ref(), |source| source.read_mode),
             anchor_twap_records: anchor_or_zero(anchor.as_ref(), |source| source.twap_records),
             anchor_decimals: anchor_or_zero(anchor.as_ref(), |source| source.decimals),
@@ -520,14 +469,6 @@ pub struct RemoveEModeAssetEvent {
     pub category_id: u32,
 }
 
-#[contractevent(topics = ["debt", "ceiling_update"])]
-#[derive(Clone, Debug)]
-pub struct UpdateDebtCeilingEvent {
-    pub asset: Address,
-    /// Total isolated debt against `asset`, in USD WAD.
-    pub total_debt_usd_wad: i128,
-}
-
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventDebtCeilingEntry {
@@ -696,27 +637,6 @@ mod tests {
     }
 
     // ---------- enum derive exercisers ----------
-
-    #[test]
-    fn event_account_position_type_eq() {
-        assert_eq!(
-            EventAccountPositionType::None,
-            EventAccountPositionType::None
-        );
-        assert_ne!(
-            EventAccountPositionType::Deposit,
-            EventAccountPositionType::Borrow
-        );
-        // From branches.
-        assert_eq!(
-            EventAccountPositionType::from(AccountPositionType::Deposit),
-            EventAccountPositionType::Deposit
-        );
-        assert_eq!(
-            EventAccountPositionType::from(AccountPositionType::Borrow),
-            EventAccountPositionType::Borrow
-        );
-    }
 
     #[test]
     fn event_position_mode_eq_and_from() {
@@ -1025,9 +945,8 @@ mod tests {
             }
             .publish(&env);
 
-            UpdateDebtCeilingEvent {
-                asset: asset.clone(),
-                total_debt_usd_wad: 0,
+            UpdateDebtCeilingBatchEvent {
+                updates: Vec::new(&env),
             }
             .publish(&env);
 

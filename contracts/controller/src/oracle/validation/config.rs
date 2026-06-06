@@ -4,9 +4,9 @@
 //! (Reflector or RedStone), so they are safe to run in any context.
 
 use common::errors::{GenericError, OracleError};
-use common::types::{MarketOracleConfigInput, OracleSourceConfigInput, OracleStrategy};
+use common::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
-use common::types::OracleReadMode;
+use common::types::{OracleReadMode, OracleSourceConfigInput};
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use super::super::observation::{
@@ -18,7 +18,7 @@ use super::super::observation::{
 /// Enforces, in order:
 /// 1. strategy/anchor coherence — `PrimaryWithAnchor` iff an anchor is set;
 /// 2. feed diversity — primary and anchor must not read the same feed
-///    (`sources_read_same_feed`), ignoring policy-only fields;
+///    ([`OracleSourceConfigInput::reads_same_feed_as`]), ignoring policy-only fields;
 /// 3. production only (`#[cfg(not(feature = "testing"))]`):
 ///    - a `Single` market's primary may not be naked spot (a Reflector `Spot`
 ///      read or any RedStone source) → `SpotOnlyNotProductionSafe`;
@@ -45,7 +45,7 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
     if let Some(anchor) = config.anchor.as_ref() {
         assert_with_error!(
             env,
-            !sources_read_same_feed(&config.primary, anchor),
+            !config.primary.reads_same_feed_as(anchor),
             GenericError::InvalidExchangeSrc
         );
     }
@@ -91,22 +91,6 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
     }
 }
 
-/// True when two source configs read the same underlying feed. Compares feed
-/// identity only — provider plus contract and feed key (Reflector: asset and
-/// read mode; RedStone: feed id) — and ignores policy-only fields such as
-/// RedStone `max_stale_seconds`. Cross-provider sources are always distinct.
-fn sources_read_same_feed(a: &OracleSourceConfigInput, b: &OracleSourceConfigInput) -> bool {
-    match (a, b) {
-        (OracleSourceConfigInput::Reflector(x), OracleSourceConfigInput::Reflector(y)) => {
-            x.contract == y.contract && x.asset == y.asset && x.read_mode == y.read_mode
-        }
-        (OracleSourceConfigInput::RedStone(x), OracleSourceConfigInput::RedStone(y)) => {
-            x.contract == y.contract && x.feed_id == y.feed_id
-        }
-        _ => false,
-    }
-}
-
 pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
     assert_with_error!(
         env,
@@ -142,4 +126,168 @@ pub(crate) fn validate_twap_records(env: &Env, records: u32) {
         records <= MAX_TWAP_RECORDS,
         OracleError::InvalidOracleTokenType
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::constants::MAX_REASONABLE_PRICE_WAD;
+    use common::types::{
+        MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
+        OracleSourceConfigInputOption, OracleStrategy, ReflectorSourceConfigInput,
+        RedStoneSourceConfigInput,
+    };
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, String};
+
+    fn sample_config(env: &Env, strategy: OracleStrategy, primary: OracleSourceConfigInput) -> MarketOracleConfigInput {
+        MarketOracleConfigInput {
+            max_price_stale_seconds: 900,
+            first_tolerance_bps: 200,
+            last_tolerance_bps: 500,
+            min_sanity_price_wad: 1,
+            max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
+            strategy,
+            primary,
+            anchor: OracleSourceConfigInputOption::None,
+        }
+    }
+
+    fn reflector_source(
+        env: &Env,
+        contract: &Address,
+        asset: &OracleAssetRef,
+        read_mode: OracleReadMode,
+    ) -> OracleSourceConfigInput {
+        OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract: contract.clone(),
+            asset: asset.clone(),
+            read_mode,
+        })
+    }
+
+    #[test]
+    fn test_single_twap_primary_passes_production_shape() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let asset = OracleAssetRef::Stellar(Address::generate(&env));
+        let cfg = sample_config(
+            &env,
+            OracleStrategy::Single,
+            reflector_source(&env, &contract, &asset, OracleReadMode::Twap(5)),
+        );
+        validate_oracle_config_shape(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_single_spot_primary_rejects_spot_only_production() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let asset = OracleAssetRef::Stellar(Address::generate(&env));
+        let cfg = sample_config(
+            &env,
+            OracleStrategy::Single,
+            reflector_source(&env, &contract, &asset, OracleReadMode::Spot),
+        );
+        validate_oracle_config_shape(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_single_redstone_primary_rejects_spot_only_production() {
+        let env = Env::default();
+        let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: Address::generate(&env),
+            feed_id: String::from_str(&env, "ETH/USD"),
+            max_stale_seconds: 900,
+        });
+        let cfg = sample_config(&env, OracleStrategy::Single, primary);
+        validate_oracle_config_shape(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dual_same_reflector_provider_rejects() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let asset = OracleAssetRef::Stellar(Address::generate(&env));
+        let mut cfg = sample_config(
+            &env,
+            OracleStrategy::PrimaryWithAnchor,
+            reflector_source(&env, &contract, &asset, OracleReadMode::Twap(5)),
+        );
+        cfg.anchor = OracleSourceConfigInputOption::Some(reflector_source(
+            &env,
+            &contract,
+            &asset,
+            OracleReadMode::Spot,
+        ));
+        validate_oracle_config_shape(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dual_same_redstone_provider_rejects() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let feed_a = String::from_str(&env, "BTC/USD");
+        let feed_b = String::from_str(&env, "ETH/USD");
+        let primary = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: contract.clone(),
+            feed_id: feed_a,
+            max_stale_seconds: 600,
+        });
+        let mut cfg = sample_config(&env, OracleStrategy::PrimaryWithAnchor, primary);
+        cfg.anchor = OracleSourceConfigInputOption::Some(OracleSourceConfigInput::RedStone(
+            RedStoneSourceConfigInput {
+                contract,
+                feed_id: feed_b,
+                max_stale_seconds: 900,
+            },
+        ));
+        validate_oracle_config_shape(&env, &cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_sanity_bounds_rejects_non_positive() {
+        let env = Env::default();
+        validate_sanity_bounds(&env, 0, MAX_REASONABLE_PRICE_WAD);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_sanity_bounds_rejects_min_ge_max() {
+        let env = Env::default();
+        validate_sanity_bounds(&env, 100, 100);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_sanity_bounds_rejects_max_above_cap() {
+        let env = Env::default();
+        validate_sanity_bounds(&env, 1, MAX_REASONABLE_PRICE_WAD + 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_max_stale_rejects_below_floor() {
+        let env = Env::default();
+        validate_max_stale(&env, MIN_PRICE_STALE_SECONDS - 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_decimals_rejects_out_of_range() {
+        let env = Env::default();
+        validate_decimals(&env, MIN_ORACLE_DECIMALS - 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_twap_records_rejects_zero() {
+        let env = Env::default();
+        validate_twap_records(&env, 0);
+    }
 }

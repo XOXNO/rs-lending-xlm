@@ -1,0 +1,29 @@
+//! Shared helpers for user/liquidation/keeper operations (amount scaling, payments, Results).
+
+use soroban_sdk::{vec, Address, Env, Vec};
+
+use crate::helpers::units::f64_to_i128;
+
+/// Human-readable token amount → on-chain raw units.
+pub fn amount_raw(amount: f64, decimals: u32) -> i128 {
+    f64_to_i128(amount, decimals)
+}
+
+/// Single-asset payment vector for controller calls.
+pub fn asset_payment_vec(env: &Env, asset: Address, raw_amount: i128) -> Vec<(Address, i128)> {
+    vec![env, (asset, raw_amount)]
+}
+
+/// Map `try_*` client nested `Result` to `Result<(), Error>`.
+pub fn map_try_ok_unit(
+    result: Result<
+        Result<(), soroban_sdk::ConversionError>,
+        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+    >,
+) -> Result<(), soroban_sdk::Error> {
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    }
+}

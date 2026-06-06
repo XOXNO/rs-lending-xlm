@@ -1,133 +1,93 @@
 # Certora Formal Verification
 
-Formal verification is the strongest form of testing: instead of trying a handful
-of example inputs, a prover mathematically checks that a property holds for
-*every* possible input — or returns a concrete counterexample that breaks it.
-Certora is the tool that does this for the lending protocol's most critical rules.
-
-This directory contains the Certora Soroban verification surface for the
-lending protocol. It is organized by proof boundary: fixed-point libraries,
-pool accounting, controller safety, and shared summaries.
-
-The suite separates low-level math, explicit summaries, fast and heavy
-profiles, and targeted configs for expensive properties instead of raising
-timeouts across the whole suite.
+Formal verification for the lending protocol's critical invariants, using
+[Certora Sunbeam](https://docs.certora.com/en/latest/docs/sunbeam/index.html)
+(Rust + CVLR `#[rule]` specs compiled to WASM).
 
 ## Layout
 
 ```text
 verification/certora/
-├── common/          # RAY, WAD, BPS, rate, and index math rules
-├── pool/            # pool accounting, summary-contract, and additivity rules
-├── controller/      # account, risk, oracle, liquidation, and strategy rules
-│   ├── harness/     # certora-only wrapper macros and storage adapters
+├── common/          # fixed-point and rate math
+├── pool/            # pool accounting and summary-contract proofs
+├── controller/      # solvency, liquidation, oracle, strategy rules
+│   ├── harness/
 │   ├── confs/
-│   └── spec/
-├── shared/          # reusable pool/SAC/oracle summaries and model helpers
-├── profiles.json    # canonical profile manifest
-├── run_profile.py   # profile runner
-└── check_orphans.py # conf/spec/profile coverage check
+│   └── spec/        # README.txt — domain invariant + conf map
+├── shared/          # cross-contract summaries
+├── scripts/         # run-all.sh wrapper
+├── profiles.json    # sanity | fast | core | critical | heavy | all
+├── run_profile.py
+├── check_orphans.py
+└── check_invariant_coverage.py
 ```
 
-Each layer (`common`, `pool`, `controller`) carries its own `certora_build.py`,
-the per-crate build script the prover invokes via each conf's `build_script`.
+Partitioning is by **crate/WASM boundary** (`common` / `pool` / `controller`),
+not by proof theme. Domain docs live in each layer's `spec/README.txt`.
+Cross-reference: [`architecture/INVARIANTS.md`](../../architecture/INVARIANTS.md).
 
-Each `confs/*.conf` file is a prover entry point for one bounded proof domain.
-Each `spec/*_rules.rs` file contains the corresponding Rust/Soroban rules
-compiled only with the `certora` Cargo feature.
+## WASM artifacts (deploy + prover)
 
-## Production Boundary
+Production and Certora WASM share one tree under `artifacts/wasm/`:
 
-The production crates keep only the minimum Rust hooks needed for Soroban
-Certora builds:
+| Path | Built by | Used for |
+| --- | --- | --- |
+| `deploy/pool.wasm`, `deploy/controller.wasm` | `make deploy-artifacts` | Mainnet deploy / upgrades |
+| `certora/common.wasm`, `certora/pool.wasm`, `certora/controller.wasm` | `make certora-wasm` | All Certora conf `files` entries |
 
-- `common/src/lib.rs`, `contracts/pool/src/lib.rs`, and `contracts/controller/src/lib.rs` include
-  external `verification/certora/**/spec` modules behind `#[cfg(feature =
-  "certora")]`.
-- The controller summary macro implementation lives in
-  `verification/certora/controller/harness/summarized.rs`.
-- The controller storage compatibility adapter lives in
-  `verification/certora/controller/harness/storage.rs` (augmentation pattern).
-- The common WASM harness lives in `verification/certora/common/spec/harness.rs`.
-- See controller/harness/ for the full set (helpers.rs is the most invasive
-  full-module replacement; oracle_* and cross_contract/ + views/ are narrower
-  cost-isolation replacements; oracle_reflector.rs is legacy/dead post-refactor).
+```bash
+make wasm-artifacts          # both deploy + certora
+make certora-wasm            # prover only (rebuild after contract/spec changes)
+```
 
-No rule bodies, CVLR imports, harness structs, or storage adapters are kept
-inside the production source tree. Summary call sites remain in production
-functions because CVLR/Soroban summaries must wrap the Rust function being
-summarized; the resolver and summary bodies stay in the verification tree.
+Conf files reference prebuilt `certora/*.wasm` so Certora cloud skips
+`stellar contract build`. Rebuild locally, then submit jobs.
 
-Controller harness philosophy (2026): follow the providers/*/client.rs +
-shared/summaries + apply_summary! pattern wherever possible (see oracle
-reflector client and cross-contract thin wrappers). Full #[path] module
-replacement is reserved for expensive leaf subsystems (price resolution,
-tolerance math, aggregates) or unavoidable shared buckets (helpers). The
-latter remains a maintainability hotspot; future work should carve thin
-wrappers for the heavy fns (calculate_account_totals) so the replacement
-surface shrinks.
+**Important:** `make certora-wasm` uses `stellar contract build --optimize=false`.
+Stellar's WASM optimizer can emit bytecode that passes `wasm-validate` but triggers
+Certora internal errors on large controller builds, e.g.:
 
-## Proof Domains
+```text
+Inconsistent ref stack sizes in preds ... FunctionIndex_294
+```
 
-- `common`: fixed-point arithmetic, unit conversion, utilization, rates,
-  compounding, and index movement.
-- `pool`: supply, withdraw, borrow, repay, liquidation seizure, revenue,
-  flash-loan accounting, summary-contract proofs, and additivity/no-profit
-  properties.
-- `controller`: position accounting, health factor gates, oracle freshness,
-  e-mode, isolation mode, paused/status behavior, liquidation, strategies, and
-  controller-pool consistency.
-- `shared`: summaries for external calls and expensive protocol boundaries.
+Mainnet deploy still uses optimized WASM from `make deploy-artifacts`.
 
-Controller proofs may use summaries for tractability. Critical pool summaries
-must be backed by `pool/confs/summary-contract.conf` or the targeted
-`pool/confs/summary-contract-critical.conf` before controller proof results are
-treated as accounting evidence.
+## Local checks
 
-## Config Policy
+```bash
+./verification/certora/compile_all.sh
+./verification/certora/compile_all.sh --wasm   # also builds + checks certora WASM
+```
 
-Committed configs use Soroban-supported prover settings only.
+Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
+(conf ↔ `#[rule]` alignment) and `check_invariant_coverage.py` (INVARIANTS.md
+↔ spec modules).
 
-- `msg` is set on every config so hosted runs are identifiable.
-- `rule_sanity: "basic"` is the default for non-vacuity coverage.
-- Heavy targeted configs may use `rule_sanity: "none"` only when the same rule
-  family is also covered by a paired basic-sanity config.
-- `independent_satisfy: true` is set so reachability checks are evaluated
-  independently instead of being masked by another satisfy statement.
-- `optimistic_loop: true` is kept for bounded symbolic execution.
-- `loop_iter` is deliberate: `1` for light math/additivity, `2` for boundary
-  math, and `3` for normal state rules.
-- `precise_bitwise_ops: true` is used only for math and boundary configs.
-- `smt_timeout` and `global_timeout` are profile-sized instead of globally
-  inflated.
-- `server`, `build_script`, and `cargo_features` are set in every config.
+## Hosted prover
 
-EVM-specific Aave/Solidity options are not copied into this Soroban suite.
+**CI:** `.github/workflows/certora-verification.yml` runs the `sanity` profile
+(16 reachability rules) on pull requests. Requires `CERTORAKEY` repository
+secret.
 
-## Profiles
-
-Profiles are defined once in `profiles.json` and executed through
-`run_profile.py`.
+**Manual profiles:**
 
 ```bash
 ./verification/certora/run_profile.py --list
-./verification/certora/run_profile.py sanity
+./verification/certora/scripts/run-all.sh sanity
 ./verification/certora/run_profile.py fast
 ./verification/certora/run_profile.py core
+./verification/certora/run_profile.py critical
 ./verification/certora/run_profile.py heavy
 ```
 
-Profile intent:
-
 | Profile | Purpose |
 | --- | --- |
-| `sanity` | Targeted reachability and non-vacuity smoke checks. |
-| `fast` | Stable CI profile: common math/rates, pool integrity, controller light safety. |
-| `core` | Manual audit profile: pool summaries, solvency, liquidation, isolation, strategy, boundary, account isolation, and market guards. |
-| `critical` | Small set of the highest-signal accounting and safety proofs. |
-| `heavy` | Split-parallel targeted configs for expensive properties. |
-| `manual` | `core` plus `heavy`. |
-| `all` | `fast` plus `core` plus `heavy`. |
+| `sanity` | Reachability / non-vacuity smoke (CI) |
+| `fast` | Stable subset: math, rates, integrity, light controller safety |
+| `core` | Audit: summaries, solvency, liquidation, isolation, strategy |
+| `critical` | Highest-signal accounting and safety proofs |
+| `heavy` | Expensive targeted configs (parallel-friendly) |
 
 Forward extra prover flags after `--`:
 
@@ -135,28 +95,73 @@ Forward extra prover flags after `--`:
 ./verification/certora/run_profile.py fast -- --rule borrow_respects_reserves
 ```
 
-Preview commands without dispatching:
+## Lemma-before-main
+
+Follow Aave-style ordering when adding proofs:
+
+1. `pool/confs/summary-contract.conf` before controller solvency that summarizes pool calls
+2. `oracle-compose.conf` + `tolerance-math.conf` before full oracle-dependent liquidation
+3. Light configs (`rule_sanity: basic`) before paired `*-heavy.conf`
+
+## Production boundary
+
+Production crates expose only `#[cfg(feature = "certora")]` hooks; rule bodies,
+harnesses, and summary implementations live under `verification/certora/`.
+Summary call sites use `apply_summary!` in production because CVLR must wrap
+the summarized function at its definition site.
+
+Controller proofs that summarize pool calls are accounting evidence only after
+`summary-contract.conf` passes.
+
+## Cloud readiness (Certora hosted prover)
+
+Not all 30 confs are equally reliable in Certora cloud. Config syntax is valid
+(orphan/coverage checks pass), but runtime behavior splits into three tiers:
+
+| Tier | Confs | Expectation |
+| --- | --- | --- |
+| **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `oracle-compose`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
+| **B — may timeout** | `common/rates`, `math`, `interest`, `emode`, `liquidation`, `isolation`, `strategy`, `account-isolation`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
+| **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), all 6 `*-heavy.conf` + `no-collateral-no-debt` | Use `--rule <one>` per invocation; expect multi-hour runs |
+
+**Build requirement:** run `make certora-wasm` locally (or in CI) before
+submitting jobs. Confs use the `files` field pointing at
+`artifacts/wasm/certora/*.wasm`, so the hosted prover does not rebuild contracts.
+You still need `stellar-cli` ≥ 25.2 on the machine that produces those WASM
+artifacts (`experimental_spec_shaking_v2` in soroban-sdk 26).
+
+**Why jobs look "stuck":** Tier C confs bundle many rules with
+`global_timeout: 7200` and `rule_sanity: basic`, which multiplies SMT work.
+`splitParallel` heavy configs can sit at 100% for hours before reporting. That
+is timeout pressure, not a hung portal.
+
+**Recommended cloud usage:**
 
 ```bash
-./verification/certora/run_profile.py heavy --dry-run
+# One rule per submission for Tier B/C
+certoraSorobanProver solvency-borrow.conf --rule borrow_respects_reserves
+certoraSorobanProver boundary-math.conf --rule mul_at_max_i128
 ```
 
-## Targeted Runs
+Run `sanity` profile rules first (16 reachability checks) before `fast`/`core`.
 
-Full assurance sequence (local compile checks, then hosted profiles):
+## Config policy
 
-```bash
-cargo check -p common --features certora
-cargo check -p pool --features certora --no-default-features
-cargo check -p controller --features certora --no-default-features
-python3 verification/certora/check_orphans.py
-./verification/certora/run_profile.py sanity
-./verification/certora/run_profile.py fast
-./verification/certora/run_profile.py critical
-./verification/certora/run_profile.py heavy
-```
+- `rule_sanity: "basic"` by default; heavy configs may use `"none"` when paired
+  with a basic-sanity config for the same rule family
+- `independent_satisfy: true` on all configs
+- `loop_iter`: `1` (light math), `2` (boundary), `3` (state rules)
+- `precise_bitwise_ops: true` only for math/boundary configs
+- EVM-only options (`multi_assert_check`, `solc`, Gambit) are not used
 
-Single high-signal runs:
+## Learning resources
+
+- [Sunbeam docs](https://docs.certora.com/en/latest/docs/sunbeam/index.html) and [tutorials](https://certora-sunbeam-tutorials.readthedocs-hosted.com/en/latest/)
+- [Certora user guide](https://docs.certora.com/en/latest/docs/user-guide/index.html) — sanity, CI, timeout strategy (translate to Sunbeam)
+- [Aave V3 certora](https://github.com/Certora/aave-v3-origin/tree/main/certora) — solvency README pattern, lemma→main split
+- [AIComposer](https://github.com/Certora/AIComposer) — Solidity/CVL only; use its spec-first workflow manually with `*_rules.rs`
+
+## Targeted high-signal runs
 
 ```bash
 certoraSorobanProver verification/certora/pool/confs/summary-contract-critical.conf
@@ -164,33 +169,4 @@ certoraSorobanProver verification/certora/controller/confs/no-collateral-no-debt
 certoraSorobanProver verification/certora/controller/confs/controller-pool-consistency.conf
 certoraSorobanProver verification/certora/controller/confs/global-solvency-heavy.conf
 certoraSorobanProver verification/certora/controller/confs/liquidation-integrity-heavy.conf
-```
-
-Use the paired basic configs first when investigating vacuity:
-
-```bash
-certoraSorobanProver verification/certora/pool/confs/summary-contract.conf
-certoraSorobanProver verification/certora/controller/confs/account-isolation.conf
-certoraSorobanProver verification/certora/controller/confs/market-guard.conf
-certoraSorobanProver verification/certora/controller/confs/controller-pool-consistency-light.conf
-certoraSorobanProver verification/certora/controller/confs/solvency.conf
-certoraSorobanProver verification/certora/controller/confs/liquidation.conf
-```
-
-## Local Checks
-
-Compile all Certora feature paths and verify config/profile-to-rule coverage:
-
-```bash
-cargo check -p common --features certora
-cargo check -p pool --features certora --no-default-features
-cargo check -p controller --features certora --no-default-features
-python3 verification/certora/check_orphans.py
-```
-
-`check_orphans.py` confirms every conf and profile rule resolves to a `#[rule]`
-function in the matching `spec/` tree, and prints the current inventory:
-
-```text
-OK: 28 confs, 217 source rules, 7 profiles, zero orphans
 ```

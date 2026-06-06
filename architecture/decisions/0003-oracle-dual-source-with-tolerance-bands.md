@@ -100,7 +100,7 @@ configured `first_tolerance` / `last_tolerance` inputs by
 `tolerance::validate_and_calculate_tolerances`, which enforces
 `MIN_FIRST_TOLERANCE`/`MAX_FIRST_TOLERANCE`,
 `MIN_LAST_TOLERANCE`/`MAX_LAST_TOLERANCE` (`common/src/constants/oracle.rs`)
-and `first < last` (`validation::validate_oracle_bounds`).
+and `first < last` (`oracle::tolerance::require_last_tolerance_gt_first`).
 
 Composition happens in `oracle::compose::resolve_components`. The `primary`
 price is the **safe** price; the `anchor` is the **aggregator**. Under
@@ -119,7 +119,7 @@ BPS, and checks it against the band bounds.
 
 **Graceful degradation.** If the anchor source is unconfigured, missing, or
 stale-but-policy-permits, `resolve_components` degrades to the primary price
-via `fallback_to_primary`, gated by `OraclePolicy::allows_missing_twap_fallback`
+via `fallback_to_primary`, gated by `OraclePolicy::allows_degraded_dual_source`
 (otherwise `OracleError::NoLastPrice`). A missing primary always reverts.
 
 **Sanity bounds.** After composition, `token_price` rejects any final price

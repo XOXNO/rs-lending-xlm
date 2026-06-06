@@ -12,6 +12,9 @@ pub struct PoolFlashLoanReceiver;
 #[contract]
 pub struct PoolNoRepayReceiver;
 
+#[contract]
+pub struct PoolUnderRepayReceiver;
+
 #[contractimpl]
 impl PoolFlashLoanReceiver {
     pub fn execute_flash_loan(
@@ -52,6 +55,39 @@ impl PoolNoRepayReceiver {
         _pool: Address,
         _data: Bytes,
     ) {
+    }
+}
+
+#[contractimpl]
+impl PoolUnderRepayReceiver {
+    pub fn execute_flash_loan(
+        env: Env,
+        _initiator: Address,
+        asset: Address,
+        amount: i128,
+        fee: i128,
+        pool: Address,
+        _data: Bytes,
+    ) {
+        let total = amount
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let shortfall = 1i128;
+        let partial = total
+            .checked_sub(shortfall)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let expiration_ledger = env
+            .ledger()
+            .sequence()
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+
+        token::Client::new(&env, &asset).approve(
+            &env.current_contract_address(),
+            &pool,
+            &partial,
+            &expiration_ledger,
+        );
     }
 }
 
@@ -626,6 +662,33 @@ fn test_flash_loan_rejects_direct_non_owner_pool_call() {
     assert!(
         result.is_err(),
         "direct pool flash loan without owner/controller auth must fail"
+    );
+}
+
+#[test]
+fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let receiver = t.env.register(PoolUnderRepayReceiver, ());
+    let flash_amount = 100_0000000i128;
+    let flash_fee = 1_0000000i128;
+
+    let supply_pos = t.deposit_position();
+    client.supply(&supply_pos, &10_000_000_000i128, &i128::MAX);
+
+    token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &flash_fee);
+
+    let result = flatten_contract_result(client.try_flash_loan(
+        &t.admin,
+        &receiver,
+        &flash_amount,
+        &flash_fee,
+        &Bytes::new(&t.env),
+    ));
+
+    assert_contract_error(
+        result,
+        common::errors::FlashLoanError::InvalidFlashloanRepay as u32,
     );
 }
 

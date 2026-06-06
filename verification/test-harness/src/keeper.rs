@@ -13,6 +13,20 @@ impl LendingTest {
         }
         self.ctrl_client().update_indexes(&self.keeper, &addrs);
     }
+
+    /// Try update indexes -- returns Result.
+    pub fn try_update_indexes_for(
+        &self,
+        assets: &[&str],
+    ) -> Result<(), soroban_sdk::Error> {
+        let mut addrs = Vec::new(&self.env);
+        for name in assets {
+            addrs.push_back(self.resolve_asset(name));
+        }
+        crate::ops::internal::map_try_ok_unit(
+            self.ctrl_client().try_update_indexes(&self.keeper, &addrs),
+        )
+    }
     // Bad debt cleanup
 
     /// Clean bad debt for a specific account (by user name).
@@ -28,14 +42,10 @@ impl LendingTest {
 
     /// Try clean bad debt -- returns Result.
     pub fn try_clean_bad_debt_by_id(&self, account_id: u64) -> Result<(), soroban_sdk::Error> {
-        match self
-            .ctrl_client()
-            .try_clean_bad_debt(&self.keeper, &account_id)
-        {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        }
+        crate::ops::internal::map_try_ok_unit(
+            self.ctrl_client()
+                .try_clean_bad_debt(&self.keeper, &account_id),
+        )
     }
     // Account threshold propagation
 

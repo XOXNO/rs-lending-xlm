@@ -1,31 +1,6 @@
 #![no_main]
-//! Central contract-level libFuzzer target for the lending protocol.
-//!
-//! Drives user-facing entrypoints (supply, borrow, withdraw, repay, liquidate,
-//! flash loan), keeper paths (advance and sync, clean bad debt), and revenue
-//! claiming across three markets and two borrowers.
-//!
-//! ### Invariants (per op, aligned with INVARIANTS.md)
-//!
-//! - **§9 Health factor floor**: after risk-increasing ops (Borrow, Withdraw)
-//!   on a successful call, HF(user) ≥ 1.0. Risk-decreasing ops (Supply,
-//!   Repay, Liquidate, FlashLoan, AdvanceAndSync, ClaimRevenue) require only
-//!   HF > 0.
-//! - **§13 Reserve availability**: `pool_reserves(asset) ≥ 0` for every asset
-//!   after every op, success or failure.
-//! - **Cache atomicity**: when a `try_*` call returns `Err`, pool reserves and
-//!   *both* users' raw supply/borrow balances must be unchanged (+/-1 ulp drift
-//!   from index-rescale rounding).
-//! - **Flash-loan atomicity**: a `FlashLoan` with a receiver that fails to
-//!   repay must return `Err`; a good receiver may succeed or fail (budget /
-//!   auth may reject) but must never silently mutate state.
-//!
-//! ### Why no `catch_unwind`
-//!
-//! libfuzzer-sys's panic hook calls `std::process::abort()` before the
-//! unwind reaches `catch_unwind`. All contract calls go through `try_*`
-//! variants so contract errors surface as `Result::Err`; only host panics
-//! abort and are reported by libFuzzer as crashes.
+//! Protocol user/keeper flows: supply, borrow, liquidate, flash loan, oracle jitter.
+//! Asserts HF floors, non-negative reserves, and rollback on failed `try_*` calls.
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use stellar_fuzz::{

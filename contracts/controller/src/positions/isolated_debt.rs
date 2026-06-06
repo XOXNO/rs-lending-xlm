@@ -113,7 +113,7 @@ pub(crate) fn add_isolated_debt(
     );
 
     // Write back through the cache; flush_isolated_debts defers the storage
-    // write and emits one UpdateDebtCeilingEvent per asset at end-of-batch.
+    // write and emits `UpdateDebtCeilingBatchEvent` at end-of-batch.
     // Emitting here instead would fire one event per in-batch borrow.
     cache.set_isolated_debt(&isolated_token, new_debt);
 }

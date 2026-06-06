@@ -169,6 +169,7 @@ fn simulate_indexes_no_time_noop(
             borrow_index_ray: borrow_index,
             supply_index_ray: supply_index,
             last_timestamp: timestamp,
+            cash: supplied.saturating_sub(borrowed),
         },
     };
     let index = simulate_update_indexes(&e, timestamp, &sync);

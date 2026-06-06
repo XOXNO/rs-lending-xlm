@@ -1,31 +1,5 @@
-//! Native-Rust fuzz target for `pool::LiquidityPool`.
-//!
-//! Registers the pool as a **native** Soroban contract (via `env.register`)
-//! rather than loading its WASM bytecode. Native registration exposes pool
-//! code to coverage instrumentation (`-Cinstrument-coverage`);
-//! `flow_e2e` / `flow_strategy` load compiled WASM and execute it in
-//! Soroban's VM, which bypasses native profile counters entirely.
-//!
-//! Scope: functions reachable *without* token transfers. `supply` / `borrow`
-//! / `withdraw` / `repay` all invoke `token::Client::transfer` against
-//! `params.asset_id`; wiring a Stellar Asset Contract here would add a lot of
-//! setup code for little marginal coverage value. That layer is exercised via
-//! the WASM path in `flow_e2e`. This target focuses on:
-//!
-//!   - `__constructor` (initial state)
-//!   - `update_indexes(price_wad)` (interest accrual pipeline —
-//!     exercises `pool/src/interest.rs`, `pool/src/cache.rs`)
-//!   - `add_rewards(price_wad, amount)` (rewards accrual path)
-//!   - All view functions: `capital_utilisation`, `reserves`,
-//!     `deposit_rate`, `borrow_rate`, `protocol_revenue`,
-//!     `supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`
-//!
-//! Invariants asserted each iteration:
-//!   - `supplied_amount >= borrowed_amount` (supply floor)
-//!   - `reserves >= 0`
-//!   - `borrow_index` monotonically non-decreasing across `update_indexes`
-//!   - `supply_index` monotonically non-decreasing across `update_indexes`
-//!   - `deposit_rate <= borrow_rate` (supplier APY ≤ borrower APY)
+//! Native pool contract: index updates, rewards, and views on an empty pool (no transfers).
+//! Token transfer paths are covered by `flow_e2e` WASM harness.
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, RAY, WAD};

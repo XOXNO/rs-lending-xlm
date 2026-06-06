@@ -14,9 +14,7 @@ use soroban_sdk::{
 use crate::cache::Cache;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
-use crate::positions::withdraw::{
-    self, WithdrawFlags, WithdrawalRequest, WITHDRAW_ALL_SENTINEL,
-};
+use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
 use crate::utils::EventContext;
 use crate::{positions::borrow, storage, utils, validation};
 

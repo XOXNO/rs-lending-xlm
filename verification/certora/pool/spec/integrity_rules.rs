@@ -34,6 +34,7 @@ fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) ->
         borrow_index_ray: RAY,
         supply_index_ray: RAY,
         last_timestamp: timestamp * 1000,
+        cash: supplied.saturating_sub(borrowed),
     }
 }
 

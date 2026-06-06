@@ -7,10 +7,6 @@ pub const MIN_DUST_FLOOR_WAD: i128 = 10 * super::WAD;
 /// Maximum flash-loan and strategy fee in BPS.
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
-pub const MAX_SUPPLY_POSITIONS: u8 = 4;
-
-pub const MAX_BORROW_POSITIONS: u8 = 4;
-
 // Cap on the per-category assets map; bounded so the serialized category
 // fits comfortably under the Soroban per-entry size limit (~65 KiB).
 pub const MAX_EMODE_ASSETS_PER_CATEGORY: u32 = 64;

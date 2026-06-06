@@ -23,7 +23,8 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts \
+        build build-one optimize deploy-artifacts certora-wasm wasm-artifacts \
+        certora certora-list \
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
@@ -50,7 +51,11 @@ SHELL := /bin/bash
 WASM_TARGET  := wasm32v1-none
 RELEASE_DIR  := target/$(WASM_TARGET)/release
 OPTIMIZED_DIR := target/optimized
-DEPLOY_DIR := target/deploy
+# Canonical WASM output: deploy/ for mainnet, certora/ for hosted prover (prebuilt).
+WASM_ARTIFACTS_DIR := artifacts/wasm
+DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
+CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
+CERTORA_BUILD_DIR := target/certora-build
 COV_DIR := target/coverage
 TEST_HARNESS_DIR := verification/test-harness
 FUZZ_DIR := verification/fuzz
@@ -131,9 +136,54 @@ deploy-artifacts: optimize
 		dst="$(DEPLOY_DIR)/$$contract.wasm"; \
 		cp "$$src" "$$dst"; \
 	done
+	@$(MAKE) --no-print-directory _wasm-manifest DEPLOY=1
 	@echo ""
-	@echo "Deploy WASM:"
+	@echo "Deploy WASM ($(DEPLOY_DIR)):"
 	@ls -lh $(DEPLOY_DIR)/*.wasm 2>/dev/null
+
+## Build certora-feature WASM for hosted prover (no stellar optimize; spec hooks preserved).
+## Stellar's post-build optimizer can produce WASM that passes wasm-validate but crashes
+## Certora's GC stack checker on large controller binaries (FunctionIndex_* ref stack errors).
+certora-wasm:
+	@mkdir -p $(CERTORA_WASM_DIR)
+	@for pkg in common pool controller; do \
+		echo "Building certora $$pkg (optimize=false)..."; \
+		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/$$pkg" \
+			stellar contract build --package $$pkg --features certora --optimize=false; \
+		src="$(CERTORA_BUILD_DIR)/$$pkg/$(WASM_TARGET)/release/$$pkg.wasm"; \
+		dst="$(CERTORA_WASM_DIR)/$$pkg.wasm"; \
+		/bin/cp -f "$$src" "$$dst"; \
+	done
+	@$(MAKE) --no-print-directory _wasm-manifest CERTORA=1
+	@echo ""
+	@echo "Certora WASM ($(CERTORA_WASM_DIR)):"
+	@ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
+
+## Production deploy WASM + certora prover WASM (local build once, cloud proves).
+wasm-artifacts: deploy-artifacts certora-wasm
+	@echo ""
+	@echo "All WASM artifacts under $(WASM_ARTIFACTS_DIR)/"
+
+# Certora hosted prover (requires CERTORAKEY, certora-cli, and certora WASM).
+CERTORA_PROFILE ?= sanity
+
+## List Certora verification profiles.
+certora-list:
+	@./verification/certora/run_profile.py --list
+
+## Submit profile to Certora cloud: make certora [CERTORA_PROFILE=fast]
+certora: certora-wasm
+	@test -n "$$CERTORAKEY" || { echo "CERTORAKEY is not set"; exit 1; }
+	@command -v certoraSorobanProver >/dev/null 2>&1 || { \
+		echo "certoraSorobanProver not found; install with: pip install certora-cli"; \
+		exit 1; \
+	}
+	@./verification/certora/scripts/run-all.sh $(CERTORA_PROFILE) $(CERTORA_ARGS)
+
+_wasm-manifest:
+	@python3 verification/certora/scripts/write_wasm_manifest.py \
+		$(if $(DEPLOY),--deploy,) \
+		$(if $(CERTORA),--certora,)
 
 # ---------------------------------------------------------------------------
 # Test
@@ -344,7 +394,8 @@ mutants:
 clean:
 	cargo clean
 	rm -rf $(OPTIMIZED_DIR)
-	rm -rf $(DEPLOY_DIR)
+	rm -rf $(WASM_ARTIFACTS_DIR)
+	rm -rf $(CERTORA_BUILD_DIR)
 	rm -rf $(COV_DIR)
 
 # ---------------------------------------------------------------------------
@@ -439,22 +490,17 @@ fuzz-coverage-clean:
 # Contract-level property tests (proptest inside test-harness)
 # ---------------------------------------------------------------------------
 
-PROPTEST_TESTS := fuzz_multi_asset_solvency fuzz_conservation fuzz_auth_matrix \
-                  fuzz_budget_metering \
-                  fuzz_strategy_flashloan fuzz_liquidation_differential
 PROPTEST_CASES ?= 256
 
-## Run all contract-level property tests.
+## Run all contract-level property tests (`verification/test-harness/tests/fuzz/`).
 ## Set PROPTEST_CASES=10000 (or higher) for longer runs on dedicated hardware.
 proptest:
-	@for t in $(PROPTEST_TESTS); do \
-		echo "=== $$t ==="; \
-		PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test $$t -- --test-threads=1; \
-	done
+	@echo "=== fuzz (proptest) ==="
+	@PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test fuzz -- --test-threads=1
 
-## Run a single property test: make proptest-one TEST=fuzz_supply_borrow_liquidate PROPTEST_CASES=10000
+## Run a single property: make proptest-one TEST=prop_accounting_conservation PROPTEST_CASES=10000
 proptest-one:
-	@PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test $(TEST) -- --test-threads=1
+	@PROPTEST_CASES=$(PROPTEST_CASES) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
 ## Build property tests without running
 proptest-build:
@@ -996,6 +1042,11 @@ help:
 	@echo "Build & Test:"
 	@echo "  make build              Build all contracts (WASM)"
 	@echo "  make optimize           Build + optimize WASM binaries"
+	@echo "  make deploy-artifacts   Optimized WASM for mainnet ($(DEPLOY_DIR))"
+	@echo "  make certora-wasm       Certora-feature WASM for hosted prover"
+	@echo "  make wasm-artifacts     Build deploy + certora WASM ($(WASM_ARTIFACTS_DIR))"
+	@echo "  make certora            Submit Certora cloud jobs (CERTORA_PROFILE=sanity)"
+	@echo "  make certora-list       List Certora profiles"
 	@echo "  make test               Run all test-harness tests"
 	@echo "  make test-one FILE=x    Run specific test file"
 	@echo "  make coverage           Run merged coverage with CLI summary"

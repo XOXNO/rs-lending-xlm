@@ -123,7 +123,7 @@ pub fn calculate_account_totals_summary(
     _env: &Env,
     _cache: &mut Cache,
     _supply_positions: &soroban_sdk::Map<Address, common::types::AccountPositionRaw>,
-    _borrow_positions: &soroban_sdk::Map<Address, common::types::AccountPositionRaw>,
+    _borrow_positions: &soroban_sdk::Map<Address, common::types::DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
     let total_collateral_raw: i128 = nondet();
     let total_debt_raw: i128 = nondet();

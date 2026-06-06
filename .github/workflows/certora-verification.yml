@@ -1,0 +1,140 @@
+name: Certora Verification
+
+on:
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  compile-check:
+    name: Certora compile and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+
+      - name: Compile and coverage gates
+        run: ./verification/certora/compile_all.sh
+
+  sanity:
+    name: Sanity — ${{ matrix.label }}
+    needs: compile-check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - label: common-math
+            conf_dir: verification/certora/common/confs
+            conf: math.conf
+            rule: common_math_reachability
+          - label: common-rates
+            conf_dir: verification/certora/common/confs
+            conf: rates.conf
+            rule: rates_reachability
+          - label: pool-integrity
+            conf_dir: verification/certora/pool/confs
+            conf: integrity.conf
+            rule: pool_integrity_reachability
+          - label: pool-additivity
+            conf_dir: verification/certora/pool/confs
+            conf: additivity.conf
+            rule: pool_additivity_reachability
+          - label: positions
+            conf_dir: verification/certora/controller/confs
+            conf: positions.conf
+            rule: supply_sanity
+          - label: health
+            conf_dir: verification/certora/controller/confs
+            conf: health.conf
+            rule: hf_borrow_sanity
+          - label: oracle
+            conf_dir: verification/certora/controller/confs
+            conf: oracle.conf
+            rule: oracle_tolerance_sanity
+          - label: flash-loan
+            conf_dir: verification/certora/controller/confs
+            conf: flash_loan.conf
+            rule: flash_loan_sanity
+          - label: liquidation-light
+            conf_dir: verification/certora/controller/confs
+            conf: liquidation-light.conf
+            rule: estimate_liquidation_sanity
+          - label: emode
+            conf_dir: verification/certora/controller/confs
+            conf: emode.conf
+            rule: emode_supply_sanity
+          - label: solvency
+            conf_dir: verification/certora/controller/confs
+            conf: solvency-roundtrip.conf
+            rule: solvency_sanity_supply
+          - label: strategy
+            conf_dir: verification/certora/controller/confs
+            conf: strategy.conf
+            rule: multiply_sanity
+          - label: account-isolation
+            conf_dir: verification/certora/controller/confs
+            conf: account-isolation.conf
+            rule: account_isolation_reachability
+          - label: market-guard
+            conf_dir: verification/certora/controller/confs
+            conf: market-guard.conf
+            rule: market_guard_reachability
+          - label: oracle-compose
+            conf_dir: verification/certora/controller/confs
+            conf: oracle-compose.conf
+            rule: oracle_compose_reachability
+          - label: tolerance-math
+            conf_dir: verification/certora/controller/confs
+            conf: tolerance-math.conf
+            rule: tolerance_math_reachability
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+
+      - name: Install stellar-cli
+        run: |
+          STELLAR_VERSION=26.0.0
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/stellar"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Certora CLI
+        run: pip install certora-cli
+
+      - name: Build certora WASM artifacts
+        run: make certora-wasm
+
+      - name: Verify reachability rule
+        env:
+          CERTORAKEY: ${{ secrets.CERTORAKEY }}
+        working-directory: ${{ matrix.conf_dir }}
+        run: certoraSorobanProver ${{ matrix.conf }} --rule ${{ matrix.rule }}

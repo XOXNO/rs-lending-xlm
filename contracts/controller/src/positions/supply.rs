@@ -12,7 +12,9 @@ use stellar_macros::when_not_paused;
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_supply_call;
 use crate::emode;
-use crate::helpers::{require_no_supply_dust_for_assets, update_or_remove_supply_position};
+use crate::helpers::{
+    refresh_supply_risk_params, require_no_supply_dust_for_assets, update_or_remove_supply_position,
+};
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils, validation::*, Controller, ControllerArgs, ControllerClient};
 
@@ -197,10 +199,7 @@ fn update_deposit_position(
     cache: &mut Cache,
 ) {
     let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
-
-    // Liquidation threshold is updated only by the keeper propagation path.
-    position.loan_to_value = req.asset_config.loan_to_value;
-    position.liquidation_bonus = req.asset_config.liquidation_bonus;
+    refresh_supply_risk_params(env, cache, account, req.asset, &mut position, req.asset_config);
 
     let market_index = apply_pool_supply(
         env,

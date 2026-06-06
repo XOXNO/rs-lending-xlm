@@ -21,7 +21,6 @@ use cvlr::nondet::nondet;
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
-use crate::validation;
 
 pub(crate) fn calculate_final_price(
     cache: &Cache,
@@ -91,7 +90,12 @@ pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-pub(crate) fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
+pub(crate) fn require_last_tolerance_gt_first(env: &Env, first: u32, last: u32) {
+    assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
+}
+
+pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
+    let tolerance = i128::from(tolerance_bps);
     let upper_bound = BPS
         .checked_add(tolerance)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
@@ -104,23 +108,21 @@ pub(crate) fn validate_and_calculate_tolerances(
     first_tolerance: u32,
     last_tolerance: u32,
 ) -> OraclePriceFluctuation {
-    let first = i128::from(first_tolerance);
-    let last = i128::from(last_tolerance);
     assert_with_error!(
         env,
-        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first),
+        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first_tolerance),
         OracleError::BadFirstTolerance
     );
     assert_with_error!(
         env,
-        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last),
+        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last_tolerance),
         OracleError::BadLastTolerance
     );
 
-    validation::validate_oracle_bounds(env, first, last);
+    require_last_tolerance_gt_first(env, first_tolerance, last_tolerance);
 
-    let (first_upper, first_lower) = calculate_tolerance_range(env, first);
-    let (last_upper, last_lower) = calculate_tolerance_range(env, last);
+    let (first_upper, first_lower) = calculate_tolerance_range(env, first_tolerance);
+    let (last_upper, last_lower) = calculate_tolerance_range(env, last_tolerance);
 
     OraclePriceFluctuation {
         first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),

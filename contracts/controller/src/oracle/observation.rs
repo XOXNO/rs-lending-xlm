@@ -34,7 +34,9 @@ pub(crate) struct OracleObservation {
 }
 
 impl OracleObservation {
-    // Min of published/observed timestamps.
+    /// Freshness timestamp: minimum of `published_at` and `observed_at` when both
+    /// are set. Reflector quoted-base repricing may further tighten
+    /// `observed_at` against the USD quote feed in `reprice_to_usd`.
     pub(crate) fn timestamp(&self) -> u64 {
         self.published_at
             .map_or(self.observed_at, |t| t.min(self.observed_at))
@@ -64,6 +66,23 @@ pub(crate) fn validate_timestamp(env: &Env, now_secs: u64, feed_ts: u64, max_sta
         !is_stale(now_secs, feed_ts, max_stale),
         OracleError::PriceFeedStale
     );
+}
+
+/// Normalizes a positive token-denominated price to WAD and checks each feed
+/// timestamp for future skew and staleness.
+pub(crate) fn validate_positive_price_timestamps(
+    env: &Env,
+    raw_price: i128,
+    decimals: u32,
+    now_secs: u64,
+    feed_timestamps: &[u64],
+    max_stale: u64,
+) -> i128 {
+    let price_wad = normalize_positive_price(env, raw_price, decimals);
+    for ts in feed_timestamps {
+        validate_timestamp(env, now_secs, *ts, max_stale);
+    }
+    price_wad
 }
 
 pub(crate) fn u256_to_i128(env: &Env, value: &U256) -> i128 {

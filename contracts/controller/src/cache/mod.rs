@@ -72,6 +72,11 @@ impl Cache {
         &self.env
     }
 
+    /// Ledger timestamp in whole seconds (derived from `current_timestamp_ms`).
+    pub fn ledger_timestamp_secs(&self) -> u64 {
+        self.current_timestamp_ms / MS_PER_SECOND
+    }
+
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         (&token_price(self, asset)).into()
     }

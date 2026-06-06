@@ -74,6 +74,23 @@ pub enum OracleSourceConfigInput {
     RedStone(RedStoneSourceConfigInput),
 }
 
+impl OracleSourceConfigInput {
+    /// True when two configs read the same underlying feed (provider, contract,
+    /// and feed key). Ignores policy-only fields such as RedStone
+    /// `max_stale_seconds`.
+    pub fn reads_same_feed_as(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Reflector(x), Self::Reflector(y)) => {
+                x.contract == y.contract && x.asset == y.asset && x.read_mode == y.read_mode
+            }
+            (Self::RedStone(x), Self::RedStone(y)) => {
+                x.contract == y.contract && x.feed_id == y.feed_id
+            }
+            _ => false,
+        }
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OracleSourceConfigInputOption {
@@ -288,6 +305,7 @@ mod tests {
     use super::*;
     use crate::constants::WAD;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Symbol;
 
     fn reflector_input(env: &Env) -> ReflectorSourceConfigInput {
         ReflectorSourceConfigInput {
@@ -315,6 +333,123 @@ mod tests {
             decimals: 8,
             max_stale_seconds: 900,
         }
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_detects_duplicate_reflector_feed() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let asset = OracleAssetRef::Stellar(Address::generate(&env));
+        let a = OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract: contract.clone(),
+            asset: asset.clone(),
+            read_mode: OracleReadMode::Spot,
+        });
+        let b = OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract,
+            asset,
+            read_mode: OracleReadMode::Spot,
+        });
+        assert!(a.reads_same_feed_as(&b));
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_cross_provider_is_false() {
+        let env = Env::default();
+        let reflector = OracleSourceConfigInput::Reflector(reflector_input(&env));
+        let redstone = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: Address::generate(&env),
+            feed_id: String::from_str(&env, "ETH/USD"),
+            max_stale_seconds: 900,
+        });
+        assert!(!reflector.reads_same_feed_as(&redstone));
+        assert!(!redstone.reads_same_feed_as(&reflector));
+    }
+
+    #[test]
+    fn test_oracle_type_shapes_roundtrip() {
+        let env = Env::default();
+        let asset = Address::generate(&env);
+        let _fluctuation = OraclePriceFluctuation {
+            first_upper_ratio_bps: 100,
+            first_lower_ratio_bps: 100,
+            last_upper_ratio_bps: 200,
+            last_lower_ratio_bps: 200,
+        };
+        let _provider_kinds = [OracleProviderKind::ReflectorSep40, OracleProviderKind::RedStonePriceFeed];
+        let _assets = [
+            OracleAssetRef::Stellar(asset.clone()),
+            OracleAssetRef::Symbol(Symbol::new(&env, "USD")),
+            OracleAssetRef::String(String::from_str(&env, "FEED")),
+        ];
+        let _modes = [OracleReadMode::Spot, OracleReadMode::Twap(3)];
+        let _strategies = [OracleStrategy::Single, OracleStrategy::PrimaryWithAnchor];
+        let quoted = ReflectorBase::Quoted(asset.clone());
+        let mut resolved = reflector_resolved(&env);
+        resolved.base = quoted;
+        let _ = OracleSourceConfig::Reflector(resolved);
+        let _ = OracleSourceConfig::RedStone(redstone_resolved(&env));
+        let _input = MarketOracleConfigInput {
+            max_price_stale_seconds: 900,
+            first_tolerance_bps: 100,
+            last_tolerance_bps: 200,
+            strategy: OracleStrategy::PrimaryWithAnchor,
+            primary: OracleSourceConfigInput::Reflector(reflector_input(&env)),
+            anchor: OracleSourceConfigInputOption::None,
+            min_sanity_price_wad: WAD,
+            max_sanity_price_wad: 100 * WAD,
+        };
+        let _market = MarketOracleConfig {
+            asset_decimals: 7,
+            max_price_stale_seconds: 900,
+            tolerance: OraclePriceFluctuation {
+                first_upper_ratio_bps: 100,
+                first_lower_ratio_bps: 100,
+                last_upper_ratio_bps: 200,
+                last_lower_ratio_bps: 200,
+            },
+            strategy: OracleStrategy::Single,
+            primary: OracleSourceConfig::Reflector(reflector_resolved(&env)),
+            anchor: OracleSourceConfigOption::None,
+            min_sanity_price_wad: 0,
+            max_sanity_price_wad: 0,
+        };
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_redstone_ignores_max_stale() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let feed_id = String::from_str(&env, "BTC/USD");
+        let a = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract: contract.clone(),
+            feed_id: feed_id.clone(),
+            max_stale_seconds: 600,
+        });
+        let b = OracleSourceConfigInput::RedStone(RedStoneSourceConfigInput {
+            contract,
+            feed_id,
+            max_stale_seconds: 900,
+        });
+        assert!(a.reads_same_feed_as(&b));
+    }
+
+    #[test]
+    fn test_reads_same_feed_as_reflector_different_read_mode_is_false() {
+        let env = Env::default();
+        let contract = Address::generate(&env);
+        let asset = OracleAssetRef::Stellar(Address::generate(&env));
+        let spot = OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract: contract.clone(),
+            asset: asset.clone(),
+            read_mode: OracleReadMode::Spot,
+        });
+        let twap = OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
+            contract,
+            asset,
+            read_mode: OracleReadMode::Twap(5),
+        });
+        assert!(!spot.reads_same_feed_as(&twap));
     }
 
     #[test]

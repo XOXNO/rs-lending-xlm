@@ -4,12 +4,9 @@
 //! the `anchor` price against the configured tolerance bands. The primary is
 //! the value the protocol prices on; the anchor is the cross-check.
 //!
-//! Vocabulary note: the public price-component ABI
-//! (`common::types` view fields) names these `safe_price_wad` and
-//! `aggregator_price_wad` — i.e. `safe = primary`, `aggregator = anchor`. This
-//! module (and the rest of the oracle code) uses `primary`/`anchor`
-//! consistently; the view boundary in `oracle::mod::price_components` maps to
-//! the ABI names.
+//! Internal code uses `primary`/`anchor` consistently. Views map these to the
+//! public ABI names `safe_price_wad` (primary) and `aggregator_price_wad`
+//! (anchor) in `ResolvedOracleComponents::to_abi_prices`.
 //!
 //! Deliberately pure (no oracle client knowledge) so Certora can summarize it
 //! without affecting the rest of price resolution.
@@ -23,7 +20,6 @@ use common::types::OraclePriceFluctuation;
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
-use crate::validation;
 
 pub(crate) fn calculate_final_price(
     cache: &Cache,
@@ -97,8 +93,14 @@ pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
     u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
 }
 
+/// Requires `last_tolerance_bps > first_tolerance_bps` (wider second band).
+pub(crate) fn require_last_tolerance_gt_first(env: &Env, first: u32, last: u32) {
+    assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
+}
+
 /// Computes the upper/lower bounds for a single tolerance value in BPS.
-pub(crate) fn calculate_tolerance_range(env: &Env, tolerance: i128) -> (i128, i128) {
+pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
+    let tolerance = i128::from(tolerance_bps);
     let upper_bound = BPS
         .checked_add(tolerance)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
@@ -115,28 +117,126 @@ pub(crate) fn validate_and_calculate_tolerances(
     first_tolerance: u32,
     last_tolerance: u32,
 ) -> OraclePriceFluctuation {
-    let first = i128::from(first_tolerance);
-    let last = i128::from(last_tolerance);
     assert_with_error!(
         env,
-        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first),
+        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first_tolerance),
         OracleError::BadFirstTolerance
     );
     assert_with_error!(
         env,
-        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last),
+        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last_tolerance),
         OracleError::BadLastTolerance
     );
 
-    validation::validate_oracle_bounds(env, first, last);
+    require_last_tolerance_gt_first(env, first_tolerance, last_tolerance);
 
-    let (first_upper, first_lower) = calculate_tolerance_range(env, first);
-    let (last_upper, last_lower) = calculate_tolerance_range(env, last);
+    let (first_upper, first_lower) = calculate_tolerance_range(env, first_tolerance);
+    let (last_upper, last_lower) = calculate_tolerance_range(env, last_tolerance);
 
     OraclePriceFluctuation {
         first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),
         first_lower_ratio_bps: bps_i128_to_u32(env, first_lower),
         last_upper_ratio_bps: bps_i128_to_u32(env, last_upper),
         last_lower_ratio_bps: bps_i128_to_u32(env, last_lower),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::Cache;
+    use crate::oracle::policy::OraclePolicy;
+    use common::constants::{BPS, MIN_FIRST_TOLERANCE};
+
+    fn sample_tolerance() -> OraclePriceFluctuation {
+        OraclePriceFluctuation {
+            first_upper_ratio_bps: 10_200,
+            first_lower_ratio_bps: 9_800,
+            last_upper_ratio_bps: 10_500,
+            last_lower_ratio_bps: 9_500,
+        }
+    }
+
+    #[test]
+    fn test_is_within_anchor_zero_anchor_returns_false() {
+        let env = Env::default();
+        assert!(!is_within_anchor(&env, 0, 100 * common::constants::WAD, 200, 200));
+    }
+
+    #[test]
+    fn test_calculate_final_price_anchor_only() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::View);
+        let price = calculate_final_price(&cache, Some(500), None, &sample_tolerance());
+        assert_eq!(price, 500);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_calculate_final_price_none_none_panics() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::View);
+        let _ = calculate_final_price(&cache, None, None, &sample_tolerance());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_calculate_final_price_unsafe_deviation_liquidation_panics() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::Liquidation);
+        let tight = OraclePriceFluctuation {
+            first_upper_ratio_bps: 10_010,
+            first_lower_ratio_bps: 9_990,
+            last_upper_ratio_bps: 10_020,
+            last_lower_ratio_bps: 9_980,
+        };
+        let _ = calculate_final_price(
+            &cache,
+            Some(100 * common::constants::WAD),
+            Some(200 * common::constants::WAD),
+            &tight,
+        );
+    }
+
+    #[test]
+    fn test_calculate_final_price_unsafe_deviation_risk_decreasing_keeps_primary() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::RiskDecreasing);
+        let tight = OraclePriceFluctuation {
+            first_upper_ratio_bps: 10_010,
+            first_lower_ratio_bps: 9_990,
+            last_upper_ratio_bps: 10_020,
+            last_lower_ratio_bps: 9_980,
+        };
+        let primary = 200 * common::constants::WAD;
+        let price = calculate_final_price(
+            &cache,
+            Some(100 * common::constants::WAD),
+            Some(primary),
+            &tight,
+        );
+        assert_eq!(price, primary);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_and_calculate_tolerances_rejects_last_lte_first() {
+        let env = Env::default();
+        let _ = validate_and_calculate_tolerances(&env, MIN_FIRST_TOLERANCE, MIN_FIRST_TOLERANCE);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_validate_and_calculate_tolerances_rejects_first_below_min() {
+        let env = Env::default();
+        let _ = validate_and_calculate_tolerances(&env, MIN_FIRST_TOLERANCE - 1, MIN_LAST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_calculate_tolerance_range_scales_bounds() {
+        let env = Env::default();
+        let (upper, lower) = calculate_tolerance_range(&env, 200);
+        assert!(upper > i128::from(BPS));
+        assert!(lower < i128::from(BPS));
     }
 }

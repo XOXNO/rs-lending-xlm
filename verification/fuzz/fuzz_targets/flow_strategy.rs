@@ -1,32 +1,6 @@
 #![no_main]
-//! Dedicated libFuzzer target for the **strategy** entrypoints:
-//! `multiply`, `swap_debt`, `swap_collateral`, and
-//! `repay_debt_with_collateral`.
-//!
-//! These paths chain a flash loan, router swap, and position mutation inside a
-//! single controller call.
-//!
-//! ### Why a separate target from `flow_e2e`
-//!
-//! Strategy ops need a funded router (`aggregator`) to complete. Folding
-//! them into `flow_e2e` would pay the router-funding cost on every
-//! iteration of every op. Keeping them in a focused target lets the
-//! mutation engine concentrate on strategy-specific branches without the
-//! overhead of the wider op menu.
-//!
-//! ### Invariants (per op)
-//!
-//! - **HF floor**: after a risk-increasing op (Multiply, SwapDebt,
-//!   SwapCollateral) succeeds, the user's HF must be ≥ 1.0 WAD. Repay is
-//!   risk-decreasing so only HF > 0 survives.
-//! - **Reserves non-negative**: every asset's pool reserves ≥ 0 after every
-//!   op, success or failure.
-//! - **Router allowance cleared**: after any successful strategy operation,
-//!   the controller must have zero outstanding allowance on the aggregator for
-//!   the swapped assets.
-//! - **Cache atomicity on failure**: a failed `try_*` call must not mutate
-//!   pool reserves or user raw balances (the same cache-Drop property
-//!   `flow_e2e` enforces for core ops).
+//! Strategy entrypoints: multiply, swap debt/collateral, repay-with-collateral.
+//! Asserts HF floor, reserve non-negativity, router allowance cleanup, and rollback.
 
 use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use soroban_sdk::token;

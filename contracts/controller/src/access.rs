@@ -149,24 +149,22 @@ impl Controller {
     #[only_owner]
     pub fn grant_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
-        let owner = ownable::get_owner(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+        // `#[only_owner]` already enforced owner auth; owner must exist here.
+        let owner = ownable::get_owner(&env).unwrap();
         access_control::grant_role_no_auth(&env, &account, &role, &owner);
     }
 
     #[only_owner]
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
-        let owner = ownable::get_owner(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+        let owner = ownable::get_owner(&env).unwrap();
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
     }
 
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         storage::renew_controller_instance(&env);
-        let current_owner = ownable::get_owner(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+        let current_owner = ownable::get_owner(&env).unwrap();
 
         stellar_access::role_transfer::transfer_role(
             &env,
@@ -180,12 +178,32 @@ impl Controller {
 
     pub fn accept_ownership(env: Env) {
         storage::renew_controller_instance(&env);
-        let previous_owner = ownable::get_owner(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+        let previous_owner = ownable::get_owner(&env).unwrap();
         ownable::accept_ownership(&env);
-        let new_owner = ownable::get_owner(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::OwnerNotSet));
+        let new_owner = ownable::get_owner(&env).unwrap();
         sync_owner_access_control(&env, &previous_owner, &new_owner);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use stellar_access::access_control::AccessControlStorageKey;
+    use stellar_access::ownable::OwnableStorageKey;
+
+    #[test]
+    #[should_panic]
+    fn test_sync_pending_admin_transfer_without_owner_or_admin() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(Controller, (admin,));
+        let candidate = Address::generate(&env);
+        env.as_contract(&contract_id, || {
+            env.storage().instance().remove(&OwnableStorageKey::Owner);
+            env.storage().instance().remove(&AccessControlStorageKey::Admin);
+            sync_pending_admin_transfer(&env, &candidate, 100);
+        });
     }
 }
 

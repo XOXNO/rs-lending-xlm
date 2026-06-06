@@ -2,8 +2,8 @@
 //!
 //! Each controller flow chooses one variant before reading prices. The variant
 //! decides whether disabled markets, stale sources, out-of-band deviations,
-//! missing TWAP history, or out-of-sanity-bounds prices can be tolerated for
-//! that flow.
+//! degraded dual-source resolution (missing anchor, stale anchor skip, TWAP
+//! fallback), or out-of-sanity-bounds prices can be tolerated for that flow.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OraclePolicy {
@@ -20,7 +20,8 @@ struct Allowances {
     disabled_market: bool,
     stale_source: bool,
     unsafe_deviation: bool,
-    missing_twap_fallback: bool,
+    /// Missing anchor, stale anchor treated as unusable, or TWAP degradation to spot.
+    degraded_dual_source: bool,
     /// Final price outside the configured `[min, max]` sanity band (or with an
     /// unset `max <= 0`) tolerated. Mirrors `unsafe_deviation`: a flow that
     /// accepts a deviated price also accepts an out-of-sanity one, because such
@@ -37,28 +38,28 @@ impl Allowances {
                 disabled_market: false,
                 stale_source: false,
                 unsafe_deviation: false,
-                missing_twap_fallback: false,
+                degraded_dual_source: false,
                 sanity_violation: false,
             },
             RiskDecreasing => Allowances {
                 disabled_market: false,
                 stale_source: true,
                 unsafe_deviation: true,
-                missing_twap_fallback: true,
+                degraded_dual_source: true,
                 sanity_violation: true,
             },
             Repay => Allowances {
                 disabled_market: true,
                 stale_source: true,
                 unsafe_deviation: true,
-                missing_twap_fallback: true,
+                degraded_dual_source: true,
                 sanity_violation: true,
             },
             IsolatedRepay => Allowances {
                 disabled_market: true,
                 stale_source: false,
                 unsafe_deviation: false,
-                missing_twap_fallback: false,
+                degraded_dual_source: false,
                 sanity_violation: false,
             },
             // Rejects every loosening like RiskIncreasing so seizure accounting
@@ -67,14 +68,14 @@ impl Allowances {
                 disabled_market: false,
                 stale_source: false,
                 unsafe_deviation: false,
-                missing_twap_fallback: false,
+                degraded_dual_source: false,
                 sanity_violation: false,
             },
             View => Allowances {
                 disabled_market: true,
                 stale_source: true,
                 unsafe_deviation: true,
-                missing_twap_fallback: true,
+                degraded_dual_source: true,
                 sanity_violation: true,
             },
         }
@@ -94,8 +95,8 @@ impl OraclePolicy {
         Allowances::for_policy(self).unsafe_deviation
     }
 
-    pub fn allows_missing_twap_fallback(self) -> bool {
-        Allowances::for_policy(self).missing_twap_fallback
+    pub fn allows_degraded_dual_source(self) -> bool {
+        Allowances::for_policy(self).degraded_dual_source
     }
 
     pub fn allows_sanity_violation(self) -> bool {
@@ -113,7 +114,7 @@ mod tests {
         assert!(!p.allows_disabled_market());
         assert!(!p.allows_stale_source());
         assert!(!p.allows_unsafe_deviation());
-        assert!(!p.allows_missing_twap_fallback());
+        assert!(!p.allows_degraded_dual_source());
         assert!(!p.allows_sanity_violation());
     }
 
@@ -123,7 +124,7 @@ mod tests {
         assert!(!p.allows_disabled_market());
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
-        assert!(p.allows_missing_twap_fallback());
+        assert!(p.allows_degraded_dual_source());
         // Supply only reduces risk, so a misconfigured/out-of-bounds price
         // must not block it; value extraction requires a risk-increasing flow.
         assert!(p.allows_sanity_violation());
@@ -135,7 +136,7 @@ mod tests {
         assert!(p.allows_disabled_market());
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
-        assert!(p.allows_missing_twap_fallback());
+        assert!(p.allows_degraded_dual_source());
         assert!(p.allows_sanity_violation());
     }
 
@@ -145,7 +146,7 @@ mod tests {
         assert!(p.allows_disabled_market());
         assert!(!p.allows_stale_source());
         assert!(!p.allows_unsafe_deviation());
-        assert!(!p.allows_missing_twap_fallback());
+        assert!(!p.allows_degraded_dual_source());
         assert!(!p.allows_sanity_violation());
     }
 
@@ -157,7 +158,7 @@ mod tests {
         // Liquidation rejects PrimaryWithAnchor divergence beyond the last
         // tolerance band; unsafe deviation is tolerated only on single-source paths.
         assert!(!p.allows_unsafe_deviation());
-        assert!(!p.allows_missing_twap_fallback());
+        assert!(!p.allows_degraded_dual_source());
         // Seizure sizing must read a sanity-checked price.
         assert!(!p.allows_sanity_violation());
     }
@@ -168,7 +169,7 @@ mod tests {
         assert!(p.allows_disabled_market());
         assert!(p.allows_stale_source());
         assert!(p.allows_unsafe_deviation());
-        assert!(p.allows_missing_twap_fallback());
+        assert!(p.allows_degraded_dual_source());
         assert!(p.allows_sanity_violation());
     }
 
@@ -185,13 +186,10 @@ mod tests {
         assert_eq!(liq.allows_stale_source(), inc.allows_stale_source());
         assert_eq!(liq.allows_unsafe_deviation(), inc.allows_unsafe_deviation());
         assert_eq!(
-            liq.allows_missing_twap_fallback(),
-            inc.allows_missing_twap_fallback()
+            liq.allows_degraded_dual_source(),
+            inc.allows_degraded_dual_source()
         );
-        assert_eq!(
-            liq.allows_sanity_violation(),
-            inc.allows_sanity_violation()
-        );
+        assert_eq!(liq.allows_sanity_violation(), inc.allows_sanity_violation());
     }
 
     #[test]
@@ -204,8 +202,8 @@ mod tests {
             OraclePolicy::View.allows_disabled_market()
         );
         assert_eq!(
-            OraclePolicy::Repay.allows_missing_twap_fallback(),
-            OraclePolicy::View.allows_missing_twap_fallback()
+            OraclePolicy::Repay.allows_degraded_dual_source(),
+            OraclePolicy::View.allows_degraded_dual_source()
         );
         assert_eq!(
             OraclePolicy::Repay.allows_sanity_violation(),

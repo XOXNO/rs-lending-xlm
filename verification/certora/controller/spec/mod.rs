@@ -21,6 +21,8 @@
 //!   - `market_guard_rules`      preconditions that block new supply/borrow
 //!   - `math_rules`              controller-level fixed-point math
 //!   - `oracle_rules`            staleness, tolerance bands, cache consistency
+//!   - `oracle_compose_rules`      dual-source degradation and policy gates
+//!   - `tolerance_math_rules`      unsummarised ratio-band math
 //!   - `position_rules`          position add/remove consistency
 //!   - `solvency_rules`          pool solvency and scaled-amount conservation
 //!   - `strategy_rules`          leverage/strategy invariants
@@ -39,8 +41,10 @@ pub mod isolation_rules;
 pub mod liquidation_rules;
 pub mod market_guard_rules;
 pub mod math_rules;
+pub mod oracle_compose_rules;
 pub mod oracle_rules;
 pub mod position_rules;
+pub mod tolerance_math_rules;
 pub mod solvency_rules;
 pub mod strategy_rules;
 

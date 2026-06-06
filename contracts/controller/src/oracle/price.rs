@@ -40,25 +40,27 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         primary_contract != asset,
         OracleError::OracleNotConfigured
     );
-    let resolved = compose::resolve_price(cache, &config);
+    let resolved = compose::resolve_components(cache, &config);
     assert_with_error!(
         cache.env(),
-        resolved.price_wad > 0,
+        resolved.final_price_wad > 0,
         OracleError::InvalidPrice
     );
     // Sanity price bounds. Risk-decreasing flows (supply, repay, view) tolerate
     // an out-of-bounds price the same way they tolerate stale/deviated sources:
     // they can only reduce account risk, and any value extraction needs a
     // risk-increasing flow that re-resolves the price with sanity enforced.
+    // `max_sanity_price_wad <= 0` is a corruption/unconfigured guard (configure
+    // requires min/max > 0); it is not the normal configured path.
     if !cache.oracle_policy.allows_sanity_violation()
         && (config.max_sanity_price_wad <= 0
-            || resolved.price_wad < config.min_sanity_price_wad
-            || resolved.price_wad > config.max_sanity_price_wad)
+            || resolved.final_price_wad < config.min_sanity_price_wad
+            || resolved.final_price_wad > config.max_sanity_price_wad)
     {
         panic_with_error!(cache.env(), OracleError::SanityBoundViolated);
     }
     let feed = PriceFeedRaw {
-        price_wad: resolved.price_wad,
+        price_wad: resolved.final_price_wad,
         asset_decimals: config.asset_decimals,
         timestamp: resolved.timestamp,
     };

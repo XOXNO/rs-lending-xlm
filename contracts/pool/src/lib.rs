@@ -276,7 +276,14 @@ impl LiquidityPoolInterface for LiquidityPool {
             FlashLoanError::InvalidFlashloanRepay
         );
 
-        // Receiver must approve `amount + fee` during the callback.
+        // Receiver must approve `amount + fee` during the callback. Check allowance
+        // before transfer_from so SAC failures surface as InvalidFlashloanRepay (#402)
+        // instead of bubbling token error codes.
+        assert_with_error!(
+            &env,
+            tok.allowance(&receiver, &pool_addr) >= total,
+            FlashLoanError::InvalidFlashloanRepay
+        );
         authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
         tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
 

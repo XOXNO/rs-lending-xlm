@@ -53,7 +53,7 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | Function fuzzing | `verification/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs` | Pure math, rounding, overflow, rates, and index transitions. Fast and cheap. |
 | Native pool fuzzing | `verification/fuzz/fuzz_targets/pool_native.rs` | Pool constructor, index update, rewards, views, and reserve invariants without token transfer setup. |
 | Protocol flow fuzzing | `verification/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Multi-asset user flows, liquidations, flash-loan failure paths, strategy routes, router allowance cleanup, and rollback behavior. |
-| Property tests | `verification/test-harness/tests/fuzz_*.rs` | Deterministic proptest suites for solvency, conservation, auth, TTL, budget metering, strategy/flash-loan behavior, and liquidation differentials. |
+| Property tests | `verification/test-harness/tests/fuzz/` | Deterministic proptest suites for accounting conservation, auth, strategy invariants, budget metering, and liquidation differentials. |
 | Miri | `common/src/math/fp_core.rs` tests | Undefined-behavior checks for pure i128 fixed-point helpers. |
 
 ## Targets
@@ -76,14 +76,14 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 
 `make proptest` runs:
 
-| Test | Scope |
+| Property (`--test fuzz`) | Scope |
 |---|---|
-| `fuzz_multi_asset_solvency` | Random multi-asset operations preserve global solvency invariants. |
-| `fuzz_conservation` | Pool/user accounting conservation and non-negative reserves. |
-| `fuzz_auth_matrix` | Privileged controller endpoints reject missing or wrong authorization. |
-| `fuzz_budget_metering` | Realistic batches fail cleanly under default Soroban budget limits. |
-| `fuzz_strategy_flashloan` | Strategy safety, router allowance cleanup, and flash-loan regression coverage. |
-| `fuzz_liquidation_differential` | Production liquidation math against an exact `BigRational` reference. |
+| `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
+| `prop_owner_only_endpoints_reject_unauthed` / `prop_wrong_role_rejected` | Privileged endpoint auth gates. |
+| `prop_strategy_under_budget` | `multiply` under Soroban default budget limits. |
+| `prop_multiply_leverage_hf_safe` / `prop_strategy_swap_collateral_balance_delta` | Strategy HF, allowance, payload guards. |
+| `prop_short_aggregator_rejected` | Zero-output aggregator rejection. |
+| `prop_liquidation_matches_bigrational_reference` | Liquidation vs `BigRational` reference. |
 
 ## Corpus And Regressions
 
@@ -109,7 +109,7 @@ cargo +nightly fuzz tmin <target> artifacts/<target>/crash-<hash>
 ```
 
 Proptest regressions are different: files under
-`verification/test-harness/tests/*.proptest-regressions` are committed so
+`verification/test-harness/tests/fuzz/*.proptest-regressions` are committed so
 minimized failing cases replay automatically.
 
 ## Coverage

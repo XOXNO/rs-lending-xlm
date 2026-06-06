@@ -1,4 +1,6 @@
+use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
 use flash_loan_receiver::FlashLoanTestReceiver;
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{Address, Bytes};
 
 use crate::context::LendingTest;
@@ -62,9 +64,39 @@ impl LendingTest {
             &Bytes::new(&self.env),
         ) {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
+            Ok(Err(_)) => panic!("flash loan output conversion failed"),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
+    }
+
+    /// Try flash loan with receiver callback data -- returns contract errors directly.
+    pub fn try_flash_loan_with_data(
+        &mut self,
+        caller: &str,
+        asset_name: &str,
+        amount_raw: i128,
+        receiver: &Address,
+        data: &Bytes,
+    ) -> Result<(), soroban_sdk::Error> {
+        let caller_addr = self.get_or_create_user(caller);
+        let asset_addr = self.resolve_asset(asset_name);
+
+        match self.ctrl_client().try_flash_loan(
+            &caller_addr,
+            &asset_addr,
+            &amount_raw,
+            receiver,
+            data,
+        ) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(_)) => panic!("flash loan output conversion failed"),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
+
+    /// XDR-encode adversarial receiver mode for strict repayment tests.
+    pub fn flash_loan_receiver_data(&self, mode: FlashLoanMode) -> Bytes {
+        FlashLoanRequest { mode }.to_xdr(&self.env)
     }
 
     /// Set the flash loan ongoing flag directly (escape hatch for reentrancy tests).

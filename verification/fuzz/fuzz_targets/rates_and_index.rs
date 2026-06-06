@@ -1,29 +1,5 @@
-//! Unified fuzz target for the rate → compound → accrual pipeline.
-//!
-//! Checks the protocol-level interest-split identity across the
-//! rate, compound-interest, and accrual pipeline:
-//!
-//!   accrued_interest = supplier_rewards + protocol_fee        (exact)
-//!   protocol_fee ≈ reserve_factor_bps/BPS × accrued_interest  (±1 ulp)
-//!
-//! Pipeline per iteration:
-//!   1. Sample `MarketParams` (clamped to validator-valid geometry).
-//!   2. `rate = calculate_borrow_rate(util, params)`.
-//!   3. `factor = compound_interest(rate, delta_ms)`.
-//!   4. `(rewards, fee) = calculate_supplier_rewards(params, borrowed, factor, RAY)`.
-//!   5. Assert all rate / compound / accrual invariants.
-//!
-//! ### Why no `catch_unwind`
-//!
-//! libfuzzer-sys's panic hook calls `std::process::abort()` *before* the
-//! unwind reaches any `catch_unwind`, so panics cannot be recovered inside
-//! the target. Inputs are therefore clamped to the production-valid domain:
-//!   - `x = rate · delta_ms ≤ 2 RAY` — the Taylor expansion's designed bound
-//!     (error < 0.01% at x = 2); beyond that the real protocol caps rates.
-//!   - `borrowed_raw ≤ 10^17` — keeps `borrowed · factor` in-range even when
-//!     `factor` approaches `e^2`.
-//!
-//! Anything outside those bounds is skipped, not asserted.
+//! Interest pipeline: borrow rate, compound factor, supplier/fee split, index update.
+//! Clamps inputs to the production-valid domain (rate·dt ≤ 2 RAY).
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
@@ -315,6 +291,7 @@ fuzz_target!(|i: In| {
             supplied_ray: supplied_raw,
             borrowed_ray: borrowed_raw,
             revenue_ray: 0,
+            cash: 0,
             borrow_index_ray: Ray::ONE.raw(),
             supply_index_ray: Ray::ONE.raw(),
             last_timestamp: 0,

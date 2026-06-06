@@ -30,10 +30,7 @@ fn test_supply_creates_position() {
 
 #[test]
 fn test_supply_and_borrow() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Supply 10k USDC as collateral.
     t.supply(ALICE, "USDC", 10_000.0);
@@ -52,10 +49,7 @@ fn test_supply_and_borrow() {
 
 #[test]
 fn test_liquidation_after_price_drop() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Alice supplies 10k USDC as collateral.
     t.supply(ALICE, "USDC", 10_000.0);
@@ -86,10 +80,7 @@ fn test_liquidation_after_price_drop() {
 
 #[test]
 fn test_interest_accrues() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -119,10 +110,7 @@ fn test_interest_accrues() {
 
 #[test]
 fn test_withdraw_and_repay() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Supply 100k USDC, borrow 1 ETH.
     t.supply(ALICE, "USDC", 100_000.0);
@@ -188,10 +176,7 @@ fn test_emode_higher_ltv() {
 
 #[test]
 fn test_revenue_accrues_over_time() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Seed real ETH supply so revenue accrual isn't short-circuited by the
     // empty-pool guard in `add_protocol_revenue_ray`.

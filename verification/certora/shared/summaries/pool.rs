@@ -374,6 +374,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     let supplied_ray: i128 = nondet();
     let borrowed_ray: i128 = nondet();
     let revenue_ray: i128 = nondet();
+    let cash: i128 = nondet();
     let supply_index_ray: i128 = nondet();
     let borrow_index_ray: i128 = nondet();
     let last_timestamp: u64 = nondet();
@@ -381,6 +382,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     cvlr_assume!(supplied_ray >= 0);
     cvlr_assume!(borrowed_ray >= 0);
     cvlr_assume!(revenue_ray >= 0);
+    cvlr_assume!(cash >= 0);
     cvlr_assume!(supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
     cvlr_assume!(borrow_index_ray >= RAY);
 
@@ -419,6 +421,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
             borrow_index_ray,
             supply_index_ray,
             last_timestamp,
+            cash,
         },
     }
 }
