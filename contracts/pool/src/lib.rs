@@ -363,9 +363,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         }
 
         // The seized position is removed from the controller-owned account map.
-        let mutation = cache.position_mutation(Ray::ZERO, 0);
         cache.save();
-        mutation
+        cache.position_mutation(Ray::ZERO, 0)
     }
 
     #[only_owner]
