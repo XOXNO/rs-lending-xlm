@@ -146,7 +146,6 @@ mod tests {
     use super::*;
     use crate::cache::Cache;
     use crate::oracle::policy::OraclePolicy;
-    use common::constants::{BPS, MIN_FIRST_TOLERANCE};
 
     fn sample_tolerance() -> OraclePriceFluctuation {
         OraclePriceFluctuation {
