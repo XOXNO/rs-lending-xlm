@@ -4,7 +4,7 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPositionType, MarketParamsRaw, PoolKey, PoolStateRaw, ScaledPositionRaw,
+    AccountPositionType, MarketParamsRaw, PoolAction, PoolKey, PoolStateRaw, ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 
@@ -37,13 +37,27 @@ fn state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) -> PoolS
 }
 
 fn seed(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
-    crate::LiquidityPool::__constructor(env.clone(), admin, params(asset));
-    env.storage().instance().set(&PoolKey::State, &state);
+    crate::LiquidityPool::__constructor(env.clone(), admin);
+    env.storage()
+        .persistent()
+        .set(&PoolKey::Params(asset.clone()), &params(asset.clone()));
+    env.storage()
+        .persistent()
+        .set(&PoolKey::State(asset), &state);
 }
 
 fn position(scaled: i128) -> ScaledPositionRaw {
     ScaledPositionRaw {
         scaled_amount_ray: scaled,
+    }
+}
+
+fn action(caller: Address, position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
+    PoolAction {
+        caller,
+        position,
+        amount,
+        asset,
     }
 }
 
@@ -58,12 +72,13 @@ fn supply_satisfies_controller_summary_contract(
     seed(
         &e,
         admin.clone(),
-        asset,
+        asset.clone(),
         state(10 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
     let before = position(RAY);
-    let result = crate::LiquidityPool::supply(e, before.clone(), amount, i128::MAX);
+    let result =
+        crate::LiquidityPool::supply(e, action(admin, before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -83,12 +98,13 @@ fn borrow_satisfies_controller_summary_contract(
     seed(
         &e,
         admin.clone(),
-        asset,
+        asset.clone(),
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
     let before = position(0);
-    let result = crate::LiquidityPool::borrow(e, caller, amount, before.clone(), i128::MAX);
+    let result =
+        crate::LiquidityPool::borrow(e, action(caller, before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -110,12 +126,17 @@ fn withdraw_satisfies_controller_summary_contract(
     seed(
         &e,
         admin.clone(),
-        asset,
+        asset.clone(),
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::withdraw(e, caller, amount, before.clone(), false, 0);
+    let result = crate::LiquidityPool::withdraw(
+        e,
+        action(caller, before.clone(), amount, asset),
+        false,
+        0,
+    );
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount || result.position.scaled_amount_ray == 0);
@@ -137,12 +158,12 @@ fn repay_satisfies_controller_summary_contract(
     seed(
         &e,
         admin,
-        asset,
+        asset.clone(),
         state(100 * RAY, scaled, 0, e.ledger().timestamp()),
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::repay(e, caller, amount, before.clone());
+    let result = crate::LiquidityPool::repay(e, action(caller, before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
@@ -164,13 +185,17 @@ fn create_strategy_satisfies_controller_summary_contract(
     seed(
         &e,
         admin,
-        asset,
+        asset.clone(),
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
     let before = position(0);
-    let result =
-        crate::LiquidityPool::create_strategy(e, caller, before.clone(), amount, fee, i128::MAX);
+    let result = crate::LiquidityPool::create_strategy(
+        e,
+        action(caller, before.clone(), amount, asset),
+        fee,
+        i128::MAX,
+    );
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.amount_received == amount - fee);
@@ -190,12 +215,16 @@ fn seize_position_satisfies_controller_summary_contract(
     seed(
         &e,
         admin,
-        asset,
+        asset.clone(),
         state(100 * RAY, scaled, 0, e.ledger().timestamp()),
     );
 
-    let result =
-        crate::LiquidityPool::seize_position(e, AccountPositionType::Borrow, position(scaled));
+    let result = crate::LiquidityPool::seize_position(
+        e,
+        asset,
+        AccountPositionType::Borrow,
+        position(scaled),
+    );
     cvlr_assert!(result.position.scaled_amount_ray == 0);
 }
 
@@ -204,11 +233,11 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
     seed(
         &e,
         admin,
-        asset,
+        asset.clone(),
         state(100 * RAY, 0, RAY, e.ledger().timestamp()),
     );
 
-    let amount = crate::LiquidityPool::claim_revenue(e).actual_amount;
+    let amount = crate::LiquidityPool::claim_revenue(e, asset).actual_amount;
     cvlr_assert!(amount >= 0);
 }
 
@@ -226,13 +255,21 @@ fn flash_loan_satisfies_fee_domain(
     seed(
         &e,
         admin.clone(),
-        asset,
+        asset.clone(),
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
-    let revenue_before = crate::LiquidityPool::protocol_revenue(e.clone());
-    crate::LiquidityPool::flash_loan(e.clone(), admin, receiver, amount, fee, Bytes::new(&e));
-    let revenue_after = crate::LiquidityPool::protocol_revenue(e);
+    let revenue_before = crate::LiquidityPool::protocol_revenue(e.clone(), asset.clone());
+    crate::LiquidityPool::flash_loan(
+        e.clone(),
+        asset.clone(),
+        admin,
+        receiver,
+        amount,
+        fee,
+        Bytes::new(&e),
+    );
+    let revenue_after = crate::LiquidityPool::protocol_revenue(e, asset);
 
     cvlr_assert!(revenue_after == revenue_before + fee);
     cvlr_satisfy!(true);

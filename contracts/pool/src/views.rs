@@ -2,71 +2,72 @@ use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::cache::Cache;
 
-pub fn load_state(env: &Env) -> PoolStateRaw {
+// Raw keyed reads; unlike `Cache::load` they do not renew TTLs.
+pub fn load_state(env: &Env, asset: &Address) -> PoolStateRaw {
     env.storage()
-        .instance()
-        .get(&PoolKey::State)
+        .persistent()
+        .get(&PoolKey::State(asset.clone()))
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-pub fn load_params(env: &Env) -> MarketParamsRaw {
+pub fn load_params(env: &Env, asset: &Address) -> MarketParamsRaw {
     env.storage()
-        .instance()
-        .get(&PoolKey::Params)
+        .persistent()
+        .get(&PoolKey::Params(asset.clone()))
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
 // Capital utilization ratio in RAY.
-pub fn capital_utilisation(env: &Env) -> i128 {
-    Cache::load(env).calculate_utilization().raw()
+pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
+    Cache::load(env, asset).calculate_utilization().raw()
 }
 
 // Pool's live token reserves in asset decimals.
-pub fn reserves(env: &Env) -> i128 {
-    let params = load_params(env);
+pub fn reserves(env: &Env, asset: &Address) -> i128 {
+    let params = load_params(env, asset);
     let token = soroban_sdk::token::Client::new(env, &params.asset_id);
     token.balance(&env.current_contract_address())
 }
 
 // Current deposit APR in RAY.
-pub fn deposit_rate(env: &Env) -> i128 {
-    let cache = Cache::load(env);
+pub fn deposit_rate(env: &Env, asset: &Address) -> i128 {
+    let cache = Cache::load(env, asset);
     let util = cache.calculate_utilization();
     let borrow = calculate_borrow_rate(env, util, &cache.params);
     calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor).raw()
 }
 
 // Current borrow APR in RAY.
-pub fn borrow_rate(env: &Env) -> i128 {
-    let cache = Cache::load(env);
+pub fn borrow_rate(env: &Env, asset: &Address) -> i128 {
+    let cache = Cache::load(env, asset);
     calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
 // Accrued protocol revenue in asset decimals.
-pub fn protocol_revenue(env: &Env) -> i128 {
-    let c = Cache::load(env);
+pub fn protocol_revenue(env: &Env, asset: &Address) -> i128 {
+    let c = Cache::load(env, asset);
     c.unscale_supply(c.revenue)
 }
 
 // Total supplied in asset decimals.
-pub fn supplied_amount(env: &Env) -> i128 {
-    let c = Cache::load(env);
+pub fn supplied_amount(env: &Env, asset: &Address) -> i128 {
+    let c = Cache::load(env, asset);
     c.unscale_supply(c.supplied)
 }
 
 // Total borrowed in asset decimals.
-pub fn borrowed_amount(env: &Env) -> i128 {
-    let c = Cache::load(env);
+pub fn borrowed_amount(env: &Env, asset: &Address) -> i128 {
+    let c = Cache::load(env, asset);
     c.unscale_borrow(c.borrowed)
 }
 
 // Milliseconds elapsed since last accrual.
-pub fn delta_time(env: &Env) -> u64 {
-    let state = load_state(env);
+pub fn delta_time(env: &Env, asset: &Address) -> u64 {
+    let state = load_state(env, asset);
     let current_ms = env.ledger().timestamp() * MS_PER_SECOND;
     current_ms.saturating_sub(state.last_timestamp)
 }
@@ -124,10 +125,13 @@ mod tests {
                 last_timestamp: 950_000,
                 cash: 50_000_000,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(), params.clone()));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
+            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             env.as_contract(&contract, || {
-                env.storage().instance().set(&PoolKey::State, &state);
+                env.storage()
+                    .persistent()
+                    .set(&PoolKey::State(asset.clone()), &state);
             });
 
             let token_admin = token::StellarAssetClient::new(&env, &asset);
@@ -152,28 +156,28 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            assert_eq!(load_params(&t.env).asset_id, t.asset);
-            assert_eq!(load_state(&t.env).supplied_ray, 10 * RAY);
-            assert_eq!(reserves(&t.env), 12_345);
+            assert_eq!(load_params(&t.env, &t.asset).asset_id, t.asset);
+            assert_eq!(load_state(&t.env, &t.asset).supplied_ray, 10 * RAY);
+            assert_eq!(reserves(&t.env, &t.asset), 12_345);
             // View amounts are returned in asset decimals (7).
             // supplied: 10 scaled * 2.0 index = 20.0 -> 200_000_000 (7 dec).
-            assert_eq!(supplied_amount(&t.env), 200_000_000);
+            assert_eq!(supplied_amount(&t.env, &t.asset), 200_000_000);
             // borrowed: 5 scaled * 3.0 index = 15.0 -> 150_000_000 (7 dec).
-            assert_eq!(borrowed_amount(&t.env), 150_000_000);
+            assert_eq!(borrowed_amount(&t.env, &t.asset), 150_000_000);
             // revenue: 3 scaled * 2.0 index = 6.0 -> 60_000_000 (7 dec).
-            assert_eq!(protocol_revenue(&t.env), 60_000_000);
+            assert_eq!(protocol_revenue(&t.env, &t.asset), 60_000_000);
             // utilization stays in RAY (internal math).
-            assert_eq!(capital_utilisation(&t.env), (15 * RAY) / 20);
-            assert_eq!(delta_time(&t.env), 50_000);
+            assert_eq!(capital_utilisation(&t.env, &t.asset), (15 * RAY) / 20);
+            assert_eq!(delta_time(&t.env, &t.asset), 50_000);
 
-            let util = Ray::from(capital_utilisation(&t.env));
+            let util = Ray::from(capital_utilisation(&t.env, &t.asset));
             let params: common::types::MarketParams = (&t.params).into();
             let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
             let expected_deposit =
                 calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);
 
-            assert_eq!(borrow_rate(&t.env), expected_borrow.raw());
-            assert_eq!(deposit_rate(&t.env), expected_deposit.raw());
+            assert_eq!(borrow_rate(&t.env, &t.asset), expected_borrow.raw());
+            assert_eq!(deposit_rate(&t.env, &t.asset), expected_deposit.raw());
         });
     }
 
@@ -188,10 +192,10 @@ mod tests {
             };
             t.env
                 .storage()
-                .instance()
-                .set(&PoolKey::State, &zero_supply);
+                .persistent()
+                .set(&PoolKey::State(t.asset.clone()), &zero_supply);
 
-            assert_eq!(capital_utilisation(&t.env), 0);
+            assert_eq!(capital_utilisation(&t.env, &t.asset), 0);
         });
     }
 
@@ -206,10 +210,10 @@ mod tests {
             };
             t.env
                 .storage()
-                .instance()
-                .set(&PoolKey::State, &future_state);
+                .persistent()
+                .set(&PoolKey::State(t.asset.clone()), &future_state);
 
-            assert_eq!(delta_time(&t.env), 0);
+            assert_eq!(delta_time(&t.env, &t.asset), 0);
         });
     }
 
@@ -218,8 +222,11 @@ mod tests {
     fn test_load_state_panics_when_pool_is_not_initialized() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            t.env.storage().instance().remove(&PoolKey::State);
-            let _ = load_state(&t.env);
+            t.env
+                .storage()
+                .persistent()
+                .remove(&PoolKey::State(t.asset.clone()));
+            let _ = load_state(&t.env, &t.asset);
         });
     }
 
@@ -228,8 +235,11 @@ mod tests {
     fn test_load_params_panics_when_pool_is_not_initialized() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            t.env.storage().instance().remove(&PoolKey::Params);
-            let _ = load_params(&t.env);
+            t.env
+                .storage()
+                .persistent()
+                .remove(&PoolKey::Params(t.asset.clone()));
+            let _ = load_params(&t.env, &t.asset);
         });
     }
 }

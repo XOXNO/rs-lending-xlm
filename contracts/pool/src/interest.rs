@@ -112,6 +112,7 @@ mod tests {
     struct TestSetup {
         env: Env,
         contract: Address,
+        asset: Address,
     }
 
     impl TestSetup {
@@ -121,6 +122,7 @@ mod tests {
             init_ledger(&env);
 
             let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
             let params = MarketParamsRaw {
                 max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
@@ -131,12 +133,17 @@ mod tests {
                 optimal_utilization_ray: RAY * 8 / 10,
                 max_utilization_ray: RAY * 95 / 100,
                 reserve_factor_bps: 1_000,
-                asset_id: Address::generate(&env),
+                asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(), params));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
+            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
-            Self { env, contract }
+            Self {
+                env,
+                contract,
+                asset,
+            }
         }
 
         fn as_contract<T>(&self, f: impl FnOnce() -> T) -> T {
@@ -144,8 +151,11 @@ mod tests {
         }
 
         fn fresh_cache(&self, state: PoolStateRaw) -> Cache {
-            self.env.storage().instance().set(&PoolKey::State, &state);
-            Cache::load(&self.env)
+            self.env
+                .storage()
+                .persistent()
+                .set(&PoolKey::State(self.asset.clone()), &state);
+            Cache::load(&self.env, &self.asset)
         }
     }
 

@@ -1,4 +1,6 @@
-use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+use common::constants::{
+    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
@@ -16,6 +18,22 @@ pub(crate) fn renew_pool_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
+/// Renews rent on a market's persistent params/state entries. Both keys must
+/// exist: extend_ttl panics on missing keys (soroban-sdk 26.x).
+pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
+    let storage = env.storage().persistent();
+    storage.extend_ttl(
+        &PoolKey::Params(asset.clone()),
+        TTL_THRESHOLD_SHARED,
+        TTL_BUMP_SHARED,
+    );
+    storage.extend_ttl(
+        &PoolKey::State(asset.clone()),
+        TTL_THRESHOLD_SHARED,
+        TTL_BUMP_SHARED,
+    );
 }
 
 pub(crate) fn cap_is_enabled(cap: i128) -> bool {
@@ -52,11 +70,12 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, bo
     );
 }
 
-pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
+pub(crate) fn apply_rate_model(env: &Env, asset: &Address, m: &InterestRateModel) {
+    let key = PoolKey::Params(asset.clone());
     let mut params: MarketParamsRaw = env
         .storage()
-        .instance()
-        .get(&PoolKey::Params)
+        .persistent()
+        .get(&key)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
     params.max_borrow_rate_ray = m.max_borrow_rate_ray;
@@ -69,7 +88,7 @@ pub(crate) fn apply_rate_model(env: &Env, m: &InterestRateModel) {
     params.max_utilization_ray = m.max_utilization_ray;
     params.reserve_factor_bps = m.reserve_factor_bps;
 
-    env.storage().instance().set(&PoolKey::Params, &params);
+    env.storage().persistent().set(&key, &params);
 }
 
 /// Rejects post-mutation utilization above the market's max-utilization cap.

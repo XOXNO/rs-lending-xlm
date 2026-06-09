@@ -7,7 +7,7 @@ use common::types::{
     PoolKey, PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation,
     ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 pub struct Cache {
     pub env: Env,
@@ -25,20 +25,23 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// Loads the pool's immutable params and mutable interest state from
-    /// instance storage. Panics with PoolNotInitialized if either record is absent.
-    pub fn load(env: &Env) -> Self {
+    /// Loads the market's params and mutable interest state for `asset` from
+    /// persistent storage. Panics with PoolNotInitialized if either record is
+    /// absent.
+    pub fn load(env: &Env, asset: &Address) -> Self {
         let params: MarketParamsRaw = env
             .storage()
-            .instance()
-            .get(&PoolKey::Params)
+            .persistent()
+            .get(&PoolKey::Params(asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
         let raw_state: PoolStateRaw = env
             .storage()
-            .instance()
-            .get(&PoolKey::State)
+            .persistent()
+            .get(&PoolKey::State(asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+        // After the gets: extend_ttl panics on missing keys (soroban-sdk 26.x).
+        crate::utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
         let timestamp = env.ledger().timestamp() * MS_PER_SECOND;
@@ -58,7 +61,7 @@ impl Cache {
     }
 
     /// Persists the current interest state (indexes, supplied/borrowed totals,
-    /// revenue, last accrual timestamp) back to instance storage.
+    /// revenue, last accrual timestamp) back to the asset-keyed persistent slot.
     pub fn save(&self) {
         let state = PoolStateRaw {
             supplied_ray: self.supplied.raw(),
@@ -70,7 +73,10 @@ impl Cache {
             cash: self.cash,
         };
 
-        self.env.storage().instance().set(&PoolKey::State, &state);
+        self.env
+            .storage()
+            .persistent()
+            .set(&PoolKey::State(self.params.asset_id.clone()), &state);
     }
 
     /// Current utilization = total_borrowed_value / total_supplied_value (RAY).
@@ -284,6 +290,7 @@ mod tests {
     struct TestSetup {
         env: Env,
         contract: Address,
+        asset: Address,
         params: MarketParamsRaw,
     }
 
@@ -294,6 +301,7 @@ mod tests {
             init_ledger(&env);
 
             let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
             let params = MarketParamsRaw {
                 max_borrow_rate_ray: 2 * RAY,
                 base_borrow_rate_ray: RAY / 100,
@@ -304,14 +312,16 @@ mod tests {
                 optimal_utilization_ray: RAY * 8 / 10,
                 max_utilization_ray: RAY * 95 / 100,
                 reserve_factor_bps: 1_000,
-                asset_id: Address::generate(&env),
+                asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(), params.clone()));
+            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
+            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             Self {
                 env,
                 contract,
+                asset,
                 params,
             }
         }
@@ -327,8 +337,11 @@ mod tests {
         let t = TestSetup::new();
 
         t.as_contract(|| {
-            t.env.storage().instance().remove(&PoolKey::State);
-            let _ = Cache::load(&t.env);
+            t.env
+                .storage()
+                .persistent()
+                .remove(&PoolKey::State(t.asset.clone()));
+            let _ = Cache::load(&t.env, &t.asset);
         });
     }
 

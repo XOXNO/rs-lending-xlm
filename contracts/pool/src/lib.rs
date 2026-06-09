@@ -17,7 +17,7 @@ use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::rates::update_supply_index;
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot,
+    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
     PoolAmountMutation, PoolKey, PoolPositionMutation, PoolStateRaw, PoolStrategyMutation,
     PoolSyncData, ScaledPositionRaw,
 };
@@ -39,13 +39,13 @@ use stellar_macros::only_owner;
 
 use utils::{
     apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, enforce_borrow_cap,
-    enforce_supply_cap, renew_pool_instance, require_nonneg_amount, require_positive_amount,
-    require_wasm_receiver,
+    enforce_supply_cap, renew_market_keys, renew_pool_instance, require_nonneg_amount,
+    require_positive_amount, require_wasm_receiver,
 };
 
-fn load_synced_cache(env: &Env) -> Cache {
+fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
     renew_pool_instance(env);
-    let mut cache = Cache::load(env);
+    let mut cache = Cache::load(env, asset);
     interest::global_sync(env, &mut cache);
     cache
 }
@@ -56,12 +56,31 @@ pub struct LiquidityPool;
 // Soroban constructors cannot be declared in contractclient traits.
 #[contractimpl]
 impl LiquidityPool {
-    pub fn __constructor(env: Env, admin: Address, params: MarketParamsRaw) {
+    pub fn __constructor(env: Env, admin: Address) {
+        ownable::set_owner(&env, &admin);
+    }
+}
+
+// This impl is the pool ABI; signatures must match `LiquidityPoolInterface`.
+#[contractimpl]
+impl LiquidityPoolInterface for LiquidityPool {
+    #[only_owner]
+    fn create_market(env: Env, params: MarketParamsRaw) {
+        renew_pool_instance(&env);
         params.verify(&env);
 
-        ownable::set_owner(&env, &admin);
+        let asset = params.asset_id.clone();
+        assert_with_error!(
+            &env,
+            !env.storage()
+                .persistent()
+                .has(&PoolKey::Params(asset.clone())),
+            GenericError::AssetAlreadySupported
+        );
 
-        env.storage().instance().set(&PoolKey::Params, &params);
+        env.storage()
+            .persistent()
+            .set(&PoolKey::Params(asset.clone()), &params);
 
         let state = PoolStateRaw {
             supplied_ray: 0,
@@ -72,22 +91,24 @@ impl LiquidityPool {
             last_timestamp: env.ledger().timestamp() * MS_PER_SECOND,
             cash: 0,
         };
-        env.storage().instance().set(&PoolKey::State, &state);
-    }
-}
+        env.storage()
+            .persistent()
+            .set(&PoolKey::State(asset.clone()), &state);
 
-// This impl is the pool ABI; signatures must match `LiquidityPoolInterface`.
-#[contractimpl]
-impl LiquidityPoolInterface for LiquidityPool {
+        renew_market_keys(&env, &asset);
+    }
+
     #[only_owner]
-    fn supply(
-        env: Env,
-        position: ScaledPositionRaw,
-        amount: i128,
-        supply_cap: i128,
-    ) -> PoolPositionMutation {
+    fn supply(env: Env, action: PoolAction, supply_cap: i128) -> PoolPositionMutation {
+        // `caller` is carried but unused: the controller pre-transfers the tokens.
+        let PoolAction {
+            position,
+            amount,
+            asset,
+            ..
+        } = action;
         require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         let mut scaled = Ray::from(position.scaled_amount_ray);
         let scaled_amount = cache.calculate_scaled_supply(amount);
@@ -104,15 +125,15 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn borrow(
-        env: Env,
-        caller: Address,
-        amount: i128,
-        position: ScaledPositionRaw,
-        borrow_cap: i128,
-    ) -> PoolPositionMutation {
+    fn borrow(env: Env, action: PoolAction, borrow_cap: i128) -> PoolPositionMutation {
+        let PoolAction {
+            caller,
+            position,
+            amount,
+            asset,
+        } = action;
         require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         cache.require_reserves(amount);
 
@@ -136,16 +157,20 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn withdraw(
         env: Env,
-        caller: Address,
-        amount: i128,
-        position: ScaledPositionRaw,
+        action: PoolAction,
         is_liquidation: bool,
         protocol_fee: i128,
     ) -> PoolPositionMutation {
+        let PoolAction {
+            caller,
+            position,
+            amount,
+            asset,
+        } = action;
         // Controller maps user amount `0` to this full-withdraw sentinel.
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, protocol_fee);
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         let mut scaled = Ray::from(position.scaled_amount_ray);
         let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
@@ -172,14 +197,15 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn repay(
-        env: Env,
-        caller: Address,
-        amount: i128,
-        position: ScaledPositionRaw,
-    ) -> PoolPositionMutation {
+    fn repay(env: Env, action: PoolAction) -> PoolPositionMutation {
+        let PoolAction {
+            caller,
+            position,
+            amount,
+            asset,
+        } = action;
         require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         let mut scaled = Ray::from(position.scaled_amount_ray);
         let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
@@ -196,16 +222,16 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_indexes(env: Env) -> MarketStateSnapshot {
-        let cache = load_synced_cache(&env);
+    fn update_indexes(env: Env, asset: Address) -> MarketStateSnapshot {
+        let cache = load_synced_cache(&env, &asset);
         cache.save();
         cache.market_snapshot()
     }
 
     #[only_owner]
-    fn add_rewards(env: Env, amount_raw: i128) -> MarketStateSnapshot {
-        require_nonneg_amount(&env, amount_raw);
-        let mut cache = load_synced_cache(&env);
+    fn add_rewards(env: Env, asset: Address, amount: i128) -> MarketStateSnapshot {
+        require_nonneg_amount(&env, amount);
+        let mut cache = load_synced_cache(&env, &asset);
 
         assert_with_error!(
             &env,
@@ -213,10 +239,11 @@ impl LiquidityPoolInterface for LiquidityPool {
             GenericError::NoSuppliersToReward
         );
 
-        let amount = Ray::from_asset(amount_raw, cache.params.asset_decimals);
-        cache.supply_index = update_supply_index(&env, cache.supplied, cache.supply_index, amount);
-        // Controller transferred `amount_raw` of reward tokens into the pool.
-        cache.cash += amount_raw;
+        let amount_ray = Ray::from_asset(amount, cache.params.asset_decimals);
+        cache.supply_index =
+            update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
+        // Controller transferred `amount` of reward tokens into the pool.
+        cache.cash += amount;
 
         cache.save();
         cache.market_snapshot()
@@ -225,6 +252,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn flash_loan(
         env: Env,
+        asset: Address,
         initiator: Address,
         receiver: Address,
         amount: i128,
@@ -234,12 +262,13 @@ impl LiquidityPoolInterface for LiquidityPool {
         require_positive_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         cache.require_reserves(amount);
         require_wasm_receiver(&env, &receiver);
 
-        // Balance checks prevent repayment with any asset other than this pool's token.
+        // Balance checks prevent repayment with any asset other than the loaned
+        // token; balances are per-(token, holder) so other vault assets are inert.
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
@@ -306,18 +335,22 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn create_strategy(
         env: Env,
-        caller: Address,
-        position: ScaledPositionRaw,
-        amount: i128,
+        action: PoolAction,
         fee: i128,
         borrow_cap: i128,
     ) -> PoolStrategyMutation {
+        let PoolAction {
+            caller,
+            position,
+            amount,
+            asset,
+        } = action;
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
         assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
         cache.require_reserves(amount);
 
         let mut scaled = Ray::from(position.scaled_amount_ray);
@@ -345,10 +378,11 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn seize_position(
         env: Env,
+        asset: Address,
         side: AccountPositionType,
         position: ScaledPositionRaw,
     ) -> PoolPositionMutation {
-        let mut cache = load_synced_cache(&env);
+        let mut cache = load_synced_cache(&env, &asset);
 
         let scaled = Ray::from(position.scaled_amount_ray);
         match side {
@@ -368,8 +402,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn claim_revenue(env: Env) -> PoolAmountMutation {
-        let mut cache = load_synced_cache(&env);
+    fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
+        let mut cache = load_synced_cache(&env, &asset);
 
         assert_with_error!(&env, cache.revenue >= Ray::ZERO, GenericError::MathOverflow);
 
@@ -391,13 +425,13 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn update_params(env: Env, model: InterestRateModel) {
+    fn update_params(env: Env, asset: Address, model: InterestRateModel) {
         // Accrue at the old rate model before replacing it.
-        let cache = load_synced_cache(&env);
+        let cache = load_synced_cache(&env, &asset);
         cache.save();
 
         model.verify(&env);
-        apply_rate_model(&env, &model);
+        apply_rate_model(&env, &asset, &model);
     }
 
     #[only_owner]
@@ -406,42 +440,42 @@ impl LiquidityPoolInterface for LiquidityPool {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    fn capital_utilisation(env: Env) -> i128 {
-        views::capital_utilisation(&env)
+    fn capital_utilisation(env: Env, asset: Address) -> i128 {
+        views::capital_utilisation(&env, &asset)
     }
 
-    fn reserves(env: Env) -> i128 {
-        views::reserves(&env)
+    fn reserves(env: Env, asset: Address) -> i128 {
+        views::reserves(&env, &asset)
     }
 
-    fn deposit_rate(env: Env) -> i128 {
-        views::deposit_rate(&env)
+    fn deposit_rate(env: Env, asset: Address) -> i128 {
+        views::deposit_rate(&env, &asset)
     }
 
-    fn borrow_rate(env: Env) -> i128 {
-        views::borrow_rate(&env)
+    fn borrow_rate(env: Env, asset: Address) -> i128 {
+        views::borrow_rate(&env, &asset)
     }
 
-    fn protocol_revenue(env: Env) -> i128 {
-        views::protocol_revenue(&env)
+    fn protocol_revenue(env: Env, asset: Address) -> i128 {
+        views::protocol_revenue(&env, &asset)
     }
 
-    fn supplied_amount(env: Env) -> i128 {
-        views::supplied_amount(&env)
+    fn supplied_amount(env: Env, asset: Address) -> i128 {
+        views::supplied_amount(&env, &asset)
     }
 
-    fn borrowed_amount(env: Env) -> i128 {
-        views::borrowed_amount(&env)
+    fn borrowed_amount(env: Env, asset: Address) -> i128 {
+        views::borrowed_amount(&env, &asset)
     }
 
-    fn delta_time(env: Env) -> u64 {
-        views::delta_time(&env)
+    fn delta_time(env: Env, asset: Address) -> u64 {
+        views::delta_time(&env, &asset)
     }
 
-    fn get_sync_data(env: Env) -> PoolSyncData {
+    fn get_sync_data(env: Env, asset: Address) -> PoolSyncData {
         PoolSyncData {
-            params: views::load_params(&env),
-            state: views::load_state(&env),
+            params: views::load_params(&env, &asset),
+            state: views::load_state(&env, &asset),
         }
     }
 }
