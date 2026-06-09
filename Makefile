@@ -619,9 +619,9 @@ upgrade-pool-template: _preflight-controller deploy-artifacts
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
-## Upgrade every configured pool to the latest pool template hash.
+## Upgrade the central liquidity pool to the latest pool template hash.
 upgrade-pools: _preflight-upgrade-pools
-	@echo "=== Upgrading pools on $(NETWORK) ==="
+	@echo "=== Upgrading central pool on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
 	if [ -z "$$CTRL" ]; then \
@@ -636,25 +636,12 @@ upgrade-pools: _preflight-upgrade-pools
 		echo "Pool WASM hash not found. Run upgrade-pool-template first."; \
 		exit 1; \
 	fi; \
-	if [ ! -f $(CONFIG_DIR)/$(NETWORK)_markets.json ]; then \
-		echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)_markets.json"; \
-		exit 1; \
-	fi; \
-	MARKETS=$$(jq -r '.markets[] | select(.asset_address != null and .asset_address != "") | "\(.name)|\(.asset_address)"' $(CONFIG_DIR)/$(NETWORK)_markets.json); \
-	if [ -z "$$MARKETS" ]; then \
-		echo "No configured market asset addresses found for $(NETWORK)"; \
-		exit 1; \
-	fi; \
 	echo "Controller: $$CTRL"; \
 	echo "Pool WASM hash: $$HASH"; \
-	while IFS='|' read -r NAME ASSET; do \
-			[ -z "$$NAME" ] && continue; \
-			echo "Upgrading pool $$NAME ($$ASSET)..."; \
-			stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-				-- upgrade_liquidity_pool --asset $$ASSET --new_wasm_hash $$HASH; \
-		done <<< "$$MARKETS"
+	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+		-- upgrade_pool --new_wasm_hash $$HASH
 
-## Upload pool template, upgrade controller, upgrade all configured pools, then unpause.
+## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
 
 ## Build the flash-loan receiver test contract for network smoke testing.
@@ -854,7 +841,14 @@ configure-controller: _preflight-configure-controller
 	fi; \
 	echo "Setting pool template..."; \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$POOL_HASH
+		-- set_liquidity_pool_template --hash $$POOL_HASH; \
+	echo "Deploying central liquidity pool..."; \
+	POOL=$$(stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
+		-- deploy_pool | tr -d '"'); \
+	echo "Central pool: $$POOL"; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].pool = "'$$POOL'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@# Constructor only auto-grants KEEPER. ORACLE and REVENUE need explicit
 	@# grants before configure_market_oracle / claim_revenue can run.
 	@echo "Granting ORACLE role to deployer..."
