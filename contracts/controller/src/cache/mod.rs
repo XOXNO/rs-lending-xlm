@@ -28,6 +28,7 @@ pub struct Cache {
     pub prices_cache: Map<Address, PriceFeedRaw>,
     pub market_configs: Map<Address, MarketConfig>,
     pub market_indexes: Map<Address, MarketIndexRaw>,
+    pool_address: Option<Address>,
     pool_sync_data: Map<Address, PoolSyncData>,
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
     isolated_debts: Map<Address, i128>,
@@ -58,6 +59,7 @@ impl Cache {
             prices_cache: Map::new(env),
             market_configs: Map::new(env),
             market_indexes: Map::new(env),
+            pool_address: None,
             pool_sync_data: Map::new(env),
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
@@ -94,8 +96,14 @@ impl Cache {
         (&self.cached_market_config(asset).asset_config).into()
     }
 
-    pub fn cached_pool_address(&mut self, asset: &Address) -> Address {
-        self.cached_market_config(asset).pool_address
+    /// Address of the central liquidity pool, memoized for the transaction.
+    pub fn cached_pool_address(&mut self) -> Address {
+        if let Some(addr) = &self.pool_address {
+            return addr.clone();
+        }
+        let addr = storage::get_pool(&self.env);
+        self.pool_address = Some(addr.clone());
+        addr
     }
 
     pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {
@@ -201,8 +209,8 @@ impl Cache {
         if let Some(data) = self.pool_sync_data.get(asset.clone()) {
             return data;
         }
-        let pool_addr = self.cached_pool_address(asset);
-        let data = fetch_pool_sync_data(&self.env, &pool_addr);
+        let pool_addr = self.cached_pool_address();
+        let data = fetch_pool_sync_data(&self.env, &pool_addr, asset);
         self.pool_sync_data.set(asset.clone(), data.clone());
         data
     }

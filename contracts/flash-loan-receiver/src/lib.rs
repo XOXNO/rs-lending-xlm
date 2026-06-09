@@ -20,6 +20,7 @@ const TESTNET_CONTROLLER: &str = "CAYHSB4IPBJV6WIB2VJN5IMAVCAOUXHDLJTKWKBEQ4REIB
 pub trait Pool {
     fn flash_loan(
         env: Env,
+        asset: Address,
         initiator: Address,
         receiver: Address,
         amount: i128,
@@ -91,7 +92,7 @@ impl FlashLoanTestReceiver {
                 approve_under_repayment(&env, &asset, &pool, amount, fee);
             }
             FlashLoanMode::ReenterPoolFlashLoan => {
-                reenter_pool_flash_loan(&env, &pool);
+                reenter_pool_flash_loan(&env, &asset, &pool);
             }
             FlashLoanMode::Panic => {
                 panic_with_error!(&env, ReceiverError::CallbackPanic);
@@ -168,8 +169,9 @@ fn approve_under_repayment(env: &Env, asset: &Address, pool: &Address, amount: i
     approve_repayment(env, asset, pool, partial);
 }
 
-fn reenter_pool_flash_loan(env: &Env, pool: &Address) {
+fn reenter_pool_flash_loan(env: &Env, asset: &Address, pool: &Address) {
     PoolClient::new(env, pool).flash_loan(
+        asset,
         &env.current_contract_address(),
         &env.current_contract_address(),
         &1i128,

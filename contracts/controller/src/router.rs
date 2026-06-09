@@ -11,15 +11,14 @@ use common::types::{
     MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus, PriceFeed,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, xdr::ToXdr, Address, BytesN,
-    Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, BytesN, Env, Vec,
 };
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::Cache;
 use crate::cross_contract::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_update_indexes_call,
-    pool_update_params_call, pool_upgrade_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
+    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
@@ -31,6 +30,11 @@ use crate::{
 // Supported SAC decimal range for RAY/WAD conversions.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
+
+/// Deterministic salt for the one-time central pool deployment; the pool
+/// address derives from (controller address, salt).
+const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
+
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
@@ -46,6 +50,29 @@ impl Controller {
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
         storage::renew_controller_instance(&env);
         renew_account(&env, &caller, account_id);
+    }
+
+    /// One-time deployment of the central liquidity pool owned by this
+    /// controller. Panics PoolAlreadyDeployed on repeat calls.
+    #[only_owner]
+    pub fn deploy_pool(env: Env) -> Address {
+        storage::renew_controller_instance(&env);
+
+        assert_with_error!(
+            &env,
+            storage::try_get_pool(&env).is_none(),
+            GenericError::PoolAlreadyDeployed
+        );
+
+        let wasm_hash = storage::get_pool_template(&env);
+        let salt = BytesN::from_array(&env, &POOL_DEPLOY_SALT);
+        let pool = env
+            .deployer()
+            .with_current_contract(salt)
+            .deploy_v2(wasm_hash, (env.current_contract_address(),));
+
+        storage::set_pool(&env, &pool);
+        pool
     }
 
     #[only_owner]
@@ -66,9 +93,10 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn upgrade_liquidity_pool(env: Env, asset: Address, new_wasm_hash: BytesN<32>) {
+    pub fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
-        upgrade_liquidity_pool(&env, &asset, new_wasm_hash);
+        let pool_addr = storage::get_pool(&env);
+        pool_upgrade_call(&env, &pool_addr, &new_wasm_hash);
     }
 
     #[when_not_paused]
@@ -129,9 +157,12 @@ impl Controller {
 
 // Pool sync results become the canonical market-state batch for indexers.
 fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
+    let pool_addr = cache.cached_pool_address();
     for asset in assets {
-        let pool_addr = cache.cached_pool_address(&asset);
-        let state = pool_update_indexes_call(env, &pool_addr);
+        // Keeps the AssetNotSupported error for unlisted assets now that the
+        // pool address no longer implies a per-asset existence check.
+        validation::require_asset_supported(env, cache, &asset);
+        let state = pool_update_indexes_call(env, &pool_addr, &asset);
         cache.record_market_update(&state);
     }
 }
@@ -161,7 +192,8 @@ fn validate_market_creation(
     params.verify_rate_model(env);
 }
 
-/// Deploys a pool in `PendingOracle` state and consumes the token approval.
+/// Registers the market in `PendingOracle` state on the central pool and
+/// consumes the token approval.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
@@ -184,21 +216,14 @@ pub fn create_liquidity_pool(
 
     validate_market_creation(env, asset, params, config, token_decimals);
 
-    let wasm_hash = storage::get_pool_template(env);
-
-    let salt = env.crypto().keccak256(&asset.to_xdr(env));
-
-    let pool_address = env
-        .deployer()
-        .with_current_contract(salt)
-        .deploy_v2(wasm_hash, (env.current_contract_address(), params.clone()));
+    let pool_address = storage::get_pool(env);
+    pool_create_market_call(env, &pool_address, params);
 
     let mut asset_config = config.clone();
     asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
     let market = MarketConfig {
         status: MarketStatus::PendingOracle,
         asset_config,
-        pool_address: pool_address.clone(),
         oracle_config: MarketOracleConfig::pending_for(asset.clone(), params.asset_decimals),
     };
     storage::set_market_config(env, asset, &market);
@@ -227,20 +252,20 @@ pub fn create_liquidity_pool(
     pool_address
 }
 
-/// Accrues pool indexes before replacing the pool interest-rate model.
+/// Accrues pool indexes before replacing the market's interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     validation::require_asset_supported(env, &mut cache, asset);
 
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
 
     params.verify(env);
 
-    let state = pool_update_indexes_call(env, &pool_addr);
+    let state = pool_update_indexes_call(env, &pool_addr, asset);
     cache.record_market_update(&state);
     cache.emit_market_batch();
 
-    pool_update_params_call(env, &pool_addr, params);
+    pool_update_params_call(env, &pool_addr, asset, params);
 
     UpdateMarketParamsEvent {
         asset: asset.clone(),
@@ -257,23 +282,15 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     .publish(env);
 }
 
-/// Upgrades the deployed pool contract for `asset`.
-pub fn upgrade_liquidity_pool(env: &Env, asset: &Address, new_wasm_hash: BytesN<32>) {
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
-    validation::require_asset_supported(env, &mut cache, asset);
-    let pool_addr = cache.cached_pool_address(asset);
-    pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
-}
-
 fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Cache) -> i128 {
     validation::require_asset_supported(env, cache, asset);
 
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
 
-    let result = pool_claim_revenue_call(env, &pool_addr);
+    let result = pool_claim_revenue_call(env, &pool_addr, asset);
     cache.record_market_update(&result.market_state);
     let amount = result.actual_amount;
 
@@ -290,7 +307,7 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
     amount
 }
 
-/// Claims protocol revenue from each pool and forwards SAC balances to the accumulator.
+/// Claims protocol revenue per market and forwards SAC balances to the accumulator.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
@@ -307,7 +324,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
     validation::require_asset_supported(env, cache, asset);
     validation::require_positive_amount(env, amount);
 
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
 
     utils::transfer_amount(
         env,
@@ -318,7 +335,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
         GenericError::AmountMustBePositive,
     );
 
-    let state = pool_add_rewards_call(env, &pool_addr, amount);
+    let state = pool_add_rewards_call(env, &pool_addr, asset, amount);
     cache.record_market_update(&state);
 }
 

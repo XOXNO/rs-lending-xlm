@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Wad;
-use common::types::{Account, DebtPosition, Payment, PoolPositionMutation};
+use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -125,14 +125,14 @@ pub fn execute_repayment(
         None
     };
 
-    let pool_addr = cache.cached_pool_address(req.asset);
-    let result = pool_repay_call(
-        env,
-        &pool_addr,
-        caller.clone(),
-        req.amount,
-        req.position.into(),
-    );
+    let pool_addr = cache.cached_pool_address();
+    let pool_action = PoolAction {
+        caller: caller.clone(),
+        position: req.position.into(),
+        amount: req.amount,
+        asset: req.asset.clone(),
+    };
+    let result = pool_repay_call(env, &pool_addr, pool_action);
     cache.record_market_update_with_price(&result.market_state, price_opt);
 
     update_or_remove_debt_position(account, req.asset, &DebtPosition::from(&result.position));
@@ -161,7 +161,7 @@ fn transfer_repayment_to_pool(
     amount: i128,
     cache: &mut Cache,
 ) -> i128 {
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
     utils::transfer_amount(
         env,
         asset,

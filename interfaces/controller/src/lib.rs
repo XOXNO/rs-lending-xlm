@@ -88,7 +88,7 @@ pub trait ControllerInterface {
         close_position: bool,
     );
 
-    /// Executes a flash loan through the selected pool and receiver contract.
+    /// Executes a flash loan of `asset` through the central pool and receiver contract.
     fn flash_loan(
         env: Env,
         caller: Address,

@@ -52,6 +52,19 @@ pub(crate) fn set_pool_template(env: &Env, hash: &BytesN<32>) {
         .set(&ControllerKey::PoolTemplate, hash);
 }
 
+pub(crate) fn get_pool(env: &Env) -> Address {
+    try_get_pool(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+}
+
+pub(crate) fn try_get_pool(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&ControllerKey::Pool)
+}
+
+pub(crate) fn set_pool(env: &Env, addr: &Address) {
+    env.storage().instance().set(&ControllerKey::Pool, addr);
+}
+
 pub(crate) fn get_aggregator(env: &Env) -> Address {
     env.storage()
         .instance()

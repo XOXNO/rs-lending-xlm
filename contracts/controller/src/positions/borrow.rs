@@ -5,7 +5,8 @@
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{
-    Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PriceFeed,
+    Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
+    PriceFeed,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec,
@@ -62,16 +63,15 @@ pub fn create_borrow_strategy(
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
 
-    let pool_addr = cache.cached_pool_address(debt_token);
-    let result = pool_create_strategy_call(
-        env,
-        &pool_addr,
-        env.current_contract_address(),
-        (&borrow_position).into(),
+    let pool_addr = cache.cached_pool_address();
+    let action = PoolAction {
+        caller: env.current_contract_address(),
+        position: (&borrow_position).into(),
         amount,
-        flash_fee,
-        debt_config.borrow_cap,
-    );
+        asset: debt_token.clone(),
+    };
+    let result =
+        pool_create_strategy_call(env, &pool_addr, action, flash_fee, debt_config.borrow_cap);
     cache.record_market_update_with_price(&result.market_state, Some(price_feed.price.raw()));
     record_borrow_update(
         account,
@@ -269,15 +269,14 @@ fn update_borrow_position(
 ) {
     let borrow_position = account.get_or_create_debt_position(req.asset);
 
-    let pool_addr = cache.cached_pool_address(req.asset);
-    let result = pool_borrow_call(
-        env,
-        &pool_addr,
-        caller.clone(),
-        req.amount,
-        (&borrow_position).into(),
-        req.config.borrow_cap,
-    );
+    let pool_addr = cache.cached_pool_address();
+    let action = PoolAction {
+        caller: caller.clone(),
+        position: (&borrow_position).into(),
+        amount: req.amount,
+        asset: req.asset.clone(),
+    };
+    let result = pool_borrow_call(env, &pool_addr, action, req.config.borrow_cap);
     cache.record_market_update_with_price(&result.market_state, Some(req.feed.price.raw()));
 
     record_borrow_update(

@@ -156,8 +156,8 @@ fn apply_liquidation_repayments(
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
+    let pool_addr = cache.cached_pool_address();
     for entry in repaid.iter() {
-        let pool_addr = cache.cached_pool_address(&entry.asset);
         // All SAC transfers go through the wrapper so the harness can replace it.
         sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
 
@@ -406,7 +406,7 @@ fn seize_pool_position(
     position: ScaledPositionRaw,
 ) {
     let feed = cache.cached_price(asset);
-    let pool_addr = cache.cached_pool_address(asset);
-    let result = pool_seize_position_call(env, &pool_addr, side, position);
+    let pool_addr = cache.cached_pool_address();
+    let result = pool_seize_position_call(env, &pool_addr, asset, side, position);
     cache.record_market_update_with_price(&result.market_state, Some(feed.price.raw()));
 }

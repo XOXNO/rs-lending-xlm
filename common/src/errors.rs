@@ -14,8 +14,8 @@ pub enum GenericError {
     AssetAlreadySupported = 2,
     /// Token ticker or symbol failed validation.
     InvalidTicker = 3,
-    /// Pool template WASM hash has not been configured.
-    TemplateEmpty = 5,
+    /// The central liquidity pool has already been deployed.
+    PoolAlreadyDeployed = 5,
     /// Token contract failed required asset checks.
     InvalidAsset = 6,
     /// Operation requires two distinct assets.

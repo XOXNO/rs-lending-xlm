@@ -203,11 +203,14 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 
     for i in 0..assets.len() {
         let asset = validation::expect_invariant(env, assets.get(i));
-        let market = cache.cached_market_config(&asset);
+        // Keeps the per-asset supported check; the view stays empty-input safe
+        // because the pool address resolves only when a market row is emitted.
+        cache.cached_market_config(&asset);
+        let pool_address = cache.cached_pool_address();
         let final_price = token_price(&mut cache, &asset).price_wad;
         result.push_back(AssetExtendedConfigView {
             asset,
-            pool_address: market.pool_address,
+            pool_address,
             price_wad: final_price,
         });
     }

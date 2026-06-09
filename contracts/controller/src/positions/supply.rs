@@ -2,7 +2,7 @@ use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
-    Payment, PositionMode,
+    Payment, PoolAction, PositionMode,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec,
@@ -235,7 +235,7 @@ fn apply_pool_supply(
     supply_cap: i128,
     caller: &Address,
 ) -> MarketIndex {
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
     utils::transfer_amount(
         env,
         asset,
@@ -244,7 +244,13 @@ fn apply_pool_supply(
         amount,
         GenericError::AmountMustBePositive,
     );
-    let result = pool_supply_call(env, &pool_addr, (&*position).into(), amount, supply_cap);
+    let action = PoolAction {
+        caller: caller.clone(),
+        position: (&*position).into(),
+        amount,
+        asset: asset.clone(),
+    };
+    let result = pool_supply_call(env, &pool_addr, action, supply_cap);
 
     // Merge ONLY the scaled share back; the pool does not echo collateral risk
     // params, so preserve the ones the controller already holds.

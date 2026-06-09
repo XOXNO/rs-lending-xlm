@@ -79,7 +79,7 @@ pub(crate) fn repay_debt_from_controller(
     caller: &Address,
     req: StrategyRepay<'_>,
 ) {
-    let debt_pool_addr = cache.cached_pool_address(req.debt_token);
+    let debt_pool_addr = cache.cached_pool_address();
     let debt_feed = cache.cached_price(req.debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 

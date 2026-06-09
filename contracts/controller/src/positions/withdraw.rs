@@ -1,6 +1,8 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Ray, Wad};
-use common::types::{Account, AccountPosition, AccountPositionType, Payment, PoolPositionMutation};
+use common::types::{
+    Account, AccountPosition, AccountPositionType, Payment, PoolAction, PoolPositionMutation,
+};
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Vec,
 };
@@ -149,13 +151,17 @@ pub fn execute_withdrawal(
     cache: &mut Cache,
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
-    let pool_addr = cache.cached_pool_address(req.asset);
+    let pool_addr = cache.cached_pool_address();
+    let pool_action = PoolAction {
+        caller: caller.clone(),
+        position: req.position.into(),
+        amount: req.amount,
+        asset: req.asset.clone(),
+    };
     let result = pool_withdraw_call(
         env,
         &pool_addr,
-        caller.clone(),
-        req.amount,
-        req.position.into(),
+        pool_action,
         flags.is_liquidation,
         flags.protocol_fee,
     );

@@ -59,12 +59,12 @@ pub fn process_flash_loan(
     validation::require_wasm_receiver(env, receiver);
 
     let fee = flash_loan_fee(env, asset_config.flashloan_fee, amount);
-    let pool_addr = cache.cached_pool_address(asset);
+    let pool_addr = cache.cached_pool_address();
 
     // Reentrancy guard.
     storage::set_flash_loan_ongoing(env, true);
 
-    let state = pool_flash_loan_call(env, &pool_addr, caller, receiver, amount, fee, data);
+    let state = pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
 
     storage::set_flash_loan_ongoing(env, false);
     cache.record_market_update(&state);
