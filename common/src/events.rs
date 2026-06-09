@@ -601,7 +601,6 @@ mod tests {
         MarketConfig {
             status: MarketStatus::Active,
             asset_config: dummy_asset_config(env),
-            pool_address: dummy_address(env),
             oracle_config: MarketOracleConfig {
                 asset_decimals: 7,
                 max_price_stale_seconds: 900,

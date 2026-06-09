@@ -301,7 +301,6 @@ pub struct MarketConfig {
     /// Pending markets cannot be used until oracle config is active.
     pub status: MarketStatus,
     pub asset_config: AssetConfigRaw,
-    pub pool_address: Address,
     pub oracle_config: MarketOracleConfig,
 }
 
@@ -650,6 +649,8 @@ mod tests {
 #[derive(Clone, Debug)]
 pub enum ControllerKey {
     PoolTemplate,
+    /// Address of the single central liquidity pool deployed by the controller.
+    Pool,
     Aggregator,
     Accumulator,
     AccountNonce,

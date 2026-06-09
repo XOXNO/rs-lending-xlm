@@ -369,11 +369,25 @@ pub struct PoolSyncData {
     pub state: PoolStateRaw,
 }
 
+/// Persistent storage keys of the central pool, keyed by market asset.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
-    Params,
-    State,
+    Params(Address),
+    State(Address),
+}
+
+/// Asset-scoped position payload for the central pool ABI.
+///
+/// `caller` is the token recipient for borrow/withdraw/create_strategy and the
+/// refund target for repay; supply carries it unused (controller pre-transfers).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolAction {
+    pub caller: Address,
+    pub position: ScaledPositionRaw,
+    pub amount: i128,
+    pub asset: Address,
 }
 
 /// Persistent pool accounting state.
