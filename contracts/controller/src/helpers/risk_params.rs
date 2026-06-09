@@ -3,8 +3,9 @@
 //! User-facing supply-side writes refresh LTV and liquidation bonus on every
 //! touch. The liquidation threshold is gated by direction: a raise applies
 //! immediately; a lower applies only if the post-update health factor stays
-//! >= 1.05, otherwise the prior (higher) threshold is kept. The keeper
-//! propagation path (`router.rs`) enforces its own, separate threshold gate.
+//! at or above 1.05, otherwise the prior (higher) threshold is kept. The
+//! keeper propagation path (`router.rs`) enforces its own, separate
+//! threshold gate.
 
 use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};

@@ -179,6 +179,8 @@ impl LendingTestBuilder {
         };
         ctrl.set_liquidity_pool_template(&pool_hash);
 
+        let global_pool = ctrl.deploy_pool();
+
         ctrl.set_aggregator(&aggregator_address);
 
         let accumulator = aggregator_address.clone();
@@ -212,6 +214,10 @@ impl LendingTestBuilder {
             ctrl.approve_token(&asset_address);
             let pool_address =
                 ctrl.create_liquidity_pool(&asset_address, &market_params, &asset_config);
+            assert_eq!(
+                pool_address, global_pool,
+                "create_liquidity_pool must return the global pool address"
+            );
 
             if pm.configure_oracle {
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
@@ -229,15 +235,11 @@ impl LendingTestBuilder {
             token_admin.mint(&pool_address, &liquidity_amount);
 
             env.as_contract(&pool_address, || {
-                let mut state: common::types::PoolStateRaw = env
-                    .storage()
-                    .instance()
-                    .get(&common::types::PoolKey::State)
-                    .unwrap();
+                let key = common::types::PoolKey::State(asset_address.clone());
+                let mut state: common::types::PoolStateRaw =
+                    env.storage().persistent().get(&key).unwrap();
                 state.cash += liquidity_amount;
-                env.storage()
-                    .instance()
-                    .set(&common::types::PoolKey::State, &state);
+                env.storage().persistent().set(&key, &state);
             });
 
             markets.insert(

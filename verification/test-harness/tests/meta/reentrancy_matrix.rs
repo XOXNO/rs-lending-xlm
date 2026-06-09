@@ -1,8 +1,7 @@
 use common::types::PositionMode;
 use soroban_sdk::Bytes;
 use test_harness::{
-    assert_contract_error, build_aggregator_swap, errors, eth_preset, usdc_preset, LendingTest,
-    ALICE, BOB, LIQUIDATOR,
+    assert_contract_error, build_aggregator_swap, errors, LendingTest, ALICE, BOB, LIQUIDATOR,
 };
 
 fn setup() -> LendingTest {

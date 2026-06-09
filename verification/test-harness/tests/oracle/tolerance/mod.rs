@@ -1,8 +1,5 @@
 use soroban_sdk::Address;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-    LIQUIDATOR,
-};
+use test_harness::LendingTest;
 
 pub(super) fn setup() -> LendingTest {
     LendingTest::new().standard_two_asset_dust_disabled()

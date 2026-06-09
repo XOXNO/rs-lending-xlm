@@ -77,7 +77,7 @@ impl LendingTest {
         let assets: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
         match ctrl.try_supply(&caller_addr, &account_id, &0u32, &assets) {
             Ok(Ok(id)) => Ok(id),
-            Ok(Err(err)) => Err(err.into()),
+            Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }

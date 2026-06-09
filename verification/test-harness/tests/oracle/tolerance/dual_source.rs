@@ -1,8 +1,6 @@
-use super::{enable_dual_source, set_dual_oracle_dex, setup};
-use soroban_sdk::Address;
+use super::{enable_dual_source, setup};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-    LIQUIDATOR,
+    assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR,
 };
 
 // 8. Dual-source pricing: average price used in second tolerance zone

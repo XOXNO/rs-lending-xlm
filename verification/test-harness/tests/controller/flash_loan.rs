@@ -28,7 +28,8 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 }
 
 fn pool_reserves(t: &LendingTest, asset_name: &str) -> i128 {
-    t.pool_client(asset_name).reserves()
+    let asset = t.resolve_asset(asset_name);
+    t.pool_client(asset_name).reserves(&asset)
 }
 
 fn receiver_data(t: &LendingTest, mode: FlashLoanMode) -> Bytes {

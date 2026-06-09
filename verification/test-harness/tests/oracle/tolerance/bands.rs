@@ -1,9 +1,5 @@
-use super::{enable_dual_source, set_dual_oracle_dex, setup};
-use soroban_sdk::Address;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-    LIQUIDATOR,
-};
+use super::{enable_dual_source, setup};
+use test_harness::{assert_contract_error, errors, usd, usd_cents, ALICE, LIQUIDATOR};
 
 // 1. Price within first tolerance: all operations succeed
 

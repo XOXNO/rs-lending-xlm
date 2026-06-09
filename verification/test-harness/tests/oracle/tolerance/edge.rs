@@ -1,7 +1,5 @@
 use super::{enable_dual_source, setup};
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-};
+use test_harness::{usd, usd_cents, ALICE};
 
 // 5. Edge cases
 

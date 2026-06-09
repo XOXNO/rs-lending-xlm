@@ -379,7 +379,7 @@ fn test_update_params_threads_custom_max_utilization() {
     // Read the pool's stored params through the harness view. The cap
     // must equal what we sent, not the previous default.
     let pool = t.pool_client("USDC");
-    let sync = pool.get_sync_data();
+    let sync = pool.get_sync_data(&asset);
     assert_eq!(
         sync.params.max_utilization_ray,
         common::constants::RAY * 85 / 100,

@@ -155,8 +155,11 @@ proptest! {
         expect_rejected("upgrade", || {
             ctrl.set_auths(&no_auths).try_upgrade(&dummy_bytes_n(&env, seed))
         }).unwrap();
-        expect_rejected("upgrade_liquidity_pool", || {
-            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool(&usdc, &dummy_bytes_n(&env, seed))
+        expect_rejected("upgrade_pool", || {
+            ctrl.set_auths(&no_auths).try_upgrade_pool(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+        expect_rejected("deploy_pool", || {
+            ctrl.set_auths(&no_auths).try_deploy_pool()
         }).unwrap();
         let zero_model = InterestRateModel {
             max_borrow_rate_ray: 0,

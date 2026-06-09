@@ -114,7 +114,7 @@ impl LendingTest {
 
         if let Some(scaled_amount_ray) = scaled_ray {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
-            let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data();
+            let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data(asset);
             let index = match position_type {
                 AccountPositionType::Deposit => sync.state.supply_index_ray,
                 AccountPositionType::Borrow => sync.state.borrow_index_ray,
@@ -151,29 +151,34 @@ impl LendingTest {
     // Pool state
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
-        let raw = self.pool_client(asset_name).capital_utilisation();
+        let asset = self.resolve_asset(asset_name);
+        let raw = self.pool_client(asset_name).capital_utilisation(&asset);
         raw as f64 / RAY as f64
     }
 
     pub fn pool_reserves(&self, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
-        let raw = self.pool_client(asset_name).reserves();
+        let asset = self.resolve_asset(asset_name);
+        let raw = self.pool_client(asset_name).reserves(&asset);
         i128_to_f64(raw, decimals)
     }
 
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
-        let raw = self.pool_client(asset_name).borrow_rate();
+        let asset = self.resolve_asset(asset_name);
+        let raw = self.pool_client(asset_name).borrow_rate(&asset);
         raw as f64 / RAY as f64
     }
 
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
-        let raw = self.pool_client(asset_name).deposit_rate();
+        let asset = self.resolve_asset(asset_name);
+        let raw = self.pool_client(asset_name).deposit_rate(&asset);
         raw as f64 / RAY as f64
     }
     // Revenue snapshots
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
-        self.pool_client(asset_name).protocol_revenue()
+        let asset = self.resolve_asset(asset_name);
+        self.pool_client(asset_name).protocol_revenue(&asset)
     }
     // Liquidation status
 
@@ -218,7 +223,12 @@ impl LendingTest {
 
     pub fn get_pool_address(&self, asset_name: &str) -> soroban_sdk::Address {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().get_market_config(&asset).pool_address
+        let assets = soroban_sdk::vec![&self.env, asset];
+        self.ctrl_client()
+            .get_all_markets_detailed(&assets)
+            .get(0)
+            .expect("market view row must exist")
+            .pool_address
     }
 
     pub fn get_position_limits(&self) -> common::types::PositionLimits {

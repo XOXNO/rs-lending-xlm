@@ -1,9 +1,7 @@
 use common::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::testutils::Events as _;
 use soroban_sdk::vec;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
-};
+use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE};
 
 fn setup() -> LendingTest {
     LendingTest::new().dual_source_two_asset()

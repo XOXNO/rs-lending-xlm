@@ -1,7 +1,5 @@
 use super::setup;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
-};
+use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
 
 // 6. Oracle tolerance config validation (controller side)
 

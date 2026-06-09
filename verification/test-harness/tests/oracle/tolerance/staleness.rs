@@ -1,8 +1,5 @@
 use super::{enable_dual_source, set_dual_oracle_dex, setup};
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-    LIQUIDATOR,
-};
+use test_harness::{assert_contract_error, errors, usd, ALICE};
 
 // 4. Staleness tests
 

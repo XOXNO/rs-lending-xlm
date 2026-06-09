@@ -2,8 +2,8 @@ use common::constants::WAD;
 use common::types::StrategySwap;
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
-    mock_swap_payload_xdr, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset,
-    ALICE, BOB, STABLECOIN_EMODE,
+    mock_swap_payload_xdr, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    STABLECOIN_EMODE,
 };
 
 /// Placeholder swap that should only be used by tests failing before router execution.

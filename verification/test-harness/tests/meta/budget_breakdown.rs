@@ -9,7 +9,7 @@ use test_harness::{
 /// share of the measured total. `iters`/`inputs` expose whether a type's cost
 /// is iteration-driven (linear models) or constant.
 fn dump(env: &Env, label: &str) {
-    let b = env.budget();
+    let b = env.cost_estimate().budget();
     let total_cpu = b.cpu_instruction_cost();
     let total_mem = b.memory_bytes_cost();
     std::println!("\n========== {label} ==========");
@@ -22,7 +22,7 @@ fn dump(env: &Env, label: &str) {
             rows.push((ct, tr.cpu, tr.iterations, tr.inputs));
         }
     }
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.1));
 
     for (ct, cpu, iters, inputs) in rows {
         let pct = if total_cpu > 0 {
@@ -54,7 +54,7 @@ fn budget_withdraw_one_asset_no_debt() {
     // Non-zero time delta so `compound_interest` actually runs in the withdraw.
     t.advance_time(86_400);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.withdraw(ALICE, "USDC", 1_000.0);
     dump(&t.env, "withdraw 1 asset, NO debt (1 accrual + 1 supply write)");
@@ -75,7 +75,7 @@ fn budget_withdraw_with_debt_hf_check() {
     t.borrow(ALICE, "ETH", 1.0);
     t.advance_time(86_400);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.withdraw(ALICE, "USDC", 1_000.0);
     dump(
@@ -112,7 +112,7 @@ fn budget_withdraw_5_collateral_double_pass() {
     t.borrow(ALICE, "XLM", 50_000.0);
     t.advance_time(86_400);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.withdraw(ALICE, "USDC", 1_000.0);
     dump(
@@ -133,7 +133,7 @@ fn budget_supply_baseline() {
     t.supply(ALICE, "USDC", 50_000.0);
     t.advance_time(86_400);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.supply(ALICE, "USDC", 1_000.0);
     dump(&t.env, "supply (1 accrual + 1 supply write)");
@@ -152,7 +152,7 @@ fn budget_borrow_baseline() {
     t.borrow(ALICE, "ETH", 1.0);
     t.advance_time(86_400);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.borrow(ALICE, "ETH", 0.1);
     dump(&t.env, "borrow (2 accruals + HF valuation + borrow write)");
@@ -178,7 +178,7 @@ fn budget_swap_collateral_full() {
 
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
 
-    let mut b = t.env.budget();
+    let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.swap_collateral(ALICE, "USDC", 20_000.0, "ETH", &steps);
     dump(
