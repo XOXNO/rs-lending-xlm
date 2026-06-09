@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use crate::config::ContractsConfig;
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
-    ControllerPersistentKey,
+    ControllerPersistentKey, PoolPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, muxed_account_from_strkey, LedgerEntryQuery, RpcClient,
@@ -74,9 +74,16 @@ pub async fn snapshot(
     let current_ledger = client.latest_ledger().await?;
     info!(target: "keeper.discovery", current_ledger, "tick start");
 
-    // -- Controller instance: wasm hash + AccountNonce + e-mode ceiling --
+    // -- Controller instance: wasm hash + pool address + AccountNonce + e-mode ceiling --
     let instance = client.get_contract_instance(&controller_id).await?;
     let controller_wasm_hash = wasm_hash_from_executable(&instance.executable);
+    let pool_id = lookup_scalar(&instance, ControllerInstanceKey::Pool, scval_contract_id)?;
+    if pool_id.is_none() {
+        warn!(
+            target: "keeper.discovery",
+            "central pool address missing from controller instance — pool keys skipped this tick"
+        );
+    }
     let account_nonce =
         lookup_scalar(&instance, ControllerInstanceKey::AccountNonce, scval_u64)?.unwrap_or(0);
     let last_emode_category_id =
@@ -86,6 +93,7 @@ pub async fn snapshot(
         target: "keeper.discovery",
         account_nonce,
         last_emode_category_id,
+        pool_resolved = pool_id.is_some(),
         "instance read"
     );
 
@@ -94,22 +102,39 @@ pub async fn snapshot(
     let mut persistent_entries = client.get_ledger_entries(&[pool_list_key]).await?;
     let assets = extract_pools_list(&persistent_entries).unwrap_or_default();
 
-    // -- Per-asset persistent state: Market + IsolatedDebt --
-    let mut pool_contract_ids: Vec<[u8; 32]> = Vec::with_capacity(assets.len());
+    // -- Per-asset persistent state: controller Market + IsolatedDebt, plus the
+    //    central pool's asset-keyed Params + State entries --
+    let mut pool_rows_present = 0usize;
+    let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
-        let mut keys = Vec::with_capacity(chunk.len() * 2);
+        let mut keys = Vec::with_capacity(chunk.len() * 4);
         for asset in chunk {
             keys.push(ControllerPersistentKey::Market(*asset).to_ledger_key(&controller_id)?);
             keys.push(ControllerPersistentKey::IsolatedDebt(*asset).to_ledger_key(&controller_id)?);
         }
+        if let Some(pool) = &pool_id {
+            for asset in chunk {
+                keys.push(PoolPersistentKey::Params(*asset).to_ledger_key(pool)?);
+                keys.push(PoolPersistentKey::State(*asset).to_ledger_key(pool)?);
+                pool_rows_total += 2;
+            }
+        }
         for row in client.get_ledger_entries(&keys).await? {
-            // Each Market entry names the pool contract it backs; harvest those
-            // ids for instance bumping, then keep the Market row for TTL.
-            if let Some(pool_id) = extract_pool_address_from_market(&row) {
-                pool_contract_ids.push(pool_id);
+            if row_belongs_to(&row, pool_id.as_ref()) && row.value.is_some() {
+                pool_rows_present += 1;
             }
             persistent_entries.push(row);
         }
+    }
+    // Encoding-drift alarm: every market writes Params/State at creation, so an
+    // all-absent pool key set with listed assets means the keeper is bumping
+    // nothing on the pool (policy skips value-less rows) — alert loudly.
+    if pool_rows_total > 0 && pool_rows_present == 0 {
+        warn!(
+            target: "keeper.discovery",
+            assets = assets.len(),
+            "no pool Params/State rows resolved — possible PoolKey encoding drift; pool TTLs are NOT being extended"
+        );
     }
 
     // -- E-mode category sweep (1..=ceiling) --
@@ -127,21 +152,33 @@ pub async fn snapshot(
     //    per-(role,index) RoleAccounts, per-(holder,role) HasRole) --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
-    // -- Instance entries (controller + each pool + flash receiver) --
-    let mut instance_keys = Vec::with_capacity(pool_contract_ids.len() + 2);
+    // -- Instance entries (controller + central pool + flash receiver) --
+    let mut instance_keys = Vec::with_capacity(3);
     instance_keys.push(contract_instance_key(&controller_id));
-    for pool_id in &pool_contract_ids {
-        instance_keys.push(contract_instance_key(pool_id));
+    if let Some(pool) = &pool_id {
+        instance_keys.push(contract_instance_key(pool));
     }
+    // Keep the flash receiver LAST: the wasm-hash harvest below relies on it.
     instance_keys.push(contract_instance_key(&ids.flash_receiver));
     let instance_entries = client.get_ledger_entries(&instance_keys).await?;
 
-    // -- Wasm code entries (pool template + controller + flash receiver) --
+    // -- Wasm code entries (pool template + controller + live pool + flash receiver) --
     let mut wasm_keys: Vec<LedgerKey> = vec![contract_code_key(&ids.pool_wasm_hash)];
     if let Some(ctrl_hash) = controller_wasm_hash {
         wasm_keys.push(contract_code_key(&ctrl_hash));
     } else {
         warn!(target: "keeper.discovery", "controller wasm hash unresolved — pool template extend only");
+    }
+    // The live pool executable can diverge from the configured template hash
+    // after an on-chain `upgrade_pool`; harvest it so the running code entry
+    // stays bumped even when the config lags.
+    if pool_id.is_some() {
+        if let Some(live_pool_hash) = instance_entries.get(1).and_then(wasm_hash_from_instance_row)
+        {
+            if live_pool_hash != ids.pool_wasm_hash {
+                wasm_keys.push(contract_code_key(&live_pool_hash));
+            }
+        }
     }
     // The flash-receiver wasm hash lives in the instance entry we just read.
     if let Some(flash_hash) = instance_entries.last().and_then(wasm_hash_from_instance_row) {
@@ -274,25 +311,17 @@ fn extract_address(row: &LedgerEntryQuery) -> Option<ScAddress> {
     }
 }
 
-/// Walk a Market entry's `ScVal::Map` and pull out the `pool_address` field.
-fn extract_pool_address_from_market(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
-    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
-        return None;
+/// True when a row's ledger key targets the given contract id.
+fn row_belongs_to(row: &LedgerEntryQuery, contract_id: Option<&[u8; 32]>) -> bool {
+    let Some(id) = contract_id else {
+        return false;
     };
-    let ScVal::Map(Some(map)) = &cd.val else {
-        return None;
-    };
-    for ScMapEntry { key, val } in map.0.iter() {
-        let ScVal::Symbol(ScSymbol(sym)) = key else {
-            continue;
-        };
-        if sym.to_utf8_string_lossy() == "pool_address" {
-            if let ScVal::Address(ScAddress::Contract(ContractId(Hash(bytes)))) = val {
-                return Some(*bytes);
-            }
+    match &row.key {
+        LedgerKey::ContractData(cd) => {
+            matches!(&cd.contract, ScAddress::Contract(ContractId(Hash(b))) if b == id)
         }
+        _ => false,
     }
-    None
 }
 
 fn wasm_hash_from_executable(executable: &ContractExecutable) -> Option<[u8; 32]> {
@@ -322,6 +351,13 @@ fn scval_u64(val: &ScVal) -> Option<u64> {
 fn scval_u32(val: &ScVal) -> Option<u32> {
     match val {
         ScVal::U32(v) => Some(*v),
+        _ => None,
+    }
+}
+
+fn scval_contract_id(val: &ScVal) -> Option<[u8; 32]> {
+    match val {
+        ScVal::Address(ScAddress::Contract(ContractId(Hash(bytes)))) => Some(*bytes),
         _ => None,
     }
 }

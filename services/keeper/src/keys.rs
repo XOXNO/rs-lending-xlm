@@ -96,11 +96,39 @@ impl AccessControlPersistentKey {
     }
 }
 
+/// Persistent storage keys of the central liquidity pool, mirroring the
+/// on-chain `PoolKey` enum from `common::types::pool`. Each market keeps its
+/// params and interest state under asset-keyed entries on the ONE pool
+/// contract; the keeper must keep both alive per listed asset.
+#[derive(Debug, Clone)]
+pub enum PoolPersistentKey {
+    Params([u8; 32]),
+    State([u8; 32]),
+}
+
+impl PoolPersistentKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::Params(asset) => sc_enum("Params", &[sc_address_contract(asset)?])?,
+            Self::State(asset) => sc_enum("State", &[sc_address_contract(asset)?])?,
+        })
+    }
+
+    pub fn to_ledger_key(&self, pool_id: &[u8; 32]) -> Result<LedgerKey> {
+        Ok(LedgerKey::ContractData(LedgerKeyContractData {
+            contract: ScAddress::Contract(ContractId(Hash(*pool_id))),
+            key: self.to_sc_val()?,
+            durability: ContractDataDurability::Persistent,
+        }))
+    }
+}
+
 /// Instance-storage symbol used to look up a value inside the controller's
 /// `ScContractInstance.storage` map.
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     PoolTemplate,
+    Pool,
     Aggregator,
     Accumulator,
     AccountNonce,
@@ -113,6 +141,7 @@ impl ControllerInstanceKey {
     pub fn variant_name(&self) -> &'static str {
         match self {
             Self::PoolTemplate => "PoolTemplate",
+            Self::Pool => "Pool",
             Self::Aggregator => "Aggregator",
             Self::Accumulator => "Accumulator",
             Self::AccountNonce => "AccountNonce",
@@ -212,6 +241,39 @@ mod tests {
             }
             _ => panic!("expected Vec"),
         }
+    }
+
+    #[test]
+    fn pool_params_key_carries_asset_contract_address() {
+        let sv = PoolPersistentKey::Params([9u8; 32]).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "Params");
+        assert!(matches!(
+            &items[1],
+            ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if *b == [9u8; 32]
+        ));
+    }
+
+    #[test]
+    fn pool_state_key_is_persistent_data_on_pool_contract() {
+        let key = PoolPersistentKey::State([4u8; 32])
+            .to_ledger_key(&[8u8; 32])
+            .unwrap();
+        let LedgerKey::ContractData(cd) = key else {
+            panic!("expected ContractData");
+        };
+        assert!(matches!(cd.durability, ContractDataDurability::Persistent));
+        assert!(matches!(
+            cd.contract,
+            ScAddress::Contract(ContractId(Hash(b))) if b == [8u8; 32]
+        ));
+        let ScVal::Vec(Some(ScVec(items))) = cd.key else {
+            panic!("expected Vec key");
+        };
+        assert_eq!(sym_text(&items[0]), "State");
     }
 
     fn sym_text(v: &ScVal) -> String {
