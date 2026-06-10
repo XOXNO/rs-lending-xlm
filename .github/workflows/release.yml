@@ -127,3 +127,99 @@ jobs:
             dist/${{ matrix.package }}.wasm
             dist/${{ matrix.package }}.wasm.sha256
           if-no-files-found: error
+
+  # Live testnet end-to-end: fresh wallets via friendbot, fresh deploy,
+  # every endpoint (lifecycle, strategies, flash loans, liquidations,
+  # e-mode, isolation, admin, budget-frontier stress) driven by
+  # tests/integration. No secrets required — the run funds itself.
+  # The job fails unless the run ends with zero unresolved failures; the
+  # markdown report (tx hash + resource usage per action) is uploaded as an
+  # artifact and attached to the release.
+  testnet-e2e:
+    name: Testnet e2e
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Serialize runs: parallel e2e runs against the shared testnet
+    # aggregator/venues race each other's swaps.
+    concurrency:
+      group: testnet-e2e
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Install stellar-cli
+        run: |
+          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | tar -xz -C "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/stellar"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      - name: Install harness tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q jq xxd
+
+      # The harness deploys from target/optimized: the raw controller wasm
+      # exceeds testnet's per-tx write cap, and every other contract
+      # (pool, flash receiver, oracle mocks) deploys from the same dir.
+      - name: Build and optimize all contract wasm
+        run: |
+          stellar contract build
+          mkdir -p target/optimized
+          for pkg in controller pool flash_loan_receiver mock_oracle mock_redstone; do
+            stellar contract optimize \
+              --wasm "target/wasm32v1-none/release/${pkg}.wasm" \
+              --wasm-out "target/optimized/${pkg}.wasm"
+          done
+
+      - name: Run live testnet e2e
+        env:
+          RUN_TS: release-${{ github.run_id }}
+        run: bash tests/integration/scenarios/full_e2e.sh
+
+      - name: Assert run is green
+        if: always()
+        env:
+          RUN_TS: release-${{ github.run_id }}
+        run: bash tests/integration/scenarios/assert_green.sh
+
+      - name: Upload e2e report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: testnet-e2e-report
+          path: |
+            tests/integration/runs/release-${{ github.run_id }}/report.md
+            tests/integration/runs/release-${{ github.run_id }}/actions.tsv
+          if-no-files-found: error
+
+      - name: Attach report to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RUN_TS: release-${{ github.run_id }}
+        run: |
+          cp "tests/integration/runs/${RUN_TS}/report.md" "testnet-e2e-report-${RELEASE_TAG}.md"
+          gh release upload "$RELEASE_TAG" \
+            "testnet-e2e-report-${RELEASE_TAG}.md" \
+            --clobber
