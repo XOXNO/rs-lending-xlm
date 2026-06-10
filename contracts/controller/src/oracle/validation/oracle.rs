@@ -18,7 +18,7 @@ use super::super::observation::{
     millis_to_seconds, u256_to_i128, validate_positive_price_timestamps,
     MIN_ORACLE_RESOLUTION_SECONDS,
 };
-use super::super::providers::redstone::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
+use super::super::providers::redstone::{read_price_data_direct, RedStonePriceData, REDSTONE_DECIMALS};
 use super::super::providers::reflector::{
     min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
     reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
@@ -121,7 +121,7 @@ pub(crate) fn validate_source(
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
 
-            let price_data = match read_price_data(env, &config.contract, &config.feed_id) {
+            let price_data = match read_price_data_direct(env, &config.contract, &config.feed_id) {
                 Some(data) => data,
                 _ => panic_with_error!(env, GenericError::InvalidTicker),
             };

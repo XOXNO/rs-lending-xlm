@@ -11,7 +11,7 @@ use crate::cache::Cache;
 
 mod client;
 
-pub(crate) use client::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
+pub(crate) use client::{read_price_data, read_price_data_bulk, read_price_data_direct, RedStonePriceData, REDSTONE_DECIMALS};
 
 pub(crate) fn read_redstone_source(
     cache: &Cache,
@@ -20,7 +20,7 @@ pub(crate) fn read_redstone_source(
 ) -> Option<OracleObservation> {
     let env = cache.env();
 
-    let price_data = match read_price_data(env, &config.contract, &config.feed_id) {
+    let price_data = match read_price_data(cache, &config.contract, &config.feed_id) {
         Some(price_data) => price_data,
         _ if required => panic_with_error!(env, GenericError::InvalidTicker),
         _ => return None,

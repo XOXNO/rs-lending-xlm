@@ -1,6 +1,8 @@
 //! RedStone multi-feed client and call wrappers.
 
-use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, U256};
+use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, Vec, U256};
+
+use crate::cache::Cache;
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -16,16 +18,48 @@ pub(crate) const REDSTONE_DECIMALS: u32 = 8;
 #[allow(dead_code)] // Required: trait exists only for the macro to generate the client proxy.
 pub trait RedStoneMultiFeed {
     fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error>;
+    fn read_price_data(env: Env, feed_ids: Vec<String>) -> Result<Vec<RedStonePriceData>, Error>;
 }
 
 /// Reads RedStone price data, returning `None` on provider failure.
+/// Served from the tx-local prefetch when `prefetch_redstone_feeds` ran.
 pub(crate) fn read_price_data(
+    cache: &Cache,
+    contract: &Address,
+    feed_id: &String,
+) -> Option<RedStonePriceData> {
+    if let Some(data) = cache.get_redstone_prefetch(contract, feed_id) {
+        return Some(data);
+    }
+    match RedStonePriceFeedClient::new(cache.env(), contract).try_read_price_data_for_feed(feed_id)
+    {
+        Ok(Ok(data)) => Some(data),
+        _ => None,
+    }
+}
+
+/// Direct single-feed read without cache. Used by validation paths that
+/// have no `Cache` (market config admin flows).
+pub(crate) fn read_price_data_direct(
     env: &Env,
     contract: &Address,
     feed_id: &String,
 ) -> Option<RedStonePriceData> {
     match RedStonePriceFeedClient::new(env, contract).try_read_price_data_for_feed(feed_id) {
         Ok(Ok(data)) => Some(data),
+        _ => None,
+    }
+}
+
+/// One cross-contract call for all feeds of one adapter. `None` on any
+/// failure or length mismatch; callers fall back to per-feed reads.
+pub(crate) fn read_price_data_bulk(
+    env: &Env,
+    contract: &Address,
+    feed_ids: &Vec<String>,
+) -> Option<Vec<RedStonePriceData>> {
+    match RedStonePriceFeedClient::new(env, contract).try_read_price_data(feed_ids) {
+        Ok(Ok(data)) if data.len() == feed_ids.len() => Some(data),
         _ => None,
     }
 }
