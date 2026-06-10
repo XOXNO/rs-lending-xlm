@@ -11,6 +11,7 @@ mod footprint_test;
 mod invariant;
 mod lifecycle_regression;
 mod reentrancy_matrix;
+mod mem_attribution;
 mod repro_live_supply;
 mod stress_simulation;
 mod utils;
