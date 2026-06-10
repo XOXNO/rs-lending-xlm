@@ -6,7 +6,7 @@
 
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::{AccountPositionRaw, DebtPositionRaw};
-use soroban_sdk::{Address, Env, Map};
+use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
@@ -104,6 +104,15 @@ fn calculate_account_totals_body(
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
+    let mut priced_assets: Vec<Address> = Vec::new(env);
+    for (asset, _) in supply_positions.iter() {
+        priced_assets.push_back(asset);
+    }
+    for (asset, _) in borrow_positions.iter() {
+        priced_assets.push_back(asset);
+    }
+    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+
     let mut total_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
 
