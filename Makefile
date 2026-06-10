@@ -50,6 +50,14 @@ SHELL := /bin/bash
 
 WASM_TARGET  := wasm32v1-none
 RELEASE_DIR  := target/$(WASM_TARGET)/release
+# Wasm shadow-stack size. rustc's default is 1MB (16 pages of linear memory),
+# and Soroban charges a callee's full initial linear memory against the tx
+# MEMORY budget on EVERY cross-contract invocation — measured ~1.28MB/call,
+# ~70% of the per-oracle-feed cost of HF-checked ops. 128KB drops the
+# declared memory from 17 pages to 3 and passes the entire test-harness
+# suite (637 tests incl. max-position liquidations) with no stack overflow.
+WASM_STACK_SIZE ?= 131072
+WASM_RUSTFLAGS := -C link-arg=-zstack-size=$(WASM_STACK_SIZE)
 OPTIMIZED_DIR := target/optimized
 # Canonical WASM output: deploy/ for mainnet, certora/ for hosted prover (prebuilt).
 WASM_ARTIFACTS_DIR := artifacts/wasm
@@ -96,16 +104,16 @@ endif
 
 ## Build all contracts (WASM release)
 build:
-	@echo "Building all contracts..."
-	stellar contract build
+	@echo "Building all contracts (stack-size $(WASM_STACK_SIZE))..."
+	RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build
 	@echo ""
 	@echo "WASM artifacts:"
 	@ls -lh $(RELEASE_DIR)/*.wasm 2>/dev/null || ls -lh target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || echo "  (none found)"
 
 ## Build a single contract: make build-one CRATE=controller
 build-one:
-	@echo "Building $(CRATE)..."
-	stellar contract build --package $(CRATE)
+	@echo "Building $(CRATE) (stack-size $(WASM_STACK_SIZE))..."
+	RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE)
 
 ## Optimize WASM binaries for local tooling and inspection.
 optimize: build
