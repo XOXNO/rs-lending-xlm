@@ -89,7 +89,7 @@ impl Cache {
         (&token_price(self, asset)).into()
     }
 
-    pub fn redstone_prefetched(
+    pub fn get_redstone_prefetch(
         &self,
         contract: &Address,
         feed_id: &String,
@@ -98,7 +98,7 @@ impl Cache {
             .get((contract.clone(), feed_id.clone()))
     }
 
-    pub fn set_redstone_prefetched(
+    pub fn set_redstone_prefetch(
         &mut self,
         contract: &Address,
         feed_id: &String,
