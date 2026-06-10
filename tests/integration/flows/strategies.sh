@@ -79,15 +79,25 @@ flow_strategies() {
     }
     retry_leg leg_swap_collateral
 
-    # repay_debt_with_collateral: sell 5 USDC collateral toward the XLM debt
-    # (sized so the remaining XLM debt stays above the $10 floor).
+    # repay_debt_with_collateral: sell 500 XLM collateral toward the USDC
+    # debt. XLM→USDC at ≥500 XLM is the only quote shape the testnet router
+    # reliably serves 1-hop (small or reverse-direction quotes route through
+    # broken middle pools). Widen the account first: extra XLM collateral
+    # keeps LTV safe and a topped-up USDC debt keeps the post-repay residue
+    # above the $10 floor.
+    inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
+        --caller "$ALICE_ADDR" --account_id "$macct" --e_mode_category 0 \
+        --assets "$(pay_vec "$XLM_SAC" 10000000000)" >/dev/null
+    inv borrow_for_rdwc "$ALICE" "$CONTROLLER" -- borrow \
+        --caller "$ALICE_ADDR" --account_id "$macct" \
+        --borrows "$(pay_vec "$USDC_SAC" 550000000)" >/dev/null
     leg_repay_debt_with_coll() {
         local hex
-        hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" 50000000) || return 1
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 5000000000) || return 1
         inv repay_debt_with_coll "$ALICE" "$CONTROLLER" -- repay_debt_with_collateral \
             --caller "$ALICE_ADDR" --account_id "$macct" \
-            --collateral_token "$USDC_SAC" --collateral_amount 50000000 \
-            --debt_token "$XLM_SAC" --swap "$hex" --close_position false >/dev/null
+            --collateral_token "$XLM_SAC" --collateral_amount 5000000000 \
+            --debt_token "$USDC_SAC" --swap "$hex" --close_position false >/dev/null
     }
     retry_leg leg_repay_debt_with_coll
 

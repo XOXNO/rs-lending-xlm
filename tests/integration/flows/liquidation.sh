@@ -35,13 +35,9 @@ flow_liq_setup() {
     create_market LIQF "$SAC_LIQF" 7 "$(oracle_cfg_mock_single "$SAC_LIQF")" "$(asset_config_json 7000 7500 200)"
     create_market LIQG "$SAC_LIQG" 7 "$(oracle_cfg_mock_single "$SAC_LIQG")" \
         "$(asset_config_json 7000 7500 800 '.is_isolated_asset=true | .isolation_debt_ceiling_usd_wad="1000000000000000000000"')"
-    # Admin seeds liquidity on every borrow-side market in one bulk supply.
-    local mint_admin
-    for code in LIQB LIQD LIQF; do
-        var="SAC_$code"
-        mint_to "${!var}" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT)) || true
-    done
-    trustline "$ADMIN" LIQB "$ADMIN_ADDR" || true
+    # Carol seeds liquidity on every borrow-side market in one bulk supply
+    # (the issuer cannot hold a trustline to its own asset, so the admin
+    # never holds LIQ tokens itself).
     inv liq_seed_liquidity "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
         --assets "$(pay_vec "$SAC_LIQB" $((50000 * LIQ_UNIT)) "$SAC_LIQD" $((50000 * LIQ_UNIT)) "$SAC_LIQF" $((50000 * LIQ_UNIT)))" >/dev/null || return 1
@@ -79,15 +75,24 @@ flow_liq_single() {
         --debt_payments "$(pay_vec "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     view liq1_hf_after_partial "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
 
-    # Full liquidation: overpay the rest; the close amount is capped and the
-    # excess refunds to the liquidator. Retried — interest accrual between
-    # simulation and apply can shift the close math and trap at apply.
+    # Full liquidation. An overpay cannot be submitted directly: the contract
+    # transfers the ON-CHAIN recomputed close amount from the liquidator, so
+    # the signed auth (recorded at simulation) goes stale as interest accrues
+    # → Error(Auth, InvalidAction) at apply. Estimate the close via the view,
+    # then submit just under it — payments ≤ close transfer the exact user
+    # amount and stay auth-stable. (Design note for liquidation bots.)
+    local est refund close
+    est=$(view liq1_estimate_close "$CONTROLLER" -- liquidation_estimations_detailed \
+        --account_id "$acct" --debt_payments "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))")
+    refund=$(jq -r '[.refunds[]?.amount | tonumber] | add // 0' <<<"$est")
+    close=$(( 600 * LIQ_UNIT - refund ))
     leg_liq1_full() {
         inv liq1_liquidate_full "$CAROL" "$CONTROLLER" -- liquidate \
             --liquidator "$CAROL_ADDR" --account_id "$acct" \
-            --debt_payments "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))" >/dev/null
+            --debt_payments "$(pay_vec "$SAC_LIQB" $(( close * 998 / 1000 )))" >/dev/null
     }
     retry_leg leg_liq1_full
+    view liq1_positions_final "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null || true
     save_state LIQ1_ACCT "$acct"
 }
 

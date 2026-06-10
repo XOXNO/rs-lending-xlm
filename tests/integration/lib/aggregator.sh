@@ -11,8 +11,16 @@
 agg_route_hex() {
     local from="$1" to="$2" amount_in="$3" slippage="${4:-0.05}"
     local quote_f="$LOG_DIR/quote_$(date +%s%N).json"
-    curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=$slippage&max_splits=1" \
-        >"$quote_f" || return 1
+    # Small amounts sometimes quote through stale multi-hop paths whose
+    # middle pools cannot meet min-out on-chain — prefer a direct route.
+    local try hops
+    for try in 1 2 3 4; do
+        curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=$slippage&max_splits=1" \
+            >"$quote_f" || return 1
+        hops=$(jq -r '.hops | length' "$quote_f" 2>/dev/null)
+        [ "$hops" = "1" ] && break
+        sleep 2
+    done
     local xdr
     xdr=$(jq -r '.routeXdr // empty' "$quote_f")
     [ -z "$xdr" ] && { log "no route: $(head -c 200 "$quote_f")"; return 1; }
@@ -37,6 +45,6 @@ agg_route_hex_out() {
 #   agg_quote_out <from-sac> <to-sac> <amount_in>  → prints amountOut
 agg_quote_out() {
     local from="$1" to="$2" amount_in="$3"
-    curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=100&max_splits=1" \
+    curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=0.05&max_splits=1" \
         | jq -r '.amountOut // empty'
 }

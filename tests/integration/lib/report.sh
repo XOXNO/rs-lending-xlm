@@ -30,6 +30,8 @@ write_report() {
             m["sim-exceeded"]="budget probe: Budget,ExceededLimit";
             m["sim-error"]="budget probe: non-budget simulation error";
             m["FAIL"]="UNEXPECTED failure";
+            m["retry"]="transient attempt inside a retry loop (a later attempt settled it)";
+            m["superseded"]="failed attempt superseded by a later passing run of the same action";
             m["UNEXPECTED-OK"]="expected a revert but succeeded";
             for (k in c) printf "| %s | %d | %s |\n", k, c[k], m[k];
         }' "$ACTIONS_TSV"
