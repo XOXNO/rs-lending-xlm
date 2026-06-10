@@ -15,9 +15,10 @@ use common::types::{
     MarketConfig, MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed,
     PriceFeedRaw,
 };
-use soroban_sdk::{Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{Address, Env, Map, String, Symbol, Vec};
 
 use crate::cross_contract::pool::fetch_pool_sync_data;
+use crate::oracle::providers::redstone::RedStonePriceData;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::{token_price, update_asset_index};
 use crate::storage;
@@ -26,6 +27,10 @@ pub struct Cache {
     env: Env,
 
     pub prices_cache: Map<Address, PriceFeedRaw>,
+    /// Raw RedStone payloads bulk-fetched once per tx, keyed by (adapter, feed_id).
+    /// Stores provider data, never resolved prices, so per-flow policy checks
+    /// (staleness, sanity, tolerance) are unaffected.
+    redstone_prefetch: Map<(Address, String), RedStonePriceData>,
     pub market_configs: Map<Address, MarketConfig>,
     pub market_indexes: Map<Address, MarketIndexRaw>,
     pool_address: Option<Address>,
@@ -57,6 +62,7 @@ impl Cache {
         Cache {
             env: env.clone(),
             prices_cache: Map::new(env),
+            redstone_prefetch: Map::new(env),
             market_configs: Map::new(env),
             market_indexes: Map::new(env),
             pool_address: None,
@@ -81,6 +87,25 @@ impl Cache {
 
     pub fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         (&token_price(self, asset)).into()
+    }
+
+    pub fn redstone_prefetched(
+        &self,
+        contract: &Address,
+        feed_id: &String,
+    ) -> Option<RedStonePriceData> {
+        self.redstone_prefetch
+            .get((contract.clone(), feed_id.clone()))
+    }
+
+    pub fn set_redstone_prefetched(
+        &mut self,
+        contract: &Address,
+        feed_id: &String,
+        data: RedStonePriceData,
+    ) {
+        self.redstone_prefetch
+            .set((contract.clone(), feed_id.clone()), data);
     }
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
