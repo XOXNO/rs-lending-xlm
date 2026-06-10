@@ -11,7 +11,7 @@ use crate::cache::Cache;
 
 mod client;
 
-pub(crate) use client::{read_price_data, read_price_data_bulk, read_price_data_direct, RedStonePriceData, REDSTONE_DECIMALS};
+pub(crate) use client::{read_price_data, read_price_data_bulk, read_price_data_uncached, RedStonePriceData, REDSTONE_DECIMALS};
 
 pub(crate) fn read_redstone_source(
     cache: &Cache,

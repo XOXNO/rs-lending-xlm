@@ -31,16 +31,12 @@ pub(crate) fn read_price_data(
     if let Some(data) = cache.get_redstone_prefetch(contract, feed_id) {
         return Some(data);
     }
-    match RedStonePriceFeedClient::new(cache.env(), contract).try_read_price_data_for_feed(feed_id)
-    {
-        Ok(Ok(data)) => Some(data),
-        _ => None,
-    }
+    read_price_data_uncached(cache.env(), contract, feed_id)
 }
 
-/// Direct single-feed read without cache. Used by validation paths that
+/// Single-feed read without cache. Used by validation paths that
 /// have no `Cache` (market config admin flows).
-pub(crate) fn read_price_data_direct(
+pub(crate) fn read_price_data_uncached(
     env: &Env,
     contract: &Address,
     feed_id: &String,
