@@ -63,55 +63,62 @@ flow_stress_supply_frontier() {
     done
 }
 
-# Builds the stress account (10 distinct collaterals, split 5+5) and probes
-# borrow txs that add 1..10 distinct debt assets — each probe recomputes HF
-# over (10 + k) distinct oracle feeds.
+# Probes borrow txs that add 1..10 distinct debt assets on top of a
+# `colls`-collateral account — each probe recomputes HF over (colls + k)
+# distinct oracle feeds. Single-source uses a 10-collateral account (wall
+# expected in the teens); dual-source uses 4 collaterals so the lower wall
+# still brackets inside the probe range.
+#   flow_stress_borrow_frontier <single|dual>
 flow_stress_borrow_frontier() {
+    local mode="${1:-single}" colls acct_var
     phase stress_borrow_frontier
-    local args="" i
-    if [ -z "${DAVE_ACCT:-}" ]; then
-        for i in 0 1 2 3 4; do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
-        local acct
-        acct=$(inv stress_supply_5 "$DAVE" "$CONTROLLER" -- supply \
+    if [ "$mode" = dual ]; then colls=4; acct_var=DAVE_DUAL_ACCT; else colls=10; acct_var=DAVE_ACCT; fi
+    local args="" i acct
+    if [ -z "${!acct_var:-}" ]; then
+        for i in $(seq 0 $(( colls > 5 ? 4 : colls - 1 ))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
+        acct=$(inv "stress_supply_${mode}_base" "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --e_mode_category 0 \
-            --assets "$(pay_vec $args)" | tr -d '"')
-        save_state DAVE_ACCT "$acct"
-        args=""
-        for i in 5 6 7 8 9; do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
-        inv stress_supply_10 "$DAVE" "$CONTROLLER" -- supply \
-            --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" --e_mode_category 0 \
-            --assets "$(pay_vec $args)" >/dev/null
+            --assets "$(pay_vec $args)" | tr -d '"') || return 1
+        save_state "$acct_var" "$acct"
+        if [ "$colls" -gt 5 ]; then
+            args=""
+            for i in $(seq 5 $((colls - 1))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
+            inv "stress_supply_${mode}_rest" "$DAVE" "$CONTROLLER" -- supply \
+                --caller "$DAVE_ADDR" --account_id "$acct" --e_mode_category 0 \
+                --assets "$(pay_vec $args)" >/dev/null
+        fi
     fi
-    local mode="${1:-single}" k best_k=0
+    acct="${!acct_var}"
+    local k best_k=0
     for k in $(seq 1 10); do
         args=""
         for i in $(seq 10 $((9 + k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-        sim_probe "probe_borrow_${mode}_$((10 + k))feeds" "$DAVE" "$CONTROLLER" -- borrow \
-            --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
+        sim_probe "probe_borrow_${mode}_$((colls + k))feeds" "$DAVE" "$CONTROLLER" -- borrow \
+            --caller "$DAVE_ADDR" --account_id "$acct" \
             --borrows "$(pay_vec $args)"
         if [ "$PROBE_STATUS" = ok ]; then
             best_k=$k
         elif [ "$PROBE_STATUS" = exceeded ]; then
-            log "borrow frontier ($mode): $((10 + k)) feeds exceeds; $((10 + best_k)) fits"
+            log "borrow frontier ($mode): $((colls + k)) feeds exceeds; largest passing probe $((colls + best_k)) feeds"
             break
         fi
     done
-    save_state "BORROW_FRONTIER_${mode^^}" "$best_k"
+    save_state "BORROW_FRONTIER_${mode^^}" "$((colls + best_k))"
     # On-chain proof: send the largest passing borrow, then a withdraw probe
     # at max position count, then repay in full to reset debt to zero.
     if [ "$best_k" -gt 0 ]; then
         args=""
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         inv "stress_borrow_${mode}_proof" "$DAVE" "$CONTROLLER" -- borrow \
-            --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
+            --caller "$DAVE_ADDR" --account_id "$acct" \
             --borrows "$(pay_vec $args)" >/dev/null
         sim_probe "probe_withdraw_${mode}_maxfeeds" "$DAVE" "$CONTROLLER" -- withdraw \
-            --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
+            --caller "$DAVE_ADDR" --account_id "$acct" \
             --withdrawals "$(pay_vec "$(stress_sac 0)" $((1000 * STRESS_UNIT)))"
         args=""
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1100 * STRESS_UNIT))"; done
         inv "stress_repay_${mode}_reset" "$DAVE" "$CONTROLLER" -- repay \
-            --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
+            --caller "$DAVE_ADDR" --account_id "$acct" \
             --payments "$(pay_vec $args)" >/dev/null
     fi
 }

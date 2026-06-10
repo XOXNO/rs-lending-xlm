@@ -19,6 +19,7 @@ for f in lifecycle strategies liquidation admin stress; do
 done
 
 init_run
+cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
 trap 'write_report; run_summary' EXIT
 
 PHASES="${PHASES:-deploy lifecycle strategies liquidation admin stress}"

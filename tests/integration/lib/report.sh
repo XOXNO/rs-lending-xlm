@@ -50,8 +50,13 @@ write_report() {
         done
         echo "---"
         echo "_Every linked transaction page on stellar.expert shows the full"
-        echo "resource report (CPU instructions, memory, read/write entries and"
-        echo "bytes) under \"Resources\"._"
+        echo "resource report (CPU instructions, read/write entries and bytes)"
+        echo "under \"Resources\". Memory bytes are not surfaced on-chain or by"
+        echo "explorers — the appendix carries locally measured memory budgets._"
+        if [ -f "$RUN_DIR/appendix.md" ]; then
+            echo
+            cat "$RUN_DIR/appendix.md"
+        fi
     } > "$report"
     log "report written: $report"
 }
