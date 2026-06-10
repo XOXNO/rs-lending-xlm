@@ -104,6 +104,8 @@ fn calculate_account_totals_body(
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
+    // Prime the RedStone prefetch with every position's feeds before the
+    // per-asset price reads below.
     let mut priced_assets: Vec<Address> = Vec::new(env);
     for (asset, _) in supply_positions.iter() {
         priced_assets.push_back(asset);

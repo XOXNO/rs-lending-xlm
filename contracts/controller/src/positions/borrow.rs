@@ -103,21 +103,20 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     // post-flight dust scope, sees one entry per asset.
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
-    // Bulk-prefetch RedStone feeds for all supply + borrow assets before any
-    // price reads so a single cross-contract call covers the whole flow.
-    {
-        let mut priced_assets: Vec<Address> = Vec::new(env);
-        for asset in account.supply_positions.keys() {
-            priced_assets.push_back(asset);
-        }
-        for asset in account.borrow_positions.keys() {
-            priced_assets.push_back(asset);
-        }
-        for (asset, _) in borrow_plan.iter() {
-            utils::push_unique_address(&mut priced_assets, asset);
-        }
-        crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    // Borrow prices new-position assets (in `prepare_borrow_plan`) before
+    // `calculate_account_totals_body` runs, and those assets are not yet in
+    // `borrow_positions` — so the HF-body prefetch alone would miss them.
+    let mut priced_assets: Vec<Address> = Vec::new(env);
+    for asset in account.supply_positions.keys() {
+        priced_assets.push_back(asset);
     }
+    for asset in account.borrow_positions.keys() {
+        priced_assets.push_back(asset);
+    }
+    for (asset, _) in borrow_plan.iter() {
+        priced_assets.push_back(asset);
+    }
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
 
     process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
 
