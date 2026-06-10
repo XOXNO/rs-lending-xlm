@@ -1,15 +1,6 @@
 //! Primary vs Anchor tolerance logic.
 //!
-//! Deviation checks and final-price selection between the `primary` price and
-//! the `anchor` price against the configured tolerance bands. The primary is
-//! the value the protocol prices on; the anchor is the cross-check.
-//!
-//! Internal code uses `primary`/`anchor` consistently. Views map these to the
-//! public ABI names `safe_price_wad` (primary) and `aggregator_price_wad`
-//! (anchor) in `ResolvedOracleComponents::to_abi_prices`.
-//!
-//! Deliberately pure (no oracle client knowledge) so Certora can summarize it
-//! without affecting the rest of price resolution.
+//! Applies tolerance bands between primary and anchor prices.
 
 use common::constants::{
     BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, RAY,
@@ -159,7 +150,13 @@ mod tests {
     #[test]
     fn test_is_within_anchor_zero_anchor_returns_false() {
         let env = Env::default();
-        assert!(!is_within_anchor(&env, 0, 100 * common::constants::WAD, 200, 200));
+        assert!(!is_within_anchor(
+            &env,
+            0,
+            100 * common::constants::WAD,
+            200,
+            200
+        ));
     }
 
     #[test]
@@ -228,14 +225,15 @@ mod tests {
     #[should_panic]
     fn test_validate_and_calculate_tolerances_rejects_first_below_min() {
         let env = Env::default();
-        let _ = validate_and_calculate_tolerances(&env, MIN_FIRST_TOLERANCE - 1, MIN_LAST_TOLERANCE);
+        let _ =
+            validate_and_calculate_tolerances(&env, MIN_FIRST_TOLERANCE - 1, MIN_LAST_TOLERANCE);
     }
 
     #[test]
     fn test_calculate_tolerance_range_scales_bounds() {
         let env = Env::default();
         let (upper, lower) = calculate_tolerance_range(&env, 200);
-        assert!(upper > i128::from(BPS));
-        assert!(lower < i128::from(BPS));
+        assert!(upper > BPS);
+        assert!(lower < BPS);
     }
 }

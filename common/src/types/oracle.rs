@@ -75,9 +75,7 @@ pub enum OracleSourceConfigInput {
 }
 
 impl OracleSourceConfigInput {
-    /// True when two configs read the same underlying feed (provider, contract,
-    /// and feed key). Ignores policy-only fields such as RedStone
-    /// `max_stale_seconds`.
+    /// True when two configs read the same provider feed.
     pub fn reads_same_feed_as(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Reflector(x), Self::Reflector(y)) => {
@@ -111,9 +109,7 @@ impl OracleSourceConfigInputOption {
     }
 }
 
-/// Quote base of a Reflector oracle, captured once at config time so the read
-/// path never calls `base()`. `Usd` = the feed is already token/USD; `Quoted`
-/// = token/quote, repriced via the quote market's own USD oracle.
+/// Quote base captured from a Reflector oracle at config time.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReflectorBase {
@@ -152,6 +148,7 @@ pub enum OracleSourceConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum OracleSourceConfigOption {
     None,
     Some(OracleSourceConfig),
@@ -376,7 +373,10 @@ mod tests {
             last_upper_ratio_bps: 200,
             last_lower_ratio_bps: 200,
         };
-        let _provider_kinds = [OracleProviderKind::ReflectorSep40, OracleProviderKind::RedStonePriceFeed];
+        let _provider_kinds = [
+            OracleProviderKind::ReflectorSep40,
+            OracleProviderKind::RedStonePriceFeed,
+        ];
         let _assets = [
             OracleAssetRef::Stellar(asset.clone()),
             OracleAssetRef::Symbol(Symbol::new(&env, "USD")),
