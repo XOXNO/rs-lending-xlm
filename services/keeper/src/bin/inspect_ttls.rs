@@ -1,12 +1,4 @@
-//! Read-only TTL inspector: run the keeper's own discovery against a live
-//! network and print a per-key table of `live_until` / ledgers remaining /
-//! status. Submits nothing and needs no signer — it answers "which protocol
-//! entries are expired or inside the safety margin right now?" in a form that
-//! lines up against a block explorer's storage view.
-//!
-//! ```bash
-//! inspect_ttls --config config/testnet.yaml
-//! ```
+//! Read-only TTL inspector for keeper-discovered entries.
 
 use anyhow::Result;
 use clap::Parser;
@@ -20,10 +12,18 @@ use std::path::PathBuf;
 use stellar_xdr::curr::{ContractId, Hash, LedgerKey, ScAddress, ScMapEntry, ScSymbol, ScVal};
 
 #[derive(Debug, Parser)]
-#[command(name = "inspect_ttls", about = "Read-only TTL inspector for the XOXNO Lending keeper set")]
+#[command(
+    name = "inspect_ttls",
+    about = "Read-only TTL inspector for the XOXNO Lending keeper set"
+)]
 struct Args {
-    /// Path to the YAML config (same file the keeper consumes).
-    #[arg(short, long, env = "KEEPER_CONFIG", default_value = "/etc/keeper/testnet.yaml")]
+    /// YAML config path.
+    #[arg(
+        short,
+        long,
+        env = "KEEPER_CONFIG",
+        default_value = "/etc/keeper/testnet.yaml"
+    )]
     config: PathBuf,
 }
 
@@ -48,17 +48,13 @@ async fn main() -> Result<()> {
     println!("assets in PoolsList: {}", snap.assets.len());
     println!();
 
-    // The PERSISTENT section now includes the access-control role keys: as of
-    // the self-healing change, `discovery::snapshot` folds them in, so they
-    // appear here with an EXPIRED (restore) / IN-MARGIN (extend) status.
     let mut acted = 0usize;
     acted += print_section("PERSISTENT", &snap.persistent_entries, current, safety);
     acted += print_section("INSTANCE", &snap.instance_entries, current, safety);
     acted += print_section("WASM CODE", &snap.wasm_code_entries, current, safety);
 
-    let total = snap.persistent_entries.len()
-        + snap.instance_entries.len()
-        + snap.wasm_code_entries.len();
+    let total =
+        snap.persistent_entries.len() + snap.instance_entries.len() + snap.wasm_code_entries.len();
     println!();
     println!(
         "SUMMARY: {total} entries inspected, {acted} expired (restore) or in-margin (extend) \
@@ -67,12 +63,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_section(
-    title: &str,
-    entries: &[LedgerEntryQuery],
-    current: u32,
-    safety: u32,
-) -> usize {
+fn print_section(title: &str, entries: &[LedgerEntryQuery], current: u32, safety: u32) -> usize {
     println!("── {title} ({} entries) ─────────────────", entries.len());
     let mut bumped = 0;
     for row in entries {
@@ -99,9 +90,7 @@ fn print_section(
     bumped
 }
 
-/// Map an entry to a human status and whether the keeper would act on it,
-/// reusing the keeper's own [`classify`] so the inspector never drifts from the
-/// scheduler's decision.
+/// Maps an entry to display status and action flag.
 fn status_of(row: &LedgerEntryQuery, current: u32, safety: u32) -> (&'static str, bool) {
     let decision = classify(row.live_until_ledger, row.value.is_some(), current, safety);
     let acted = !matches!(decision, Decision::Skip);
@@ -122,28 +111,27 @@ fn label_ledger_key(key: &LedgerKey) -> String {
         LedgerKey::ContractData(cd) => {
             let contract = match &cd.contract {
                 ScAddress::Contract(ContractId(Hash(b))) => {
-                    short(&stellar_strkey::Contract(*b).to_string())
+                    format!("{}", stellar_strkey::Contract(*b))
                 }
                 other => format!("{other:?}"),
             };
             format!("{contract}  {}", label_scval_key(&cd.key))
         }
-        LedgerKey::ContractCode(cc) => format!("wasm-code {}", short_hex(&cc.hash.0)),
+        LedgerKey::ContractCode(cc) => format!("wasm-code {}", hex::encode(cc.hash.0)),
         other => format!("{other:?}"),
     }
 }
 
-/// Decode a contract-data key ScVal into a readable entry name. soroban-sdk
-/// serializes `#[contracttype]` enum keys as `Vec[Symbol("Variant"), args…]`.
+/// Decodes a contract-data key into a readable label.
 fn label_scval_key(key: &ScVal) -> String {
     match key {
         ScVal::LedgerKeyContractInstance => "instance".to_string(),
-        ScVal::Vec(Some(v)) => v
-            .0
-            .iter()
-            .map(label_scval_arg)
-            .collect::<Vec<_>>()
-            .join(" "),
+        ScVal::Vec(Some(v)) => {
+            v.0.iter()
+                .map(label_scval_arg)
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
         other => format!("{other:?}"),
     }
 }
@@ -153,35 +141,24 @@ fn label_scval_arg(v: &ScVal) -> String {
         ScVal::Symbol(ScSymbol(s)) => s.to_utf8_string_lossy(),
         ScVal::U32(n) => n.to_string(),
         ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) => {
-            short(&stellar_strkey::Contract(*b).to_string())
+            format!("{}", stellar_strkey::Contract(*b))
         }
         ScVal::Address(ScAddress::Account(acc)) => {
-            let stellar_xdr::curr::AccountId(
-                stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(stellar_xdr::curr::Uint256(b)),
-            ) = acc;
-            short(&stellar_strkey::ed25519::PublicKey(*b).to_string())
+            let stellar_xdr::curr::AccountId(stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(
+                stellar_xdr::curr::Uint256(b),
+            )) = acc;
+            format!("{}", stellar_strkey::ed25519::PublicKey(*b))
         }
         ScVal::Map(Some(m)) => {
-            let inner = m
-                .0
-                .iter()
-                .map(|ScMapEntry { key, val }| {
-                    format!("{}={}", label_scval_arg(key), label_scval_arg(val))
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+            let inner =
+                m.0.iter()
+                    .map(|ScMapEntry { key, val }| {
+                        format!("{}={}", label_scval_arg(key), label_scval_arg(val))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
             format!("{{{inner}}}")
         }
         other => format!("{other:?}"),
     }
-}
-
-/// Full strkey — the table stays wide, but the contract id is the handle the
-/// operator pastes into a block explorer, so it must not be truncated.
-fn short(s: &str) -> String {
-    s.to_string()
-}
-
-fn short_hex(bytes: &[u8; 32]) -> String {
-    hex::encode(bytes)
 }

@@ -1,24 +1,8 @@
-//! XDR encoding of the controller's storage keys, mirroring the on-chain
-//! `ControllerKey` enum from `common::types::controller`.
+//! XDR encoding for protocol storage keys used by the keeper.
 //!
-//! soroban-sdk serializes `#[contracttype]` enums as `ScVal::Vec`:
-//! unit variants → `[Symbol("Variant")]`, tuple variants →
-//! `[Symbol("Variant"), arg1_scval, …]`. We re-create those values directly
-//! against `stellar-xdr` so the keeper doesn't pull soroban-sdk into the host
-//! binary. A startup self-check (see `discovery::self_check`) reads
-//! `PoolsList` from the live controller and fails fast if encoding ever
-//! drifts.
-//!
-//! Tier policy (matches `contracts/controller/src/storage/`):
-//! - `Market`, `EModeCategory`, `PoolsList`, `IsolatedDebt` → Persistent.
-//! - `PoolTemplate`, `Aggregator`, `Accumulator`, `AccountNonce`,
-//!   `PositionLimits`, `LastEModeCategoryId`, `AppVersion` → Instance
-//!   (read via `get_contract_instance` instead of `get_ledger_entries`).
-//!
-//! The per-user persistent keys (`AccountMeta`, `SupplyPositions`,
-//! `BorrowPositions`) are deliberately not modelled here: a user's own
-//! protocol interactions auto-bump those three entries, so the keeper leaves
-//! them out of its keep-alive set.
+//! `#[contracttype]` enum keys serialize as `Vec[Symbol("Variant"), args...]`.
+//! The keeper builds those XDR values directly instead of depending on
+//! `soroban-sdk` in the host binary.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
@@ -26,8 +10,7 @@ use stellar_xdr::curr::{
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
-/// Persistent controller storage keys that the keeper keeps alive (the
-/// protocol-wide and per-asset entries — never the per-user triplets).
+/// Protocol-wide controller persistent keys kept alive by the keeper.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     PoolsList,
@@ -40,27 +23,22 @@ impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
             Self::PoolsList => sc_enum("PoolsList", &[])?,
-            Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)?])?,
-            Self::IsolatedDebt(addr) => sc_enum("IsolatedDebt", &[sc_address_contract(addr)?])?,
+            Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)])?,
+            Self::IsolatedDebt(addr) => sc_enum("IsolatedDebt", &[sc_address_contract(addr)])?,
             Self::EModeCategory(id) => sc_enum("EModeCategory", &[ScVal::U32(*id)])?,
         })
     }
 
     pub fn to_ledger_key(&self, controller_id: &[u8; 32]) -> Result<LedgerKey> {
-        Ok(LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash(*controller_id))),
-            key: self.to_sc_val()?,
-            durability: ContractDataDurability::Persistent,
-        }))
+        Ok(contract_data_key(
+            controller_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
     }
 }
 
-/// Controller access-control persistent keys, managed by the vendored
-/// OpenZeppelin `stellar_access` crate (`AccessControlStorageKey`). These hold
-/// the operational-role assignments (`KEEPER` / `REVENUE` / `ORACLE`) and
-/// self-extend only when a role-gated call reads them — so the keeper must keep
-/// them alive itself. `Admin`/owner are instance-tier and ride the
-/// controller-instance bump, so they are not modelled here.
+/// Persistent role keys managed by `stellar_access`.
 #[derive(Debug, Clone)]
 pub enum AccessControlPersistentKey {
     /// `Vec<Symbol>` of every existing role name.
@@ -71,6 +49,8 @@ pub enum AccessControlPersistentKey {
     RoleAccounts(String, u32),
     /// `(account, role) -> u32` enumeration index; absence means "no role".
     HasRole(ScAddress, String),
+    /// `role -> admin_role`.
+    RoleAdmin(String),
 }
 
 impl AccessControlPersistentKey {
@@ -81,25 +61,24 @@ impl AccessControlPersistentKey {
             Self::RoleAccounts(role, index) => {
                 sc_enum("RoleAccounts", &[role_account_key_map(role, *index)?])?
             }
-            Self::HasRole(account, role) => {
-                sc_enum("HasRole", &[ScVal::Address(account.clone()), symbol_val(role)?])?
-            }
+            Self::HasRole(account, role) => sc_enum(
+                "HasRole",
+                &[ScVal::Address(account.clone()), symbol_val(role)?],
+            )?,
+            Self::RoleAdmin(role) => sc_enum("RoleAdmin", &[symbol_val(role)?])?,
         })
     }
 
     pub fn to_ledger_key(&self, controller_id: &[u8; 32]) -> Result<LedgerKey> {
-        Ok(LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash(*controller_id))),
-            key: self.to_sc_val()?,
-            durability: ContractDataDurability::Persistent,
-        }))
+        Ok(contract_data_key(
+            controller_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
     }
 }
 
-/// Persistent storage keys of the central liquidity pool, mirroring the
-/// on-chain `PoolKey` enum from `common::types::pool`. Each market keeps its
-/// params and interest state under asset-keyed entries on the ONE pool
-/// contract; the keeper must keep both alive per listed asset.
+/// Asset-keyed persistent keys of the central liquidity pool.
 #[derive(Debug, Clone)]
 pub enum PoolPersistentKey {
     Params([u8; 32]),
@@ -109,59 +88,48 @@ pub enum PoolPersistentKey {
 impl PoolPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::Params(asset) => sc_enum("Params", &[sc_address_contract(asset)?])?,
-            Self::State(asset) => sc_enum("State", &[sc_address_contract(asset)?])?,
+            Self::Params(asset) => sc_enum("Params", &[sc_address_contract(asset)])?,
+            Self::State(asset) => sc_enum("State", &[sc_address_contract(asset)])?,
         })
     }
 
     pub fn to_ledger_key(&self, pool_id: &[u8; 32]) -> Result<LedgerKey> {
-        Ok(LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash(*pool_id))),
-            key: self.to_sc_val()?,
-            durability: ContractDataDurability::Persistent,
-        }))
+        Ok(contract_data_key(
+            pool_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
     }
 }
 
-/// Instance-storage symbol used to look up a value inside the controller's
-/// `ScContractInstance.storage` map.
+/// Controller instance-storage keys read from `ScContractInstance.storage`.
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
-    PoolTemplate,
     Pool,
-    Aggregator,
-    Accumulator,
     AccountNonce,
-    PositionLimits,
     LastEModeCategoryId,
-    AppVersion,
 }
 
 impl ControllerInstanceKey {
     pub fn variant_name(&self) -> &'static str {
         match self {
-            Self::PoolTemplate => "PoolTemplate",
             Self::Pool => "Pool",
-            Self::Aggregator => "Aggregator",
-            Self::Accumulator => "Accumulator",
             Self::AccountNonce => "AccountNonce",
-            Self::PositionLimits => "PositionLimits",
             Self::LastEModeCategoryId => "LastEModeCategoryId",
-            Self::AppVersion => "AppVersion",
         }
     }
 }
 
-/// `LedgerKey::ContractInstance` for the controller (or any contract).
+/// Contract instance ledger key.
 pub fn contract_instance_key(contract_id: &[u8; 32]) -> LedgerKey {
-    LedgerKey::ContractData(LedgerKeyContractData {
-        contract: ScAddress::Contract(ContractId(Hash(*contract_id))),
-        key: ScVal::LedgerKeyContractInstance,
-        durability: ContractDataDurability::Persistent,
-    })
+    contract_data_key(
+        contract_id,
+        ScVal::LedgerKeyContractInstance,
+        ContractDataDurability::Persistent,
+    )
 }
 
-/// `LedgerKey::ContractCode` for a wasm-hash entry.
+/// Contract code ledger key.
 pub fn contract_code_key(wasm_hash: &[u8; 32]) -> LedgerKey {
     LedgerKey::ContractCode(stellar_xdr::curr::LedgerKeyContractCode {
         hash: Hash(*wasm_hash),
@@ -169,6 +137,18 @@ pub fn contract_code_key(wasm_hash: &[u8; 32]) -> LedgerKey {
 }
 
 // -- helpers --------------------------------------------------------------
+
+fn contract_data_key(
+    contract_id: &[u8; 32],
+    key: ScVal,
+    durability: ContractDataDurability,
+) -> LedgerKey {
+    LedgerKey::ContractData(LedgerKeyContractData {
+        contract: ScAddress::Contract(ContractId(Hash(*contract_id))),
+        key,
+        durability,
+    })
+}
 
 fn sc_enum(variant: &str, args: &[ScVal]) -> Result<ScVal> {
     let mut elems: Vec<ScVal> = Vec::with_capacity(1 + args.len());
@@ -191,12 +171,17 @@ fn symbol_val(text: &str) -> Result<ScVal> {
     Ok(ScVal::Symbol(symbol(text)?))
 }
 
-/// Encode `RoleAccountKey { role, index }` as soroban does — a `Map` whose
-/// entries are sorted by field symbol, so `index` precedes `role`.
+/// Encode `RoleAccountKey { role, index }` with fields sorted by symbol.
 fn role_account_key_map(role: &str, index: u32) -> Result<ScVal> {
     let entries = vec![
-        ScMapEntry { key: symbol_val("index")?, val: ScVal::U32(index) },
-        ScMapEntry { key: symbol_val("role")?, val: symbol_val(role)? },
+        ScMapEntry {
+            key: symbol_val("index")?,
+            val: ScVal::U32(index),
+        },
+        ScMapEntry {
+            key: symbol_val("role")?,
+            val: symbol_val(role)?,
+        },
     ];
     let map: VecM<ScMapEntry> = entries
         .try_into()
@@ -204,10 +189,8 @@ fn role_account_key_map(role: &str, index: u32) -> Result<ScVal> {
     Ok(ScVal::Map(Some(ScMap(map))))
 }
 
-fn sc_address_contract(contract: &[u8; 32]) -> Result<ScVal> {
-    Ok(ScVal::Address(ScAddress::Contract(ContractId(Hash(
-        *contract,
-    )))))
+fn sc_address_contract(contract: &[u8; 32]) -> ScVal {
+    ScVal::Address(ScAddress::Contract(ContractId(Hash(*contract))))
 }
 
 #[cfg(test)]
@@ -232,7 +215,9 @@ mod tests {
 
     #[test]
     fn tuple_variant_carries_args_in_order() {
-        let sv = ControllerPersistentKey::EModeCategory(99).to_sc_val().unwrap();
+        let sv = ControllerPersistentKey::EModeCategory(99)
+            .to_sc_val()
+            .unwrap();
         match sv {
             ScVal::Vec(Some(ScVec(items))) => {
                 assert_eq!(items.len(), 2);
@@ -285,7 +270,9 @@ mod tests {
 
     #[test]
     fn existing_roles_encodes_as_symbol_vec() {
-        let sv = AccessControlPersistentKey::ExistingRoles.to_sc_val().unwrap();
+        let sv = AccessControlPersistentKey::ExistingRoles
+            .to_sc_val()
+            .unwrap();
         match sv {
             ScVal::Vec(Some(ScVec(items))) => {
                 assert_eq!(items.len(), 1);
@@ -347,6 +334,19 @@ mod tests {
         assert_eq!(sym_text(&items[0]), "HasRole");
         assert!(matches!(items[1], ScVal::Address(ScAddress::Account(_))));
         assert_eq!(sym_text(&items[2]), "REVENUE");
+    }
+
+    #[test]
+    fn role_admin_carries_role_symbol() {
+        let sv = AccessControlPersistentKey::RoleAdmin("KEEPER".into())
+            .to_sc_val()
+            .unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "RoleAdmin");
+        assert_eq!(sym_text(&items[1]), "KEEPER");
     }
 
     #[test]

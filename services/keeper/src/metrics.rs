@@ -1,10 +1,8 @@
-//! Prometheus collectors + a tiny axum surface exposing `/health` + `/metrics`.
+//! Prometheus metrics and health endpoint.
 
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::State, http::StatusCode, routing::get, Router};
-use prometheus::{
-    Encoder, IntCounterVec, IntGauge, Registry, TextEncoder,
-};
+use prometheus::{Encoder, IntCounterVec, IntGauge, Registry, TextEncoder};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -27,7 +25,10 @@ impl Metrics {
         let registry = Registry::new();
 
         let tx_total = IntCounterVec::new(
-            prometheus::Opts::new("keeper_txs_total", "Keeper transactions by kind and outcome"),
+            prometheus::Opts::new(
+                "keeper_txs_total",
+                "Keeper transactions by kind and outcome",
+            ),
             &["kind", "status"],
         )?;
         let sim_failures = IntCounterVec::new(
@@ -106,8 +107,7 @@ async fn health() -> &'static str {
     "ok\n"
 }
 
-/// Encode the Prometheus registry. A failure to encode is an operator-visible
-/// fault, so it surfaces as 500 rather than a silently empty body.
+/// Encodes the Prometheus registry.
 async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCode> {
     let mut buf = Vec::new();
     TextEncoder::new()

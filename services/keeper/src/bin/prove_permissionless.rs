@@ -1,14 +1,4 @@
-//! One-shot proof that `ExtendFootprintTtl` is permissionless for the
-//! controller's *storage* (not just its wasm-code) entries.
-//!
-//! Builds an extend op targeting:
-//!   - the controller's instance entry (ContractData / Persistent /
-//!     LedgerKeyContractInstance)
-//!   - the controller's persistent `PoolsList` entry
-//!
-//! Signs from our throwaway signer (which does NOT hold the KEEPER role)
-//! and submits via send_transaction_polling. If the tx lands, no on-chain
-//! role grant is required for TTL bumping of contract storage.
+//! One-shot permissionless `ExtendFootprintTtl` probe.
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
@@ -17,8 +7,8 @@ use keeper_bot::{
     signer::signer_from_mnemonic,
     stellar::{
         client::{contract_id_from_strkey, RpcClient},
-        tx::{submit_with_sim, SubmitOutcome, TxContext},
         ttl::{extend_footprint_ttl, MAX_LEDGERS_TO_EXTEND},
+        tx::{submit_with_sim, SubmitOutcome, TxContext},
     },
 };
 
@@ -28,7 +18,10 @@ struct Args {
     rpc: String,
     #[arg(long, default_value = "Test SDF Network ; September 2015")]
     passphrase: String,
-    #[arg(long, default_value = "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA")]
+    #[arg(
+        long,
+        default_value = "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA"
+    )]
     controller: String,
     #[arg(long)]
     mnemonic: String,
@@ -72,7 +65,10 @@ async fn main() -> Result<()> {
 
     match submit_with_sim(&ctx, job).await? {
         SubmitOutcome::Success(resp) => {
-            println!("SUCCESS — tx {:?} landed at ledger {:?}", resp.tx_hash, resp.ledger);
+            println!(
+                "SUCCESS — tx {:?} landed at ledger {:?}",
+                resp.tx_hash, resp.ledger
+            );
             println!("→ ExtendFootprintTtl IS permissionless for contract storage entries");
         }
         SubmitOutcome::SkippedSimError(reason) => {

@@ -21,15 +21,16 @@ pub fn update_indexes(
     caller_strkey: &str,
     assets: &[[u8; 32]],
 ) -> Result<TxJob> {
-    let caller = caller_address(caller_strkey)?;
-    let assets_vec: Vec<ScVal> = assets
+    let caller = ScVal::Address(ScAddress::Account(account_id_from_strkey(caller_strkey)?));
+    let assets_vec: VecM<ScVal> = assets
         .iter()
         .map(|a| ScVal::Address(ScAddress::Contract(ContractId(Hash(*a)))))
-        .collect();
-    let args_vec: VecM<ScVal> =
-        vec![caller, ScVal::Vec(Some(ScVec(into_vec_m(assets_vec)?)))]
-            .try_into()
-            .map_err(|_| anyhow!("too many args"))?;
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| anyhow!("ScVec capacity exceeded"))?;
+    let args_vec: VecM<ScVal> = vec![caller, ScVal::Vec(Some(ScVec(assets_vec)))]
+        .try_into()
+        .map_err(|_| anyhow!("too many args"))?;
     Ok(TxJob {
         kind: TxKind::UpdateIndexes,
         op: invoke_op(controller_id, "update_indexes", args_vec)?,
@@ -37,11 +38,7 @@ pub fn update_indexes(
     })
 }
 
-fn invoke_op(
-    contract_id: &[u8; 32],
-    function: &str,
-    args: VecM<ScVal>,
-) -> Result<Operation> {
+fn invoke_op(contract_id: &[u8; 32], function: &str, args: VecM<ScVal>) -> Result<Operation> {
     let function_name = ScSymbol(
         StringM::<32>::try_from(function)
             .map_err(|_| anyhow!("function name {function} > 32 bytes"))?,
@@ -58,14 +55,4 @@ fn invoke_op(
             auth: VecM::default(),
         }),
     })
-}
-
-fn caller_address(g_strkey: &str) -> Result<ScVal> {
-    Ok(ScVal::Address(ScAddress::Account(account_id_from_strkey(
-        g_strkey,
-    )?)))
-}
-
-fn into_vec_m<T>(items: Vec<T>) -> Result<VecM<T>> {
-    items.try_into().map_err(|_| anyhow!("ScVec capacity exceeded"))
 }

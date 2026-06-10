@@ -1,8 +1,4 @@
-//! Off-chain TTL keepalive + index-refresh service for the XOXNO Lending
-//! protocol on Soroban.
-//!
-//! Binary entry point is in `main.rs`. The library is exposed only so tests
-//! and one-shot tooling can reuse the modules.
+//! Off-chain TTL keepalive and index-refresh service.
 
 pub mod config;
 pub mod discovery;

@@ -1,24 +1,19 @@
-//! `RestoreFootprint` op builder — revives archived persistent entries.
-//!
-//! A persistent entry whose TTL has lapsed is archived and can no longer be
-//! extended; it must be restored first. Unlike `ExtendFootprintTtl` (whose
-//! targets sit in the read-only footprint), `RestoreFootprint` writes the
-//! entries back, so its keys go in the **read-write** footprint. The op is
-//! permissionless — the signer needs only XLM for the rent.
+//! `RestoreFootprint` operation builder.
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
-    ExtensionPoint, LedgerKey, Operation, OperationBody, RestoreFootprintOp, SorobanTransactionData,
-    VecM,
+    ExtensionPoint, LedgerKey, Operation, OperationBody, RestoreFootprintOp,
+    SorobanTransactionData, VecM,
 };
 
 use crate::stellar::tx::{empty_soroban_data, TxJob, TxKind};
 
-/// Build a `RestoreFootprint` operation that revives `read_write_keys`. The
-/// simulator refines the resource (rent) estimate before signing.
+/// Builds a restore op for read-write footprint keys.
 pub fn restore_footprint(read_write_keys: &[LedgerKey]) -> Result<TxJob> {
     if read_write_keys.is_empty() {
-        return Err(anyhow!("RestoreFootprint needs at least one read-write key"));
+        return Err(anyhow!(
+            "RestoreFootprint needs at least one read-write key"
+        ));
     }
     Ok(TxJob {
         kind: TxKind::RestoreFootprint,
@@ -32,8 +27,7 @@ pub fn restore_footprint(read_write_keys: &[LedgerKey]) -> Result<TxJob> {
     })
 }
 
-/// Seed `SorobanTransactionData` whose read-write footprint names the keys to
-/// restore. The simulator refines the rent estimate before signing.
+/// Builds seed Soroban data with read-write footprint keys.
 fn build_restore_soroban_data(read_write_keys: &[LedgerKey]) -> Result<SorobanTransactionData> {
     let read_write: VecM<LedgerKey> = read_write_keys
         .try_into()
@@ -68,7 +62,9 @@ mod tests {
         assert_eq!(job.kind, TxKind::RestoreFootprint);
         assert!(matches!(job.op.body, OperationBody::RestoreFootprint(_)));
 
-        let data = job.initial_soroban_data.expect("restore seeds soroban data");
+        let data = job
+            .initial_soroban_data
+            .expect("restore seeds soroban data");
         assert_eq!(data.resources.footprint.read_write.len(), 2);
         assert_eq!(
             data.resources.footprint.read_only.len(),

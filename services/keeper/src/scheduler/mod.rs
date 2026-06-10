@@ -49,7 +49,9 @@ pub async fn run(
         ids,
     );
     let index = if cfg.schedule.enable_index_refresh {
-        Some(spawn_index_loop(cfg, client, signer, metrics, cancel, dry_run, ids))
+        Some(spawn_index_loop(
+            cfg, client, signer, metrics, cancel, dry_run, ids,
+        ))
     } else {
         None
     };
@@ -145,15 +147,17 @@ async fn run_ttl_tick(
     let post_restore_extends = plan_extends_for_keys(&restored)?;
 
     // One budget for the whole tick — restores and extends share the cap so a
-    // tick never submits more than `max_txs_per_tick` transactions in total.
-    // Restores go first (they unblock the protocol); extends defer if the cap
-    // is hit and retry next tick.
+    // tick never submits more than `max_txs_per_tick` transactions in total;
+    // jobs over the cap retry next tick.
     let mut budget = TickBudget::new(cfg.schedule.max_txs_per_tick);
     let ctx = tx_context(cfg, client, signer);
 
+    // Restores first (they unblock the protocol), then in-margin extends.
+    drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
+    let mut extends = extend_jobs;
     if dry_run {
-        drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
-        drive_jobs(&ctx, metrics, extend_jobs, dry_run, "ttl", &mut budget).await?;
+        // Post-restore extends would fail simulation while the entry is still
+        // archived, so report them instead of simulating.
         if !post_restore_extends.is_empty() {
             info!(
                 target: "keeper.scheduler",
@@ -161,13 +165,9 @@ async fn run_ttl_tick(
                 "[dry-run] would extend restored keys after restore lands (not simulated — would fail pre-restore)"
             );
         }
-        return Ok(());
+    } else {
+        extends.extend(post_restore_extends);
     }
-
-    // Production: restores first, then in-margin + just-restored extends.
-    drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
-    let mut extends = extend_jobs;
-    extends.extend(post_restore_extends);
     drive_jobs(&ctx, metrics, extends, dry_run, "ttl", &mut budget).await
 }
 
@@ -243,7 +243,11 @@ async fn drive_jobs(
         let kind = job.kind;
         if dry_run {
             match simulate_job(ctx, &job).await {
-                Ok(SimReport::Ok { resource_fee, read_only, read_write }) => {
+                Ok(SimReport::Ok {
+                    resource_fee,
+                    read_only,
+                    read_write,
+                }) => {
                     info!(
                         target: "keeper.scheduler",
                         kind = kind.as_str(),

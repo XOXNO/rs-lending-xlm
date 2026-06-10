@@ -3,18 +3,15 @@
 /// What the keeper should do with a single entry this tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// Live and inside the safety margin → `ExtendFootprintTtl`.
+    /// Live and inside the safety margin.
     Extend,
-    /// Archived but its data is still present → `RestoreFootprint`.
+    /// Archived with data still present.
     Restore,
-    /// Healthy (comfortable headroom), absent (never written / evicted), or
-    /// without a TTL — nothing to do.
+    /// Healthy, absent, evicted, or missing TTL.
     Skip,
 }
 
-/// Decide what to do with one entry. `value_present` is whether the RPC
-/// returned the entry's data: the RPC omits never-written and fully-evicted
-/// entries, and neither can be extended or restored, so those `Skip`.
+/// Classifies one ledger entry for this tick.
 pub fn classify(
     live_until: Option<u32>,
     value_present: bool,
@@ -48,18 +45,27 @@ mod tests {
 
     #[test]
     fn healthy_live_entry_skips() {
-        assert_eq!(classify(Some(NOW + SAFETY + 50), true, NOW, SAFETY), Decision::Skip);
+        assert_eq!(
+            classify(Some(NOW + SAFETY + 50), true, NOW, SAFETY),
+            Decision::Skip
+        );
     }
 
     #[test]
     fn entry_exactly_at_safety_boundary_skips() {
         // remaining == safety is *not* inside the margin (strict `<`).
-        assert_eq!(classify(Some(NOW + SAFETY), true, NOW, SAFETY), Decision::Skip);
+        assert_eq!(
+            classify(Some(NOW + SAFETY), true, NOW, SAFETY),
+            Decision::Skip
+        );
     }
 
     #[test]
     fn live_entry_inside_margin_extends() {
-        assert_eq!(classify(Some(NOW + 10), true, NOW, SAFETY), Decision::Extend);
+        assert_eq!(
+            classify(Some(NOW + 10), true, NOW, SAFETY),
+            Decision::Extend
+        );
     }
 
     #[test]
@@ -70,7 +76,10 @@ mod tests {
 
     #[test]
     fn expired_present_entry_restores() {
-        assert_eq!(classify(Some(NOW - 1), true, NOW, SAFETY), Decision::Restore);
+        assert_eq!(
+            classify(Some(NOW - 1), true, NOW, SAFETY),
+            Decision::Restore
+        );
         assert_eq!(classify(Some(0), true, NOW, SAFETY), Decision::Restore);
     }
 

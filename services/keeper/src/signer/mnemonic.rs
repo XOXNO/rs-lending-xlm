@@ -1,8 +1,4 @@
-//! SLIP-0010 Ed25519 hardened-only key derivation.
-//!
-//! Stellar follows SEP-0005 which mandates the path `m/44'/148'/account'`,
-//! all segments hardened. Hand-rolled here so the keeper avoids a thin
-//! third-party wrapper for ~30 lines of well-known HMAC chaining.
+//! SLIP-0010 Ed25519 hardened-only derivation.
 
 use anyhow::{anyhow, bail, Result};
 use hmac::{Hmac, Mac};
@@ -13,8 +9,7 @@ type HmacSha512 = Hmac<Sha512>;
 const HARDENED_OFFSET: u32 = 0x8000_0000;
 const SLIP10_ED25519_KEY: &[u8] = b"ed25519 seed";
 
-/// Derive a 32-byte Ed25519 secret key from the BIP-39 seed and a BIP-32-style
-/// hardened path like `m/44'/148'/0'`.
+/// Derives a 32-byte Ed25519 secret from a hardened path.
 pub fn derive_ed25519(seed: &[u8], path: &str) -> Result<[u8; 32]> {
     let (mut key, mut chain_code) = master_key(seed)?;
 
@@ -33,7 +28,11 @@ fn master_key(seed: &[u8]) -> Result<([u8; 32], [u8; 32])> {
     split(mac.finalize().into_bytes().as_slice())
 }
 
-fn ckd_priv(parent_key: &[u8; 32], chain_code: &[u8; 32], index: u32) -> Result<([u8; 32], [u8; 32])> {
+fn ckd_priv(
+    parent_key: &[u8; 32],
+    chain_code: &[u8; 32],
+    index: u32,
+) -> Result<([u8; 32], [u8; 32])> {
     if index < HARDENED_OFFSET {
         bail!("SLIP-0010 ed25519 supports hardened derivation only (index {index} < 2^31)");
     }
@@ -42,8 +41,7 @@ fn ckd_priv(parent_key: &[u8; 32], chain_code: &[u8; 32], index: u32) -> Result<
     data[1..33].copy_from_slice(parent_key);
     data[33..].copy_from_slice(&index.to_be_bytes());
 
-    let mut mac =
-        HmacSha512::new_from_slice(chain_code).map_err(|e| anyhow!("hmac init: {e}"))?;
+    let mut mac = HmacSha512::new_from_slice(chain_code).map_err(|e| anyhow!("hmac init: {e}"))?;
     mac.update(&data);
     split(mac.finalize().into_bytes().as_slice())
 }
@@ -83,7 +81,9 @@ fn parse_path(path: &str) -> Result<Vec<u32>> {
             .parse()
             .map_err(|_| anyhow!("non-numeric path segment {raw:?}"))?;
         if !hardened {
-            bail!("SEP-0005 path {trimmed:?} requires all segments hardened (segment {raw} is not)");
+            bail!(
+                "SEP-0005 path {trimmed:?} requires all segments hardened (segment {raw} is not)"
+            );
         }
         let with_hardened = n
             .checked_add(HARDENED_OFFSET)
@@ -97,18 +97,13 @@ fn parse_path(path: &str) -> Result<Vec<u32>> {
 mod tests {
     use super::*;
 
-    // Test vector from SEP-0005 appendix.
-    // mnemonic = "illness spike retreat truth genius clock brain pass fit cave bargain toe"
-    // path = m/44'/148'/0'
-    // expected pubkey = GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6
-    // (We don't import the full bip39 wordlist test here; the parse_path tests
-    //  cover the format machinery. Integration with bip39 + ed25519 is exercised
-    //  by signer::tests in a smoke test below.)
-
     #[test]
     fn parses_canonical_sep5_path() {
         let path = parse_path("m/44'/148'/0'").unwrap();
-        assert_eq!(path, vec![44 | HARDENED_OFFSET, 148 | HARDENED_OFFSET, HARDENED_OFFSET]);
+        assert_eq!(
+            path,
+            vec![44 | HARDENED_OFFSET, 148 | HARDENED_OFFSET, HARDENED_OFFSET]
+        );
     }
 
     #[test]

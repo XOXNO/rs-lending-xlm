@@ -61,11 +61,7 @@ pub struct ScheduleConfig {
     pub ttl_safety_margin_days: u32,
     pub asset_chunk: usize,
     pub max_txs_per_tick: usize,
-    /// When true, the keeper runs the periodic `update_indexes(assets)` sweep
-    /// alongside the TTL pass. This is the only call that requires the
-    /// signer to hold the on-chain KEEPER role. When false (default), the
-    /// keeper operates in pure-TTL mode and needs no role — anyone with
-    /// XLM for fees can run it.
+    /// Enables the role-gated `update_indexes(assets)` sweep.
     #[serde(default)]
     pub enable_index_refresh: bool,
 }
@@ -123,7 +119,9 @@ impl KeeperConfig {
             return Err(anyhow!("config.rpc.passphrase is empty"));
         }
         if !self.contracts.controller.starts_with('C') {
-            return Err(anyhow!("config.contracts.controller must be a C... address"));
+            return Err(anyhow!(
+                "config.contracts.controller must be a C... address"
+            ));
         }
         if !self.contracts.flash_loan_receiver.starts_with('C') {
             return Err(anyhow!(
@@ -157,7 +155,5 @@ impl KeeperConfig {
     }
 }
 
-/// Stellar produces one ledger every ~5 seconds, i.e. 17,280 per day. Used to
-/// translate the operator-facing `ttl_safety_margin_days` into the ledger
-/// counts the TTL math works in.
+/// Approximate ledgers per day on Stellar.
 pub const LEDGERS_PER_DAY: u32 = 17_280;

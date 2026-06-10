@@ -38,24 +38,42 @@ impl Ed25519Signer {
         format!("{}", StrKeyPublicKey(self.public_key_bytes()))
     }
 
-    /// Sign the 32-byte transaction hash and return the raw 64-byte signature.
+    /// Signs a 32-byte transaction hash.
     pub fn sign(&self, tx_hash: &[u8; 32]) -> [u8; 64] {
         self.signing.sign(tx_hash).to_bytes()
     }
 
-    /// The 4-byte "signature hint" Stellar appends to a `DecoratedSignature`
-    /// — the trailing 4 bytes of the signer's public key.
+    /// Returns the trailing 4 bytes of the public key.
     pub fn signature_hint(&self) -> [u8; 4] {
         let pk = self.public_key_bytes();
         [pk[28], pk[29], pk[30], pk[31]]
     }
 }
 
-/// Builds an `Ed25519Signer` from a mnemonic + derivation path.
+/// Builds a signer from mnemonic and derivation path.
 pub fn signer_from_mnemonic(mnemonic: &str, derivation_path: &str) -> Result<Ed25519Signer> {
     let mn = bip39::Mnemonic::parse_normalized(mnemonic.trim())
         .map_err(|e| anyhow!("invalid BIP-39 mnemonic: {e}"))?;
     let seed = mn.to_seed("");
     let secret = mnemonic::derive_ed25519(&seed, derivation_path)?;
     Ok(Ed25519Signer::from_seed_bytes(secret))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::signer_from_mnemonic;
+
+    /// SEP-0005 appendix test vector.
+    #[test]
+    fn derives_sep5_test_vector() {
+        let signer = signer_from_mnemonic(
+            "illness spike retreat truth genius clock brain pass fit cave bargain toe",
+            "m/44'/148'/0'",
+        )
+        .unwrap();
+        assert_eq!(
+            signer.public_key_strkey(),
+            "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6"
+        );
+    }
 }

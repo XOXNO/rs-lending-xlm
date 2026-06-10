@@ -1,5 +1,4 @@
-//! Read controller + pool storage, build the lists of work the scheduler
-//! turns into transactions.
+//! Discovery of storage, instance, and code entries the keeper may renew.
 
 use anyhow::{anyhow, Context, Result};
 use stellar_xdr::curr::{
@@ -14,12 +13,10 @@ use crate::keys::{
     ControllerPersistentKey, PoolPersistentKey,
 };
 use crate::stellar::client::{
-    contract_id_from_strkey, hash32_from_hex, muxed_account_from_strkey, LedgerEntryQuery, RpcClient,
+    contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
 };
 
-/// Contract identities parsed once at startup from `ContractsConfig`. Parsing
-/// strkeys and hex is a boundary concern; once resolved, the keeper works in
-/// raw 32-byte ids and never re-parses them per tick.
+/// Contract ids parsed once from config.
 #[derive(Debug, Clone, Copy)]
 pub struct ContractIds {
     pub controller: [u8; 32],
@@ -37,29 +34,18 @@ impl ContractIds {
     }
 }
 
-/// One snapshot of "what needs bumping" assembled by a single tick. Holds only
-/// what the planner and metrics consume; intermediate ids resolved while
-/// reading stay local to [`snapshot`].
+/// Entries discovered during one keeper tick.
 #[derive(Debug, Default)]
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
     pub assets: Vec<[u8; 32]>,
-    /// Persistent ledger entries we may want to bump (PoolsList, per-asset
-    /// Market + IsolatedDebt, per-category EModeCategory). Each row carries its
-    /// `live_until` and the decoded key. Per-user triplets are excluded by
-    /// design — users auto-bump their own keys.
+    /// Persistent protocol entries. Per-user triplets are excluded.
     pub persistent_entries: Vec<LedgerEntryQuery>,
-    /// Contract-instance entries (controller + pools + flash receiver). Bumping
-    /// the instance entry covers all instance-tier storage, including the
-    /// oracle `Aggregator` and the rest of the controller's instance keys.
+    /// Controller, central pool, and flash receiver instance entries.
     pub instance_entries: Vec<LedgerEntryQuery>,
-    /// Wasm code entries (controller + pool template + flash receiver). These
-    /// are the only entries a contract cannot self-extend.
+    /// WASM code entries for controller, pool, and flash receiver.
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
-    /// Account-id ceiling read from controller instance storage, surfaced as
-    /// the `keeper_account_nonce` metric. The keeper does not bump per-user
-    /// keys, so this is observability only — a moving value signals that the
-    /// controller is in active use.
+    /// Account id ceiling exposed as the `keeper_account_nonce` metric.
     pub account_nonce: u64,
 }
 
@@ -86,9 +72,12 @@ pub async fn snapshot(
     }
     let account_nonce =
         lookup_scalar(&instance, ControllerInstanceKey::AccountNonce, scval_u64)?.unwrap_or(0);
-    let last_emode_category_id =
-        lookup_scalar(&instance, ControllerInstanceKey::LastEModeCategoryId, scval_u32)?
-            .unwrap_or(0);
+    let last_emode_category_id = lookup_scalar(
+        &instance,
+        ControllerInstanceKey::LastEModeCategoryId,
+        scval_u32,
+    )?
+    .unwrap_or(0);
     debug!(
         target: "keeper.discovery",
         account_nonce,
@@ -139,7 +128,10 @@ pub async fn snapshot(
 
     // -- E-mode category sweep (1..=ceiling) --
     if last_emode_category_id > 0 {
-        for chunk in (1..=last_emode_category_id).collect::<Vec<_>>().chunks(chunk_size) {
+        for chunk in (1..=last_emode_category_id)
+            .collect::<Vec<_>>()
+            .chunks(chunk_size)
+        {
             let keys = chunk
                 .iter()
                 .map(|id| ControllerPersistentKey::EModeCategory(*id).to_ledger_key(&controller_id))
@@ -148,8 +140,7 @@ pub async fn snapshot(
         }
     }
 
-    // -- Access-control role keys (ExistingRoles, per-role RoleAccountsCount,
-    //    per-(role,index) RoleAccounts, per-(holder,role) HasRole) --
+    // -- Access-control role keys --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
     // -- Instance entries (controller + central pool + flash receiver) --
@@ -173,7 +164,9 @@ pub async fn snapshot(
     // after an on-chain `upgrade_pool`; harvest it so the running code entry
     // stays bumped even when the config lags.
     if pool_id.is_some() {
-        if let Some(live_pool_hash) = instance_entries.get(1).and_then(wasm_hash_from_instance_row)
+        if let Some(live_pool_hash) = instance_entries
+            .get(1)
+            .and_then(wasm_hash_from_instance_row)
         {
             if live_pool_hash != ids.pool_wasm_hash {
                 wasm_keys.push(contract_code_key(&live_pool_hash));
@@ -181,7 +174,10 @@ pub async fn snapshot(
         }
     }
     // The flash-receiver wasm hash lives in the instance entry we just read.
-    if let Some(flash_hash) = instance_entries.last().and_then(wasm_hash_from_instance_row) {
+    if let Some(flash_hash) = instance_entries
+        .last()
+        .and_then(wasm_hash_from_instance_row)
+    {
         wasm_keys.push(contract_code_key(&flash_hash));
     }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
@@ -199,11 +195,7 @@ pub async fn snapshot(
 /// Operational roles assumed when `ExistingRoles` itself cannot be read.
 const DEFAULT_ROLES: [&str; 3] = ["KEEPER", "REVENUE", "ORACLE"];
 
-/// Read the controller's access-control persistent keys so the keeper keeps
-/// them alive. They self-extend only when a role-gated call reads them, so an
-/// idle protocol silently lets them archive. Archived-but-present entries are
-/// still decodable (the RPC returns their data), so enumeration works even when
-/// the role bookkeeping has already lapsed.
+/// Discover persistent access-control keys, including role-admin links.
 async fn discover_role_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
@@ -218,18 +210,28 @@ async fn discover_role_keys(
         .unwrap_or_else(|| DEFAULT_ROLES.iter().map(|s| s.to_string()).collect());
     rows.extend(existing_rows);
 
-    // Per-role RoleAccountsCount.
-    let count_keys = roles
-        .iter()
-        .map(|r| AccessControlPersistentKey::RoleAccountsCount(r.clone()).to_ledger_key(controller_id))
-        .collect::<Result<Vec<_>>>()?;
-    let count_rows = client.get_ledger_entries(&count_keys).await?;
+    // Per-role RoleAccountsCount and RoleAdmin.
+    let mut role_keys = Vec::with_capacity(roles.len() * 2);
+    for role in &roles {
+        role_keys.push(
+            AccessControlPersistentKey::RoleAccountsCount(role.clone())
+                .to_ledger_key(controller_id)?,
+        );
+        role_keys.push(
+            AccessControlPersistentKey::RoleAdmin(role.clone()).to_ledger_key(controller_id)?,
+        );
+    }
+    let role_rows = client.get_ledger_entries(&role_keys).await?;
     let counts: Vec<(String, u32)> = roles
         .iter()
         .cloned()
-        .zip(count_rows.iter().map(|r| extract_u32(r).unwrap_or(0)))
+        .zip(
+            role_rows
+                .chunks(2)
+                .map(|rows| extract_u32(&rows[0]).unwrap_or(0)),
+        )
         .collect();
-    rows.extend(count_rows);
+    rows.extend(role_rows);
 
     // Per-(role, index) RoleAccounts; the value names the holder address.
     let mut ra_keys = Vec::new();
@@ -408,13 +410,13 @@ fn extract_pools_list(rows: &[LedgerEntryQuery]) -> Option<Vec<[u8; 32]>> {
     Some(out)
 }
 
-/// Verify our ControllerKey encoding by reading `PoolsList` from the live
-/// controller. Returns the decoded asset list (which may be empty for a
-/// fresh deployment — emptiness is not an error).
+/// Verifies controller key encoding by reading `PoolsList`.
 pub async fn self_check(client: &RpcClient, controller_strkey: &str) -> Result<Vec<[u8; 32]>> {
     let controller_id = contract_id_from_strkey(controller_strkey)?;
     let key = ControllerPersistentKey::PoolsList.to_ledger_key(&controller_id)?;
-    let rows = client.get_ledger_entries(std::slice::from_ref(&key)).await?;
+    let rows = client
+        .get_ledger_entries(std::slice::from_ref(&key))
+        .await?;
     let row = rows
         .first()
         .ok_or_else(|| anyhow!("get_ledger_entries returned no row for PoolsList"))?;
@@ -428,43 +430,18 @@ pub async fn self_check(client: &RpcClient, controller_strkey: &str) -> Result<V
     Ok(extract_pools_list(&rows).unwrap_or_default())
 }
 
-/// Boot-time auth gate for the optional index-refresh loop: simulate
-/// `update_indexes(caller, empty_vec)` and refuse to start unless simulation
-/// succeeds, which confirms the signer holds the KEEPER role. Pure-TTL keepers
-/// skip this — `ExtendFootprintTtl` is permissionless.
+/// Verifies the signer can simulate `update_indexes`.
 pub async fn assert_keeper_role(
     client: &RpcClient,
     controller_strkey: &str,
     caller_strkey: &str,
 ) -> Result<()> {
     use crate::stellar::invoke::update_indexes;
-    use stellar_xdr::curr::{
-        Memo, Preconditions, SequenceNumber, Transaction, TransactionEnvelope, TransactionExt,
-        TransactionV1Envelope, VecM,
-    };
+    use crate::stellar::tx::build_envelope;
 
     let controller_id = contract_id_from_strkey(controller_strkey)?;
     let job = update_indexes(&controller_id, caller_strkey, &[])?;
-
-    let source_account = muxed_account_from_strkey(caller_strkey)?;
-
-    let ops: VecM<stellar_xdr::curr::Operation, 100> = vec![job.op]
-        .try_into()
-        .map_err(|_| anyhow!("op count overflow"))?;
-
-    let tx = Transaction {
-        source_account,
-        fee: SIM_FEE_STROOPS,
-        seq_num: SequenceNumber(0),
-        cond: Preconditions::None,
-        memo: Memo::None,
-        operations: ops,
-        ext: TransactionExt::V0,
-    };
-    let envelope = TransactionEnvelope::Tx(TransactionV1Envelope {
-        tx,
-        signatures: VecM::default(),
-    });
+    let envelope = build_envelope(caller_strkey, 0, SIM_FEE_STROOPS, job.op, None)?;
 
     let sim = client
         .inner()

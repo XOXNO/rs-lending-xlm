@@ -1,6 +1,4 @@
-//! Per-tick caps on how many transactions or accounts the keeper will
-//! submit. Prevents a misbehaving discovery layer from blowing through the
-//! signer's fee balance in one go.
+//! Per-tick transaction budget.
 
 #[derive(Debug, Clone, Copy)]
 pub struct TickBudget {

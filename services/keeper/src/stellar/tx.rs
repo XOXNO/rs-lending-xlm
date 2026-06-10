@@ -1,10 +1,4 @@
-//! Build → simulate → patch → sign → submit.
-//!
-//! All keeper transactions share one shape: a single operation authorized by
-//! the source account only. `update_indexes` relies on `caller.require_auth()`
-//! and `ExtendFootprintTtl` needs no contract auth at all. Simulation rejects
-//! anything that would require a richer auth shape, so the keeper never
-//! silently issues a transaction whose authorization it did not anticipate.
+//! Transaction build, simulation, signing, and submission.
 
 use std::time::Duration;
 
@@ -27,10 +21,7 @@ use crate::stellar::client::{muxed_account_from_strkey, RpcClient};
 pub struct TxJob {
     pub kind: TxKind,
     pub op: Operation,
-    /// Footprint seed handed to the simulator. For `InvokeHostFunction` jobs
-    /// the simulator infers and returns the real footprint, so this is
-    /// `None`. For `ExtendFootprintTtl` the read-only keys must be declared
-    /// up front — pass `Some(soroban_data_with_read_only_set)`.
+    /// Optional footprint seed for simulation.
     pub initial_soroban_data: Option<SorobanTransactionData>,
 }
 
@@ -50,15 +41,13 @@ impl TxKind {
         }
     }
 
-    /// Permissionless footprint ops carry no host-function result and no
-    /// contract auth — only `update_indexes` requires source-account auth.
+    /// True for permissionless footprint operations.
     fn is_footprint_op(self) -> bool {
         matches!(self, Self::ExtendFootprintTtl | Self::RestoreFootprint)
     }
 }
 
-/// Outcome reported back to the scheduler so it can record metrics and
-/// decide whether to advance the local sequence cache.
+/// Submitted transaction outcome.
 #[derive(Debug)]
 pub enum SubmitOutcome {
     Success(Box<GetTransactionResponse>),
@@ -76,8 +65,7 @@ pub struct TxContext<'a> {
     pub poll_timeout_seconds: u32,
 }
 
-/// Full pipeline for a single tx job. Returns `SubmitOutcome` so the caller
-/// can decide whether to advance the local sequence.
+/// Builds, simulates, signs, submits, and polls one job.
 pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOutcome> {
     let TxJob {
         kind,
@@ -92,9 +80,14 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         .await
         .with_context(|| format!("look up sequence for {source_strkey}"))?;
 
-    let (envelope, sim) =
-        build_and_simulate(ctx, kind, op, initial_soroban_data, source_seq.saturating_add(1))
-            .await?;
+    let (envelope, sim) = build_and_simulate(
+        ctx,
+        kind,
+        op,
+        initial_soroban_data,
+        source_seq.saturating_add(1),
+    )
+    .await?;
 
     if let Some(err) = sim.error {
         warn!(target: "keeper.tx", kind = %kind.as_str(), error = %err, "simulation rejected job");
@@ -123,8 +116,8 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
     enforce_source_account_auth(&sim, kind).context("auth shape check")?;
 
     let resource_fee = soroban_data.resource_fee;
-    let bumped_resource_fee =
-        bump_resource_fee(resource_fee, ctx.resource_fee_multiplier).max(sim.min_resource_fee as i64);
+    let bumped_resource_fee = bump_resource_fee(resource_fee, ctx.resource_fee_multiplier)
+        .max(sim.min_resource_fee as i64);
     let mut patched_data = soroban_data;
     patched_data.resource_fee = bumped_resource_fee;
 
@@ -158,9 +151,7 @@ pub enum SimReport {
     Rejected(String),
 }
 
-/// Build a job's envelope and simulate it, returning both so the submit path
-/// can reuse the envelope. The RPC rejects `authMode` on non-invoke operations,
-/// so footprint ops (extend / restore) pass no auth mode.
+/// Builds an envelope and simulates it.
 async fn build_and_simulate(
     ctx: &TxContext<'_>,
     kind: TxKind,
@@ -193,10 +184,7 @@ async fn build_and_simulate(
     Ok((envelope, sim))
 }
 
-/// Simulate a job without submitting — the `--dry-run` path. Proves the RPC
-/// would accept the op (extend / restore / invoke) and reports its resource
-/// fee + footprint. Uses sequence `0`: nothing is submitted, so the simulator
-/// ignores it and no funded signer is required.
+/// Simulates a job without submitting it.
 pub async fn simulate_job(ctx: &TxContext<'_>, job: &TxJob) -> Result<SimReport> {
     let (_envelope, sim) = build_and_simulate(
         ctx,
@@ -237,7 +225,10 @@ fn enforce_source_account_auth(
     }
 
     if results.is_empty() {
-        bail!("simulation produced no host-function result for {}", kind.as_str());
+        bail!(
+            "simulation produced no host-function result for {}",
+            kind.as_str()
+        );
     }
     for r in &results {
         for entry in &r.auth {
@@ -263,7 +254,7 @@ fn bump_resource_fee(resource_fee: i64, multiplier: f64) -> i64 {
     }
 }
 
-fn build_envelope(
+pub(crate) fn build_envelope(
     source_strkey: &str,
     seq_num: i64,
     fee: u32,

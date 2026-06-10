@@ -16,25 +16,30 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
-#[command(name = "keeper-bot", version, about = "XOXNO Lending off-chain TTL keeper")]
+#[command(
+    name = "keeper-bot",
+    version,
+    about = "XOXNO Lending off-chain TTL keeper"
+)]
 struct Args {
-    /// Path to the YAML config (one of testnet.yaml / mainnet.yaml).
-    #[arg(short, long, env = "KEEPER_CONFIG", default_value = "/etc/keeper/testnet.yaml")]
+    /// YAML config path.
+    #[arg(
+        short,
+        long,
+        env = "KEEPER_CONFIG",
+        default_value = "/etc/keeper/testnet.yaml"
+    )]
     config: PathBuf,
 
-    /// Simulate every planned tx but never submit. Useful for staging.
+    /// Simulate planned transactions without submitting.
     #[arg(long, env = "KEEPER_DRY_RUN", default_value_t = false)]
     dry_run: bool,
 
-    /// Local-dev override: skip KeyVault and use this BIP-39 mnemonic
-    /// directly. INTENDED FOR DEVELOPMENT ONLY — production must source
-    /// the mnemonic from KeyVault.
+    /// BIP-39 mnemonic override instead of KeyVault.
     #[arg(long, env = "KEEPER_MNEMONIC", hide_env_values = true)]
     mnemonic: Option<String>,
 
-    /// Skip the boot-time KEEPER role check. Only useful when probing the
-    /// service with a throwaway signer that does not (and should not) hold
-    /// the role on-chain. DEV ONLY.
+    /// Skip the boot-time KEEPER role check.
     #[arg(long, env = "KEEPER_SKIP_ROLE_CHECK", default_value_t = false)]
     skip_role_check: bool,
 }
@@ -117,16 +122,13 @@ async fn main() -> Result<()> {
     cancel.cancel();
 
     // Best-effort shutdown — we don't block forever on stuck loops.
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        async {
-            let _ = scheduler.ttl_task.await;
-            if let Some(index) = scheduler.index_task {
-                let _ = index.await;
-            }
-            let _ = metrics_handle.await;
-        },
-    )
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        let _ = scheduler.ttl_task.await;
+        if let Some(index) = scheduler.index_task {
+            let _ = index.await;
+        }
+        let _ = metrics_handle.await;
+    })
     .await;
 
     info!(target: "keeper.boot", "stopped cleanly");
@@ -168,8 +170,7 @@ async fn resolve_signer(args: &Args, cfg: &KeeperConfig) -> Result<Ed25519Signer
 }
 
 fn init_tracing(level: &str, format: &str) -> Result<()> {
-    let filter =
-        EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info,keeper=debug"));
+    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info,keeper=debug"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
     match format {
         "json" => {

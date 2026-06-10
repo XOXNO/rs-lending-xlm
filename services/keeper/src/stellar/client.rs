@@ -1,6 +1,4 @@
-//! Thin wrapper around `stellar_rpc_client::Client` so the rest of the keeper
-//! can layer its own conveniences (chunked `get_ledger_entries`, contract-id
-//! parsing) over the SDF RPC client.
+//! RPC client helpers used by the keeper.
 
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -35,8 +33,7 @@ impl RpcClient {
         Ok(resp.sequence)
     }
 
-    /// Read the controller's instance entry (which carries `AccountNonce`,
-    /// `PoolTemplate`, etc.) by contract id.
+    /// Reads a contract instance entry by contract id.
     pub async fn get_contract_instance(
         &self,
         contract_id: &[u8; 32],
@@ -45,12 +42,14 @@ impl RpcClient {
             .get_contract_instance(contract_id)
             .await
             .with_context(|| {
-                format!("get_contract_instance({})", stellar_strkey::Contract(*contract_id))
+                format!(
+                    "get_contract_instance({})",
+                    stellar_strkey::Contract(*contract_id)
+                )
             })
     }
 
-    /// Batched ledger-key lookup. Returns one row per requested key in request
-    /// order; absent entries surface as `None` for `value`/`live_until`.
+    /// Looks up ledger keys and preserves request order.
     pub async fn get_ledger_entries(&self, keys: &[LedgerKey]) -> Result<Vec<LedgerEntryQuery>> {
         if keys.is_empty() {
             return Ok(Vec::new());
@@ -84,7 +83,7 @@ impl RpcClient {
         Ok(out)
     }
 
-    /// Resolve a stellar account id (G… strkey) into a sequence number.
+    /// Resolves an account strkey to its sequence number.
     pub async fn get_account_sequence(&self, account_strkey: &str) -> Result<i64> {
         let entry = self
             .inner
