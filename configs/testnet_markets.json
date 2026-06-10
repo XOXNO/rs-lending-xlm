@@ -8,7 +8,7 @@
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
         "last_tolerance_bps": 500,
-        "strategy": 0,
+        "strategy": 1,
         "primary": {
           "tag": "Reflector",
           "values": [
@@ -30,8 +30,19 @@
           ]
         },
         "anchor": {
-          "tag": "None",
-          "values": null
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "USDC",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
         },
         "min_sanity_price_wad": "900000000000000000",
         "max_sanity_price_wad": "1100000000000000000"
@@ -73,7 +84,7 @@
         "max_price_stale_seconds": 3600,
         "first_tolerance_bps": 200,
         "last_tolerance_bps": 500,
-        "strategy": 0,
+        "strategy": 1,
         "primary": {
           "tag": "Reflector",
           "values": [
@@ -95,8 +106,19 @@
           ]
         },
         "anchor": {
-          "tag": "None",
-          "values": null
+          "tag": "Some",
+          "values": [
+            {
+              "tag": "RedStone",
+              "values": [
+                {
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "XLM",
+                  "max_stale_seconds": 86400
+                }
+              ]
+            }
+          ]
         },
         "min_sanity_price_wad": "45000000000000000",
         "max_sanity_price_wad": "500000000000000000"
@@ -208,7 +230,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "CD4KFB23CQLJ47RIPESVBTQ444R75M6QVEZULWXHHFYYZT7SS2VGXOPW",
+              "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
               "feed_id": "BTC",
               "max_stale_seconds": 86400
             }
@@ -284,7 +306,7 @@
           "tag": "RedStone",
           "values": [
             {
-              "contract": "CD4KFB23CQLJ47RIPESVBTQ444R75M6QVEZULWXHHFYYZT7SS2VGXOPW",
+              "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
               "feed_id": "ETH",
               "max_stale_seconds": 86400
             }
