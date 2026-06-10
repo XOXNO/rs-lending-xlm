@@ -110,25 +110,17 @@ impl Controller {
         ltv_collateral_in_usd(&env, account_id)
     }
 
-    /// Largest `withdraw` amount of `asset` the next transaction can execute
-    /// for `account_id`: bounded by the position, pool cash, the market's
-    /// max-utilization cap, the account's LTV/HF gates, and the dust floor.
-    /// Returns `0` while paused. A result equal to the full position value
-    /// closes the position (paid amount is its floor rounding).
+    /// Largest currently executable `withdraw` amount; `0` while paused.
     pub fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128 {
         limits::max_withdraw(&env, account_id, &asset)
     }
 
-    /// Remaining supply-cap headroom for `asset` in asset units; `i128::MAX`
-    /// when no cap is configured, `0` while paused or when the market is not
-    /// active. Account-level gates (position limits, isolation, e-mode, the
-    /// dust floor on new positions) are not included.
+    /// Supply-cap headroom; `i128::MAX` uncapped, `0` paused or inactive.
     pub fn max_supply(env: Env, asset: Address) -> i128 {
         limits::max_supply(&env, &asset)
     }
 
-    /// Supply and borrow indexes accrued to the current ledger timestamp.
-    /// Reads no oracle, so it stays callable under any oracle outage.
+    /// Current indexes accrued to now; reads no oracle.
     pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
         let mut cache = Cache::new_view(&env);
         MarketIndexRaw::from(&cache.cached_market_index(&asset))

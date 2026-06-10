@@ -48,9 +48,7 @@ impl WithdrawFlags {
 
 #[contractimpl]
 impl Controller {
-    /// Withdrawn tokens go to `to` when provided, else to `caller`; the owner
-    /// stays the auth subject either way. Returns the actual amount paid per
-    /// deduped asset (a full close pays the floor-rounded position value).
+    /// Tokens go to `to` (else `caller`); returns actual paid per asset.
     #[when_not_paused]
     pub fn withdraw(
         env: Env,

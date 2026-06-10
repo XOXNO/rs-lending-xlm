@@ -136,13 +136,15 @@ optimize: build
 	@echo "Optimized WASM:"
 	@ls -lh $(OPTIMIZED_DIR)/*.wasm 2>/dev/null
 
-## Create stripped deploy artifacts from optimized WASM.
+## Create stripped deploy artifacts from optimized WASM. Spec doc strings
+## are removed (scripts/strip_spec_docs.py): they count against the network's
+## contractMaxSizeBytes and the reference docs live in the interface crates.
 deploy-artifacts: optimize
 	@mkdir -p $(DEPLOY_DIR)
 	@for contract in $(CONTRACTS); do \
 		src="$(OPTIMIZED_DIR)/$$contract.wasm"; \
 		dst="$(DEPLOY_DIR)/$$contract.wasm"; \
-		cp "$$src" "$$dst"; \
+		python3 scripts/strip_spec_docs.py "$$src" "$$dst" || cp "$$src" "$$dst"; \
 	done
 	@$(MAKE) --no-print-directory _wasm-manifest DEPLOY=1
 	@echo ""

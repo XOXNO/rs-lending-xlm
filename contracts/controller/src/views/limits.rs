@@ -1,14 +1,13 @@
 //! Integrator preview views: `max_withdraw` and `max_supply`.
 //!
-//! Both mirror the enforcement math the next transaction runs — pool cash,
-//! the max-utilization cap, supply caps, the account LTV/HF gates, and the
-//! dust floor — at view-simulated indexes. Closed-form candidates are then
-//! verified against replicas built from the same fixed-point operations the
-//! mutating path uses, walking down until they pass, so a returned amount
-//! never overstates what is currently executable. Indexes keep accruing after
-//! the read, so callers acting later should leave a margin.
+//! `max_withdraw` evaluates feasibility with replicas of the exact
+//! fixed-point gates the mutating path runs (pool cash, max-utilization,
+//! solvency, the account LTV/HF gates, the dust floor) at view-simulated
+//! indexes, then binary-searches the largest passing amount — feasibility is
+//! monotone in the amount, so the result never overstates what the next
+//! transaction allows. Indexes keep accruing after the read, so callers
+//! acting later should leave a margin.
 
-use common::constants::BPS;
 use common::math::fp::{Ray, Wad};
 use common::rates::{scaled_to_original, utilization};
 use common::types::{Account, AccountPosition, AssetConfig, MarketStatus};
@@ -17,11 +16,6 @@ use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
 use crate::{helpers, storage};
-
-/// Closed-form candidates sit within a few stroops of the true bound, so a
-/// handful of decrements always converges; exhausting the budget returns the
-/// safe understatement `0`.
-const REFINE_STEPS: u32 = 8;
 
 /// Pool-side market state at view-simulated indexes.
 struct MarketLimitCtx {
@@ -109,41 +103,28 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
     // resolves to it, and the pool pays the floor rounding.
     let full_request =
         scaled_to_original(env, pos_scaled, market.supply_index).to_asset(market.decimals);
-    let full_payout = pos_scaled
-        .mul_floor(env, market.supply_index)
-        .to_asset_floor(market.decimals);
-    if market.pool_state_ok(env, pos_scaled, full_payout) {
-        let mut closed = account.clone();
-        closed.supply_positions.remove(asset.clone());
-        if account_gates_ok(env, &mut cache, &closed) {
-            return full_request;
-        }
+    if full_close_ok(env, &mut cache, &account, asset, &market, pos_scaled) {
+        return full_request;
     }
 
     let floor_wad = cache.cached_asset_config(asset).min_collat_floor_usd.raw();
-    let mut candidate = partial_bound(
-        env,
-        &mut cache,
-        &account,
-        &position,
-        &market,
-        asset,
-        floor_wad,
-        full_request,
-    );
 
-    for _ in 0..REFINE_STEPS {
-        if candidate <= 0 {
-            return 0;
-        }
+    // Feasibility is monotone below the full request: every gate only
+    // tightens as the amount grows. Binary-search the largest passing
+    // partial.
+    let mut lo: i128 = 0;
+    let mut hi = market.cash.min(full_request.saturating_sub(1)).max(0);
+    while lo < hi {
+        let mid = hi - (hi - lo) / 2;
         if partial_ok(
-            env, &mut cache, &account, asset, &market, pos_scaled, floor_wad, candidate,
+            env, &mut cache, &account, asset, &market, pos_scaled, floor_wad, mid,
         ) {
-            return candidate;
+            lo = mid;
+        } else {
+            hi = mid - 1;
         }
-        candidate -= 1;
     }
-    0
+    lo
 }
 
 pub fn max_supply(env: &Env, asset: &Address) -> i128 {
@@ -170,12 +151,13 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
         return 0;
     }
 
+    // The floor-converted headroom sits within a few stroops of the true
+    // bound; walk down against the pool's exact cap gate at the same index.
     let mut candidate = (cap_ray - current).to_asset_floor(market.decimals);
-    for _ in 0..REFINE_STEPS {
+    for _ in 0..8 {
         if candidate <= 0 {
             return 0;
         }
-        // Replica of the pool's supply-cap gate at the same index.
         let scaled = Ray::from_asset(candidate, market.decimals).div(env, market.supply_index);
         if (market.supplied + scaled).mul(env, market.supply_index) <= cap_ray {
             return candidate;
@@ -185,100 +167,25 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
     0
 }
 
-/// Tightest closed-form upper bound for a partial withdrawal; every term is
-/// floor-biased and the caller verifies it against the exact gate replicas.
-#[allow(clippy::too_many_arguments)]
-fn partial_bound(
+/// Exact replica of a full close: pool guards on the floor payout plus the
+/// account gates with the position removed (dust never applies).
+fn full_close_ok(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    position: &AccountPosition,
-    market: &MarketLimitCtx,
-    asset: &Address,
-    floor_wad: i128,
-    full_request: i128,
-) -> i128 {
-    let mut bound = market.cash.min(full_request.saturating_sub(1));
-
-    if market.borrowed != Ray::ZERO && market.max_utilization < Ray::ONE {
-        let supplied_u = scaled_to_original(env, market.supplied, market.supply_index);
-        let borrowed_u = scaled_to_original(env, market.borrowed, market.borrow_index);
-        let required = borrowed_u.div_floor(env, market.max_utilization);
-        let headroom = if supplied_u > required {
-            (supplied_u - required).to_asset_floor(market.decimals)
-        } else {
-            0
-        };
-        bound = bound.min(headroom);
-    }
-
-    if !account.borrow_positions.is_empty() {
-        bound = bound.min(risk_headroom(env, cache, account, position, asset, market));
-    }
-
-    if floor_wad > 0 {
-        // A partial withdrawal must leave the residue at or above the USD
-        // floor; reserve one extra unit against price rounding.
-        let feed = cache.cached_price(asset);
-        let full_floor = position
-            .scaled_amount
-            .mul_floor(env, market.supply_index)
-            .to_asset_floor(market.decimals);
-        let min_residue = Wad::from(floor_wad)
-            .div(env, feed.price)
-            .to_token(market.decimals)
-            + 1;
-        bound = bound.min(full_floor.saturating_sub(min_residue));
-    }
-
-    bound.max(0)
-}
-
-/// Largest withdrawable USD value converted to asset units that keeps the
-/// LTV gate (`ltv_weighted >= debt`) and HF gate (`weighted >= debt`) intact.
-fn risk_headroom(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    position: &AccountPosition,
     asset: &Address,
     market: &MarketLimitCtx,
-) -> i128 {
-    let debt = helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions);
-    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
-    let (_, _, hf_weighted) = helpers::calculate_account_totals(
-        env,
-        cache,
-        &account.supply_positions,
-        &account.borrow_positions,
-    );
-
-    let excess_ltv = (ltv_weighted.raw() - debt.raw()).max(0);
-    let excess_hf = (hf_weighted.raw() - debt.raw()).max(0);
-
-    let by_ltv = removable_value(env, excess_ltv, position.loan_to_value.raw());
-    let by_hf = removable_value(env, excess_hf, position.liquidation_threshold.raw());
-    let removable_wad = by_ltv.min(by_hf);
-    if removable_wad == i128::MAX {
-        return i128::MAX;
+    pos_scaled: Ray,
+) -> bool {
+    let payout = pos_scaled
+        .mul_floor(env, market.supply_index)
+        .to_asset_floor(market.decimals);
+    if !market.pool_state_ok(env, pos_scaled, payout) {
+        return false;
     }
-
-    let feed = cache.cached_price(asset);
-    Wad::from(removable_wad)
-        .div_floor(env, feed.price)
-        .to_token(market.decimals)
-}
-
-/// USD value whose removal consumes exactly `excess` at `weight_bps`; zero
-/// weight means the asset never tightens that gate.
-fn removable_value(env: &Env, excess_wad: i128, weight_bps: i128) -> i128 {
-    if weight_bps == 0 {
-        return i128::MAX;
-    }
-    let scaled = excess_wad.checked_mul(BPS).unwrap_or_else(|| {
-        soroban_sdk::panic_with_error!(env, common::errors::GenericError::MathOverflow)
-    });
-    scaled / weight_bps
+    let mut closed = account.clone();
+    closed.supply_positions.remove(asset.clone());
+    account_gates_ok(env, cache, &closed)
 }
 
 /// Exact feasibility replica for a partial withdrawal of `amount`.
@@ -303,15 +210,7 @@ fn partial_ok(
         scaled_to_original(env, remaining, market.supply_index).to_asset(market.decimals);
     if remaining_actual == 0 {
         // The pool expands this to a full close.
-        let payout = pos_scaled
-            .mul_floor(env, market.supply_index)
-            .to_asset_floor(market.decimals);
-        if !market.pool_state_ok(env, pos_scaled, payout) {
-            return false;
-        }
-        let mut closed = account.clone();
-        closed.supply_positions.remove(asset.clone());
-        return account_gates_ok(env, cache, &closed);
+        return full_close_ok(env, cache, account, asset, market, pos_scaled);
     }
 
     if !market.pool_state_ok(env, scaled_w, amount) {
@@ -328,7 +227,13 @@ fn partial_ok(
         return false;
     }
 
-    dust_ok(env, cache, asset, remaining, floor_wad)
+    // Replica of the touched-asset dust gate on the residue.
+    if floor_wad == 0 {
+        return true;
+    }
+    let feed = cache.cached_price(asset);
+    let value = helpers::position_value(env, remaining, market.supply_index, feed.price);
+    !(value > Wad::ZERO && value.raw() < floor_wad)
 }
 
 /// Replica of `require_within_ltv` + `require_healthy_account`; HF >= 1 in
@@ -337,27 +242,18 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     if account.borrow_positions.is_empty() {
         return true;
     }
-    let debt = helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions);
-    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
-    if ltv_weighted.raw() < debt.raw() {
-        return false;
-    }
-    let (_, total_debt, hf_weighted) = helpers::calculate_account_totals(
+    let (_, debt, hf_weighted) = helpers::calculate_account_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    total_debt == Wad::ZERO || hf_weighted.raw() >= total_debt.raw()
-}
-
-/// Replica of the touched-asset dust gate on the residue.
-fn dust_ok(env: &Env, cache: &mut Cache, asset: &Address, remaining: Ray, floor_wad: i128) -> bool {
-    if remaining == Ray::ZERO || floor_wad == 0 {
+    if debt == Wad::ZERO {
         return true;
     }
-    let index = cache.cached_market_index(asset);
-    let feed = cache.cached_price(asset);
-    let value = helpers::position_value(env, remaining, index.supply_index, feed.price);
-    !(value > Wad::ZERO && value.raw() < floor_wad)
+    if hf_weighted.raw() < debt.raw() {
+        return false;
+    }
+    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
+    ltv_weighted.raw() >= debt.raw()
 }
