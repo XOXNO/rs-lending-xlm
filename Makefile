@@ -53,10 +53,12 @@ RELEASE_DIR  := target/$(WASM_TARGET)/release
 # Wasm shadow-stack size. rustc's default is 1MB (16 pages of linear memory),
 # and Soroban charges a callee's full initial linear memory against the tx
 # MEMORY budget on EVERY cross-contract invocation — measured ~1.28MB/call,
-# ~70% of the per-oracle-feed cost of HF-checked ops. 128KB drops the
-# declared memory from 17 pages to 3 and passes the entire test-harness
-# suite (637 tests incl. max-position liquidations) with no stack overflow.
-WASM_STACK_SIZE ?= 131072
+# ~70% of the per-oracle-feed cost of HF-checked ops. 16KB collapses the
+# declared memory from 17 pages to ONE (stack + static data fit in 64KB) and
+# the full test-harness suite (637 tests incl. max-position liquidations)
+# passes with no overflow. Layout is stack-first, so an overflow TRAPS — it
+# cannot silently corrupt the data section.
+WASM_STACK_SIZE ?= 16384
 WASM_RUSTFLAGS := -C link-arg=-zstack-size=$(WASM_STACK_SIZE)
 OPTIMIZED_DIR := target/optimized
 # Canonical WASM output: deploy/ for mainnet, certora/ for hosted prover (prebuilt).

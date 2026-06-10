@@ -73,10 +73,11 @@ jobs:
       # deprecated optimize pass would strip after the fact.
       - name: Build and optimize ${{ matrix.package }}
         env:
-          # 128KB wasm shadow stack (rustc default 1MB): Soroban charges the
+          # 16KB wasm shadow stack (rustc default 1MB): Soroban charges the
           # callee's full initial linear memory per cross-contract call, so
-          # the default stack is ~70% of per-oracle-feed memory cost.
-          RUSTFLAGS: -C link-arg=-zstack-size=131072
+          # the default stack is ~70% of per-oracle-feed memory cost. 16KB
+          # fits stack + data in ONE page; stack-first layout traps overflow.
+          RUSTFLAGS: -C link-arg=-zstack-size=16384
         run: |
           mkdir -p dist
           stellar contract build --package "${{ matrix.package }}"
@@ -188,7 +189,7 @@ jobs:
       # (pool, flash receiver, oracle mocks) deploys from the same dir.
       - name: Build and optimize all contract wasm
         env:
-          RUSTFLAGS: -C link-arg=-zstack-size=131072
+          RUSTFLAGS: -C link-arg=-zstack-size=16384
         run: |
           stellar contract build
           mkdir -p target/optimized
