@@ -36,12 +36,7 @@ pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     }
 }
 
-/// Transfers `amount` of `asset` from `from` to `to` and returns it.
-///
-/// Listed tokens are standard 1:1 SACs (ADR-0006), so the amount leaving `from`
-/// reaches `to` exactly — no balance-delta check (fee-on-transfer / rebasing /
-/// hook tokens are excluded by listing policy, not defended at runtime). The
-/// untrusted aggregator path in `strategies` keeps its own delta checks.
+/// Transfers a listed SAC amount and returns it.
 pub fn transfer_amount(
     env: &Env,
     asset: &Address,
@@ -102,8 +97,7 @@ fn aggregate_payment_amount(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Context for emitting position/debt update events, shared across repay,
-/// withdraw, liquidation, and strategies (lives here to avoid a positions/ dep).
+/// Shared context for position and debt update events.
 pub(crate) struct EventContext {
     pub caller: Address,
     pub action: Symbol,

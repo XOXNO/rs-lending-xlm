@@ -1,10 +1,6 @@
 #![no_std]
 
-//! Reference flash-loan receiver used for protocol smoke tests and audit
-//! scenarios — NOT a production contract. Production receivers must
-//! validate the calling pool's identity, call `pool.require_auth()` where
-//! appropriate, and parameterize the controller address through the
-//! constructor instead of the hard-coded `TESTNET_CONTROLLER` below.
+//! Test-only flash-loan receiver for protocol smoke tests.
 
 use common::errors::GenericError;
 use common::types::Payment;

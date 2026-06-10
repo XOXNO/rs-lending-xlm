@@ -3,17 +3,10 @@ use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env};
 
 use crate::core::LendingTest;
 
-/// Default flash-loan fee in bps for every preset (`flashloan_fee_bps =
-/// 9`). For strategies that flash-borrow (`multiply`, `swap_debt`), the
-/// controller's actual swap `amount_in` is the requested borrow MINUS
-/// this fee. Tests that build fixtures from the *requested* borrow
-/// amount can call [`apply_flash_fee`] to land on the post-fee value that
-/// `swap_tokens` uses as the router input.
+/// Default flash-loan fee in BPS for strategy presets.
 pub const DEFAULT_FLASHLOAN_FEE_BPS: i128 = 9;
 
-/// `requested * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000` — the
-/// amount the controller actually receives from the flash strategy
-/// borrow under the default preset config.
+/// Returns the net strategy input after the default flash-loan fee.
 pub fn apply_flash_fee(requested_raw: i128) -> i128 {
     requested_raw * (10_000 - DEFAULT_FLASHLOAN_FEE_BPS) / 10_000
 }
@@ -40,8 +33,7 @@ pub fn mock_swap_payload_xdr(
     .to_xdr(env)
 }
 
-/// Build a bytes-only `StrategySwap` whose test-only payload asks the mock
-/// aggregator to deliver `min_out`.
+/// Builds a mock aggregator swap payload.
 pub fn build_aggregator_swap(
     t: &LendingTest,
     token_in_name: &str,

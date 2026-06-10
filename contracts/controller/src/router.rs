@@ -159,8 +159,8 @@ impl Controller {
 fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
     let pool_addr = cache.cached_pool_address();
     for asset in assets {
-        // Keeps the AssetNotSupported error for unlisted assets now that the
-        // pool address no longer implies a per-asset existence check.
+        // Unlisted assets must still fail with AssetNotSupported; the shared
+        // pool address carries no per-asset existence check.
         validation::require_asset_supported(env, cache, &asset);
         let state = pool_update_indexes_call(env, &pool_addr, &asset);
         cache.record_market_update(&state);

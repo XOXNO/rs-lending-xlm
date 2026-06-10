@@ -8,10 +8,7 @@ use common::types::{
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
 #[contractclient(name = "ControllerClient")]
-/// User-facing contract interface for lending accounts, markets, and views.
-///
-/// The controller owns account state, risk checks, oracle policy, and pool
-/// coordination. Pools custody one asset and return scaled share mutations.
+/// Contract interface for lending accounts, markets, and views.
 pub trait ControllerInterface {
     /// Supplies assets into an existing account or creates one when `account_id == 0`.
     fn supply(

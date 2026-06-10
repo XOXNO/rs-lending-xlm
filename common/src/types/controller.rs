@@ -644,7 +644,7 @@ mod tests {
 
 // Storage tiers (instance/persistent/temporary) live in `controller::storage`
 // accessors. Per-account state is split (`AccountMeta`/`SupplyPositions`/
-// `BorrowPositions`) per INVARIANTS §5.2 so callers load only the side they need.
+// `BorrowPositions`) so callers load only the side they need.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {

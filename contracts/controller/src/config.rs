@@ -1,8 +1,5 @@
 //! Owner- and role-gated configuration for markets, oracles, e-mode, caps,
 //! aggregator, accumulator, approved tokens, and pool templates.
-//!
-//! These entrypoints validate the new config, update stable storage keys, and
-//! emit the event shape consumed by operators and indexers.
 
 use common::errors::{EModeError, GenericError, OracleError};
 use common::events::{

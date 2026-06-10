@@ -1,25 +1,10 @@
 #![cfg(feature = "reference-math")]
 
-//! Exact-arithmetic reference implementation of the liquidation math.
+//! Exact-arithmetic liquidation reference for tests.
 //!
-//! Mirrors the production chain in `controller/src/positions/liquidation.rs`
-//! and `controller/src/helpers/mod.rs`, but uses `num_rational::BigRational`
-//! so that rounding is never applied. Differential tests compare the
-//! production output (chain of `mul_div_half_up` / `rescale_half_up` ops) to
-//! the reference output (exact rationals, rounded only at final conversion
-//! back to the protocol's precision).
-//!
-//! **Intentionally scoped narrowly:**
-//! - Pre-liquidation HF
-//! - Dynamic bonus (with 1.02 primary / 1.01 fallback target)
-//! - Ideal repayment solver
-//! - Proportional seizure across all collateral
-//! - Protocol fee split
-//!
-//! **Not modeled here** (see plan "Scope boundary"):
-//! - Bad-debt socialization (cross-pool index writes)
-//! - Rate accrual / compound interest
-//! - Isolation debt ceiling writes
+//! Covers pre-liquidation HF, dynamic bonus, repayment, seizure, and protocol
+//! fee split. Excludes rate accrual, isolation debt writes, and bad-debt
+//! socialization.
 
 extern crate std;
 
@@ -58,13 +43,13 @@ pub struct RefDebtPosition {
 
 #[derive(Clone, Debug)]
 pub struct RefLiquidationResult {
-    /// Health factor before liquidation, in WAD scale (i.e. 1.0 = 10^18).
+    /// Pre-liquidation health factor in WAD.
     pub health_factor_pre_wad: BigRational,
-    /// Final bonus applied, in BPS scale (i.e. 5% = 500).
+    /// Final liquidation bonus in BPS.
     pub final_bonus_bps: BigRational,
-    /// Seized collateral per asset in *actual token units* (post-rescale).
+    /// Seized collateral per asset in token units.
     pub seized_per_collateral: Vec<(u32, BigRational)>,
-    /// Actual debt repaid per asset in *actual token units*.
+    /// Debt repaid per asset in token units.
     pub repaid_per_debt: Vec<(u32, BigRational)>,
     /// Protocol fee slice of each seizure (token units).
     pub protocol_fee_per_collateral: Vec<(u32, BigRational)>,

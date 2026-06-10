@@ -1,4 +1,4 @@
-//! Canonical market/oracle/position presets for integration tests.
+//! Market, oracle, and position presets for integration tests.
 
 use common::constants::WAD;
 
@@ -19,7 +19,7 @@ impl LendingTestBuilder {
             .build()
     }
 
-    /// USDC + ETH + WBTC — canonical three-asset book for conservation fuzzing.
+    /// USDC, ETH, and WBTC markets.
     pub fn three_asset_usdc_eth_wbtc(self) -> Self {
         self.with_market(usdc_preset())
             .with_market(eth_preset())
@@ -46,7 +46,7 @@ pub fn liquidatable_usdc_eth() -> LendingTest {
     t
 }
 
-/// Alice: 10k USDC collateral, 3 ETH debt, USDC repriced to $0.50 → liquidatable.
+/// Seeds Alice with liquidatable USDC/ETH debt.
 pub fn seed_liquidatable_usdc_eth(t: &mut LendingTest) {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -63,7 +63,7 @@ pub fn seed_fuzz_conservation_book(t: &mut LendingTest) {
     t.supply(BOB, "WBTC", 1.0);
 }
 
-/// Alice supplied, Bob borrowed — healthy two-user book on USDC/ETH.
+/// Seeds a healthy two-user USDC/ETH book.
 pub fn seed_standard_liquidity(t: &mut LendingTest) {
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 50.0);

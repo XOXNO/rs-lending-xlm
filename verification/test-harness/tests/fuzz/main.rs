@@ -1,4 +1,4 @@
-//! Property-based contract tests (proptest). See `README.md` for the catalog.
+//! Property-based contract tests.
 
 extern crate std;
 

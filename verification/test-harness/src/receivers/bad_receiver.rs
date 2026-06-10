@@ -1,13 +1,12 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
-/// A mock flash loan receiver that does NOT approve repayment -- for testing rejection.
+/// Mock flash-loan receiver that does not repay.
 #[contract]
 pub struct BadFlashLoanReceiver;
 
 #[contractimpl]
 impl BadFlashLoanReceiver {
-    /// Called by the controller during flash loan execution.
-    /// This receiver does nothing -- the pool will fail to pull repayment.
+    /// Flash-loan callback that leaves repayment unpaid.
     pub fn execute_flash_loan(
         _env: Env,
         _initiator: Address,

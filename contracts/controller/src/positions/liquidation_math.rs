@@ -1,8 +1,7 @@
 //! Liquidation close-amount, bonus, refund, and seizure accounting.
 //!
-//! The formulas here must stay aligned with Certora liquidation rules and the
-//! differential fuzz reference. Amounts that cross price math are USD WAD;
-//! pool-facing seizure and repayment entries carry asset-native amounts.
+//! Price math uses USD WAD. Pool-facing seizure and repayment entries use
+//! asset-native units.
 
 use common::constants::{BPS, WAD};
 use common::errors::{CollateralError, GenericError};
@@ -18,8 +17,7 @@ use crate::storage::iter_typed_positions;
 use crate::utils;
 use crate::validation;
 
-/// Aggregate position metrics consumed by the liquidation pipeline. Bundling
-/// these avoids repeating the same 5-value tuple across every helper.
+/// Aggregate position metrics for liquidation helpers.
 #[derive(Clone, Copy)]
 pub(crate) struct LiquidationSnapshot {
     pub total_debt: Wad,
@@ -36,9 +34,7 @@ pub(crate) struct BonusBounds {
     pub max: Bps,
 }
 
-/// True when debt exceeds collateral and collateral is at or below the
-/// socialization threshold. Single source for the bad-debt predicate shared by
-/// the inline liquidation path and keeper-driven cleanup.
+/// True when collateral is small enough for bad-debt socialization.
 pub(crate) fn is_socializable_bad_debt(
     total_debt: Wad,
     total_collateral: Wad,
@@ -136,10 +132,7 @@ pub(crate) fn account_dust_floors(cache: &mut Cache, account: &Account) -> (i128
     (min_collat, min_debt)
 }
 
-/// Inputs to the dust-residue full-close check. `payment_ceiling_usd` is an
-/// upper bound on what the liquidator has actually delivered — dust expansion
-/// may never price seizure beyond this amount, otherwise the liquidator would
-/// get full-close collateral for a partial payment.
+/// Inputs to the dust-residue full-close check.
 #[derive(Clone, Copy)]
 pub(crate) struct DustExpansionInputs<'a> {
     pub snap: &'a LiquidationSnapshot,
@@ -440,9 +433,7 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(snap.total_debt))
 }
 
-/// Largest liquidation bonus (BPS) that keeps `effective_threshold * (1 + bonus) <= 1`,
-/// so proportional seizure can never exceed the collateral backing the account.
-/// `proportion_seized` is the value-weighted effective account threshold (WAD).
+/// Largest liquidation bonus that keeps seizure below account collateral.
 pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
     if proportion_seized <= Wad::ZERO {
         return Bps::from(0);
@@ -460,8 +451,7 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
     Bps::from(numerator / eff_thr_bps)
 }
 
-/// Returns the collateral-value-weighted base bonus and the per-account max bonus
-/// derived from the effective threshold so the scaling range never mints bad debt.
+/// Returns base and max liquidation bonus for the account collateral mix.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,

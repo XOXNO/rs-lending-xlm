@@ -77,7 +77,7 @@ pub fn process_liquidation(
     // loosening (stale/deviation/TWAP). Beyond the last tolerance band it
     // reverts (`UnsafePriceNotAllowed`) rather than seize at a price only one
     // source corroborates; inside the bands the standard primary/midpoint
-    // selection applies (ADR 0004).
+    // selection applies.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
     for (asset, _) in debt_payment_plan.iter() {

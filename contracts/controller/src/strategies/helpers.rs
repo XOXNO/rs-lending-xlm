@@ -83,7 +83,7 @@ pub(crate) fn repay_debt_from_controller(
     let debt_feed = cache.cached_price(req.debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 
-    // Listed debt tokens are 1:1 SACs (ADR-0006): the transfer is trusted, so
+    // Listed debt tokens are 1:1 SACs: the transfer is trusted, so
     // `debt_available` reaches the pool exactly — no balance-delta check needed.
     // The refund below does snapshot, since the aggregator is not trusted.
     utils::transfer_amount(

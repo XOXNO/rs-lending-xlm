@@ -76,7 +76,7 @@ pub fn process_repay_debt_with_collateral(
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    // Even during repay via collateral, due to potential slippage the HF impact might be negative not always positive
+    // RiskIncreasing policy: swap slippage can leave the post-repay HF lower.
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
 
     let (collateral_pos, debt_pos) =

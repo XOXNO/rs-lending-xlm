@@ -1,11 +1,4 @@
-//! Reflector SEP-40 client interface — the canonical, only home for cross-contract
-//! calls to Reflector oracles. Owns the SEP-40 ABI types, the `ReflectorOracle`
-//! `#[contractclient]` trait, and the `pub(crate)` call wrappers.
-//!
-//! Consumption logic (Spot vs TWAP dispatch, asset mapping, fallback, observation
-//! construction) lives in sibling modules (`spot.rs`, `twap.rs`). Keeping all
-//! external interaction here makes the security boundary obvious and keeps the
-//! Certora harness surface small and stable.
+//! Reflector SEP-40 client and call wrappers.
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Symbol, Vec};
 
@@ -36,8 +29,7 @@ pub trait ReflectorOracle {
 
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
-// Thin wrappers — the only call sites into external Reflector oracles, so Certora
-// can replace the cross-contract behavior with sound nondet models in isolation.
+// Thin wrappers isolate external Reflector calls.
 
 pub(crate) fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()
@@ -60,8 +52,7 @@ pub(crate) fn reflector_prices_call(
     ReflectorClient::new(env, oracle).prices(asset, &records)
 }
 
-/// Wrappers used only during market-oracle config validation; kept here so every
-/// cross-contract Reflector call routes through this module.
+/// Reads provider decimals during market-oracle config validation.
 pub(crate) fn reflector_decimals_call(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).decimals()
 }

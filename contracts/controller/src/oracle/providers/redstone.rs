@@ -1,11 +1,4 @@
-// No file-level allow needed here anymore — the contractclient allow lives in client.rs.
-
-//! RedStone Price Feed provider (consumption logic).
-//!
-//! The contract client surface lives in `client.rs` (following the clean
-//! pattern established by Reflector).
-//!
-//! This module now focuses on how the controller consumes RedStone prices.
+//! RedStone Price Feed provider.
 
 use common::errors::GenericError;
 use common::types::RedStoneSourceConfig;
@@ -16,7 +9,7 @@ use super::super::observation::{
 };
 use crate::cache::Cache;
 
-mod client; // Canonical home of RedStone contract client types + trait.
+mod client;
 
 pub(crate) use client::{read_price_data, RedStonePriceData, REDSTONE_DECIMALS};
 

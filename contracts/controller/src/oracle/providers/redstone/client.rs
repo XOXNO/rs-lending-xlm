@@ -1,7 +1,4 @@
-//! RedStone Price Feed client surface — the canonical, only home for cross-contract
-//! calls to RedStone multi-feed oracles. Owns `RedStonePriceData`, the
-//! `REDSTONE_DECIMALS` constant (8), and the `RedStoneMultiFeed` `#[contractclient]`
-//! trait. All production code reaches RedStone through the wrappers here.
+//! RedStone multi-feed client and call wrappers.
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, U256};
 
@@ -21,9 +18,7 @@ pub trait RedStoneMultiFeed {
     fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error>;
 }
 
-/// Thin wrapper around the RedStone multi-feed client; preferred over constructing
-/// `RedStonePriceFeedClient` directly. Returns `Some(data)` on success, `None` on
-/// any failure (matching this provider's consumption pattern).
+/// Reads RedStone price data, returning `None` on provider failure.
 pub(crate) fn read_price_data(
     env: &Env,
     contract: &Address,

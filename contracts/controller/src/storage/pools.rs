@@ -1,9 +1,4 @@
-//! Pool registry and the canonical list of listed assets.
-//!
-//! The list is used off-chain by the keeper service to enumerate pools for
-//! `update_indexes` sweeps and to discover storage keys whose TTL needs
-//! extending. It is append-only from the perspective of normal operation
-//! (removals are not supported after listing).
+//! Pool registry and listed asset storage.
 
 use super::renew_protocol_shared_key;
 use common::constants::MAX_POOLS_LIST_ENTRIES;

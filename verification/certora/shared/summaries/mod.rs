@@ -1,29 +1,7 @@
-//! Function summaries for Certora verification.
+//! Certora summaries for expensive production functions.
 //!
-//! Each summary replaces a heavy production function with a sound, abstract
-//! over-approximation. Under the `certora` feature, calls to the original
-//! function are redirected here via `cvlr_soroban_macros::apply_summary!`,
-//! which wraps the function definition in place at its source site. The real
-//! body still compiles when the feature is off.
-//!
-//! Summary rationale:
-//!   * Heavy I256, bytemap, and map-iteration paths can exceed prover command
-//!     limits.
-//!   * Cross-contract `LiquidityPoolClient` calls are pure havoc to the
-//!     prover; explicit nondet returns provide equivalent abstraction with
-//!     lower verification cost.
-//!   * Math primitives like `mul_div_half_up` already have dedicated rules
-//!     in `math_rules`; other rules avoid re-proving them by inlining.
-//!
-//! Soundness contract: every summary must return a value in the same domain as
-//! the production function or explicitly document any narrowed branch it
-//! models. Over-constraining a summary weakens verification.
-//!
-//! Verifying the summary itself: dedicated rules in `oracle_rules`,
-//! `health_rules`, etc. exercise the real production function (via
-//! `crate::oracle::token_price::token_price` -- the unsummarised
-//! sub-module that `apply_summary!` preserves). If a summary's pre/post
-//! contract drifts from production, those rules provide the targeted check.
+//! Summaries must return values in the production domain. Overly strict
+//! assumptions weaken verification.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
@@ -34,30 +12,15 @@ use common::types::{MarketIndex, PriceFeedRaw};
 
 use crate::cache::Cache;
 
-// Cross-contract summaries split into their own modules to keep the file
-// boundary aligned with the contract being summarised.
-//   * `pool`       -- the `LiquidityPool` ABI in `pool/src/lib.rs`.
-//   * `sac`        -- the SAC `soroban_sdk::token::Client` ABI.
-//   * `reflector`  -- the SEP-40 Reflector oracle ABI in
-//     `controller/src/oracle/providers/reflector/client.rs` (canonical home).
+// Cross-contract summaries stay split by external ABI.
 pub mod pool;
 pub mod reflector;
 pub mod sac;
 // Oracle summaries
 
-/// Summary for `crate::oracle::token_price`.
+/// Summary for curated token-price resolution.
 ///
-/// This summary replaces the entire curated price resolution logic
-/// (providers + compose + tolerance + validation) so the prover does not
-/// traverse the real implementation in `oracle/`.
-///
-/// Production guarantees (post-conditions):
-///   * `price_wad > 0` (zero-or-negative panics with `InvalidPrice`).
-///   * `asset_decimals` discovered on-chain at config time; bounded `<= 27`
-///     by the `RAY_DECIMALS` ceiling.
-///   * `timestamp <= cache.current_timestamp_ms / 1000 + 60` (the staleness
-///     guard rejects feeds further in the future than the 60-s clock-skew
-///     tolerance).
+/// Returns a positive price, bounded decimals, and an accepted timestamp.
 pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw {
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
@@ -72,12 +35,9 @@ pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw 
     }
 }
 
-/// Summary for `crate::oracle::is_within_anchor`.
+/// Summary for anchor-tolerance checks.
 ///
-/// The production implementation lives in the clean `oracle/tolerance.rs`.
-/// It performs expensive fixed-point math; this summary returns a sound
-/// nondet bool so rules can focus on the high-level tolerance policy
-/// branches without paying the math cost.
+/// Returns nondet because both tolerance outcomes are valid.
 pub fn is_within_anchor_summary(
     _env: &Env,
     _aggregator: i128,
@@ -88,15 +48,9 @@ pub fn is_within_anchor_summary(
     nondet()
 }
 
-/// Summary for `crate::oracle::update_asset_index`.
+/// Summary for asset-index updates.
 ///
-/// Production reads the pool's current sync data (cross-contract) and
-/// simulates interest accrual. The summary returns a fresh `MarketIndex`
-/// satisfying the index-monotonicity post-conditions:
-///   * `supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW` (= `WAD`, the bad-debt
-///     floor).
-///   * `borrow_index_ray >= RAY` (initial value; only grows).
-///   * `last_timestamp <= cache.current_timestamp_ms`.
+/// Returns indexes within the production lower bounds.
 pub fn update_asset_index_summary(_cache: &mut Cache, _asset: &Address) -> MarketIndex {
     use common::math::fp::Ray;
     let supply_index_ray: i128 = nondet();
@@ -113,12 +67,9 @@ pub fn update_asset_index_summary(_cache: &mut Cache, _asset: &Address) -> Marke
 }
 // Account-totals summary
 
-/// Summary for `crate::helpers::calculate_account_totals`.
+/// Summary for account totals.
 ///
-/// Production returns `(total_collateral, total_debt, weighted_coll)` (see
-/// `controller/src/helpers/mod.rs:184`). The summary mirrors that order
-/// exactly. The weighted collateral is bounded by the total collateral
-/// (production invariant `weighted_coll = Σ value × LT_bps / BPS <= Σ value`).
+/// Returns `(total_collateral, total_debt, weighted_coll)`.
 pub fn calculate_account_totals_summary(
     _env: &Env,
     _cache: &mut Cache,

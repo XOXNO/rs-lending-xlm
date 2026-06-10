@@ -1,7 +1,6 @@
 //! E-mode risk-parameter overrides for correlated asset categories.
 //!
-//! Storage lives in `storage/emode`; this module applies active category
-//! overrides and rejects e-mode combinations that would violate isolation.
+//! Applies active category overrides and rejects isolation conflicts.
 
 use common::errors::EModeError;
 use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};

@@ -1,18 +1,7 @@
-//! Summaries for the SEP-40 Reflector oracle ABI.
+//! SEP-40 Reflector oracle summaries for Certora.
 //!
-//! The Reflector client interface lives in
-//! `controller/src/oracle/providers/reflector/client.rs` (the canonical home
-//! under the providers abstraction). Production goes through the thin wrappers
-//! in that module, which are the attachment points for these summaries.
-//!
-//! Soundness contract: each summary returns a value in the same domain as
-//! the production Reflector contract guarantees (price > 0, timestamps
-//! bounded by current ledger time + 60s clock-skew tolerance, monotone
-//! decreasing for `prices`). Anything stricter would silently hide feasible
-//! behavior.
-//!
-//! Wiring: registered against `ReflectorClient::*` call sites via
-//! `cvlr_soroban_macros::apply_summary!`.
+//! Summaries model valid Reflector domains: positive prices, bounded
+//! timestamps, and descending historical timestamps.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
@@ -21,16 +10,10 @@ use soroban_sdk::{Address, Env, Symbol, Vec};
 use crate::oracle::providers::reflector::client::{ReflectorAsset, ReflectorPriceData};
 // Bounds applied by the production staleness / sanity checks
 
-/// Maximum clock skew tolerated by `crate::oracle::check_not_future`
-/// (60 seconds). Feed timestamps further in the future panic with
-/// `PriceFeedStale`.
+/// Maximum future timestamp skew accepted by production checks.
 const MAX_CLOCK_SKEW_SECS: u64 = 60;
 
-/// Maximum length of the historical prices Vec the prover is allowed to
-/// reason over. Reflector's `prices` accepts an arbitrary `records` count;
-/// bounding to 20 keeps Vec unrolling tractable while comfortably covering
-/// every rule's read window (the largest production caller asks for the
-/// last few entries to compute a TWAP / median).
+/// Maximum historical price count modeled by prover rules.
 const MAX_PRICES_LEN: u32 = 20;
 // `base`
 

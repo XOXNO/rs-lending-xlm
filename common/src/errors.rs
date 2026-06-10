@@ -1,6 +1,4 @@
-//! Contract error codes. Variant names are the canonical machine-readable
-//! conditions; docs below describe the protocol-level failure for auditors
-//! and indexers.
+//! Contract error codes and protocol failure meanings.
 
 use soroban_sdk::contracterror;
 

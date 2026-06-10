@@ -331,13 +331,8 @@ fn push_u16_le(buf: &mut Vec<u8>, v: u16) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
-/// `fp_math`: In { kind: u8, a: i128, b: i128, choice: u8, extra: u8 } -- 35
-/// bytes LE. `kind % 3` dispatches to the MulDiv / DivByInt / Rescale arm;
-/// each arm interprets the shared fields as needed. See
-/// `fuzz_targets/fp_math.rs` for the layout contract.
-///
-/// This packer emits seeds for all three arms from the same extracted numeric
-/// pool so libFuzzer can cross-pollinate bytes between arms during mutation.
+/// Pack `fp_math` seeds for the MulDiv, DivByInt, and Rescale arms.
+/// Layout: kind, a, b, choice, extra in little-endian order.
 fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
 

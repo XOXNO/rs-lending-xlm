@@ -139,8 +139,8 @@ impl TestSetup {
         let token_admin = token::StellarAssetClient::new(&env, &asset_address);
         token_admin.mint(&pool_address, &100_000_000_000_000i128);
 
-        // Seed internal `cash` to match the minted balance: reserves are now
-        // tracked internally, so the pool's starting liquidity lives in `cash`.
+        // Seed internal `cash` to match the minted balance: the pool tracks
+        // reserves in `cash`, not the live token balance.
         env.as_contract(&pool_address, || {
             let key = PoolKey::State(asset_address.clone());
             let mut state: PoolStateRaw = env.storage().persistent().get(&key).unwrap();

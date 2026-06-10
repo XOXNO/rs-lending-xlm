@@ -105,15 +105,13 @@ fn test_withdraw_pushing_above_max_utilization_rejected() {
 }
 // Zero-supply bypass regression
 //
-// `require_utilization_below_max` previously short-circuited when
-// `cache.supplied == 0`, assuming accounting invariants made
-// `borrowed == 0` too. A direct token donation to the pool's SAC
-// address can defeat that assumption: the donation inflates the live
-// token balance so the reserve check on withdraw passes even though
-// outstanding debt remains. Without the post-state insolvency guard
-// the final supplier could withdraw past the debt and leave the
-// pool in an `(supplied = 0, borrowed > 0)` insolvent state. Pins
-// that the guard now panics on that post-state.
+// A `cache.supplied == 0` short-circuit in `require_utilization_below_max`
+// would assume accounting invariants make `borrowed == 0` too. A direct
+// token donation to the pool's SAC address defeats that assumption: it
+// inflates the live token balance so the reserve check on withdraw passes
+// even though outstanding debt remains, letting the final supplier withdraw
+// past the debt and leave the pool `(supplied = 0, borrowed > 0)` insolvent.
+// Pins that the post-state insolvency guard panics instead.
 #[test]
 fn test_zero_supply_with_outstanding_borrow_rejected() {
     use test_harness::helpers;

@@ -1,20 +1,6 @@
-//! Summaries for the `LiquidityPool` contract (`pool/src/lib.rs`).
+//! LiquidityPool summaries for Certora.
 //!
-//! Cross-contract pool calls are pure havoc to the prover and the pool
-//! mutating paths reach into Cache + interest accrual + I256 scaled-amount
-//! math, which trips the TAC command-count budget. Every domain rule that
-//! traverses a pool call becomes vacuous over havoced returns; the bounds
-//! captured here provide the postconditions consumed by downstream reasoning.
-//!
-//! Each summary's `cvlr_assume!` bounds encode the modeled branch or domain.
-//! Rules that need excluded edge branches should call the production function
-//! directly.
-//!
-//! Wiring: each summary is registered against its production fn via
-//! `cvlr_soroban_macros::apply_summary!` at the production site (the
-//! `summarized!` macro indirection in `controller/src/lib.rs`). The matching
-//! production fn lives in `pool/src/lib.rs`; signatures here mirror that
-//! ABI exactly so the macro substitution type-checks.
+//! Bounds model pool postconditions without expanding cross-contract calls.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
@@ -28,11 +14,7 @@ use common::types::{
 };
 // Shared helpers
 
-/// Build a nondet `MarketIndex` satisfying the production invariants
-/// (`pool::interest::global_sync` + `apply_bad_debt_to_supply_index`):
-///   * `supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW` (= `WAD`, the bad-debt
-///     floor; see `pool/src/interest.rs`).
-///   * `borrow_index_ray >= RAY` (initial value is `RAY`; only grows).
+/// Build a nondet `MarketIndex` within production lower bounds.
 fn nondet_market_index() -> MarketIndex {
     let supply_index_ray: i128 = nondet();
     let borrow_index_ray: i128 = nondet();

@@ -1,15 +1,9 @@
 //! Certora harness for `controller::oracle::tolerance`.
 //!
-//! `calculate_final_price` and `is_within_anchor` perform non-trivial
-// fixed-point ratio math that is expensive for the prover. This harness
-// replaces the tolerance decision logic with a sound nondet bool while
-// preserving the important control-flow branches and panic conditions.
-//!
-//! Lives separately so the clean production tolerance logic in `oracle/tolerance.rs`
-// can remain untouched and well-documented.
-//!
-//! Part of the broader strategy to keep expensive math out of the prover
-// while still exercising the policy branches that matter for rules.
+//! `calculate_final_price` and `is_within_anchor` perform fixed-point ratio
+//! math that is expensive for the prover. This harness replaces the tolerance
+//! decision with a sound nondet bool while preserving the control-flow
+//! branches and panic conditions, leaving `oracle/tolerance.rs` untouched.
 
 use common::constants::{
     BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,

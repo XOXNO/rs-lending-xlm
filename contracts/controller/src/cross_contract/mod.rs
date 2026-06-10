@@ -1,7 +1,4 @@
-//! Outbound cross-contract wrappers for pools and SAC token transfers.
-//!
-//! Business logic routes external calls through this module so Certora builds
-//! can replace pool and token effects without changing controller call sites.
+//! Outbound pool and SAC token wrappers.
 
 #[cfg(not(feature = "certora"))]
 pub(crate) mod pool;

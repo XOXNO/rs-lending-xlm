@@ -103,8 +103,8 @@ impl LendingTest {
         position_type: AccountPositionType,
     ) -> i128 {
         let (supplies, borrows) = self.ctrl_client().get_account_positions(&account_id);
-        // Supply and debt maps now hold different value types; extract the
-        // scaled share before the type divergence.
+        // Supply and debt maps hold different value types; extract the
+        // scaled share each carries.
         let scaled_ray = match position_type {
             AccountPositionType::Deposit => {
                 supplies.get(asset.clone()).map(|p| p.scaled_amount_ray)

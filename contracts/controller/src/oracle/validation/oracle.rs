@@ -137,15 +137,7 @@ pub(crate) fn validate_source(
     }
 }
 
-/// A Reflector oracle is acceptable when its base currency is USD, or when it
-/// quotes in a Stellar asset (e.g. the USDC-denominated DEX oracle) whose quote
-/// asset is itself a configured, Active, USD-quoted market. The latter lets the
-/// read path reprice token/quote into token/USD via the quote market's own
-/// oracle (see `providers::reflector::reprice_to_usd`).
-///
-/// Requiring the quote to be USD-quoted is the one-hop rule: a Stellar-quoted
-/// market can never serve as another market's quote, so quote references cannot
-/// form a cycle (a Stellar-quoted node is never the target of a quote edge).
+/// Validates Reflector base currency and quote-market eligibility.
 fn validate_base(env: &Env, asset: &Address, oracle: &Address) -> ReflectorBase {
     match reflector_base_call(env, oracle) {
         ReflectorAsset::Other(symbol) if symbol == soroban_sdk::Symbol::new(env, "USD") => {

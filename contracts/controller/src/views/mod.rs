@@ -19,8 +19,8 @@ mod aggregates;
 #[cfg(feature = "certora")]
 #[path = "../../../../verification/certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
-// ^ Replacement is tiny (just 3 summary re-exports). The aggregates are pure
-//   iteration over positions; summaries live in shared/summaries/mod.rs .
+// Certora swaps the pure position-iteration aggregates for summary re-exports
+// defined in shared/summaries/mod.rs.
 
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 

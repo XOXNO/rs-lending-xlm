@@ -10,32 +10,16 @@ use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
-    /// Registers a new asset market keyed by `params.asset_id`.
-    ///
-    /// Panics AssetAlreadySupported when the market already exists; writes the
-    /// validated params and a fresh state (indexes at RAY) to persistent storage.
+    /// Creates an asset market with fresh RAY indexes.
     fn create_market(env: Env, params: MarketParamsRaw);
 
-    /// Supplies `action.amount` of `action.asset` and returns the updated
-    /// scaled share.
-    ///
-    /// Interest accrues first and the underlying post-supply total must remain
-    /// within `supply_cap`. `action.caller` is carried but unused: the
-    /// controller transfers the tokens in before this call.
+    /// Supplies an amount and returns the updated scaled share.
     fn supply(env: Env, action: PoolAction, supply_cap: i128) -> PoolPositionMutation;
 
-    /// Borrows `action.amount` of `action.asset` to `action.caller` and
-    /// returns the updated scaled debt share.
-    ///
-    /// Interest accrues first; reserves, borrow cap, and max utilization are
-    /// checked before the token transfer.
+    /// Borrows an amount and returns the updated scaled debt share.
     fn borrow(env: Env, action: PoolAction, borrow_cap: i128) -> PoolPositionMutation;
 
-    /// Withdraws up to `action.amount`, or the full position when
-    /// `action.amount == i128::MAX`.
-    ///
-    /// Liquidation calls may deduct `protocol_fee`; `actual_amount` remains the
-    /// gross withdrawn amount before that fee.
+    /// Withdraws up to `action.amount`, or full position at `i128::MAX`.
     fn withdraw(
         env: Env,
         action: PoolAction,
@@ -43,16 +27,11 @@ pub trait LiquidityPoolInterface {
         protocol_fee: i128,
     ) -> PoolPositionMutation;
 
-    /// Repays debt on `action.asset` and returns the updated scaled debt share.
-    ///
-    /// Any amount above the ceiling-rounded current debt is refunded to
-    /// `action.caller`.
+    /// Repays debt and returns the updated scaled debt share.
     fn repay(env: Env, action: PoolAction) -> PoolPositionMutation;
     fn update_indexes(env: Env, asset: Address) -> MarketStateSnapshot;
     fn add_rewards(env: Env, asset: Address, amount: i128) -> MarketStateSnapshot;
-    /// Executes a flash loan of `asset` that must be repaid with `amount + fee`.
-    ///
-    /// The fee is recorded as protocol revenue after the pool balance check.
+    /// Executes a flash loan that must return `amount + fee`.
     fn flash_loan(
         env: Env,
         asset: Address,
@@ -63,11 +42,7 @@ pub trait LiquidityPoolInterface {
         data: Bytes,
     ) -> MarketStateSnapshot;
 
-    /// Creates strategy debt on `action.asset` and sends `action.amount - fee`
-    /// to `action.caller`.
-    ///
-    /// The fee is recorded as protocol revenue and `amount_received` is the net
-    /// asset amount made available to the strategy.
+    /// Creates strategy debt and transfers `action.amount - fee`.
     fn create_strategy(
         env: Env,
         action: PoolAction,
@@ -75,10 +50,7 @@ pub trait LiquidityPoolInterface {
         borrow_cap: i128,
     ) -> PoolStrategyMutation;
 
-    /// Removes a fully seized position during liquidation or bad-debt cleanup.
-    ///
-    /// Borrow seizures reduce the supply index to socialize bad debt; deposit
-    /// seizures move residual scaled supply into revenue.
+    /// Removes a seized liquidation or bad-debt position.
     fn seize_position(
         env: Env,
         asset: Address,
@@ -86,8 +58,7 @@ pub trait LiquidityPoolInterface {
         position: ScaledPositionRaw,
     ) -> PoolPositionMutation;
 
-    /// Claims protocol revenue for `asset`, capped by live reserves and
-    /// claimable shares.
+    /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation;
     fn update_params(env: Env, asset: Address, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);

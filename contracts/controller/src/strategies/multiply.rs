@@ -1,8 +1,6 @@
 //! "Multiply" (levered long) strategy.
 //!
-//! Recursive borrow + supply in one transaction via the aggregator. Uses
-//! `OraclePolicy::RiskIncreasing` (strictest pricing); all safety lives in
-//! the parent module's helpers.
+//! Borrows and supplies through an aggregator route in one transaction.
 
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::events::InitialMultiplyPaymentEvent;
@@ -17,7 +15,7 @@ use crate::{
     positions::supply, storage, utils, validation, Controller, ControllerArgs, ControllerClient,
 };
 
-/// Parameters for `process_multiply`. Mirrors the public entrypoint args.
+/// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
     pub account_id: u64,
     pub e_mode_category: u32,

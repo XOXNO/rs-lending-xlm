@@ -1,10 +1,10 @@
-//! Shared helpers for user/liquidation/keeper operations (amount scaling, payments, Results).
+//! Shared operation helpers.
 
 use soroban_sdk::{vec, Address, Env, Vec};
 
 use crate::helpers::units::f64_to_i128;
 
-/// Human-readable token amount → on-chain raw units.
+/// Converts a token amount to raw units.
 pub fn amount_raw(amount: f64, decimals: u32) -> i128 {
     f64_to_i128(amount, decimals)
 }

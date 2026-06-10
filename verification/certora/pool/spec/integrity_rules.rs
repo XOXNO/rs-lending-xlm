@@ -40,9 +40,10 @@ fn valid_state(supplied: i128, borrowed: i128, revenue: i128, timestamp: u64) ->
 
 fn seed_pool(env: &Env, admin: Address, asset: Address, state: PoolStateRaw) {
     crate::LiquidityPool::__constructor(env.clone(), admin);
-    env.storage()
-        .persistent()
-        .set(&PoolKey::Params(asset.clone()), &valid_params(asset.clone()));
+    env.storage().persistent().set(
+        &PoolKey::Params(asset.clone()),
+        &valid_params(asset.clone()),
+    );
     env.storage()
         .persistent()
         .set(&PoolKey::State(asset), &state);
@@ -59,7 +60,12 @@ fn position(scaled_amount_ray: i128) -> ScaledPositionRaw {
     ScaledPositionRaw { scaled_amount_ray }
 }
 
-fn action(caller: Address, position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
+fn action(
+    caller: Address,
+    position: ScaledPositionRaw,
+    amount: i128,
+    asset: Address,
+) -> PoolAction {
     PoolAction {
         caller,
         position,
@@ -176,12 +182,8 @@ fn withdraw_never_creates_negative_position(
     );
 
     let before = position(scaled_before);
-    let result = crate::LiquidityPool::withdraw(
-        e.clone(),
-        action(caller, before, amount, asset),
-        false,
-        0,
-    );
+    let result =
+        crate::LiquidityPool::withdraw(e.clone(), action(caller, before, amount, asset), false, 0);
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);
 }
@@ -317,7 +319,7 @@ fn pool_integrity_reachability(e: Env, admin: Address, asset: Address) {
     cvlr_satisfy!(state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
 
-/// `revenue_ray <= supplied_ray` preserved across `add_rewards` (INVARIANTS §2.2).
+/// `add_rewards` preserves `revenue_ray <= supplied_ray`.
 #[rule]
 fn revenue_le_supplied_after_add_rewards(
     e: Env,
@@ -345,7 +347,7 @@ fn revenue_le_supplied_after_add_rewards(
     cvlr_assert!(state.revenue_ray >= 0);
 }
 
-/// Flash-loan fee accrual preserves `revenue_ray <= supplied_ray` (INVARIANTS §2.5).
+/// Flash-loan fees preserve `revenue_ray <= supplied_ray`.
 #[rule]
 fn flash_loan_revenue_supplied_lockstep(
     e: Env,

@@ -1,6 +1,6 @@
-// Reflector (SEP-40) price provider.
+// Reflector SEP-40 price provider.
 
-pub(crate) mod client; // Canonical home of the SEP-40 client surface + thin wrappers.
+pub(crate) mod client;
 mod spot;
 mod twap;
 
@@ -15,7 +15,6 @@ use soroban_sdk::{panic_with_error, Address, Env};
 use super::super::observation::{build_observation, check_not_future_at, OracleObservation};
 use crate::cache::Cache;
 
-// Re-export the client surface so the provider subtree and validation import from one location.
 pub(crate) use client::{
     reflector_base_call, reflector_decimals_call, reflector_lastprice_call, reflector_prices_call,
     reflector_resolution_call, ReflectorAsset, ReflectorPriceData,
@@ -46,12 +45,7 @@ pub(crate) fn read_reflector_source(
     observation.map(|obs| reprice_to_usd(cache, &config.base, obs))
 }
 
-/// Convert a Reflector observation into USD WAD using the base captured at
-/// config time (no live `base()` call).
-///
-/// `ReflectorBase::Usd` is returned unchanged. `ReflectorBase::Quoted(quote)`
-/// (e.g. the USDC-denominated DEX oracle) reports token/quote; multiply by the
-/// quote asset's own USD price (`resolve_usd_quote`) to obtain token/USD.
+/// Converts a Reflector observation into USD WAD.
 fn reprice_to_usd(
     cache: &mut Cache,
     base: &ReflectorBase,
@@ -77,14 +71,7 @@ fn reprice_to_usd(
     }
 }
 
-/// Resolve the USD price of a quote asset for repricing.
-///
-/// Enforces the one-hop rule at READ time (not only at config time): the quote
-/// must be an Active market that is itself USD-quoted. This holds even if the
-/// quote market was reconfigured to a non-USD base after the dependent market
-/// was set up, and rejects a Disabled/Pending quote regardless of the caller's
-/// `OraclePolicy`. Because the quote is USD-quoted, `token_price(quote)` does no
-/// further conversion, so repricing is provably exactly one hop.
+/// Resolves the USD price of a quote asset for repricing.
 fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
     let env = cache.env().clone();
     let market = cache.cached_market_config(quote);

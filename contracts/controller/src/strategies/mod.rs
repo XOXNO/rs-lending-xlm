@@ -1,20 +1,7 @@
-//! Leveraged / rebalancing strategies + flash-loan surface.
+//! Strategy and flash-loan flows.
 //!
-//! Groups all flows that cross the external aggregator router or need the
-//! flash-loan single-flight guard.
-//!
-//! The four strategy entrypoints (`multiply`, `swap_collateral`, `swap_debt`,
-//! `repay_debt_with_collateral`) accept an opaque `StrategySwap` and share the exact
-//! pre-snapshot / post-delta defense against a malicious router (ADR 0005); that
-//! shared code (balance-delta machinery + router client trait) lives in `helpers`,
-//! kept together so the invariant is not diffused. `flash_loan` sits here too —
-//! an implementation detail, not a claim that flash loans are "strategies" —
-//! because it uses the same guard flag and pool-callback pattern.
-//!
-//! All strategy flows still go through the normal position primitives
-//! (`positions::borrow`, `positions::withdraw`, …) and inherit the same risk
-//! model, oracle policy, and event batching; the only extra surface is the
-//! untrusted router boundary.
+//! Strategy entrypoints share aggregator balance-delta checks and still route
+//! position mutations through the normal borrow/withdraw primitives.
 
 pub(crate) mod flash_loan;
 pub(crate) mod helpers;

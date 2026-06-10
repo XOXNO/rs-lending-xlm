@@ -1,16 +1,7 @@
-//! Oracle price resolution for Reflector and RedStone market sources.
+//! Oracle price resolution for Reflector and RedStone sources.
 //!
-//! Providers return USD WAD prices plus timestamps and decimals. The controller
-//! composes primary and optional anchor sources, applies the caller's
-//! `OraclePolicy`, and stores the market index used by risk checks.
-//!
-//! Price flow: `price::token_price` → `compose::resolve_components` (read the
-//! `primary` source and, under `PrimaryWithAnchor`, the `anchor`) →
-//! `tolerance::calculate_final_price` (band selection) → the unconditional
-//! `price::token_price` gates (positive price, sanity bounds, clock-skew). The
-//! caller's `OraclePolicy` (`policy.rs`) decides what degradation may be
-//! tolerated. The `primary` is the value the protocol prices on; the `anchor`
-//! is the independent cross-check.
+//! Reads produce USD WAD prices, timestamps, and decimals. The primary source
+//! prices the market; an anchor is an independent tolerance check.
 
 mod compose;
 mod observation;

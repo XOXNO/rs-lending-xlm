@@ -1,10 +1,4 @@
-//! Price composition: primary vs anchor, strategy dispatch (`Single` /
-//! `PrimaryWithAnchor`), tolerance application, and final price selection.
-//!
-//! This is the narrow waist that turns two (or one) `OracleObservation`s
-//! into the single `PriceFeedRaw` that the rest of the controller sees.
-//! It is deliberately thin; all provider-specific logic lives in the
-//! provider modules, all tolerance math lives in `tolerance`.
+//! Composes primary and anchor observations into a final price.
 
 use common::errors::OracleError;
 use common::types::{MarketOracleConfig, OracleStrategy};
@@ -25,8 +19,7 @@ pub struct ResolvedOracleComponents {
 }
 
 impl ResolvedOracleComponents {
-    /// Maps to `MarketIndexView` ABI fields: `safe_price_wad` = primary,
-    /// `aggregator_price_wad` = anchor (each falls back to `final_price_wad`).
+    /// Maps primary and anchor prices to ABI fields.
     pub fn to_abi_prices(&self) -> (i128, i128) {
         let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
         let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);

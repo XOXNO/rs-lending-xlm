@@ -1,9 +1,7 @@
 //! E-mode category and membership storage.
 //!
-//! Categories are versioned records that can be deprecated. Membership
-//! (`EModeAssetConfig`) is stored per (category, asset) under shared keys
-//! so that a deprecated category can be left behind without touching any
-//! account that ever used it (core of ADR 0008).
+//! Categories are versioned records that can be deprecated without rewriting
+//! accounts that used the old category.
 
 use super::renew_protocol_shared_key;
 use common::constants::MAX_EMODE_ASSETS_PER_CATEGORY;

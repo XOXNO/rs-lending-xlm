@@ -691,7 +691,7 @@ fn compound_no_wrap_sanity(e: Env) {
     cvlr_satisfy!(factor.raw() > RAY);
 }
 
-/// Post-supply: total supplied ≤ supply_cap (INVARIANTS §7).
+/// Supply keeps total supplied within the supply cap.
 #[rule]
 fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -709,7 +709,7 @@ fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i
     cvlr_assert!(post_supplied <= supply_cap);
 }
 
-/// Post-borrow: total borrowed ≤ borrow_cap (INVARIANTS §7).
+/// Borrow keeps total borrowed within the borrow cap.
 #[rule]
 fn borrow_respects_borrow_cap(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -727,7 +727,7 @@ fn borrow_respects_borrow_cap(e: Env, caller: Address, asset: Address, amount: i
     cvlr_assert!(post_borrowed <= borrow_cap);
 }
 
-/// `actual = scaled * index / RAY` reconstruction property (INVARIANTS §1.3).
+/// Scaled balances reconstruct to actual balances at the current index.
 #[rule]
 fn scaled_to_actual_reconstruction(e: Env) {
     let scaled: i128 = cvlr::nondet::nondet();
