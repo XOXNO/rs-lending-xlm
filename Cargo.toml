@@ -6,6 +6,8 @@ members = [
     "contracts/pool",
     "contracts/controller",
     "contracts/flash-loan-receiver",
+    "contracts/mock-oracle",
+    "contracts/mock-redstone",
     "verification/test-harness",
 ]
 exclude = ["verification/fuzz", "vendor"]
