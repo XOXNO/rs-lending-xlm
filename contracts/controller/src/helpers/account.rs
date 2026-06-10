@@ -75,6 +75,24 @@ fn check_assets_side(
     scaled_for: impl Fn(&Address) -> Option<Ray>,
     floor_for: impl Fn(&common::types::AssetConfig) -> i128,
 ) {
+    // Prefetch only what `check_position` will actually price: open positions
+    // on markets with a non-zero floor.
+    let mut priceable: Vec<Address> = Vec::new(env);
+    for asset in assets.iter() {
+        let Some(scaled) = scaled_for(&asset) else {
+            continue;
+        };
+        if scaled == Ray::ZERO {
+            continue;
+        }
+        let cfg = cache.cached_asset_config(&asset);
+        if floor_for(&cfg) == 0 {
+            continue;
+        }
+        priceable.push_back(asset);
+    }
+    crate::oracle::prefetch_redstone_feeds(cache, &priceable);
+
     for asset in assets.iter() {
         let Some(scaled) = scaled_for(&asset) else {
             continue;

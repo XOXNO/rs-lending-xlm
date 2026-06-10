@@ -80,3 +80,40 @@ fn test_borrow_hf_uses_one_bulk_redstone_call() {
         "no per-feed RedStone calls when bulk prefetch covers the set"
     );
 }
+
+#[test]
+fn test_multi_asset_supply_dust_check_uses_one_bulk_call() {
+    // Two RedStone-anchored markets on the SAME adapter; a pure supply (no
+    // debt → no HF body) triggers only the dust gate, which must dispatch
+    // exactly one bulk call for both assets.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Both presets use DEFAULT_ASSET_CONFIG where min_collat_floor_usd_wad =
+    // MIN_DUST_FLOOR_WAD (non-zero), so the dust gate will price both assets.
+    let redstone = setup_redstone_feeds(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+
+    let rs = redstone_client(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    // Supply both assets in one controller call — no debt means HF is
+    // skipped; the dust gate is the sole price consumer.
+    t.supply_bulk(ALICE, &[("USDC", 100.0), ("ETH", 1.0)]);
+
+    let rs = redstone_client(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        1,
+        "dust gate must bulk-fetch RedStone feeds once"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        0,
+        "no per-feed RedStone calls when bulk prefetch covers the dust scope"
+    );
+}
