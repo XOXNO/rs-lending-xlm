@@ -3,7 +3,8 @@
 
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, PositionMode,
+    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView,
+    PositionMode,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
@@ -22,8 +23,17 @@ pub trait ControllerInterface {
     /// Borrows assets after collateral, health-factor, cap, and oracle checks.
     fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>);
 
-    /// Withdraws collateral and rejects post-state LTV or health-factor violations.
-    fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>);
+    /// Withdraws collateral and rejects post-state LTV or health-factor
+    /// violations. Tokens go to `to` when provided, else to `caller`; returns
+    /// the actual amount paid per deduped asset (amount `0` closes the
+    /// position and pays its floor-rounded value).
+    fn withdraw(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        withdrawals: Vec<(Address, i128)>,
+        to: Option<Address>,
+    ) -> Vec<(Address, i128)>;
 
     /// Repays debt for an account; account ownership is not required.
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>);
@@ -155,4 +165,17 @@ pub trait ControllerInterface {
 
     /// Returns collateral value counted toward LTV, in USD WAD.
     fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128;
+
+    /// Returns the largest `withdraw` amount of `asset` currently executable
+    /// for `account_id` (position, pool cash, max-utilization cap, LTV/HF
+    /// gates, dust floor); `0` while paused.
+    fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128;
+
+    /// Returns remaining supply-cap headroom for `asset` in asset units;
+    /// `i128::MAX` when uncapped, `0` while paused or market not active.
+    fn max_supply(env: Env, asset: Address) -> i128;
+
+    /// Returns supply/borrow indexes accrued to the current ledger timestamp;
+    /// reads no oracle.
+    fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw;
 }

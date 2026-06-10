@@ -187,7 +187,7 @@ fn test_account_owner_verified() {
 
     let ctrl = t.ctrl_client();
     let withdrawals = soroban_sdk::vec![&t.env, (usdc_addr, 10_000_000_000i128)];
-    let result = ctrl.try_withdraw(&bob_addr, &alice_account_id, &withdrawals);
+    let result = ctrl.try_withdraw(&bob_addr, &alice_account_id, &withdrawals, &None);
     assert!(
         result.is_err() || result.unwrap().is_err(),
         "BOB should not be able to withdraw from ALICE's account"

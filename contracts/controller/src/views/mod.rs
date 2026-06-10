@@ -10,7 +10,8 @@
 use common::constants::WAD;
 use common::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexView, Payment, PaymentTuple,
+    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, Payment,
+    PaymentTuple,
 };
 use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 
@@ -19,6 +20,7 @@ mod aggregates;
 #[cfg(feature = "certora")]
 #[path = "../../../../verification/certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
+mod limits;
 // Certora swaps the pure position-iteration aggregates for summary re-exports
 // defined in shared/summaries/mod.rs.
 
@@ -107,6 +109,30 @@ impl Controller {
     pub fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128 {
         ltv_collateral_in_usd(&env, account_id)
     }
+
+    /// Largest `withdraw` amount of `asset` the next transaction can execute
+    /// for `account_id`: bounded by the position, pool cash, the market's
+    /// max-utilization cap, the account's LTV/HF gates, and the dust floor.
+    /// Returns `0` while paused. A result equal to the full position value
+    /// closes the position (paid amount is its floor rounding).
+    pub fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128 {
+        limits::max_withdraw(&env, account_id, &asset)
+    }
+
+    /// Remaining supply-cap headroom for `asset` in asset units; `i128::MAX`
+    /// when no cap is configured, `0` while paused or when the market is not
+    /// active. Account-level gates (position limits, isolation, e-mode, the
+    /// dust floor on new positions) are not included.
+    pub fn max_supply(env: Env, asset: Address) -> i128 {
+        limits::max_supply(&env, &asset)
+    }
+
+    /// Supply and borrow indexes accrued to the current ledger timestamp.
+    /// Reads no oracle, so it stays callable under any oracle outage.
+    pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
+        let mut cache = Cache::new_view(&env);
+        MarketIndexRaw::from(&cache.cached_market_index(&asset))
+    }
 }
 
 pub fn health_factor(env: &Env, account_id: u64) -> i128 {
@@ -135,12 +161,14 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let feed = cache.cached_price(asset);
+    // Decimals come from pool params, not the price feed, so balance reads
+    // never depend on oracle liveness.
+    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     position
         .scaled_amount
         .mul(env, market_index.supply_index)
-        .to_asset(feed.asset_decimals)
+        .to_asset(decimals)
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
@@ -151,12 +179,14 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let feed = cache.cached_price(asset);
+    // Decimals come from pool params, not the price feed, so debt reads
+    // never depend on oracle liveness.
+    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     position
         .scaled_amount
         .mul(env, market_index.borrow_index)
-        .to_asset(feed.asset_decimals)
+        .to_asset(decimals)
 }
 
 /// Returns raw scaled supply and debt maps for `account_id`.

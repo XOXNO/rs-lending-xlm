@@ -11,7 +11,7 @@ use crate::cache::Cache;
 use crate::interest;
 
 pub(crate) use common::validation::{
-    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
+    cap_is_enabled, require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 pub(crate) fn renew_pool_instance(env: &Env) {
@@ -34,10 +34,6 @@ pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
         TTL_THRESHOLD_SHARED,
         TTL_BUMP_SHARED,
     );
-}
-
-pub(crate) fn cap_is_enabled(cap: i128) -> bool {
-    cap > 0 && cap != i128::MAX
 }
 
 /// Rejects a supply that would put current underlying supply above the cap.

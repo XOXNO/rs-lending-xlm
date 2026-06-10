@@ -48,22 +48,39 @@ impl WithdrawFlags {
 
 #[contractimpl]
 impl Controller {
+    /// Withdrawn tokens go to `to` when provided, else to `caller`; the owner
+    /// stays the auth subject either way. Returns the actual amount paid per
+    /// deduped asset (a full close pays the floor-rounded position value).
     #[when_not_paused]
-    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>) {
-        process_withdraw(&env, &caller, account_id, &withdrawals);
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        withdrawals: Vec<(Address, i128)>,
+        to: Option<Address>,
+    ) -> Vec<(Address, i128)> {
+        process_withdraw(&env, &caller, account_id, &withdrawals, to)
     }
 }
 
 /// Withdraws collateral and re-checks LTV, health factor, and touched-asset dust.
 ///
 /// User amount `0` maps to the pool's `i128::MAX` full-withdraw sentinel.
-pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
+pub fn process_withdraw(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    withdrawals: &Vec<Payment>,
+    to: Option<Address>,
+) -> Vec<Payment> {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
+
+    let recipient = to.unwrap_or_else(|| caller.clone());
 
     let policy = if account.borrow_positions.is_empty() {
         OraclePolicy::RiskDecreasing
@@ -74,8 +91,11 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
 
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let withdrawal_plan = aggregate_payments(env, withdrawals, true);
+    let mut paid: Vec<Payment> = Vec::new(env);
     for (asset, amount) in withdrawal_plan.iter() {
-        process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
+        let actual =
+            process_single_withdrawal(env, &recipient, &mut account, &asset, amount, &mut cache);
+        paid.push_back((asset, actual));
     }
 
     validation::require_within_ltv(env, &mut cache, &account);
@@ -97,16 +117,19 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     }
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
+
+    paid
 }
 
+/// Returns the actual amount the pool paid out for this asset.
 fn process_single_withdrawal(
     env: &Env,
-    caller: &Address,
+    recipient: &Address,
     account: &mut Account,
     asset: &Address,
     amount: i128,
     cache: &mut Cache,
-) {
+) -> i128 {
     // `0` means withdraw all; negative withdrawals are never valid.
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 
@@ -123,11 +146,11 @@ fn process_single_withdrawal(
         amount
     };
 
-    let _ = execute_withdrawal(
+    let result = execute_withdrawal(
         env,
         account,
         EventContext {
-            caller: caller.clone(),
+            caller: recipient.clone(),
             action: symbol_short!("withdraw"),
         },
         WithdrawalRequest {
@@ -139,6 +162,7 @@ fn process_single_withdrawal(
         WithdrawFlags::plain(),
         cache,
     );
+    result.actual_amount
 }
 
 /// Calls the pool and merges the returned scaled supply share into the account.

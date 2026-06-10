@@ -15,6 +15,7 @@ mod events;
 mod flash_loan;
 mod isolation;
 mod keeper;
+mod limits;
 mod liquidation;
 mod liquidation_boundary;
 mod liquidation_coverage;
