@@ -47,11 +47,10 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
         let Some(data) = read_price_data_bulk(&env, &adapter, &feeds) else {
             continue;
         };
-        // Lengths match (checked in read_price_data_bulk); zip by index.
+        // Lengths are equal: read_price_data_bulk returns Some only when
+        // data.len() == feeds.len().
         for (i, feed_id) in feeds.iter().enumerate() {
-            if let Some(entry) = data.get(i as u32) {
-                cache.set_redstone_prefetch(&adapter, &feed_id, entry);
-            }
+            cache.set_redstone_prefetch(&adapter, &feed_id, data.get_unchecked(i as u32));
         }
     }
 }
