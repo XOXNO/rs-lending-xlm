@@ -14,10 +14,26 @@ pub struct RedStonePriceData {
 #[contracttype]
 pub enum MockKey {
     PriceData(String),
+    SingleCalls,
+    BulkCalls,
 }
 
 #[contract]
 pub struct MockRedStonePriceFeed;
+
+impl MockRedStonePriceFeed {
+    fn bump(env: &Env, key: MockKey) {
+        let n: u32 = env.storage().temporary().get(&key).unwrap_or(0);
+        env.storage().temporary().set(&key, &(n + 1));
+    }
+
+    fn get_feed(env: &Env, feed_id: String) -> Result<RedStonePriceData, Error> {
+        env.storage()
+            .temporary()
+            .get(&MockKey::PriceData(feed_id))
+            .ok_or_else(|| Error::from_contract_error(GenericError::InvalidTicker as u32))
+    }
+}
 
 #[contractimpl]
 impl MockRedStonePriceFeed {
@@ -45,32 +61,45 @@ impl MockRedStonePriceFeed {
     }
 
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
-        env.storage()
-            .temporary()
-            .get(&MockKey::PriceData(feed_id))
-            .ok_or_else(|| Error::from_contract_error(GenericError::InvalidTicker as u32))
+        Self::bump(&env, MockKey::SingleCalls);
+        Self::get_feed(&env, feed_id)
     }
 
     pub fn read_price_data(
         env: Env,
         feed_ids: Vec<String>,
     ) -> Result<Vec<RedStonePriceData>, Error> {
+        Self::bump(&env, MockKey::BulkCalls);
         let mut values = Vec::new(&env);
         for feed_id in feed_ids.iter() {
-            values.push_back(Self::read_price_data_for_feed(env.clone(), feed_id)?);
+            values.push_back(Self::get_feed(&env, feed_id)?);
         }
         Ok(values)
     }
 
     pub fn read_prices(env: Env, feed_ids: Vec<String>) -> Result<Vec<U256>, Error> {
         let mut prices = Vec::new(&env);
-        for data in Self::read_price_data(env, feed_ids)?.iter() {
-            prices.push_back(data.price);
+        for feed_id in feed_ids.iter() {
+            prices.push_back(Self::get_feed(&env, feed_id)?.price);
         }
         Ok(prices)
     }
 
     pub fn read_timestamp(env: Env, feed_id: String) -> Result<u64, Error> {
-        Ok(Self::read_price_data_for_feed(env, feed_id)?.package_timestamp)
+        Ok(Self::get_feed(&env, feed_id)?.package_timestamp)
+    }
+
+    pub fn single_calls(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::SingleCalls)
+            .unwrap_or(0)
+    }
+
+    pub fn bulk_calls(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&MockKey::BulkCalls)
+            .unwrap_or(0)
     }
 }
