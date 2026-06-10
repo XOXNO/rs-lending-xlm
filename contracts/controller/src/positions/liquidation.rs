@@ -172,7 +172,6 @@ fn apply_liquidation_repayments(
                 asset: &entry.asset,
                 position: &position,
                 amount: entry.amount,
-                price: Wad::from(entry.feed.price_wad),
             },
             cache,
         );
@@ -198,7 +197,6 @@ fn apply_liquidation_seizures(
                 asset: &entry.asset,
                 amount: entry.amount,
                 position: &position,
-                price: Wad::from(entry.feed.price_wad),
             },
             WithdrawFlags {
                 is_liquidation: true,
@@ -405,8 +403,7 @@ fn seize_pool_position(
     asset: &Address,
     position: ScaledPositionRaw,
 ) {
-    let feed = cache.cached_price(asset);
     let pool_addr = cache.cached_pool_address();
     let result = pool_seize_position_call(env, &pool_addr, asset, side, position);
-    cache.record_market_update_with_price(&result.market_state, Some(feed.price.raw()));
+    cache.record_market_update(&result.market_state);
 }

@@ -56,6 +56,7 @@ pub mod codes {
     pub const ASSET_DECIMALS_TOO_HIGH: u32 = CollateralError::AssetDecimalsTooHigh as u32;
 
     // OracleError
+    pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
     pub const UNSAFE_PRICE: u32 = OracleError::UnsafePriceNotAllowed as u32;
     pub const PRICE_FEED_STALE: u32 = OracleError::PriceFeedStale as u32;
     pub const BAD_FIRST_TOLERANCE: u32 = OracleError::BadFirstTolerance as u32;

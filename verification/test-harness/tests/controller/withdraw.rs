@@ -366,3 +366,48 @@ fn test_withdraw_returns_actual_amounts_on_full_close() {
     );
     assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
 }
+// 17. test_withdraw_full_exit_works_with_broken_oracle
+
+/// A debt-free full exit must never touch the oracle: no risk check needs a
+/// price (LTV/HF skip on empty borrows, dust skips closed positions) and event
+/// prices are backfilled only from prices already fetched. Self-rescue holds
+/// even when the feed is bricked.
+#[test]
+fn test_withdraw_full_exit_works_with_broken_oracle() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    // Any price resolution now panics with InvalidPrice (price 0).
+    t.set_price("USDC", 0);
+
+    t.withdraw_all(ALICE, "USDC");
+
+    t.assert_balance_eq(ALICE, "USDC", 10_000.0);
+    let accounts = t.get_active_accounts(ALICE);
+    assert_eq!(accounts.len(), 0, "empty account should be auto-removed");
+}
+// 18. test_withdraw_with_debt_still_requires_oracle
+
+/// The oracle-free exit applies only to debt-free accounts: with debt, the
+/// post-withdraw LTV/HF valuation must still resolve prices and revert when
+/// the feed is unusable.
+#[test]
+fn test_withdraw_with_debt_still_requires_oracle() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 0.5);
+
+    t.set_price("USDC", 0);
+
+    let result = t.try_withdraw(ALICE, "USDC", 100.0);
+    assert_contract_error(result, errors::INVALID_PRICE);
+}

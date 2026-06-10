@@ -6,7 +6,6 @@
 use common::errors::{CollateralError, EModeError};
 use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
-    PriceFeed,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec,
@@ -28,7 +27,6 @@ struct BorrowUpdate {
     index: i128,
     amount: i128,
     position: DebtPosition,
-    price_wad: i128,
 }
 
 #[contractimpl]
@@ -56,9 +54,7 @@ pub fn create_borrow_strategy(
     validate_siloed_borrow_set(env, cache, account, &new_borrows);
     validate_borrow_asset_preflight(env, cache, &debt_config, debt_token, account);
 
-    let price_feed = cache.cached_price(debt_token);
-
-    add_isolated_debt(env, cache, account, amount, &price_feed);
+    add_isolated_debt(env, cache, account, debt_token, amount);
 
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
@@ -72,7 +68,7 @@ pub fn create_borrow_strategy(
     };
     let result =
         pool_create_strategy_call(env, &pool_addr, action, flash_fee, debt_config.borrow_cap);
-    cache.record_market_update_with_price(&result.market_state, Some(price_feed.price.raw()));
+    cache.record_market_update(&result.market_state);
     record_borrow_update(
         account,
         debt_token,
@@ -81,7 +77,6 @@ pub fn create_borrow_strategy(
             index: result.market_index.borrow_index_ray,
             amount: result.actual_amount,
             position: (&result.position).into(),
-            price_wad: price_feed.price.raw(),
         },
         cache,
     );
@@ -191,8 +186,7 @@ fn prepare_borrow_plan(
             (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
         validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
 
-        let feed = cache.cached_price(&asset);
-        add_isolated_debt(env, cache, account, amount, &feed);
+        add_isolated_debt(env, cache, account, &asset, amount);
     }
 }
 
@@ -235,7 +229,6 @@ fn execute_borrow_plan(
     for (asset, amount) in assets {
         let asset_config: AssetConfig =
             (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
-        let feed = cache.cached_price(&asset);
 
         update_borrow_position(
             env,
@@ -244,7 +237,6 @@ fn execute_borrow_plan(
                 asset: &asset,
                 amount,
                 config: &asset_config,
-                feed: &feed,
             },
             caller,
             cache,
@@ -257,7 +249,6 @@ struct BorrowRequest<'a> {
     asset: &'a Address,
     amount: i128,
     config: &'a AssetConfig,
-    feed: &'a PriceFeed,
 }
 
 fn update_borrow_position(
@@ -277,7 +268,7 @@ fn update_borrow_position(
         asset: req.asset.clone(),
     };
     let result = pool_borrow_call(env, &pool_addr, action, req.config.borrow_cap);
-    cache.record_market_update_with_price(&result.market_state, Some(req.feed.price.raw()));
+    cache.record_market_update(&result.market_state);
 
     record_borrow_update(
         account,
@@ -287,7 +278,6 @@ fn update_borrow_position(
             index: result.market_index.borrow_index_ray,
             amount: result.actual_amount,
             position: (&result.position).into(),
-            price_wad: req.feed.price.raw(),
         },
         cache,
     );
@@ -305,7 +295,6 @@ fn record_borrow_update(
         update.index,
         update.amount,
         &update.position,
-        Some(update.price_wad),
     );
     update_or_remove_debt_position(account, asset, &update.position);
 }

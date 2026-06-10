@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, Payment, PoolAction, PoolPositionMutation,
 };
@@ -27,7 +27,6 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub position: &'a AccountPosition,
-    pub price: Wad,
 }
 
 /// Liquidation-only modifiers; default is a plain withdraw.
@@ -131,8 +130,6 @@ fn process_single_withdrawal(
     // `0` means withdraw all; negative withdrawals are never valid.
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 
-    let feed = cache.cached_price(asset);
-
     let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
         Some(pos) => (&pos).into(),
         None => panic_with_error!(env, CollateralError::PositionNotFound),
@@ -155,7 +152,6 @@ fn process_single_withdrawal(
             asset,
             amount: withdraw_amount,
             position: &position,
-            price: feed.price,
         },
         WithdrawFlags::plain(),
         cache,
@@ -187,7 +183,7 @@ pub fn execute_withdrawal(
         flags.is_liquidation,
         flags.protocol_fee,
     );
-    cache.record_market_update_with_price(&result.market_state, Some(req.price.raw()));
+    cache.record_market_update(&result.market_state);
     let mut result_position = *req.position;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     if !flags.is_liquidation {
@@ -202,7 +198,6 @@ pub fn execute_withdrawal(
         result.market_index.supply_index_ray,
         result.actual_amount,
         &result_position,
-        Some(req.price.raw()),
     );
 
     result

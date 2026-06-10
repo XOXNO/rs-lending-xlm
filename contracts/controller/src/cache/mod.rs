@@ -117,18 +117,6 @@ impl Cache {
     }
 
     pub fn record_market_update(&mut self, update: &MarketStateSnapshot) {
-        self.record_market_update_with_price(update, None);
-    }
-
-    pub fn record_market_update_with_price(
-        &mut self,
-        update: &MarketStateSnapshot,
-        asset_price_wad: Option<i128>,
-    ) {
-        let mut update = update.clone();
-        if asset_price_wad.is_some() {
-            update.asset_price_wad = asset_price_wad;
-        }
         self.market_indexes.set(
             update.asset.clone(),
             MarketIndexRaw {
@@ -136,21 +124,30 @@ impl Cache {
                 supply_index_ray: update.supply_index_ray,
             },
         );
-        self.market_updates.push_back(update);
+        self.market_updates.push_back(update.clone());
+    }
+
+    /// Price already fetched this transaction, if any. Event enrichment reads
+    /// only this memo and never triggers an oracle call of its own, so flows
+    /// whose risk checks need no price (e.g. a debt-free full exit) stay
+    /// oracle-free end to end.
+    fn already_fetched_price(&self, asset: &Address) -> Option<i128> {
+        self.prices_cache.get(asset.clone()).map(|f| f.price_wad)
     }
 
     pub fn emit_market_batch(&mut self) {
         if self.market_updates.is_empty() {
             return;
         }
-        UpdateMarketStateBatchEvent {
-            updates: self.market_updates.clone(),
+        let mut updates: Vec<MarketStateSnapshot> = Vec::new(&self.env);
+        for mut snapshot in self.market_updates.iter() {
+            snapshot.asset_price_wad = self.already_fetched_price(&snapshot.asset);
+            updates.push_back(snapshot);
         }
-        .publish(&self.env);
+        UpdateMarketStateBatchEvent { updates }.publish(&self.env);
         self.market_updates = Vec::new(&self.env);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn record_position_update(
         &mut self,
         action: Symbol,
@@ -159,7 +156,6 @@ impl Cache {
         index_ray: i128,
         amount: i128,
         position: &AccountPosition,
-        asset_price_wad: Option<i128>,
     ) {
         self.position_updates.push_back(EventPositionDelta::new(
             action,
@@ -168,7 +164,6 @@ impl Cache {
             index_ray,
             amount,
             position,
-            asset_price_wad,
         ));
     }
 
@@ -179,7 +174,6 @@ impl Cache {
         index_ray: i128,
         amount: i128,
         position: &DebtPosition,
-        asset_price_wad: Option<i128>,
     ) {
         self.position_updates
             .push_back(EventPositionDelta::new_debt(
@@ -188,7 +182,6 @@ impl Cache {
                 index_ray,
                 amount,
                 position,
-                asset_price_wad,
             ));
     }
 
@@ -196,10 +189,15 @@ impl Cache {
         if self.position_updates.is_empty() {
             return;
         }
+        let mut updates: Vec<EventPositionDelta> = Vec::new(&self.env);
+        for mut delta in self.position_updates.iter() {
+            delta.asset_price_wad = self.already_fetched_price(&delta.asset);
+            updates.push_back(delta);
+        }
         UpdatePositionBatchEvent {
             account_id,
             account_attributes: account.into(),
-            updates: self.position_updates.clone(),
+            updates,
         }
         .publish(&self.env);
         self.position_updates = Vec::new(&self.env);

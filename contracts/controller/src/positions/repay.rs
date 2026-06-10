@@ -1,5 +1,4 @@
 use common::errors::{CollateralError, GenericError};
-use common::math::fp::Wad;
 use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -18,7 +17,6 @@ pub(crate) struct RepaymentRequest<'a> {
     pub asset: &'a Address,
     pub position: &'a DebtPosition,
     pub amount: i128,
-    pub price: Wad,
 }
 
 #[contractimpl]
@@ -87,11 +85,6 @@ fn process_single_repay(
         .into();
     let actual_received = transfer_repayment_to_pool(env, caller, asset, amount, cache);
 
-    let price = if account.is_isolated {
-        cache.cached_price(asset).price
-    } else {
-        Wad::ZERO
-    };
     let _ = execute_repayment(
         env,
         account,
@@ -103,7 +96,6 @@ fn process_single_repay(
             asset,
             position: &position,
             amount: actual_received,
-            price,
         },
         cache,
     );
@@ -119,12 +111,6 @@ pub fn execute_repayment(
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
 
-    let price_opt = if req.price > Wad::ZERO {
-        Some(req.price.raw())
-    } else {
-        None
-    };
-
     let pool_addr = cache.cached_pool_address();
     let pool_action = PoolAction {
         caller: caller.clone(),
@@ -133,7 +119,7 @@ pub fn execute_repayment(
         asset: req.asset.clone(),
     };
     let result = pool_repay_call(env, &pool_addr, pool_action);
-    cache.record_market_update_with_price(&result.market_state, price_opt);
+    cache.record_market_update(&result.market_state);
 
     update_or_remove_debt_position(account, req.asset, &DebtPosition::from(&result.position));
 
@@ -148,7 +134,6 @@ pub fn execute_repayment(
         result.market_index.borrow_index_ray,
         result.actual_amount,
         &DebtPosition::from(&result.position),
-        price_opt,
     );
 
     result

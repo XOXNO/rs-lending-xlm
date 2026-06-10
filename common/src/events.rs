@@ -340,7 +340,8 @@ pub struct EventPositionDelta {
 }
 
 impl EventPositionDelta {
-    #[allow(clippy::too_many_arguments)]
+    /// `asset_price_wad` starts as `None`; the controller cache backfills it
+    /// at batch-emit time from the prices actually fetched for risk checks.
     pub fn new(
         action: Symbol,
         position_type: AccountPositionType,
@@ -348,7 +349,6 @@ impl EventPositionDelta {
         index_ray: i128,
         amount: i128,
         position: &AccountPosition,
-        asset_price_wad: Option<i128>,
     ) -> Self {
         Self {
             action,
@@ -357,7 +357,7 @@ impl EventPositionDelta {
             scaled_amount_ray: position.scaled_amount.raw(),
             index_ray,
             amount,
-            asset_price_wad,
+            asset_price_wad: None,
             liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
             liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
             loan_to_value_bps: position.loan_to_value.raw() as u32,
@@ -374,7 +374,6 @@ impl EventPositionDelta {
         index_ray: i128,
         amount: i128,
         position: &DebtPosition,
-        asset_price_wad: Option<i128>,
     ) -> Self {
         Self {
             action,
@@ -383,7 +382,7 @@ impl EventPositionDelta {
             scaled_amount_ray: position.scaled_amount.raw(),
             index_ray,
             amount,
-            asset_price_wad,
+            asset_price_wad: None,
             liquidation_threshold_bps: 0,
             liquidation_bonus_bps: 0,
             loan_to_value_bps: 0,
