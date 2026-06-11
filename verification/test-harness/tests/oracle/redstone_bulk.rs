@@ -1,7 +1,8 @@
+use common::constants::WAD;
 use soroban_sdk::{Address, String};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usdc_preset, LendingTest, ALICE, BOB,
-    DEFAULT_TOLERANCE,
+    assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE,
+    BOB, DEFAULT_TOLERANCE,
 };
 
 /// One mock adapter serving multiple feeds, registered + priced.
@@ -308,5 +309,73 @@ fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
         rs.single_calls() - single_before,
         0,
         "no per-feed RedStone calls when the entrypoint prefetch covers the set"
+    );
+}
+
+#[test]
+fn test_isolated_multi_asset_repay_uses_one_bulk_redstone_call() {
+    // An isolated account with TWO isolation-borrowable debt assets repaying
+    // both in one tx.  The isolated path in `process_single_repay` calls
+    // `cache.cached_price(asset)` for each repaid asset BEFORE the dust gate
+    // runs its own prefetch — so without an entrypoint prefetch the first asset
+    // single-resolves its feed before any bulk opportunity.
+    //
+    // With the fix (`prefetch_redstone_feeds` over plan assets at the
+    // `process_repay` entrypoint) both feeds are bulk-fetched once and the
+    // per-asset `cached_price` calls find them already resolved.
+    let ceiling = 1_000_000 * WAD;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_config("USDC", |c| {
+            c.is_isolated_asset = true;
+            c.isolation_debt_ceiling_usd_wad = ceiling;
+        })
+        .with_market(eth_preset())
+        .with_market_config("ETH", |c| {
+            c.isolation_borrow_enabled = true;
+        })
+        .with_market(wbtc_preset())
+        .with_market_config("WBTC", |c| {
+            c.isolation_borrow_enabled = true;
+        })
+        .build();
+
+    // One adapter serves all three feeds.
+    let redstone = setup_redstone_feeds(
+        &t,
+        &[("USDC", usd(1)), ("ETH", usd(2000)), ("WBTC", usd(60_000))],
+    );
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+    anchor_market_with_redstone(&t, &redstone, "WBTC");
+
+    // BOB provides ETH and WBTC liquidity.
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(BOB, "WBTC", 10.0);
+
+    // ALICE opens an isolated USDC-backed account and borrows both ETH and WBTC.
+    t.create_isolated_account(ALICE, "USDC");
+    t.supply(ALICE, "USDC", 500_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    t.borrow(ALICE, "WBTC", 0.1);
+
+    // Snapshot counters before the repay.
+    let rs = redstone_client(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    // Repay both debt assets in a single controller call.
+    t.repay_bulk(ALICE, &[("ETH", 1.0), ("WBTC", 0.1)]);
+
+    let rs = redstone_client(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        1,
+        "isolated multi-asset repay must bulk-fetch RedStone feeds once"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        0,
+        "no per-feed RedStone calls when the entrypoint prefetch covers the repay set"
     );
 }

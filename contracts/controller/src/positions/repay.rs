@@ -51,6 +51,12 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
+    // The isolated path prices each repaid asset in `process_single_repay`
+    // before the dust gate's own prefetch runs.  Bulk-fetch the plan assets
+    // here so all per-asset `cached_price` calls in the loop hit the cache
+    // rather than single-resolving separate RedStone feeds.  The dust gate's
+    // prefetch then no-ops because the collector is idempotent.
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &utils::plan_assets(env, &repayment_plan));
     for (asset, amount) in repayment_plan.iter() {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }
