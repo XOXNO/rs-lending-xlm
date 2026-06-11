@@ -379,15 +379,40 @@ pub enum PoolKey {
 
 /// Asset-scoped position payload for the central pool ABI.
 ///
-/// `caller` is the token recipient for borrow/withdraw/create_strategy and the
-/// refund target for repay; supply carries it unused (controller pre-transfers).
+/// Per-asset mutation payload for the pool position verbs. The funds
+/// counterparty (receiver/payer) is hoisted to the endpoint arguments —
+/// identical for every entry of a bulk call.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAction {
-    pub caller: Address,
     pub position: ScaledPositionRaw,
     pub amount: i128,
     pub asset: Address,
+}
+
+/// One asset of a bulk pool `supply`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolSupplyEntry {
+    pub action: PoolAction,
+    pub supply_cap: i128,
+}
+
+/// One asset of a bulk pool `borrow`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolBorrowEntry {
+    pub action: PoolAction,
+    pub borrow_cap: i128,
+}
+
+/// One asset of a bulk pool `withdraw`. The liquidation flag is per call;
+/// the protocol fee scales with each asset's value and stays per entry.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PoolWithdrawEntry {
+    pub action: PoolAction,
+    pub protocol_fee: i128,
 }
 
 /// Persistent pool accounting state.

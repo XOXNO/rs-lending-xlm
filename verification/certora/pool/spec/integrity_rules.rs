@@ -60,18 +60,58 @@ fn position(scaled_amount_ray: i128) -> ScaledPositionRaw {
     ScaledPositionRaw { scaled_amount_ray }
 }
 
-fn action(
-    caller: Address,
-    position: ScaledPositionRaw,
-    amount: i128,
-    asset: Address,
-) -> PoolAction {
+fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
     PoolAction {
-        caller,
         position,
         amount,
         asset,
     }
+}
+
+// Bulk-of-one wrappers: rules verify per-entry semantics; the bulk endpoints
+// are input-ordered loops of exactly that body.
+fn supply_first(e: &Env, act: PoolAction, cap: i128) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSupplyEntry {
+        action: act,
+        supply_cap: cap,
+    });
+    crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
+}
+
+fn borrow_first(
+    e: &Env,
+    receiver: Address,
+    act: PoolAction,
+    cap: i128,
+) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolBorrowEntry {
+        action: act,
+        borrow_cap: cap,
+    });
+    crate::LiquidityPool::borrow(e.clone(), receiver, entries).get_unchecked(0)
+}
+
+fn withdraw_first(
+    e: &Env,
+    receiver: Address,
+    act: PoolAction,
+    is_liquidation: bool,
+    protocol_fee: i128,
+) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolWithdrawEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolWithdrawEntry {
+        action: act,
+        protocol_fee,
+    });
+    crate::LiquidityPool::withdraw(e.clone(), receiver, is_liquidation, entries).get_unchecked(0)
+}
+
+fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolPositionMutation {
+    let mut actions: soroban_sdk::Vec<PoolAction> = soroban_sdk::Vec::new(e);
+    actions.push_back(act);
+    crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
 #[rule]
@@ -115,9 +155,9 @@ fn supply_preserves_nonnegative_state(e: Env, admin: Address, asset: Address, am
     );
 
     let before = position(RAY);
-    let result = crate::LiquidityPool::supply(
-        e.clone(),
-        action(admin, before.clone(), amount, asset.clone()),
+    let result = supply_first(
+        &e,
+        action(before.clone(), amount, asset.clone()),
         i128::MAX,
     );
     let state = read_state(&e, &asset);
@@ -148,9 +188,10 @@ fn borrow_preserves_nonnegative_state(
     );
 
     let before = position(0);
-    let result = crate::LiquidityPool::borrow(
-        e.clone(),
-        action(caller, before.clone(), amount, asset.clone()),
+    let result = borrow_first(
+        &e,
+        caller,
+        action(before.clone(), amount, asset.clone()),
         i128::MAX,
     );
     let state = read_state(&e, &asset);
@@ -182,8 +223,7 @@ fn withdraw_never_creates_negative_position(
     );
 
     let before = position(scaled_before);
-    let result =
-        crate::LiquidityPool::withdraw(e.clone(), action(caller, before, amount, asset), false, 0);
+    let result = withdraw_first(&e, caller, action(before, amount, asset), false, 0);
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);
 }
@@ -207,7 +247,7 @@ fn repay_never_creates_negative_debt(
     );
 
     let before = position(scaled_before);
-    let result = crate::LiquidityPool::repay(e.clone(), action(caller, before, amount, asset));
+    let result = repay_first(&e, caller, action(before, amount, asset));
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);

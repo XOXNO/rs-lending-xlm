@@ -7,8 +7,8 @@
 
 use common::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
-    ScaledPositionRaw,
+    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
+    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
@@ -19,29 +19,30 @@ pub(crate) fn pool_create_market_call(env: &Env, pool_addr: &Address, params: &M
 pub(crate) fn pool_supply_call(
     env: &Env,
     pool_addr: &Address,
-    action: PoolAction,
-    supply_cap: i128,
-) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).supply(&action, &supply_cap)
+    entries: &Vec<PoolSupplyEntry>,
+) -> Vec<PoolPositionMutation> {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).supply(entries)
 }
 
 pub(crate) fn pool_borrow_call(
     env: &Env,
     pool_addr: &Address,
-    action: PoolAction,
-    borrow_cap: i128,
-) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).borrow(&action, &borrow_cap)
+    receiver: &Address,
+    entries: &Vec<PoolBorrowEntry>,
+) -> Vec<PoolPositionMutation> {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).borrow(receiver, entries)
 }
 
 pub(crate) fn pool_create_strategy_call(
     env: &Env,
     pool_addr: &Address,
+    receiver: &Address,
     action: PoolAction,
     fee: i128,
     borrow_cap: i128,
 ) -> PoolStrategyMutation {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).create_strategy(
+        receiver,
         &action,
         &fee,
         &borrow_cap,
@@ -51,23 +52,24 @@ pub(crate) fn pool_create_strategy_call(
 pub(crate) fn pool_withdraw_call(
     env: &Env,
     pool_addr: &Address,
-    action: PoolAction,
+    receiver: &Address,
     is_liquidation: bool,
-    protocol_fee: i128,
-) -> PoolPositionMutation {
+    entries: &Vec<PoolWithdrawEntry>,
+) -> Vec<PoolPositionMutation> {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).withdraw(
-        &action,
+        receiver,
         &is_liquidation,
-        &protocol_fee,
+        entries,
     )
 }
 
 pub(crate) fn pool_repay_call(
     env: &Env,
     pool_addr: &Address,
-    action: PoolAction,
-) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(&action)
+    payer: &Address,
+    actions: &Vec<PoolAction>,
+) -> Vec<PoolPositionMutation> {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).repay(payer, actions)
 }
 
 pub(crate) fn pool_seize_position_call(

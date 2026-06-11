@@ -5,6 +5,7 @@
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{
+    PoolBorrowEntry,
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
 };
 use soroban_sdk::{
@@ -61,13 +62,18 @@ pub fn create_borrow_strategy(
 
     let pool_addr = cache.cached_pool_address();
     let action = PoolAction {
-        caller: env.current_contract_address(),
         position: (&borrow_position).into(),
         amount,
         asset: debt_token.clone(),
     };
-    let result =
-        pool_create_strategy_call(env, &pool_addr, action, flash_fee, debt_config.borrow_cap);
+    let result = pool_create_strategy_call(
+        env,
+        &pool_addr,
+        &env.current_contract_address(),
+        action,
+        flash_fee,
+        debt_config.borrow_cap,
+    );
     cache.record_market_update(&result.market_state);
     record_borrow_update(
         account,
@@ -236,61 +242,40 @@ fn execute_borrow_plan(
     cache: &mut Cache,
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
+    // Build the whole plan's entries, make ONE pool call, then merge results
+    // input-ordered — one cross-contract frame instead of one per asset.
+    let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (asset, amount) in assets {
         let asset_config: AssetConfig =
             (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
-
-        update_borrow_position(
-            env,
-            account,
-            BorrowRequest {
-                asset: &asset,
+        let borrow_position = account.get_or_create_debt_position(&asset);
+        entries.push_back(PoolBorrowEntry {
+            action: PoolAction {
+                position: (&borrow_position).into(),
                 amount,
-                config: &asset_config,
+                asset: asset.clone(),
             },
-            caller,
+            borrow_cap: asset_config.borrow_cap,
+        });
+    }
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_borrow_call(env, &pool_addr, caller, &entries);
+
+    for (i, entry) in entries.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        cache.record_market_update(&result.market_state);
+        record_borrow_update(
+            account,
+            &entry.action.asset,
+            BorrowUpdate {
+                action: common::events::PositionAction::Borrow,
+                index: result.market_index.borrow_index_ray,
+                amount: result.actual_amount,
+                position: (&result.position).into(),
+            },
             cache,
         );
     }
-}
-
-/// Inputs for a single borrow-position update.
-struct BorrowRequest<'a> {
-    asset: &'a Address,
-    amount: i128,
-    config: &'a AssetConfig,
-}
-
-fn update_borrow_position(
-    env: &Env,
-    account: &mut Account,
-    req: BorrowRequest<'_>,
-    caller: &Address,
-    cache: &mut Cache,
-) {
-    let borrow_position = account.get_or_create_debt_position(req.asset);
-
-    let pool_addr = cache.cached_pool_address();
-    let action = PoolAction {
-        caller: caller.clone(),
-        position: (&borrow_position).into(),
-        amount: req.amount,
-        asset: req.asset.clone(),
-    };
-    let result = pool_borrow_call(env, &pool_addr, action, req.config.borrow_cap);
-    cache.record_market_update(&result.market_state);
-
-    record_borrow_update(
-        account,
-        req.asset,
-        BorrowUpdate {
-            action: common::events::PositionAction::Borrow,
-            index: result.market_index.borrow_index_ray,
-            amount: result.actual_amount,
-            position: (&result.position).into(),
-        },
-        cache,
-    );
 }
 
 fn record_borrow_update(

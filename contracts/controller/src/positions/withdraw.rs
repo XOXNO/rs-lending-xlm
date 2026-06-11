@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, Payment, PoolAction, PoolPositionMutation,
+    Account, AccountPosition, Payment, PoolAction, PoolPositionMutation, PoolWithdrawEntry,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
@@ -113,11 +113,46 @@ pub fn process_withdraw(
     };
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
 
-    let mut paid: Vec<Payment> = Vec::new(env);
+    // Build the whole plan's entries, make ONE pool call, then merge results
+    // input-ordered — one cross-contract frame instead of one per asset.
+    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (asset, amount) in withdrawal_plan.iter() {
-        let actual =
-            process_single_withdrawal(env, &recipient, &mut account, &asset, amount, &mut cache);
-        paid.push_back((asset, actual));
+        // `0` means withdraw all; negative withdrawals are never valid.
+        assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
+        let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
+            Some(pos) => (&pos).into(),
+            None => panic_with_error!(env, CollateralError::PositionNotFound),
+        };
+        let withdraw_amount = if amount == 0 {
+            WITHDRAW_ALL_SENTINEL
+        } else {
+            amount
+        };
+        entries.push_back(PoolWithdrawEntry {
+            action: PoolAction {
+                position: (&position).into(),
+                amount: withdraw_amount,
+                asset: asset.clone(),
+            },
+            protocol_fee: 0,
+        });
+    }
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_withdraw_call(env, &pool_addr, &recipient, false, &entries);
+
+    let mut paid: Vec<Payment> = Vec::new(env);
+    for (i, entry) in entries.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        finish_withdrawal(
+            env,
+            &mut account,
+            common::events::PositionAction::Withdraw,
+            &entry.action.asset,
+            false,
+            &result,
+            &mut cache,
+        );
+        paid.push_back((entry.action.asset.clone(), result.actual_amount));
     }
 
     validation::require_within_ltv(env, &mut cache, &account);
@@ -138,48 +173,9 @@ pub fn process_withdraw(
     paid
 }
 
-/// Returns the actual amount the pool paid out for this asset.
-fn process_single_withdrawal(
-    env: &Env,
-    recipient: &Address,
-    account: &mut Account,
-    asset: &Address,
-    amount: i128,
-    cache: &mut Cache,
-) -> i128 {
-    // `0` means withdraw all; negative withdrawals are never valid.
-    assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
-
-    let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
-        Some(pos) => (&pos).into(),
-        None => panic_with_error!(env, CollateralError::PositionNotFound),
-    };
-
-    let withdraw_amount = if amount == 0 {
-        WITHDRAW_ALL_SENTINEL
-    } else {
-        amount
-    };
-
-    let result = execute_withdrawal(
-        env,
-        account,
-        EventContext {
-            caller: recipient.clone(),
-            action: common::events::PositionAction::Withdraw,
-        },
-        WithdrawalRequest {
-            asset,
-            amount: withdraw_amount,
-            position: &position,
-        },
-        WithdrawFlags::plain(),
-        cache,
-    );
-    result.actual_amount
-}
-
-/// Calls the pool and merges the returned scaled supply share into the account.
+/// Single-asset wrapper over the bulk pool withdraw — used by strategies and
+/// account-close paths where one asset moves per call (bulk-of-one costs the
+/// same frame as the old single endpoint).
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,
@@ -190,34 +186,55 @@ pub fn execute_withdrawal(
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
     let pool_addr = cache.cached_pool_address();
-    let pool_action = PoolAction {
-        caller: caller.clone(),
-        position: req.position.into(),
-        amount: req.amount,
-        asset: req.asset.clone(),
-    };
-    let result = pool_withdraw_call(
+    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
+    entries.push_back(PoolWithdrawEntry {
+        action: PoolAction {
+            position: req.position.into(),
+            amount: req.amount,
+            asset: req.asset.clone(),
+        },
+        protocol_fee: flags.protocol_fee,
+    });
+    let results = pool_withdraw_call(env, &pool_addr, &caller, flags.is_liquidation, &entries);
+    let result = validation::expect_invariant(env, results.get(0));
+    finish_withdrawal(
         env,
-        &pool_addr,
-        pool_action,
+        account,
+        action,
+        req.asset,
         flags.is_liquidation,
-        flags.protocol_fee,
+        &result,
+        cache,
     );
+    result
+}
+
+/// Merges one pool withdraw result back into the account and event buffers.
+pub(crate) fn finish_withdrawal(
+    env: &Env,
+    account: &mut Account,
+    action: common::events::PositionAction,
+    asset: &Address,
+    is_liquidation: bool,
+    result: &PoolPositionMutation,
+    cache: &mut Cache,
+) {
     cache.record_market_update(&result.market_state);
-    let mut result_position = *req.position;
+    let mut result_position: AccountPosition = match account.supply_positions.get(asset.clone()) {
+        Some(pos) => (&pos).into(),
+        None => panic_with_error!(env, CollateralError::PositionNotFound),
+    };
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-    if !flags.is_liquidation {
-        refresh_supply_risk_params_for_asset(env, cache, account, req.asset, &mut result_position);
+    if !is_liquidation {
+        refresh_supply_risk_params_for_asset(env, cache, account, asset, &mut result_position);
     }
-    update_or_remove_supply_position(account, req.asset, &result_position);
+    update_or_remove_supply_position(account, asset, &result_position);
 
     cache.record_position_update(
         action,
-        req.asset,
+        asset,
         result.market_index.supply_index_ray,
         result.actual_amount,
         &result_position,
     );
-
-    result
 }

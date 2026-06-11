@@ -18,8 +18,8 @@ use common::math::fp::Ray;
 use common::rates::{simulate_update_indexes, update_supply_index};
 use common::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolKey, PoolPositionMutation, PoolStateRaw,
-    PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
+    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolKey, PoolPositionMutation, PoolStateRaw,
+    PoolStrategyMutation, PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
@@ -45,9 +45,134 @@ use utils::{
 
 fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
     renew_pool_instance(env);
+    synced_market_cache(env, asset)
+}
+
+/// Market cache accrued to now, WITHOUT the instance-TTL renewal — bulk
+/// endpoints renew once per call, not once per entry.
+fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
     let mut cache = Cache::load(env, asset);
     interest::global_sync(env, &mut cache);
     cache
+}
+
+fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> PoolPositionMutation {
+    let PoolAction {
+        position,
+        amount,
+        asset,
+    } = entry.action.clone();
+    require_nonneg_amount(env, amount);
+    let mut cache = synced_market_cache(env, &asset);
+
+    let mut scaled = Ray::from(position.scaled_amount_ray);
+    let scaled_amount = cache.calculate_scaled_supply(amount);
+
+    enforce_supply_cap(env, &cache, scaled_amount, entry.supply_cap);
+
+    scaled += scaled_amount;
+    cache.supplied += scaled_amount;
+    // Controller already transferred `amount` into the pool before this call.
+    cache.cash += amount;
+
+    cache.save();
+    cache.position_mutation(scaled, amount)
+}
+
+fn borrow_one(env: &Env, receiver: &Address, entry: &PoolBorrowEntry) -> PoolPositionMutation {
+    let PoolAction {
+        position,
+        amount,
+        asset,
+    } = entry.action.clone();
+    require_nonneg_amount(env, amount);
+    let mut cache = synced_market_cache(env, &asset);
+
+    cache.require_reserves(amount);
+
+    let mut scaled = Ray::from(position.scaled_amount_ray);
+    let scaled_debt = cache.calculate_scaled_borrow(amount);
+
+    enforce_borrow_cap(env, &cache, scaled_debt, entry.borrow_cap);
+
+    scaled += scaled_debt;
+    cache.borrowed += scaled_debt;
+    // Borrow cannot leave the pool above its max-utilization cap.
+    utils::require_utilization_below_max(env, &cache);
+    cache.cash -= amount;
+
+    // CEI: snapshot + commit before external call.
+    cache.save();
+    cache.transfer_out(receiver, amount);
+    cache.position_mutation(scaled, amount)
+}
+
+fn withdraw_one(
+    env: &Env,
+    receiver: &Address,
+    is_liquidation: bool,
+    entry: &PoolWithdrawEntry,
+) -> PoolPositionMutation {
+    let PoolAction {
+        position,
+        amount,
+        asset,
+    } = entry.action.clone();
+    // Controller maps user amount `0` to this full-withdraw sentinel.
+    require_nonneg_amount(env, amount);
+    require_nonneg_amount(env, entry.protocol_fee);
+    let mut cache = synced_market_cache(env, &asset);
+
+    let mut scaled = Ray::from(position.scaled_amount_ray);
+    let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
+
+    let net_transfer = apply_liquidation_fee(
+        env,
+        &mut cache,
+        gross_amount,
+        is_liquidation,
+        entry.protocol_fee,
+    );
+
+    cache.require_reserves(net_transfer);
+
+    cache.supplied.checked_sub_assign(env, scaled_withdrawal);
+    scaled = scaled.checked_sub(env, scaled_withdrawal);
+
+    // User withdrawals cannot leave the pool above max utilization.
+    if !is_liquidation {
+        utils::require_utilization_below_max(env, &cache);
+    }
+    utils::require_solvent_withdraw_state(env, &cache);
+    cache.cash -= net_transfer;
+
+    // CEI: snapshot + commit before external call.
+    cache.save();
+    cache.transfer_out(receiver, net_transfer);
+    cache.position_mutation(scaled, gross_amount)
+}
+
+fn repay_one(env: &Env, payer: &Address, action: &PoolAction) -> PoolPositionMutation {
+    let PoolAction {
+        position,
+        amount,
+        asset,
+    } = action.clone();
+    require_nonneg_amount(env, amount);
+    let mut cache = synced_market_cache(env, &asset);
+
+    let mut scaled = Ray::from(position.scaled_amount_ray);
+    let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
+
+    scaled = scaled.checked_sub(env, scaled_repay);
+    cache.borrowed.checked_sub_assign(env, scaled_repay);
+    // Controller moved `amount` in; the `overpayment` is refunded below.
+    cache.cash += amount - overpayment;
+
+    // CEI: snapshot + commit before external call.
+    cache.save();
+    cache.transfer_out(payer, overpayment);
+    cache.position_mutation(scaled, amount - overpayment)
 }
 
 #[contract]
@@ -99,126 +224,49 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn supply(env: Env, action: PoolAction, supply_cap: i128) -> PoolPositionMutation {
-        // `caller` is carried but unused: the controller pre-transfers the tokens.
-        let PoolAction {
-            position,
-            amount,
-            asset,
-            ..
-        } = action;
-        require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env, &asset);
-
-        let mut scaled = Ray::from(position.scaled_amount_ray);
-        let scaled_amount = cache.calculate_scaled_supply(amount);
-
-        enforce_supply_cap(&env, &cache, scaled_amount, supply_cap);
-
-        scaled += scaled_amount;
-        cache.supplied += scaled_amount;
-        // Controller already transferred `amount` into the pool before this call.
-        cache.cash += amount;
-
-        cache.save();
-        cache.position_mutation(scaled, amount)
+    fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
+        renew_pool_instance(&env);
+        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
+        for entry in entries.iter() {
+            out.push_back(supply_one(&env, &entry));
+        }
+        out
     }
 
     #[only_owner]
-    fn borrow(env: Env, action: PoolAction, borrow_cap: i128) -> PoolPositionMutation {
-        let PoolAction {
-            caller,
-            position,
-            amount,
-            asset,
-        } = action;
-        require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env, &asset);
-
-        cache.require_reserves(amount);
-
-        let mut scaled = Ray::from(position.scaled_amount_ray);
-        let scaled_debt = cache.calculate_scaled_borrow(amount);
-
-        enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
-
-        scaled += scaled_debt;
-        cache.borrowed += scaled_debt;
-        // Borrow cannot leave the pool above its max-utilization cap.
-        utils::require_utilization_below_max(&env, &cache);
-        cache.cash -= amount;
-
-        // CEI: snapshot + commit before external call.
-        cache.save();
-        cache.transfer_out(&caller, amount);
-        cache.position_mutation(scaled, amount)
+    fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>)
+        -> Vec<PoolPositionMutation> {
+        renew_pool_instance(&env);
+        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
+        for entry in entries.iter() {
+            out.push_back(borrow_one(&env, &receiver, &entry));
+        }
+        out
     }
 
     #[only_owner]
     fn withdraw(
         env: Env,
-        action: PoolAction,
+        receiver: Address,
         is_liquidation: bool,
-        protocol_fee: i128,
-    ) -> PoolPositionMutation {
-        let PoolAction {
-            caller,
-            position,
-            amount,
-            asset,
-        } = action;
-        // Controller maps user amount `0` to this full-withdraw sentinel.
-        require_nonneg_amount(&env, amount);
-        require_nonneg_amount(&env, protocol_fee);
-        let mut cache = load_synced_cache(&env, &asset);
-
-        let mut scaled = Ray::from(position.scaled_amount_ray);
-        let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
-
-        let net_transfer =
-            apply_liquidation_fee(&env, &mut cache, gross_amount, is_liquidation, protocol_fee);
-
-        cache.require_reserves(net_transfer);
-
-        cache.supplied.checked_sub_assign(&env, scaled_withdrawal);
-        scaled = scaled.checked_sub(&env, scaled_withdrawal);
-
-        // User withdrawals cannot leave the pool above max utilization.
-        if !is_liquidation {
-            utils::require_utilization_below_max(&env, &cache);
+        entries: Vec<PoolWithdrawEntry>,
+    ) -> Vec<PoolPositionMutation> {
+        renew_pool_instance(&env);
+        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
+        for entry in entries.iter() {
+            out.push_back(withdraw_one(&env, &receiver, is_liquidation, &entry));
         }
-        utils::require_solvent_withdraw_state(&env, &cache);
-        cache.cash -= net_transfer;
-
-        // CEI: snapshot + commit before external call.
-        cache.save();
-        cache.transfer_out(&caller, net_transfer);
-        cache.position_mutation(scaled, gross_amount)
+        out
     }
 
     #[only_owner]
-    fn repay(env: Env, action: PoolAction) -> PoolPositionMutation {
-        let PoolAction {
-            caller,
-            position,
-            amount,
-            asset,
-        } = action;
-        require_nonneg_amount(&env, amount);
-        let mut cache = load_synced_cache(&env, &asset);
-
-        let mut scaled = Ray::from(position.scaled_amount_ray);
-        let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
-
-        scaled = scaled.checked_sub(&env, scaled_repay);
-        cache.borrowed.checked_sub_assign(&env, scaled_repay);
-        // Controller moved `amount` in; the `overpayment` is refunded below.
-        cache.cash += amount - overpayment;
-
-        // CEI: snapshot + commit before external call.
-        cache.save();
-        cache.transfer_out(&caller, overpayment);
-        cache.position_mutation(scaled, amount - overpayment)
+    fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
+        renew_pool_instance(&env);
+        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
+        for action in actions.iter() {
+            out.push_back(repay_one(&env, &payer, &action));
+        }
+        out
     }
 
     #[only_owner]
@@ -335,16 +383,17 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn create_strategy(
         env: Env,
+        receiver: Address,
         action: PoolAction,
         fee: i128,
         borrow_cap: i128,
     ) -> PoolStrategyMutation {
         let PoolAction {
-            caller,
             position,
             amount,
             asset,
         } = action;
+        let caller = receiver;
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 

@@ -4,7 +4,7 @@ use super::*;
 use common::constants::{BPS, RAY};
 use common::types::ScaledPositionRaw;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env};
 
 #[contract]
 pub struct PoolFlashLoanReceiver;
@@ -160,13 +160,99 @@ impl TestSetup {
         LiquidityPoolClient::new(&self.env, &self.pool)
     }
 
-    fn action(&self, caller: &Address, scaled_amount_ray: i128, amount: i128) -> PoolAction {
+    fn action(&self, scaled_amount_ray: i128, amount: i128) -> PoolAction {
+        self.action_for(&self.asset, scaled_amount_ray, amount)
+    }
+
+    fn action_for(&self, asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolAction {
         PoolAction {
-            caller: caller.clone(),
             position: ScaledPositionRaw { scaled_amount_ray },
             amount,
-            asset: self.asset.clone(),
+            asset: asset.clone(),
         }
+    }
+
+    fn sup_entry(
+        &self,
+        asset: &Address,
+        scaled_amount_ray: i128,
+        amount: i128,
+        supply_cap: i128,
+    ) -> PoolSupplyEntry {
+        PoolSupplyEntry {
+            action: self.action_for(asset, scaled_amount_ray, amount),
+            supply_cap,
+        }
+    }
+
+    /// Singleton supply batch against the default market.
+    fn sup(&self, scaled_amount_ray: i128, amount: i128, supply_cap: i128) -> Vec<PoolSupplyEntry> {
+        self.sup_for(&self.asset, scaled_amount_ray, amount, supply_cap)
+    }
+
+    fn sup_for(
+        &self,
+        asset: &Address,
+        scaled_amount_ray: i128,
+        amount: i128,
+        supply_cap: i128,
+    ) -> Vec<PoolSupplyEntry> {
+        vec![
+            &self.env,
+            self.sup_entry(asset, scaled_amount_ray, amount, supply_cap),
+        ]
+    }
+
+    /// Singleton borrow batch against the default market.
+    fn bor(&self, scaled_amount_ray: i128, amount: i128, borrow_cap: i128) -> Vec<PoolBorrowEntry> {
+        vec![
+            &self.env,
+            PoolBorrowEntry {
+                action: self.action(scaled_amount_ray, amount),
+                borrow_cap,
+            },
+        ]
+    }
+
+    /// Singleton withdraw batch against the default market.
+    fn wdr(
+        &self,
+        scaled_amount_ray: i128,
+        amount: i128,
+        protocol_fee: i128,
+    ) -> Vec<PoolWithdrawEntry> {
+        vec![
+            &self.env,
+            PoolWithdrawEntry {
+                action: self.action(scaled_amount_ray, amount),
+                protocol_fee,
+            },
+        ]
+    }
+
+    /// Singleton repay batch against the default market.
+    fn ract(&self, scaled_amount_ray: i128, amount: i128) -> Vec<PoolAction> {
+        vec![&self.env, self.action(scaled_amount_ray, amount)]
+    }
+
+    /// Registers an additional funded market: fresh SAC token, minted pool
+    /// reserves, and seeded internal `cash` (mirrors `TestSetup::new`).
+    fn add_funded_market(&self) -> Address {
+        let asset = self
+            .env
+            .register_stellar_asset_contract_v2(self.admin.clone())
+            .address()
+            .clone();
+        self.client().create_market(&market_params(&asset));
+        token::StellarAssetClient::new(&self.env, &asset)
+            .mint(&self.pool, &100_000_000_000_000i128);
+        self.env.as_contract(&self.pool, || {
+            let key = PoolKey::State(asset.clone());
+            let mut state: PoolStateRaw = self.env.storage().persistent().get(&key).unwrap();
+            state.cash = 100_000_000_000_000i128;
+            self.env.storage().persistent().set(&key, &state);
+        });
+        asset
     }
 
     fn advance_time(&self, seconds: u64) {
@@ -248,7 +334,7 @@ fn test_supply() {
 
     let amount = 10_000_000_000i128;
 
-    let updated = client.supply(&t.action(&t.admin, 0, amount), &i128::MAX);
+    let updated = client.supply(&t.sup(0, amount, i128::MAX)).get_unchecked(0);
 
     assert!(
         updated.position.scaled_amount_ray > 0,
@@ -264,14 +350,16 @@ fn test_borrow() {
     let client = t.client();
 
     // Supply first.
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     // Borrow.
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
 
     let reserves_before = client.reserves(&t.asset);
-    let updated = client.borrow(&t.action(&borrower, 0, borrow_amount), &i128::MAX);
+    let updated = client
+        .borrow(&borrower, &t.bor(0, borrow_amount, i128::MAX))
+        .get_unchecked(0);
 
     assert!(
         updated.position.scaled_amount_ray > 0,
@@ -292,9 +380,7 @@ fn test_supply_cap_enforced_after_pool_sync() {
 
     let amount = 10_000_000_000i128;
 
-    let result = flatten_contract_result(
-        client.try_supply(&t.action(&t.admin, 0, amount), &(amount - 1)),
-    );
+    let result = flatten_contract_result(client.try_supply(&t.sup(0, amount, amount - 1)));
     assert_contract_error(
         result,
         common::errors::CollateralError::SupplyCapReached as u32,
@@ -306,13 +392,13 @@ fn test_borrow_cap_enforced_after_pool_sync() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
 
     let result = flatten_contract_result(
-        client.try_borrow(&t.action(&borrower, 0, borrow_amount), &(borrow_amount - 1)),
+        client.try_borrow(&borrower, &t.bor(0, borrow_amount, borrow_amount - 1)),
     );
     assert_contract_error(
         result,
@@ -325,13 +411,14 @@ fn test_strategy_borrow_cap_enforced_after_pool_sync() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let caller = Address::generate(&t.env);
     let amount = 100_0000000i128;
 
     let result = flatten_contract_result(client.try_create_strategy(
-        &t.action(&caller, 0, amount),
+        &caller,
+        &t.action(0, amount),
         &0i128,
         &(amount - 1),
     ));
@@ -348,7 +435,7 @@ fn test_borrow_rejects_when_reserves_are_insufficient() {
     let borrower = Address::generate(&t.env);
 
     let result = flatten_contract_result(
-        client.try_borrow(&t.action(&borrower, 0, 200_000_000_000_000i128), &i128::MAX),
+        client.try_borrow(&borrower, &t.bor(0, 200_000_000_000_000i128, i128::MAX)),
     );
     assert_contract_error(
         result,
@@ -361,18 +448,26 @@ fn test_withdraw() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client.supply(&t.action(&t.admin, 0, supply_amount), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, supply_amount, i128::MAX))
+        .get_unchecked(0);
 
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let user_balance_before = tok.balance(&user);
 
     let withdraw_amount = 500_0000000i128;
-    let final_pos = client.withdraw(
-        &t.action(&user, updated_pos.position.scaled_amount_ray, withdraw_amount),
-        &false,
-        &0i128,
-    );
+    let final_pos = client
+        .withdraw(
+            &user,
+            &false,
+            &t.wdr(
+                updated_pos.position.scaled_amount_ray,
+                withdraw_amount,
+                0i128,
+            ),
+        )
+        .get_unchecked(0);
 
     let user_balance_after = tok.balance(&user);
     assert!(
@@ -390,13 +485,19 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated_pos = client.supply(&t.action(&t.admin, 0, 10_000_000i128), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, 10_000_000i128, i128::MAX))
+        .get_unchecked(0);
     let user = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_withdraw(
-        &t.action(&user, updated_pos.position.scaled_amount_ray, 1_0000000i128),
+        &user,
         &true,
-        &2_0000000i128,
+        &t.wdr(
+            updated_pos.position.scaled_amount_ray,
+            1_0000000i128,
+            2_0000000i128,
+        ),
     ));
     assert_contract_error(
         result,
@@ -427,7 +528,7 @@ fn test_borrow_above_max_utilization_panics() {
     let borrower = Address::generate(&t.env);
     // Borrow > 50 % of supplied → revert with UtilizationAboveMax.
     let result =
-        flatten_contract_result(client.try_borrow(&t.action(&borrower, 0, 60_000i128), &i128::MAX));
+        flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128, i128::MAX)));
     assert_contract_error(
         result,
         common::errors::CollateralError::UtilizationAboveMax as u32,
@@ -439,10 +540,12 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated_pos = client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, 10_000_000_000i128, i128::MAX))
+        .get_unchecked(0);
 
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 99_999_990_000_000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 99_999_990_000_000i128, i128::MAX));
 
     // Reserves are tracked as `cash`; drain it below the withdrawal amount so
     // the insufficient-liquidity guard fires.
@@ -450,13 +553,13 @@ fn test_withdraw_rejects_when_reserves_are_insufficient() {
 
     let user = Address::generate(&t.env);
     let result = flatten_contract_result(client.try_withdraw(
-        &t.action(
-            &user,
+        &user,
+        &false,
+        &t.wdr(
             updated_pos.position.scaled_amount_ray,
             10_000_000_000i128,
+            0i128,
         ),
-        &false,
-        &0i128,
     ));
     assert_contract_error(
         result,
@@ -469,16 +572,18 @@ fn test_withdraw_rejects_supplied_accounting_underflow() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated_pos = client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, 10_000_000_000i128, i128::MAX))
+        .get_unchecked(0);
     t.edit_state(|state| {
         state.supplied_ray = 1;
     });
 
     let user = Address::generate(&t.env);
     let result = flatten_contract_result(client.try_withdraw(
-        &t.action(&user, updated_pos.position.scaled_amount_ray, i128::MAX),
+        &user,
         &false,
-        &0i128,
+        &t.wdr(updated_pos.position.scaled_amount_ray, i128::MAX, 0i128),
     ));
     assert_contract_error(result, common::errors::GenericError::MathOverflow as u32);
 }
@@ -487,20 +592,23 @@ fn test_repay() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     assert!(updated_borrow.position.scaled_amount_ray > 0);
 
     // Repay the exact amount; no overpayment, since no time has passed.
     let repay_amount = 100_0000000i128;
-    let final_pos = client.repay(&t.action(
-        &borrower,
-        updated_borrow.position.scaled_amount_ray,
-        repay_amount,
-    ));
+    let final_pos = client
+        .repay(
+            &borrower,
+            &t.ract(updated_borrow.position.scaled_amount_ray, repay_amount),
+        )
+        .get_unchecked(0);
 
     assert_eq!(final_pos.actual_amount, repay_amount);
     assert!(
@@ -514,17 +622,20 @@ fn test_repay_overpayment_reports_actual_applied_amount() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     let repay_amount = 200_0000000i128;
-    let final_pos = client.repay(&t.action(
-        &borrower,
-        updated_borrow.position.scaled_amount_ray,
-        repay_amount,
-    ));
+    let final_pos = client
+        .repay(
+            &borrower,
+            &t.ract(updated_borrow.position.scaled_amount_ray, repay_amount),
+        )
+        .get_unchecked(0);
 
     assert_eq!(final_pos.actual_amount, 100_0000000i128);
     assert_eq!(final_pos.position.scaled_amount_ray, 0);
@@ -534,10 +645,10 @@ fn test_interest_accrual() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 10_000_000_000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 10_000_000_000i128, i128::MAX));
 
     let initial_indexes = client.update_indexes(&t.asset);
 
@@ -560,7 +671,7 @@ fn test_flash_loan() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
 
     let receiver = t.env.register(PoolFlashLoanReceiver, ());
     let flash_amount = 100_0000000i128;
@@ -661,7 +772,7 @@ fn test_flash_loan_rejects_under_repay_with_invalid_flashloan_repay() {
     let flash_amount = 100_0000000i128;
     let flash_fee = 1_0000000i128;
 
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
 
     token::StellarAssetClient::new(&t.env, &t.asset).mint(&receiver, &flash_fee);
 
@@ -753,7 +864,8 @@ fn test_create_strategy_rejects_fee_greater_than_amount() {
     let caller = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_create_strategy(
-        &t.action(&caller, 0, 1_0000000i128),
+        &caller,
+        &t.action(0, 1_0000000i128),
         &2_0000000i128,
         &i128::MAX,
     ));
@@ -770,7 +882,8 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
     let caller = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_create_strategy(
-        &t.action(&caller, 0, 200_000_000_000_000i128),
+        &caller,
+        &t.action(0, 200_000_000_000_000i128),
         &0i128,
         &i128::MAX,
     ));
@@ -784,10 +897,12 @@ fn test_seize_position_bad_debt() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     let idx_before = client.update_indexes(&t.asset);
 
@@ -814,10 +929,12 @@ fn test_seize_position_rejects_borrowed_accounting_underflow() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     t.edit_state(|state| {
         state.borrowed_ray = 0;
@@ -835,7 +952,9 @@ fn test_seize_position_deposit_dust() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated = client.supply(&t.action(&t.admin, 0, 100_0000000i128), &i128::MAX);
+    let updated = client
+        .supply(&t.sup(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
     let seized = client.seize_position(
@@ -860,10 +979,10 @@ fn test_claim_revenue() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 10_000_000_000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 10_000_000_000i128, i128::MAX));
 
     // Advance time to accrue interest.
     t.advance_time(31_556_926);
@@ -892,7 +1011,9 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     let t = TestSetup::new();
     let client = t.client();
 
-    let oversized_supply = client.supply(&t.action(&t.admin, 0, 200_000_000_000_000i128), &i128::MAX);
+    let oversized_supply = client
+        .supply(&t.sup(0, 200_000_000_000_000i128, i128::MAX))
+        .get_unchecked(0);
     let _ = client.seize_position(
         &t.asset,
         &AccountPositionType::Deposit,
@@ -921,7 +1042,9 @@ fn test_claim_revenue_rejects_revenue_above_supplied() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let supplied = client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    let supplied = client
+        .supply(&t.sup(0, 10_000_000_000i128, i128::MAX))
+        .get_unchecked(0);
     let _ = client.seize_position(&t.asset, &AccountPositionType::Deposit, &supplied.position);
     t.edit_state(|state| {
         state.supplied_ray = 1;
@@ -1054,7 +1177,7 @@ fn test_views() {
     let util = client.capital_utilisation(&t.asset);
     assert_eq!(util, 0, "utilization should be zero initially");
 
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
 
     let supplied = client.supplied_amount(&t.asset);
     assert!(
@@ -1066,7 +1189,7 @@ fn test_views() {
     assert!(reserves > 0, "reserves should be positive");
 
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX));
 
     let borrowed = client.borrowed_amount(&t.asset);
     assert!(borrowed > 0, "borrowed_amount should be positive");
@@ -1100,7 +1223,9 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client.supply(&t.action(&t.admin, 0, supply_amount), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, supply_amount, i128::MAX))
+        .get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
 
@@ -1110,11 +1235,13 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
 
     let gross = 10_000_000_000_i128;
     let fee = 10_000_000_i128;
-    let final_pos = client.withdraw(
-        &t.action(&user, updated_pos.position.scaled_amount_ray, gross),
-        &true,
-        &fee,
-    );
+    let final_pos = client
+        .withdraw(
+            &user,
+            &true,
+            &t.wdr(updated_pos.position.scaled_amount_ray, gross, fee),
+        )
+        .get_unchecked(0);
 
     let user_balance_after = tok.balance(&user);
     assert_eq!(
@@ -1138,7 +1265,9 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client.supply(&t.action(&t.admin, 0, supply_amount), &i128::MAX);
+    let updated_pos = client
+        .supply(&t.sup(0, supply_amount, i128::MAX))
+        .get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
     let user = Address::generate(&t.env);
@@ -1146,11 +1275,13 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let user_balance_before = tok.balance(&user);
 
     let gross = 1_000_000_000_i128;
-    let final_pos = client.withdraw(
-        &t.action(&user, updated_pos.position.scaled_amount_ray, gross),
-        &true,
-        &0i128,
-    );
+    let final_pos = client
+        .withdraw(
+            &user,
+            &true,
+            &t.wdr(updated_pos.position.scaled_amount_ray, gross, 0i128),
+        )
+        .get_unchecked(0);
 
     assert_eq!(tok.balance(&user) - user_balance_before, gross);
     assert_eq!(client.protocol_revenue(&t.asset), revenue_before);
@@ -1163,14 +1294,18 @@ fn test_repay_zero_amount_is_no_op() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
     let scaled_before = updated_borrow.position.scaled_amount_ray;
     let state_before = t.state_snapshot();
 
-    let result = client.repay(&t.action(&borrower, scaled_before, 0i128));
+    let result = client
+        .repay(&borrower, &t.ract(scaled_before, 0i128))
+        .get_unchecked(0);
 
     assert_eq!(result.actual_amount, 0);
     assert_eq!(result.position.scaled_amount_ray, scaled_before);
@@ -1184,7 +1319,7 @@ fn test_add_rewards_zero_amount_is_no_op() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
 
     let snapshot_before = t.state_snapshot();
     let result = client.add_rewards(&t.asset, &0i128);
@@ -1210,20 +1345,23 @@ fn test_repay_partial_amount() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let borrower = Address::generate(&t.env);
-    let updated_borrow = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let updated_borrow = client
+        .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
+        .get_unchecked(0);
 
     // Advance time to accrue interest so current_debt > initial.
     t.advance_time(60);
 
     let partial = 10_0000000i128;
-    let final_pos = client.repay(&t.action(
-        &borrower,
-        updated_borrow.position.scaled_amount_ray,
-        partial,
-    ));
+    let final_pos = client
+        .repay(
+            &borrower,
+            &t.ract(updated_borrow.position.scaled_amount_ray, partial),
+        )
+        .get_unchecked(0);
 
     assert_eq!(
         final_pos.actual_amount, partial,
@@ -1245,7 +1383,7 @@ fn test_add_rewards_increases_supply_index() {
     let t = TestSetup::new();
     let client = t.client();
 
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let idx_before = client.update_indexes(&t.asset);
 
@@ -1265,7 +1403,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     let client = t.client();
 
     // Supply reserves so create_strategy can transfer.
-    client.supply(&t.action(&t.admin, 0, 50_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
@@ -1274,7 +1412,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
 
     let amount = 100_0000000i128;
     let fee = 1_0000000i128;
-    let result = client.create_strategy(&t.action(&caller, 0, amount), &fee, &i128::MAX);
+    let result = client.create_strategy(&caller, &t.action(0, amount), &fee, &i128::MAX);
 
     assert_eq!(result.actual_amount, amount);
     assert_eq!(result.amount_received, amount - fee);
@@ -1361,9 +1499,9 @@ fn test_update_params_happy_path() {
 
     // Downstream sanity: with the base rate still 1% but higher slopes,
     // the borrow rate at 50% utilization must reflect the updated slope1.
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
     let borrower = Address::generate(&t.env);
-    let _ = client.borrow(&t.action(&borrower, 0, 100_0000000i128), &i128::MAX);
+    let _ = client.borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX));
 }
 
 // slope3 < slope2 → SlopeNonMonotonic.
@@ -1481,15 +1619,12 @@ fn test_supply_rejects_unknown_market() {
     let client = t.client();
 
     let unknown_asset = Address::generate(&t.env);
-    let action = PoolAction {
-        caller: t.admin.clone(),
-        position: ScaledPositionRaw {
-            scaled_amount_ray: 0,
-        },
-        amount: 1_0000000i128,
-        asset: unknown_asset,
-    };
-    let result = flatten_contract_result(client.try_supply(&action, &i128::MAX));
+    let result = flatten_contract_result(client.try_supply(&t.sup_for(
+        &unknown_asset,
+        0,
+        1_0000000i128,
+        i128::MAX,
+    )));
     assert_contract_error(
         result,
         common::errors::GenericError::PoolNotInitialized as u32,
@@ -1536,7 +1671,7 @@ fn test_two_market_isolation() {
 
     let a_before = t.state_snapshot();
     let supply_amount = 10_000_000_000i128;
-    client.supply(&t.action(&t.admin, 0, supply_amount), &i128::MAX);
+    client.supply(&t.sup(0, supply_amount, i128::MAX));
 
     let a_after_supply = t.state_snapshot();
     if a_after_supply.supplied_ray <= a_before.supplied_ray {
@@ -1550,7 +1685,7 @@ fn test_two_market_isolation() {
 
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
-    client.borrow(&t.action(&borrower, 0, borrow_amount), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, borrow_amount, i128::MAX));
 
     let a_after_borrow = t.state_snapshot();
     if a_after_borrow.borrowed_ray <= a_after_supply.borrowed_ray {
@@ -1590,9 +1725,9 @@ fn test_bulk_get_sync_data_matches_per_asset_simulation() {
     let client = t.client();
 
     // Create a borrow so the indexes actually accrue over time.
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 5_000_000_000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 5_000_000_000i128, i128::MAX));
 
     t.advance_time(86_400);
 
@@ -1623,9 +1758,9 @@ fn test_bulk_get_sync_data_multi_asset_alignment() {
     client.create_market(&market_params(&asset_b));
 
     // Only market A gets utilization, so only its indexes accrue.
-    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
     let borrower = Address::generate(&t.env);
-    client.borrow(&t.action(&borrower, 0, 5_000_000_000i128), &i128::MAX);
+    client.borrow(&borrower, &t.bor(0, 5_000_000_000i128, i128::MAX));
 
     t.advance_time(86_400);
 
@@ -1676,4 +1811,204 @@ fn test_bulk_get_sync_data_unknown_asset_panics() {
     let assets = soroban_sdk::vec![&t.env, unknown];
     let result = t.client().try_bulk_get_sync_data(&assets);
     assert!(result.is_err(), "unknown asset must fail the bulk read");
+}
+
+// One bulk `supply` spanning two markets returns input-ordered mutations
+// and leaves each market exactly as two sequential single-entry calls do.
+#[test]
+fn test_bulk_supply_two_markets_matches_sequential_singles() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    // Bulk targets: default market A + funded market B. Sequential
+    // reference targets: funded markets C and D (B's starting state).
+    let asset_b = t.add_funded_market();
+    let asset_c = t.add_funded_market();
+    let asset_d = t.add_funded_market();
+
+    let amount_one = 10_000_000_000i128;
+    let amount_two = 25_000_000_000i128;
+
+    let entries = vec![
+        &t.env,
+        t.sup_entry(&t.asset, 0, amount_one, i128::MAX),
+        t.sup_entry(&asset_b, 0, amount_two, i128::MAX),
+    ];
+    let bulk = client.supply(&entries);
+    assert_eq!(bulk.len(), 2, "one mutation per entry");
+
+    let first = bulk.get_unchecked(0);
+    let second = bulk.get_unchecked(1);
+    assert_eq!(
+        first.market_state.asset, t.asset,
+        "entry 0 result must be market A"
+    );
+    assert_eq!(
+        second.market_state.asset, asset_b,
+        "entry 1 result must be market B"
+    );
+
+    let seq_first = client
+        .supply(&t.sup_for(&asset_c, 0, amount_one, i128::MAX))
+        .get_unchecked(0);
+    let seq_second = client
+        .supply(&t.sup_for(&asset_d, 0, amount_two, i128::MAX))
+        .get_unchecked(0);
+
+    assert_eq!(
+        first.position.scaled_amount_ray,
+        seq_first.position.scaled_amount_ray
+    );
+    assert_eq!(first.actual_amount, seq_first.actual_amount);
+    assert_eq!(
+        second.position.scaled_amount_ray,
+        seq_second.position.scaled_amount_ray
+    );
+    assert_eq!(second.actual_amount, seq_second.actual_amount);
+
+    // A vs C and B vs D started identical, so the bulk call must leave the
+    // same persistent state as the sequential singles, cash included.
+    let a_state = t.state_snapshot();
+    let c_state = t.state_of(&asset_c);
+    assert_pool_state_eq(&a_state, &c_state);
+    assert_eq!(a_state.cash, c_state.cash);
+
+    let b_state = t.state_of(&asset_b);
+    let d_state = t.state_of(&asset_d);
+    assert_pool_state_eq(&b_state, &d_state);
+    assert_eq!(b_state.cash, d_state.cash);
+}
+
+// Bulk `repay` with overpayment on the second entry: results are
+// input-ordered and the surplus is refunded to the per-call payer.
+#[test]
+fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
+
+    // Two independent debt positions for the same borrower.
+    let borrower = Address::generate(&t.env);
+    let debt_one = 100_0000000i128;
+    let debt_two = 30_0000000i128;
+    let first_borrow = client
+        .borrow(&borrower, &t.bor(0, debt_one, i128::MAX))
+        .get_unchecked(0);
+    let second_borrow = client
+        .borrow(&borrower, &t.bor(0, debt_two, i128::MAX))
+        .get_unchecked(0);
+
+    let overpayment = 5_0000000i128;
+    let tok = token::Client::new(&t.env, &t.asset);
+    let payer_before = tok.balance(&borrower);
+
+    let actions = vec![
+        &t.env,
+        t.action(first_borrow.position.scaled_amount_ray, debt_one),
+        t.action(
+            second_borrow.position.scaled_amount_ray,
+            debt_two + overpayment,
+        ),
+    ];
+    let results = client.repay(&borrower, &actions);
+    assert_eq!(results.len(), 2, "one mutation per entry");
+
+    let first = results.get_unchecked(0);
+    let second = results.get_unchecked(1);
+    assert_eq!(
+        first.actual_amount, debt_one,
+        "entry 0 repays exactly, no refund"
+    );
+    assert_eq!(first.position.scaled_amount_ray, 0);
+    assert_eq!(
+        second.actual_amount, debt_two,
+        "entry 1 applies only the outstanding debt"
+    );
+    assert_eq!(second.position.scaled_amount_ray, 0);
+    assert_eq!(
+        tok.balance(&borrower) - payer_before,
+        overpayment,
+        "payer receives the second entry's surplus back"
+    );
+}
+
+// Duplicate-asset entries in one bulk `supply` apply in order: entry 2 is
+// priced against the post-entry-1 market state and totals end at the sum.
+#[test]
+fn test_bulk_supply_duplicate_asset_applies_sequentially() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let amount_one = 10_000_000_000i128;
+    let amount_two = 25_000_000_000i128;
+    let state_before = t.state_snapshot();
+
+    let entries = vec![
+        &t.env,
+        t.sup_entry(&t.asset, 0, amount_one, i128::MAX),
+        t.sup_entry(&t.asset, 0, amount_two, i128::MAX),
+    ];
+    let results = client.supply(&entries);
+    assert_eq!(results.len(), 2);
+
+    let first = results.get_unchecked(0);
+    let second = results.get_unchecked(1);
+    assert_eq!(
+        first.market_state.supplied_ray,
+        state_before.supplied_ray + first.position.scaled_amount_ray,
+        "entry 1 snapshot reflects only its own supply"
+    );
+    assert_eq!(
+        second.market_state.supplied_ray,
+        first.market_state.supplied_ray + second.position.scaled_amount_ray,
+        "entry 2 snapshot must build on entry 1's already-applied state"
+    );
+
+    let state_after = t.state_snapshot();
+    assert_eq!(
+        state_after.supplied_ray,
+        state_before.supplied_ray
+            + first.position.scaled_amount_ray
+            + second.position.scaled_amount_ray,
+        "total supplied is the sum of both entries"
+    );
+    assert_eq!(
+        state_after.cash,
+        state_before.cash + amount_one + amount_two
+    );
+}
+
+// Per-entry cap enforcement is atomic across the batch: when entry 2
+// violates its supply cap the whole call reverts and entry 1's state
+// change does not persist.
+#[test]
+fn test_bulk_supply_cap_violation_reverts_whole_batch() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let asset_b = t.add_funded_market();
+    let a_before = t.state_snapshot();
+    let b_before = t.state_of(&asset_b);
+
+    let amount = 10_000_000_000i128;
+    let entries = vec![
+        &t.env,
+        t.sup_entry(&t.asset, 0, amount, i128::MAX),
+        t.sup_entry(&asset_b, 0, amount, amount - 1),
+    ];
+    let result = flatten_contract_result(client.try_supply(&entries));
+    assert_contract_error(
+        result,
+        common::errors::CollateralError::SupplyCapReached as u32,
+    );
+
+    // Entry 1 had already passed its own cap check, but the batch is one
+    // transaction: its state must roll back with the failing entry 2.
+    let a_after = t.state_snapshot();
+    assert_pool_state_eq(&a_after, &a_before);
+    assert_eq!(a_after.cash, a_before.cash);
+    let b_after = t.state_of(&asset_b);
+    assert_pool_state_eq(&b_after, &b_before);
+    assert_eq!(b_after.cash, b_before.cash);
 }

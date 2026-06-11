@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, MarketIndex,
+    Account, AccountPositionType, AssetConfig, AssetConfigRaw,
     Payment, PoolAction, PositionMode,
 };
 use soroban_sdk::{
@@ -165,97 +165,59 @@ fn execute_deposit_plan(
     cache: &mut Cache,
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
+    // Transfer every asset in and build the entries, make ONE pool call, then
+    // merge results input-ordered — one cross-contract frame instead of one
+    // per asset. All transfers precede the pool call; the tx stays atomic.
+    let pool_addr = cache.cached_pool_address();
+    let mut entries: Vec<common::types::PoolSupplyEntry> = Vec::new(env);
     for (asset, amount_in) in assets {
         let asset_config: AssetConfig =
             (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
-
-        update_deposit_position(
+        utils::transfer_amount(
             env,
-            account,
-            DepositRequest {
-                asset: &asset,
-                amount: amount_in,
-                asset_config: &asset_config,
-            },
+            &asset,
             caller,
-            cache,
+            &pool_addr,
+            amount_in,
+            GenericError::AmountMustBePositive,
         );
+        let position = account.get_or_create_supply_position(&asset, &asset_config);
+        entries.push_back(common::types::PoolSupplyEntry {
+            action: PoolAction {
+                position: (&position).into(),
+                amount: amount_in,
+                asset: asset.clone(),
+            },
+            supply_cap: asset_config.supply_cap,
+        });
     }
-}
+    let results = pool_supply_call(env, &pool_addr, &entries);
 
-/// Per-asset supply inputs used after e-mode config resolution.
-pub struct DepositRequest<'a> {
-    pub asset: &'a Address,
-    pub amount: i128,
-    pub asset_config: &'a AssetConfig,
-}
+    for (i, entry) in entries.iter().enumerate() {
+        let result = expect_invariant(env, results.get(i as u32));
+        let asset = &entry.action.asset;
+        let asset_config: AssetConfig =
+            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
 
-/// Pulls tokens into the pool and merges the returned scaled supply share.
-fn update_deposit_position(
-    env: &Env,
-    account: &mut Account,
-    req: DepositRequest<'_>,
-    caller: &Address,
-    cache: &mut Cache,
-) {
-    let mut position = account.get_or_create_supply_position(req.asset, req.asset_config);
-    refresh_supply_risk_params(env, cache, account, req.asset, &mut position, req.asset_config);
+        let mut position = account.get_or_create_supply_position(asset, &asset_config);
+        refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);
+        // Merge ONLY the scaled share back; the pool does not echo collateral
+        // risk params, so preserve the ones the controller already holds.
+        position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+        cache.record_market_update(&result.market_state);
 
-    let market_index = apply_pool_supply(
-        env,
-        cache,
-        req.asset,
-        &mut position,
-        req.amount,
-        req.asset_config.supply_cap,
-        caller,
-    );
+        // Emit with the exact supply index the pool used, not a re-read.
+        cache.record_position_update(
+            common::events::PositionAction::Supply,
+            asset,
+            result.market_index.supply_index_ray,
+            entry.action.amount,
+            &position,
+        );
 
-    // Emit with the exact supply index the pool used, not a re-read.
-    cache.record_position_update(
-        common::events::PositionAction::Supply,
-        req.asset,
-        market_index.supply_index.raw(),
-        req.amount,
-        &position,
-    );
-
-    // Storage is written once after the whole supply batch completes.
-    update_or_remove_supply_position(account, req.asset, &position);
-}
-
-fn apply_pool_supply(
-    env: &Env,
-    cache: &mut Cache,
-    asset: &Address,
-    position: &mut AccountPosition,
-    amount: i128,
-    supply_cap: i128,
-    caller: &Address,
-) -> MarketIndex {
-    let pool_addr = cache.cached_pool_address();
-    utils::transfer_amount(
-        env,
-        asset,
-        caller,
-        &pool_addr,
-        amount,
-        GenericError::AmountMustBePositive,
-    );
-    let action = PoolAction {
-        caller: caller.clone(),
-        position: (&*position).into(),
-        amount,
-        asset: asset.clone(),
-    };
-    let result = pool_supply_call(env, &pool_addr, action, supply_cap);
-
-    // Merge ONLY the scaled share back; the pool does not echo collateral risk
-    // params, so preserve the ones the controller already holds.
-    position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-    cache.record_market_update(&result.market_state);
-
-    (&result.market_index).into()
+        // Storage is written once after the whole supply batch completes.
+        update_or_remove_supply_position(account, asset, &position);
+    }
 }
 
 fn validate_bulk_isolation(env: &Env, account: &Account, assets: &Vec<Payment>, cache: &mut Cache) {

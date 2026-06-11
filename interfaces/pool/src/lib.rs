@@ -3,8 +3,8 @@
 
 use common::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
-    ScaledPositionRaw,
+    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
+    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
@@ -13,22 +13,26 @@ pub trait LiquidityPoolInterface {
     /// Creates an asset market with fresh RAY indexes.
     fn create_market(env: Env, params: MarketParamsRaw);
 
-    /// Supplies an amount and returns the updated scaled share.
-    fn supply(env: Env, action: PoolAction, supply_cap: i128) -> PoolPositionMutation;
+    /// Supplies each entry and returns the updated scaled shares, input-
+    /// ordered. No counterparty: the controller pre-transfers the tokens.
+    fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>;
 
-    /// Borrows an amount and returns the updated scaled debt share.
-    fn borrow(env: Env, action: PoolAction, borrow_cap: i128) -> PoolPositionMutation;
+    /// Borrows each entry, transferring tokens to `receiver`; input-ordered.
+    fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>)
+        -> Vec<PoolPositionMutation>;
 
-    /// Withdraws up to `action.amount`, or full position at `i128::MAX`.
+    /// Withdraws each entry (full position at the i128::MAX sentinel) to
+    /// `receiver`; `is_liquidation` applies to the whole call; input-ordered.
     fn withdraw(
         env: Env,
-        action: PoolAction,
+        receiver: Address,
         is_liquidation: bool,
-        protocol_fee: i128,
-    ) -> PoolPositionMutation;
+        entries: Vec<PoolWithdrawEntry>,
+    ) -> Vec<PoolPositionMutation>;
 
-    /// Repays debt and returns the updated scaled debt share.
-    fn repay(env: Env, action: PoolAction) -> PoolPositionMutation;
+    /// Repays each action (tokens pre-transferred by the controller),
+    /// refunding overpayments to `payer`; input-ordered.
+    fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>;
     fn update_indexes(env: Env, asset: Address) -> MarketStateSnapshot;
     fn add_rewards(env: Env, asset: Address, amount: i128) -> MarketStateSnapshot;
     /// Executes a flash loan that must return `amount + fee`.
@@ -42,9 +46,10 @@ pub trait LiquidityPoolInterface {
         data: Bytes,
     ) -> MarketStateSnapshot;
 
-    /// Creates strategy debt and transfers `action.amount - fee`.
+    /// Creates strategy debt and transfers `action.amount - fee` to `receiver`.
     fn create_strategy(
         env: Env,
+        receiver: Address,
         action: PoolAction,
         fee: i128,
         borrow_cap: i128,

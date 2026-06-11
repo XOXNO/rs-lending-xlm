@@ -10,7 +10,7 @@ use common::events::CleanBadDebtEvent;
 use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
-    RepayEntry, ScaledPositionRaw, SeizeEntry,
+    PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
@@ -18,16 +18,13 @@ use soroban_sdk::{
 use stellar_macros::{only_role, when_not_paused};
 
 use super::liquidation_math::*;
-use super::repay::RepaymentRequest;
-use super::withdraw::{WithdrawFlags, WithdrawalRequest};
 use super::{repay, withdraw};
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_seize_position_call;
+use crate::cross_contract::pool::{pool_repay_call, pool_seize_position_call, pool_withdraw_call};
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
-use crate::utils::EventContext;
 use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -142,16 +139,6 @@ where
     out
 }
 
-fn liquidation_event_context(
-    liquidator: &Address,
-    action: common::events::PositionAction,
-) -> EventContext {
-    EventContext {
-        caller: liquidator.clone(),
-        action,
-    }
-}
-
 fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -159,7 +146,10 @@ fn apply_liquidation_repayments(
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
+    // Transfer every repayment in and build the actions, make ONE pool call,
+    // then merge results input-ordered — one frame instead of one per debt.
     let pool_addr = cache.cached_pool_address();
+    let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
         // All SAC transfers go through the wrapper so the harness can replace it.
         sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
@@ -167,15 +157,21 @@ fn apply_liquidation_repayments(
         let position: DebtPosition =
             (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
                 .into();
-        repay::execute_repayment(
+        actions.push_back(PoolAction {
+            position: (&position).into(),
+            amount: entry.amount,
+            asset: entry.asset.clone(),
+        });
+    }
+    let results = pool_repay_call(env, &pool_addr, liquidator, &actions);
+    for (i, action) in actions.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        repay::finish_repayment(
             env,
             account,
-            liquidation_event_context(liquidator, common::events::PositionAction::LiqRepay),
-            RepaymentRequest {
-                asset: &entry.asset,
-                position: &position,
-                amount: entry.amount,
-            },
+            common::events::PositionAction::LiqRepay,
+            &action.asset,
+            &result,
             cache,
         );
     }
@@ -188,23 +184,33 @@ fn apply_liquidation_seizures(
     seized: &Vec<SeizeEntry>,
     cache: &mut Cache,
 ) {
+    // Build all seizure entries, make ONE pool call (liquidation flag per
+    // call, fee per entry), then merge input-ordered — one frame per leg.
+    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
         let position: AccountPosition =
             (&validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone())))
                 .into();
-        withdraw::execute_withdrawal(
+        entries.push_back(PoolWithdrawEntry {
+            action: PoolAction {
+                position: (&position).into(),
+                amount: entry.amount,
+                asset: entry.asset.clone(),
+            },
+            protocol_fee: entry.protocol_fee,
+        });
+    }
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_withdraw_call(env, &pool_addr, liquidator, true, &entries);
+    for (i, entry) in entries.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        withdraw::finish_withdrawal(
             env,
             account,
-            liquidation_event_context(liquidator, common::events::PositionAction::LiqSeize),
-            WithdrawalRequest {
-                asset: &entry.asset,
-                amount: entry.amount,
-                position: &position,
-            },
-            WithdrawFlags {
-                is_liquidation: true,
-                protocol_fee: entry.protocol_fee,
-            },
+            common::events::PositionAction::LiqSeize,
+            &entry.action.asset,
+            true,
+            &result,
             cache,
         );
     }

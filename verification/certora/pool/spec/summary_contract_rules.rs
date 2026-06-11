@@ -52,13 +52,58 @@ fn position(scaled: i128) -> ScaledPositionRaw {
     }
 }
 
-fn action(caller: Address, position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
+fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolAction {
     PoolAction {
-        caller,
         position,
         amount,
         asset,
     }
+}
+
+// Bulk-of-one wrappers mirroring integrity_rules: rules verify per-entry
+// semantics; bulk endpoints are input-ordered loops of that body.
+fn supply_first(e: &Env, act: PoolAction, cap: i128) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolSupplyEntry {
+        action: act,
+        supply_cap: cap,
+    });
+    crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
+}
+
+fn borrow_first(
+    e: &Env,
+    receiver: Address,
+    act: PoolAction,
+    cap: i128,
+) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolBorrowEntry {
+        action: act,
+        borrow_cap: cap,
+    });
+    crate::LiquidityPool::borrow(e.clone(), receiver, entries).get_unchecked(0)
+}
+
+fn withdraw_first(
+    e: &Env,
+    receiver: Address,
+    act: PoolAction,
+    is_liquidation: bool,
+    protocol_fee: i128,
+) -> common::types::PoolPositionMutation {
+    let mut entries: soroban_sdk::Vec<common::types::PoolWithdrawEntry> = soroban_sdk::Vec::new(e);
+    entries.push_back(common::types::PoolWithdrawEntry {
+        action: act,
+        protocol_fee,
+    });
+    crate::LiquidityPool::withdraw(e.clone(), receiver, is_liquidation, entries).get_unchecked(0)
+}
+
+fn repay_first(e: &Env, payer: Address, act: PoolAction) -> common::types::PoolPositionMutation {
+    let mut actions: soroban_sdk::Vec<PoolAction> = soroban_sdk::Vec::new(e);
+    actions.push_back(act);
+    crate::LiquidityPool::repay(e.clone(), payer, actions).get_unchecked(0)
 }
 
 #[rule]
@@ -77,8 +122,7 @@ fn supply_satisfies_controller_summary_contract(
     );
 
     let before = position(RAY);
-    let result =
-        crate::LiquidityPool::supply(e, action(admin, before.clone(), amount, asset), i128::MAX);
+    let result = supply_first(&e, action(before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -103,8 +147,7 @@ fn borrow_satisfies_controller_summary_contract(
     );
 
     let before = position(0);
-    let result =
-        crate::LiquidityPool::borrow(e, action(caller, before.clone(), amount, asset), i128::MAX);
+    let result = borrow_first(&e, caller, action(before.clone(), amount, asset), i128::MAX);
 
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount_ray >= before.scaled_amount_ray);
@@ -131,12 +174,7 @@ fn withdraw_satisfies_controller_summary_contract(
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::withdraw(
-        e,
-        action(caller, before.clone(), amount, asset),
-        false,
-        0,
-    );
+    let result = withdraw_first(&e, caller, action(before.clone(), amount, asset), false, 0);
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount || result.position.scaled_amount_ray == 0);
@@ -163,7 +201,7 @@ fn repay_satisfies_controller_summary_contract(
     );
 
     let before = position(scaled);
-    let result = crate::LiquidityPool::repay(e, action(caller, before.clone(), amount, asset));
+    let result = repay_first(&e, caller, action(before.clone(), amount, asset));
 
     cvlr_assert!(result.actual_amount >= 0);
     cvlr_assert!(result.actual_amount <= amount);
@@ -192,7 +230,8 @@ fn create_strategy_satisfies_controller_summary_contract(
     let before = position(0);
     let result = crate::LiquidityPool::create_strategy(
         e,
-        action(caller, before.clone(), amount, asset),
+        caller,
+        action(before.clone(), amount, asset),
         fee,
         i128::MAX,
     );
