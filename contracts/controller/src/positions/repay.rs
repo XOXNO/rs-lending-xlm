@@ -56,7 +56,15 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     // here so all per-asset `cached_price` calls in the loop hit the cache
     // rather than single-resolving separate RedStone feeds.  The dust gate's
     // prefetch then no-ops because the collector is idempotent.
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &utils::plan_assets(env, &repayment_plan));
+    // Non-isolated repay sets price=Wad::ZERO for every asset, so the loop
+    // prices nothing; the dust gate's prescreen skips fully-closed positions,
+    // so no RedStone call is needed at all — skip the prefetch.
+    if account.is_isolated {
+        crate::oracle::prefetch_redstone_feeds(
+            &mut cache,
+            &utils::plan_assets(env, &repayment_plan),
+        );
+    }
     for (asset, amount) in repayment_plan.iter() {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);
     }

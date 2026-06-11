@@ -379,3 +379,62 @@ fn test_isolated_multi_asset_repay_uses_one_bulk_redstone_call() {
         "no per-feed RedStone calls when the entrypoint prefetch covers the repay set"
     );
 }
+
+// ── Issue 1 regression ────────────────────────────────────────────────────────
+
+#[test]
+fn test_non_isolated_full_repay_fires_zero_redstone_calls() {
+    // NON-isolated account with two RedStone-anchored debt assets; repaying
+    // BOTH IN FULL in one tx.  The non-isolated repay path sets price=Wad::ZERO
+    // for each asset, so no pricing happens in the loop.  The dust gate
+    // prescreens for open positions and skips fully-closed ones — so zero
+    // RedStone reads are needed.
+    //
+    // Before the fix: the entrypoint `prefetch_redstone_feeds` runs
+    // unconditionally, collecting two RedStone feeds and firing one bulk call.
+    // After the fix: the prefetch is gated on `account.is_isolated`, so
+    // bulk == 0 and single == 0.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .build();
+
+    // One adapter, three feeds.
+    let redstone = setup_redstone_feeds(
+        &t,
+        &[("USDC", usd(1)), ("ETH", usd(2000)), ("WBTC", usd(60_000))],
+    );
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+    anchor_market_with_redstone(&t, &redstone, "WBTC");
+
+    // BOB provides ETH and WBTC liquidity.
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(BOB, "WBTC", 10.0);
+
+    // ALICE has a plain (non-isolated) account.
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    t.borrow(ALICE, "WBTC", 0.1);
+
+    // Snapshot counters before the repay.
+    let rs = redstone_client(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    // Overpay both debts to force full closure (pool clamps to actual debt).
+    t.repay_bulk(ALICE, &[("ETH", 2.0), ("WBTC", 0.5)]);
+
+    let rs = redstone_client(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        0,
+        "non-isolated full repay must fire zero bulk RedStone calls"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        0,
+        "non-isolated full repay must fire zero single RedStone calls"
+    );
+}
