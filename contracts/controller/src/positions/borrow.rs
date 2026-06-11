@@ -27,25 +27,21 @@ impl Controller {
     }
 }
 
-/// Creates strategy debt in the pool and returns the asset amount received.
-pub fn create_borrow_strategy(
+/// Creates strategy debt in the pool through the shared borrow gates and
+/// returns the asset amount received by the controller.
+pub fn borrow_for_strategy(
     env: &Env,
-    cache: &mut Cache,
     account: &mut Account,
     debt_token: &Address,
     amount: i128,
+    cache: &mut Cache,
 ) -> i128 {
-    validation::require_market_active(env, cache, debt_token);
+    let mut plan: Vec<Payment> = Vec::new(env);
+    plan.push_back((debt_token.clone(), amount));
+    let effective_configs = super::effective_configs_for_plan(env, account, &plan, cache);
+    prepare_borrow_plan(env, account, &plan, &effective_configs, cache);
 
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-    let debt_config = emode::effective_asset_config(env, account, debt_token, cache, &e_mode);
-    let mut new_borrows = Vec::new(env);
-    new_borrows.push_back((debt_token.clone(), amount));
-    validate_siloed_borrow_set(env, account, &new_borrows, cache);
-    validate_asset_borrowable(env, account, debt_token, &debt_config, cache);
-
-    add_isolated_debt(env, cache, account, debt_token, amount);
-
+    let debt_config = super::effective_config(env, &effective_configs, debt_token);
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
 

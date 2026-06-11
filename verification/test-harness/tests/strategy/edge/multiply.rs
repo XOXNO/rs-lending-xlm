@@ -461,3 +461,58 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
     assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
 }
 // Favorable slippage refunds must not sweep unrelated controller balances.
+
+#[test]
+fn test_multiply_respects_borrow_position_limit() {
+    use test_harness::xlm_preset;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(xlm_preset())
+        .build();
+
+    // Liquidity for the second strategy's debt leg.
+    t.supply(BOB, "XLM", 10_000.0);
+
+    // First multiply: 1 ETH debt -> 3000 USDC collateral (one borrow position).
+    t.fund_router("USDC", 3000.0);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
+    let account_id = t.multiply(
+        ALICE,
+        "USDC",
+        1.0,
+        "ETH",
+        common::types::PositionMode::Multiply,
+        &steps,
+    );
+
+    // Cap borrow positions at the count the account already holds.
+    t.set_position_limits(8, 1);
+
+    // A second multiply into the same account with a different debt asset
+    // would open a second borrow position and must hit the limit gate.
+    t.fund_router("USDC", 10.0);
+    let steps2 =
+        build_aggregator_swap(&t, "XLM", "USDC", apply_flash_fee(1_000_000_000), 10_0000000);
+    let alice = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+    let result = match t.ctrl_client().try_multiply(
+        &alice,
+        &account_id,
+        &0u32,
+        &usdc,
+        &1_000_000_000i128,
+        &xlm,
+        &common::types::PositionMode::Multiply,
+        &steps2,
+        &None,
+        &None,
+    ) {
+        Ok(Ok(id)) => Ok(id),
+        Ok(Err(err)) => Err(err),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
+}

@@ -5,7 +5,7 @@
 //! input spend and output receipt from observed SAC balances.
 
 use common::errors::GenericError;
-use common::types::{Account, AccountPosition, AccountPositionType, DebtPosition, StrategySwap};
+use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Vec,
@@ -61,15 +61,7 @@ pub(crate) fn open_strategy_borrow(
     asset: &Address,
     amount: i128,
 ) -> i128 {
-    let new_borrow_assets = soroban_sdk::vec![env, (asset.clone(), amount)];
-    validation::validate_bulk_position_limits(
-        env,
-        account,
-        AccountPositionType::Borrow,
-        &new_borrow_assets,
-    );
-
-    borrow::create_borrow_strategy(env, cache, account, asset, amount)
+    borrow::borrow_for_strategy(env, account, asset, amount, cache)
 }
 
 pub(crate) fn repay_debt_from_controller(
