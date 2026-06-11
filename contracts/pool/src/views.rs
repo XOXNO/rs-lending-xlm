@@ -1,4 +1,3 @@
-use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
@@ -28,8 +27,7 @@ pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
 
 // Pool's live token reserves in asset decimals.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
-    let params = load_params(env, asset);
-    let token = soroban_sdk::token::Client::new(env, &params.asset_id);
+    let token = soroban_sdk::token::Client::new(env, &asset);
     token.balance(&env.current_contract_address())
 }
 
@@ -67,9 +65,9 @@ pub fn borrowed_amount(env: &Env, asset: &Address) -> i128 {
 
 // Milliseconds elapsed since last accrual.
 pub fn delta_time(env: &Env, asset: &Address) -> u64 {
-    let state = load_state(env, asset);
-    let current_ms = env.ledger().timestamp() * MS_PER_SECOND;
-    current_ms.saturating_sub(state.last_timestamp)
+    let c = Cache::load(env, asset);
+
+    c.current_timestamp.saturating_sub(c.last_timestamp)
 }
 
 #[cfg(test)]
