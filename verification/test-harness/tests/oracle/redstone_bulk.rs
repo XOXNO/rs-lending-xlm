@@ -1,8 +1,8 @@
 use common::constants::WAD;
 use soroban_sdk::{Address, String};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE,
-    BOB, DEFAULT_TOLERANCE,
+    assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, xlm_preset,
+    LendingTest, ALICE, BOB, DEFAULT_TOLERANCE,
 };
 
 /// One mock adapter serving multiple feeds, registered + priced.
@@ -10,8 +10,7 @@ fn setup_redstone_feeds(t: &LendingTest, feeds: &[(&str, i128)]) -> Address {
     let redstone = t
         .env
         .register(test_harness::mock_redstone::MockRedStonePriceFeed, ());
-    let client =
-        test_harness::mock_redstone::MockRedStonePriceFeedClient::new(&t.env, &redstone);
+    let client = test_harness::mock_redstone::MockRedStonePriceFeedClient::new(&t.env, &redstone);
     for (feed, price_wad) in feeds {
         client.set_price(&String::from_str(&t.env, feed), price_wad);
     }
@@ -438,6 +437,7 @@ fn test_non_isolated_full_repay_fires_zero_redstone_calls() {
         "non-isolated full repay must fire zero single RedStone calls"
     );
 }
+
 // ── Issue 2 regression ────────────────────────────────────────────────────────
 
 #[test]
@@ -483,5 +483,84 @@ fn test_no_debt_withdraw_prefetch_covers_only_plan_assets() {
         rs.single_calls() - single_before,
         1,
         "no-debt single-asset withdraw: dust gate fires exactly one single read for the plan asset"
+    );
+}
+
+// ── Issue 3: multi-adapter bulk grouping ─────────────────────────────────────
+
+#[test]
+fn test_two_adapters_bulk_once_each() {
+    // Four markets split across TWO mock adapters (2 feeds each).  Once a
+    // borrow tx has ≥2 feeds from each adapter in the position set, the
+    // prefetch must fire exactly one bulk call per adapter with zero single calls.
+    //
+    // Adapter A: USDC + ETH (2 feeds → bulk)
+    // Adapter B: WBTC + XLM (2 feeds → bulk)
+    //
+    // Setup: build positions across all four assets, then measure only the
+    // FOURTH borrow — by that point every adapter group has 2 feeds and bulks.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .with_market(xlm_preset())
+        .build();
+
+    // Two separate mock adapters.
+    let adapter_a = setup_redstone_feeds(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+    let adapter_b = setup_redstone_feeds(&t, &[("WBTC", usd(60_000)), ("XLM", usd(1) / 10)]);
+
+    anchor_market_with_redstone(&t, &adapter_a, "USDC");
+    anchor_market_with_redstone(&t, &adapter_a, "ETH");
+    anchor_market_with_redstone(&t, &adapter_b, "WBTC");
+    anchor_market_with_redstone(&t, &adapter_b, "XLM");
+
+    // BOB provides liquidity for the borrowable assets.
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(BOB, "WBTC", 10.0);
+    t.supply(BOB, "XLM", 1_000_000.0);
+
+    // ALICE supplies USDC as collateral; build up ETH + WBTC + XLM debt first
+    // so the fourth borrow tx starts with all four assets in the position set.
+    t.supply(ALICE, "USDC", 1_000_000.0);
+    t.borrow(ALICE, "ETH", 0.1);
+    t.borrow(ALICE, "WBTC", 0.001);
+    t.borrow(ALICE, "XLM", 100.0);
+
+    // From here: supply=USDC(A), borrows=ETH(A)+WBTC(B)+XLM(B) → adapter A
+    // has 2 feeds, adapter B has 2 feeds.  The next borrow will fire one bulk
+    // per adapter and zero single calls on each.
+    let rs_a = redstone_client(&t, &adapter_a);
+    let rs_b = redstone_client(&t, &adapter_b);
+    let bulk_a_before = rs_a.bulk_calls();
+    let single_a_before = rs_a.single_calls();
+    let bulk_b_before = rs_b.bulk_calls();
+    let single_b_before = rs_b.single_calls();
+
+    // Additional small borrow: position set is now fully 4-asset, 2 per adapter.
+    t.borrow(ALICE, "ETH", 0.01);
+
+    let rs_a = redstone_client(&t, &adapter_a);
+    let rs_b = redstone_client(&t, &adapter_b);
+
+    assert_eq!(
+        rs_a.bulk_calls() - bulk_a_before,
+        1,
+        "adapter A must fire exactly one bulk call when it has 2 feeds in the position set"
+    );
+    assert_eq!(
+        rs_b.bulk_calls() - bulk_b_before,
+        1,
+        "adapter B must fire exactly one bulk call when it has 2 feeds in the position set"
+    );
+    assert_eq!(
+        rs_a.single_calls() - single_a_before,
+        0,
+        "no single calls on adapter A when bulk covers both feeds"
+    );
+    assert_eq!(
+        rs_b.single_calls() - single_b_before,
+        0,
+        "no single calls on adapter B when bulk covers both feeds"
     );
 }
