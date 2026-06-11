@@ -37,21 +37,39 @@ inv() {
     [ "$1" = "--" ] && shift
     local fn="$1"
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
-    log "inv [$label] $fn"
-    if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
-        >"$out_f" 2>"$err_f"; then
-        local hash
-        hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        if [ -n "$hash" ]; then
-            fetch_resources "$hash"
-            record "$label" ok "$fn" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" ""
-        else
-            # Read-only fn invoked via inv (no state change → no tx).
-            record "$label" read "$fn" "" "" "" "" "" ""
+    local attempt
+    for attempt in 1 2 3; do
+        [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
+        log "inv [$label] $fn"
+        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
+            >"$out_f" 2>"$err_f"; then
+            local hash
+            hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+            if [ -n "$hash" ]; then
+                fetch_resources "$hash"
+                record "$label" ok "$fn" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" ""
+            else
+                # Read-only fn invoked via inv (no state change → no tx).
+                record "$label" read "$fn" "" "" "" "" "" ""
+            fi
+            cat "$out_f"
+            return 0
         fi
-        cat "$out_f"
-        return 0
-    fi
+        # Transient sim-vs-apply divergence: the tx simulated clean (it was
+        # signed) but the apply read keys outside the simulated footprint —
+        # live Reflector round rotation, DEX state movement, accrual drift.
+        # Shows as Trapped or ResourceLimitExceeded with no contract error.
+        # Re-simulate and resend; a deterministic failure recurs and falls
+        # through to FAIL on the final attempt.
+        if [ "$attempt" -lt 3 ] \
+            && grep -q "Signing transaction" "$err_f" \
+            && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
+            && ! grep -q "Error(Contract" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "transient apply failure; resimulating"
+            continue
+        fi
+        break
+    done
     # INV_FAIL_STATUS=retry marks an attempt inside a retry loop so transient
     # DEX-state races (sim-ok, apply-trapped) don't read as suite failures.
     record "$label" "${INV_FAIL_STATUS:-FAIL}" "$fn" "" "" "" "" "" "$(tail -c 300 "$err_f" | tr '\n\t' '  ')"

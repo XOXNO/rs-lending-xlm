@@ -112,9 +112,14 @@ flow_lifecycle() {
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$XLM_SAC" 25000000000)"
-    xfail withdraw_locked 'Error\(Contract, #1[0-9][0-9]\)' "$ALICE" "$CONTROLLER" -- withdraw \
-        --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$XLM_SAC" 15000000000)"
+    # Retried: live Reflector round rotation between sim and apply can surface
+    # as ResourceLimitExceeded instead of the contract revert under test.
+    leg_withdraw_locked() {
+        xfail withdraw_locked 'Error\(Contract, #1[0-9][0-9]\)' "$ALICE" "$CONTROLLER" -- withdraw \
+            --caller "$ALICE_ADDR" --account_id "$acct" \
+            --withdrawals "$(pay_vec "$XLM_SAC" 15000000000)"
+    }
+    retry_leg leg_withdraw_locked
 
     # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
     inv repay_partial "$ALICE" "$CONTROLLER" -- repay \
@@ -130,12 +135,21 @@ flow_lifecycle() {
         --payments "$(pay_vec "$USDC_SAC" $((usdc_debt + 10000000)) "$XLM_SAC" $((xlm_debt + 10000000)))" >/dev/null
 
     # Cross-account repay: bob repays on alice's account (ownership not required).
-    inv borrow_again "$ALICE" "$CONTROLLER" -- borrow \
-        --caller "$ALICE_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$USDC_SAC" 120000000)" >/dev/null
-    inv repay_cross_account "$BOB" "$CONTROLLER" -- repay \
-        --caller "$BOB_ADDR" --account_id "$acct" \
-        --payments "$(pay_vec "$USDC_SAC" 130000000)" >/dev/null
+    # Both legs retry: live Reflector round rotation between sim and apply
+    # invalidates the footprint (storage exceeded_limit trap) at 5-minute
+    # boundaries, and the repay depends on the borrow having landed.
+    leg_borrow_again() {
+        inv borrow_again "$ALICE" "$CONTROLLER" -- borrow \
+            --caller "$ALICE_ADDR" --account_id "$acct" \
+            --borrows "$(pay_vec "$USDC_SAC" 120000000)" >/dev/null
+    }
+    retry_leg leg_borrow_again
+    leg_repay_cross_account() {
+        inv repay_cross_account "$BOB" "$CONTROLLER" -- repay \
+            --caller "$BOB_ADDR" --account_id "$acct" \
+            --payments "$(pay_vec "$USDC_SAC" 130000000)" >/dev/null
+    }
+    retry_leg leg_repay_cross_account
 
     # Withdraw: partial, then full close (removes the account).
     inv withdraw_partial "$ALICE" "$CONTROLLER" -- withdraw \
@@ -148,7 +162,10 @@ flow_lifecycle() {
         --account_id "$acct" --asset "$XLM_SAC" | tr -d '"')
     usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- collateral_amount_for_token \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
+    # Full close via the amount-0 sentinel: withdrawing the view-read exact
+    # amounts races per-second accrual and trips the dust gate (#126) when
+    # the supply index moves between the view and the withdraw.
     inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$XLM_SAC" "$xlm_coll" "$USDC_SAC" "$usdc_coll")" >/dev/null
+        --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" >/dev/null
 }
