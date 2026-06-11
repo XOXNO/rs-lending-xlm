@@ -7,7 +7,7 @@
 # single-source oracles first, then markets are reconfigured to the
 # mainnet-faithful dual-source (Reflector primary + RedStone anchor) shape and
 # re-probed: per-asset cost rises, frontier drops. Liquidation is probed last
-# (it reads ALL position feeds, then seizes) — historically the binding op.
+# (it reads ALL position feeds, then seizes) — the binding op.
 
 STRESS_N=20
 STRESS_UNIT=10000000   # 1.0 token at 7 decimals
