@@ -13,8 +13,7 @@ use crate::cache::Cache;
 use crate::cross_contract::pool::pool_withdraw_call;
 use crate::emode;
 use crate::helpers::{
-    refresh_supply_risk_params, require_no_supply_dust_for_assets,
-    update_or_remove_supply_position,
+    refresh_supply_risk_params, require_no_supply_dust_for_assets, update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
@@ -73,20 +72,11 @@ pub fn process_withdraw(
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let withdrawal_plan = aggregate_payments(env, withdrawals, true);
 
-    // When the account has debt, the withdrawal loop prices the withdrawn
-    // asset, then require_within_ltv and require_healthy_account price the
-    // full supply+borrow set — all before any downstream prefetch can fire
-    // with the complete set.  Collect supply+borrow keys and bulk-prefetch
-    // them so every price read hits the cache instead of single-resolving.
-    //
-    // When there is no debt, require_within_ltv and require_healthy_account
-    // both early-return without pricing anything; only the withdrawn asset(s)
-    // are priced by the withdrawal loop and the dust gate.  Prefetching the
-    // full supply set in that case would fire a bulk call for non-plan feeds
-    // that are never read — so scope the prefetch to plan assets only.
-    // (The dust gate re-prices nothing: the withdrawal loop's price reads land
-    // in the shared tx-local prices_cache, so the gate's own prefetch and
-    // reads are cache hits.)
+    // When the account has debt, the post-pool gates (LTV, health) price the
+    // full supply+borrow set; prefetch the union here so those reads and any
+    // mid-merge risk-param refresh hit the cache. When there is no debt, the
+    // gates early-return and only the dust gate prices the withdrawn assets —
+    // scope the prefetch to plan assets so no unread feeds are fetched.
     let dust_assets = plan_assets(env, &withdrawal_plan);
     let priced_assets = if account.borrow_positions.is_empty() {
         dust_assets.clone()
@@ -193,7 +183,10 @@ pub(crate) fn settle_withdraw_entries(
     let refresh_e_mode = if is_liquidation {
         None
     } else {
-        Some(emode::active_e_mode_category(env, account.e_mode_category_id))
+        Some(emode::active_e_mode_category(
+            env,
+            account.e_mode_category_id,
+        ))
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));

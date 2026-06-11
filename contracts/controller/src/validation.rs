@@ -99,7 +99,7 @@ pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
     position_type: AccountPositionType,
-    assets: &Vec<Payment>,
+    plan: &Vec<Payment>,
 ) {
     let limits = storage::get_position_limits(env);
 
@@ -114,7 +114,7 @@ pub fn validate_bulk_position_limits(
 
     let mut seen: Map<Address, bool> = Map::new(env);
     let mut new_positions_count: u32 = 0;
-    for (asset, _) in assets.iter() {
+    for (asset, _) in plan.iter() {
         if seen.contains_key(asset.clone()) {
             continue;
         }
@@ -288,20 +288,10 @@ mod tests {
             is_isolated: false,
             isolated_asset: None,
         };
-        let assets: Vec<(Address, i128)> = Vec::from_array(
-            &env,
-            [
-                (asset.clone(), 100),
-                (asset.clone(), 200),
-            ],
-        );
+        let assets: Vec<(Address, i128)> =
+            Vec::from_array(&env, [(asset.clone(), 100), (asset.clone(), 200)]);
         env.as_contract(&contract_id, || {
-            validate_bulk_position_limits(
-                &env,
-                &account,
-                AccountPositionType::Deposit,
-                &assets,
-            );
+            validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &assets);
         });
     }
 }

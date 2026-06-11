@@ -1,12 +1,9 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, AssetConfigRaw,
-    Payment, PoolAction, PositionMode,
+    Account, AccountPositionType, AssetConfigRaw, Payment, PoolAction, PositionMode,
 };
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -49,26 +46,15 @@ pub fn process_supply(
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     // Aggregate once at the entrypoint so every downstream stage, including the
     // post-flight dust scope, operates on the deduped plan.
-    let deposit_plan = utils::aggregate_positive_payments(env, assets);
-    let (acct_id, mut account) = resolve_supply_account(
-        env,
-        caller,
-        account_id,
-        e_mode_category,
-        &deposit_plan,
-        &mut cache,
-    );
+    let plan = utils::aggregate_positive_payments(env, assets);
+    let (acct_id, mut account) =
+        resolve_supply_account(env, caller, account_id, e_mode_category, &plan, &mut cache);
 
-    process_deposit(env, caller, &mut account, &deposit_plan, &mut cache);
+    process_deposit(env, caller, &mut account, &plan, &mut cache);
 
     // Dust gate scoped to this batch's assets: supply never mutates borrow
     // positions, so pre-existing under-floor positions (price drift) must not block it.
-    require_no_supply_dust_for_assets(
-        env,
-        &mut cache,
-        &account,
-        &utils::plan_assets(env, &deposit_plan),
-    );
+    require_no_supply_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &plan));
 
     storage::set_supply_positions(env, acct_id, &account.supply_positions);
     cache.emit_position_batch(acct_id, &account);
@@ -82,13 +68,13 @@ fn resolve_supply_account(
     caller: &Address,
     account_id: u64,
     e_mode_category: u32,
-    assets: &Vec<Payment>,
+    plan: &Vec<Payment>,
     cache: &mut Cache,
 ) -> (u64, Account) {
-    require_non_empty_payments(env, assets);
+    require_non_empty_payments(env, plan);
 
     if account_id == 0 {
-        create_account_for_first_asset(env, caller, e_mode_category, assets, cache)
+        create_account_for_first_asset(env, caller, e_mode_category, plan, cache)
     } else {
         let account = storage::get_account_supply_only(env, account_id);
         // Zero is the unspecified sentinel; any non-zero value must match the
@@ -105,33 +91,26 @@ pub fn process_deposit(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    deposit_plan: &Vec<Payment>,
+    plan: &Vec<Payment>,
     cache: &mut Cache,
 ) {
-    let effective_configs = super::effective_configs_for_plan(env, account, deposit_plan, cache);
+    let effective_configs = super::effective_configs_for_plan(env, account, plan, cache);
 
-    prepare_deposit_plan(env, account, deposit_plan, cache, &effective_configs);
-    execute_deposit_plan(
-        env,
-        caller,
-        account,
-        deposit_plan,
-        cache,
-        &effective_configs,
-    );
+    prepare_deposit_plan(env, account, plan, &effective_configs, cache);
+    execute_deposit_plan(env, caller, account, plan, &effective_configs, cache);
 }
 
 fn prepare_deposit_plan(
     env: &Env,
     account: &Account,
-    assets: &Vec<Payment>,
-    cache: &mut Cache,
+    plan: &Vec<Payment>,
     effective_configs: &Map<Address, AssetConfigRaw>,
+    cache: &mut Cache,
 ) {
-    validate_bulk_position_limits(env, account, AccountPositionType::Deposit, assets);
-    validate_bulk_isolation(env, account, assets, cache);
+    validate_bulk_position_limits(env, account, AccountPositionType::Deposit, plan);
+    validate_bulk_isolation(env, account, plan, cache);
 
-    for (asset, _) in assets {
+    for (asset, _) in plan {
         require_market_active(env, cache, &asset);
 
         let asset_config = super::effective_config(env, effective_configs, &asset);
@@ -153,15 +132,15 @@ fn execute_deposit_plan(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    assets: &Vec<Payment>,
-    cache: &mut Cache,
+    plan: &Vec<Payment>,
     effective_configs: &Map<Address, AssetConfigRaw>,
+    cache: &mut Cache,
 ) {
     // One pool call for the whole plan (one cross-contract frame); results
     // align with entries by index.
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<common::types::PoolSupplyEntry> = Vec::new(env);
-    for (asset, amount_in) in assets {
+    for (asset, amount_in) in plan {
         let asset_config = super::effective_config(env, effective_configs, &asset);
         utils::transfer_amount(
             env,
@@ -209,11 +188,11 @@ fn execute_deposit_plan(
     }
 }
 
-fn validate_bulk_isolation(env: &Env, account: &Account, assets: &Vec<Payment>, cache: &mut Cache) {
-    if assets.len() <= 1 {
+fn validate_bulk_isolation(env: &Env, account: &Account, plan: &Vec<Payment>, cache: &mut Cache) {
+    if plan.len() <= 1 {
         return;
     }
-    let (first_asset, _) = expect_invariant(env, assets.get(0));
+    let (first_asset, _) = expect_invariant(env, plan.get(0));
     let first_config = cache.cached_asset_config(&first_asset);
     if account.is_isolated || first_config.is_isolated_asset {
         panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
@@ -224,10 +203,10 @@ fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
     e_mode_category: u32,
-    assets: &Vec<Payment>,
+    plan: &Vec<Payment>,
     cache: &mut Cache,
 ) -> (u64, Account) {
-    let (first_asset, _) = expect_invariant(env, assets.get(0));
+    let (first_asset, _) = expect_invariant(env, plan.get(0));
     let first_config = cache.cached_asset_config(&first_asset);
     let is_isolated = first_config.is_isolated_asset;
     let isolated_asset = if is_isolated {
