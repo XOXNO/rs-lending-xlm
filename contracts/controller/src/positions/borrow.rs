@@ -87,15 +87,6 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
 
     process_borrow_plan(env, caller, &mut account, &plan, &mut cache);
 
-    // require_within_ltv and require_healthy_account price the full
-    // supply+borrow set before the HF-body prefetch in
-    // calculate_account_totals_body can fire; prefetch the union here so those
-    // reads hit the cache. Plan assets are already in borrow_positions after
-    // the pool call.
-    let mut priced_assets = account.supply_positions.keys();
-    priced_assets.append(&account.borrow_positions.keys());
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
-
     // LTV gate runs post-pool so collateral and debt valuation reuse the market
     // indexes the pool borrow just wrote into the cache, sparing a redundant
     // get_sync_data read. A failure here panics and reverts the atomic tx.
