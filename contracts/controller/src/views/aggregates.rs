@@ -17,6 +17,10 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
+    // Bulk-prefetch all RedStone feeds before the per-market price reads below.
+    let priced_assets = supply.keys();
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+
     let mut total_collateral = Wad::ZERO;
 
     for (asset, position) in iter_typed_positions(&supply) {
@@ -45,6 +49,10 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
+    // Bulk-prefetch all RedStone feeds before the per-market price reads below.
+    let priced_assets = borrow.keys();
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+
     let mut total_borrow = Wad::ZERO;
 
     for (asset, position) in iter_debt_positions(&borrow) {
@@ -69,5 +77,9 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
+    // Bulk-prefetch all RedStone feeds before the per-market price reads inside
+    // calculate_ltv_collateral_wad.
+    let priced_assets = account.supply_positions.keys();
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
     helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }
