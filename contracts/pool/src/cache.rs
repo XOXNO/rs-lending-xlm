@@ -91,13 +91,13 @@ impl Cache {
         common::rates::utilization(&self.env, total_borrowed, total_supplied)
     }
 
-    /// Returns true when the pool's current on-chain token balance is at least `amount`.
+    /// Returns true when available reserves are at least `amount`.
     pub fn has_reserves(&self, amount: i128) -> bool {
         let reserves = self.live_reserves();
         reserves >= amount
     }
 
-    /// Panics with InsufficientLiquidity if live on-chain balance < amount.
+    /// Panics with InsufficientLiquidity if available reserves < amount.
     pub fn require_reserves(&self, amount: i128) {
         assert_with_error!(
             self.env,
@@ -107,8 +107,8 @@ impl Cache {
     }
 
     /// Available reserves = internally-tracked `cash` (liquid token units the
-    /// pool holds). Replaces a live `token.balance()` read so donations cannot
-    /// inflate borrowable liquidity and so flows avoid a cross-contract call.
+    /// pool holds). Not a live `token.balance()` read: donations cannot inflate
+    /// borrowable liquidity and flows avoid a cross-contract call.
     pub fn live_reserves(&self) -> i128 {
         self.cash
     }
@@ -473,10 +473,8 @@ mod tests {
         });
     }
 
-    // `amount_mutation` / `burn_claimable_revenue` aren't unit-tested here: both
-    // read live token balance via `live_reserves`, but this `TestSetup` uses a
-    // generated address, not a registered SAC. Covered by lib.rs ABI tests
-    // (`test_claim_revenue*`).
+    // `amount_mutation` / `burn_claimable_revenue` are covered by ABI tests in
+    // tests.rs (`test_claim_revenue*`).
 
     // `Ray::checked_sub_assign` is covered by withdraw/seize panic tests at the ABI
     // layer; this direct unit test gives a faster signal when the helper is touched.

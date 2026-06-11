@@ -117,7 +117,7 @@ fn test_withdraw_pays_recipient_directly_and_terminal_exit_closes_account() {
     );
 
     // Re-deposit reopens a fresh lending account: the stored id from before
-    // the full close would be stale (#24), which is exactly the lifecycle
+    // the full close would be stale, which is exactly the lifecycle
     // integrators must handle.
     client.deposit(&(500 * UNIT), &s.vault);
     let account_after = client.lending_account_id();

@@ -225,8 +225,8 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 
     for i in 0..assets.len() {
         let asset = validation::expect_invariant(env, assets.get(i));
-        // Keeps the per-asset supported check; the view stays empty-input safe
-        // because the pool address resolves only when a market row is emitted.
+        // Discarded read panics on unsupported assets; pool address is
+        // resolved per-row, so the view is safe on empty input.
         cache.cached_market_config(&asset);
         let pool_address = cache.cached_pool_address();
         let final_price = token_price(&mut cache, &asset).price_wad;

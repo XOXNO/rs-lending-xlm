@@ -70,7 +70,6 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
     );
 }
 
-/// Validate sanity bounds.
 pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
