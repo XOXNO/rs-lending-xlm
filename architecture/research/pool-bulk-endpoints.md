@@ -114,11 +114,19 @@ address); the endpoint is `entries.iter().map(supply_one).collect()`. Per-entry
    alternatively fresh deploy + fleet repoint. Then stress + `liq_20feed`
    width walk.
 
-## Expected result on the 10×10 liquidation
+## Measured result on the 10×10 liquidation (post-implementation)
 
-62 → 44 invocations. Estimated ~260–310M instructions (from 372M) and
-~18–22MB memory (from 29.3MB), turning the width-10 single-tx liquidation
-from "1.6M under the cap" into ~25% headroom — and reopening the question of
-raising max position limits beyond 10+10. Remaining frame floor: 20 SAC
-transfers (token standard) + 20 Reflector primary reads (third-party ABI —
-separate investigation: does production Reflector expose a multi-asset read?).
+62 → 44 invocations. MEASURED on-chain (core_metrics, identical scenario,
+controller CA5O…DPZV, tx 0d313caa… vs pre-bulk 3f4b6cc6…):
+CPU 372.29M → 366.61M (−1.5%); memory 29.33MB → 25.75MB (−12%); declared
+budget headroom at width 10: 1.6M → 7.0M instructions.
+
+The original estimate (~60–110M CPU) was wrong: a same-contract
+re-invocation costs ~0.3M instructions + ~200KB memory (the marginal-call
+slope), NOT the ~1.28MB first-instantiation cost — the host reuses the
+parsed module within a transaction. The refactor's durable value is the
+memory headroom (61% of cap at width 10), one auth check per verb, smaller
+call envelopes, and the bulk-first ABI itself; the CPU wall is governed by
+intra-contract logic and the 20 per-asset Reflector reads (a DIFFERENT
+contract, so those frames do pay instantiation) — that investigation is the
+next lever.
