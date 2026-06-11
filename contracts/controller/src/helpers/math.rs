@@ -29,6 +29,8 @@ pub fn calculate_ltv_collateral_wad(
     cache: &mut Cache,
     supply_positions: &Map<Address, AccountPositionRaw>,
 ) -> Wad {
+    cache.prefetch_market_indexes(&supply_positions.keys());
+
     let mut ltv = Wad::ZERO;
     for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
@@ -104,11 +106,13 @@ fn calculate_account_totals_body(
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
-    // Prime the RedStone prefetch with every position's feeds before the
-    // per-asset price reads below.
+    // Prime the RedStone prefetch with every position's feeds and the pool
+    // index prefetch with every position's markets before the per-asset
+    // reads below.
     let mut priced_assets = supply_positions.keys();
     priced_assets.append(&borrow_positions.keys());
     crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    cache.prefetch_market_indexes(&priced_assets);
 
     let mut total_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
@@ -145,6 +149,8 @@ pub fn calculate_total_debt_wad(
     cache: &mut Cache,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> Wad {
+    cache.prefetch_market_indexes(&borrow_positions.keys());
+
     let mut total_debt = Wad::ZERO;
     for (asset, position) in iter_debt_positions(borrow_positions) {
         let feed = cache.cached_price(&asset);

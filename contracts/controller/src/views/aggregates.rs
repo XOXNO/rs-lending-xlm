@@ -20,6 +20,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let priced_assets = supply.keys();
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    cache.prefetch_market_indexes(&priced_assets);
 
     let mut total_collateral = Wad::ZERO;
 
@@ -52,6 +53,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     // Bulk-prefetch all RedStone feeds before the per-market price reads below.
     let priced_assets = borrow.keys();
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    cache.prefetch_market_indexes(&priced_assets);
 
     let mut total_borrow = Wad::ZERO;
 

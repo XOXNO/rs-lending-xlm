@@ -3,13 +3,13 @@
 //! MEASURED CONCLUSION: the dominant consumer is the per-CALL wasm VM frame
 //! (~1.28MB of linear-memory charge per cross-contract invocation), not the
 //! returned struct's payload bytes (~509 B per Reflector PriceData record,
-//! ~0.1% of the per-feed cost). The native-mock reflector calls are frame-free
-//! while the deployed-wasm pool call carries 95% of the per-feed slope; on
-//! testnet/mainnet all three calls per feed (pool + Reflector + RedStone) are
-//! wasm, so each feed costs ~3 frames (~4MB) — 40MB cap / ~4MB explains the
-//! measured 10-feed dual-source wall. Consequence: REMOVING CALLS (local pool
-//! mirror, bulk RedStone) is the lever; slimming structs or Twap(3)->Twap(2)
-//! buys almost nothing.
+//! ~0.1% of the per-feed cost). That finding motivated the two bulk levers
+//! now in place — RedStone bulk prefetch and the pool's `bulk_get_sync_data`
+//! index prefetch — which together strip the per-feed pool frame out of HF
+//! valuation: the measured 5-feed withdraw dropped from ~1.67MB to ~1.07MB
+//! and the per-feed slope from ~294KB to ~94KB, well under one call frame.
+//! The un-bulked per-asset pool path (`update_indexes`) still pays the full
+//! frame per asset and is kept below as the call-frame reference slope.
 //!
 //! Method — all measurements are WITHIN one transaction, because standalone
 //! client calls are each their own top-level invocation and re-charge ~1.1MB
@@ -59,7 +59,7 @@ fn set_primary_twap(t: &LendingTest, asset_name: &str, records: u32) {
 }
 
 #[test]
-fn mem_attribution_per_call_frame_dominates() {
+fn mem_attribution_bulk_prefetch_removes_per_feed_pool_frame() {
     let names = ["USDC", "USDT", "ETH", "WBTC", "XLM"];
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -108,17 +108,25 @@ fn mem_attribution_per_call_frame_dominates() {
         accounted as f64 * 100.0 / total_per_feed as f64);
     std::println!("  (Twap(12) 5-feed withdraw = {mem_5_feeds_twap12} B)");
 
-    // The claim under test: per-feed memory is dominated by the cross-contract
-    // CALLS themselves (VM frame), with the return payload a minor term.
-    assert!(total_per_feed > 100_000, "per-feed slope should be ~1MB-scale");
+    // The claims under test:
+    // 1. The un-bulked per-asset pool path still pays a call frame per asset —
+    //    the reference slope that makes bulking worthwhile.
+    assert!(
+        pool_per_asset > 100_000,
+        "per-asset update_indexes slope should remain call-frame scale"
+    );
+    // 2. HF valuation no longer pays that frame per feed: the bulk index
+    //    prefetch replaced N get_sync_data calls with one, so the per-feed
+    //    slope sits well below a single pool call.
+    assert!(
+        total_per_feed < pool_per_asset,
+        "HF per-feed slope must stay below one pool call frame: \
+         total {total_per_feed} vs pool frame {pool_per_asset}"
+    );
+    // 3. Return payloads still scale with record count.
     assert!(
         mem_5_feeds_twap12 > mem_5_feeds + 5 * 9 * 32,
         "memory must scale with returned record count"
-    );
-    assert!(
-        accounted * 2 > total_per_feed,
-        "return payloads should account for the majority of per-feed memory: \
-         pool {pool_per_asset} + reflector {reflector_twap3_per_feed} vs total {total_per_feed}"
     );
 }
 

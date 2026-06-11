@@ -15,16 +15,16 @@ use cache::Cache;
 use common::constants::{MS_PER_SECOND, RAY};
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use common::rates::update_supply_index;
+use common::rates::{simulate_update_indexes, update_supply_index};
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
-    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolStateRaw, PoolStrategyMutation,
-    PoolSyncData, ScaledPositionRaw,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
+    PoolAction, PoolAmountMutation, PoolKey, PoolPositionMutation, PoolStateRaw,
+    PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
     assert_with_error, contract, contractimpl, contractmeta, panic_with_error, token, Address,
-    Bytes, BytesN, Env, IntoVal, Symbol,
+    Bytes, BytesN, Env, IntoVal, Symbol, Vec,
 };
 
 contractmeta!(key = "name", val = "Liquidity Pool");
@@ -477,6 +477,21 @@ impl LiquidityPoolInterface for LiquidityPool {
             params: views::load_params(&env, &asset),
             state: views::load_state(&env, &asset),
         }
+    }
+
+    fn bulk_get_sync_data(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
+        let now_ms = env.ledger().timestamp() * MS_PER_SECOND;
+        let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
+        for asset in assets.iter() {
+            let sync = PoolSyncData {
+                params: views::load_params(&env, &asset),
+                state: views::load_state(&env, &asset),
+            };
+            indexes.push_back(MarketIndexRaw::from(&simulate_update_indexes(
+                &env, now_ms, &sync,
+            )));
+        }
+        indexes
     }
 }
 

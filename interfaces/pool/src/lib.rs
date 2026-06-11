@@ -2,11 +2,11 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
-    PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
+    PoolAction, PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
     ScaledPositionRaw,
 };
-use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
 
 #[contractclient(name = "LiquidityPoolClient")]
 pub trait LiquidityPoolInterface {
@@ -71,4 +71,8 @@ pub trait LiquidityPoolInterface {
     fn borrowed_amount(env: Env, asset: Address) -> i128;
     fn delta_time(env: Env, asset: Address) -> u64;
     fn get_sync_data(env: Env, asset: Address) -> PoolSyncData;
+    /// Borrow/supply indexes accrued to the current ledger time for each
+    /// asset, index-aligned with the request. One call replaces N
+    /// `get_sync_data` reads for flows that only need indexes.
+    fn bulk_get_sync_data(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
 }

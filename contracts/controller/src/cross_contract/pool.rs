@@ -6,11 +6,11 @@
 //! which carries the market asset the central pool routes on.
 
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
-    PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
+    PoolAction, PoolAmountMutation, PoolPositionMutation, PoolStrategyMutation, PoolSyncData,
     ScaledPositionRaw,
 };
-use soroban_sdk::{Address, Bytes, BytesN, Env};
+use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
 pub(crate) fn pool_create_market_call(env: &Env, pool_addr: &Address, params: &MarketParamsRaw) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).create_market(params)
@@ -125,6 +125,14 @@ pub(crate) fn pool_add_rewards_call(
 
 pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address, asset: &Address) -> PoolSyncData {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data(asset)
+}
+
+pub(crate) fn fetch_pool_bulk_indexes(
+    env: &Env,
+    pool_addr: &Address,
+    assets: &Vec<Address>,
+) -> Vec<MarketIndexRaw> {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).bulk_get_sync_data(assets)
 }
 
 pub(crate) fn pool_update_params_call(

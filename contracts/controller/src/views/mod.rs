@@ -242,6 +242,7 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 
 pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<MarketIndexView> {
     let mut cache = Cache::new_view(env);
+    cache.prefetch_market_indexes(assets);
     let mut result = Vec::new(env);
 
     for i in 0..assets.len() {

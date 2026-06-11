@@ -17,6 +17,8 @@ use common::types::{
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Symbol, Vec};
 
+#[cfg(not(feature = "certora"))]
+use crate::cross_contract::pool::fetch_pool_bulk_indexes;
 use crate::cross_contract::pool::fetch_pool_sync_data;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::providers::redstone::RedStonePriceData;
@@ -137,6 +139,42 @@ impl Cache {
         let addr = storage::get_pool(&self.env);
         self.pool_address = Some(addr.clone());
         addr
+    }
+
+    /// No-op under Certora: pure performance optimization, identical semantics.
+    #[cfg(feature = "certora")]
+    pub fn prefetch_market_indexes(&mut self, _assets: &Vec<Address>) {}
+
+    /// Seeds `market_indexes` for every listed asset in `assets` with one
+    /// `bulk_get_sync_data` pool call instead of N lazy `get_sync_data` reads.
+    ///
+    /// The pool runs the same `simulate_update_indexes` math the lazy
+    /// per-asset path runs locally, so seeded values are identical. Assets
+    /// already indexed this tx and unlisted assets are skipped — the prefetch
+    /// never introduces its own panic site — and an empty remainder makes no
+    /// pool call, so flows that never read an index stay call-free.
+    #[cfg(not(feature = "certora"))]
+    pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
+        let mut missing: Vec<Address> = Vec::new(&self.env);
+        for asset in assets.iter() {
+            if self.market_indexes.contains_key(asset.clone())
+                || missing.first_index_of(asset.clone()).is_some()
+                || self.try_cached_market_config(&asset).is_none()
+            {
+                continue;
+            }
+            missing.push_back(asset);
+        }
+        if missing.is_empty() {
+            return;
+        }
+        let pool_addr = self.cached_pool_address();
+        let indexes = fetch_pool_bulk_indexes(&self.env, &pool_addr, &missing);
+        // Index-aligned with the request: the pool returns one entry per asset.
+        for (i, asset) in missing.iter().enumerate() {
+            self.market_indexes
+                .set(asset, indexes.get_unchecked(i as u32));
+        }
     }
 
     pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {

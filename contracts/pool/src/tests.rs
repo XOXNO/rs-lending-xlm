@@ -1580,3 +1580,100 @@ fn test_create_market_rejects_non_owner() {
         "create_market without owner auth must fail"
     );
 }
+
+// bulk_get_sync_data must return exactly the indexes the per-asset lazy path
+// derives (`get_sync_data` + `simulate_update_indexes`), index-aligned with
+// the request, after real time-based accrual on a utilized market.
+#[test]
+fn test_bulk_get_sync_data_matches_per_asset_simulation() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    // Create a borrow so the indexes actually accrue over time.
+    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    let borrower = Address::generate(&t.env);
+    client.borrow(&t.action(&borrower, 0, 5_000_000_000i128), &i128::MAX);
+
+    t.advance_time(86_400);
+
+    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
+    let sync = client.get_sync_data(&t.asset);
+    let expected =
+        common::types::MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &sync));
+
+    let assets = soroban_sdk::vec![&t.env, t.asset.clone()];
+    let bulk = client.bulk_get_sync_data(&assets);
+
+    assert_eq!(bulk.len(), 1, "one entry per requested asset");
+    assert_eq!(bulk.get_unchecked(0), expected);
+    assert!(
+        expected.borrow_index_ray > RAY,
+        "borrow index must have accrued past RAY for the equality to be meaningful"
+    );
+}
+
+// Multi-asset request: results are index-aligned with the input, and markets
+// with divergent states (utilized vs idle) keep their own indexes.
+#[test]
+fn test_bulk_get_sync_data_multi_asset_alignment() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let asset_b = Address::generate(&t.env);
+    client.create_market(&market_params(&asset_b));
+
+    // Only market A gets utilization, so only its indexes accrue.
+    client.supply(&t.action(&t.admin, 0, 10_000_000_000i128), &i128::MAX);
+    let borrower = Address::generate(&t.env);
+    client.borrow(&t.action(&borrower, 0, 5_000_000_000i128), &i128::MAX);
+
+    t.advance_time(86_400);
+
+    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
+    let expected_a = common::types::MarketIndexRaw::from(&simulate_update_indexes(
+        &t.env,
+        now_ms,
+        &client.get_sync_data(&t.asset),
+    ));
+    let expected_b = common::types::MarketIndexRaw::from(&simulate_update_indexes(
+        &t.env,
+        now_ms,
+        &client.get_sync_data(&asset_b),
+    ));
+
+    let assets = soroban_sdk::vec![&t.env, t.asset.clone(), asset_b.clone()];
+    let bulk = client.bulk_get_sync_data(&assets);
+    assert_eq!(bulk.len(), 2);
+
+    let a = bulk.get_unchecked(0);
+    let b = bulk.get_unchecked(1);
+    assert_eq!(a, expected_a, "entry 0 must match market A's simulation");
+    assert_eq!(b, expected_b, "entry 1 must match market B's simulation");
+    // Divergent states prove alignment: the utilized market accrues faster
+    // than the idle one (base rate only) and rewards suppliers, the idle one
+    // does not.
+    assert!(a.borrow_index_ray > b.borrow_index_ray && b.borrow_index_ray > RAY);
+    assert!(a.supply_index_ray > RAY);
+    assert_eq!(b.supply_index_ray, RAY, "no borrows, no supplier rewards");
+}
+
+// An empty request returns an empty result without panicking.
+#[test]
+fn test_bulk_get_sync_data_empty_request() {
+    let t = TestSetup::new();
+    let bulk = t
+        .client()
+        .bulk_get_sync_data(&soroban_sdk::Vec::new(&t.env));
+    assert_eq!(bulk.len(), 0);
+}
+
+// Unknown assets fail the whole call with PoolNotInitialized — the same error
+// the per-asset `get_sync_data` path produces.
+#[test]
+fn test_bulk_get_sync_data_unknown_asset_panics() {
+    let t = TestSetup::new();
+    let unknown = Address::generate(&t.env);
+    let assets = soroban_sdk::vec![&t.env, unknown];
+    let result = t.client().try_bulk_get_sync_data(&assets);
+    assert!(result.is_err(), "unknown asset must fail the bulk read");
+}

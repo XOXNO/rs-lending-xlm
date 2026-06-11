@@ -7,6 +7,7 @@ mod admin;
 mod admin_config;
 mod bad_debt_index;
 mod borrow;
+mod bulk_indexes;
 mod decimal_diversity;
 mod dust_floor;
 mod emode;

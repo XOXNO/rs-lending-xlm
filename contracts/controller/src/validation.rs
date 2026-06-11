@@ -75,6 +75,12 @@ pub fn require_within_ltv(env: &Env, cache: &mut Cache, account: &Account) {
         return;
     }
 
+    // Union prefetch so the supply and debt valuations below share a single
+    // bulk index call instead of one per side.
+    let mut index_assets = account.supply_positions.keys();
+    index_assets.append(&account.borrow_positions.keys());
+    cache.prefetch_market_indexes(&index_assets);
+
     let ltv_collateral_wad =
         helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
     let total_borrow_wad =
