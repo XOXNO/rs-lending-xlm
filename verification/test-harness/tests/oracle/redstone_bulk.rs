@@ -256,3 +256,57 @@ fn test_prefetched_price_resolution_matches_lazy() {
         total_debt
     );
 }
+
+#[test]
+fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
+    // Two RedStone-anchored markets on the SAME adapter; a withdraw with an
+    // outstanding borrow must price the withdrawn asset AND every remaining
+    // position before the LTV/HF check, so the entrypoint prefetch must cover
+    // the full position set.
+    //
+    // Without an entrypoint prefetch the withdrawal loop single-resolves the
+    // withdrawn asset BEFORE any prefetch site runs with the full set, leaving
+    // the remaining position feeds to be lazily resolved one-at-a-time.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // One adapter, two feeds (USDC=$1, ETH=$2000).
+    let redstone = setup_redstone_feeds(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+
+    // Anchor both markets to the single adapter.
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+
+    // BOB supplies ETH liquidity so ALICE can borrow it.
+    t.supply(BOB, "ETH", 100.0);
+
+    // ALICE supplies USDC as collateral and borrows ETH.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    // Snapshot counters after setup (each operation above is its own tx).
+    let rs = redstone_client(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    // ALICE withdraws a small portion of her USDC — small enough to stay healthy.
+    // This triggers: withdrawal loop (prices USDC), then require_within_ltv
+    // (prices all supply+borrow), then require_healthy_account.  Without an
+    // entrypoint prefetch the USDC feed is single-resolved before the bulk
+    // opportunity and ETH is resolved lazily too.
+    t.withdraw(ALICE, "USDC", 100.0);
+
+    let rs = redstone_client(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        1,
+        "withdraw with debt must bulk-fetch RedStone feeds once"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        0,
+        "no per-feed RedStone calls when the entrypoint prefetch covers the set"
+    );
+}
