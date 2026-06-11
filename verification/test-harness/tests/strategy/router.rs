@@ -265,7 +265,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
 // Alice tries to swap an ETH debt she does not owe. The test was missing.
 //
 // Call order in process_swap_debt:
-//   1. create_borrow_strategy(new_debt_token): flash-borrows the new
+//   1. borrow_for_strategy(new_debt_token): flash-borrows the new
 //      token.
 //   2. swap_tokens(new_debt -> existing_debt).
 //   3. borrow_positions.get(existing_debt_token): panics if missing (line
