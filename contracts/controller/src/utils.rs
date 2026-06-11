@@ -13,8 +13,8 @@ use crate::validation;
 
 pub(crate) use crate::helpers::{create_account, remove_account};
 
-/// Deduplicates by asset and sums positive amounts only. Zero and negative
-/// entries are dropped (used by every mutating entrypoint before plan execution).
+/// Deduplicates by asset and sums amounts; panics on zero or negative entries
+/// (used by every mutating entrypoint before plan execution).
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
 }

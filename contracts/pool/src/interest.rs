@@ -253,8 +253,7 @@ mod tests {
         });
     }
 
-    // A >90% reduction still applies and can be observed through the
-    // controller's market batch snapshot.
+    // A >90% reduction still applies in full to the supply index.
     #[test]
     fn test_apply_bad_debt_applies_severe_reduction() {
         let t = TestSetup::new();

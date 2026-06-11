@@ -1092,7 +1092,6 @@ fn test_views() {
     t.advance_time(60);
     assert!(client.delta_time(&t.asset) > 0, "delta_time should be positive");
 }
-// Extra targeted coverage tests.
 
 // Liquidation fee on withdraw accrues to protocol revenue; user receives gross minus fee.
 #[test]
