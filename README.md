@@ -78,6 +78,7 @@ rs-lending-xlm/
 ├── contracts/
 │   ├── controller/     # Accounts, risk, oracle, liquidation, strategy logic
 │   ├── pool/           # Asset pool accounting, indexes, revenue, flash loans
+│   ├── defindex-strategy/    # Reference DeFindex vault strategy (integration example)
 │   └── flash-loan-receiver/  # Reference flash-loan receiver (tests/examples)
 ├── interfaces/
 │   ├── controller/     # Controller external ABI trait and client

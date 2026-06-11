@@ -146,8 +146,8 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
     let withdrawals: SorobanVec<(soroban_sdk::Address, i128)> =
         soroban_sdk::vec![&t.env, (asset_addr, 0i128)];
     let ctrl = t.ctrl_client();
-    let result = match ctrl.try_withdraw(&alice_addr, &account_id, &withdrawals) {
-        Ok(Ok(())) => Ok(()),
+    let result = match ctrl.try_withdraw(&alice_addr, &account_id, &withdrawals, &None) {
+        Ok(Ok(_)) => Ok(()),
         Ok(Err(err)) => Err(err.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };

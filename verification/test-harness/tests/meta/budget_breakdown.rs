@@ -101,6 +101,13 @@ fn budget_withdraw_5_collateral_double_pass() {
         .with_budget_enabled()
         .build();
 
+    // Setup is not what this test measures, and the 5-market builder plus six
+    // ops sits within a hair of the host's cumulative shadow budget (testutils
+    // diagnostics + auth observation, never reset between invocations). Lift
+    // limits for setup; `reset_default` below re-arms enforcement for the
+    // measured withdraw.
+    t.env.cost_estimate().budget().reset_unlimited();
+
     // 5 collateral positions on one account.
     t.supply(ALICE, "USDC", 100_000.0);
     let a = t.resolve_account_id(ALICE);

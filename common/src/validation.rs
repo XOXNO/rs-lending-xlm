@@ -18,6 +18,12 @@ pub fn require_nonneg_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
 
+/// Caps of zero/negative or `i128::MAX` mean "no cap configured"; the pool's
+/// enforcement and the controller's `max_*` previews share this rule.
+pub fn cap_is_enabled(cap: i128) -> bool {
+    cap > 0 && cap != i128::MAX
+}
+
 /// Rejects a flash-loan receiver that is not a deployed Wasm contract.
 pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     assert_with_error!(

@@ -80,7 +80,6 @@ pub(crate) fn repay_debt_from_controller(
     req: StrategyRepay<'_>,
 ) {
     let debt_pool_addr = cache.cached_pool_address();
-    let debt_feed = cache.cached_price(req.debt_token);
     let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 
     // Listed debt tokens are 1:1 SACs: the transfer is trusted, so
@@ -106,7 +105,6 @@ pub(crate) fn repay_debt_from_controller(
             asset: req.debt_token,
             position: req.debt_pos,
             amount: req.debt_available,
-            price: debt_feed.price,
         },
         cache,
     );
@@ -120,7 +118,6 @@ pub(crate) fn withdraw_collateral_to_controller(
     cache: &mut Cache,
     req: StrategyWithdraw<'_>,
 ) -> i128 {
-    let feed = cache.cached_price(req.asset);
     let token = soroban_sdk::token::Client::new(env, req.asset);
     let balance_before = token.balance(&env.current_contract_address());
 
@@ -132,7 +129,6 @@ pub(crate) fn withdraw_collateral_to_controller(
             asset: req.asset,
             amount: req.amount,
             position: req.position,
-            price: feed.price,
         },
         WithdrawFlags::plain(),
         cache,
@@ -361,7 +357,6 @@ pub(crate) fn execute_withdraw_all(
     for asset in deposit_keys.iter() {
         if let Some(pos) = account.supply_positions.get(asset.clone()) {
             let pos: AccountPosition = (&pos).into();
-            let feed = cache.cached_price(&asset);
             // Same full-close signal as public `withdraw(..., amount: 0)`.
             withdraw::execute_withdrawal(
                 env,
@@ -374,7 +369,6 @@ pub(crate) fn execute_withdraw_all(
                     asset: &asset,
                     amount: WITHDRAW_ALL_SENTINEL,
                     position: &pos,
-                    price: feed.price,
                 },
                 WithdrawFlags::plain(),
                 cache,

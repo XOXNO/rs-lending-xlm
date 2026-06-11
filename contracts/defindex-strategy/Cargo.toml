@@ -1,0 +1,16 @@
+[package]
+name = "defindex-strategy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { path = "../../common" }
+controller-interface = { path = "../../interfaces/controller" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+test-harness = { path = "../../verification/test-harness" }

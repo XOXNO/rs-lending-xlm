@@ -311,3 +311,103 @@ fn test_withdraw_allowed_with_ltv_headroom() {
 
     t.assert_supply_near(ALICE, "USDC", 9_000.0, 1.0);
 }
+// 15. test_withdraw_to_pays_third_party_recipient
+
+#[test]
+fn test_withdraw_to_pays_third_party_recipient() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let bob = t.get_or_create_user(test_harness::BOB);
+
+    let alice_wallet_before = t.token_balance_raw(ALICE, "USDC");
+    let bob_wallet_before = t.token_balance_raw(test_harness::BOB, "USDC");
+
+    let paid = t.withdraw_to_raw(ALICE, "USDC", 30_000_000_000, &bob);
+    let (_, paid_amount) = paid.get(0).unwrap();
+    assert_eq!(paid_amount, 30_000_000_000);
+
+    // Tokens land at the recipient; the owner's wallet is untouched.
+    assert_eq!(
+        t.token_balance_raw(test_harness::BOB, "USDC") - bob_wallet_before,
+        30_000_000_000
+    );
+    assert_eq!(t.token_balance_raw(ALICE, "USDC"), alice_wallet_before);
+    t.assert_supply_near(ALICE, "USDC", 7_000.0, 1.0);
+}
+// 16. test_withdraw_returns_actual_amounts_on_full_close
+
+#[test]
+fn test_withdraw_returns_actual_amounts_on_full_close() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let wallet_before = t.token_balance_raw(ALICE, "USDC");
+
+    // `0` sentinel closes the position; the returned amount is what the
+    // pool actually paid (floor rounding of the position value).
+    let paid = t.withdraw_raw_returning(ALICE, "USDC", 0);
+    let (_, paid_amount) = paid.get(0).unwrap();
+
+    assert!(
+        (99_999_999_999..=100_000_000_000).contains(&paid_amount),
+        "full close should pay ~10k USDC, got {paid_amount}"
+    );
+    assert_eq!(
+        t.token_balance_raw(ALICE, "USDC") - wallet_before,
+        paid_amount,
+        "returned amount must equal the wallet delta"
+    );
+    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
+}
+// 17. test_withdraw_full_exit_works_with_broken_oracle
+
+/// A debt-free full exit must never touch the oracle: no risk check needs a
+/// price (LTV/HF skip on empty borrows, dust skips closed positions) and event
+/// prices are backfilled only from prices already fetched. Self-rescue holds
+/// even when the feed is bricked.
+#[test]
+fn test_withdraw_full_exit_works_with_broken_oracle() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    // Any price resolution now panics with InvalidPrice (price 0).
+    t.set_price("USDC", 0);
+
+    t.withdraw_all(ALICE, "USDC");
+
+    t.assert_balance_eq(ALICE, "USDC", 10_000.0);
+    let accounts = t.get_active_accounts(ALICE);
+    assert_eq!(accounts.len(), 0, "empty account should be auto-removed");
+}
+// 18. test_withdraw_with_debt_still_requires_oracle
+
+/// The oracle-free exit applies only to debt-free accounts: with debt, the
+/// post-withdraw LTV/HF valuation must still resolve prices and revert when
+/// the feed is unusable.
+#[test]
+fn test_withdraw_with_debt_still_requires_oracle() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 0.5);
+
+    t.set_price("USDC", 0);
+
+    let result = t.try_withdraw(ALICE, "USDC", 100.0);
+    assert_contract_error(result, errors::INVALID_PRICE);
+}

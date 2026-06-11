@@ -219,7 +219,6 @@ fn update_deposit_position(
         market_index.supply_index.raw(),
         req.amount,
         &position,
-        None,
     );
 
     // Storage is written once after the whole supply batch completes.

@@ -17,7 +17,40 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
-        ctrl.withdraw(&addr, &account_id, &withdrawals);
+        ctrl.withdraw(&addr, &account_id, &withdrawals, &None);
+    }
+
+    /// Withdraws to a third-party recipient and returns the paid amounts.
+    pub fn withdraw_to_raw(
+        &mut self,
+        user: &str,
+        asset_name: &str,
+        amount: i128,
+        recipient: &Address,
+    ) -> Vec<(Address, i128)> {
+        let account_id = self.resolve_account_id(user);
+        let addr = self.users.get(user).unwrap().address.clone();
+        let asset_addr = self.resolve_asset(asset_name);
+
+        let ctrl = self.ctrl_client();
+        let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
+        ctrl.withdraw(&addr, &account_id, &withdrawals, &Some(recipient.clone()))
+    }
+
+    /// Withdraws and returns the actual paid amounts per asset.
+    pub fn withdraw_raw_returning(
+        &mut self,
+        user: &str,
+        asset_name: &str,
+        amount: i128,
+    ) -> Vec<(Address, i128)> {
+        let account_id = self.resolve_account_id(user);
+        let addr = self.users.get(user).unwrap().address.clone();
+        let asset_addr = self.resolve_asset(asset_name);
+
+        let ctrl = self.ctrl_client();
+        let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
+        ctrl.withdraw(&addr, &account_id, &withdrawals, &None)
     }
 
     pub fn try_withdraw(
@@ -34,8 +67,8 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
-        match ctrl.try_withdraw(&addr, &account_id, &withdrawals) {
-            Ok(Ok(())) => Ok(()),
+        match ctrl.try_withdraw(&addr, &account_id, &withdrawals, &None) {
+            Ok(Ok(_)) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
@@ -55,7 +88,7 @@ impl LendingTest {
         }
 
         let ctrl = self.ctrl_client();
-        ctrl.withdraw(&addr, &account_id, &soroban_withdrawals);
+        ctrl.withdraw(&addr, &account_id, &soroban_withdrawals, &None);
     }
 
     /// Withdraw the entire position for an asset (passes amount=0 which means "withdraw all").
@@ -66,6 +99,6 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let withdrawals: Vec<(Address, i128)> = vec![&self.env, (asset_addr, 0i128)];
-        ctrl.withdraw(&addr, &account_id, &withdrawals);
+        ctrl.withdraw(&addr, &account_id, &withdrawals, &None);
     }
 }

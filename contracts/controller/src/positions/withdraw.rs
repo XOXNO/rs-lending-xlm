@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::math::fp::{Ray, Wad};
+use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, Payment, PoolAction, PoolPositionMutation,
 };
@@ -27,7 +27,6 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub position: &'a AccountPosition,
-    pub price: Wad,
 }
 
 /// Liquidation-only modifiers; default is a plain withdraw.
@@ -48,22 +47,37 @@ impl WithdrawFlags {
 
 #[contractimpl]
 impl Controller {
+    /// Tokens go to `to` (else `caller`); returns actual paid per asset.
     #[when_not_paused]
-    pub fn withdraw(env: Env, caller: Address, account_id: u64, withdrawals: Vec<(Address, i128)>) {
-        process_withdraw(&env, &caller, account_id, &withdrawals);
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        withdrawals: Vec<(Address, i128)>,
+        to: Option<Address>,
+    ) -> Vec<(Address, i128)> {
+        process_withdraw(&env, &caller, account_id, &withdrawals, to)
     }
 }
 
 /// Withdraws collateral and re-checks LTV, health factor, and touched-asset dust.
 ///
 /// User amount `0` maps to the pool's `i128::MAX` full-withdraw sentinel.
-pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawals: &Vec<Payment>) {
+pub fn process_withdraw(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    withdrawals: &Vec<Payment>,
+    to: Option<Address>,
+) -> Vec<Payment> {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
 
     validation::require_account_owner_match(env, &account, caller);
+
+    let recipient = to.unwrap_or_else(|| caller.clone());
 
     let policy = if account.borrow_positions.is_empty() {
         OraclePolicy::RiskDecreasing
@@ -99,8 +113,11 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     };
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
 
+    let mut paid: Vec<Payment> = Vec::new(env);
     for (asset, amount) in withdrawal_plan.iter() {
-        process_single_withdrawal(env, caller, &mut account, &asset, amount, &mut cache);
+        let actual =
+            process_single_withdrawal(env, &recipient, &mut account, &asset, amount, &mut cache);
+        paid.push_back((asset, actual));
     }
 
     validation::require_within_ltv(env, &mut cache, &account);
@@ -117,20 +134,21 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     }
     cache.emit_position_batch(account_id, &account);
     cache.emit_market_batch();
+
+    paid
 }
 
+/// Returns the actual amount the pool paid out for this asset.
 fn process_single_withdrawal(
     env: &Env,
-    caller: &Address,
+    recipient: &Address,
     account: &mut Account,
     asset: &Address,
     amount: i128,
     cache: &mut Cache,
-) {
+) -> i128 {
     // `0` means withdraw all; negative withdrawals are never valid.
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
-
-    let feed = cache.cached_price(asset);
 
     let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
         Some(pos) => (&pos).into(),
@@ -143,22 +161,22 @@ fn process_single_withdrawal(
         amount
     };
 
-    let _ = execute_withdrawal(
+    let result = execute_withdrawal(
         env,
         account,
         EventContext {
-            caller: caller.clone(),
+            caller: recipient.clone(),
             action: symbol_short!("withdraw"),
         },
         WithdrawalRequest {
             asset,
             amount: withdraw_amount,
             position: &position,
-            price: feed.price,
         },
         WithdrawFlags::plain(),
         cache,
     );
+    result.actual_amount
 }
 
 /// Calls the pool and merges the returned scaled supply share into the account.
@@ -185,7 +203,7 @@ pub fn execute_withdrawal(
         flags.is_liquidation,
         flags.protocol_fee,
     );
-    cache.record_market_update_with_price(&result.market_state, Some(req.price.raw()));
+    cache.record_market_update(&result.market_state);
     let mut result_position = *req.position;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     if !flags.is_liquidation {
@@ -200,7 +218,6 @@ pub fn execute_withdrawal(
         result.market_index.supply_index_ray,
         result.actual_amount,
         &result_position,
-        Some(req.price.raw()),
     );
 
     result

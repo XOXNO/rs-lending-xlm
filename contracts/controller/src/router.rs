@@ -8,7 +8,7 @@ use common::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::math::fp::Wad;
 use common::types::{
     AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, InterestRateModel,
-    MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus, PriceFeed,
+    MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, BytesN, Env, Vec,
@@ -135,7 +135,6 @@ impl Controller {
         validation::require_asset_supported(&env, &mut cache, &asset);
 
         let base_config = cache.cached_asset_config(&asset);
-        let price_feed = cache.cached_price(&asset);
 
         for account_id in account_ids {
             let mut account_asset_config = base_config.clone();
@@ -147,7 +146,6 @@ impl Controller {
                     asset: &asset,
                     has_risks,
                     asset_config: &mut account_asset_config,
-                    feed: &price_feed,
                 },
                 &mut cache,
             );
@@ -360,7 +358,6 @@ struct ThresholdUpdate<'a> {
     asset: &'a Address,
     has_risks: bool,
     asset_config: &'a mut AssetConfig,
-    feed: &'a PriceFeed,
 }
 
 fn update_position_threshold(
@@ -373,7 +370,6 @@ fn update_position_threshold(
         asset,
         has_risks,
         asset_config,
-        feed,
     } = update_req;
 
     // No-op when the account is gone (bad-debt cleanup, full exit).
@@ -452,7 +448,6 @@ fn update_position_threshold(
         market_index.supply_index.raw(),
         0,
         &AccountPosition::from(&updated_pos),
-        Some(feed.price.raw()),
     );
     cache.emit_position_batch(account_id, &account);
 }

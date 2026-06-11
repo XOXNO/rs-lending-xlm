@@ -81,17 +81,21 @@ pub(crate) fn adjust_isolated_debt_usd(
 }
 
 /// Adds USD WAD debt to the isolated collateral tracker and checks its ceiling.
+///
+/// Prices only isolated accounts: the oracle read happens after the guard so
+/// non-isolated borrows never pay for it here.
 pub(crate) fn add_isolated_debt(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
+    asset: &Address,
     amount: i128,
-    feed: &PriceFeed,
 ) {
     if !account.is_isolated {
         return;
     }
 
+    let feed = cache.cached_price(asset);
     let amount_in_usd_wad = feed.usd_value_wad(env, amount).raw();
 
     let isolated_token = account
