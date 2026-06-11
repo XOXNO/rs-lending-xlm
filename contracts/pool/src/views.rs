@@ -27,7 +27,7 @@ pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
 
 // Pool's live token reserves in asset decimals.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
-    let token = soroban_sdk::token::Client::new(env, &asset);
+    let token = soroban_sdk::token::Client::new(env, asset);
     token.balance(&env.current_contract_address())
 }
 
