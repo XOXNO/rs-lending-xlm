@@ -41,8 +41,8 @@ pub fn create_borrow_strategy(
     let debt_config = emode::effective_asset_config(env, account, debt_token, cache, &e_mode);
     let mut new_borrows = Vec::new(env);
     new_borrows.push_back((debt_token.clone(), amount));
-    validate_siloed_borrow_set(env, cache, account, &new_borrows);
-    validate_borrow_asset_preflight(env, cache, &debt_config, debt_token, account);
+    validate_siloed_borrow_set(env, account, &new_borrows, cache);
+    validate_asset_borrowable(env, account, debt_token, &debt_config, cache);
 
     add_isolated_debt(env, cache, account, debt_token, amount);
 
@@ -87,9 +87,9 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
     // Dedup once at the entrypoint so every downstream stage, including the
     // post-flight dust scope, sees one entry per asset.
-    let borrow_plan = utils::aggregate_positive_payments(env, borrows);
+    let plan = utils::aggregate_positive_payments(env, borrows);
 
-    process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
+    process_borrow_plan(env, caller, &mut account, &plan, &mut cache);
 
     // require_within_ltv and require_healthy_account price the full
     // supply+borrow set before the HF-body prefetch in
@@ -111,7 +111,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
         env,
         &mut cache,
         &account,
-        &utils::plan_assets(env, &borrow_plan),
+        &utils::plan_assets(env, &plan),
     );
 
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
@@ -126,21 +126,22 @@ fn process_borrow_plan(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    borrow_plan: &Vec<Payment>,
+    plan: &Vec<Payment>,
     cache: &mut Cache,
 ) {
-    let effective_configs = super::effective_configs_for_plan(env, account, borrow_plan, cache);
+    let effective_configs = super::effective_configs_for_plan(env, account, plan, cache);
 
-    prepare_borrow_plan(env, account, borrow_plan, cache, &effective_configs);
-    execute_borrow_plan(env, caller, account, borrow_plan, cache, &effective_configs);
+    prepare_borrow_plan(env, account, plan, &effective_configs, cache);
+    execute_borrow_plan(env, caller, account, plan, &effective_configs, cache);
 }
 
-fn validate_borrow_asset_preflight(
+/// Account-level borrowability for one asset: isolation, e-mode, borrow flag.
+fn validate_asset_borrowable(
     env: &Env,
-    cache: &mut Cache,
-    asset_config: &AssetConfig,
-    asset: &Address,
     account: &Account,
+    asset: &Address,
+    asset_config: &AssetConfig,
+    cache: &mut Cache,
 ) {
     if account.is_isolated && !asset_config.can_borrow_in_isolation() {
         panic_with_error!(env, EModeError::NotBorrowableIsolation);
@@ -162,45 +163,42 @@ fn validate_borrow_asset_preflight(
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
-    assets: &Vec<Payment>,
-    cache: &mut Cache,
+    plan: &Vec<Payment>,
     effective_configs: &Map<Address, AssetConfigRaw>,
+    cache: &mut Cache,
 ) {
-    validation::require_non_empty_payments(env, assets);
+    validation::require_non_empty_payments(env, plan);
 
-    validation::validate_bulk_position_limits(env, account, AccountPositionType::Borrow, assets);
-    for (asset, _) in assets {
+    validation::validate_bulk_position_limits(env, account, AccountPositionType::Borrow, plan);
+    for (asset, _) in plan {
         validation::require_market_active(env, cache, &asset);
     }
-    validate_siloed_borrow_set(env, cache, account, assets);
+    validate_siloed_borrow_set(env, account, plan, cache);
 
-    for (asset, amount) in assets {
+    for (asset, amount) in plan {
         let asset_config = super::effective_config(env, effective_configs, &asset);
-        validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
+        validate_asset_borrowable(env, account, &asset, &asset_config, cache);
 
         add_isolated_debt(env, cache, account, &asset, amount);
     }
 }
 
-fn validate_siloed_borrow_set(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    new_borrows: &Vec<Payment>,
-) {
-    let mut final_assets: Vec<Address> = Vec::new(env);
+/// Siloed assets must be an account's only borrow; checks the union of
+/// existing debt and the incoming plan.
+fn validate_siloed_borrow_set(env: &Env, account: &Account, plan: &Vec<Payment>, cache: &mut Cache) {
+    let mut union: Vec<Address> = Vec::new(env);
     for asset in account.borrow_positions.keys() {
-        utils::push_unique_address(&mut final_assets, asset);
+        utils::push_unique_address(&mut union, asset);
     }
-    for (asset, _) in new_borrows {
-        utils::push_unique_address(&mut final_assets, asset);
+    for (asset, _) in plan {
+        utils::push_unique_address(&mut union, asset);
     }
 
-    if final_assets.len() <= 1 {
+    if union.len() <= 1 {
         return;
     }
 
-    for asset in final_assets {
+    for asset in union {
         let config = cache.cached_asset_config(&asset);
         assert_with_error!(
             env,
@@ -214,14 +212,14 @@ fn execute_borrow_plan(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    assets: &Vec<Payment>,
-    cache: &mut Cache,
+    plan: &Vec<Payment>,
     effective_configs: &Map<Address, AssetConfigRaw>,
+    cache: &mut Cache,
 ) {
     // Build the whole plan's entries, make ONE pool call, then merge results
     // input-ordered — one cross-contract frame instead of one per asset.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
-    for (asset, amount) in assets {
+    for (asset, amount) in plan {
         let asset_config = super::effective_config(env, effective_configs, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
