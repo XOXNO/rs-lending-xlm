@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -11,7 +11,8 @@ use crate::strategies::helpers::{
     strategy_finalize, swap_tokens, withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{
-    emode, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
+    emode, positions::supply, storage, utils, validation, Controller, ControllerArgs,
+    ControllerClient,
 };
 
 #[contractimpl]
@@ -78,6 +79,15 @@ pub fn process_swap_collateral(
     validation::require_positive_amount(env, from_amount);
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
+
+    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
+    // Universe: existing supply + borrow positions (required for the post-swap
+    // LTV/HF checks in strategy_finalize) plus the two collateral tokens.
+    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
+    prefetch_assets.append(&account.borrow_positions.keys());
+    utils::push_unique_address(&mut prefetch_assets, current_collateral.clone());
+    utils::push_unique_address(&mut prefetch_assets, new_collateral.clone());
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
 
     let current_pos: AccountPosition = (&account
         .supply_positions

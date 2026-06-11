@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, GenericError};
 use common::types::{DebtPosition, StrategySwap};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -10,7 +10,7 @@ use crate::oracle::policy::OraclePolicy;
 use crate::strategies::helpers::{
     open_strategy_borrow, repay_debt_from_controller, strategy_finalize, swap_tokens, StrategyRepay,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -68,6 +68,15 @@ pub fn process_swap_debt(
     if existing_debt_config.is_siloed_borrowing || new_debt_config.is_siloed_borrowing {
         panic_with_error!(env, CollateralError::NotBorrowableSiloed);
     }
+
+    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
+    // Universe: existing supply + borrow positions (required for the post-swap
+    // LTV/HF checks in strategy_finalize) plus both debt tokens.
+    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
+    prefetch_assets.append(&account.borrow_positions.keys());
+    utils::push_unique_address(&mut prefetch_assets, existing_debt_token.clone());
+    utils::push_unique_address(&mut prefetch_assets, new_debt_token.clone());
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
 
     let amount_received = open_strategy_borrow(
         env,

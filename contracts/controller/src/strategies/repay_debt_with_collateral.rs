@@ -1,7 +1,7 @@
 use common::errors::CollateralError;
 use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env,
+    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -11,7 +11,7 @@ use crate::strategies::helpers::{
     execute_withdraw_all, repay_debt_from_controller, strategy_finalize, swap_tokens,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {
@@ -81,6 +81,15 @@ pub fn process_repay_debt_with_collateral(
 
     let (collateral_pos, debt_pos) =
         load_repay_with_collateral_positions(env, &account, collateral_token, debt_token);
+
+    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
+    // Universe: existing supply + borrow positions (required for the post-repay
+    // LTV/HF checks in strategy_finalize) plus both strategy legs.
+    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
+    prefetch_assets.append(&account.borrow_positions.keys());
+    utils::push_unique_address(&mut prefetch_assets, collateral_token.clone());
+    utils::push_unique_address(&mut prefetch_assets, debt_token.clone());
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
 
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,

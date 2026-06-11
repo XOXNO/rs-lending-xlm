@@ -5,7 +5,7 @@
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::events::InitialMultiplyPaymentEvent;
 use common::types::{Account, AssetConfig, PositionMode, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -125,6 +125,16 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &collateral_config,
         mode,
     );
+
+    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
+    // Universe: existing supply + borrow positions (required for the post-deposit
+    // LTV/HF checks in strategy_finalize) plus collateral_token and debt_token
+    // (the two legs this strategy prices explicitly).
+    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
+    prefetch_assets.append(&account.borrow_positions.keys());
+    utils::push_unique_address(&mut prefetch_assets, collateral_token.clone());
+    utils::push_unique_address(&mut prefetch_assets, debt_token.clone());
+    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
 
     let amount_received = open_strategy_borrow(
         env,
