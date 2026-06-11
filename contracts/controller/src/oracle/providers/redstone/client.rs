@@ -26,15 +26,20 @@ pub trait RedStoneMultiFeed {
 
 /// Reads RedStone price data, returning `None` on provider failure.
 /// Served from the tx-local prefetch when `prefetch_redstone_feeds` ran.
+/// A lazy uncached read also warms the same map so any later consumer of
+/// this (adapter, feed_id) within the tx is a cache hit.
 pub(crate) fn read_price_data(
-    cache: &Cache,
+    cache: &mut Cache,
     contract: &Address,
     feed_id: &String,
 ) -> Option<RedStonePriceData> {
     if let Some(data) = cache.get_redstone_prefetch(contract, feed_id) {
         return Some(data);
     }
-    read_price_data_uncached(cache.env(), contract, feed_id)
+    let env = cache.env().clone();
+    let data = read_price_data_uncached(&env, contract, feed_id)?;
+    cache.set_redstone_prefetch(contract, feed_id, data.clone());
+    Some(data)
 }
 
 /// Single-feed read without cache. Used by validation paths that

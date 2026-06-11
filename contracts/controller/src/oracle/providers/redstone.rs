@@ -17,11 +17,11 @@ pub(crate) use client::{
 };
 
 pub(crate) fn read_redstone_source(
-    cache: &Cache,
+    cache: &mut Cache,
     config: &RedStoneSourceConfig,
     required: bool,
 ) -> Option<OracleObservation> {
-    let env = cache.env();
+    let env = cache.env().clone();
 
     let price_data = match read_price_data(cache, &config.contract, &config.feed_id) {
         Some(price_data) => price_data,
@@ -30,7 +30,7 @@ pub(crate) fn read_redstone_source(
     };
 
     Some(observation_from_price_data(
-        env,
+        &env,
         &price_data,
         config.decimals,
     ))
