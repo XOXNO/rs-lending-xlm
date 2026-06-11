@@ -157,8 +157,8 @@ fn validate_asset_borrowable(
     );
 }
 
-// Cheap pre-pool gates: emptiness, position limits, market-active, siloed set,
-// per-asset borrowability, and isolated-debt ceilings. The LTV valuation runs
+// Pre-pool gates only: emptiness, position limits, siloed set, then per-asset
+// market-active, borrowability, and isolated-debt ceilings. LTV valuation runs
 // post-pool in `require_within_ltv` to reuse the borrow's cached market index.
 fn prepare_borrow_plan(
     env: &Env,
@@ -168,17 +168,13 @@ fn prepare_borrow_plan(
     cache: &mut Cache,
 ) {
     validation::require_non_empty_payments(env, plan);
-
     validation::validate_bulk_position_limits(env, account, AccountPositionType::Borrow, plan);
-    for (asset, _) in plan {
-        validation::require_market_active(env, cache, &asset);
-    }
     validate_siloed_borrow_set(env, account, plan, cache);
 
     for (asset, amount) in plan {
+        validation::require_market_active(env, cache, &asset);
         let asset_config = super::effective_config(env, effective_configs, &asset);
         validate_asset_borrowable(env, account, &asset, &asset_config, cache);
-
         add_isolated_debt(env, cache, account, &asset, amount);
     }
 }
