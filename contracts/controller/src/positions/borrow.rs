@@ -6,7 +6,7 @@
 use common::errors::{CollateralError, EModeError};
 use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
-    PoolBorrowEntry,
+    PoolBorrowEntry, PoolPositionMutation,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
@@ -63,16 +63,14 @@ pub fn create_borrow_strategy(
         flash_fee,
         debt_config.borrow_cap,
     );
-    cache.record_market_update(&result.market_state);
-    let position: DebtPosition = (&result.position).into();
-    cache.record_debt_position_update(
-        common::events::PositionAction::Multiply,
+    let mutation: PoolPositionMutation = (&result).into();
+    merge_borrow_result(
+        account,
         debt_token,
-        result.market_index.borrow_index_ray,
-        result.actual_amount,
-        &position,
+        common::events::PositionAction::Multiply,
+        &mutation,
+        cache,
     );
-    update_or_remove_debt_position(account, debt_token, &position);
 
     result.amount_received
 }
@@ -240,15 +238,32 @@ fn execute_borrow_plan(
 
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        cache.record_market_update(&result.market_state);
-        let position: DebtPosition = (&result.position).into();
-        cache.record_debt_position_update(
-            common::events::PositionAction::Borrow,
+        merge_borrow_result(
+            account,
             &entry.action.asset,
-            result.market_index.borrow_index_ray,
-            result.actual_amount,
-            &position,
+            common::events::PositionAction::Borrow,
+            &result,
+            cache,
         );
-        update_or_remove_debt_position(account, &entry.action.asset, &position);
     }
+}
+
+/// Merges one pool borrow result into the account and event buffers.
+fn merge_borrow_result(
+    account: &mut Account,
+    asset: &Address,
+    action: common::events::PositionAction,
+    result: &PoolPositionMutation,
+    cache: &mut Cache,
+) {
+    cache.record_market_update(&result.market_state);
+    let position: DebtPosition = (&result.position).into();
+    cache.record_debt_position_update(
+        action,
+        asset,
+        result.market_index.borrow_index_ray,
+        result.actual_amount,
+        &position,
+    );
+    update_or_remove_debt_position(account, asset, &position);
 }

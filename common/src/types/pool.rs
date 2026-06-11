@@ -355,6 +355,17 @@ pub struct PoolStrategyMutation {
     pub amount_received: i128,
 }
 
+impl From<&PoolStrategyMutation> for PoolPositionMutation {
+    fn from(m: &PoolStrategyMutation) -> Self {
+        Self {
+            position: m.position.clone(),
+            market_index: m.market_index.clone(),
+            market_state: m.market_state.clone(),
+            actual_amount: m.actual_amount,
+        }
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAmountMutation {
