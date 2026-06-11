@@ -5,12 +5,10 @@
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{
-    PoolBorrowEntry,
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
+    PoolBorrowEntry,
 };
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -20,15 +18,6 @@ use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_po
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::add_isolated_debt;
 use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
-
-/// Result of a single pool borrow/strategy call, ready to be reflected onto
-/// the account's borrow position.
-struct BorrowUpdate {
-    action: common::events::PositionAction,
-    index: i128,
-    amount: i128,
-    position: DebtPosition,
-}
 
 #[contractimpl]
 impl Controller {
@@ -75,17 +64,15 @@ pub fn create_borrow_strategy(
         debt_config.borrow_cap,
     );
     cache.record_market_update(&result.market_state);
-    record_borrow_update(
-        account,
+    let position: DebtPosition = (&result.position).into();
+    cache.record_debt_position_update(
+        common::events::PositionAction::Multiply,
         debt_token,
-        BorrowUpdate {
-            action: common::events::PositionAction::Multiply,
-            index: result.market_index.borrow_index_ray,
-            amount: result.actual_amount,
-            position: (&result.position).into(),
-        },
-        cache,
+        result.market_index.borrow_index_ray,
+        result.actual_amount,
+        &position,
     );
+    update_or_remove_debt_position(account, debt_token, &position);
 
     result.amount_received
 }
@@ -104,17 +91,16 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     // post-flight dust scope, sees one entry per asset.
     let borrow_plan = utils::aggregate_positive_payments(env, borrows);
 
-    // prepare_borrow_plan prices each plan asset and require_within_ltv then
-    // prices the full supply+borrow set — all before the HF-body prefetch in
-    // calculate_account_totals_body can fire. Prefetch positions + plan assets
-    // here so every downstream read hits the cache (plan assets are listed
-    // explicitly: they may not be in borrow_positions yet).
+    process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
+
+    // require_within_ltv and require_healthy_account price the full
+    // supply+borrow set before the HF-body prefetch in
+    // calculate_account_totals_body can fire; prefetch the union here so those
+    // reads hit the cache. Plan assets are already in borrow_positions after
+    // the pool call.
     let mut priced_assets = account.supply_positions.keys();
     priced_assets.append(&account.borrow_positions.keys());
-    priced_assets.append(&utils::plan_assets(env, &borrow_plan));
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
-
-    process_borrow_plan(env, caller, &mut account, &borrow_plan, &mut cache);
 
     // LTV gate runs post-pool so collateral and debt valuation reuse the market
     // indexes the pool borrow just wrote into the cache, sparing a redundant
@@ -145,14 +131,7 @@ fn process_borrow_plan(
     borrow_plan: &Vec<Payment>,
     cache: &mut Cache,
 ) {
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-
-    // Reuse the same e-mode-adjusted config for validation and pool execution.
-    let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
-    for (asset, _) in borrow_plan.iter() {
-        let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-        effective_configs.set(asset, (&cfg).into());
-    }
+    let effective_configs = super::effective_configs_for_plan(env, account, borrow_plan, cache);
 
     prepare_borrow_plan(env, account, borrow_plan, cache, &effective_configs);
     execute_borrow_plan(env, caller, account, borrow_plan, cache, &effective_configs);
@@ -198,8 +177,7 @@ fn prepare_borrow_plan(
     validate_siloed_borrow_set(env, cache, account, assets);
 
     for (asset, amount) in assets {
-        let asset_config: AssetConfig =
-            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
+        let asset_config = super::effective_config(env, effective_configs, &asset);
         validate_borrow_asset_preflight(env, cache, &asset_config, &asset, account);
 
         add_isolated_debt(env, cache, account, &asset, amount);
@@ -246,8 +224,7 @@ fn execute_borrow_plan(
     // input-ordered — one cross-contract frame instead of one per asset.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (asset, amount) in assets {
-        let asset_config: AssetConfig =
-            (&validation::expect_invariant(env, effective_configs.get(asset.clone()))).into();
+        let asset_config = super::effective_config(env, effective_configs, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
             action: PoolAction {
@@ -264,32 +241,14 @@ fn execute_borrow_plan(
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         cache.record_market_update(&result.market_state);
-        record_borrow_update(
-            account,
+        let position: DebtPosition = (&result.position).into();
+        cache.record_debt_position_update(
+            common::events::PositionAction::Borrow,
             &entry.action.asset,
-            BorrowUpdate {
-                action: common::events::PositionAction::Borrow,
-                index: result.market_index.borrow_index_ray,
-                amount: result.actual_amount,
-                position: (&result.position).into(),
-            },
-            cache,
+            result.market_index.borrow_index_ray,
+            result.actual_amount,
+            &position,
         );
+        update_or_remove_debt_position(account, &entry.action.asset, &position);
     }
-}
-
-fn record_borrow_update(
-    account: &mut Account,
-    asset: &Address,
-    update: BorrowUpdate,
-    cache: &mut Cache,
-) {
-    cache.record_debt_position_update(
-        update.action,
-        asset,
-        update.index,
-        update.amount,
-        &update.position,
-    );
-    update_or_remove_debt_position(account, asset, &update.position);
 }

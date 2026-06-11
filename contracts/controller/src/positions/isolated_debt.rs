@@ -48,23 +48,14 @@ pub(crate) fn adjust_isolated_debt_for_repay(
     actual_amount: i128,
     feed: &PriceFeed,
 ) {
-    if actual_amount > 0 {
-        adjust_isolated_debt_usd(env, account, actual_amount, feed, cache);
+    if actual_amount <= 0 {
+        return;
     }
-}
-
-pub(crate) fn adjust_isolated_debt_usd(
-    env: &Env,
-    account: &Account,
-    token_amount: i128,
-    feed: &PriceFeed,
-    cache: &mut Cache,
-) {
     let Some(isolated_asset) = account.try_isolated_token() else {
         return;
     };
 
-    let usd_wad = feed.usd_value_wad(env, token_amount).raw();
+    let usd_wad = feed.usd_value_wad(env, actual_amount).raw();
 
     let current = cache.get_isolated_debt(&isolated_asset);
     let mut new_debt = if usd_wad >= current {
@@ -98,13 +89,11 @@ pub(crate) fn add_isolated_debt(
     let feed = cache.cached_price(asset);
     let amount_in_usd_wad = feed.usd_value_wad(env, amount).raw();
 
-    let isolated_token = account
-        .try_isolated_token()
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let isolated_token = crate::validation::expect_invariant(env, account.try_isolated_token());
     let collateral_config = cache.cached_asset_config(&isolated_token);
 
     // Read from the cache to stay consistent with pending in-batch deltas and
-    // with the adjust_isolated_debt_usd decrement path above.
+    // with the adjust_isolated_debt_for_repay decrement path above.
     let current_debt = cache.get_isolated_debt(&isolated_token);
     let new_debt = current_debt
         .checked_add(amount_in_usd_wad)

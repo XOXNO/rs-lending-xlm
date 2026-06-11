@@ -3,7 +3,7 @@
 //! Price math uses USD WAD. Pool-facing seizure and repayment entries use
 //! asset-native units.
 
-use common::constants::{BPS, WAD};
+use common::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::types::{
@@ -35,12 +35,8 @@ pub(crate) struct BonusBounds {
 }
 
 /// True when collateral is small enough for bad-debt socialization.
-pub(crate) fn is_socializable_bad_debt(
-    total_debt: Wad,
-    total_collateral: Wad,
-    threshold: Wad,
-) -> bool {
-    total_debt > total_collateral && total_collateral <= threshold
+pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -> bool {
+    total_debt > total_collateral && total_collateral <= Wad::from(BAD_DEBT_USD_THRESHOLD)
 }
 
 pub(crate) fn calculate_seizure_proportions(
@@ -84,10 +80,12 @@ pub(crate) fn calculate_repayment_amounts(
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
             .into();
 
-        let actual_debt = position
-            .scaled_amount
-            .mul(env, market_index.borrow_index)
-            .to_asset(feed.asset_decimals);
+        let actual_debt = super::isolated_debt::actual_borrow_amount(
+            env,
+            &position,
+            market_index.borrow_index,
+            feed.asset_decimals,
+        );
 
         let mut payment_amount = amount;
         if payment_amount > actual_debt {
@@ -321,7 +319,6 @@ pub fn calculate_linear_bonus_with_target(
     max: Bps,
     target: Wad,
 ) -> Bps {
-    // HF at/above target → no bonus interpolation; return base.
     if hf >= target {
         return base;
     }

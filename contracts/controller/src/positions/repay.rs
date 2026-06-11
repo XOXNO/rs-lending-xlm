@@ -65,37 +65,38 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         }
         crate::oracle::prefetch_redstone_feeds(&mut cache, &owed);
     }
-    // Build the whole plan's actions (measuring each transfer first), make
-    // ONE pool call, then merge results input-ordered — one cross-contract
-    // frame instead of one per asset.
+    // Transfer each repayment in while building the plan's actions for one
+    // bulk pool call.
+    let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for (asset, amount) in repayment_plan.iter() {
-        validation::require_positive_amount(env, amount);
         let position: DebtPosition = (&account
             .borrow_positions
             .get(asset.clone())
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
             .into();
-        let actual_received = transfer_repayment_to_pool(env, caller, &asset, amount, &mut cache);
+        let amount_in = utils::transfer_amount(
+            env,
+            &asset,
+            caller,
+            &pool_addr,
+            amount,
+            GenericError::AmountMustBePositive,
+        );
         actions.push_back(PoolAction {
             position: (&position).into(),
-            amount: actual_received,
+            amount: amount_in,
             asset: asset.clone(),
         });
     }
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_repay_call(env, &pool_addr, caller, &actions);
-    for (i, action) in actions.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repayment(
-            env,
-            &mut account,
-            common::events::PositionAction::Repay,
-            &action.asset,
-            &result,
-            &mut cache,
-        );
-    }
+    settle_repay_actions(
+        env,
+        &mut account,
+        caller,
+        common::events::PositionAction::Repay,
+        &actions,
+        &mut cache,
+    );
 
     // Dust gate scoped to repaid assets: repay never mutates supply positions,
     // so untouched borrows that drifted under floor must not block the call.
@@ -113,9 +114,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 }
 
 /// Calls the pool repay path and merges the returned scaled debt share.
-/// Single-asset wrapper over the bulk pool repay — used by strategies and the
-/// liquidation repay leg's bulk-of-one callers (same frame cost as the old
-/// single endpoint).
+/// Single-asset wrapper over the bulk pool repay — used by strategy flows.
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
@@ -125,17 +124,33 @@ pub fn execute_repayment(
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
 
-    let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     actions.push_back(PoolAction {
         position: req.position.into(),
         amount: req.amount,
         asset: req.asset.clone(),
     });
-    let results = pool_repay_call(env, &pool_addr, &caller, &actions);
-    let result = validation::expect_invariant(env, results.get(0));
-    finish_repayment(env, account, action, req.asset, &result, cache);
-    result
+    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
+    validation::expect_invariant(env, results.get(0))
+}
+
+/// Executes one bulk pool repay for `actions` (one cross-contract frame) and
+/// merges the results input-ordered.
+pub(crate) fn settle_repay_actions(
+    env: &Env,
+    account: &mut Account,
+    payer: &Address,
+    action: common::events::PositionAction,
+    actions: &Vec<PoolAction>,
+    cache: &mut Cache,
+) -> Vec<PoolPositionMutation> {
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_repay_call(env, &pool_addr, payer, actions);
+    for (i, entry) in actions.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        finish_repayment(env, account, action, &entry.asset, &result, cache);
+    }
+    results
 }
 
 /// Merges one pool repay result back into the account and event buffers.
@@ -149,7 +164,8 @@ pub(crate) fn finish_repayment(
 ) {
     cache.record_market_update(&result.market_state);
 
-    update_or_remove_debt_position(account, asset, &DebtPosition::from(&result.position));
+    let position = DebtPosition::from(&result.position);
+    update_or_remove_debt_position(account, asset, &position);
 
     if account.is_isolated {
         let feed = cache.cached_price(asset);
@@ -161,24 +177,6 @@ pub(crate) fn finish_repayment(
         asset,
         result.market_index.borrow_index_ray,
         result.actual_amount,
-        &DebtPosition::from(&result.position),
+        &position,
     );
-}
-
-fn transfer_repayment_to_pool(
-    env: &Env,
-    caller: &Address,
-    asset: &Address,
-    amount: i128,
-    cache: &mut Cache,
-) -> i128 {
-    let pool_addr = cache.cached_pool_address();
-    utils::transfer_amount(
-        env,
-        asset,
-        caller,
-        &pool_addr,
-        amount,
-        GenericError::AmountMustBePositive,
-    )
 }

@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, AssetConfig, AssetConfigRaw,
+    Account, AccountPositionType, AssetConfigRaw,
     Payment, PoolAction, PositionMode,
 };
 use soroban_sdk::{
@@ -108,14 +108,7 @@ pub fn process_deposit(
     deposit_plan: &Vec<Payment>,
     cache: &mut Cache,
 ) {
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-
-    // Reuse the same e-mode-adjusted config for validation and pool execution.
-    let mut effective_configs: Map<Address, AssetConfigRaw> = Map::new(env);
-    for (asset, _) in deposit_plan.iter() {
-        let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-        effective_configs.set(asset, (&cfg).into());
-    }
+    let effective_configs = super::effective_configs_for_plan(env, account, deposit_plan, cache);
 
     prepare_deposit_plan(env, account, deposit_plan, cache, &effective_configs);
     execute_deposit_plan(
@@ -141,8 +134,7 @@ fn prepare_deposit_plan(
     for (asset, _) in assets {
         require_market_active(env, cache, &asset);
 
-        let asset_config: AssetConfig =
-            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
+        let asset_config = super::effective_config(env, effective_configs, &asset);
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
@@ -165,14 +157,12 @@ fn execute_deposit_plan(
     cache: &mut Cache,
     effective_configs: &Map<Address, AssetConfigRaw>,
 ) {
-    // Transfer every asset in and build the entries, make ONE pool call, then
-    // merge results input-ordered — one cross-contract frame instead of one
-    // per asset. All transfers precede the pool call; the tx stays atomic.
+    // One pool call for the whole plan (one cross-contract frame); results
+    // align with entries by index.
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<common::types::PoolSupplyEntry> = Vec::new(env);
     for (asset, amount_in) in assets {
-        let asset_config: AssetConfig =
-            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
+        let asset_config = super::effective_config(env, effective_configs, &asset);
         utils::transfer_amount(
             env,
             &asset,
@@ -196,8 +186,7 @@ fn execute_deposit_plan(
     for (i, entry) in entries.iter().enumerate() {
         let result = expect_invariant(env, results.get(i as u32));
         let asset = &entry.action.asset;
-        let asset_config: AssetConfig =
-            (&expect_invariant(env, effective_configs.get(asset.clone()))).into();
+        let asset_config = super::effective_config(env, effective_configs, asset);
 
         let mut position = account.get_or_create_supply_position(asset, &asset_config);
         refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);

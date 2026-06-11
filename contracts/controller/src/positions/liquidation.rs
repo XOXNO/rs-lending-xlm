@@ -4,7 +4,6 @@
 //! repays debt, seizes collateral, and refunds payment above the close amount. Bad-debt
 //! cleanup socializes residual debt only when collateral is below the USD threshold.
 
-use common::constants::BAD_DEBT_USD_THRESHOLD;
 use common::errors::{CollateralError, GenericError};
 use common::events::CleanBadDebtEvent;
 use common::math::fp::Wad;
@@ -20,7 +19,7 @@ use stellar_macros::{only_role, when_not_paused};
 use super::liquidation_math::*;
 use super::{repay, withdraw};
 use crate::cache::Cache;
-use crate::cross_contract::pool::{pool_repay_call, pool_seize_position_call, pool_withdraw_call};
+use crate::cross_contract::pool::pool_seize_position_call;
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
@@ -96,11 +95,7 @@ pub fn process_liquidation(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    let will_socialize = is_socializable_bad_debt(
-        post_total_debt,
-        post_total_coll,
-        Wad::from(BAD_DEBT_USD_THRESHOLD),
-    );
+    let will_socialize = is_socializable_bad_debt(post_total_debt, post_total_coll);
     if !will_socialize {
         let seized_assets = unique_assets(env, &result.seized, |e| e.asset.clone());
         let repaid_assets = unique_assets(env, &result.repaid, |e| e.asset.clone());
@@ -119,6 +114,7 @@ pub fn process_liquidation(
         &account,
         post_total_coll,
         post_total_debt,
+        will_socialize,
     );
 
     cache.flush_isolated_debts();
@@ -146,8 +142,7 @@ fn apply_liquidation_repayments(
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
-    // Transfer every repayment in and build the actions, make ONE pool call,
-    // then merge results input-ordered — one frame instead of one per debt.
+    // Transfer each repayment in while building the actions for one bulk pool call.
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
@@ -163,18 +158,14 @@ fn apply_liquidation_repayments(
             asset: entry.asset.clone(),
         });
     }
-    let results = pool_repay_call(env, &pool_addr, liquidator, &actions);
-    for (i, action) in actions.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
-        repay::finish_repayment(
-            env,
-            account,
-            common::events::PositionAction::LiqRepay,
-            &action.asset,
-            &result,
-            cache,
-        );
-    }
+    repay::settle_repay_actions(
+        env,
+        account,
+        liquidator,
+        common::events::PositionAction::LiqRepay,
+        &actions,
+        cache,
+    );
 }
 
 fn apply_liquidation_seizures(
@@ -184,8 +175,7 @@ fn apply_liquidation_seizures(
     seized: &Vec<SeizeEntry>,
     cache: &mut Cache,
 ) {
-    // Build all seizure entries, make ONE pool call (liquidation flag per
-    // call, fee per entry), then merge input-ordered — one frame per leg.
+    // Build all seizure entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
         let position: AccountPosition =
@@ -200,20 +190,15 @@ fn apply_liquidation_seizures(
             protocol_fee: entry.protocol_fee,
         });
     }
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_withdraw_call(env, &pool_addr, liquidator, true, &entries);
-    for (i, entry) in entries.iter().enumerate() {
-        let result = validation::expect_invariant(env, results.get(i as u32));
-        withdraw::finish_withdrawal(
-            env,
-            account,
-            common::events::PositionAction::LiqSeize,
-            &entry.action.asset,
-            true,
-            &result,
-            cache,
-        );
-    }
+    withdraw::settle_withdraw_entries(
+        env,
+        account,
+        liquidator,
+        true,
+        common::events::PositionAction::LiqSeize,
+        &entries,
+        cache,
+    );
 }
 
 pub(crate) fn execute_liquidation(
@@ -224,20 +209,24 @@ pub(crate) fn execute_liquidation(
 ) -> LiquidationResult {
     let mut refunds = Vec::new(env);
 
-    let hf = helpers::calculate_health_factor(
-        env,
-        cache,
-        &account.supply_positions,
-        &account.borrow_positions,
-    );
-    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
-
+    // One totals pass feeds both the HF gate and the snapshot; the inlined HF
+    // mirrors calculate_health_factor, including the debt-free early panic
+    // that prices nothing.
+    if account.borrow_positions.is_empty() {
+        panic_with_error!(env, CollateralError::HealthFactorTooHigh);
+    }
     let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
+    let hf = if total_debt == Wad::ZERO {
+        Wad::from(i128::MAX)
+    } else {
+        weighted_coll.div_floor(env, total_debt)
+    };
+    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
 
     let (proportion_seized, bonus_bounds) =
         calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
@@ -256,7 +245,6 @@ pub(crate) fn execute_liquidation(
     let (max_debt_to_repay_usd, bonus) =
         calculate_liquidation_amounts(env, &snap, bonus_bounds, total_debt_payment_usd);
 
-    // Full close if residue is dust.
     let max_debt_to_repay_usd = expand_to_full_close_on_dust_residue(
         env,
         cache,
@@ -300,17 +288,14 @@ fn check_bad_debt_after_liquidation(
     account: &Account,
     total_collateral_usd: Wad,
     total_debt_usd: Wad,
+    will_socialize: bool,
 ) {
     if account.borrow_positions.is_empty() {
         helpers::cleanup_account_if_empty(env, account, account_id);
         return;
     }
 
-    if is_socializable_bad_debt(
-        total_debt_usd,
-        total_collateral_usd,
-        Wad::from(BAD_DEBT_USD_THRESHOLD),
-    ) {
+    if will_socialize {
         execute_bad_debt_cleanup(
             env,
             cache,
@@ -344,11 +329,7 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         &account.borrow_positions,
     );
 
-    if !is_socializable_bad_debt(
-        total_debt_usd,
-        total_collateral_usd,
-        Wad::from(BAD_DEBT_USD_THRESHOLD),
-    ) {
+    if !is_socializable_bad_debt(total_debt_usd, total_collateral_usd) {
         panic_with_error!(env, CollateralError::CannotCleanBadDebt);
     }
 

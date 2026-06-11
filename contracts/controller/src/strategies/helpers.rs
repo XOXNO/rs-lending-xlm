@@ -14,7 +14,7 @@ use soroban_sdk::{
 use crate::cache::Cache;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
-use crate::positions::withdraw::{self, WithdrawFlags, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
+use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
 use crate::utils::EventContext;
 use crate::{positions::borrow, storage, utils, validation};
 
@@ -130,7 +130,6 @@ pub(crate) fn withdraw_collateral_to_controller(
             amount: req.amount,
             position: req.position,
         },
-        WithdrawFlags::plain(),
         cache,
     );
 
@@ -370,7 +369,6 @@ pub(crate) fn execute_withdraw_all(
                     amount: WITHDRAW_ALL_SENTINEL,
                     position: &pos,
                 },
-                WithdrawFlags::plain(),
                 cache,
             );
         }

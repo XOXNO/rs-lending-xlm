@@ -1,19 +1,19 @@
-use common::errors::{CollateralError, GenericError};
+use common::errors::CollateralError;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, Payment, PoolAction, PoolPositionMutation, PoolWithdrawEntry,
+    Account, AccountPosition, EModeCategory, Payment, PoolAction, PoolPositionMutation,
+    PoolWithdrawEntry,
 };
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
-};
+use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::utils::EventContext;
 
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_withdraw_call;
+use crate::emode;
 use crate::helpers::{
-    refresh_supply_risk_params_for_asset, require_no_supply_dust_for_assets,
+    refresh_supply_risk_params, require_no_supply_dust_for_assets,
     update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
@@ -27,22 +27,6 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub position: &'a AccountPosition,
-}
-
-/// Liquidation-only modifiers; default is a plain withdraw.
-#[derive(Clone, Copy)]
-pub(crate) struct WithdrawFlags {
-    pub is_liquidation: bool,
-    pub protocol_fee: i128,
-}
-
-impl WithdrawFlags {
-    pub fn plain() -> Self {
-        Self {
-            is_liquidation: false,
-            protocol_fee: 0,
-        }
-    }
 }
 
 #[contractimpl]
@@ -113,12 +97,10 @@ pub fn process_withdraw(
     };
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
 
-    // Build the whole plan's entries, make ONE pool call, then merge results
-    // input-ordered — one cross-contract frame instead of one per asset.
+    // Build the whole plan's entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (asset, amount) in withdrawal_plan.iter() {
-        // `0` means withdraw all; negative withdrawals are never valid.
-        assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
+        // `0` means withdraw all.
         let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
             Some(pos) => (&pos).into(),
             None => panic_with_error!(env, CollateralError::PositionNotFound),
@@ -137,21 +119,19 @@ pub fn process_withdraw(
             protocol_fee: 0,
         });
     }
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_withdraw_call(env, &pool_addr, &recipient, false, &entries);
+    let results = settle_withdraw_entries(
+        env,
+        &mut account,
+        &recipient,
+        false,
+        common::events::PositionAction::Withdraw,
+        &entries,
+        &mut cache,
+    );
 
     let mut paid: Vec<Payment> = Vec::new(env);
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_withdrawal(
-            env,
-            &mut account,
-            common::events::PositionAction::Withdraw,
-            &entry.action.asset,
-            false,
-            &result,
-            &mut cache,
-        );
         paid.push_back((entry.action.asset.clone(), result.actual_amount));
     }
 
@@ -164,7 +144,6 @@ pub fn process_withdraw(
     if account.is_empty() {
         remove_account(env, account_id);
     } else {
-        // Mutates supply positions only.
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
     cache.emit_position_batch(account_id, &account);
@@ -174,18 +153,15 @@ pub fn process_withdraw(
 }
 
 /// Single-asset wrapper over the bulk pool withdraw — used by strategies and
-/// account-close paths where one asset moves per call (bulk-of-one costs the
-/// same frame as the old single endpoint).
+/// account-close paths where one asset moves per call.
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,
     ctx: EventContext,
     req: WithdrawalRequest<'_>,
-    flags: WithdrawFlags,
     cache: &mut Cache,
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
-    let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     entries.push_back(PoolWithdrawEntry {
         action: PoolAction {
@@ -193,29 +169,57 @@ pub fn execute_withdrawal(
             amount: req.amount,
             asset: req.asset.clone(),
         },
-        protocol_fee: flags.protocol_fee,
+        protocol_fee: 0,
     });
-    let results = pool_withdraw_call(env, &pool_addr, &caller, flags.is_liquidation, &entries);
-    let result = validation::expect_invariant(env, results.get(0));
-    finish_withdrawal(
-        env,
-        account,
-        action,
-        req.asset,
-        flags.is_liquidation,
-        &result,
-        cache,
-    );
-    result
+    let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);
+    validation::expect_invariant(env, results.get(0))
+}
+
+/// Executes one bulk pool withdraw for `entries` (one cross-contract frame)
+/// and merges the results input-ordered.
+pub(crate) fn settle_withdraw_entries(
+    env: &Env,
+    account: &mut Account,
+    recipient: &Address,
+    is_liquidation: bool,
+    action: common::events::PositionAction,
+    entries: &Vec<PoolWithdrawEntry>,
+    cache: &mut Cache,
+) -> Vec<PoolPositionMutation> {
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
+    // Resolve e-mode once for the whole batch; liquidation seizures never
+    // refresh risk params, so they skip the read.
+    let refresh_e_mode = if is_liquidation {
+        None
+    } else {
+        Some(emode::active_e_mode_category(env, account.e_mode_category_id))
+    };
+    for (i, entry) in entries.iter().enumerate() {
+        let result = validation::expect_invariant(env, results.get(i as u32));
+        finish_withdrawal(
+            env,
+            account,
+            action,
+            &entry.action.asset,
+            refresh_e_mode.as_ref(),
+            &result,
+            cache,
+        );
+    }
+    results
 }
 
 /// Merges one pool withdraw result back into the account and event buffers.
+/// `refresh_e_mode` is `Some` for user flows (risk params refresh from the
+/// e-mode-adjusted config) and `None` for liquidation seizures (params stay
+/// frozen).
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,
     action: common::events::PositionAction,
     asset: &Address,
-    is_liquidation: bool,
+    refresh_e_mode: Option<&Option<EModeCategory>>,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -225,8 +229,9 @@ pub(crate) fn finish_withdrawal(
         None => panic_with_error!(env, CollateralError::PositionNotFound),
     };
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-    if !is_liquidation {
-        refresh_supply_risk_params_for_asset(env, cache, account, asset, &mut result_position);
+    if let Some(e_mode) = refresh_e_mode {
+        let config = emode::effective_asset_config(env, account, asset, cache, e_mode);
+        refresh_supply_risk_params(env, cache, account, asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, asset, &result_position);
 
