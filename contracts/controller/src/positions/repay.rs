@@ -51,19 +51,21 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let repayment_plan = utils::aggregate_positive_payments(env, payments);
-    // The isolated path prices each repaid asset in `process_single_repay`
-    // before the dust gate's own prefetch runs.  Bulk-fetch the plan assets
-    // here so all per-asset `cached_price` calls in the loop hit the cache
-    // rather than single-resolving separate RedStone feeds.  The dust gate's
-    // prefetch then no-ops because the collector is idempotent.
-    // Non-isolated repay sets price=Wad::ZERO for every asset, so the loop
-    // prices nothing; the dust gate's prescreen skips fully-closed positions,
-    // so no RedStone call is needed at all — skip the prefetch.
+    // Non-isolated repay sets price = Wad::ZERO for every asset, so the loop
+    // prices nothing; any pricing the dust gate still needs (partially repaid
+    // positions) is covered by the gate's own prefetch. An entrypoint
+    // prefetch here would add calls for nothing — skip it.
     if account.is_isolated {
-        crate::oracle::prefetch_redstone_feeds(
-            &mut cache,
-            &utils::plan_assets(env, &repayment_plan),
-        );
+        // Prefetch only assets the account actually owes; unknown or
+        // position-less assets are rejected by the loop below with their
+        // pre-existing error codes.
+        let mut owed: Vec<Address> = Vec::new(env);
+        for (asset, _) in repayment_plan.iter() {
+            if account.borrow_positions.contains_key(asset.clone()) {
+                owed.push_back(asset);
+            }
+        }
+        crate::oracle::prefetch_redstone_feeds(&mut cache, &owed);
     }
     for (asset, amount) in repayment_plan.iter() {
         process_single_repay(env, caller, &mut account, &asset, amount, &mut cache);

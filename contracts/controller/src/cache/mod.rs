@@ -15,7 +15,7 @@ use common::types::{
     MarketConfig, MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed,
     PriceFeedRaw,
 };
-use soroban_sdk::{Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, Map, String, Symbol, Vec};
 
 use crate::cross_contract::pool::fetch_pool_sync_data;
 use crate::oracle::policy::OraclePolicy;
@@ -91,30 +91,38 @@ impl Cache {
 
     pub fn get_redstone_prefetch(
         &self,
-        contract: &Address,
+        adapter: &Address,
         feed_id: &String,
     ) -> Option<RedStonePriceData> {
         self.redstone_prefetch
-            .get((contract.clone(), feed_id.clone()))
+            .get((adapter.clone(), feed_id.clone()))
     }
 
     pub fn set_redstone_prefetch(
         &mut self,
-        contract: &Address,
+        adapter: &Address,
         feed_id: &String,
         data: RedStonePriceData,
     ) {
         self.redstone_prefetch
-            .set((contract.clone(), feed_id.clone()), data);
+            .set((adapter.clone(), feed_id.clone()), data);
     }
 
     pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
+        self.try_cached_market_config(asset).unwrap_or_else(|| {
+            panic_with_error!(&self.env, common::errors::GenericError::AssetNotSupported)
+        })
+    }
+
+    /// Like [`Self::cached_market_config`], but returns `None` for assets
+    /// with no configured market instead of panicking.
+    pub fn try_cached_market_config(&mut self, asset: &Address) -> Option<MarketConfig> {
         if let Some(config) = self.market_configs.get(asset.clone()) {
-            return config;
+            return Some(config);
         }
-        let config = storage::get_market_config(&self.env, asset);
+        let config = storage::try_get_market_config(&self.env, asset)?;
         self.market_configs.set(asset.clone(), config.clone());
-        config
+        Some(config)
     }
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
