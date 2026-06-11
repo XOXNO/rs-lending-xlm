@@ -13,7 +13,7 @@ use common::types::{
     RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Symbol, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
 };
 use stellar_macros::{only_role, when_not_paused};
 
@@ -142,7 +142,10 @@ where
     out
 }
 
-fn liquidation_event_context(liquidator: &Address, action: Symbol) -> EventContext {
+fn liquidation_event_context(
+    liquidator: &Address,
+    action: common::events::PositionAction,
+) -> EventContext {
     EventContext {
         caller: liquidator.clone(),
         action,
@@ -167,7 +170,7 @@ fn apply_liquidation_repayments(
         repay::execute_repayment(
             env,
             account,
-            liquidation_event_context(liquidator, symbol_short!("liq_repay")),
+            liquidation_event_context(liquidator, common::events::PositionAction::LiqRepay),
             RepaymentRequest {
                 asset: &entry.asset,
                 position: &position,
@@ -192,7 +195,7 @@ fn apply_liquidation_seizures(
         withdraw::execute_withdrawal(
             env,
             account,
-            liquidation_event_context(liquidator, symbol_short!("liq_seize")),
+            liquidation_event_context(liquidator, common::events::PositionAction::LiqSeize),
             WithdrawalRequest {
                 asset: &entry.asset,
                 amount: entry.amount,

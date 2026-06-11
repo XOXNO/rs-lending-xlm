@@ -1,7 +1,7 @@
 use common::errors::CollateralError;
 use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -99,7 +99,7 @@ pub fn process_repay_debt_with_collateral(
             asset: collateral_token,
             amount: collateral_amount,
             position: &collateral_pos,
-            action: symbol_short!("rp_col_wd"),
+            action: common::events::PositionAction::RpColWd,
         },
     );
 
@@ -114,7 +114,7 @@ pub fn process_repay_debt_with_collateral(
             debt_token,
             debt_available,
             debt_pos: &debt_pos,
-            action: symbol_short!("rp_col_r"),
+            action: common::events::PositionAction::RpColR,
         },
     );
 

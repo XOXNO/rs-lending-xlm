@@ -1,6 +1,6 @@
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
-use soroban_sdk::{contractimpl, panic_with_error, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::utils::EventContext;
@@ -106,7 +106,7 @@ fn process_single_repay(
         account,
         EventContext {
             caller: caller.clone(),
-            action: symbol_short!("repay"),
+            action: common::events::PositionAction::Repay,
         },
         RepaymentRequest {
             asset,

@@ -1,7 +1,7 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
-    Account, AccountMeta, AccountPosition, AccountPositionType, AssetConfigRaw, DebtPosition,
+    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition,
     EModeAssetConfig, EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation,
     OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
     ReflectorBase,
@@ -59,17 +59,17 @@ impl From<OracleStrategy> for EventPricingMethod {
 /// Account attributes attached to position batch events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventAccountAttributes {
-    /// Account owner at the time the event is emitted.
-    pub owner: Address,
-    /// True when the account is bound to a single isolated collateral asset.
-    pub is_isolated_position: bool,
-    /// E-mode category id; zero means no e-mode.
-    pub e_mode_category_id: u32,
-    pub mode: EventPositionMode,
-    /// Isolated collateral asset when `is_isolated_position` is true.
-    pub isolated_token: Option<Address>,
-}
+/// Account attributes, vec-encoded inside the batch position event.
+///
+/// Field order is wire ABI — never reorder:
+/// `[owner, e_mode_category_id, is_isolated_position, mode, isolated_token]`.
+pub struct EventAccountAttributes(
+    pub Address,
+    pub u32,
+    pub bool,
+    pub EventPositionMode,
+    pub Option<Address>,
+);
 
 impl EventAccountAttributes {
     fn build(
@@ -79,13 +79,13 @@ impl EventAccountAttributes {
         mode: PositionMode,
         isolated_asset: &Option<Address>,
     ) -> Self {
-        Self {
-            owner: owner.clone(),
-            is_isolated_position: is_isolated,
+        Self(
+            owner.clone(),
             e_mode_category_id,
-            mode: mode.into(),
-            isolated_token: isolated_asset.clone(),
-        }
+            is_isolated,
+            mode.into(),
+            isolated_asset.clone(),
+        )
     }
 }
 
@@ -312,92 +312,140 @@ pub struct UpdateMarketParamsEvent {
     pub reserve_factor_bps: u32,
 }
 
-#[contractevent(topics = ["market", "batch_state_update"])]
+/// Per-market accrual snapshot, vec-encoded for the batch market event.
+///
+/// Field order is wire ABI — never reorder:
+/// `[asset, timestamp, supply_index_ray, borrow_index_ray, reserves_ray,
+///   supplied_ray, borrowed_ray, revenue_ray, asset_price_wad]`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EventMarketState(
+    pub Address,
+    pub u64,
+    pub i128,
+    pub i128,
+    pub i128,
+    pub i128,
+    pub i128,
+    pub i128,
+    pub Option<i128>,
+);
+
+impl From<&crate::types::MarketStateSnapshot> for EventMarketState {
+    fn from(s: &crate::types::MarketStateSnapshot) -> Self {
+        Self(
+            s.asset.clone(),
+            s.timestamp,
+            s.supply_index_ray,
+            s.borrow_index_ray,
+            s.reserves_ray,
+            s.supplied_ray,
+            s.borrowed_ray,
+            s.revenue_ray,
+            s.asset_price_wad,
+        )
+    }
+}
+
+#[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct UpdateMarketStateBatchEvent {
     /// Pool accrual and accounting snapshots emitted after a successful batch.
-    pub updates: Vec<crate::types::MarketStateSnapshot>,
+    pub updates: Vec<EventMarketState>,
 }
 
+/// Action that produced a position delta. The `u32` discriminants are wire
+/// ABI: the off-chain decoder maps them back to the legacy action strings,
+/// so variants must never be renumbered or removed.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum PositionAction {
+    Supply = 0,
+    Borrow = 1,
+    Withdraw = 2,
+    Repay = 3,
+    LiqRepay = 4,
+    LiqSeize = 5,
+    Multiply = 6,
+    ParamUpd = 7,
+    SwDebtR = 8,
+    SwColWd = 9,
+    RpColWd = 10,
+    RpColR = 11,
+    CloseWd = 12,
+}
+
+/// Collateral-side position delta, vec-encoded for the batch position event.
+///
+/// Field order is wire ABI — never reorder:
+/// `[action, asset, scaled_amount_ray, index_ray, amount,
+///   liquidation_threshold_bps, liquidation_bonus_bps, loan_to_value_bps]`.
+/// The risk params are the position's entry values (e-mode adjusted).
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EventPositionDelta {
-    /// Action that produced this delta (e.g., supply, borrow, liq_repay).
-    pub action: Symbol,
-    pub position_type: AccountPositionType,
-    pub asset: Address,
-    /// Post-mutation scaled supply or debt shares.
-    pub scaled_amount_ray: i128,
-    /// Supply index for deposits, borrow index for debts, in RAY.
-    pub index_ray: i128,
-    /// Asset-native amount applied by the pool for this mutation.
-    pub amount: i128,
-    /// USD WAD price used for this mutation when available.
-    pub asset_price_wad: Option<i128>,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub loan_to_value_bps: u32,
-}
+pub struct EventDepositDelta(
+    pub PositionAction,
+    pub Address,
+    pub i128,
+    pub i128,
+    pub i128,
+    pub u32,
+    pub u32,
+    pub u32,
+);
 
-impl EventPositionDelta {
-    /// `asset_price_wad` starts as `None`; the controller cache backfills it
-    /// at batch-emit time from the prices actually fetched for risk checks.
+impl EventDepositDelta {
     pub fn new(
-        action: Symbol,
-        position_type: AccountPositionType,
+        action: PositionAction,
         asset: Address,
         index_ray: i128,
         amount: i128,
         position: &AccountPosition,
     ) -> Self {
-        Self {
+        Self(
             action,
-            position_type,
             asset,
-            scaled_amount_ray: position.scaled_amount.raw(),
+            position.scaled_amount.raw(),
             index_ray,
             amount,
-            asset_price_wad: None,
-            liquidation_threshold_bps: position.liquidation_threshold.raw() as u32,
-            liquidation_bonus_bps: position.liquidation_bonus.raw() as u32,
-            loan_to_value_bps: position.loan_to_value.raw() as u32,
-        }
+            position.liquidation_threshold.raw() as u32,
+            position.liquidation_bonus.raw() as u32,
+            position.loan_to_value.raw() as u32,
+        )
     }
+}
 
-    /// Creates a debt-position delta with collateral risk fields set to zero.
-    ///
-    /// Consumers must treat those risk fields as not applicable for borrow
-    /// positions, not as configured 0% risk values.
-    pub fn new_debt(
-        action: Symbol,
+/// Debt-side position delta — no collateral risk params on this side.
+///
+/// Field order is wire ABI — never reorder:
+/// `[action, asset, scaled_amount_ray, index_ray, amount]`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EventBorrowDelta(pub PositionAction, pub Address, pub i128, pub i128, pub i128);
+
+impl EventBorrowDelta {
+    pub fn new(
+        action: PositionAction,
         asset: Address,
         index_ray: i128,
         amount: i128,
         position: &DebtPosition,
     ) -> Self {
-        Self {
-            action,
-            position_type: AccountPositionType::Borrow,
-            asset,
-            scaled_amount_ray: position.scaled_amount.raw(),
-            index_ray,
-            amount,
-            asset_price_wad: None,
-            liquidation_threshold_bps: 0,
-            liquidation_bonus_bps: 0,
-            loan_to_value_bps: 0,
-        }
+        Self(action, asset, position.scaled_amount.raw(), index_ray, amount)
     }
 }
 
-#[contractevent(topics = ["position", "batch_update"])]
+#[contractevent(topics = ["position", "batch_update"], data_format = "vec")]
 #[derive(Clone, Debug)]
 pub struct UpdatePositionBatchEvent {
     /// Account whose positions changed.
     pub account_id: u64,
     pub account_attributes: EventAccountAttributes,
-    /// Net position deltas recorded during the successful transaction.
-    pub updates: Vec<EventPositionDelta>,
+    /// Collateral-side deltas recorded during the successful transaction.
+    pub deposits: Vec<EventDepositDelta>,
+    /// Debt-side deltas recorded during the successful transaction.
+    pub borrows: Vec<EventBorrowDelta>,
 }
 
 #[contractevent(topics = ["position", "flash_loan"])]
@@ -470,13 +518,10 @@ pub struct RemoveEModeAssetEvent {
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EventDebtCeilingEntry {
-    pub asset: Address,
-    /// Total isolated debt against `asset`, in USD WAD.
-    pub total_debt_usd_wad: i128,
-}
+/// Field order is wire ABI: `[asset, total_debt_usd_wad]`.
+pub struct EventDebtCeilingEntry(pub Address, pub i128);
 
-#[contractevent(topics = ["debt", "ceiling_batch_update"])]
+#[contractevent(topics = ["debt", "ceiling_batch_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct UpdateDebtCeilingBatchEvent {
     /// Final isolated-debt totals for assets touched in the transaction.
@@ -692,12 +737,13 @@ mod tests {
             mode: PositionMode::Normal,
             isolated_asset: Some(iso.clone()),
         };
+        // Tuple order is wire ABI: [owner, e_mode, isolated, mode, isolated_token].
         let attrs = EventAccountAttributes::from(&meta);
-        assert_eq!(attrs.owner, owner);
-        assert!(attrs.is_isolated_position);
-        assert_eq!(attrs.e_mode_category_id, 0);
-        assert_eq!(attrs.mode, EventPositionMode::None);
-        assert_eq!(attrs.isolated_token, Some(iso));
+        assert_eq!(attrs.0, owner);
+        assert_eq!(attrs.1, 0);
+        assert!(attrs.2);
+        assert_eq!(attrs.3, EventPositionMode::None);
+        assert_eq!(attrs.4, Some(iso));
     }
 
     #[test]
@@ -712,11 +758,11 @@ mod tests {
             isolated_asset: None,
         };
         let attrs = EventAccountAttributes::from(&meta);
-        assert_eq!(attrs.owner, owner);
-        assert!(!attrs.is_isolated_position);
-        assert_eq!(attrs.e_mode_category_id, 3);
-        assert_eq!(attrs.mode, EventPositionMode::Long);
-        assert_eq!(attrs.isolated_token, None);
+        assert_eq!(attrs.0, owner);
+        assert_eq!(attrs.1, 3);
+        assert!(!attrs.2);
+        assert_eq!(attrs.3, EventPositionMode::Long);
+        assert_eq!(attrs.4, None);
     }
 
     // ---------- EventOracleProvider::from_market ----------
@@ -853,7 +899,7 @@ mod tests {
             .publish(&env);
 
             let mut market_updates = Vec::new(&env);
-            market_updates.push_back(crate::types::MarketStateSnapshot {
+            market_updates.push_back(EventMarketState::from(&crate::types::MarketStateSnapshot {
                 asset: asset.clone(),
                 timestamp: 0,
                 supply_index_ray: 0,
@@ -863,35 +909,34 @@ mod tests {
                 borrowed_ray: 0,
                 revenue_ray: 0,
                 asset_price_wad: None,
-            });
+            }));
             UpdateMarketStateBatchEvent {
                 updates: market_updates,
             }
             .publish(&env);
 
-            let mut position_updates = Vec::new(&env);
-            position_updates.push_back(EventPositionDelta {
-                action: soroban_sdk::symbol_short!("supply"),
-                position_type: AccountPositionType::Deposit,
-                asset: asset.clone(),
-                scaled_amount_ray: 0,
-                index_ray: 0,
-                amount: 0,
-                asset_price_wad: None,
-                liquidation_threshold_bps: 0,
-                liquidation_bonus_bps: 0,
-                loan_to_value_bps: 0,
-            });
+            let mut deposits = Vec::new(&env);
+            deposits.push_back(EventDepositDelta(
+                PositionAction::Supply,
+                asset.clone(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ));
             UpdatePositionBatchEvent {
                 account_id: 1,
-                account_attributes: EventAccountAttributes {
-                    owner: caller.clone(),
-                    is_isolated_position: false,
-                    e_mode_category_id: 0,
-                    mode: EventPositionMode::None,
-                    isolated_token: None,
-                },
-                updates: position_updates,
+                account_attributes: EventAccountAttributes(
+                    caller.clone(),
+                    0,
+                    false,
+                    EventPositionMode::None,
+                    None,
+                ),
+                deposits,
+                borrows: Vec::new(&env),
             }
             .publish(&env);
 

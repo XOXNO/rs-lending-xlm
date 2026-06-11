@@ -1,7 +1,7 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Bytes, Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -103,7 +103,7 @@ pub fn process_swap_collateral(
             asset: current_collateral,
             amount: from_amount,
             position: &current_pos,
-            action: symbol_short!("sw_col_wd"),
+            action: common::events::PositionAction::SwColWd,
         },
     );
 

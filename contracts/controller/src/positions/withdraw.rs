@@ -1,10 +1,10 @@
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, Payment, PoolAction, PoolPositionMutation,
+    Account, AccountPosition, Payment, PoolAction, PoolPositionMutation,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -166,7 +166,7 @@ fn process_single_withdrawal(
         account,
         EventContext {
             caller: recipient.clone(),
-            action: symbol_short!("withdraw"),
+            action: common::events::PositionAction::Withdraw,
         },
         WithdrawalRequest {
             asset,
@@ -213,7 +213,6 @@ pub fn execute_withdrawal(
 
     cache.record_position_update(
         action,
-        AccountPositionType::Deposit,
         req.asset,
         result.market_index.supply_index_ray,
         result.actual_amount,

@@ -6,7 +6,7 @@
 
 use common::errors::GenericError;
 use common::types::Payment;
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::cross_contract::sac::sac_transfer_call;
 use crate::validation;
@@ -100,5 +100,5 @@ fn aggregate_payment_amount(
 /// Shared context for position and debt update events.
 pub(crate) struct EventContext {
     pub caller: Address,
-    pub action: Symbol,
+    pub action: common::events::PositionAction,
 }

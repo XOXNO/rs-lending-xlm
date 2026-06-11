@@ -7,15 +7,15 @@
 
 use common::constants::MS_PER_SECOND;
 use common::events::{
-    EventDebtCeilingEntry, EventPositionDelta, UpdateDebtCeilingBatchEvent,
-    UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
+    EventBorrowDelta, EventDebtCeilingEntry, EventDepositDelta, EventMarketState, PositionAction,
+    UpdateDebtCeilingBatchEvent, UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
 };
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AssetConfig, DebtPosition, EModeAssetConfig,
+    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig,
     MarketConfig, MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed,
     PriceFeedRaw,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
 #[cfg(not(feature = "certora"))]
 use crate::cross_contract::pool::fetch_pool_bulk_indexes;
@@ -39,7 +39,8 @@ pub struct Cache {
     pool_sync_data: Map<Address, PoolSyncData>,
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
     isolated_debts: Map<Address, i128>,
-    position_updates: Vec<EventPositionDelta>,
+    deposit_updates: Vec<EventDepositDelta>,
+    borrow_updates: Vec<EventBorrowDelta>,
     market_updates: Vec<MarketStateSnapshot>,
 
     pub current_timestamp_ms: u64,
@@ -71,7 +72,8 @@ impl Cache {
             pool_sync_data: Map::new(env),
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
-            position_updates: Vec::new(env),
+            deposit_updates: Vec::new(env),
+            borrow_updates: Vec::new(env),
             market_updates: Vec::new(env),
             current_timestamp_ms,
             oracle_policy,
@@ -210,10 +212,10 @@ impl Cache {
         if self.market_updates.is_empty() {
             return;
         }
-        let mut updates: Vec<MarketStateSnapshot> = Vec::new(&self.env);
+        let mut updates: Vec<EventMarketState> = Vec::new(&self.env);
         for mut snapshot in self.market_updates.iter() {
             snapshot.asset_price_wad = self.already_fetched_price(&snapshot.asset);
-            updates.push_back(snapshot);
+            updates.push_back(EventMarketState::from(&snapshot));
         }
         UpdateMarketStateBatchEvent { updates }.publish(&self.env);
         self.market_updates = Vec::new(&self.env);
@@ -221,16 +223,14 @@ impl Cache {
 
     pub fn record_position_update(
         &mut self,
-        action: Symbol,
-        position_type: AccountPositionType,
+        action: PositionAction,
         asset: &Address,
         index_ray: i128,
         amount: i128,
         position: &AccountPosition,
     ) {
-        self.position_updates.push_back(EventPositionDelta::new(
+        self.deposit_updates.push_back(EventDepositDelta::new(
             action,
-            position_type,
             asset.clone(),
             index_ray,
             amount,
@@ -240,38 +240,34 @@ impl Cache {
 
     pub fn record_debt_position_update(
         &mut self,
-        action: Symbol,
+        action: PositionAction,
         asset: &Address,
         index_ray: i128,
         amount: i128,
         position: &DebtPosition,
     ) {
-        self.position_updates
-            .push_back(EventPositionDelta::new_debt(
-                action,
-                asset.clone(),
-                index_ray,
-                amount,
-                position,
-            ));
+        self.borrow_updates.push_back(EventBorrowDelta::new(
+            action,
+            asset.clone(),
+            index_ray,
+            amount,
+            position,
+        ));
     }
 
     pub fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
-        if self.position_updates.is_empty() {
+        if self.deposit_updates.is_empty() && self.borrow_updates.is_empty() {
             return;
-        }
-        let mut updates: Vec<EventPositionDelta> = Vec::new(&self.env);
-        for mut delta in self.position_updates.iter() {
-            delta.asset_price_wad = self.already_fetched_price(&delta.asset);
-            updates.push_back(delta);
         }
         UpdatePositionBatchEvent {
             account_id,
             account_attributes: account.into(),
-            updates,
+            deposits: self.deposit_updates.clone(),
+            borrows: self.borrow_updates.clone(),
         }
         .publish(&self.env);
-        self.position_updates = Vec::new(&self.env);
+        self.deposit_updates = Vec::new(&self.env);
+        self.borrow_updates = Vec::new(&self.env);
     }
 
     pub fn cached_pool_sync_data(&mut self, asset: &Address) -> PoolSyncData {
@@ -321,10 +317,7 @@ impl Cache {
         let mut updates: Vec<EventDebtCeilingEntry> = Vec::new(&self.env);
         for (asset, value) in self.isolated_debts.iter() {
             storage::set_isolated_debt(&self.env, &asset, value);
-            updates.push_back(EventDebtCeilingEntry {
-                asset,
-                total_debt_usd_wad: value,
-            });
+            updates.push_back(EventDebtCeilingEntry(asset, value));
         }
         UpdateDebtCeilingBatchEvent { updates }.publish(&self.env);
     }

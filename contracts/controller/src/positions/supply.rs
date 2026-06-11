@@ -5,7 +5,7 @@ use common::types::{
     Payment, PoolAction, PositionMode,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -213,8 +213,7 @@ fn update_deposit_position(
 
     // Emit with the exact supply index the pool used, not a re-read.
     cache.record_position_update(
-        symbol_short!("supply"),
-        AccountPositionType::Deposit,
+        common::events::PositionAction::Supply,
         req.asset,
         market_index.supply_index.raw(),
         req.amount,

@@ -7,11 +7,11 @@ use common::errors::{CollateralError, GenericError, OracleError};
 use common::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::math::fp::Wad;
 use common::types::{
-    AccountPosition, AccountPositionType, AssetConfig, AssetConfigRaw, InterestRateModel,
+    AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel,
     MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, BytesN, Env, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec,
 };
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
@@ -442,8 +442,7 @@ fn update_position_threshold(
     // amount = 0: parameter change only, no deposit or withdraw.
     let market_index = cache.cached_market_index(asset);
     cache.record_position_update(
-        symbol_short!("param_upd"),
-        AccountPositionType::Deposit,
+        common::events::PositionAction::ParamUpd,
         asset,
         market_index.supply_index.raw(),
         0,

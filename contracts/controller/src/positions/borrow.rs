@@ -8,7 +8,7 @@ use common::types::{
     Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Symbol, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec,
 };
 use stellar_macros::when_not_paused;
 
@@ -23,7 +23,7 @@ use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerCl
 /// Result of a single pool borrow/strategy call, ready to be reflected onto
 /// the account's borrow position.
 struct BorrowUpdate {
-    action: Symbol,
+    action: common::events::PositionAction,
     index: i128,
     amount: i128,
     position: DebtPosition,
@@ -73,7 +73,7 @@ pub fn create_borrow_strategy(
         account,
         debt_token,
         BorrowUpdate {
-            action: symbol_short!("multiply"),
+            action: common::events::PositionAction::Multiply,
             index: result.market_index.borrow_index_ray,
             amount: result.actual_amount,
             position: (&result.position).into(),
@@ -284,7 +284,7 @@ fn update_borrow_position(
         account,
         req.asset,
         BorrowUpdate {
-            action: symbol_short!("borrow"),
+            action: common::events::PositionAction::Borrow,
             index: result.market_index.borrow_index_ray,
             amount: result.actual_amount,
             position: (&result.position).into(),
