@@ -66,7 +66,8 @@ impl LendingTest {
         _within_second: bool,
     ) {
         let asset = self.resolve_market(asset_name).asset.clone();
-        self.mock_reflector_client().set_twap_price(&asset, &price_wad);
+        self.mock_reflector_client()
+            .set_twap_price(&asset, &price_wad);
     }
 
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
@@ -120,17 +121,16 @@ impl LendingTest {
                 }
                 source => source,
             };
-            market.oracle_config.anchor =
-                OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
-                    ReflectorSourceConfig {
-                        contract: dex_oracle,
-                        asset: OracleAssetRef::Stellar(asset.clone()),
-                        read_mode: OracleReadMode::Spot,
-                        decimals: 14,
-                        resolution_seconds: 300,
-                        base: ReflectorBase::Usd,
-                    },
-                ));
+            market.oracle_config.anchor = OracleSourceConfigOption::Some(
+                OracleSourceConfig::Reflector(ReflectorSourceConfig {
+                    contract: dex_oracle,
+                    asset: OracleAssetRef::Stellar(asset.clone()),
+                    read_mode: OracleReadMode::Spot,
+                    decimals: 14,
+                    resolution_seconds: 300,
+                    base: ReflectorBase::Usd,
+                }),
+            );
             self.env.storage().persistent().set(&key, &market);
         });
     }

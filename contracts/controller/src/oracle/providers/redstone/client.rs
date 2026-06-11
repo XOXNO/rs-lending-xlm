@@ -14,6 +14,9 @@ pub struct RedStonePriceData {
 
 pub(crate) const REDSTONE_DECIMALS: u32 = 8;
 
+/// Wire ABI of the deployed RedStone adapter: `read_price_data` is the BULK
+/// endpoint, `read_price_data_for_feed` the single-feed one. The local
+/// wrapper names below do not mirror the wire names.
 #[contractclient(name = "RedStonePriceFeedClient")]
 #[allow(dead_code)] // Required: trait exists only for the macro to generate the client proxy.
 pub trait RedStoneMultiFeed {
