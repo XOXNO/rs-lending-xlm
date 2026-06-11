@@ -11,9 +11,7 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
     PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Env, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::{only_role, when_not_paused};
 
 use super::liquidation_math::*;
@@ -67,7 +65,7 @@ pub fn process_liquidation(
         GenericError::AccountNotInMarket
     );
 
-    let debt_payment_plan = utils::aggregate_positive_payments(env, debt_payments);
+    let plan = utils::aggregate_positive_payments(env, debt_payments);
 
     // Liquidation policy: seizure needs a defensible price, so it denies every
     // loosening (stale/deviation/TWAP). Beyond the last tolerance band it
@@ -76,11 +74,11 @@ pub fn process_liquidation(
     // selection applies.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
-    for (asset, _) in debt_payment_plan.iter() {
+    for (asset, _) in plan.iter() {
         validation::require_asset_supported(env, &mut cache, &asset);
     }
 
-    let result = execute_liquidation(env, &account, &debt_payment_plan, &mut cache);
+    let result = execute_liquidation(env, &account, &plan, &mut cache);
 
     validation::require_non_empty_payments(env, &result.repaid);
 
@@ -122,17 +120,86 @@ pub fn process_liquidation(
     cache.emit_market_batch();
 }
 
-// Order-preserving unique asset list from any entry vector keyed by `asset_of`.
-fn unique_assets<T>(env: &Env, entries: &Vec<T>, asset_of: impl Fn(&T) -> Address) -> Vec<Address>
-where
-    T: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
-{
-    let mut out: Vec<Address> = Vec::new(env);
-    for i in 0..entries.len() {
-        let entry = validation::expect_invariant(env, entries.get(i));
-        utils::push_unique_address(&mut out, asset_of(&entry));
+/// Computes the liquidation outcome (repayments, seizures, refunds) from the
+/// account snapshot and the liquidator's payment plan; mutates nothing.
+pub(crate) fn execute_liquidation(
+    env: &Env,
+    account: &Account,
+    plan: &Vec<Payment>,
+    cache: &mut Cache,
+) -> LiquidationResult {
+    let mut refunds = Vec::new(env);
+
+    // One totals pass feeds both the HF gate and the snapshot; the inlined HF
+    // mirrors calculate_health_factor, including the debt-free early panic
+    // that prices nothing.
+    if account.borrow_positions.is_empty() {
+        panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
-    out
+    let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
+        env,
+        cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+    let hf = if total_debt == Wad::ZERO {
+        Wad::from(i128::MAX)
+    } else {
+        weighted_coll.div_floor(env, total_debt)
+    };
+    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
+
+    let (proportion_seized, bonus_bounds) =
+        calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
+
+    let snap = LiquidationSnapshot {
+        total_debt,
+        total_collateral,
+        weighted_coll,
+        proportion_seized,
+        hf,
+    };
+
+    let (total_debt_payment_usd, repaid_tokens) =
+        calculate_repayment_amounts(env, plan, account, &mut refunds, cache);
+
+    let (max_debt_to_repay_usd, bonus) =
+        calculate_liquidation_amounts(env, &snap, bonus_bounds, total_debt_payment_usd);
+
+    let max_debt_to_repay_usd = expand_to_full_close_on_dust_residue(
+        env,
+        cache,
+        account,
+        DustExpansionInputs {
+            snap: &snap,
+            bonus,
+            payment_ceiling_usd: total_debt_payment_usd,
+            repay_usd: max_debt_to_repay_usd,
+        },
+    );
+
+    let seized_collaterals = calculate_seized_collateral(
+        env,
+        account,
+        total_collateral,
+        max_debt_to_repay_usd,
+        bonus,
+        cache,
+    );
+
+    let mut final_repayment_tokens = repaid_tokens;
+    if total_debt_payment_usd > max_debt_to_repay_usd {
+        let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
+        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
+    }
+
+    LiquidationResult {
+        seized: seized_collaterals,
+        repaid: final_repayment_tokens,
+        refunds,
+        max_debt_usd: max_debt_to_repay_usd.raw(),
+        bonus_bps: bonus.raw(),
+    }
 }
 
 fn apply_liquidation_repayments(
@@ -201,84 +268,17 @@ fn apply_liquidation_seizures(
     );
 }
 
-pub(crate) fn execute_liquidation(
-    env: &Env,
-    account: &Account,
-    debt_payments: &Vec<Payment>,
-    cache: &mut Cache,
-) -> LiquidationResult {
-    let mut refunds = Vec::new(env);
-
-    // One totals pass feeds both the HF gate and the snapshot; the inlined HF
-    // mirrors calculate_health_factor, including the debt-free early panic
-    // that prices nothing.
-    if account.borrow_positions.is_empty() {
-        panic_with_error!(env, CollateralError::HealthFactorTooHigh);
+// Order-preserving unique asset list from any entry vector keyed by `asset_of`.
+fn unique_assets<T>(env: &Env, entries: &Vec<T>, asset_of: impl Fn(&T) -> Address) -> Vec<Address>
+where
+    T: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
+{
+    let mut out: Vec<Address> = Vec::new(env);
+    for i in 0..entries.len() {
+        let entry = validation::expect_invariant(env, entries.get(i));
+        utils::push_unique_address(&mut out, asset_of(&entry));
     }
-    let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
-        env,
-        cache,
-        &account.supply_positions,
-        &account.borrow_positions,
-    );
-    let hf = if total_debt == Wad::ZERO {
-        Wad::from(i128::MAX)
-    } else {
-        weighted_coll.div_floor(env, total_debt)
-    };
-    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
-
-    let (proportion_seized, bonus_bounds) =
-        calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
-
-    let snap = LiquidationSnapshot {
-        total_debt,
-        total_collateral,
-        weighted_coll,
-        proportion_seized,
-        hf,
-    };
-
-    let (total_debt_payment_usd, repaid_tokens) =
-        calculate_repayment_amounts(env, debt_payments, account, &mut refunds, cache);
-
-    let (max_debt_to_repay_usd, bonus) =
-        calculate_liquidation_amounts(env, &snap, bonus_bounds, total_debt_payment_usd);
-
-    let max_debt_to_repay_usd = expand_to_full_close_on_dust_residue(
-        env,
-        cache,
-        account,
-        DustExpansionInputs {
-            snap: &snap,
-            bonus,
-            payment_ceiling_usd: total_debt_payment_usd,
-            repay_usd: max_debt_to_repay_usd,
-        },
-    );
-
-    let seized_collaterals = calculate_seized_collateral(
-        env,
-        account,
-        total_collateral,
-        max_debt_to_repay_usd,
-        bonus,
-        cache,
-    );
-
-    let mut final_repayment_tokens = repaid_tokens;
-    if total_debt_payment_usd > max_debt_to_repay_usd {
-        let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
-        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
-    }
-
-    LiquidationResult {
-        seized: seized_collaterals,
-        repaid: final_repayment_tokens,
-        refunds,
-        max_debt_usd: max_debt_to_repay_usd.raw(),
-        bonus_bps: bonus.raw(),
-    }
+    out
 }
 
 fn check_bad_debt_after_liquidation(

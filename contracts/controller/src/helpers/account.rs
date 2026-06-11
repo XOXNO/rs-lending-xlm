@@ -91,6 +91,9 @@ fn check_assets_side(
         }
         priceable.push_back(asset);
     }
+    // Idempotent with earlier gates: the prefetch skips assets already in
+    // prices_cache and feeds already fetched, so flows whose LTV/HF gate
+    // priced these assets make zero additional oracle calls here.
     crate::oracle::prefetch_redstone_feeds(cache, &priceable);
 
     for asset in priceable.iter() {

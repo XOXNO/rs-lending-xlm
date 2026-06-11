@@ -1,16 +1,20 @@
+//! Repay and strategy-internal repay flows.
+//!
+//! Repay is permissionless w.r.t. the account owner and can only reduce risk;
+//! the pool refunds any amount above the ceiling-rounded debt to the payer.
+
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
-
-use crate::utils::EventContext;
 
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_repay_call;
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::adjust_isolated_debt_for_repay;
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::utils::{self, EventContext};
+use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.
 pub(crate) struct RepaymentRequest<'a> {
@@ -113,27 +117,6 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     cache.emit_market_batch();
 }
 
-/// Calls the pool repay path and merges the returned scaled debt share.
-/// Single-asset wrapper over the bulk pool repay — used by strategy flows.
-pub fn execute_repayment(
-    env: &Env,
-    account: &mut Account,
-    ctx: EventContext,
-    req: RepaymentRequest<'_>,
-    cache: &mut Cache,
-) -> PoolPositionMutation {
-    let EventContext { caller, action } = ctx;
-
-    let mut actions: Vec<PoolAction> = Vec::new(env);
-    actions.push_back(PoolAction {
-        position: req.position.into(),
-        amount: req.amount,
-        asset: req.asset.clone(),
-    });
-    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
-    validation::expect_invariant(env, results.get(0))
-}
-
 /// Executes one bulk pool repay for `actions` (one cross-contract frame) and
 /// merges the results input-ordered.
 pub(crate) fn settle_repay_actions(
@@ -179,4 +162,25 @@ pub(crate) fn finish_repayment(
         result.actual_amount,
         &position,
     );
+}
+
+/// Calls the pool repay path and merges the returned scaled debt share.
+/// Single-asset wrapper over the bulk pool repay — used by strategy flows.
+pub fn execute_repayment(
+    env: &Env,
+    account: &mut Account,
+    ctx: EventContext,
+    req: RepaymentRequest<'_>,
+    cache: &mut Cache,
+) -> PoolPositionMutation {
+    let EventContext { caller, action } = ctx;
+
+    let mut actions: Vec<PoolAction> = Vec::new(env);
+    actions.push_back(PoolAction {
+        position: req.position.into(),
+        amount: req.amount,
+        asset: req.asset.clone(),
+    });
+    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
+    validation::expect_invariant(env, results.get(0))
 }

@@ -1,3 +1,8 @@
+//! Withdraw and strategy-internal withdraw flows.
+//!
+//! Withdrawals re-check LTV, health factor, and touched-asset dust post-pool;
+//! debt-free accounts take the `RiskDecreasing` policy and skip both gates.
+
 use common::errors::CollateralError;
 use common::math::fp::Ray;
 use common::types::{
@@ -7,16 +12,16 @@ use common::types::{
 use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use crate::utils::EventContext;
-
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_withdraw_call;
 use crate::emode;
 use crate::helpers::{
-    refresh_supply_risk_params, require_no_supply_dust_for_assets, update_or_remove_supply_position,
+    refresh_supply_risk_params, remove_account, require_no_supply_dust_for_assets,
+    update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
-use crate::{storage, utils::*, validation, Controller, ControllerArgs, ControllerClient};
+use crate::utils::{self, EventContext};
+use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
 pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
@@ -70,14 +75,14 @@ pub fn process_withdraw(
     let mut cache = Cache::new(env, policy);
 
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
-    let withdrawal_plan = aggregate_payments(env, withdrawals, true);
+    let plan = utils::aggregate_payments(env, withdrawals, true);
 
     // When the account has debt, the post-pool gates (LTV, health) price the
     // full supply+borrow set; prefetch the union here so those reads and any
     // mid-merge risk-param refresh hit the cache. When there is no debt, the
     // gates early-return and only the dust gate prices the withdrawn assets —
     // scope the prefetch to plan assets so no unread feeds are fetched.
-    let dust_assets = plan_assets(env, &withdrawal_plan);
+    let dust_assets = utils::plan_assets(env, &plan);
     let priced_assets = if account.borrow_positions.is_empty() {
         dust_assets.clone()
     } else {
@@ -89,12 +94,13 @@ pub fn process_withdraw(
 
     // Build the whole plan's entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
-    for (asset, amount) in withdrawal_plan.iter() {
+    for (asset, amount) in plan.iter() {
         // `0` means withdraw all.
-        let position: AccountPosition = match account.supply_positions.get(asset.clone()) {
-            Some(pos) => (&pos).into(),
-            None => panic_with_error!(env, CollateralError::PositionNotFound),
-        };
+        let position: AccountPosition = (&account
+            .supply_positions
+            .get(asset.clone())
+            .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+            .into();
         let withdraw_amount = if amount == 0 {
             WITHDRAW_ALL_SENTINEL
         } else {
@@ -140,29 +146,6 @@ pub fn process_withdraw(
     cache.emit_market_batch();
 
     paid
-}
-
-/// Single-asset wrapper over the bulk pool withdraw — used by strategies and
-/// account-close paths where one asset moves per call.
-pub fn execute_withdrawal(
-    env: &Env,
-    account: &mut Account,
-    ctx: EventContext,
-    req: WithdrawalRequest<'_>,
-    cache: &mut Cache,
-) -> PoolPositionMutation {
-    let EventContext { caller, action } = ctx;
-    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
-    entries.push_back(PoolWithdrawEntry {
-        action: PoolAction {
-            position: req.position.into(),
-            amount: req.amount,
-            asset: req.asset.clone(),
-        },
-        protocol_fee: 0,
-    });
-    let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);
-    validation::expect_invariant(env, results.get(0))
 }
 
 /// Executes one bulk pool withdraw for `entries` (one cross-contract frame)
@@ -217,10 +200,11 @@ pub(crate) fn finish_withdrawal(
     cache: &mut Cache,
 ) {
     cache.record_market_update(&result.market_state);
-    let mut result_position: AccountPosition = match account.supply_positions.get(asset.clone()) {
-        Some(pos) => (&pos).into(),
-        None => panic_with_error!(env, CollateralError::PositionNotFound),
-    };
+    let mut result_position: AccountPosition = (&account
+        .supply_positions
+        .get(asset.clone())
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .into();
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     if let Some(e_mode) = refresh_e_mode {
         let config = emode::effective_asset_config(env, account, asset, cache, e_mode);
@@ -235,4 +219,27 @@ pub(crate) fn finish_withdrawal(
         result.actual_amount,
         &result_position,
     );
+}
+
+/// Single-asset wrapper over the bulk pool withdraw — used by strategies and
+/// account-close paths where one asset moves per call.
+pub fn execute_withdrawal(
+    env: &Env,
+    account: &mut Account,
+    ctx: EventContext,
+    req: WithdrawalRequest<'_>,
+    cache: &mut Cache,
+) -> PoolPositionMutation {
+    let EventContext { caller, action } = ctx;
+    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
+    entries.push_back(PoolWithdrawEntry {
+        action: PoolAction {
+            position: req.position.into(),
+            amount: req.amount,
+            asset: req.asset.clone(),
+        },
+        protocol_fee: 0,
+    });
+    let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);
+    validation::expect_invariant(env, results.get(0))
 }
