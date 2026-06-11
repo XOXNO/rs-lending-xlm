@@ -86,19 +86,15 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     // are priced by the withdrawal loop and the dust gate.  Prefetching the
     // full supply set in that case would fire a bulk call for non-plan feeds
     // that are never read — so scope the prefetch to plan assets only.
-    // (The dust gate's own prefetch is idempotent and will no-op for feeds
-    // already resolved, and the prices_cache is not shared across the
-    // withdrawal loop and dust-gate calls — they run sequentially.)
+    // (The dust gate re-prices nothing: the withdrawal loop's price reads land
+    // in the shared tx-local prices_cache, so the gate's own prefetch and
+    // reads are cache hits.)
+    let dust_assets = plan_assets(env, &withdrawal_plan);
     let priced_assets = if account.borrow_positions.is_empty() {
-        plan_assets(env, &withdrawal_plan)
+        dust_assets.clone()
     } else {
-        let mut all: Vec<Address> = Vec::new(env);
-        for asset in account.supply_positions.keys() {
-            all.push_back(asset);
-        }
-        for asset in account.borrow_positions.keys() {
-            all.push_back(asset);
-        }
+        let mut all = account.supply_positions.keys();
+        all.append(&account.borrow_positions.keys());
         all
     };
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
@@ -111,12 +107,7 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     validation::require_healthy_account(env, &mut cache, &account);
     // Dust gate scoped to withdrawn assets only: withdraw never touches borrow
     // positions, so untouched positions that drifted under the floor must not block it.
-    require_no_supply_dust_for_assets(
-        env,
-        &mut cache,
-        &account,
-        &plan_assets(env, &withdrawal_plan),
-    );
+    require_no_supply_dust_for_assets(env, &mut cache, &account, &dust_assets);
 
     if account.is_empty() {
         remove_account(env, account_id);

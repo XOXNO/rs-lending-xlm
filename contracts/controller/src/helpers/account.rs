@@ -75,8 +75,8 @@ fn check_assets_side(
     scaled_for: impl Fn(&Address) -> Option<Ray>,
     floor_for: impl Fn(&common::types::AssetConfig) -> i128,
 ) {
-    // Prefetch only what `check_position` will actually price: open positions
-    // on markets with a non-zero floor.
+    // Single filter pass: only open positions on markets with a non-zero
+    // floor are priced; the same set feeds the prefetch and the checks.
     let mut priceable: Vec<Address> = Vec::new(env);
     for asset in assets.iter() {
         let Some(scaled) = scaled_for(&asset) else {
@@ -85,18 +85,16 @@ fn check_assets_side(
         if scaled == Ray::ZERO {
             continue;
         }
-        let cfg = cache.cached_asset_config(&asset);
-        if floor_for(&cfg) == 0 {
+        let floor = floor_for(&cache.cached_asset_config(&asset));
+        if floor == 0 {
             continue;
         }
         priceable.push_back(asset);
     }
     crate::oracle::prefetch_redstone_feeds(cache, &priceable);
 
-    for asset in assets.iter() {
-        let Some(scaled) = scaled_for(&asset) else {
-            continue;
-        };
+    for asset in priceable.iter() {
+        let scaled = scaled_for(&asset).expect("priceable is a filtered subset of assets");
         let cfg = cache.cached_asset_config(&asset);
         check_position(env, cache, &asset, scaled, floor_for(&cfg), side);
     }
@@ -110,12 +108,6 @@ fn check_position(
     floor_wad: i128,
     side: Side,
 ) {
-    if scaled == Ray::ZERO {
-        return;
-    }
-    if floor_wad == 0 {
-        return;
-    }
     let feed = cache.cached_price(asset);
     let market_index = cache.cached_market_index(asset);
     let index = match side {
