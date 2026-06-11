@@ -18,8 +18,8 @@ use common::types::{
 use soroban_sdk::{Address, Env, Map, String, Symbol, Vec};
 
 use crate::cross_contract::pool::fetch_pool_sync_data;
-use crate::oracle::providers::redstone::RedStonePriceData;
 use crate::oracle::policy::OraclePolicy;
+use crate::oracle::providers::redstone::RedStonePriceData;
 use crate::oracle::{token_price, update_asset_index};
 use crate::storage;
 

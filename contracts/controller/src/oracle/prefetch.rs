@@ -65,7 +65,10 @@ fn collect_redstone_feed(
     let common::types::OracleSourceConfig::RedStone(r) = source else {
         return;
     };
-    if cache.get_redstone_prefetch(&r.contract, &r.feed_id).is_some() {
+    if cache
+        .get_redstone_prefetch(&r.contract, &r.feed_id)
+        .is_some()
+    {
         return;
     }
     let mut feeds = by_adapter

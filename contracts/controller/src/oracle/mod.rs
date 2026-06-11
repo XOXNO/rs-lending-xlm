@@ -6,13 +6,13 @@
 mod compose;
 mod observation;
 pub mod policy;
+mod prefetch;
 #[cfg(not(feature = "certora"))]
 mod price;
 #[cfg(feature = "certora")]
 #[path = "../../../../verification/certora/controller/harness/oracle_price.rs"]
 mod price;
 pub(crate) mod providers;
-mod prefetch;
 #[cfg(not(feature = "certora"))]
 pub(crate) mod tolerance;
 #[cfg(feature = "certora")]
@@ -33,8 +33,8 @@ pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 #[cfg(feature = "certora")]
 pub(crate) use compose::certora;
 
-pub use price::{token_price, update_asset_index};
 pub(crate) use prefetch::prefetch_redstone_feeds;
+pub use price::{token_price, update_asset_index};
 
 pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
     let market = cache.cached_market_config(asset);
