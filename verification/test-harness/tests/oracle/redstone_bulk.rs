@@ -44,6 +44,17 @@ fn redstone_client<'a>(
 fn test_borrow_hf_uses_one_bulk_redstone_call() {
     // Two RedStone-anchored markets on the SAME adapter; a borrow's HF check
     // prices both feeds and must dispatch exactly one bulk call.
+    //
+    // The borrow tx contains three internal prefetch call sites:
+    //   1. contracts/controller/src/positions/borrow.rs entrypoint: explicit
+    //      prefetch with [supply_assets + borrow_assets] before the HF check.
+    //   2. helpers/math.rs HF body (calculate_account_totals_body): a second
+    //      prefetch_redstone_feeds call for the same feed set.
+    //   3. helpers/account.rs dust gate: a third prefetch_redstone_feeds call.
+    // All three deduplicate to exactly one bulk adapter call because the
+    // tx-local Cache is populated by site 1 and the subsequent sites find all
+    // feeds already resolved — this is the idempotency property the assertions
+    // below pin.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -175,13 +186,18 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
 
     // Each single-asset supply triggers a one-feed dust gate; MIN_BULK_FEEDS=2
     // means bulk is skipped.  The per-feed lazy path fires directly:
-    //   • ETH supply: RedStone single call → feed missing → None → fallback OK
-    //   • USDC supply: RedStone single call → feed found → Some → success
-    // Both committed transactions leave their single_calls increments in storage.
+    //   • USDC supply: RedStone single call → feed found → Some → success;
+    //     the bump from this committed tx is visible in storage.
+    //   • ETH supply: RedStone single call → feed missing → Err-returning
+    //     mock frame; the ETH counter bump rolls back with that frame, so it
+    //     is NOT observable here — only the USDC read's bump commits.
+    // The assertion therefore checks that at least the successful USDC read
+    // engaged the lazy path; the ETH engagement is pinned indirectly by the
+    // supply succeeding despite the missing anchor (RiskDecreasing fallback).
     let rs = redstone_client(&t, &redstone);
     assert!(
         rs.single_calls() > single_before_setup,
-        "lazy per-feed path must have fired for each single-asset dust gate"
+        "lazy path engaged: at least the USDC single read committed (ETH bump rolls back with its erroring frame)"
     );
     assert_eq!(
         rs.bulk_calls(),
@@ -230,7 +246,7 @@ fn test_prefetched_price_resolution_matches_lazy() {
     let total_coll = t.total_collateral(ALICE);
     let total_debt = t.total_debt(ALICE);
     assert!(
-        total_coll > 9_000.0,
+        total_coll > 9_000.0 && total_coll < 11_000.0,
         "resolved collateral value should be near $10 000 (got {})",
         total_coll
     );
@@ -238,65 +254,5 @@ fn test_prefetched_price_resolution_matches_lazy() {
         total_debt > 1_500.0 && total_debt < 2_500.0,
         "resolved debt value should be near $2 000 (got {})",
         total_debt
-    );
-}
-
-#[test]
-fn test_repay_dust_gate_bulk_prefetch_fires_once() {
-    // ALICE has USDC collateral and borrows both ETH (from pool) and more USDC
-    // is not viable — instead: ALICE borrows ETH, then BOB also borrows ETH
-    // so the pool has been used.  A simpler distinct path: ALICE repays a
-    // partial ETH debt.  The repay dust gate scopes to the repaid asset only
-    // (one feed), so with a single-asset repay no bulk fires.
-    //
-    // This test instead verifies the borrow path's EXPLICIT prefetch (before
-    // the HF check) plus the IMPLICIT prefetch inside calculate_account_totals_body
-    // are deduplicated to exactly one bulk call.  This is the idempotency
-    // guarantee: multiple calls to prefetch_redstone_feeds within ONE tx
-    // resolve to exactly one adapter network call, because the second call
-    // finds all feeds already present in the tx-local Cache.
-    //
-    // The borrow tx is used because it has two internal prefetch call sites:
-    //   1. contracts/controller/src/positions/borrow.rs line 119: explicit
-    //      prefetch with [supply_assets + borrow_assets] before HF check.
-    //   2. Inside require_healthy_account → calculate_account_totals_body:
-    //      a second prefetch_redstone_feeds call, which is a complete no-op
-    //      because both feeds were resolved by site 1.
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
-
-    let redstone = setup_redstone_feeds(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
-    anchor_market_with_redstone(&t, &redstone, "USDC");
-    anchor_market_with_redstone(&t, &redstone, "ETH");
-
-    // Setup: BOB provides ETH liquidity; ALICE supplies collateral (setup txs
-    // — counters are NOT asserted here).
-    t.supply(BOB, "ETH", 100.0);
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    // Measure counters immediately before the borrow (each harness call is
-    // its own tx with a fresh Cache).
-    let rs = redstone_client(&t, &redstone);
-    let bulk_before = rs.bulk_calls();
-    let single_before = rs.single_calls();
-
-    // Borrow: the controller explicitly prefetches [USDC, ETH] before the HF
-    // check, then the HF check itself calls prefetch_redstone_feeds again
-    // for the same [USDC, ETH] set — but both are already cached, so the
-    // second call is a no-op.  Exactly one bulk adapter call fires.
-    t.borrow(ALICE, "ETH", 1.0);
-
-    let rs = redstone_client(&t, &redstone);
-    assert_eq!(
-        rs.bulk_calls() - bulk_before,
-        1,
-        "exactly one bulk fetch must fire per tx even with two internal prefetch call sites"
-    );
-    assert_eq!(
-        rs.single_calls() - single_before,
-        0,
-        "no per-feed reads when the explicit prefetch covers all feeds before the HF check"
     );
 }
