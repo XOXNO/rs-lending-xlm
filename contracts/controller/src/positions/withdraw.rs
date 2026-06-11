@@ -75,20 +75,32 @@ pub fn process_withdraw(env: &Env, caller: &Address, account_id: u64, withdrawal
     // Aggregate once and reuse for the loop AND the post-flight dust scope.
     let withdrawal_plan = aggregate_payments(env, withdrawals, true);
 
-    // Withdraw prices each withdrawn asset in the withdrawal loop, then
-    // require_within_ltv prices all remaining supply+borrow positions, and
-    // require_healthy_account prices the full position set again — all before
-    // the HF-body prefetch can fire with the complete asset set.  Collect
-    // supply+borrow position keys here (withdrawn assets are a subset of
-    // supply keys) and prefetch the full set so every downstream price read
-    // hits the cache rather than single-resolving per feed.
-    let mut priced_assets: Vec<Address> = Vec::new(env);
-    for asset in account.supply_positions.keys() {
-        priced_assets.push_back(asset);
-    }
-    for asset in account.borrow_positions.keys() {
-        priced_assets.push_back(asset);
-    }
+    // When the account has debt, the withdrawal loop prices the withdrawn
+    // asset, then require_within_ltv and require_healthy_account price the
+    // full supply+borrow set — all before any downstream prefetch can fire
+    // with the complete set.  Collect supply+borrow keys and bulk-prefetch
+    // them so every price read hits the cache instead of single-resolving.
+    //
+    // When there is no debt, require_within_ltv and require_healthy_account
+    // both early-return without pricing anything; only the withdrawn asset(s)
+    // are priced by the withdrawal loop and the dust gate.  Prefetching the
+    // full supply set in that case would fire a bulk call for non-plan feeds
+    // that are never read — so scope the prefetch to plan assets only.
+    // (The dust gate's own prefetch is idempotent and will no-op for feeds
+    // already resolved, and the prices_cache is not shared across the
+    // withdrawal loop and dust-gate calls — they run sequentially.)
+    let priced_assets = if account.borrow_positions.is_empty() {
+        plan_assets(env, &withdrawal_plan)
+    } else {
+        let mut all: Vec<Address> = Vec::new(env);
+        for asset in account.supply_positions.keys() {
+            all.push_back(asset);
+        }
+        for asset in account.borrow_positions.keys() {
+            all.push_back(asset);
+        }
+        all
+    };
     crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
 
     for (asset, amount) in withdrawal_plan.iter() {

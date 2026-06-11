@@ -438,3 +438,50 @@ fn test_non_isolated_full_repay_fires_zero_redstone_calls() {
         "non-isolated full repay must fire zero single RedStone calls"
     );
 }
+// ── Issue 2 regression ────────────────────────────────────────────────────────
+
+#[test]
+fn test_no_debt_withdraw_prefetch_covers_only_plan_assets() {
+    // Account with NO debt and ≥2 RedStone-anchored supplies.  Withdraw part of
+    // one asset.  Without debt the LTV and HF checks early-return, so only the
+    // plan assets need pricing (the dust gate).
+    //
+    // Before the fix: the entrypoint `prefetch_redstone_feeds` collects ALL
+    // supply keys (both RedStone feeds), fires one bulk call, then the dust gate
+    // no-ops (already cached).  Net: bulk == 1.
+    // After the fix: the prefetch covers only plan assets (one asset) — one feed
+    // < MIN_BULK_FEEDS so no bulk is fired.  The dust gate's lazy path then does
+    // one single read for that one feed.  Net: bulk == 0, single == 1.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let redstone = setup_redstone_feeds(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+
+    // ALICE supplies both assets; no debt.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "ETH", 1.0);
+
+    // Snapshot counters before the withdraw.
+    let rs = redstone_client(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    // Withdraw part of USDC only — the plan has one feed (USDC).
+    t.withdraw(ALICE, "USDC", 100.0);
+
+    let rs = redstone_client(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        0,
+        "no-debt single-asset withdraw must fire zero bulk calls (plan has 1 feed < MIN_BULK_FEEDS)"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        1,
+        "no-debt single-asset withdraw: dust gate fires exactly one single read for the plan asset"
+    );
+}
