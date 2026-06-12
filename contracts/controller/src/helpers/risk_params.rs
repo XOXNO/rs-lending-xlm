@@ -1,11 +1,5 @@
-//! Sync stored collateral risk params from the current effective market config.
-//!
-//! User-facing supply-side writes refresh LTV and liquidation bonus on every
-//! touch. The liquidation threshold is gated by direction: a raise applies
-//! immediately; a lower applies only if the post-update health factor stays
-//! at or above 1.05, otherwise the prior (higher) threshold is kept. The
-//! keeper propagation path (`router.rs`) enforces its own, separate
-//! threshold gate.
+//! Refreshes LTV, liquidation bonus and (gated) liquidation threshold on
+//! supply positions from the effective (e-mode aware) market config.
 
 use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};

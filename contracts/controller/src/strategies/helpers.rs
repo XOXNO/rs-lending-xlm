@@ -7,16 +7,14 @@
 use common::errors::GenericError;
 use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
-use soroban_sdk::{
-    assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Vec,
-};
+use soroban_sdk::{assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Vec};
 
 use crate::cache::Cache;
+use crate::helpers::utils::EventContext;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest, WITHDRAW_ALL_SENTINEL};
-use crate::utils::EventContext;
-use crate::{positions::borrow, storage, utils, validation};
+use crate::{helpers::utils, positions::borrow, storage, validation};
 
 pub(crate) mod aggregator {
     use soroban_sdk::{contractclient, Address, Bytes, Env};
@@ -305,7 +303,7 @@ pub(crate) fn strategy_finalize(
 ) {
     // Remove accounts that closed out entirely; otherwise persist.
     if account.is_empty() {
-        utils::remove_account(env, account_id);
+        crate::helpers::remove_account(env, account_id);
     } else {
         // Strategy flows touch only the position maps, so flush each side
         // directly (avoids re-reading meta for an equality compare); each side

@@ -1,8 +1,6 @@
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use common::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -11,7 +9,7 @@ use crate::strategies::helpers::{
     strategy_finalize, swap_tokens, withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{
-    emode, positions::supply, storage, utils, validation, Controller, ControllerArgs,
+    emode, helpers::utils, positions::supply, storage, validation, Controller, ControllerArgs,
     ControllerClient,
 };
 

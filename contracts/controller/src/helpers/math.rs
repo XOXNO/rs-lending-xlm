@@ -23,7 +23,6 @@ pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad(env, value)
 }
 
-// LTV-weighted USD value sum of all supply positions.
 pub fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,

@@ -13,14 +13,14 @@ use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_withdraw_call;
 use crate::emode;
+use crate::external::pool::pool_withdraw_call;
+use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{
     refresh_supply_risk_params, remove_account, require_no_supply_dust_for_assets,
     update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
-use crate::utils::{self, EventContext};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).

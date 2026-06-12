@@ -12,7 +12,8 @@ use crate::cache::Cache;
 use crate::oracle::policy::OraclePolicy;
 use crate::strategies::helpers::{open_strategy_borrow, strategy_finalize, swap_tokens};
 use crate::{
-    positions::supply, storage, utils, validation, Controller, ControllerArgs, ControllerClient,
+    helpers::utils, positions::supply, storage, validation, Controller, ControllerArgs,
+    ControllerClient,
 };
 
 /// Parameters for `process_multiply`.
@@ -237,7 +238,7 @@ fn load_or_create_multiply_account(
         };
         // `create_account` returns the in-memory snapshot it just wrote, so
         // there's no need to re-read all 3 keys from storage.
-        return utils::create_account(
+        return crate::helpers::create_account(
             env,
             caller,
             e_mode_category,

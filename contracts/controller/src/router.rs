@@ -1,30 +1,28 @@
 //! Public controller entrypoints that are not position verbs or strategies.
 //!
 //! Holds market bootstrap, keeper index updates, revenue claiming, and
-//! threshold propagation; pool and token calls go through `cross_contract`.
+//! threshold propagation; pool and token calls go through `external`.
 
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::math::fp::Wad;
 use common::types::{
-    AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel,
-    MarketConfig, MarketOracleConfig, MarketParamsRaw, MarketStatus,
+    AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel, MarketConfig,
+    MarketOracleConfig, MarketParamsRaw, MarketStatus,
 };
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::Cache;
-use crate::cross_contract::pool::{
+use crate::external::pool::{
     pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
     pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
-use crate::cross_contract::sac::sac_transfer_call;
+use crate::external::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::{
-    helpers::{self, THRESHOLD_UPDATE_MIN_HF_RAW},
-    storage, utils, validation, Controller, ControllerArgs, ControllerClient,
+    helpers::{self, utils, THRESHOLD_UPDATE_MIN_HF_RAW},
+    storage, validation, Controller, ControllerArgs, ControllerClient,
 };
 
 // Supported SAC decimal range for RAY/WAD conversions.

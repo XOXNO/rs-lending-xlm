@@ -79,11 +79,7 @@ pub(crate) fn pool_seize_position_call(
     side: AccountPositionType,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(
-        asset,
-        &side,
-        &position,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).seize_position(asset, &side, &position)
 }
 
 pub(crate) fn pool_flash_loan_call(
@@ -125,7 +121,11 @@ pub(crate) fn pool_add_rewards_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(asset, &amount)
 }
 
-pub(crate) fn fetch_pool_sync_data(env: &Env, pool_addr: &Address, asset: &Address) -> PoolSyncData {
+pub(crate) fn fetch_pool_sync_data(
+    env: &Env,
+    pool_addr: &Address,
+    asset: &Address,
+) -> PoolSyncData {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).get_sync_data(asset)
 }
 

@@ -15,12 +15,12 @@ use stellar_macros::when_not_paused;
 
 use super::PlanConfigs;
 use crate::cache::Cache;
-use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::emode;
+use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::add_isolated_debt;
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -165,7 +165,12 @@ fn validate_asset_borrowable(
 
 /// Siloed assets must be an account's only borrow; checks the union of
 /// existing debt and the incoming plan.
-fn validate_siloed_borrow_set(env: &Env, account: &Account, plan: &Vec<Payment>, cache: &mut Cache) {
+fn validate_siloed_borrow_set(
+    env: &Env,
+    account: &Account,
+    plan: &Vec<Payment>,
+    cache: &mut Cache,
+) {
     let mut union: Vec<Address> = Vec::new(env);
     for asset in account.borrow_positions.keys() {
         utils::push_unique_address(&mut union, asset);

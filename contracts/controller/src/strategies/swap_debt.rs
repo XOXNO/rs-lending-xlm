@@ -1,8 +1,6 @@
 use common::errors::{CollateralError, GenericError};
 use common::types::{DebtPosition, StrategySwap};
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -10,7 +8,7 @@ use crate::oracle::policy::OraclePolicy;
 use crate::strategies::helpers::{
     open_strategy_borrow, repay_debt_from_controller, strategy_finalize, swap_tokens, StrategyRepay,
 };
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {

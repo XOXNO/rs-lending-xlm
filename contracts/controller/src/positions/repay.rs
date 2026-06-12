@@ -9,11 +9,11 @@ use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_repay_call;
+use crate::external::pool::pool_repay_call;
+use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::adjust_isolated_debt_for_repay;
-use crate::utils::{self, EventContext};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.

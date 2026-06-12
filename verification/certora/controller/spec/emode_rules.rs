@@ -371,7 +371,7 @@ fn emode_remove_category(e: Env, category_id: u32) {
     // Remove the category. This sets `is_deprecated = true`, walks every
     // member of the category asset map to remove `category_id` from the
     // reverse index, then clears the category asset map.
-    crate::config::remove_e_mode_category(&e, category_id);
+    crate::governance::config::remove_e_mode_category(&e, category_id);
 
     // (1) Category is flagged deprecated.
     let category = crate::storage::get_emode_category(&e, category_id);
@@ -410,7 +410,7 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     cvlr_assume!(category.unwrap().is_deprecated);
 
     // Attempt to add asset to deprecated category -- must revert
-    crate::config::add_asset_to_e_mode_category(&e, asset, category_id, true, true);
+    crate::governance::config::add_asset_to_e_mode_category(&e, asset, category_id, true, true);
 
     // Unreachable: adding asset to deprecated category must revert
     cvlr_satisfy!(false);

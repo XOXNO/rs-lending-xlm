@@ -11,15 +11,14 @@ use common::events::{
     UpdateDebtCeilingBatchEvent, UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
 };
 use common::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig,
-    MarketConfig, MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed,
-    PriceFeedRaw,
+    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, MarketConfig,
+    MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed, PriceFeedRaw,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
 #[cfg(not(feature = "certora"))]
-use crate::cross_contract::pool::fetch_pool_bulk_indexes;
-use crate::cross_contract::pool::fetch_pool_sync_data;
+use crate::external::pool::fetch_pool_bulk_indexes;
+use crate::external::pool::fetch_pool_sync_data;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::providers::redstone::RedStonePriceData;
 use crate::oracle::{token_price, update_asset_index};

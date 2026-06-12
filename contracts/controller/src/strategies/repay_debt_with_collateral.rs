@@ -1,8 +1,6 @@
 use common::errors::CollateralError;
 use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -11,7 +9,7 @@ use crate::strategies::helpers::{
     execute_withdraw_all, repay_debt_from_controller, strategy_finalize, swap_tokens,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {

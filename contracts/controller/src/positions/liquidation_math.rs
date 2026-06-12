@@ -13,8 +13,8 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::helpers;
+use crate::helpers::utils;
 use crate::storage::iter_typed_positions;
-use crate::utils;
 use crate::validation;
 
 /// Aggregate position metrics for liquidation helpers.

@@ -10,7 +10,7 @@ use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_flash_loan_call;
+use crate::external::pool::pool_flash_loan_call;
 use crate::oracle::policy::OraclePolicy;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 

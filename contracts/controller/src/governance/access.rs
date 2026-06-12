@@ -201,16 +201,14 @@ mod tests {
         let candidate = Address::generate(&env);
         env.as_contract(&contract_id, || {
             env.storage().instance().remove(&OwnableStorageKey::Owner);
-            env.storage().instance().remove(&AccessControlStorageKey::Admin);
+            env.storage()
+                .instance()
+                .remove(&AccessControlStorageKey::Admin);
             sync_pending_admin_transfer(&env, &candidate, 100);
         });
     }
 }
 
-// `has_role` is test/`testing`-only. It needs its own fully cfg-gated
-// `#[contractimpl]` so the method and its macro-generated dispatch strip
-// together; gating inside the main impl leaves a dangling dispatch when the
-// feature is off (E0425 under cross-crate feature unification).
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Controller {

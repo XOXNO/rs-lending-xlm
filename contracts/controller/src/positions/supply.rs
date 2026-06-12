@@ -13,13 +13,13 @@ use stellar_macros::when_not_paused;
 
 use super::PlanConfigs;
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_supply_call;
 use crate::emode;
+use crate::external::pool::pool_supply_call;
 use crate::helpers::{
     refresh_supply_risk_params, require_no_supply_dust_for_assets, update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
-use crate::{storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {

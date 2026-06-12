@@ -1,10 +1,5 @@
-//! TTL renewal helpers — the three tiers of Soroban storage rent.
-//!
-//! User (per-account) keys get shorter, cheaper bumps; protocol-shared keys
-//! (markets, pools list, e-mode, isolated debt) get longer bumps since many
-//! accounts read them; the controller instance is bumped on every mutating
-//! entrypoint via `renew_controller_instance` (from `Cache::new`). Centralizing
-//! the constants and call sites here keeps rent strategy easy to adjust.
+//! TTL renewal helpers for Soroban's three storage rent tiers (user,
+//! protocol-shared, instance).
 
 use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE,

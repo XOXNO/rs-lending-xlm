@@ -234,8 +234,11 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>)
-        -> Vec<PoolPositionMutation> {
+    fn borrow(
+        env: Env,
+        receiver: Address,
+        entries: Vec<PoolBorrowEntry>,
+    ) -> Vec<PoolPositionMutation> {
         renew_pool_instance(&env);
         let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
         for entry in entries.iter() {

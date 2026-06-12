@@ -1,5 +1,4 @@
-//! Small shared utilities: payment aggregation, event context helpers,
-//! and re-exports of account lifecycle from helpers.
+//! Small shared utilities: payment aggregation and event context helpers.
 //!
 //! These are called from many flows; they are pure or near-pure and have
 //! no policy or storage side effects of their own.
@@ -8,10 +7,8 @@ use common::errors::GenericError;
 use common::types::Payment;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
-use crate::cross_contract::sac::sac_transfer_call;
+use crate::external::sac::sac_transfer_call;
 use crate::validation;
-
-pub(crate) use crate::helpers::{create_account, remove_account};
 
 /// Deduplicates by asset and sums amounts; panics on zero or negative entries
 /// (used by every mutating entrypoint before plan execution).

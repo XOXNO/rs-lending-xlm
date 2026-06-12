@@ -17,12 +17,15 @@ use stellar_macros::{only_role, when_not_paused};
 use super::liquidation_math::*;
 use super::{repay, withdraw};
 use crate::cache::Cache;
-use crate::cross_contract::pool::pool_seize_position_call;
-use crate::cross_contract::sac::sac_transfer_call;
+use crate::external::pool::pool_seize_position_call;
+use crate::external::sac::sac_transfer_call;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
-use crate::{helpers, storage, utils, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{
+    helpers::{self, utils},
+    storage, validation, Controller, ControllerArgs, ControllerClient,
+};
 
 #[contractimpl]
 impl Controller {
