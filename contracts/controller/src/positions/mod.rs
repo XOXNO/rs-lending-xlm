@@ -19,29 +19,25 @@ pub mod repay;
 pub mod supply;
 pub mod withdraw;
 
-/// Resolves the e-mode-adjusted config for every plan asset once, shared by
-/// plan validation and pool execution.
-pub(crate) fn effective_configs_for_plan(
-    env: &Env,
-    account: &Account,
-    plan: &Vec<Payment>,
-    cache: &mut Cache,
-) -> Map<Address, AssetConfigRaw> {
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
-    let mut configs: Map<Address, AssetConfigRaw> = Map::new(env);
-    for (asset, _) in plan.iter() {
-        let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-        configs.set(asset, (&cfg).into());
-    }
-    configs
-}
+/// E-mode-adjusted configs resolved once per plan asset, shared by plan
+/// validation and pool execution. Stores the raw form (`Map` values must be
+/// contract types); `get` decodes per read.
+pub(crate) struct PlanConfigs(Map<Address, AssetConfigRaw>);
 
-/// Decodes the prepared config for `asset`; `effective_configs_for_plan`
-/// populated every plan key.
-pub(crate) fn effective_config(
-    env: &Env,
-    configs: &Map<Address, AssetConfigRaw>,
-    asset: &Address,
-) -> AssetConfig {
-    (&validation::expect_invariant(env, configs.get(asset.clone()))).into()
+impl PlanConfigs {
+    /// Resolves the active e-mode category once and adjusts every plan asset.
+    pub fn resolve(env: &Env, account: &Account, plan: &Vec<Payment>, cache: &mut Cache) -> Self {
+        let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+        let mut configs: Map<Address, AssetConfigRaw> = Map::new(env);
+        for (asset, _) in plan.iter() {
+            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
+            configs.set(asset, (&cfg).into());
+        }
+        Self(configs)
+    }
+
+    /// Config for a plan asset; `resolve` populated every plan key.
+    pub fn get(&self, env: &Env, asset: &Address) -> AssetConfig {
+        (&validation::expect_invariant(env, self.0.get(asset.clone()))).into()
+    }
 }

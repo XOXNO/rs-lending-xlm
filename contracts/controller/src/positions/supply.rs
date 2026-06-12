@@ -6,12 +6,12 @@
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, AssetConfigRaw, Payment, PoolAction, PoolSupplyEntry,
-    PositionMode,
+    Account, AccountPositionType, Payment, PoolAction, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
+use super::PlanConfigs;
 use crate::cache::Cache;
 use crate::cross_contract::pool::pool_supply_call;
 use crate::emode;
@@ -100,17 +100,17 @@ pub fn process_deposit(
     plan: &Vec<Payment>,
     cache: &mut Cache,
 ) {
-    let effective_configs = super::effective_configs_for_plan(env, account, plan, cache);
+    let configs = PlanConfigs::resolve(env, account, plan, cache);
 
-    prepare_deposit_plan(env, account, plan, &effective_configs, cache);
-    execute_deposit_plan(env, caller, account, plan, &effective_configs, cache);
+    prepare_deposit_plan(env, account, plan, &configs, cache);
+    execute_deposit_plan(env, caller, account, plan, &configs, cache);
 }
 
 fn prepare_deposit_plan(
     env: &Env,
     account: &Account,
     plan: &Vec<Payment>,
-    effective_configs: &Map<Address, AssetConfigRaw>,
+    configs: &PlanConfigs,
     cache: &mut Cache,
 ) {
     validation::validate_bulk_position_limits(env, account, AccountPositionType::Deposit, plan);
@@ -119,7 +119,7 @@ fn prepare_deposit_plan(
     for (asset, _) in plan {
         validation::require_market_active(env, cache, &asset);
 
-        let asset_config = super::effective_config(env, effective_configs, &asset);
+        let asset_config = configs.get(env, &asset);
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
         emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
@@ -139,7 +139,7 @@ fn execute_deposit_plan(
     caller: &Address,
     account: &mut Account,
     plan: &Vec<Payment>,
-    effective_configs: &Map<Address, AssetConfigRaw>,
+    configs: &PlanConfigs,
     cache: &mut Cache,
 ) {
     // One pool call for the whole plan (one cross-contract frame); results
@@ -147,7 +147,7 @@ fn execute_deposit_plan(
     let pool_addr = cache.cached_pool_address();
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (asset, amount_in) in plan {
-        let asset_config = super::effective_config(env, effective_configs, &asset);
+        let asset_config = configs.get(env, &asset);
         utils::transfer_amount(
             env,
             &asset,
@@ -171,7 +171,7 @@ fn execute_deposit_plan(
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         let asset = &entry.action.asset;
-        let asset_config = super::effective_config(env, effective_configs, asset);
+        let asset_config = configs.get(env, asset);
 
         let mut position = account.get_or_create_supply_position(asset, &asset_config);
         refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);

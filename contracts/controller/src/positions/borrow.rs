@@ -7,12 +7,13 @@
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{
-    Account, AccountPositionType, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
-    PoolBorrowEntry, PoolPositionMutation,
+    Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolAction, PoolBorrowEntry,
+    PoolPositionMutation,
 };
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
+use super::PlanConfigs;
 use crate::cache::Cache;
 use crate::cross_contract::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::emode;
@@ -43,9 +44,9 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     // post-flight dust scope, sees one entry per asset.
     let plan = utils::aggregate_positive_payments(env, borrows);
 
-    let effective_configs = super::effective_configs_for_plan(env, &account, &plan, &mut cache);
-    prepare_borrow_plan(env, &account, &plan, &effective_configs, &mut cache);
-    execute_borrow_plan(env, caller, &mut account, &plan, &effective_configs, &mut cache);
+    let configs = PlanConfigs::resolve(env, &account, &plan, &mut cache);
+    prepare_borrow_plan(env, &account, &plan, &configs, &mut cache);
+    execute_borrow_plan(env, caller, &mut account, &plan, &configs, &mut cache);
 
     // A failure in either gate panics and reverts the atomic tx.
     validation::require_within_ltv(env, &mut cache, &account);
@@ -67,7 +68,7 @@ fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
     plan: &Vec<Payment>,
-    effective_configs: &Map<Address, AssetConfigRaw>,
+    configs: &PlanConfigs,
     cache: &mut Cache,
 ) {
     validation::require_non_empty_payments(env, plan);
@@ -76,7 +77,7 @@ fn prepare_borrow_plan(
 
     for (asset, amount) in plan {
         validation::require_market_active(env, cache, &asset);
-        let asset_config = super::effective_config(env, effective_configs, &asset);
+        let asset_config = configs.get(env, &asset);
         validate_asset_borrowable(env, account, &asset, &asset_config, cache);
         add_isolated_debt(env, cache, account, &asset, amount);
     }
@@ -87,14 +88,14 @@ fn execute_borrow_plan(
     caller: &Address,
     account: &mut Account,
     plan: &Vec<Payment>,
-    effective_configs: &Map<Address, AssetConfigRaw>,
+    configs: &PlanConfigs,
     cache: &mut Cache,
 ) {
     // Build the whole plan's entries, make ONE pool call, then merge results
     // input-ordered — one cross-contract frame instead of one per asset.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (asset, amount) in plan {
-        let asset_config = super::effective_config(env, effective_configs, &asset);
+        let asset_config = configs.get(env, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
             action: PoolAction {
@@ -198,10 +199,10 @@ pub fn borrow_for_strategy(
 ) -> i128 {
     let mut plan: Vec<Payment> = Vec::new(env);
     plan.push_back((debt_token.clone(), amount));
-    let effective_configs = super::effective_configs_for_plan(env, account, &plan, cache);
-    prepare_borrow_plan(env, account, &plan, &effective_configs, cache);
+    let configs = PlanConfigs::resolve(env, account, &plan, cache);
+    prepare_borrow_plan(env, account, &plan, &configs, cache);
 
-    let debt_config = super::effective_config(env, &effective_configs, debt_token);
+    let debt_config = configs.get(env, debt_token);
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
 
