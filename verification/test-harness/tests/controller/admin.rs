@@ -2,10 +2,7 @@ use common::errors::{EModeError, GenericError};
 use controller::types::{ControllerKey, EModeCategoryRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
-use test_harness::{
-    assert_contract_error, errors, usdc_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
-    STABLECOIN_EMODE,
-};
+use test_harness::{assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
 
 // 1. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
@@ -176,84 +173,4 @@ fn test_supply_panics_on_deprecated_emode_category() {
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
     assert_contract_error(result, EModeError::EModeCategoryDeprecated as u32);
-}
-
-// --- coverage_gap ---
-
-// PR-6: `validate_and_fetch_token_decimals` rejects SACs without a `symbol` (#6).
-#[test]
-fn test_create_liquidity_pool_rejects_token_without_symbol() {
-    let t = LendingTest::new().build();
-    let sac = t.env.register(test_harness::mock_sac::MockSacNoSymbol, ());
-    let params = usdc_preset().params.to_market_params(&sac, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env);
-    t.ctrl_client().approve_token(&sac);
-    let result = match t
-        .ctrl_client()
-        .try_create_liquidity_pool(&sac, &params, &config)
-    {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error")),
-    };
-    assert_contract_error(result, errors::INVALID_ASSET);
-}
-
-// PR-6: `validate_and_fetch_token_decimals` rejects unregistered token contracts (#6).
-#[test]
-fn test_create_liquidity_pool_rejects_unregistered_token() {
-    let t = LendingTest::new().build();
-    let asset = Address::generate(&t.env);
-    let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env);
-    t.ctrl_client().approve_token(&asset);
-    let result = match t
-        .ctrl_client()
-        .try_create_liquidity_pool(&asset, &params, &config)
-    {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error")),
-    };
-    assert_contract_error(result, errors::INVALID_ASSET);
-}
-
-// PR-6: admin `validate_asset_config` dust floor (#125).
-#[test]
-#[should_panic(expected = "Error(Contract, #125)")]
-fn test_edit_asset_config_rejects_dust_floor_below_minimum() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.min_collat_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
-    cfg.min_debt_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
-    t.ctrl_client().edit_asset_config(&asset, &cfg);
-}
-
-// PR-6: `validate_risk_bounds` threshold above 100% (#113).
-#[test]
-#[should_panic(expected = "Error(Contract, #113)")]
-fn test_edit_asset_config_rejects_threshold_above_bps() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.loan_to_value_bps = 5_000;
-    cfg.liquidation_threshold_bps = 10_001;
-    cfg.liquidation_bonus_bps = 0;
-    t.ctrl_client().edit_asset_config(&asset, &cfg);
-}
-
-// PR-4: configure-time bad first tolerance (#221).
-#[test]
-#[should_panic(expected = "Error(Contract, #207)")]
-fn test_configure_market_oracle_rejects_first_tolerance_below_min() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let admin = t.admin();
-    let cfg = test_harness::reflector_primary_anchor_config(
-        &t.mock_reflector,
-        &asset,
-        10,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    t.ctrl_client()
-        .configure_market_oracle(&admin, &asset, &cfg);
 }

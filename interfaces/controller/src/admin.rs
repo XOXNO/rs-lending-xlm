@@ -5,10 +5,6 @@ use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env, Symbol};
 
 /// Mirrors the controller admin ABI for governance forwarding.
-///
-/// `set_market_oracle_config` and `set_oracle_tolerance` are declared
-/// ahead of their on-chain implementation; calling them against a
-/// controller that does not export them traps.
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
     fn set_aggregator(env: Env, addr: Address);

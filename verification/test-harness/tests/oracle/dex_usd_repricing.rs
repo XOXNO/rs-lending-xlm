@@ -1,4 +1,3 @@
-use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, String, Vec};
 use test_harness::{
     eth_preset, reflector_primary_redstone_anchor_config, reflector_single_spot_config, usd,
@@ -51,100 +50,10 @@ fn test_dex_quoted_source_repriced_to_usd() {
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &cfg);
+    t.configure_market_oracle(&xlm, &cfg);
 
     // 2.0 USDC * $1.001/USDC = $2.002
     assert_eq!(index_view(&t, &xlm).price_wad, usd_frac(2002, 1000));
-}
-
-/// Configuring a DEX-quoted source whose quote asset is not a configured market
-/// is rejected (`InvalidOracleBase`, #220).
-#[test]
-#[should_panic(expected = "Error(Contract, #220)")]
-fn test_dex_config_rejected_when_quote_market_missing() {
-    let t = LendingTest::new().with_market(xlm_preset()).build();
-    let xlm = t.resolve_asset("XLM");
-
-    // Base points at an asset with no configured market.
-    let phantom_quote = Address::generate(&t.env);
-    let dex = register_dex_oracle(&t, &phantom_quote);
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
-
-    let cfg = reflector_single_spot_config(
-        &dex,
-        &xlm,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &cfg);
-}
-
-/// One-hop / cycle prevention: a quote asset that is itself DEX-quoted (not
-/// USD-quoted) is rejected as a quote (`InvalidOracleBase`, #220). A
-/// Stellar-quoted market can therefore never be the target of a quote edge.
-#[test]
-#[should_panic(expected = "Error(Contract, #220)")]
-fn test_dex_config_rejected_when_quote_market_not_usd_quoted() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(xlm_preset())
-        .with_market(eth_preset())
-        .build();
-    let usdc = t.resolve_asset("USDC");
-    let xlm = t.resolve_asset("XLM");
-    let eth = t.resolve_asset("ETH");
-
-    // Make XLM itself DEX-quoted (in USDC). Valid: USDC is USD-quoted.
-    let dex_usdc = register_dex_oracle(&t, &usdc);
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_usdc)
-        .set_price(&xlm, &usd(2));
-    let xlm_cfg = reflector_single_spot_config(
-        &dex_usdc,
-        &xlm,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &xlm_cfg);
-
-    // Now try to quote ETH in XLM. XLM is Stellar-quoted, not USD → rejected.
-    let dex_xlm = register_dex_oracle(&t, &xlm);
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_xlm)
-        .set_price(&eth, &usd(2));
-    let eth_cfg = reflector_single_spot_config(
-        &dex_xlm,
-        &eth,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &eth, &eth_cfg);
-}
-
-/// A market may not be quoted in itself (`base == Stellar(self)`): rejected at
-/// config time (`InvalidOracleBase`, #220) rather than reverting on recursion.
-#[test]
-#[should_panic(expected = "Error(Contract, #220)")]
-fn test_dex_config_rejected_when_quote_is_self() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(xlm_preset())
-        .build();
-    let xlm = t.resolve_asset("XLM");
-
-    let dex = register_dex_oracle(&t, &xlm); // base = the asset itself
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
-
-    let cfg = reflector_single_spot_config(
-        &dex,
-        &xlm,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &cfg);
 }
 
 /// The DEX repricing path (the extra `base()` call plus the recursive
@@ -183,8 +92,7 @@ fn test_dex_quoted_market_priced_within_default_budget() {
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &cfg);
+    t.configure_market_oracle(&xlm, &cfg);
 
     // Hot path under Soroban's default budget: the HF check prices XLM (DEX→USD
     // recursion through token_price(USDC)) and USDC. Completing == within budget.
@@ -211,8 +119,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
     let dex_usdc = register_dex_oracle(&t, &usdc);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_usdc)
         .set_price(&xlm, &usd(2));
-    t.ctrl_client().configure_market_oracle(
-        &t.admin(),
+    t.configure_market_oracle(
         &xlm,
         &reflector_single_spot_config(
             &dex_usdc,
@@ -227,8 +134,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
     let dex_eth = register_dex_oracle(&t, &eth);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_eth)
         .set_price(&usdc, &usd(1));
-    t.ctrl_client().configure_market_oracle(
-        &t.admin(),
+    t.configure_market_oracle(
         &usdc,
         &reflector_single_spot_config(
             &dex_eth,
@@ -257,8 +163,7 @@ fn test_dex_read_rejects_disabled_quote_market() {
 
     let dex = register_dex_oracle(&t, &usdc);
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
-    t.ctrl_client().configure_market_oracle(
-        &t.admin(),
+    t.configure_market_oracle(
         &xlm,
         &reflector_single_spot_config(
             &dex,
@@ -313,8 +218,7 @@ fn test_dex_primary_redstone_anchor_tolerance_evaluated_in_usd() {
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &xlm, &cfg);
+    t.configure_market_oracle(&xlm, &cfg);
 
     // Pegged: converted primary 2.0*1.0 = 2.0 USD == anchor 2.0 USD → in band.
     let healthy = index_view(&t, &xlm);

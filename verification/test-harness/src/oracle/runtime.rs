@@ -45,16 +45,27 @@ impl LendingTest {
         }
     }
 
-    /// Set oracle tolerance for an asset.
+    /// Set oracle tolerance for an asset via the thin owner setter, computing
+    /// the ratio bands the way governance config validation does.
     pub fn set_oracle_tolerance(&self, asset_name: &str, preset: TolerancePreset) {
         let asset = self.resolve_asset(asset_name);
-        let ctrl = self.ctrl_client();
-        ctrl.edit_oracle_tolerance(
-            &self.admin,
-            &asset,
-            &preset.first_upper_bps,
-            &preset.last_upper_bps,
+        let tolerance = crate::oracle::config::tolerance_bands(
+            &self.env,
+            preset.first_upper_bps,
+            preset.last_upper_bps,
         );
+        self.ctrl_client().set_oracle_tolerance(&asset, &tolerance);
+    }
+
+    /// Resolve a `MarketOracleConfigInput` against the mock oracles and apply
+    /// it via the thin `set_market_oracle_config` owner setter.
+    pub fn configure_market_oracle(
+        &self,
+        asset: &Address,
+        input: &controller::types::MarketOracleConfigInput,
+    ) {
+        let config = crate::oracle::config::resolve_market_oracle_config(&self.env, asset, input);
+        self.ctrl_client().set_market_oracle_config(asset, &config);
     }
 
     /// Set the TWAP ("safe") leg for dual-source tolerance tests.

@@ -253,7 +253,7 @@ fn test_withdraw_raw_precision() {
 // the LTV-weighted collateral, but withdraw historically only re-checked the
 // liquidation-threshold health factor. A user can borrow up to the LTV cap and
 // then withdraw a sliver of collateral — HF stays above 1.0 (threshold is
-// strictly above LTV by `validate_asset_config`) but the live position is
+// strictly above LTV by governance config validation) but the live position is
 // above the configured LTV ceiling, eroding the safety buffer that LTV is
 // supposed to enforce.
 //

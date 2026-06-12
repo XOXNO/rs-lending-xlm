@@ -76,9 +76,10 @@ pub(crate) fn resolve_components(
                 config.tolerance.first_upper_ratio_bps,
                 config.tolerance.first_lower_ratio_bps,
             );
-            // The second band is the wider `last` tolerance. `require_last_tolerance_gt_first`
-            // enforces last > first at configure time, so the first band is a strict
-            // subset of the last; within_first therefore implies within_second.
+            // The second band is the wider `last` tolerance. Governance config
+            // validation enforces last > first at configure time, so the first
+            // band is a strict subset of the last; within_first therefore
+            // implies within_second.
             let within_second = is_within_anchor(
                 cache.env(),
                 anchor.price_wad,

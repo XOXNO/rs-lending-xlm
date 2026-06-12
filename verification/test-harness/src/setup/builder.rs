@@ -220,13 +220,18 @@ impl LendingTestBuilder {
             if pm.configure_oracle {
                 mock_reflector_client.set_price(&asset_address, &pm.price_wad);
 
-                let oracle_cfg = crate::oracle::config::reflector_primary_anchor_config(
+                let oracle_input = crate::oracle::config::reflector_primary_anchor_config(
                     &mock_reflector_address,
                     &asset_address,
                     DEFAULT_TOLERANCE.first_upper_bps,
                     DEFAULT_TOLERANCE.last_upper_bps,
                 );
-                ctrl.configure_market_oracle(&admin, &asset_address, &oracle_cfg);
+                let oracle_cfg = crate::oracle::config::resolve_market_oracle_config(
+                    &env,
+                    &asset_address,
+                    &oracle_input,
+                );
+                ctrl.set_market_oracle_config(&asset_address, &oracle_cfg);
             }
 
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, pm.decimals);

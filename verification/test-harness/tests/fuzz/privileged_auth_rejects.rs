@@ -45,9 +45,10 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfig
     }
 }
 
-fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfigInput {
+fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfig {
     let asset = t.resolve_market("USDC").asset.clone();
-    test_harness::reflector_single_spot_config(&t.mock_reflector, &asset, 100, 200)
+    let input = test_harness::reflector_single_spot_config(&t.mock_reflector, &asset, 100, 200);
+    test_harness::resolve_market_oracle_config(&t.env, &asset, &input)
 }
 
 fn sample_position_limits() -> controller::types::PositionLimits {
@@ -212,13 +213,12 @@ proptest! {
             let rewards: SVec<(Address, i128)> = SVec::new(&env);
             ctrl.set_auths(&no_auths).try_add_rewards(&random_addr, &rewards)
         }).unwrap();
-        expect_rejected("configure_market_oracle (ORACLE)", || {
-            ctrl.set_auths(&no_auths)
-                .try_configure_market_oracle(&random_addr, &usdc, &oracle_cfg)
+        expect_rejected("set_market_oracle_config", || {
+            ctrl.set_auths(&no_auths).try_set_market_oracle_config(&usdc, &oracle_cfg)
         }).unwrap();
-        expect_rejected("edit_oracle_tolerance (ORACLE)", || {
-            ctrl.set_auths(&no_auths)
-                .try_edit_oracle_tolerance(&random_addr, &usdc, &100u32, &200u32)
+        expect_rejected("set_oracle_tolerance", || {
+            let tolerance = test_harness::tolerance_bands(&env, 100, 200);
+            ctrl.set_auths(&no_auths).try_set_oracle_tolerance(&usdc, &tolerance)
         }).unwrap();
         expect_rejected("disable_token_oracle (ORACLE)", || {
             ctrl.set_auths(&no_auths).try_disable_token_oracle(&random_addr, &usdc)

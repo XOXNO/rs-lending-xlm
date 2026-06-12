@@ -17,7 +17,7 @@ pub const MAX_EMODE_ASSETS_PER_CATEGORY: u32 = 64;
 // footprint cost both scale linearly with the list length.
 pub const MAX_POOLS_LIST_ENTRIES: u32 = 256;
 
-/// Minimum first-price tolerance input (BPS) for `configure_market_oracle`.
+/// Minimum first-price tolerance input (BPS) for oracle config validation.
 pub const MIN_FIRST_TOLERANCE: u32 = 50;
 
 /// Maximum first-price tolerance input (BPS).

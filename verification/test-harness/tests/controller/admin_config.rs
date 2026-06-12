@@ -28,27 +28,6 @@ fn test_edit_asset_config() {
         "threshold should remain 8000"
     );
 }
-// 2. test_edit_asset_config_rejects_threshold_lte_ltv
-
-#[test]
-fn test_edit_asset_config_rejects_threshold_lte_ltv() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    // Set threshold == LTV through the controller client; this must panic.
-    let asset = t.resolve_market("USDC").asset.clone();
-    let ctrl = t.ctrl_client();
-
-    let mut config = ctrl.get_market_config(&asset).asset_config;
-    config.loan_to_value_bps = 8000;
-    config.liquidation_threshold_bps = 8000; // Equal to LTV.
-
-    let result = ctrl.try_edit_asset_config(&asset, &config);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, errors::INVALID_LIQ_THRESHOLD);
-}
 // 3. test_set_position_limits
 
 #[test]
@@ -62,51 +41,6 @@ fn test_set_position_limits() {
     assert_eq!(limits.max_borrow_positions, 6);
 }
 
-// Boundary regression for the Slender C-3 / Blend BL-001 resource-limit DoS
-// class (see audit-research/STELLAR_AUDIT_FINDINGS.md §4.4). The hard cap on
-// per-account positions must match the budget bench at
-// `bench_liquidate_max_positions.rs`; raising it without re-running the bench
-// re-introduces the un-liquidatable-position attack surface.
-#[test]
-fn test_set_position_limits_rejects_above_cap() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    // 10/10 is the documented ceiling and must be accepted.
-    t.set_position_limits(10, 10);
-
-    // 11 on either side exceeds the budget-proven envelope.
-    assert_invalid_position_limits(&t, 11, 10);
-    assert_invalid_position_limits(&t, 10, 11);
-    // The previous-cap value (32) must also be rejected post-fix.
-    assert_invalid_position_limits(&t, 32, 32);
-    // Zero on either side stays rejected (existing invariant).
-    assert_invalid_position_limits(&t, 0, 5);
-    assert_invalid_position_limits(&t, 5, 0);
-}
-
-fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
-    let limits = controller::types::PositionLimits {
-        max_supply_positions: supply,
-        max_borrow_positions: borrow,
-    };
-    let result = t.ctrl_client().try_set_position_limits(&limits);
-    let expected = soroban_sdk::Error::from_contract_error(errors::INVALID_POSITION_LIMITS);
-    match result {
-        Ok(_) => panic!(
-            "set_position_limits({}, {}) should have been rejected",
-            supply, borrow
-        ),
-        Err(Ok(err)) => assert_eq!(
-            err, expected,
-            "set_position_limits({}, {}): expected INVALID_POSITION_LIMITS, got {:?}",
-            supply, borrow, err
-        ),
-        Err(Err(invoke_err)) => panic!(
-            "set_position_limits({}, {}) failed with host error {:?}",
-            supply, borrow, invoke_err
-        ),
-    }
-}
 // 4. test_pause_blocks_operations
 
 #[test]
@@ -222,38 +156,9 @@ fn test_upgrade_liquidity_pool_params_alias() {
 }
 // 6b. Regression: `max_borrow_rate_ray` cap (Taylor envelope)
 //
-// `validate_interest_rate_model` and `pool::update_params` reject any
-// `max_borrow_rate_ray > 2 * RAY` to keep `compound_interest`'s 8-term Taylor
-// approximation inside its documented `< 0.01 %` accuracy envelope. See
-// `architecture/MATH_REVIEW.md §0`.
-
-#[test]
-fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let ctrl = t.ctrl_client();
-
-    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY → MAX_BORROW_RATE_TOO_HIGH (#131).
-    let result = ctrl.try_upgrade_liquidity_pool_params(
-        &asset,
-        &InterestRateModel {
-            max_borrow_rate_ray: 2 * RAY + 1,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY * 4 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
-        },
-    );
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, errors::MAX_BORROW_RATE_TOO_HIGH);
-}
+// `pool::update_params` rejects any `max_borrow_rate_ray > 2 * RAY` to keep
+// `compound_interest`'s 8-term Taylor approximation inside its documented
+// `< 0.01 %` accuracy envelope. See `architecture/MATH_REVIEW.md §0`.
 
 #[test]
 fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
@@ -283,22 +188,31 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
         "borrow rate must remain readable after boundary upgrade",
     );
 }
-// 7. test_configure_market_oracle
+// 7. set_market_oracle_config — thin owner setter
 
 #[test]
-fn test_configure_market_oracle() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
+fn test_set_market_oracle_config_activates_pending_market() {
+    let t = LendingTest::new().build(); // Empty protocol.
     let ctrl = t.ctrl_client();
+    let admin = &t.admin;
 
-    let asset = t.resolve_market("USDC").asset.clone();
-    let new_oracle = t.mock_reflector.clone();
+    let asset = t
+        .env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let params = usdc_preset().params.to_market_params(&asset, 7);
+    let config = usdc_preset().config.to_asset_config(&t.env);
+    ctrl.approve_token(&asset);
+    ctrl.create_liquidity_pool(&asset, &params, &config);
+    assert_eq!(
+        (ctrl.get_market_config(&asset).status as u32),
+        0,
+        "market must start in PendingOracle"
+    );
 
-    let config = test_harness::reflector_primary_anchor_config(&new_oracle, &asset, 200, 500);
-
-    t.mock_reflector_client().set_price(&asset, &1_0000000i128); // Dummy price for dry-run.
-
-    // Must not panic; the admin has permission.
-    ctrl.configure_market_oracle(&t.admin(), &asset, &config);
+    let input = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 200, 500);
+    let oracle_cfg = test_harness::resolve_market_oracle_config(&t.env, &asset, &input);
+    ctrl.set_market_oracle_config(&asset, &oracle_cfg);
 
     let market = ctrl.get_market_config(&asset);
     match market.oracle_config.primary {
@@ -308,11 +222,30 @@ fn test_configure_market_oracle() {
         }
         _ => panic!("expected Reflector primary source"),
     }
+    assert_eq!(market.oracle_config.max_price_stale_seconds, 900);
     assert_eq!(
         (market.status as u32),
         1,
         "market should be Active after oracle config",
     );
+}
+
+#[test]
+fn test_set_market_oracle_config_rejects_unknown_asset() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_market("USDC").asset.clone();
+    let input = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &usdc, 200, 500);
+    let oracle_cfg = test_harness::resolve_market_oracle_config(&t.env, &usdc, &input);
+
+    let unknown = Address::generate(&t.env);
+    let result = t
+        .ctrl_client()
+        .try_set_market_oracle_config(&unknown, &oracle_cfg);
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
 }
 // 8. test_set_aggregator
 
@@ -338,22 +271,39 @@ fn test_set_aggregator() {
     });
     assert_eq!(stored, new_aggregator, "aggregator must be persisted");
 }
-// 9. test_oracle_tolerance_validation
+// 9. set_oracle_tolerance — thin owner setter
 
 #[test]
-fn test_oracle_tolerance_validation() {
+fn test_set_oracle_tolerance_overwrites_bands() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Set tolerance with `first` below MIN_FIRST_TOLERANCE (50 bps).
-    let result = ctrl.try_edit_oracle_tolerance(&t.admin(), &asset, &10, &500);
+    let tolerance = test_harness::tolerance_bands(&t.env, 300, 600);
+    ctrl.set_oracle_tolerance(&asset, &tolerance);
+
+    let market = ctrl.get_market_config(&asset);
+    assert_eq!(
+        market.oracle_config.tolerance, tolerance,
+        "tolerance bands must be overwritten in storage"
+    );
+}
+
+#[test]
+fn test_set_oracle_tolerance_rejects_unknown_asset() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let tolerance = test_harness::tolerance_bands(&t.env, 300, 600);
+
+    let unknown = Address::generate(&t.env);
+    let result = t
+        .ctrl_client()
+        .try_set_oracle_tolerance(&unknown, &tolerance);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::BAD_FIRST_TOLERANCE);
+    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
 }
 // 10. test_grant_and_revoke_role
 
@@ -431,20 +381,6 @@ fn test_role_enforcement_oracle() {
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
-    let reflector =
-        test_harness::reflector_primary_anchor_config(&Address::generate(&t.env), &asset, 200, 500);
-
-    let configure_result = match ctrl.try_configure_market_oracle(&bob_addr, &asset, &reflector) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(configure_result, 2000);
-
-    let tolerance_result = match ctrl.try_edit_oracle_tolerance(&bob_addr, &asset, &300, &600) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(tolerance_result, 2000);
 
     let disable_result = match ctrl.try_disable_token_oracle(&bob_addr, &asset) {
         Ok(res) => res.map_err(|e| e.into()),
@@ -452,10 +388,10 @@ fn test_role_enforcement_oracle() {
     };
     assert_contract_error(disable_result, 2000);
 }
-// 14. test_oracle_role_can_manage_oracle_endpoints
+// 14. test_oracle_role_can_disable_token_oracle
 
 #[test]
-fn test_oracle_role_can_manage_oracle_endpoints() {
+fn test_oracle_role_can_disable_token_oracle() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.get_or_create_user(BOB);
     t.grant_role(BOB, "ORACLE");
@@ -463,33 +399,6 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
     let bob_addr = t.users.get(BOB).unwrap().address.clone();
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
-
-    let mut reflector =
-        test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 200, 500);
-    if let controller::types::OracleSourceConfigInput::Reflector(ref mut source) = reflector.primary {
-        source.read_mode = controller::types::OracleReadMode::Twap(2);
-    }
-    t.mock_reflector_client().set_price(&asset, &1_0000000i128);
-    ctrl.configure_market_oracle(&bob_addr, &asset, &reflector);
-    let after_configure = ctrl.get_market_config(&asset);
-    match after_configure.oracle_config.primary {
-        controller::types::OracleSourceConfig::Reflector(source) => {
-            assert_eq!(source.contract, t.mock_reflector);
-            assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(2));
-        }
-        _ => panic!("expected Reflector primary source"),
-    }
-
-    ctrl.edit_oracle_tolerance(&bob_addr, &asset, &300, &600);
-    let after_tolerance = ctrl.get_market_config(&asset);
-    assert!(
-        after_tolerance
-            .oracle_config
-            .tolerance
-            .first_upper_ratio_bps
-            > 0,
-        "tolerance must be persisted",
-    );
 
     ctrl.disable_token_oracle(&bob_addr, &asset);
     let after_disable = ctrl.get_market_config(&asset);
@@ -556,7 +465,7 @@ fn test_market_initialization_cascade() {
         DEFAULT_TOLERANCE.last_upper_bps,
     );
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
-    ctrl.configure_market_oracle(admin, &asset, &reflector_cfg);
+    t.configure_market_oracle(&asset, &reflector_cfg);
 
     // 3. Confirm the market is Active (Active = 1).
     let m = ctrl.get_market_config(&asset);
