@@ -111,7 +111,8 @@ fn test_dex_config_rejected_when_quote_market_not_usd_quoted() {
 
     // Now try to quote ETH in XLM. XLM is Stellar-quoted, not USD → rejected.
     let dex_xlm = register_dex_oracle(&t, &xlm);
-    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_xlm).set_price(&eth, &usd(2));
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_xlm)
+        .set_price(&eth, &usd(2));
     let eth_cfg = reflector_single_spot_config(
         &dex_xlm,
         &eth,

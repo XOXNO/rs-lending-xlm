@@ -3,9 +3,7 @@ use crate::strategy_helpers::flash_guard_cleared;
 use common::types::PositionMode;
 use proptest::prelude::*;
 use soroban_sdk::{contract, contractimpl, token, xdr::FromXdr, Address, Bytes, Env};
-use test_harness::{
-    build_aggregator_swap, MockSwapPayload, LendingTest, ALICE,
-};
+use test_harness::{build_aggregator_swap, LendingTest, MockSwapPayload, ALICE};
 
 #[contract]
 pub struct ShortAggregator;

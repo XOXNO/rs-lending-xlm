@@ -21,7 +21,6 @@ mod views;
 #[path = "../../../verification/certora/controller/spec/mod.rs"]
 pub mod spec;
 
-
 #[cfg(feature = "testing")]
 pub mod test_support {
     //! White-box hooks for the verification harness. Routes through the real

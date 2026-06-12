@@ -1,7 +1,5 @@
 use super::{enable_dual_source, setup};
-use test_harness::{
-    assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR,
-};
+use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
 // 8. Dual-source pricing: average price used in second tolerance zone
 

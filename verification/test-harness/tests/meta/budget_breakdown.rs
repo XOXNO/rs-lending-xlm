@@ -57,7 +57,10 @@ fn budget_withdraw_one_asset_no_debt() {
     let mut b = t.env.cost_estimate().budget();
     b.reset_default();
     t.withdraw(ALICE, "USDC", 1_000.0);
-    dump(&t.env, "withdraw 1 asset, NO debt (1 accrual + 1 supply write)");
+    dump(
+        &t.env,
+        "withdraw 1 asset, NO debt (1 accrual + 1 supply write)",
+    );
 }
 
 /// 1 supply + 1 borrow. `withdraw` accrues BOTH markets and runs the health

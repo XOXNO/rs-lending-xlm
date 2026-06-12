@@ -257,4 +257,3 @@ fn test_configure_market_oracle_rejects_first_tolerance_below_min() {
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }
-

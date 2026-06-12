@@ -7,9 +7,9 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
-use common::constants::WAD;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::ResolvedOracleComponents;
+use common::constants::WAD;
 
 #[rule]
 fn strict_policies_forbid_degraded_dual_source() {
@@ -43,8 +43,7 @@ fn fallback_to_primary_succeeds_under_repay_policy(e: Env, primary_price: i128, 
     cvlr_assume!(timestamp > 0);
 
     let cache = crate::cache::Cache::new(&e, OraclePolicy::Repay);
-    let resolved =
-        crate::oracle::certora::fallback_to_primary(&cache, primary_price, timestamp);
+    let resolved = crate::oracle::certora::fallback_to_primary(&cache, primary_price, timestamp);
 
     cvlr_assert!(resolved.final_price_wad == primary_price);
     cvlr_assert!(resolved.primary_price_wad == Some(primary_price));
@@ -64,11 +63,8 @@ fn fallback_to_primary_panics_under_liquidation_policy(
     cvlr_assume!(timestamp > 0);
 
     let cache = crate::cache::Cache::new(&e, OraclePolicy::Liquidation);
-    let _resolved: ResolvedOracleComponents = crate::oracle::certora::fallback_to_primary(
-        &cache,
-        primary_price,
-        timestamp,
-    );
+    let _resolved: ResolvedOracleComponents =
+        crate::oracle::certora::fallback_to_primary(&cache, primary_price, timestamp);
 
     cvlr_satisfy!(false);
 }
@@ -83,8 +79,7 @@ fn anchor_stale_unusable_under_repay_policy(e: Env, max_stale: u64) {
     let stale_ts = now.saturating_sub(max_stale.saturating_add(10));
     let observation = crate::oracle::certora::observation(WAD, stale_ts);
 
-    let usable =
-        crate::oracle::certora::anchor_is_usable(&cache, &observation, max_stale);
+    let usable = crate::oracle::certora::anchor_is_usable(&cache, &observation, max_stale);
 
     cvlr_assert!(!usable);
 }
@@ -99,8 +94,7 @@ fn anchor_stale_panics_under_liquidation_policy(e: Env, max_stale: u64) {
     let stale_ts = now.saturating_sub(max_stale.saturating_add(10));
     let observation = crate::oracle::certora::observation(WAD, stale_ts);
 
-    let _usable =
-        crate::oracle::certora::anchor_is_usable(&cache, &observation, max_stale);
+    let _usable = crate::oracle::certora::anchor_is_usable(&cache, &observation, max_stale);
 
     cvlr_satisfy!(false);
 }

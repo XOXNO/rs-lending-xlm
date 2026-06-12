@@ -44,9 +44,10 @@ pub struct MockReflectorOracle;
 impl MockReflectorOracle {
     /// Initializes provider metadata; price entries start empty.
     pub fn __constructor(env: Env) {
-        env.storage()
-            .instance()
-            .set(&MockKey::Base, &ReflectorAsset::Other(Symbol::new(&env, "USD")));
+        env.storage().instance().set(
+            &MockKey::Base,
+            &ReflectorAsset::Other(Symbol::new(&env, "USD")),
+        );
         env.storage().instance().set(&MockKey::Decimals, &14u32);
         env.storage().instance().set(&MockKey::Resolution, &300u32);
     }
@@ -64,12 +65,16 @@ impl MockReflectorOracle {
         env.storage()
             .persistent()
             .set(&MockKey::Price(asset.clone()), &price_14);
-        env.storage().persistent().set(&MockKey::Ts(asset), &timestamp);
+        env.storage()
+            .persistent()
+            .set(&MockKey::Ts(asset), &timestamp);
     }
 
     /// Overrides only the stored timestamp for `asset`.
     pub fn set_ts(env: Env, asset: ReflectorAsset, timestamp: u64) {
-        env.storage().persistent().set(&MockKey::Ts(asset), &timestamp);
+        env.storage()
+            .persistent()
+            .set(&MockKey::Ts(asset), &timestamp);
     }
 
     pub fn base(env: Env) -> ReflectorAsset {
@@ -85,7 +90,10 @@ impl MockReflectorOracle {
     }
 
     pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<PriceData> {
-        let price: i128 = env.storage().persistent().get(&MockKey::Price(asset.clone()))?;
+        let price: i128 = env
+            .storage()
+            .persistent()
+            .get(&MockKey::Price(asset.clone()))?;
         let timestamp: u64 = env.storage().persistent().get(&MockKey::Ts(asset))?;
         Some(PriceData { price, timestamp })
     }

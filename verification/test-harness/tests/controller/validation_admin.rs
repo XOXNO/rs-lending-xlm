@@ -288,9 +288,9 @@ fn test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale() 
     let mut cfg = base_oracle_config(&t);
     cfg.strategy = OracleStrategy::PrimaryWithAnchor;
     cfg.primary = test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 600);
-    cfg.anchor = OracleSourceConfigInputOption::Some(
-        test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 900),
-    );
+    cfg.anchor = OracleSourceConfigInputOption::Some(test_harness::redstone_source_with_max_stale(
+        &redstone, &feed_id, 900,
+    ));
     t.ctrl_client()
         .configure_market_oracle(&admin, &asset, &cfg);
 }

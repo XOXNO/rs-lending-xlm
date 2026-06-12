@@ -5,9 +5,7 @@ use std::collections::HashMap;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, Symbol};
 
-use crate::core::types::{
-    LendingTest, MarketState, PendingEMode, PendingMarket,
-};
+use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
 use crate::helpers::f64_to_i128;
 use crate::presets::{
     AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,

@@ -55,7 +55,14 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     // Strategy entrypoints (each calls `require_not_flash_loaning` at the top).
     let empty_swap = Bytes::new(&t.env);
     assert_contract_error(
-        t.try_multiply(ALICE, "USDC", 1.0, "ETH", PositionMode::Multiply, &empty_swap),
+        t.try_multiply(
+            ALICE,
+            "USDC",
+            1.0,
+            "ETH",
+            PositionMode::Multiply,
+            &empty_swap,
+        ),
         errors::FLASH_LOAN_ONGOING,
     );
     assert_contract_error(

@@ -100,12 +100,16 @@ fn mem_attribution_bulk_prefetch_removes_per_feed_pool_frame() {
     std::println!("\n========== per-feed memory attribution (within-tx slopes) ==========");
     std::println!("  withdraw HF valuation:  2 feeds = {mem_2_feeds} B, 5 feeds = {mem_5_feeds} B");
     std::println!("  TOTAL marginal cost            ~{total_per_feed} B/feed");
-    std::println!("  pool call (fat snapshot, no oracle) ~{pool_per_asset} B/asset  ({:.0}% of total)",
-        pool_per_asset as f64 * 100.0 / total_per_feed as f64);
+    std::println!(
+        "  pool call (fat snapshot, no oracle) ~{pool_per_asset} B/asset  ({:.0}% of total)",
+        pool_per_asset as f64 * 100.0 / total_per_feed as f64
+    );
     std::println!("  reflector Vec<PriceData> return:    ~{per_record} B/record -> Twap(3) ~{reflector_twap3_per_feed} B/feed  ({:.0}% of total)",
         reflector_twap3_per_feed as f64 * 100.0 / total_per_feed as f64);
-    std::println!("  returns accounted together          ~{accounted} B/feed  ({:.0}% of total)",
-        accounted as f64 * 100.0 / total_per_feed as f64);
+    std::println!(
+        "  returns accounted together          ~{accounted} B/feed  ({:.0}% of total)",
+        accounted as f64 * 100.0 / total_per_feed as f64
+    );
     std::println!("  (Twap(12) 5-feed withdraw = {mem_5_feeds_twap12} B)");
 
     // The claims under test:

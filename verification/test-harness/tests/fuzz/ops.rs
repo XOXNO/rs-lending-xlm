@@ -68,14 +68,22 @@ pub fn execute_op(t: &mut LendingTest, op: &LendingOp) {
         LendingOp::Borrow { user, asset, amt } => {
             let _ = t.try_borrow(user, asset, *amt as f64 * 0.01);
         }
-        LendingOp::Repay { user, asset, frac_bps } => {
+        LendingOp::Repay {
+            user,
+            asset,
+            frac_bps,
+        } => {
             let bal = t.borrow_balance(user, asset);
             if bal > 0.0001 {
                 let a = bal * *frac_bps as f64 / 10_000.0;
                 let _ = t.try_repay(user, asset, a);
             }
         }
-        LendingOp::Withdraw { user, asset, frac_bps } => {
+        LendingOp::Withdraw {
+            user,
+            asset,
+            frac_bps,
+        } => {
             let bal = t.supply_balance(user, asset);
             if bal > 0.0001 {
                 let a = bal * *frac_bps as f64 / 10_000.0;

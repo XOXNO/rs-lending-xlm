@@ -224,7 +224,10 @@ fn test_twap_zero_records_falls_back_on_permissive_view() {
         .get_all_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
-    assert!(view.price_wad > 0, "Twap(0) must fall back to anchor spot on view");
+    assert!(
+        view.price_wad > 0,
+        "Twap(0) must fall back to anchor spot on view"
+    );
 }
 
 // PR-5: `records > MAX_TWAP_RECORDS` hits the guard in `read_twap` (twap.rs:38-41).
@@ -263,6 +266,8 @@ fn test_dual_anchor_missing_spot_falls_back_to_primary_on_view() {
         .get_all_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
-    assert!(view.price_wad > 0, "view must fall back to primary TWAP, not revert");
+    assert!(
+        view.price_wad > 0,
+        "view must fall back to primary TWAP, not revert"
+    );
 }
-

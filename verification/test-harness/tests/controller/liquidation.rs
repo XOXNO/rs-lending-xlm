@@ -596,4 +596,3 @@ fn test_third_party_supply_leaves_external_liquidation_available() {
         "external liquidator must still seize debt after third-party supply"
     );
 }
-

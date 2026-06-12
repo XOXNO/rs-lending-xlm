@@ -52,11 +52,7 @@ impl LendingTest {
     }
 
     /// Try add rewards -- returns Result.
-    pub fn try_add_rewards(
-        &self,
-        asset_name: &str,
-        amount: f64,
-    ) -> Result<(), soroban_sdk::Error> {
+    pub fn try_add_rewards(&self, asset_name: &str, amount: f64) -> Result<(), soroban_sdk::Error> {
         let decimals = self.resolve_market(asset_name).decimals;
         let raw = f64_to_i128(amount, decimals);
         let asset = self.resolve_asset(asset_name);

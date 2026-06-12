@@ -1,5 +1,5 @@
 use crate::config::config;
-use crate::ops::{capture_indexes, execute_op, op_strategy, ASSETS, LendingOp, USERS};
+use crate::ops::{capture_indexes, execute_op, op_strategy, LendingOp, ASSETS, USERS};
 use proptest::prelude::*;
 use test_harness::{seed_fuzz_conservation_book, LendingTest};
 
@@ -41,7 +41,13 @@ fn assert_accounting_laws(
     asset: &str,
     s: &PoolSnapshot,
 ) -> Result<(), TestCaseError> {
-    prop_assert!(s.reserves >= 0, "step {} {:?}: {} reserves < 0", step, op, asset);
+    prop_assert!(
+        s.reserves >= 0,
+        "step {} {:?}: {} reserves < 0",
+        step,
+        op,
+        asset
+    );
     prop_assert!(
         s.revenue <= s.supplied + TOLERANCE_UNITS,
         "step {} {:?}: {} revenue ({}) > supplied ({})",

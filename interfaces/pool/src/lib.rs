@@ -18,8 +18,11 @@ pub trait LiquidityPoolInterface {
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>;
 
     /// Borrows each entry, transferring tokens to `receiver`; input-ordered.
-    fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>)
-        -> Vec<PoolPositionMutation>;
+    fn borrow(
+        env: Env,
+        receiver: Address,
+        entries: Vec<PoolBorrowEntry>,
+    ) -> Vec<PoolPositionMutation>;
 
     /// Withdraws each entry (full position at the i128::MAX sentinel) to
     /// `receiver`; `is_liquidation` applies to the whole call; input-ordered.

@@ -155,11 +155,7 @@ fn supply_preserves_nonnegative_state(e: Env, admin: Address, asset: Address, am
     );
 
     let before = position(RAY);
-    let result = supply_first(
-        &e,
-        action(before.clone(), amount, asset.clone()),
-        i128::MAX,
-    );
+    let result = supply_first(&e, action(before.clone(), amount, asset.clone()), i128::MAX);
     let state = read_state(&e, &asset);
 
     cvlr_assert!(result.actual_amount == amount);

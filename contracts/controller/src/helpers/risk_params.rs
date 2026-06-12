@@ -67,12 +67,7 @@ fn apply_liquidation_threshold(
     }
 
     let supply_positions = supply_positions_with(account, asset, position, new_lt);
-    let hf = calculate_health_factor(
-        env,
-        cache,
-        &supply_positions,
-        &account.borrow_positions,
-    );
+    let hf = calculate_health_factor(env, cache, &supply_positions, &account.borrow_positions);
     if hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW) {
         position.liquidation_threshold = new_lt;
     }

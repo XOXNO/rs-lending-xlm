@@ -336,7 +336,11 @@ fn test_third_party_supply_to_existing_account_succeeds() {
     let before = t.supply_balance(ALICE, "USDC");
 
     let result = t.try_supply_to_account(BOB, ALICE, "USDC", 1_000.0);
-    assert!(result.is_ok(), "third-party supply should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "third-party supply should succeed: {:?}",
+        result
+    );
 
     let after = t.supply_balance(ALICE, "USDC");
     assert!(
@@ -368,7 +372,6 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
         (usdc.asset.clone(), 500_000_000_000_i128),
         (usdc.asset.clone(), 250_000_000_000_i128),
     ];
-    t.ctrl_client()
-        .supply(&alice, &account_id, &0u32, &assets);
+    t.ctrl_client().supply(&alice, &account_id, &0u32, &assets);
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }

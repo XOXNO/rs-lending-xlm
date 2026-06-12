@@ -7,5 +7,5 @@ mod interest_rigorous;
 mod math_rates;
 mod pool_coverage;
 mod pool_revenue_edge;
-mod rewards;
 mod revenue;
+mod rewards;

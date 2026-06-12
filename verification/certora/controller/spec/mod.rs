@@ -44,9 +44,9 @@ pub mod math_rules;
 pub mod oracle_compose_rules;
 pub mod oracle_rules;
 pub mod position_rules;
-pub mod tolerance_math_rules;
 pub mod solvency_rules;
 pub mod strategy_rules;
+pub mod tolerance_math_rules;
 
 #[path = "../../shared/summaries/mod.rs"]
 pub mod summaries;

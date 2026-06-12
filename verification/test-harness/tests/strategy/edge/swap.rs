@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn test_swap_debt_refund_only_uses_strategy_excess() {
     let mut t = LendingTest::new()

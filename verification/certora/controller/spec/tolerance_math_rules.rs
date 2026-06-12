@@ -110,11 +110,7 @@ fn divergent_prices_outside_tight_first_band(e: Env, anchor: i128, primary: i128
 
 /// Permissive-mode return when both prices diverge beyond the last band.
 #[rule]
-fn beyond_tolerance_permissive_returns_primary(
-    e: Env,
-    anchor_price: i128,
-    primary_price: i128,
-) {
+fn beyond_tolerance_permissive_returns_primary(e: Env, anchor_price: i128, primary_price: i128) {
     cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price > 0 && primary_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price == 2 * anchor_price);
@@ -139,11 +135,7 @@ fn beyond_tolerance_permissive_returns_primary(
 
 /// Strict liquidation policy reverts on dual-source divergence beyond the last band.
 #[rule]
-fn liquidation_rejects_unsafe_dual_source_prices(
-    e: Env,
-    anchor_price: i128,
-    primary_price: i128,
-) {
+fn liquidation_rejects_unsafe_dual_source_prices(e: Env, anchor_price: i128, primary_price: i128) {
     cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price > 0 && primary_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price == 2 * anchor_price);

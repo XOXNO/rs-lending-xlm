@@ -3,7 +3,7 @@ use common::types::InterestRateModel;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Symbol, Vec as SVec};
-use test_harness::{LendingTest};
+use test_harness::LendingTest;
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where

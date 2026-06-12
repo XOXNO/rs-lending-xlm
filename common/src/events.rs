@@ -1,10 +1,9 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use crate::types::{
-    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition,
-    EModeAssetConfig, EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation,
-    OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode,
-    ReflectorBase,
+    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition, EModeAssetConfig,
+    EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
+    OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode, ReflectorBase,
 };
 
 #[contracttype]
@@ -422,7 +421,13 @@ impl EventDepositDelta {
 /// `[action, asset, scaled_amount_ray, index_ray, amount]`.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EventBorrowDelta(pub PositionAction, pub Address, pub i128, pub i128, pub i128);
+pub struct EventBorrowDelta(
+    pub PositionAction,
+    pub Address,
+    pub i128,
+    pub i128,
+    pub i128,
+);
 
 impl EventBorrowDelta {
     pub fn new(
@@ -432,7 +437,13 @@ impl EventBorrowDelta {
         amount: i128,
         position: &DebtPosition,
     ) -> Self {
-        Self(action, asset, position.scaled_amount.raw(), index_ray, amount)
+        Self(
+            action,
+            asset,
+            position.scaled_amount.raw(),
+            index_ray,
+            amount,
+        )
     }
 }
 

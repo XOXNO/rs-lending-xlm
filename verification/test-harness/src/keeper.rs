@@ -15,10 +15,7 @@ impl LendingTest {
     }
 
     /// Try update indexes -- returns Result.
-    pub fn try_update_indexes_for(
-        &self,
-        assets: &[&str],
-    ) -> Result<(), soroban_sdk::Error> {
+    pub fn try_update_indexes_for(&self, assets: &[&str]) -> Result<(), soroban_sdk::Error> {
         let mut addrs = Vec::new(&self.env);
         for name in assets {
             addrs.push_back(self.resolve_asset(name));

@@ -4,9 +4,7 @@ use common::constants::WAD;
 use common::types::PositionMode;
 use proptest::prelude::*;
 use soroban_sdk::Bytes;
-use test_harness::{
-    build_aggregator_swap, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-};
+use test_harness::{build_aggregator_swap, usdc_preset, usdt_stable_preset, LendingTest, ALICE};
 
 proptest! {
     #![proptest_config(config(16))]
