@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Strip doc strings from a WASM's contractspecv0 section.
+"""Strip doc strings and informational meta from a deploy WASM.
 
 Rustdoc comments on contract entrypoints and types embed verbatim into the
 on-chain spec and count against the network's contractMaxSizeBytes. Deploy
 artifacts do not need them (reference docs live in the interface crates and
 the published documentation), so this rewrites every `doc` field in the spec
 to an empty string via the stellar CLI's XDR codec and reassembles the WASM.
+
+contractmetav0 sections (name/version strings from contractmeta! and the
+toolchain) and error-enum spec entries (code→name maps for client bindgen)
+are likewise informational only — the host requires just contractenvmetav0
+— so they are dropped entirely. Error definitions live in common/src and
+the interface crates.
 
 Usage: strip_spec_docs.py <in.wasm> <out.wasm>
 """
@@ -16,6 +22,7 @@ import sys
 import tempfile
 
 SPEC_SECTION = b"contractspecv0"
+META_SECTION = b"contractmetav0"
 
 
 def read_leb128(data: bytes, i: int) -> tuple[int, int]:
@@ -71,8 +78,7 @@ def main() -> None:
             name = body[j : j + nlen]
         sections.append((sec_id, start, body, name))
 
-    spec = next(s for s in sections if s[3] == SPEC_SECTION)
-    _, spec_start, spec_body, _ = spec
+    _, _, spec_body, _ = next(s for s in sections if s[3] == SPEC_SECTION)
     nlen, j = read_leb128(spec_body, 0)
     entries = spec_body[j + nlen :]
 
@@ -86,8 +92,9 @@ def main() -> None:
         ).stdout
 
     stripped_lines = [
-        json.dumps(blank_docs(json.loads(line)), separators=(",", ":"))
-        for line in decoded.splitlines() if line.strip()
+        json.dumps(blank_docs(entry), separators=(",", ":"))
+        for entry in (json.loads(line) for line in decoded.splitlines() if line.strip())
+        if "udt_error_enum_v0" not in entry
     ]
 
     with tempfile.NamedTemporaryFile(suffix=".json", mode="w") as tmp:
@@ -99,20 +106,15 @@ def main() -> None:
             capture_output=True, check=True,
         ).stdout
 
-    new_body = write_leb128(len(SPEC_SECTION)) + SPEC_SECTION + encoded
-    spec_end = spec_start + 1
-    size, spec_end = read_leb128(wasm, spec_end)
-    spec_end += size
-
-    rebuilt = (
-        wasm[:spec_start]
-        + bytes([0])
-        + write_leb128(len(new_body))
-        + new_body
-        + wasm[spec_end:]
-    )
-    open(dst, "wb").write(rebuilt)
-    print(f"{src}: {len(wasm)} -> {len(rebuilt)} bytes (spec docs stripped)")
+    rebuilt = bytearray(wasm[:8])
+    for sec_id, _, body, name in sections:
+        if name == META_SECTION:
+            continue
+        if name == SPEC_SECTION:
+            body = write_leb128(len(SPEC_SECTION)) + SPEC_SECTION + encoded
+        rebuilt += bytes([sec_id]) + write_leb128(len(body)) + body
+    open(dst, "wb").write(bytes(rebuilt))
+    print(f"{src}: {len(wasm)} -> {len(rebuilt)} bytes (spec docs + meta stripped)")
 
 
 if __name__ == "__main__":
