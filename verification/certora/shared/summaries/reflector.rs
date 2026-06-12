@@ -7,7 +7,7 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
-use crate::oracle::providers::reflector::client::{ReflectorAsset, ReflectorPriceData};
+use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 // Bounds applied by the production staleness / sanity checks
 
 /// Maximum future timestamp skew accepted by production checks.
