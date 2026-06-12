@@ -3,13 +3,11 @@
 //! Withdrawals re-check LTV, health factor, and touched-asset dust post-pool;
 //! debt-free accounts take the `RiskDecreasing` policy and skip both gates.
 
-use common::errors::CollateralError;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, EModeCategory, Payment, PoolAction, PoolPositionMutation,
-    PoolWithdrawEntry,
+    Account, AccountPosition, EModeCategory, Payment, PoolPositionMutation, PoolWithdrawEntry,
 };
-use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -21,6 +19,7 @@ use crate::helpers::{
     update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
+use crate::positions::{get_supply_position_or_panic, make_pool_action};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
@@ -96,22 +95,14 @@ pub fn process_withdraw(
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (asset, amount) in plan.iter() {
         // `0` means withdraw all.
-        let position: AccountPosition = (&account
-            .supply_positions
-            .get(asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
-            .into();
+        let position = get_supply_position_or_panic(env, &account, &asset);
         let withdraw_amount = if amount == 0 {
             WITHDRAW_ALL_SENTINEL
         } else {
             amount
         };
         entries.push_back(PoolWithdrawEntry {
-            action: PoolAction {
-                position: (&position).into(),
-                amount: withdraw_amount,
-                asset: asset.clone(),
-            },
+            action: make_pool_action(&position, withdraw_amount, asset.clone()),
             protocol_fee: 0,
         });
     }
@@ -200,11 +191,7 @@ pub(crate) fn finish_withdrawal(
     cache: &mut Cache,
 ) {
     cache.record_market_update(&result.market_state);
-    let mut result_position: AccountPosition = (&account
-        .supply_positions
-        .get(asset.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
-        .into();
+    let mut result_position = get_supply_position_or_panic(env, account, asset);
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     if let Some(e_mode) = refresh_e_mode {
         let config = emode::effective_asset_config(env, account, asset, cache, e_mode);
@@ -233,11 +220,7 @@ pub fn execute_withdrawal(
     let EventContext { caller, action } = ctx;
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     entries.push_back(PoolWithdrawEntry {
-        action: PoolAction {
-            position: req.position.into(),
-            amount: req.amount,
-            asset: req.asset.clone(),
-        },
+        action: make_pool_action(req.position, req.amount, req.asset.clone()),
         protocol_fee: 0,
     });
     let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);

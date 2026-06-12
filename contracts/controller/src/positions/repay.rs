@@ -3,9 +3,9 @@
 //! Repay is permissionless w.r.t. the account owner and can only reduce risk;
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
 
-use common::errors::{CollateralError, GenericError};
+use common::errors::GenericError;
 use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
-use soroban_sdk::{contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
@@ -14,6 +14,7 @@ use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::adjust_isolated_debt_for_repay;
+use crate::positions::{get_debt_position_or_panic, make_pool_action};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.
@@ -74,11 +75,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for (asset, amount) in repayment_plan.iter() {
-        let position: DebtPosition = (&account
-            .borrow_positions
-            .get(asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
-            .into();
+        let position = get_debt_position_or_panic(env, &account, &asset);
         let amount_in = utils::transfer_amount(
             env,
             &asset,
@@ -87,11 +84,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
             amount,
             GenericError::AmountMustBePositive,
         );
-        actions.push_back(PoolAction {
-            position: (&position).into(),
-            amount: amount_in,
-            asset: asset.clone(),
-        });
+        actions.push_back(make_pool_action(&position, amount_in, asset.clone()));
     }
     settle_repay_actions(
         env,
@@ -176,11 +169,11 @@ pub fn execute_repayment(
     let EventContext { caller, action } = ctx;
 
     let mut actions: Vec<PoolAction> = Vec::new(env);
-    actions.push_back(PoolAction {
-        position: req.position.into(),
-        amount: req.amount,
-        asset: req.asset.clone(),
-    });
+    actions.push_back(make_pool_action(
+        req.position,
+        req.amount,
+        req.asset.clone(),
+    ));
     let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

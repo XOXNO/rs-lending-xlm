@@ -7,7 +7,7 @@
 
 use common::errors::{CollateralError, EModeError};
 use common::types::{
-    Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolAction, PoolBorrowEntry,
+    Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolBorrowEntry,
     PoolPositionMutation,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
@@ -20,6 +20,7 @@ use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::add_isolated_debt;
+use crate::positions::make_pool_action;
 use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -98,11 +99,7 @@ fn execute_borrow_plan(
         let asset_config = configs.get(env, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
-            action: PoolAction {
-                position: (&borrow_position).into(),
-                amount,
-                asset: asset.clone(),
-            },
+            action: make_pool_action(&borrow_position, amount, asset.clone()),
             borrow_cap: asset_config.borrow_cap,
         });
     }
@@ -212,11 +209,7 @@ pub fn borrow_for_strategy(
     let borrow_position = account.get_or_create_debt_position(debt_token);
 
     let pool_addr = cache.cached_pool_address();
-    let action = PoolAction {
-        position: (&borrow_position).into(),
-        amount,
-        asset: debt_token.clone(),
-    };
+    let action = make_pool_action(&borrow_position, amount, debt_token.clone());
     let result = pool_create_strategy_call(
         env,
         &pool_addr,

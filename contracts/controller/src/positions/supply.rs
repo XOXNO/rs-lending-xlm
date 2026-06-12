@@ -5,9 +5,7 @@
 
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use common::types::{
-    Account, AccountPositionType, Payment, PoolAction, PoolSupplyEntry, PositionMode,
-};
+use common::types::{Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -19,6 +17,7 @@ use crate::helpers::{
     refresh_supply_risk_params, require_no_supply_dust_for_assets, update_or_remove_supply_position,
 };
 use crate::oracle::policy::OraclePolicy;
+use crate::positions::make_pool_action;
 use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -158,11 +157,7 @@ fn execute_deposit_plan(
         );
         let position = account.get_or_create_supply_position(&asset, &asset_config);
         entries.push_back(PoolSupplyEntry {
-            action: PoolAction {
-                position: (&position).into(),
-                amount: amount_in,
-                asset: asset.clone(),
-            },
+            action: make_pool_action(&position, amount_in, asset.clone()),
             supply_cap: asset_config.supply_cap,
         });
     }

@@ -4,8 +4,12 @@
 //! Shared stages are auth, cache setup, account resolution, validation, pool
 //! calls, post-checks, storage writes, and event recording.
 
-use common::types::{Account, AssetConfig, AssetConfigRaw, Payment};
-use soroban_sdk::{Address, Env, Map, Vec};
+use common::errors::CollateralError;
+use common::types::{
+    Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
+    ScaledPositionRaw,
+};
+use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::emode;
@@ -40,4 +44,45 @@ impl PlanConfigs {
     pub fn get(&self, env: &Env, asset: &Address) -> AssetConfig {
         (&validation::expect_invariant(env, self.0.get(asset.clone()))).into()
     }
+}
+
+/// Pure construction helper for the repeated `PoolAction` literal used in every
+/// bulk pool entry path. Preserves exact semantics and Into behavior.
+pub(crate) fn make_pool_action(
+    position: impl Into<ScaledPositionRaw>,
+    amount: i128,
+    asset: Address,
+) -> PoolAction {
+    PoolAction {
+        position: position.into(),
+        amount,
+        asset,
+    }
+}
+
+/// Exact lookup used by user-facing repay/withdraw paths (deliberately distinct
+/// from the `expect_invariant` style used in liquidation apply paths to preserve
+/// precise error codes on missing positions).
+pub(crate) fn get_supply_position_or_panic(
+    env: &Env,
+    account: &Account,
+    asset: &Address,
+) -> AccountPosition {
+    (&account
+        .supply_positions
+        .get(asset.clone())
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .into()
+}
+
+pub(crate) fn get_debt_position_or_panic(
+    env: &Env,
+    account: &Account,
+    asset: &Address,
+) -> DebtPosition {
+    (&account
+        .borrow_positions
+        .get(asset.clone())
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
+        .into()
 }
