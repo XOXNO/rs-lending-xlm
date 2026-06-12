@@ -957,11 +957,7 @@ fn test_seize_position_deposit_dust() {
         .get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
-    let seized = client.seize_position(
-        &t.asset,
-        &AccountPositionType::Deposit,
-        &updated.position,
-    );
+    let seized = client.seize_position(&t.asset, &AccountPositionType::Deposit, &updated.position);
 
     assert_eq!(
         seized.position.scaled_amount_ray, 0,
@@ -1213,7 +1209,10 @@ fn test_views() {
         "protocol revenue view should be callable"
     );
     t.advance_time(60);
-    assert!(client.delta_time(&t.asset) > 0, "delta_time should be positive");
+    assert!(
+        client.delta_time(&t.asset) > 0,
+        "delta_time should be positive"
+    );
 }
 
 // Liquidation fee on withdraw accrues to protocol revenue; user receives gross minus fee.

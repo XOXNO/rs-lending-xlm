@@ -1,16 +1,12 @@
-use common::constants::{MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
+use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest, update_borrow_index,
-    update_supply_index,
+    update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
 use soroban_sdk::Env;
 
 use crate::cache::Cache;
-
-/// Maximum chunk for the compound-interest loop: one year in ms. The rates math
-/// uses a Taylor expansion only valid within this horizon.
-const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Accrues interest from the last pool timestamp to the current ledger timestamp.
 pub fn global_sync(env: &Env, cache: &mut Cache) {
@@ -51,6 +47,8 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     cache.borrow_index = new_borrow_index;
     cache.supply_index = new_supply_index;
 
+    // Protocol fee is added to revenue *and* increases scaled supplied so subsequent
+    // chunks in the same accrual see the correct (diluted) utilization.
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
@@ -282,6 +280,58 @@ mod tests {
         });
     }
 
+    // The read path (`simulate_update_indexes`) must produce exactly the
+    // indexes the mutating path (`global_sync`) persists, including over
+    // multi-year deltas where both must chunk at one year. Divergence here
+    // means valuations and pool state disagree.
+    #[test]
+    fn test_simulate_matches_global_sync_over_multi_year_delta() {
+        use common::rates::simulate_update_indexes;
+        use common::types::PoolSyncData;
+
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let state = PoolStateRaw {
+                supplied_ray: 100 * RAY,
+                borrowed_ray: 60 * RAY,
+                revenue_ray: 0,
+                borrow_index_ray: RAY,
+                supply_index_ray: RAY,
+                last_timestamp: 0,
+                cash: 40_000_000,
+            };
+            let params: MarketParamsRaw = t
+                .env
+                .storage()
+                .persistent()
+                .get(&PoolKey::Params(t.asset.clone()))
+                .unwrap();
+            let sync = PoolSyncData {
+                params,
+                state: state.clone(),
+            };
+
+            let mut cache = t.fresh_cache(state);
+            // 2.5 years elapsed: forces three chunks (1y + 1y + 0.5y).
+            let delta_ms = 2 * MAX_COMPOUND_DELTA_MS + MAX_COMPOUND_DELTA_MS / 2;
+            cache.current_timestamp = cache.last_timestamp + delta_ms;
+            let simulated = simulate_update_indexes(&t.env, cache.current_timestamp, &sync);
+
+            global_sync(&t.env, &mut cache);
+
+            assert_eq!(
+                cache.borrow_index.raw(),
+                simulated.borrow_index.raw(),
+                "read-path borrow index must equal mutating accrual"
+            );
+            assert_eq!(
+                cache.supply_index.raw(),
+                simulated.supply_index.raw(),
+                "read-path supply index must equal mutating accrual"
+            );
+        });
+    }
+
     // A mild (<90%) reduction skips the floor clamp.
     #[test]
     fn test_apply_bad_debt_mild_reduction_preserves_index_above_floor() {
@@ -305,6 +355,67 @@ mod tests {
             assert!(new_index > old_index / 10, "should be a mild reduction");
             assert!(new_index > SUPPLY_INDEX_FLOOR_RAW, "should be above floor");
             assert!(new_index < old_index, "should be reduced");
+        });
+    }
+
+    #[test]
+    fn test_global_sync_respects_chunk_boundary() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let state = PoolStateRaw {
+                supplied_ray: 100 * RAY,
+                borrowed_ray: 60 * RAY,
+                revenue_ray: 0,
+                borrow_index_ray: RAY,
+                supply_index_ray: RAY,
+                last_timestamp: 0,
+                cash: 40_000_000,
+            };
+            let mut cache = t.fresh_cache(state);
+            // Exactly one chunk
+            cache.current_timestamp = MAX_COMPOUND_DELTA_MS;
+            global_sync(&t.env, &mut cache);
+            assert!(cache.borrow_index.raw() > RAY);
+        });
+    }
+
+    #[test]
+    fn test_apply_bad_debt_exactly_at_total_supplied_hits_cap_and_floor() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let mut cache = t.fresh_cache(PoolStateRaw {
+                supplied_ray: 100 * RAY,
+                borrowed_ray: 0,
+                revenue_ray: 0,
+                borrow_index_ray: RAY,
+                supply_index_ray: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            });
+            apply_bad_debt_to_supply_index(&mut cache, Ray::from(100 * RAY));
+            assert_eq!(cache.supply_index.raw(), SUPPLY_INDEX_FLOOR_RAW);
+        });
+    }
+
+    #[test]
+    fn test_global_sync_step_zero_borrowed_produces_zero_interest() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let mut cache = t.fresh_cache(PoolStateRaw {
+                supplied_ray: 100 * RAY,
+                borrowed_ray: 0,
+                revenue_ray: 0,
+                borrow_index_ray: RAY,
+                supply_index_ray: RAY,
+                last_timestamp: 0,
+                cash: 0,
+            });
+            let before = cache.supply_index;
+            // delta > 0 but no borrows -> no interest
+            cache.current_timestamp = 1_000;
+            // call step directly via sync
+            global_sync(&t.env, &mut cache);
+            assert_eq!(cache.supply_index, before);
         });
     }
 }

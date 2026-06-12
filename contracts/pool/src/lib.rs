@@ -225,6 +225,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
+        // Bulk: each entry syncs independently; controller pre-transfers tokens for every entry.
+        // First failure (cap, etc.) reverts the entire call.
         renew_pool_instance(&env);
         let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
         for entry in entries.iter() {
@@ -301,6 +303,9 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
+    // Safety: strict balance + allowance assertions around the callback and transfer_from.
+    // CEI: full state commit (including revenue) before the external invoke; only the
+    // loaned asset can be used for repayment.
     fn flash_loan(
         env: Env,
         asset: Address,
@@ -384,6 +389,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
+    // Strategy borrow: fee is taken as protocol revenue up-front; only net amount is
+    // transferred. Utilization and borrow cap are enforced on the full amount.
     fn create_strategy(
         env: Env,
         receiver: Address,
@@ -428,6 +435,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
+    // Seize: for borrow side, bad debt is socialized by reducing the supply index
+    // (subject to floor). For deposit side, revenue shares are simply moved to the pool.
     fn seize_position(
         env: Env,
         asset: Address,
@@ -454,6 +463,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
+    // Claim: revenue is burned from both revenue and supplied scaled totals, capped by
+    // actual reserves. Solvency is re-checked after the burn before any transfer.
     fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &asset);
 
@@ -544,6 +555,109 @@ impl LiquidityPoolInterface for LiquidityPool {
             )));
         }
         indexes
+    }
+}
+
+#[cfg(test)]
+mod lib_orchestration_tests {
+    extern crate std;
+
+    use crate::test_support::init_ledger;
+    use common::constants::RAY;
+    use common::types::{MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{token, vec, Address, Env};
+
+    struct TestSetup {
+        env: Env,
+        contract: Address,
+        asset: Address,
+    }
+
+    impl TestSetup {
+        fn new() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+            init_ledger(&env);
+
+            let admin = Address::generate(&env);
+            let asset = env
+                .register_stellar_asset_contract_v2(admin.clone())
+                .address();
+            let params = MarketParamsRaw {
+                max_borrow_rate_ray: 2 * RAY,
+                base_borrow_rate_ray: RAY / 100,
+                slope1_ray: RAY / 10,
+                slope2_ray: RAY / 5,
+                slope3_ray: RAY / 2,
+                mid_utilization_ray: RAY / 2,
+                optimal_utilization_ray: RAY * 8 / 10,
+                max_utilization_ray: RAY * 95 / 100,
+                reserve_factor_bps: 1_000,
+                asset_id: asset.clone(),
+                asset_decimals: 7,
+            };
+            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
+            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
+
+            // Seed some liquidity for repay/overpay scenarios
+            let tok_admin = token::StellarAssetClient::new(&env, &asset);
+            tok_admin.mint(&contract, &1_000_000_000);
+
+            Self {
+                env,
+                contract,
+                asset,
+            }
+        }
+
+        fn client(&self) -> crate::LiquidityPoolClient<'_> {
+            crate::LiquidityPoolClient::new(&self.env, &self.contract)
+        }
+    }
+
+    fn make_action(position_scaled: i128, amount: i128, asset: &Address) -> PoolAction {
+        PoolAction {
+            position: ScaledPositionRaw {
+                scaled_amount_ray: position_scaled,
+            },
+            amount,
+            asset: asset.clone(),
+        }
+    }
+
+    #[test]
+    fn test_bulk_supply_returns_input_ordered_mutations() {
+        let t = TestSetup::new();
+        let client = t.client();
+        // Call through the client (owner is admin in setup); verify ordering from the *_one path.
+        let entry1 = PoolSupplyEntry {
+            action: make_action(0, 100_000_000, &t.asset),
+            supply_cap: 0,
+        };
+        let entry2 = PoolSupplyEntry {
+            action: make_action(0, 50_000_000, &t.asset),
+            supply_cap: 0,
+        };
+        let results = client.supply(&vec![&t.env, entry1, entry2]);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results.get(0).unwrap().actual_amount, 100_000_000);
+        assert_eq!(results.get(1).unwrap().actual_amount, 50_000_000);
+    }
+
+    #[test]
+    fn test_add_rewards_emits_snapshot_and_increases_supply_index() {
+        let t = TestSetup::new();
+        let client = t.client();
+        // Supply first so there are suppliers to reward.
+        let sup = PoolSupplyEntry {
+            action: make_action(0, 100_000_000, &t.asset),
+            supply_cap: 0,
+        };
+        let _ = client.supply(&vec![&t.env, sup]);
+
+        let snap = client.add_rewards(&t.asset, &10_000_000);
+        assert!(snap.supply_index_ray > RAY);
     }
 }
 

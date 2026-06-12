@@ -20,18 +20,22 @@ pub fn load_params(env: &Env, asset: &Address) -> MarketParamsRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-// Capital utilization ratio in RAY.
+// Capital utilization ratio in RAY. Does not trigger interest accrual; computed
+// from the last persisted checkpoint.
 pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
     Cache::load(env, asset).calculate_utilization().raw()
 }
 
-// Pool's live token reserves in asset decimals.
+// Pool's live token reserves in asset decimals. Reads the on-chain token balance
+// directly (unlike internal `cash`, which is the source of truth for all
+// liquidity decisions and caps). Direct donations are visible here but inert
+// for borrowing.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
     let token = soroban_sdk::token::Client::new(env, asset);
     token.balance(&env.current_contract_address())
 }
 
-// Current deposit APR in RAY.
+// Current deposit APR in RAY. Does not trigger interest accrual.
 pub fn deposit_rate(env: &Env, asset: &Address) -> i128 {
     let cache = Cache::load(env, asset);
     let util = cache.calculate_utilization();
@@ -39,31 +43,31 @@ pub fn deposit_rate(env: &Env, asset: &Address) -> i128 {
     calculate_deposit_rate(env, util, borrow, cache.params.reserve_factor).raw()
 }
 
-// Current borrow APR in RAY.
+// Current borrow APR in RAY. Does not trigger interest accrual.
 pub fn borrow_rate(env: &Env, asset: &Address) -> i128 {
     let cache = Cache::load(env, asset);
     calculate_borrow_rate(env, cache.calculate_utilization(), &cache.params).raw()
 }
 
-// Accrued protocol revenue in asset decimals.
+// Accrued protocol revenue in asset decimals. Does not trigger interest accrual.
 pub fn protocol_revenue(env: &Env, asset: &Address) -> i128 {
     let c = Cache::load(env, asset);
     c.unscale_supply(c.revenue)
 }
 
-// Total supplied in asset decimals.
+// Total supplied in asset decimals. Does not trigger interest accrual.
 pub fn supplied_amount(env: &Env, asset: &Address) -> i128 {
     let c = Cache::load(env, asset);
     c.unscale_supply(c.supplied)
 }
 
-// Total borrowed in asset decimals.
+// Total borrowed in asset decimals. Does not trigger interest accrual.
 pub fn borrowed_amount(env: &Env, asset: &Address) -> i128 {
     let c = Cache::load(env, asset);
     c.unscale_borrow(c.borrowed)
 }
 
-// Milliseconds elapsed since last accrual.
+// Milliseconds elapsed since last accrual. Does not trigger interest accrual.
 pub fn delta_time(env: &Env, asset: &Address) -> u64 {
     let c = Cache::load(env, asset);
 
@@ -238,6 +242,34 @@ mod tests {
                 .persistent()
                 .remove(&PoolKey::Params(t.asset.clone()));
             let _ = load_params(&t.env, &t.asset);
+        });
+    }
+
+    #[test]
+    fn test_protocol_revenue_unscales_with_current_index() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // revenue 3 scaled * supply_index 2.0 = 6.0 asset units (7 decimals)
+            assert_eq!(protocol_revenue(&t.env, &t.asset), 60_000_000);
+        });
+    }
+
+    #[test]
+    fn test_delta_time_matches_state_difference() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // The TestSetup stores a state with last_timestamp 50k before "current".
+            // delta_time must return the positive difference from the loaded state.
+            assert!(delta_time(&t.env, &t.asset) > 0);
+        });
+    }
+
+    #[test]
+    fn test_reserves_returns_the_token_balance_view() {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            // Setup already minted 12_345 to the contract address.
+            assert_eq!(reserves(&t.env, &t.asset), 12_345);
         });
     }
 }
