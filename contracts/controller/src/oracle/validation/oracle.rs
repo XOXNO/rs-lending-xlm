@@ -5,6 +5,18 @@
 //! history validation.
 
 use common::errors::{GenericError, OracleError};
+use common::oracle::observation::{
+    millis_to_seconds, u256_to_i128, validate_positive_price_timestamps,
+    MIN_ORACLE_RESOLUTION_SECONDS,
+};
+use common::oracle::providers::redstone::{
+    read_price_data_uncached, RedStonePriceData, REDSTONE_DECIMALS,
+};
+use common::oracle::providers::reflector::{
+    min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
+    reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
+    ReflectorPriceData,
+};
 use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, MarketStatus, OraclePriceFluctuation,
     OracleReadMode, OracleSourceConfig, OracleSourceConfigInput, RedStoneSourceConfig,
@@ -14,18 +26,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::validation;
 
-use super::super::observation::{
-    millis_to_seconds, u256_to_i128, validate_positive_price_timestamps,
-    MIN_ORACLE_RESOLUTION_SECONDS,
-};
-use super::super::providers::redstone::{
-    read_price_data_uncached, RedStonePriceData, REDSTONE_DECIMALS,
-};
-use super::super::providers::reflector::{
-    min_twap_observations, reflector_base_call, reflector_decimals_call, reflector_lastprice_call,
-    reflector_prices_call, reflector_resolution_call, to_reflector_asset, ReflectorAsset,
-    ReflectorPriceData,
-};
 use super::config::{
     validate_decimals, validate_max_stale, validate_oracle_config_shape, validate_sanity_bounds,
     validate_twap_records,

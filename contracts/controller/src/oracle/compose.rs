@@ -1,10 +1,11 @@
 //! Composes primary and anchor observations into a final price.
 
 use common::errors::OracleError;
+use common::oracle::observation::is_stale;
 use controller_interface::types::{MarketOracleConfig, OracleStrategy};
 use soroban_sdk::{assert_with_error, panic_with_error};
 
-use super::observation::{is_stale, OracleObservation};
+use super::observation::OracleObservation;
 use super::providers;
 use super::tolerance::{calculate_final_price, is_within_anchor};
 use crate::cache::Cache;

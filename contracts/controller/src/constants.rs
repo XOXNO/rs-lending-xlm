@@ -16,8 +16,6 @@ pub const MAX_EMODE_ASSETS_PER_CATEGORY: u32 = 64;
 // Cap on the controller's `PoolsList`. Single-entry serialization + per-tx
 // footprint cost both scale linearly with the list length.
 pub const MAX_POOLS_LIST_ENTRIES: u32 = 256;
-// Protocol-wide upper bound for operator-supplied per-asset sanity caps.
-pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
 
 /// Minimum first-price tolerance input (BPS) for `configure_market_oracle`.
 pub const MIN_FIRST_TOLERANCE: u32 = 50;

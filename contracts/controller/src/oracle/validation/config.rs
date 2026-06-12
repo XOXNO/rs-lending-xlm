@@ -1,15 +1,14 @@
 //! Pure oracle config validation. No external oracle calls.
 
 use common::errors::{GenericError, OracleError};
+use common::oracle::observation::{
+    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
+    MIN_PRICE_STALE_SECONDS,
+};
 use controller_interface::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
 use controller_interface::types::{OracleReadMode, OracleSourceConfigInput};
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
-
-use super::super::observation::{
-    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MAX_TWAP_RECORDS, MIN_ORACLE_DECIMALS,
-    MIN_PRICE_STALE_SECONDS,
-};
 
 /// Validates oracle shape without live calls.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {

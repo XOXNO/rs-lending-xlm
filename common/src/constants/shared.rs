@@ -10,6 +10,9 @@ pub const WAD_DECIMALS: u32 = 18;
 
 pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
+// Protocol-wide upper bound for operator-supplied per-asset sanity caps.
+pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
+
 pub const MS_PER_SECOND: u64 = 1_000;
 
 pub(crate) const ONE_DAY_LEDGERS: u32 = 17_280;
