@@ -21,6 +21,7 @@ use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
 use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
+use crate::positions::make_pool_action;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{
     helpers::{self, utils},
@@ -163,7 +164,7 @@ pub(crate) fn execute_liquidation(
         hf,
     };
 
-    let (total_debt_payment_usd, repaid_tokens) =
+    let (total_debt_payment_usd, repaid_tokens, payment_covers_full_debt) =
         calculate_repayment_amounts(env, plan, account, &mut refunds, cache);
 
     let (max_debt_to_repay_usd, bonus) =
@@ -176,7 +177,7 @@ pub(crate) fn execute_liquidation(
         DustExpansionInputs {
             snap: &snap,
             bonus,
-            payment_ceiling_usd: total_debt_payment_usd,
+            payment_covers_full_debt,
             repay_usd: max_debt_to_repay_usd,
         },
     );
@@ -222,11 +223,11 @@ fn apply_liquidation_repayments(
         let position: DebtPosition =
             (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
                 .into();
-        actions.push_back(PoolAction {
-            position: (&position).into(),
-            amount: entry.amount,
-            asset: entry.asset.clone(),
-        });
+        actions.push_back(make_pool_action(
+            &position,
+            entry.amount,
+            entry.asset.clone(),
+        ));
     }
     repay::settle_repay_actions(
         env,
@@ -252,11 +253,7 @@ fn apply_liquidation_seizures(
             (&validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone())))
                 .into();
         entries.push_back(PoolWithdrawEntry {
-            action: PoolAction {
-                position: (&position).into(),
-                amount: entry.amount,
-                asset: entry.asset.clone(),
-            },
+            action: make_pool_action(&position, entry.amount, entry.asset.clone()),
             protocol_fee: entry.protocol_fee,
         });
     }

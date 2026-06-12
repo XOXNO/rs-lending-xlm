@@ -38,6 +38,9 @@ pub struct Cache {
     pool_sync_data: Map<Address, PoolSyncData>,
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
     isolated_debts: Map<Address, i128>,
+    /// Assets whose isolated-debt counter changed this tx, in first-write
+    /// order. Read-only memo entries in `isolated_debts` never flush.
+    isolated_debts_dirty: Vec<Address>,
     deposit_updates: Vec<EventDepositDelta>,
     borrow_updates: Vec<EventBorrowDelta>,
     market_updates: Vec<MarketStateSnapshot>,
@@ -71,6 +74,7 @@ impl Cache {
             pool_sync_data: Map::new(env),
             emode_assets: Map::new(env),
             isolated_debts: Map::new(env),
+            isolated_debts_dirty: Vec::new(env),
             deposit_updates: Vec::new(env),
             borrow_updates: Vec::new(env),
             market_updates: Vec::new(env),
@@ -307,17 +311,83 @@ impl Cache {
 
     pub fn set_isolated_debt(&mut self, asset: &Address, value: i128) {
         self.isolated_debts.set(asset.clone(), value);
+        if self
+            .isolated_debts_dirty
+            .first_index_of(asset.clone())
+            .is_none()
+        {
+            self.isolated_debts_dirty.push_back(asset.clone());
+        }
     }
 
+    /// Writes back and emits only the counters mutated this tx; entries that
+    /// were merely read stay untouched (no stale overwrite, no no-op events).
     pub fn flush_isolated_debts(&self) {
-        if self.isolated_debts.is_empty() {
+        if self.isolated_debts_dirty.is_empty() {
             return;
         }
         let mut updates: Vec<EventDebtCeilingEntry> = Vec::new(&self.env);
-        for (asset, value) in self.isolated_debts.iter() {
+        for asset in self.isolated_debts_dirty.iter() {
+            let value = self.isolated_debts.get(asset.clone()).unwrap_or_else(|| {
+                panic_with_error!(&self.env, common::errors::GenericError::InternalError)
+            });
             storage::set_isolated_debt(&self.env, &asset, value);
             updates.push_back(EventDebtCeilingEntry(asset, value));
         }
         UpdateDebtCeilingBatchEvent { updates }.publish(&self.env);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    // A counter that was only read must never flush: an out-of-band storage
+    // update between the read and the flush survives, and no no-op event row
+    // is emitted for it.
+    #[test]
+    fn test_flush_skips_read_only_isolated_debt_entries() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+        let read_asset = Address::generate(&env);
+        let written_asset = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            storage::set_isolated_debt(&env, &read_asset, 777);
+
+            let mut cache = Cache::build(&env, OraclePolicy::RiskDecreasing);
+            assert_eq!(cache.get_isolated_debt(&read_asset), 777);
+            cache.set_isolated_debt(&written_asset, 42);
+
+            // Simulate state moving after the read; a flush that wrote back
+            // read-only memo entries would clobber this with the stale 777.
+            storage::set_isolated_debt(&env, &read_asset, 1_000);
+
+            cache.flush_isolated_debts();
+
+            assert_eq!(storage::get_isolated_debt(&env, &read_asset), 1_000);
+            assert_eq!(storage::get_isolated_debt(&env, &written_asset), 42);
+        });
+    }
+
+    // Repeated writes to one asset flush once, with the latest value.
+    #[test]
+    fn test_flush_writes_latest_value_once_per_asset() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+        let asset = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            let mut cache = Cache::build(&env, OraclePolicy::RiskDecreasing);
+            cache.set_isolated_debt(&asset, 10);
+            cache.set_isolated_debt(&asset, 20);
+            assert_eq!(cache.isolated_debts_dirty.len(), 1);
+
+            cache.flush_isolated_debts();
+            assert_eq!(storage::get_isolated_debt(&env, &asset), 20);
+        });
     }
 }

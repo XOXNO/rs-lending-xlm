@@ -236,8 +236,9 @@ fn test_liquidation_partial_payment_does_not_over_seize_on_dust_expansion() {
 
     // Liquidator submits a deliberately small payment (~$2 ETH = 0.001
     // ETH). Under the bug this would expand seizure to full debt
-    // (~$130 worth of USDC collateral); under the fix the seizure is
-    // bounded by `total_debt.min(payment_ceiling_usd)`.
+    // (~$130 worth of USDC collateral); under the fix the repay target is
+    // bounded by the paid value, and dust expansion to full close requires
+    // the payment to settle every position's full token debt.
     let _ = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let debt_after = t.borrow_balance(ALICE, "ETH");

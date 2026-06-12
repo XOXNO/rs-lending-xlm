@@ -63,11 +63,17 @@ pub(crate) fn calculate_repayment_amounts(
     account: &Account,
     refunds: &mut Vec<PaymentTuple>,
     cache: &mut Cache,
-) -> (Wad, Vec<RepayEntry>) {
+) -> (Wad, Vec<RepayEntry>, bool) {
     let mut total_repaid_usd = Wad::ZERO;
     let mut repaid_tokens: Vec<RepayEntry> = Vec::new(env);
 
     let merged = utils::aggregate_positive_payments(env, raw_payments);
+
+    // Full coverage is decided in token terms — the only quantization the
+    // pool settles in: the deduped plan reaches every debt position (plan
+    // assets must exist as positions, so length equality is set equality)
+    // and every payment settles its position's full token debt.
+    let mut covers_full_debt = merged.len() == account.borrow_positions.len();
 
     for i in 0..merged.len() {
         let (asset, amount) = validation::expect_invariant(env, merged.get(i));
@@ -95,6 +101,8 @@ pub(crate) fn calculate_repayment_amounts(
                 amount: excess,
             });
             payment_amount = actual_debt;
+        } else if payment_amount < actual_debt {
+            covers_full_debt = false;
         }
 
         let payment_usd = feed.usd_value_wad(env, payment_amount);
@@ -109,7 +117,7 @@ pub(crate) fn calculate_repayment_amounts(
         });
     }
 
-    (total_repaid_usd, repaid_tokens)
+    (total_repaid_usd, repaid_tokens, covers_full_debt)
 }
 
 pub(crate) fn account_dust_floors(cache: &mut Cache, account: &Account) -> (i128, i128) {
@@ -135,7 +143,9 @@ pub(crate) fn account_dust_floors(cache: &mut Cache, account: &Account) -> (i128
 pub(crate) struct DustExpansionInputs<'a> {
     pub snap: &'a LiquidationSnapshot,
     pub bonus: Bps,
-    pub payment_ceiling_usd: Wad,
+    /// True when the payment plan settles every debt position's full token
+    /// debt (computed in `calculate_repayment_amounts`).
+    pub payment_covers_full_debt: bool,
     pub repay_usd: Wad,
 }
 
@@ -172,8 +182,11 @@ pub(crate) fn expand_to_full_close_on_dust_residue(
 
     // Full close is dust-safe only when the payment covers the entire debt;
     // a short payment leaves sub-floor residue, so reject it (DustResidueNotAllowed)
-    // rather than partial-expand. Per-asset seizure capping clamps any overshoot.
-    if inputs.payment_ceiling_usd >= inputs.snap.total_debt {
+    // rather than partial-expand. Coverage is a token-route predicate, not a
+    // USD comparison: the ceiled gate valuation of debt sits wad-ulps above
+    // the half-up payment route, which would make full close unreachable on
+    // exact-grid token debt. Per-asset seizure capping clamps any overshoot.
+    if inputs.payment_covers_full_debt {
         inputs.snap.total_debt
     } else {
         panic_with_error!(env, CollateralError::DustResidueNotAllowed);
@@ -242,7 +255,17 @@ pub(crate) fn calculate_seized_collateral(
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
         let protocol_fee = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
-        let capped_amount = capped_ray.to_asset(feed.asset_decimals);
+        // Full seizure must use the pool's half-up conversion: the pool
+        // full-closes only when `amount >= unscale_supply(pos_scaled)`
+        // (half-up), and a floored amount one unit short would leave a
+        // sub-unit residue that trips the dust gate. Partial seizures floor
+        // so they never exceed the computed RAY amount; fee <= amount holds
+        // in both branches.
+        let capped_amount = if capped_ray == actual_ray {
+            capped_ray.to_asset(feed.asset_decimals)
+        } else {
+            capped_ray.to_asset_floor(feed.asset_decimals)
+        };
         if capped_amount <= 0 {
             continue;
         }
@@ -250,7 +273,7 @@ pub(crate) fn calculate_seized_collateral(
         seized.push_back(SeizeEntry {
             asset,
             amount: capped_amount,
-            protocol_fee: protocol_fee.to_asset(feed.asset_decimals),
+            protocol_fee: protocol_fee.to_asset_floor(feed.asset_decimals),
             feed: (&feed).into(),
             market_index: (&market_index).into(),
         });
@@ -274,10 +297,12 @@ pub(crate) fn process_excess_payment(
         let usd = Wad::from(entry.usd_wad);
 
         if usd > remaining_excess_usd {
-            let ratio = remaining_excess_usd.div(env, usd);
+            // Floor every step: the refund returned to the payer never exceeds
+            // the exact pro-rata share; sub-ulp remainder stays as repayment.
+            let ratio = remaining_excess_usd.div_floor(env, usd);
             let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
-                .mul(env, ratio)
-                .to_token(entry.feed.asset_decimals);
+                .mul_floor(env, ratio)
+                .to_token_floor(entry.feed.asset_decimals);
 
             let new_amount = entry.amount - refund_amount;
             // Recompute new_usd from new_amount * price; subtracting the excess

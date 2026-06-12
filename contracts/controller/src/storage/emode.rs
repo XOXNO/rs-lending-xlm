@@ -15,9 +15,14 @@ pub(crate) fn get_emode_category(env: &Env, id: u32) -> EModeCategoryRaw {
 }
 
 pub(crate) fn try_get_emode_category(env: &Env, id: u32) -> Option<EModeCategoryRaw> {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::EModeCategory(id))
+    let key = ControllerKey::EModeCategory(id);
+    let cat: Option<EModeCategoryRaw> = env.storage().persistent().get(&key);
+    // Same read-renewal policy as `try_get_market_config`: stable categories
+    // must not archive while accounts still rely on them.
+    if cat.is_some() {
+        renew_protocol_shared_key(env, &key);
+    }
+    cat
 }
 
 pub(crate) fn set_emode_category(env: &Env, id: u32, cat: &EModeCategoryRaw) {
@@ -55,5 +60,48 @@ pub(crate) fn remove_emode_asset(env: &Env, category_id: u32, asset: &Address) {
     if let Some(mut cat) = try_get_emode_category(env, category_id) {
         cat.assets.remove(asset.clone());
         set_emode_category(env, category_id, &cat);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use soroban_sdk::testutils::storage::Persistent as _;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::{Address, Env, Map};
+
+    // Mirrors the market-config read-renewal test: a category read once its
+    // TTL is below threshold must re-arm the shared bump.
+    #[test]
+    fn test_try_get_emode_category_renews_shared_ttl_on_read() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+
+        env.as_contract(&contract_id, || {
+            let cat = EModeCategoryRaw {
+                loan_to_value_bps: 7_500,
+                liquidation_threshold_bps: 8_000,
+                liquidation_bonus_bps: 500,
+                is_deprecated: false,
+                assets: Map::new(&env),
+            };
+            set_emode_category(&env, 1, &cat);
+            let key = ControllerKey::EModeCategory(1);
+
+            let ttl_after_set = env.storage().persistent().get_ttl(&key);
+            let burn = ttl_after_set - TTL_THRESHOLD_SHARED + 1;
+            env.ledger().with_mut(|li| li.sequence_number += burn);
+            assert!(env.storage().persistent().get_ttl(&key) < TTL_THRESHOLD_SHARED);
+
+            assert!(try_get_emode_category(&env, 1).is_some());
+
+            assert_eq!(
+                env.storage().persistent().get_ttl(&key),
+                TTL_BUMP_SHARED,
+                "read must re-arm the shared bump"
+            );
+        });
     }
 }

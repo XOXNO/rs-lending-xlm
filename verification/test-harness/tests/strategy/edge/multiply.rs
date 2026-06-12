@@ -66,6 +66,49 @@ fn test_multiply_with_debt_token_initial_payment() {
     );
 }
 
+// The initial payment token is the one user-supplied call target in the
+// multiply flow; it must be a listed market asset. The assert fires before
+// the controller invokes the token contract, so no balance is needed.
+#[test]
+fn test_multiply_rejects_unlisted_initial_payment_token() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let alice = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let unlisted = t
+        .env
+        .register_stellar_asset_contract_v2(t.admin())
+        .address()
+        .clone();
+
+    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let result = t.ctrl_client().try_multiply(
+        &alice,
+        &0u64,
+        &0u32,
+        &usdc,
+        &1_0000000i128,
+        &eth,
+        &common::types::PositionMode::Multiply,
+        &steps,
+        &Some((unlisted, 1_0000000i128)),
+        &None,
+    );
+
+    match result {
+        Err(Ok(err)) => assert_eq!(
+            err,
+            soroban_sdk::Error::from_contract_error(errors::ASSET_NOT_SUPPORTED),
+            "unlisted initial payment token must fail AssetNotSupported"
+        ),
+        other => panic!("expected AssetNotSupported, got {:?}", other),
+    }
+}
+
 #[test]
 fn test_multiply_rejects_when_paused() {
     let mut t = LendingTest::new()
@@ -493,8 +536,13 @@ fn test_multiply_respects_borrow_position_limit() {
     // A second multiply into the same account with a different debt asset
     // would open a second borrow position and must hit the limit gate.
     t.fund_router("USDC", 10.0);
-    let steps2 =
-        build_aggregator_swap(&t, "XLM", "USDC", apply_flash_fee(1_000_000_000), 10_0000000);
+    let steps2 = build_aggregator_swap(
+        &t,
+        "XLM",
+        "USDC",
+        apply_flash_fee(1_000_000_000),
+        10_0000000,
+    );
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");

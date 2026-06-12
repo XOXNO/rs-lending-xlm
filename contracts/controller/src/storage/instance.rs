@@ -6,12 +6,18 @@
 
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
+
+/// Cap on outstanding (approved but not yet consumed) token approvals.
+/// Every instance key loads with every invocation, so unconsumed approvals
+/// must not accumulate without bound.
+const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
 #[contracttype]
 #[derive(Clone, Debug)]
 enum LocalKey {
     ApprovedToken(Address),
+    ApprovedTokenCount,
 }
 
 #[contracttype]
@@ -27,15 +33,40 @@ pub(crate) fn is_token_approved(env: &Env, token: &Address) -> bool {
         .unwrap_or(false)
 }
 
+fn approved_token_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&LocalKey::ApprovedTokenCount)
+        .unwrap_or(0u32)
+}
+
 pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
+    let key = LocalKey::ApprovedToken(token.clone());
+    let already_approved: bool = env.storage().instance().get(&key).unwrap_or(false);
+
     if approved {
-        env.storage()
-            .instance()
-            .set(&LocalKey::ApprovedToken(token.clone()), &true);
+        if !already_approved {
+            let count = approved_token_count(env);
+            assert_with_error!(
+                env,
+                count < MAX_OUTSTANDING_TOKEN_APPROVALS,
+                GenericError::InvalidPositionLimits
+            );
+            env.storage()
+                .instance()
+                .set(&LocalKey::ApprovedTokenCount, &(count + 1));
+        }
+        env.storage().instance().set(&key, &true);
     } else {
-        env.storage()
-            .instance()
-            .remove(&LocalKey::ApprovedToken(token.clone()));
+        if already_approved {
+            // Saturate at zero: entries approved before counter bookkeeping
+            // existed must still be revocable/consumable.
+            let count = approved_token_count(env).saturating_sub(1);
+            env.storage()
+                .instance()
+                .set(&LocalKey::ApprovedTokenCount, &count);
+        }
+        env.storage().instance().remove(&key);
     }
 }
 
@@ -53,8 +84,7 @@ pub(crate) fn set_pool_template(env: &Env, hash: &BytesN<32>) {
 }
 
 pub(crate) fn get_pool(env: &Env) -> Address {
-    try_get_pool(env)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+    try_get_pool(env).unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
 pub(crate) fn try_get_pool(env: &Env) -> Option<Address> {
@@ -153,5 +183,50 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
         env.storage()
             .temporary()
             .remove(&SessionKey::FlashLoanOngoing);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Env;
+
+    // Approve/revoke/consume keeps the outstanding counter exact: re-approval
+    // of the same token never double-counts and revocation frees a slot.
+    #[test]
+    fn test_token_approval_counter_tracks_outstanding_set() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+        env.as_contract(&contract_id, || {
+            let token = Address::generate(&env);
+            set_token_approved(&env, &token, true);
+            set_token_approved(&env, &token, true); // idempotent re-approve
+            assert_eq!(approved_token_count(&env), 1);
+            assert!(is_token_approved(&env, &token));
+
+            set_token_approved(&env, &token, false);
+            assert_eq!(approved_token_count(&env), 0);
+            assert!(!is_token_approved(&env, &token));
+
+            // Revoking an unapproved token never underflows the counter.
+            set_token_approved(&env, &token, false);
+            assert_eq!(approved_token_count(&env), 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #36)")]
+    fn test_token_approval_cap_rejects_overflowing_approval() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(crate::Controller, (admin,));
+        env.as_contract(&contract_id, || {
+            for _ in 0..MAX_OUTSTANDING_TOKEN_APPROVALS {
+                set_token_approved(&env, &Address::generate(&env), true);
+            }
+            set_token_approved(&env, &Address::generate(&env), true);
+        });
     }
 }

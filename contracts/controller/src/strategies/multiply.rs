@@ -195,6 +195,15 @@ fn collect_initial_multiply_payment(
     if let Some((payment_token, payment_amount)) = initial_payment.as_ref() {
         validation::require_positive_amount(env, *payment_amount);
 
+        // Only listed assets may be invoked as token contracts: the payment
+        // token is the one user-supplied call target in this flow, and the
+        // event enrichment at the end prices it against a market anyway.
+        assert_with_error!(
+            env,
+            storage::has_market_config(env, payment_token),
+            GenericError::AssetNotSupported
+        );
+
         let payment_tok = soroban_sdk::token::Client::new(env, payment_token);
         payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
 

@@ -12,15 +12,36 @@ use crate::cache::Cache;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// USD WAD value of a scaled position at the supplied index and price.
+///
+/// Half-up at every step: the neutral valuation for displays, dust floors,
+/// and liquidation share proportions. Solvency gates use the directional
+/// variants below instead.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)
 }
 
-/// Collateral value weighted by liquidation threshold in BPS.
+/// `position_value` rounded down at every step — collateral-side gate
+/// valuation, so rounding slack can never loosen LTV.
+pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+    let actual = scaled.mul_floor(env, index);
+    let actual_wad = actual.to_wad_floor();
+    actual_wad.mul_floor(env, price)
+}
+
+/// `position_value` rounded up at every step — debt-side gate valuation, so
+/// rounding slack can never understate what is owed.
+pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+    let actual = scaled.mul_ceil(env, index);
+    let actual_wad = actual.to_wad_ceil();
+    actual_wad.mul_ceil(env, price)
+}
+
+/// Collateral value weighted by liquidation threshold in BPS, rounded down:
+/// the health-factor numerator never gains from weighting rounding.
 pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
-    threshold.apply_to_wad(env, value)
+    threshold.apply_to_wad_floor(env, value)
 }
 
 pub fn calculate_ltv_collateral_wad(
@@ -35,14 +56,15 @@ pub fn calculate_ltv_collateral_wad(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        let value = position_value(
+        // Floor the whole chain: borrowing capacity never rounds upward.
+        let value = position_value_floor(
             env,
             position.scaled_amount,
             market_index.supply_index,
             feed.price,
         );
 
-        ltv += position.loan_to_value.apply_to_wad(env, value);
+        ltv += position.loan_to_value.apply_to_wad_floor(env, value);
     }
     ltv
 }
@@ -120,7 +142,16 @@ fn calculate_account_totals_body(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
+        // Neutral valuation for proportions and socialization checks; the
+        // health-factor numerator gets the fully floored chain so no rounding
+        // step can loosen the gate.
         let value = position_value(
+            env,
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
+        );
+        let gate_value = position_value_floor(
             env,
             position.scaled_amount,
             market_index.supply_index,
@@ -128,7 +159,7 @@ fn calculate_account_totals_body(
         );
 
         total_collateral += value;
-        weighted_coll += weighted_collateral(env, value, position.liquidation_threshold);
+        weighted_coll += weighted_collateral(env, gate_value, position.liquidation_threshold);
     }
 
     let total_debt = calculate_total_debt_wad(env, cache, borrow_positions);
@@ -155,7 +186,8 @@ pub fn calculate_total_debt_wad(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        let value = position_value(
+        // Ceil the whole chain: owed value never rounds downward.
+        let value = position_value_ceil(
             env,
             position.scaled_amount,
             market_index.borrow_index,

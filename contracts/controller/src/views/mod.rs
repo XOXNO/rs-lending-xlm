@@ -2,8 +2,10 @@
 //!
 //! All views deliberately use `Cache::new_view` (no instance TTL
 //! bump, permissive `OraclePolicy::View`) so that front-ends and indexers
-//! can call them without rent side-effects and without being blocked by
-//! stale oracles on disabled markets.
+//! are never blocked by stale oracles on disabled markets. Reads of
+//! `Market`/`EModeCategory` keys renew the shared-tier TTL when it has
+//! fallen below threshold (a liveness guarantee, see `storage::market`),
+//! so on-chain view invocations are not strictly rent-free.
 //!
 //! Aggregates are harnessed under certora.
 
