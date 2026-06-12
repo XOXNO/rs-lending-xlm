@@ -12,7 +12,6 @@ stellar-access = { workspace = true }
 stellar-contract-utils = { workspace = true }
 stellar-macros = { workspace = true }
 common = { path = "../../common" }
-controller-interface = { path = "../../interfaces/controller" }
 
 [features]
 testing = []

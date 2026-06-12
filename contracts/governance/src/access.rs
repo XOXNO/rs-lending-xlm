@@ -1,3 +1,10 @@
+//! Ownership, the ORACLE role, and self-upgrade for the governance contract.
+//!
+//! Built on the `stellar_access` crate primitives. Governance owns the
+//! ORACLE role, which gates the oracle-configuration forwarders into the
+//! controller. Pause and position limits are absent by design: both are
+//! controller state and stay behind the controller's own entrypoints.
+
 use common::errors::GenericError;
 use soroban_sdk::{contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
 use stellar_access::{access_control, ownable};
@@ -134,5 +141,9 @@ mod tests {
         let client = GovernanceClient::new(&env, &contract_id);
 
         assert!(client.has_role(&admin, &Symbol::new(&env, ORACLE_ROLE)));
+        env.as_contract(&contract_id, || {
+            assert_eq!(ownable::get_owner(&env), Some(admin.clone()));
+            assert_eq!(access_control::get_admin(&env), Some(admin));
+        });
     }
 }
