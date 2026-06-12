@@ -46,7 +46,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     let plan = utils::aggregate_positive_payments(env, borrows);
 
     let configs = PlanConfigs::resolve(env, &account, &plan, &mut cache);
-    prepare_borrow_plan(env, &account, &plan, &configs, &mut cache);
+    prepare_borrow_plan(env, &account, account_id, &plan, &configs, &mut cache);
     execute_borrow_plan(env, caller, &mut account, &plan, &configs, &mut cache);
 
     // A failure in either gate panics and reverts the atomic tx.
@@ -68,6 +68,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
 fn prepare_borrow_plan(
     env: &Env,
     account: &Account,
+    account_id: u64,
     plan: &Vec<Payment>,
     configs: &PlanConfigs,
     cache: &mut Cache,
@@ -80,7 +81,7 @@ fn prepare_borrow_plan(
         validation::require_market_active(env, cache, &asset);
         let asset_config = configs.get(env, &asset);
         validate_asset_borrowable(env, account, &asset, &asset_config, cache);
-        add_isolated_debt(env, cache, account, &asset, amount);
+        add_isolated_debt(env, cache, account, account_id, &asset, amount);
     }
 }
 
@@ -195,6 +196,7 @@ fn validate_siloed_borrow_set(
 pub fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     debt_token: &Address,
     amount: i128,
     cache: &mut Cache,
@@ -202,7 +204,7 @@ pub fn borrow_for_strategy(
     let mut plan: Vec<Payment> = Vec::new(env);
     plan.push_back((debt_token.clone(), amount));
     let configs = PlanConfigs::resolve(env, account, &plan, cache);
-    prepare_borrow_plan(env, account, &plan, &configs, cache);
+    prepare_borrow_plan(env, account, account_id, &plan, &configs, cache);
 
     let debt_config = configs.get(env, debt_token);
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);

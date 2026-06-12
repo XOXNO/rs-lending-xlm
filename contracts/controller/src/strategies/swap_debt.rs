@@ -80,6 +80,7 @@ pub fn process_swap_debt(
         env,
         &mut cache,
         &mut account,
+        account_id,
         new_debt_token,
         new_debt_amount,
     );
@@ -101,6 +102,7 @@ pub fn process_swap_debt(
     repay_debt_from_controller(
         env,
         &mut account,
+        account_id,
         &mut cache,
         caller,
         StrategyRepay {

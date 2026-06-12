@@ -86,7 +86,14 @@ pub fn process_liquidation(
 
     validation::require_non_empty_payments(env, &result.repaid);
 
-    apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
+    apply_liquidation_repayments(
+        env,
+        liquidator,
+        &mut account,
+        account_id,
+        &result.repaid,
+        &mut cache,
+    );
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
     // Per-leg dust gate scoped to the assets this liquidation touched (seized supply
@@ -210,6 +217,7 @@ fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
+    account_id: u64,
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
@@ -232,6 +240,7 @@ fn apply_liquidation_repayments(
     repay::settle_repay_actions(
         env,
         account,
+        account_id,
         liquidator,
         common::events::PositionAction::LiqRepay,
         &actions,
@@ -365,7 +374,7 @@ fn execute_bad_debt_cleanup(
 
     for (asset, position) in iter_debt_positions(&account.borrow_positions) {
         crate::positions::isolated_debt::clear_position_isolated_debt(
-            env, &asset, &position, account, cache,
+            env, account, account_id, &asset, cache,
         );
         seize_pool_position(
             env,

@@ -1,7 +1,7 @@
 use common::constants::WAD;
 
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest,
+    assert_contract_error, days, errors, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest,
     PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
 };
 
@@ -164,6 +164,59 @@ fn test_isolated_debt_decremented_on_liquidation() {
         "isolated debt should decrease after liquidation: before={}, after={}",
         debt_before,
         debt_after
+    );
+}
+// 8b. test_isolated_debt_basis_excludes_accrued_interest
+
+#[test]
+fn test_isolated_debt_basis_excludes_accrued_interest() {
+    let mut t = setup_isolated();
+    t.create_isolated_account(ALICE, "ETH");
+    t.supply(ALICE, "ETH", 10.0);
+    t.borrow(ALICE, "USDC", 4_000.0);
+
+    let basis = t.get_isolated_debt("ETH");
+    assert!(basis > 0, "borrow must seed the isolated-debt basis");
+
+    // Interest accrues for a year. The ceiling tracks borrowed principal only,
+    // so the counter must not move when nothing is borrowed or repaid.
+    t.advance_and_sync(days(365));
+    assert_eq!(
+        t.get_isolated_debt("ETH"),
+        basis,
+        "accrued interest must not change the isolated-debt counter"
+    );
+
+    // Repay half the now-larger debt. The decrement is the principal basis for
+    // the repaid share, NOT the interest-inclusive repay amount that caused the
+    // old asymmetric drift.
+    let cur_raw = t.borrow_balance_raw(ALICE, "USDC");
+    assert!(
+        cur_raw > 4_000 * 10_000_000,
+        "interest must have accrued, got {cur_raw}"
+    );
+    let repaid_raw = cur_raw / 2;
+    // What the old interest-inclusive decrement would have stored (USDC = $1,
+    // converting the 7-decimal amount to USD WAD by 10^11):
+    let old_buggy = (basis - repaid_raw * 100_000_000_000).max(0);
+
+    t.repay_raw(ALICE, "USDC", repaid_raw);
+
+    let after = t.get_isolated_debt("ETH");
+    assert!(
+        after > old_buggy,
+        "exact basis must exclude accrued interest: after={after} must exceed the \
+         interest-inclusive decrement {old_buggy}"
+    );
+    assert!(after < basis, "a partial repay must still reduce the counter");
+
+    // Fully repay (overpay forces a full close); the counter returns to zero.
+    let remaining_raw = t.borrow_balance_raw(ALICE, "USDC");
+    t.repay_raw(ALICE, "USDC", remaining_raw * 2);
+    assert_eq!(
+        t.get_isolated_debt("ETH"),
+        0,
+        "counter must be exactly zero after the position is fully repaid"
     );
 }
 // 9. test_isolated_rejects_emode
@@ -431,9 +484,14 @@ fn test_isolated_ceiling_releases_capacity_on_repay() {
 
 // --- audit_p0 isolation repay ---
 
-// IsolatedRepay denies stale TWAP history; ordinary Repay allows the fallback.
+// The isolated-debt decrement reads the principal basis recorded at borrow
+// time, not a live price, so an isolated repay no longer prices the debt asset
+// for the decrement and is not blocked by a stale TWAP (dust disabled). This
+// removes the price-manipulation surface on the ceiling counter that the strict
+// IsolatedRepay policy previously had to guard. The dust gate still prices
+// residue under the strict policy when dust floors are enabled.
 #[test]
-fn test_isolated_repay_rejects_stale_twap_history() {
+fn test_isolated_repay_decrement_uses_basis_not_oracle() {
     let mut t = LendingTest::new()
         .with_market(eth_preset())
         .with_market_config("ETH", |c| {
@@ -454,14 +512,22 @@ fn test_isolated_repay_rejects_stale_twap_history() {
     t.create_isolated_account(ALICE, "ETH");
     t.supply(ALICE, "ETH", 5.0);
     t.borrow(ALICE, "USDC", 2_000.0);
+    let debt_before = t.get_isolated_debt("ETH");
 
-    // Repay prices the debt asset (USDC); IsolatedRepay rejects stale TWAP there.
+    // Poison the USDC TWAP history. The basis-based decrement needs no price,
+    // so the isolated repay still succeeds and the counter still decreases.
     let usdc_asset = t.resolve_asset("USDC");
     t.mock_reflector_client()
         .set_twap_history_mode(&usdc_asset, &5);
 
-    let result = t.try_repay(ALICE, "USDC", 500.0);
-    assert_contract_error(result, errors::PRICE_FEED_STALE);
+    t.repay(ALICE, "USDC", 500.0);
+
+    let debt_after = t.get_isolated_debt("ETH");
+    assert!(
+        debt_after < debt_before,
+        "basis-based decrement must reduce the counter without an oracle read: \
+         before={debt_before}, after={debt_after}"
+    );
 }
 
 #[test]

@@ -662,6 +662,11 @@ pub enum ControllerKey {
     BorrowPositions(u64),
     EModeCategory(u32),
     IsolatedDebt(Address),
+    /// Per-debt-position USD WAD principal attributed to the isolated-debt
+    /// ceiling at borrow time, keyed by `(account_id, debt_asset)`. Lets repay
+    /// and liquidation decrement the exact principal basis they added, so the
+    /// `IsolatedDebt` counter has no interest- or price-drift asymmetry.
+    IsolatedBasis(u64, Address),
     PoolsList,
     AppVersion,
 }

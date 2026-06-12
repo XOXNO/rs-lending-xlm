@@ -141,6 +141,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         env,
         &mut cache,
         &mut account,
+        account_id,
         debt_token,
         debt_to_flash_loan,
     );

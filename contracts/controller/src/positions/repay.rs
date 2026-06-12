@@ -89,6 +89,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     settle_repay_actions(
         env,
         &mut account,
+        account_id,
         caller,
         common::events::PositionAction::Repay,
         &actions,
@@ -115,6 +116,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 pub(crate) fn settle_repay_actions(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     payer: &Address,
     action: common::events::PositionAction,
     actions: &Vec<PoolAction>,
@@ -124,7 +126,7 @@ pub(crate) fn settle_repay_actions(
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repayment(env, account, action, &entry.asset, &result, cache);
+        finish_repayment(env, account, account_id, action, &entry.asset, &result, cache);
     }
     results
 }
@@ -133,6 +135,7 @@ pub(crate) fn settle_repay_actions(
 pub(crate) fn finish_repayment(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     action: common::events::PositionAction,
     asset: &Address,
     result: &PoolPositionMutation,
@@ -140,12 +143,27 @@ pub(crate) fn finish_repayment(
 ) {
     cache.record_market_update(&result.market_state);
 
+    // Capture the pre-repay scaled debt before the position is overwritten;
+    // the isolated-debt decrement is proportional to the share repaid.
+    let scaled_before = account
+        .borrow_positions
+        .get(asset.clone())
+        .map(|raw| common::math::fp::Ray::from(raw.scaled_amount_ray))
+        .unwrap_or(common::math::fp::Ray::ZERO);
+
     let position = DebtPosition::from(&result.position);
     update_or_remove_debt_position(account, asset, &position);
 
     if account.is_isolated {
-        let feed = cache.cached_price(asset);
-        adjust_isolated_debt_for_repay(env, account, cache, result.actual_amount, &feed);
+        adjust_isolated_debt_for_repay(
+            env,
+            account,
+            account_id,
+            cache,
+            asset,
+            scaled_before,
+            position.scaled_amount,
+        );
     }
 
     cache.record_debt_position_update(
@@ -162,6 +180,7 @@ pub(crate) fn finish_repayment(
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
+    account_id: u64,
     ctx: EventContext,
     req: RepaymentRequest<'_>,
     cache: &mut Cache,
@@ -174,6 +193,6 @@ pub fn execute_repayment(
         req.amount,
         req.asset.clone(),
     ));
-    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
+    let results = settle_repay_actions(env, account, account_id, &caller, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }
