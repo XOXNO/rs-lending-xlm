@@ -72,6 +72,10 @@ impl LendingTest {
         controller::ControllerClient::new(&self.env, &self.controller)
     }
 
+    pub fn gov_client(&self) -> governance::GovernanceClient<'_> {
+        governance::GovernanceClient::new(&self.env, &self.governance)
+    }
+
     pub fn mock_reflector_client(&self) -> crate::mock_reflector::MockReflectorClient<'_> {
         crate::mock_reflector::MockReflectorClient::new(&self.env, &self.mock_reflector)
     }

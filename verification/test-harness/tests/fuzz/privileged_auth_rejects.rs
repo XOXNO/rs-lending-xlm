@@ -45,10 +45,38 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfig
     }
 }
 
+// Auth is rejected before any field is read, so a minimal resolved shape
+// (mock-reflector constants, 100/200 BPS bands) suffices.
 fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfig {
     let asset = t.resolve_market("USDC").asset.clone();
-    let input = test_harness::reflector_single_spot_config(&t.mock_reflector, &asset, 100, 200);
-    test_harness::resolve_market_oracle_config(&t.env, &asset, &input)
+    controller::types::MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: sample_tolerance(),
+        strategy: controller::types::OracleStrategy::Single,
+        primary: controller::types::OracleSourceConfig::Reflector(
+            controller::types::ReflectorSourceConfig {
+                contract: t.mock_reflector.clone(),
+                asset: controller::types::OracleAssetRef::Stellar(asset),
+                read_mode: controller::types::OracleReadMode::Spot,
+                decimals: 14,
+                resolution_seconds: 300,
+                base: controller::types::ReflectorBase::Usd,
+            },
+        ),
+        anchor: controller::types::OracleSourceConfigOption::None,
+        min_sanity_price_wad: 1,
+        max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+    }
+}
+
+fn sample_tolerance() -> controller::types::OraclePriceFluctuation {
+    controller::types::OraclePriceFluctuation {
+        first_upper_ratio_bps: 10_100,
+        first_lower_ratio_bps: 9_901,
+        last_upper_ratio_bps: 10_200,
+        last_lower_ratio_bps: 9_804,
+    }
 }
 
 fn sample_position_limits() -> controller::types::PositionLimits {
@@ -217,11 +245,170 @@ proptest! {
             ctrl.set_auths(&no_auths).try_set_market_oracle_config(&usdc, &oracle_cfg)
         }).unwrap();
         expect_rejected("set_oracle_tolerance", || {
-            let tolerance = test_harness::tolerance_bands(&env, 100, 200);
+            let tolerance = sample_tolerance();
             ctrl.set_auths(&no_auths).try_set_oracle_tolerance(&usdc, &tolerance)
         }).unwrap();
         expect_rejected("disable_token_oracle (ORACLE)", || {
             ctrl.set_auths(&no_auths).try_disable_token_oracle(&random_addr, &usdc)
+        }).unwrap();
+    }
+
+    // Governance forwarders: every owner-gated and ORACLE-gated entrypoint
+    // must reject when no auth is presented, before any validation or
+    // cross-call into the controller.
+    #[test]
+    fn prop_governance_endpoints_reject_unauthed(
+        ltv in 0u32..10_000,
+        threshold in 0u32..10_000,
+        bonus in 0u32..2_000,
+        category_id in 1u32..100,
+        can_collateral in any::<bool>(),
+        can_borrow in any::<bool>(),
+        seed in any::<u8>(),
+    ) {
+        let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        let env = t.env.clone();
+        let gov = t.gov_client();
+        let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+        let cfg = sample_asset_config(&env);
+        let limits = sample_position_limits();
+        let usdc = t.resolve_asset("USDC");
+        let random_addr = Address::generate(&env);
+        let role_kp = Symbol::new(&env, "KEEPER");
+
+        // Address / hash setters.
+        expect_rejected("gov.set_aggregator", || {
+            gov.set_auths(&no_auths).try_set_aggregator(&random_addr)
+        }).unwrap();
+        expect_rejected("gov.set_accumulator", || {
+            gov.set_auths(&no_auths).try_set_accumulator(&random_addr)
+        }).unwrap();
+        expect_rejected("gov.set_liquidity_pool_template", || {
+            gov.set_auths(&no_auths).try_set_liquidity_pool_template(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+
+        // Market / asset configuration.
+        expect_rejected("gov.edit_asset_config", || {
+            gov.set_auths(&no_auths).try_edit_asset_config(&usdc, &cfg)
+        }).unwrap();
+        expect_rejected("gov.set_position_limits", || {
+            gov.set_auths(&no_auths).try_set_position_limits(&limits)
+        }).unwrap();
+        expect_rejected("gov.approve_token", || {
+            gov.set_auths(&no_auths).try_approve_token(&usdc)
+        }).unwrap();
+        expect_rejected("gov.revoke_token", || {
+            gov.set_auths(&no_auths).try_revoke_token(&usdc)
+        }).unwrap();
+        expect_rejected("gov.create_liquidity_pool", || {
+            let params = controller::types::MarketParamsRaw {
+                max_borrow_rate_ray: 0,
+                base_borrow_rate_ray: 0,
+                slope1_ray: 0,
+                slope2_ray: 0,
+                slope3_ray: 0,
+                mid_utilization_ray: 0,
+                optimal_utilization_ray: 0,
+                max_utilization_ray: controller::constants::RAY * 95 / 100,
+                reserve_factor_bps: 0,
+                asset_id: usdc.clone(),
+                asset_decimals: 7,
+            };
+            gov.set_auths(&no_auths).try_create_liquidity_pool(&usdc, &params, &cfg)
+        }).unwrap();
+        expect_rejected("gov.upgrade_liquidity_pool_params", || {
+            let zero_model = InterestRateModel {
+                max_borrow_rate_ray: 0,
+                base_borrow_rate_ray: 0,
+                slope1_ray: 0,
+                slope2_ray: 0,
+                slope3_ray: 0,
+                mid_utilization_ray: 0,
+                optimal_utilization_ray: 0,
+                max_utilization_ray: controller::constants::RAY * 95 / 100,
+                reserve_factor_bps: 0,
+            };
+            gov.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
+        }).unwrap();
+
+        // E-mode management.
+        expect_rejected("gov.add_e_mode_category", || {
+            gov.set_auths(&no_auths).try_add_e_mode_category(&ltv, &threshold, &bonus)
+        }).unwrap();
+        expect_rejected("gov.edit_e_mode_category", || {
+            gov.set_auths(&no_auths)
+                .try_edit_e_mode_category(&category_id, &ltv, &threshold, &bonus)
+        }).unwrap();
+        expect_rejected("gov.remove_e_mode_category", || {
+            gov.set_auths(&no_auths).try_remove_e_mode_category(&category_id)
+        }).unwrap();
+        expect_rejected("gov.add_asset_to_e_mode_category", || {
+            gov.set_auths(&no_auths).try_add_asset_to_e_mode_category(
+                &usdc, &category_id, &can_collateral, &can_borrow,
+            )
+        }).unwrap();
+        expect_rejected("gov.edit_asset_in_e_mode_category", || {
+            gov.set_auths(&no_auths).try_edit_asset_in_e_mode_category(
+                &usdc, &category_id, &can_collateral, &can_borrow,
+            )
+        }).unwrap();
+        expect_rejected("gov.remove_asset_from_e_mode", || {
+            gov.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
+        }).unwrap();
+
+        // Deployment / upgrade / lifecycle.
+        expect_rejected("gov.deploy_controller", || {
+            gov.set_auths(&no_auths).try_deploy_controller(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+        expect_rejected("gov.deploy_pool", || {
+            gov.set_auths(&no_auths).try_deploy_pool()
+        }).unwrap();
+        expect_rejected("gov.upgrade_pool", || {
+            gov.set_auths(&no_auths).try_upgrade_pool(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+        expect_rejected("gov.upgrade_controller", || {
+            gov.set_auths(&no_auths).try_upgrade_controller(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+        expect_rejected("gov.migrate_controller", || {
+            gov.set_auths(&no_auths).try_migrate_controller(&2u32)
+        }).unwrap();
+        expect_rejected("gov.upgrade (self)", || {
+            gov.set_auths(&no_auths).try_upgrade(&dummy_bytes_n(&env, seed))
+        }).unwrap();
+        expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
+        expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
+
+        // Role and ownership management.
+        expect_rejected("gov.grant_controller_role", || {
+            gov.set_auths(&no_auths).try_grant_controller_role(&random_addr, &role_kp)
+        }).unwrap();
+        expect_rejected("gov.revoke_controller_role", || {
+            gov.set_auths(&no_auths).try_revoke_controller_role(&random_addr, &role_kp)
+        }).unwrap();
+        expect_rejected("gov.transfer_controller_ownership", || {
+            gov.set_auths(&no_auths)
+                .try_transfer_controller_ownership(&random_addr, &1_000_000u32)
+        }).unwrap();
+        expect_rejected("gov.grant_role", || {
+            gov.set_auths(&no_auths).try_grant_role(&random_addr, &role_kp)
+        }).unwrap();
+        expect_rejected("gov.revoke_role", || {
+            gov.set_auths(&no_auths).try_revoke_role(&random_addr, &role_kp)
+        }).unwrap();
+        expect_rejected("gov.transfer_ownership", || {
+            gov.set_auths(&no_auths).try_transfer_ownership(&random_addr, &1_000_000u32)
+        }).unwrap();
+
+        // ORACLE-gated forwarders: a caller without the governance ORACLE
+        // role must be rejected.
+        expect_rejected("gov.configure_market_oracle (ORACLE)", || {
+            let input = test_harness::reflector_single_spot_config(&t.mock_reflector, &usdc, 100, 200);
+            gov.set_auths(&no_auths)
+                .try_configure_market_oracle(&random_addr, &usdc, &input)
+        }).unwrap();
+        expect_rejected("gov.edit_oracle_tolerance (ORACLE)", || {
+            gov.set_auths(&no_auths)
+                .try_edit_oracle_tolerance(&random_addr, &usdc, &100u32, &200u32)
         }).unwrap();
     }
 

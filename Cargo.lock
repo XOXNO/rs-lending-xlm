@@ -2081,6 +2081,7 @@ dependencies = [
  "common",
  "controller",
  "flash-loan-receiver",
+ "governance",
  "num-bigint",
  "num-rational",
  "num-traits",

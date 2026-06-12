@@ -10,6 +10,7 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 |----------|-----------|----------|
 | `smoke_test` | `smoke_test.rs` | Supply, borrow, liquidate, interest, e-mode, revenue |
 | `controller` | `controller/` | Positions, supply/borrow/repay/withdraw, liquidation, admin, e-mode, isolation, flash loan, keeper, views |
+| `governance` | `governance/` | Admin-input validation on the governance forwarders: market creation, asset config, IRM, position limits, oracle config/tolerance probing |
 | `oracle` | `oracle/` | Tolerance bands, staleness, dual-source, TWAP, Redstone, DEX USD repricing |
 | `pool` | `pool/` | Interest curves, rewards, revenue, pool math |
 | `strategy` | `strategy/` | Multiply, swap collateral/debt, router guards, happy paths, edge cases |
@@ -21,6 +22,10 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 ### `controller/`
 
 `account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `dust_floor`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `isolation`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `ownership`, `repay`, `siloed_borrow`, `supply`, `validation_admin`, `views`, `withdraw`
+
+### `governance/`
+
+`admin`, `admin_config`, `dex_usd_repricing`, `emode`, `redstone`, `tolerance`, `validation_admin`
 
 ### `oracle/`
 

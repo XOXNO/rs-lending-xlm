@@ -1,11 +1,49 @@
 use controller::constants::RAY;
-use controller::types::InterestRateModel;
+use controller::types::{
+    InterestRateModel, MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation, OracleReadMode,
+    OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, ReflectorBase,
+    ReflectorSourceConfig,
+};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
     DEFAULT_TOLERANCE,
 };
+
+/// Pre-resolved config for the thin `set_market_oracle_config` setter:
+/// mock-reflector shape (14 decimals, 300 s resolution, USD base) with the
+/// 200/500 BPS tolerance bands governance computes in-path.
+fn resolved_reflector_primary_anchor_config(
+    oracle: &Address,
+    asset: &Address,
+) -> MarketOracleConfig {
+    let source = |read_mode: OracleReadMode| {
+        OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle.clone(),
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode,
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        })
+    };
+    MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            first_upper_ratio_bps: 10_200,
+            first_lower_ratio_bps: 9_804,
+            last_upper_ratio_bps: 10_500,
+            last_lower_ratio_bps: 9_524,
+        },
+        strategy: OracleStrategy::PrimaryWithAnchor,
+        primary: source(OracleReadMode::Twap(3)),
+        anchor: OracleSourceConfigOption::Some(source(OracleReadMode::Spot)),
+        min_sanity_price_wad: 1,
+        max_sanity_price_wad: controller::constants::MAX_REASONABLE_PRICE_WAD,
+    }
+}
 // 1. test_edit_asset_config
 
 #[test]
@@ -210,8 +248,7 @@ fn test_set_market_oracle_config_activates_pending_market() {
         "market must start in PendingOracle"
     );
 
-    let input = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 200, 500);
-    let oracle_cfg = test_harness::resolve_market_oracle_config(&t.env, &asset, &input);
+    let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
     ctrl.set_market_oracle_config(&asset, &oracle_cfg);
 
     let market = ctrl.get_market_config(&asset);
@@ -234,8 +271,7 @@ fn test_set_market_oracle_config_activates_pending_market() {
 fn test_set_market_oracle_config_rejects_unknown_asset() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let usdc = t.resolve_market("USDC").asset.clone();
-    let input = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &usdc, 200, 500);
-    let oracle_cfg = test_harness::resolve_market_oracle_config(&t.env, &usdc, &input);
+    let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &usdc);
 
     let unknown = Address::generate(&t.env);
     let result = t
@@ -273,6 +309,16 @@ fn test_set_aggregator() {
 }
 // 9. set_oracle_tolerance — thin owner setter
 
+/// 300/600 BPS tolerance bands as governance computes them in-path.
+fn bands_300_600() -> OraclePriceFluctuation {
+    OraclePriceFluctuation {
+        first_upper_ratio_bps: 10_300,
+        first_lower_ratio_bps: 9_709,
+        last_upper_ratio_bps: 10_600,
+        last_lower_ratio_bps: 9_434,
+    }
+}
+
 #[test]
 fn test_set_oracle_tolerance_overwrites_bands() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -280,7 +326,7 @@ fn test_set_oracle_tolerance_overwrites_bands() {
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    let tolerance = test_harness::tolerance_bands(&t.env, 300, 600);
+    let tolerance = bands_300_600();
     ctrl.set_oracle_tolerance(&asset, &tolerance);
 
     let market = ctrl.get_market_config(&asset);
@@ -293,7 +339,7 @@ fn test_set_oracle_tolerance_overwrites_bands() {
 #[test]
 fn test_set_oracle_tolerance_rejects_unknown_asset() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let tolerance = test_harness::tolerance_bands(&t.env, 300, 600);
+    let tolerance = bands_300_600();
 
     let unknown = Address::generate(&t.env);
     let result = t

@@ -9,12 +9,13 @@ crate-type = ["rlib"]
 [features]
 default = ["reference-math"]
 reference-math = ["dep:num-rational", "dep:num-bigint", "dep:num-traits"]
-testing = ["controller/testing"]
+testing = ["controller/testing", "governance/testing"]
 
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 common = { path = "../../common" }
 controller = { path = "../../contracts/controller", features = ["testing"] }
+governance = { path = "../../contracts/governance", features = ["testing"] }
 pool = { path = "../../contracts/pool" }
 flash-loan-receiver = { path = "../../contracts/flash-loan-receiver" }
 # Exact rational arithmetic for the reference implementation used by the

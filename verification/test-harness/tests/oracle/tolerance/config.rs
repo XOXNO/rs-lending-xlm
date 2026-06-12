@@ -10,7 +10,13 @@ fn test_tolerance_config_valid_update() {
 
     let asset = t.resolve_market("USDC").asset.clone();
 
-    let tolerance = test_harness::tolerance_bands(&t.env, 300, 600);
+    // 300/600 BPS bands as governance computes them in-path.
+    let tolerance = controller::types::OraclePriceFluctuation {
+        first_upper_ratio_bps: 10_300,
+        first_lower_ratio_bps: 9_709,
+        last_upper_ratio_bps: 10_600,
+        last_lower_ratio_bps: 9_434,
+    };
     let result = ctrl.try_set_oracle_tolerance(&asset, &tolerance);
     assert!(result.is_ok(), "valid tolerance update should succeed");
 }

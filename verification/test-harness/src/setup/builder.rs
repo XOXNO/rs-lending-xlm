@@ -153,12 +153,19 @@ impl LendingTestBuilder {
         let aggregator_address =
             env.register(crate::mock_aggregator::MockAggregator, (admin.clone(),));
 
-        let controller_address = env.register(controller::Controller, (admin.clone(),));
-        let ctrl = controller::ControllerClient::new(&env, &controller_address);
+        // Governance owns admin validation; the controller keeps `admin` as its
+        // constructor owner so direct thin-setter tests stay meaningful, while
+        // every builder admin call routes through the governance forwarders
+        // (mock_all_auths covers the gov→controller owner auth).
+        let governance_address = env.register(governance::Governance, (admin.clone(),));
+        let gov = governance::GovernanceClient::new(&env, &governance_address);
 
-        ctrl.unpause();
-        ctrl.grant_role(&admin, &Symbol::new(&env, "REVENUE"));
-        ctrl.grant_role(&admin, &Symbol::new(&env, "ORACLE"));
+        let controller_address = env.register(controller::Controller, (admin.clone(),));
+        gov.set_controller(&controller_address);
+
+        gov.unpause();
+        gov.grant_controller_role(&admin, &Symbol::new(&env, "REVENUE"));
+        gov.grant_controller_role(&admin, &Symbol::new(&env, "ORACLE"));
 
         let pool_wasm_path = "target/wasm32v1-none/release/pool.wasm".to_string();
         let mut bytes = std::fs::read(&pool_wasm_path);
@@ -175,24 +182,24 @@ impl LendingTestBuilder {
                 .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
             Err(_) => panic!("Liquidity pool WASM not found. Run 'make build' first."),
         };
-        ctrl.set_liquidity_pool_template(&pool_hash);
+        gov.set_liquidity_pool_template(&pool_hash);
 
-        let global_pool = ctrl.deploy_pool();
+        let global_pool = gov.deploy_pool();
 
-        ctrl.set_aggregator(&aggregator_address);
+        gov.set_aggregator(&aggregator_address);
 
         let accumulator = aggregator_address.clone();
-        ctrl.set_accumulator(&accumulator);
+        gov.set_accumulator(&accumulator);
 
         let keeper = Address::generate(&env);
-        ctrl.grant_role(&keeper, &Symbol::new(&env, "KEEPER"));
+        gov.grant_controller_role(&keeper, &Symbol::new(&env, "KEEPER"));
 
         if let Some((max_supply, max_borrow)) = self.position_limits {
             let limits = controller::types::PositionLimits {
                 max_supply_positions: max_supply,
                 max_borrow_positions: max_borrow,
             };
-            ctrl.set_position_limits(&limits);
+            gov.set_position_limits(&limits);
         }
 
         let mock_reflector_client =
@@ -209,9 +216,9 @@ impl LendingTestBuilder {
 
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
             let asset_config = pm.config.to_asset_config(&env);
-            ctrl.approve_token(&asset_address);
+            gov.approve_token(&asset_address);
             let pool_address =
-                ctrl.create_liquidity_pool(&asset_address, &market_params, &asset_config);
+                gov.create_liquidity_pool(&asset_address, &market_params, &asset_config);
             assert_eq!(
                 pool_address, global_pool,
                 "create_liquidity_pool must return the global pool address"
@@ -226,12 +233,7 @@ impl LendingTestBuilder {
                     DEFAULT_TOLERANCE.first_upper_bps,
                     DEFAULT_TOLERANCE.last_upper_bps,
                 );
-                let oracle_cfg = crate::oracle::config::resolve_market_oracle_config(
-                    &env,
-                    &asset_address,
-                    &oracle_input,
-                );
-                ctrl.set_market_oracle_config(&asset_address, &oracle_cfg);
+                gov.configure_market_oracle(&admin, &asset_address, &oracle_input);
             }
 
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, pm.decimals);
@@ -258,7 +260,7 @@ impl LendingTestBuilder {
         }
 
         for emode in &self.pending_emodes {
-            let _id = ctrl.add_e_mode_category(
+            let _id = gov.add_e_mode_category(
                 &emode.preset.ltv,
                 &emode.preset.threshold,
                 &emode.preset.bonus,
@@ -275,7 +277,7 @@ impl LendingTestBuilder {
                     })
                     .asset
                     .clone();
-                ctrl.add_asset_to_e_mode_category(
+                gov.add_asset_to_e_mode_category(
                     &asset_addr,
                     &emode.category_id,
                     can_collateral,
@@ -291,6 +293,7 @@ impl LendingTestBuilder {
         LendingTest {
             env,
             admin,
+            governance: governance_address,
             controller: controller_address,
             mock_reflector: mock_reflector_address,
             aggregator: aggregator_address,

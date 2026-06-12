@@ -1,0 +1,292 @@
+//! IRM, asset-config, and oracle-config validation through the governance
+//! client, with real mock oracles probed in-path.
+
+use controller::constants::{BPS, MAX_REASONABLE_PRICE_WAD, RAY};
+use controller::types::{
+    InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
+    OracleSourceConfigInputOption, OracleStrategy,
+};
+use soroban_sdk::{String, Symbol};
+use test_harness::{usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+
+// `InterestRateModel::verify` invariants, driven via
+// `upgrade_liquidity_pool_params`, which validates before forwarding.
+
+fn baseline_irm() -> InterestRateModel {
+    InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY * 4 / 100,
+        slope2_ray: RAY * 10 / 100,
+        slope3_ray: RAY * 150 / 100,
+        mid_utilization_ray: RAY * 50 / 100,
+        optimal_utilization_ray: RAY * 80 / 100,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    }
+}
+
+// base_borrow_rate_ray < 0 -> BaseRateNegative (#128).
+#[test]
+#[should_panic(expected = "Error(Contract, #128)")]
+fn test_validate_irm_rejects_negative_base_rate() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut irm = baseline_irm();
+    irm.base_borrow_rate_ray = -1;
+    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+}
+
+// mid_utilization_ray <= 0 rejects InvalidUtilRange (#117).
+#[test]
+#[should_panic(expected = "Error(Contract, #117)")]
+fn test_validate_irm_rejects_zero_mid_utilization() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut irm = baseline_irm();
+    irm.mid_utilization_ray = 0;
+    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+}
+
+// optimal_utilization_ray <= mid_utilization_ray rejects #117.
+#[test]
+#[should_panic(expected = "Error(Contract, #117)")]
+fn test_validate_irm_rejects_optimal_not_above_mid() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut irm = baseline_irm();
+    irm.optimal_utilization_ray = irm.mid_utilization_ray;
+    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+}
+
+// optimal_utilization_ray >= RAY rejects OptUtilTooHigh (#118).
+#[test]
+#[should_panic(expected = "Error(Contract, #118)")]
+fn test_validate_irm_rejects_optimal_at_or_above_ray() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut irm = baseline_irm();
+    irm.optimal_utilization_ray = RAY;
+    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+}
+
+// reserve_factor_bps >= BPS rejects InvalidReserveFactor (#119).
+#[test]
+#[should_panic(expected = "Error(Contract, #119)")]
+fn test_validate_irm_rejects_reserve_factor_at_bps() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut irm = baseline_irm();
+    irm.reserve_factor_bps = BPS as u32;
+    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+}
+
+// `validate_asset_config` invariants, driven via `edit_asset_config`.
+
+// threshold*(1+bonus) > 100% rejects #113: a bonus large enough that
+// liquidation seizure would exceed collateral is invalid (mints bad debt).
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn test_validate_asset_config_rejects_excessive_liq_bonus() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
+    // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
+    cfg.loan_to_value_bps = 8000;
+    cfg.liquidation_threshold_bps = 9500;
+    cfg.liquidation_bonus_bps = 1000;
+    t.gov_client().edit_asset_config(&asset, &cfg);
+}
+
+// A large bonus is permitted when the threshold leaves room:
+// 50% threshold * (1 + 50% bonus) = 75% <= 100%. The bonus ceiling is the
+// invariant, not a flat cap.
+#[test]
+fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
+    cfg.loan_to_value_bps = 4000;
+    cfg.liquidation_threshold_bps = 5000;
+    cfg.liquidation_bonus_bps = 5000;
+    t.gov_client().edit_asset_config(&asset, &cfg);
+}
+
+// isolation_debt_ceiling_usd_wad < 0 rejects InvalidBorrowParams (#116).
+#[test]
+#[should_panic(expected = "Error(Contract, #116)")]
+fn test_validate_asset_config_rejects_negative_isolation_ceiling() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
+    cfg.isolation_debt_ceiling_usd_wad = -1;
+    t.gov_client().edit_asset_config(&asset, &cfg);
+}
+
+// `configure_market_oracle` error paths against the live mock reflector.
+
+fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
+    let asset = t.resolve_market("USDC").asset.clone();
+    test_harness::reflector_primary_anchor_config(
+        &t.mock_reflector,
+        &asset,
+        DEFAULT_TOLERANCE.first_upper_bps,
+        DEFAULT_TOLERANCE.last_upper_bps,
+    )
+}
+
+fn set_primary_reflector_read_mode(cfg: &mut MarketOracleConfigInput, read_mode: OracleReadMode) {
+    if let OracleSourceConfigInput::Reflector(ref mut source) = cfg.primary {
+        source.read_mode = read_mode;
+    }
+}
+
+fn configure_usdc(t: &LendingTest, cfg: &MarketOracleConfigInput) {
+    let asset = t.resolve_market("USDC").asset.clone();
+    t.gov_client()
+        .configure_market_oracle(&t.admin(), &asset, cfg);
+}
+
+// max_price_stale_seconds < 60 rejects InvalidStalenessConfig (#218).
+#[test]
+#[should_panic(expected = "Error(Contract, #218)")]
+fn test_configure_market_oracle_rejects_low_staleness() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.max_price_stale_seconds = 30; // Below the 60-second floor.
+    configure_usdc(&t, &cfg);
+}
+
+// max_price_stale_seconds > 86_400 rejects #218 (upper bound).
+#[test]
+#[should_panic(expected = "Error(Contract, #218)")]
+fn test_configure_market_oracle_rejects_high_staleness() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.max_price_stale_seconds = 86_401; // Above the 24-hour ceiling.
+    configure_usdc(&t, &cfg);
+}
+
+// twap_records > 12 rejects InvalidOracleTokenType (#204).
+#[test]
+#[should_panic(expected = "Error(Contract, #204)")]
+fn test_configure_market_oracle_rejects_excessive_twap_records() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    set_primary_reflector_read_mode(&mut cfg, OracleReadMode::Twap(13));
+    configure_usdc(&t, &cfg);
+}
+
+// PrimaryWithAnchor without an anchor rejects InvalidExchangeSrc (#11).
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_configure_market_oracle_rejects_dual_without_dex() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.anchor = OracleSourceConfigInputOption::None;
+    configure_usdc(&t, &cfg);
+}
+
+// Identical primary and anchor collapse the dual-source diversity guarantee
+// (anchor compared against itself always passes the tolerance band) and are
+// rejected with InvalidExchangeSrc (#11).
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_configure_market_oracle_rejects_identical_primary_anchor() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.anchor = OracleSourceConfigInputOption::Some(cfg.primary.clone());
+    configure_usdc(&t, &cfg);
+}
+
+// Two RedStone sources on the same contract and feed differ only in the
+// policy-only `max_stale_seconds`, so they read the same underlying feed and
+// collapse the dual-source diversity guarantee. Rejected with InvalidExchangeSrc
+// (#11) at shape validation even though the configs are not byte-equal.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    // The diversity check runs before any live feed read, so a placeholder
+    // contract address suffices; both sources share it (and the feed id) on
+    // purpose so they resolve to the same underlying feed.
+    let redstone = t.mock_reflector.clone();
+    let feed_id = String::from_str(&t.env, "BTC");
+
+    let mut cfg = base_oracle_config(&t);
+    cfg.strategy = OracleStrategy::PrimaryWithAnchor;
+    cfg.primary = test_harness::redstone_source_with_max_stale(&redstone, &feed_id, 600);
+    cfg.anchor = OracleSourceConfigInputOption::Some(test_harness::redstone_source_with_max_stale(
+        &redstone, &feed_id, 900,
+    ));
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_configure_market_oracle_rejects_non_usd_base() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client()
+        .set_base_other(&Symbol::new(&t.env, "EUR"));
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #221)")]
+fn test_configure_market_oracle_rejects_bad_reflector_decimals() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_decimals(&19);
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_configure_market_oracle_rejects_bad_reflector_resolution() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_resolution(&0);
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #212)")]
+fn test_configure_market_oracle_rejects_missing_twap_history() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let cfg = base_oracle_config(&t);
+    t.mock_reflector_client().set_twap_history_mode(&asset, &1);
+    configure_usdc(&t, &cfg);
+}
+
+// `validate_sanity_bounds` at configure time — #224.
+#[test]
+#[should_panic(expected = "Error(Contract, #224)")]
+fn test_configure_market_oracle_rejects_zero_min_sanity() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.min_sanity_price_wad = 0;
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #224)")]
+fn test_configure_market_oracle_rejects_min_ge_max_sanity() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.min_sanity_price_wad = 100;
+    cfg.max_sanity_price_wad = 100;
+    configure_usdc(&t, &cfg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #224)")]
+fn test_configure_market_oracle_rejects_max_sanity_above_cap() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut cfg = base_oracle_config(&t);
+    cfg.max_sanity_price_wad = MAX_REASONABLE_PRICE_WAD + 1;
+    configure_usdc(&t, &cfg);
+}
