@@ -79,7 +79,7 @@ pub(crate) fn validate_market_oracle_sources(
     }
 }
 
-pub(crate) fn validate_source(
+fn validate_source(
     env: &Env,
     controller: &Address,
     asset: &Address,

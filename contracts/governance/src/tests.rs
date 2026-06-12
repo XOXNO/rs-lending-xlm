@@ -11,8 +11,9 @@ use controller_interface::types::{
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
+use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{Address, BytesN, Env, IntoVal};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::{Governance, GovernanceClient};
@@ -259,4 +260,25 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
         e_mode_categories: soroban_sdk::Vec::new(&env),
     };
     gov.edit_asset_config(&asset, &cfg);
+}
+
+// Admin entrypoints must renew the governance instance TTL so the ownable,
+// role, and controller keys cannot expire between admin operations.
+#[test]
+fn entrypoint_renews_governance_instance_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, gov_id, gov) = register_governance(&env);
+
+    let initial_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
+
+    // grant_role succeeds without a controller and must renew the instance.
+    gov.grant_role(&admin, &Symbol::new(&env, "KEEPER"));
+
+    let renewed_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
+    assert!(
+        renewed_ttl > initial_ttl,
+        "instance TTL must be renewed: renewed={renewed_ttl}, initial={initial_ttl}"
+    );
+    assert_eq!(renewed_ttl, common::constants::TTL_BUMP_INSTANCE);
 }

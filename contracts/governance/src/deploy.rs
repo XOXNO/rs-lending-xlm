@@ -13,11 +13,12 @@ const CONTROLLER_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
 #[contractimpl]
 impl Governance {
-    /// One-time deployment of the controller owned by this contract; the
-    /// governance address is the controller's constructor admin. Reuses
-    /// `PoolAlreadyDeployed` to guard repeat deployments.
+    /// One-time controller deployment; the governance address is the
+    /// controller's constructor admin. Reverts with `PoolAlreadyDeployed`
+    /// when a controller address is already stored.
     #[only_owner]
     pub fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address {
+        storage::renew_governance_instance(&env);
         assert_with_error!(
             &env,
             !storage::has_controller(&env),

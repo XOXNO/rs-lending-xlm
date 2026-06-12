@@ -75,11 +75,13 @@ impl Governance {
 
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        crate::storage::renew_governance_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
+        crate::storage::renew_governance_instance(&env);
         let current_owner = ownable::get_owner(&env).unwrap();
 
         stellar_access::role_transfer::transfer_role(
@@ -93,6 +95,7 @@ impl Governance {
     }
 
     pub fn accept_ownership(env: Env) {
+        crate::storage::renew_governance_instance(&env);
         let previous_owner = ownable::get_owner(&env).unwrap();
         ownable::accept_ownership(&env);
         let new_owner = ownable::get_owner(&env).unwrap();
@@ -101,12 +104,14 @@ impl Governance {
 
     #[only_owner]
     pub fn grant_role(env: Env, account: Address, role: Symbol) {
+        crate::storage::renew_governance_instance(&env);
         let owner = ownable::get_owner(&env).unwrap();
         access_control::grant_role_no_auth(&env, &account, &role, &owner);
     }
 
     #[only_owner]
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
+        crate::storage::renew_governance_instance(&env);
         let owner = ownable::get_owner(&env).unwrap();
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
     }
