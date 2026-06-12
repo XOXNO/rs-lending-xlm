@@ -175,6 +175,12 @@ pub trait ControllerInterface {
     /// `i128::MAX` when uncapped, `0` while paused or market not active.
     fn max_supply(env: Env, asset: Address) -> i128;
 
+    /// Returns the largest `borrow` amount of `asset` currently executable for
+    /// `account_id` (pool liquidity, max-utilization, borrow cap, isolation
+    /// ceiling, LTV/HF gates); `0` while paused, on an inactive/non-borrowable
+    /// market, or when the asset is structurally not borrowable for the account.
+    fn max_borrow(env: Env, account_id: u64, asset: Address) -> i128;
+
     /// Returns supply/borrow indexes accrued to the current ledger timestamp;
     /// reads no oracle.
     fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw;

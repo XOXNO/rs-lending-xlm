@@ -122,6 +122,13 @@ impl Controller {
         limits::max_supply(&env, &asset)
     }
 
+    /// Largest currently executable `borrow` amount of `asset`; `0` while
+    /// paused, on an inactive/non-borrowable market, or when the asset is
+    /// structurally not borrowable for the account.
+    pub fn max_borrow(env: Env, account_id: u64, asset: Address) -> i128 {
+        limits::max_borrow(&env, account_id, &asset)
+    }
+
     /// Current indexes accrued to now; reads no oracle.
     pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
         let mut cache = Cache::new_view(&env);

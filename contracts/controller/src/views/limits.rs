@@ -10,12 +10,12 @@
 
 use common::math::fp::{Ray, Wad};
 use common::rates::{scaled_to_original, utilization};
-use common::types::{Account, AccountPosition, AssetConfig, MarketStatus};
+use common::types::{Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus};
 use common::validation::cap_is_enabled;
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::{emode, helpers, storage};
 
 /// Pool-side market state at view-simulated indexes.
 struct MarketLimitCtx {
@@ -165,6 +165,213 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
         candidate -= 1;
     }
     0
+}
+
+/// Largest currently executable `borrow` amount of `asset` for `account_id`.
+///
+/// Returns `0` while paused, on an inactive or non-borrowable market, or when
+/// the asset is structurally not borrowable for this account (isolation,
+/// e-mode category, siloed set, or borrow-position limit). Otherwise mirrors
+/// the mutating path's amount-dependent gates — pool liquidity, max
+/// utilization, borrow cap, isolation debt ceiling, then the account LTV and
+/// health-factor gates — and binary-searches the largest passing amount.
+/// Feasibility is monotone in the amount, so the result never overstates what
+/// the next transaction allows; indexes keep accruing after the read, so
+/// callers acting later should leave a margin.
+pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
+    if stellar_contract_utils::pausable::paused(env) {
+        return 0;
+    }
+    let Some(account) = storage::try_get_account(env, account_id) else {
+        return 0;
+    };
+    if storage::get_market_config(env, asset).status != MarketStatus::Active {
+        return 0;
+    }
+
+    let mut cache = Cache::new_view(env);
+    if !account_can_borrow_asset(env, &mut cache, &account, asset) {
+        return 0;
+    }
+
+    let market = MarketLimitCtx::load(&mut cache, asset);
+    // No supplied liquidity means no borrowable cash and an undefined
+    // utilization; nothing can be borrowed.
+    if market.supplied == Ray::ZERO {
+        return 0;
+    }
+
+    let config = cache.cached_asset_config(asset);
+    let mut hi = market.cash.min(borrow_cap_headroom(env, &market, &config)).max(0);
+    if hi <= 0 {
+        return 0;
+    }
+
+    // Feasibility only tightens as the amount grows; binary-search the largest
+    // amount that clears every gate.
+    let mut lo: i128 = 0;
+    while lo < hi {
+        let mid = hi - (hi - lo) / 2;
+        if borrow_ok(env, &mut cache, &account, asset, &market, &config, mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+/// Amount-independent borrowability of `asset` for `account`, mirroring the
+/// pre-pool gates in `prepare_borrow_plan`/`validate_asset_borrowable` without
+/// throwing.
+fn account_can_borrow_asset(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+) -> bool {
+    let category = emode::e_mode_category(env, account.e_mode_category_id);
+    if let Some(cat) = &category {
+        // A deprecated category reverts the borrow in the mutating path.
+        if cat.is_deprecated {
+            return false;
+        }
+    }
+
+    let config = emode::effective_asset_config(env, account, asset, cache, &category);
+    if !config.can_borrow() {
+        return false;
+    }
+    if account.is_isolated && !config.can_borrow_in_isolation() {
+        return false;
+    }
+    if account.e_mode_category_id > 0 {
+        let market = cache.cached_market_config(asset);
+        if !market
+            .asset_config
+            .e_mode_categories
+            .contains(account.e_mode_category_id)
+            || cache
+                .cached_emode_asset(account.e_mode_category_id, asset)
+                .is_none()
+        {
+            return false;
+        }
+    }
+
+    // Borrow-position limit: an asset not already borrowed needs a free slot.
+    if !account.borrow_positions.contains_key(asset.clone())
+        && account.borrow_positions.len() >= storage::get_position_limits(env).max_borrow_positions
+    {
+        return false;
+    }
+
+    siloed_borrow_ok(cache, account, asset)
+}
+
+/// Replica of `validate_siloed_borrow_set`: a siloed asset must be the
+/// account's only borrow across the union of existing debt and this asset.
+fn siloed_borrow_ok(cache: &mut Cache, account: &Account, asset: &Address) -> bool {
+    let mut distinct = account.borrow_positions.len();
+    if !account.borrow_positions.contains_key(asset.clone()) {
+        distinct += 1;
+    }
+    if distinct <= 1 {
+        return true;
+    }
+    for existing in account.borrow_positions.keys() {
+        if cache.cached_asset_config(&existing).is_siloed_borrowing {
+            return false;
+        }
+    }
+    !cache.cached_asset_config(asset).is_siloed_borrowing
+}
+
+/// Borrow-cap headroom in asset units; `i128::MAX` when the cap is disabled.
+fn borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, config: &AssetConfig) -> i128 {
+    if !cap_is_enabled(config.borrow_cap) {
+        return i128::MAX;
+    }
+    let current =
+        scaled_to_original(env, market.borrowed, market.borrow_index).to_asset(market.decimals);
+    (config.borrow_cap - current).max(0)
+}
+
+/// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
+/// post-borrow utilization, borrow cap, isolation ceiling, then the account
+/// LTV and health-factor gates with the new debt applied.
+#[allow(clippy::too_many_arguments)]
+fn borrow_ok(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    market: &MarketLimitCtx,
+    config: &AssetConfig,
+    amount: i128,
+) -> bool {
+    if amount <= 0 {
+        return true;
+    }
+    if amount > market.cash {
+        return false;
+    }
+
+    let new_scaled = Ray::from_asset(amount, market.decimals).div(env, market.borrow_index);
+    let post_borrowed = market.borrowed + new_scaled;
+
+    // Pool max-utilization gate (skipped when utilization is uncapped).
+    if market.max_utilization < Ray::ONE {
+        let util = utilization(
+            env,
+            scaled_to_original(env, post_borrowed, market.borrow_index),
+            scaled_to_original(env, market.supplied, market.supply_index),
+        );
+        if util > market.max_utilization {
+            return false;
+        }
+    }
+
+    // Borrow cap on post-borrow debt.
+    if cap_is_enabled(config.borrow_cap) {
+        let post_actual =
+            scaled_to_original(env, post_borrowed, market.borrow_index).to_asset(market.decimals);
+        if post_actual > config.borrow_cap {
+            return false;
+        }
+    }
+
+    // Isolation debt ceiling lives on the isolated collateral's config and is
+    // tracked in USD WAD at the borrow price.
+    if account.is_isolated {
+        if let Some(isolated) = account.try_isolated_token() {
+            let feed = cache.cached_price(asset);
+            let added = feed.usd_value_wad(env, amount).raw();
+            let current = storage::get_isolated_debt(env, &isolated);
+            let ceiling = cache
+                .cached_asset_config(&isolated)
+                .isolation_debt_ceiling_usd
+                .raw();
+            if current.saturating_add(added) > ceiling {
+                return false;
+            }
+        }
+    }
+
+    // Account LTV + health-factor gates with the new debt position applied.
+    let mut adjusted = account.clone();
+    let existing = adjusted
+        .borrow_positions
+        .get(asset.clone())
+        .map(|r| Ray::from(r.scaled_amount_ray))
+        .unwrap_or(Ray::ZERO);
+    adjusted.borrow_positions.set(
+        asset.clone(),
+        DebtPositionRaw {
+            scaled_amount_ray: (existing + new_scaled).raw(),
+        },
+    );
+    account_gates_ok(env, cache, &adjusted)
 }
 
 /// Exact replica of a full close: pool guards on the floor payout plus the

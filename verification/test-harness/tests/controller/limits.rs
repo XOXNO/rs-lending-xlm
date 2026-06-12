@@ -327,3 +327,50 @@ fn test_max_withdraw_full_close_stays_price_free_for_debt_free_account() {
     let max = t.ctrl_client().max_withdraw(&account_id, &asset);
     assert!(max >= 500 * UNIT - 1, "full balance expected, got {max}");
 }
+
+#[test]
+fn test_max_borrow_zero_when_paused() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    t.supply(BOB, "USDC", 10_000.0);
+    t.supply(ALICE, "ETH", 10.0);
+
+    let usdc = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    assert!(t.ctrl_client().max_borrow(&account_id, &usdc) > 0);
+    t.pause();
+    assert_eq!(t.ctrl_client().max_borrow(&account_id, &usdc), 0);
+    t.unpause();
+    assert!(t.ctrl_client().max_borrow(&account_id, &usdc) > 0);
+}
+
+#[test]
+fn test_max_borrow_bounded_by_ltv_and_executable() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    // Ample USDC liquidity so the account LTV gate — not pool cash or the cap —
+    // is the binding constraint.
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 10.0);
+
+    let usdc = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    let max = t.ctrl_client().max_borrow(&account_id, &usdc);
+    assert!(max > 0, "ETH collateral should allow a USDC borrow, got {max}");
+
+    // The preview executes to the stroop.
+    t.borrow_raw(ALICE, "USDC", max);
+
+    // Headroom collapses and one more unit trips the LTV gate the preview
+    // modeled, so the preview never overstated.
+    let after = t.ctrl_client().max_borrow(&account_id, &usdc);
+    assert!(after <= UNIT, "headroom should be ~0 after borrowing max, got {after}");
+    let res = t.try_borrow(ALICE, "USDC", 1.0);
+    assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
+}
