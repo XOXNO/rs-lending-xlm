@@ -7,3 +7,4 @@ pool.wasm 42000
 common.wasm 21000
 flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000
+governance.wasm 60000

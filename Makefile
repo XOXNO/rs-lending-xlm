@@ -72,7 +72,7 @@ TEST_HARNESS_DIR := verification/test-harness
 FUZZ_DIR := verification/fuzz
 
 # Contract crates (order matters for deployment)
-CONTRACTS := pool controller
+CONTRACTS := pool controller governance
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (verification/test-harness internals, the Certora

@@ -5,6 +5,7 @@ members = [
     "interfaces/controller",
     "contracts/pool",
     "contracts/controller",
+    "contracts/governance",
     "contracts/defindex-strategy",
     "contracts/flash-loan-receiver",
     "contracts/mock-oracle",
