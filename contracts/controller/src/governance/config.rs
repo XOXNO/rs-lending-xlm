@@ -5,13 +5,13 @@
 //! contract, which owns the controller in production. The controller keeps
 //! storage writes, state-dependent invariants, and event emission.
 
-use common::errors::{EModeError, GenericError};
 use crate::events::{
     ApproveTokenEvent, EventEModeCategory, EventOracleProvider, OracleDisabledEvent,
     RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
     UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
     UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
+use common::errors::{EModeError, GenericError};
 
 use controller_interface::types::{
     AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfig, MarketStatus,

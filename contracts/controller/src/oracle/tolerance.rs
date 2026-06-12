@@ -157,5 +157,4 @@ mod tests {
         );
         assert_eq!(price, primary);
     }
-
 }

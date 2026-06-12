@@ -45,10 +45,10 @@ fn tolerance_range(env: &Env, tolerance_bps: u32) -> (u32, u32) {
     (upper as u32, lower as u32)
 }
 
-/// Resolves a config input into the `MarketOracleConfig` the deleted on-chain
-/// validation produced: asset decimals from the token, Reflector
-/// decimals/resolution/base from live mock reads, RedStone decimals fixed at
-/// `REDSTONE_DECIMALS`, tolerance via `tolerance_bands`.
+/// Resolves a config input into the equivalent `MarketOracleConfig`: asset
+/// decimals from the token, Reflector decimals/resolution/base from mock
+/// reads, RedStone decimals from `REDSTONE_DECIMALS`, tolerance via
+/// `tolerance_bands`.
 pub fn resolve_market_oracle_config(
     env: &Env,
     asset: &Address,

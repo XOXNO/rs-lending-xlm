@@ -3,8 +3,8 @@
 //! Holds market bootstrap, keeper index updates, revenue claiming, and
 //! threshold propagation; pool and token calls go through `external`.
 
-use common::errors::{CollateralError, GenericError, OracleError};
 use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
+use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
     AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel, MarketConfig,

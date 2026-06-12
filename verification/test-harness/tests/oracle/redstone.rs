@@ -1,4 +1,6 @@
-use controller::types::{ControllerKey, MarketConfig, OracleSourceConfig, OracleSourceConfigOption};
+use controller::types::{
+    ControllerKey, MarketConfig, OracleSourceConfig, OracleSourceConfigOption,
+};
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
 use test_harness::{usd, usdc_preset, LendingTest, ALICE, DEFAULT_TOLERANCE};

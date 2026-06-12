@@ -1,6 +1,8 @@
 use controller::constants::{MAX_FLASHLOAN_FEE_BPS, WAD};
 use soroban_sdk::{vec, Address};
-use test_harness::{eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE};
+use test_harness::{
+    eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
+};
 // validate_bulk_isolation -- BulkSupplyNoIso (validation.rs:109)
 //
 // `validate_bulk_isolation` panics with #405 when a batch of distinct assets

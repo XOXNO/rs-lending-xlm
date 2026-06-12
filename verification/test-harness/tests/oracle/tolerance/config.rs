@@ -95,14 +95,15 @@ fn test_edit_asset_in_e_mode_category() {
 
     // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
-    let config: Option<controller::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
-        let cat: Option<controller::types::EModeCategoryRaw> = t
-            .env
-            .storage()
-            .persistent()
-            .get(&controller::types::ControllerKey::EModeCategory(1));
-        cat.and_then(|c| c.assets.get(usdc_asset))
-    });
+    let config: Option<controller::types::EModeAssetConfig> =
+        t.env.as_contract(&t.controller, || {
+            let cat: Option<controller::types::EModeCategoryRaw> = t
+                .env
+                .storage()
+                .persistent()
+                .get(&controller::types::ControllerKey::EModeCategory(1));
+            cat.and_then(|c| c.assets.get(usdc_asset))
+        });
     let config = config.expect("emode asset config should exist");
     assert!(
         config.is_collateralizable,
