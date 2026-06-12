@@ -65,6 +65,16 @@ impl Ray {
         Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
+    /// Converts RAY to WAD rounded down for collateral-side gate valuations.
+    pub fn to_wad_floor(self) -> Wad {
+        Wad(fp_core::rescale_floor(self.0, RAY_DECIMALS, WAD_DECIMALS))
+    }
+
+    /// Converts RAY to WAD rounded up for debt-side gate valuations.
+    pub fn to_wad_ceil(self) -> Wad {
+        Wad(fp_core::rescale_ceil(self.0, RAY_DECIMALS, WAD_DECIMALS))
+    }
+
     /// Converts RAY to asset units with half-up rounding.
     pub fn to_asset(self, asset_decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
@@ -83,6 +93,11 @@ impl Ray {
     /// Multiplies two RAY values with floor rounding for non-negative inputs.
     pub fn mul_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, other.0, RAY))
+    }
+
+    /// Multiplies two RAY values with ceiling rounding for non-negative inputs.
+    pub fn mul_ceil(self, env: &Env, other: Ray) -> Ray {
+        Ray(fp_core::mul_div_ceil(env, self.0, other.0, RAY))
     }
 
     /// Creates a RAY ratio from two integers with half-up rounding.
@@ -183,6 +198,16 @@ impl Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
+    /// Multiplies two WAD values with floor rounding for non-negative inputs.
+    pub fn mul_floor(self, env: &Env, other: Wad) -> Wad {
+        Wad(fp_core::mul_div_floor(env, self.0, other.0, WAD))
+    }
+
+    /// Multiplies two WAD values with ceiling rounding for non-negative inputs.
+    pub fn mul_ceil(self, env: &Env, other: Wad) -> Wad {
+        Wad(fp_core::mul_div_ceil(env, self.0, other.0, WAD))
+    }
+
     /// Converts asset units to WAD with half-up rounding.
     pub fn from_token(amount: i128, decimals: u32) -> Self {
         Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
@@ -191,6 +216,11 @@ impl Wad {
     /// Converts WAD to asset units with half-up rounding.
     pub fn to_token(self, decimals: u32) -> i128 {
         fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
+    }
+
+    /// Converts WAD to asset units rounded down for user credits.
+    pub fn to_token_floor(self, decimals: u32) -> i128 {
+        fp_core::rescale_floor(self.0, WAD_DECIMALS, decimals)
     }
 
     /// Converts WAD to RAY with half-up rounding.
@@ -296,6 +326,12 @@ impl Bps {
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
         value.mul(env, ratio)
+    }
+
+    /// Applies this BPS ratio to a WAD value rounded down for gate valuations.
+    pub fn apply_to_wad_floor(self, env: &Env, value: Wad) -> Wad {
+        let ratio = self.to_wad(env);
+        value.mul_floor(env, ratio)
     }
 
     /// Applies this BPS ratio to a RAY value.
@@ -991,5 +1027,81 @@ mod tests {
         assert_eq!(r.to_asset_ceil(0), 2);
         // Exact 1.0 at 7-dec ceil = 10000000 (no sub-ulp remainder).
         assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
+    }
+
+    // ---- Directional gate-valuation primitives ----------------------------
+    // floor < half_up < ceil on any non-exact remainder; equal when exact.
+
+    #[test]
+    fn test_ray_mul_ceil_vs_floor_brackets_half_up() {
+        let env = Env::default();
+        // 1 ulp * 1 ulp / RAY = sub-ulp remainder: floor 0, half-up 0, ceil 1.
+        let ulp = Ray::from(1);
+        assert_eq!(ulp.mul_floor(&env, ulp).raw(), 0);
+        assert_eq!(ulp.mul(&env, ulp).raw(), 0);
+        assert_eq!(ulp.mul_ceil(&env, ulp).raw(), 1);
+        // Exact product: all three agree.
+        let exact = Ray::from(RAY / 2);
+        assert_eq!(
+            exact.mul_floor(&env, Ray::ONE).raw(),
+            exact.mul_ceil(&env, Ray::ONE).raw()
+        );
+    }
+
+    #[test]
+    fn test_ray_to_wad_floor_and_ceil() {
+        // RAY + 1 ulp: floor drops the sub-WAD remainder, ceil keeps it.
+        let r = Ray::from(RAY + 1);
+        assert_eq!(r.to_wad_floor().raw(), WAD);
+        assert_eq!(r.to_wad_ceil().raw(), WAD + 1);
+        // Exact value: both agree.
+        assert_eq!(Ray::ONE.to_wad_floor().raw(), WAD);
+        assert_eq!(Ray::ONE.to_wad_ceil().raw(), WAD);
+    }
+
+    #[test]
+    fn test_wad_mul_floor_and_ceil_bracket_half_up() {
+        let env = Env::default();
+        // 1 wei * 1 wei / WAD = sub-wei remainder: floor 0, half-up 0, ceil 1.
+        let wei = Wad::from(1);
+        assert_eq!(wei.mul_floor(&env, wei).raw(), 0);
+        assert_eq!(wei.mul(&env, wei).raw(), 0);
+        assert_eq!(wei.mul_ceil(&env, wei).raw(), 1);
+        // 2/3-style remainder above the half tie-breaker: floor and ceil
+        // bracket half-up by exactly one ulp.
+        let a = Wad::from(WAD / 3);
+        let floor = a.mul_floor(&env, a).raw();
+        let half_up = a.mul(&env, a).raw();
+        let ceil = a.mul_ceil(&env, a).raw();
+        assert!(floor <= half_up && half_up <= ceil);
+        assert_eq!(ceil - floor, 1);
+    }
+
+    #[test]
+    fn test_wad_to_token_floor_rounds_down() {
+        // 1.9999995 units at 6 decimals: half-up rounds to 2_000_000,
+        // floor keeps 1_999_999.
+        let w = Wad::from(1_999_999_500_000_000_000i128);
+        assert_eq!(w.to_token(6), 2_000_000);
+        assert_eq!(w.to_token_floor(6), 1_999_999);
+        // Exact: identical.
+        assert_eq!(Wad::ONE.to_token_floor(6), 1_000_000);
+    }
+
+    #[test]
+    fn test_bps_apply_to_wad_floor_rounds_down() {
+        let env = Env::default();
+        // 1 wei at 3333 bps: exact = 0.3333 → floor 0, half-up 0 too;
+        // use a value with a .5 boundary: 5 wei at 5000 bps = 2.5.
+        let v = Wad::from(5);
+        let half = Bps::from(5_000);
+        assert_eq!(half.apply_to_wad(&env, v).raw(), 3); // half-up
+        assert_eq!(half.apply_to_wad_floor(&env, v).raw(), 2); // floor
+                                                               // Exact application unchanged.
+        let exact = Wad::from(100 * WAD);
+        assert_eq!(
+            Bps::from(8_000).apply_to_wad_floor(&env, exact).raw(),
+            80 * WAD
+        );
     }
 }

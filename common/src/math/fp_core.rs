@@ -23,6 +23,20 @@ pub fn mul_div_floor(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     to_i128(env, &x256.mul(&y256).div(&d256))
 }
 
+/// Computes `(x * y) / d` with ceiling rounding for non-negative inputs.
+pub fn mul_div_ceil(env: &Env, x: i128, y: i128, d: i128) -> i128 {
+    let (x256, y256, d256) = to_i256_operands(env, x, y, d);
+    let product = x256.mul(&y256);
+    let quotient = product.div(&d256);
+    let remainder = product.rem_euclid(&d256);
+    let result = if remainder == I256::from_i128(env, 0) {
+        quotient
+    } else {
+        quotient.add(&I256::from_i128(env, 1))
+    };
+    to_i128(env, &result)
+}
+
 /// Computes signed `(x * y) / d` with half-up rounding away from zero.
 pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     let (x256, y256, d256) = to_i256_operands(env, x, y, d);
@@ -312,6 +326,30 @@ mod tests {
     fn test_mul_div_floor_overflow_panics() {
         let env = Env::default();
         let _ = mul_div_floor(&env, i128::MAX, i128::MAX, 1);
+    }
+
+    // `mul_div_ceil` rounds any non-exact non-negative quotient up; exact
+    // quotients return unchanged.
+    #[test]
+    fn test_mul_div_ceil_rounds_up_on_remainder() {
+        let env = Env::default();
+        // 1/3 → ceil 1; 1/2 → ceil 1; exact 6/3 → 2.
+        assert_eq!(mul_div_ceil(&env, 1, 1, 3), 1);
+        assert_eq!(mul_div_ceil(&env, 1, 1, 2), 1);
+        assert_eq!(mul_div_ceil(&env, 6, 1, 3), 2);
+        // WAD-scale: 1/3 in WAD ends in ...334 (one above floor's ...333).
+        assert_eq!(
+            mul_div_ceil(&env, WAD, WAD, 3 * WAD),
+            333_333_333_333_333_334
+        );
+        assert_eq!(mul_div_ceil(&env, 0, 1, 7), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mul_div_ceil_overflow_panics() {
+        let env = Env::default();
+        let _ = mul_div_ceil(&env, i128::MAX, i128::MAX, 1);
     }
 
     // Signed variant — exactly ±0.5 should round AWAY from zero.

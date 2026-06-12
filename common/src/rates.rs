@@ -1,9 +1,15 @@
 use soroban_sdk::{assert_with_error, panic_with_error, Env, I256};
 
-use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR};
+use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
 use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
+
+/// Maximum chunk for compound-interest accrual: one year in ms. The Taylor
+/// expansion in `compound_interest` is only accurate within this horizon, so
+/// both the pool's mutating accrual and the read-path simulation must iterate
+/// in chunks of at most this size.
+pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Returns the per-millisecond borrow rate from the kinked utilization curve.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
@@ -152,15 +158,20 @@ pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
 }
 
 /// Simulates index accrual without mutating pool storage.
+///
+/// Mirrors the pool's mutating accrual loop chunk for chunk: utilization is
+/// recomputed per chunk and the protocol fee grows scaled supply exactly as
+/// `add_protocol_revenue_ray` does, so a read at any timestamp matches what
+/// the pool would persist for the same elapsed time.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,
     sync: &PoolSyncData,
 ) -> crate::types::MarketIndex {
     let state = PoolState::from(&sync.state);
-    let delta_ms = current_timestamp.saturating_sub(state.last_timestamp);
+    let total_delta_ms = current_timestamp.saturating_sub(state.last_timestamp);
 
-    if delta_ms == 0 {
+    if total_delta_ms == 0 {
         return crate::types::MarketIndex {
             supply_index: state.supply_index,
             borrow_index: state.borrow_index,
@@ -169,28 +180,49 @@ pub fn simulate_update_indexes(
 
     let params = MarketParams::from(&sync.params);
 
-    let borrowed_original = scaled_to_original(env, state.borrowed, state.borrow_index);
-    let supplied_original = scaled_to_original(env, state.supplied, state.supply_index);
-    let util = utilization(env, borrowed_original, supplied_original);
-    let borrow_rate = calculate_borrow_rate(env, util, &params);
-    let interest_factor = compound_interest(env, borrow_rate, delta_ms);
+    let mut supplied = state.supplied;
+    let mut borrow_index = state.borrow_index;
+    let mut supply_index = state.supply_index;
 
-    let new_borrow_index = update_borrow_index(env, state.borrow_index, interest_factor);
+    let mut remaining = total_delta_ms;
+    while remaining > 0 {
+        let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
 
-    let (supplier_rewards, _) = calculate_supplier_rewards(
-        env,
-        &params,
-        state.borrowed,
-        new_borrow_index,
-        state.borrow_index,
-    );
+        let borrowed_original = scaled_to_original(env, state.borrowed, borrow_index);
+        let supplied_original = scaled_to_original(env, supplied, supply_index);
+        let util = utilization(env, borrowed_original, supplied_original);
+        let borrow_rate = calculate_borrow_rate(env, util, &params);
+        let interest_factor = compound_interest(env, borrow_rate, chunk);
 
-    let new_supply_index =
-        update_supply_index(env, state.supplied, state.supply_index, supplier_rewards);
+        let new_borrow_index = update_borrow_index(env, borrow_index, interest_factor);
+
+        let (supplier_rewards, protocol_fee) = calculate_supplier_rewards(
+            env,
+            &params,
+            state.borrowed,
+            new_borrow_index,
+            borrow_index,
+        );
+
+        supply_index = update_supply_index(env, supplied, supply_index, supplier_rewards);
+        borrow_index = new_borrow_index;
+
+        // Mirror `add_protocol_revenue_ray`: the fee mints scaled supply, which
+        // feeds the next chunk's utilization.
+        if protocol_fee != Ray::ZERO
+            && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
+            && supplied != Ray::ZERO
+        {
+            let fee_scaled = protocol_fee.div(env, supply_index);
+            supplied = supplied.checked_add(env, fee_scaled);
+        }
+
+        remaining -= chunk;
+    }
 
     crate::types::MarketIndex {
-        supply_index: new_supply_index,
-        borrow_index: new_borrow_index,
+        supply_index,
+        borrow_index,
     }
 }
 
@@ -490,6 +522,72 @@ mod tests {
             "supply index must grow over a nonzero delta; got {}",
             indexes.supply_index.raw()
         );
+    }
+
+    // Multi-year deltas must accrue through the 1-year chunk loop. A single
+    // 8-term Taylor shot at x = 2 years under-estimates e^x (every dropped
+    // term is positive), so the chunked result must be strictly greater —
+    // and the chunk product is exact for all retained cross terms.
+    #[test]
+    fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
+        use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
+
+        let env = Env::default();
+        let params = MarketParamsRaw {
+            max_borrow_rate_ray: RAY,
+            base_borrow_rate_ray: RAY / 100,
+            slope1_ray: RAY * 4 / 100,
+            slope2_ray: RAY * 10 / 100,
+            slope3_ray: RAY * 300 / 100,
+            mid_utilization_ray: RAY * 50 / 100,
+            optimal_utilization_ray: RAY * 80 / 100,
+            max_utilization_ray: RAY * 95 / 100,
+            reserve_factor_bps: 1_000,
+            asset_id: soroban_sdk::Address::from_str(
+                &env,
+                "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+            ),
+            asset_decimals: 7,
+        };
+        let state = PoolStateRaw {
+            supplied_ray: 100 * RAY,
+            borrowed_ray: 90 * RAY,
+            revenue_ray: 0,
+            borrow_index_ray: RAY,
+            supply_index_ray: RAY,
+            last_timestamp: 0,
+            cash: 10_000_000,
+        };
+        let p = MarketParams::from(&params);
+        let s = PoolState::from(&state);
+        let sync = PoolSyncData { params, state };
+
+        let two_years = 2 * MILLISECONDS_PER_YEAR;
+        let chunked = simulate_update_indexes(&env, two_years, &sync);
+
+        // The pre-fix behavior: one Taylor shot across the full delta.
+        let util = utilization(
+            &env,
+            scaled_to_original(&env, s.borrowed, s.borrow_index),
+            scaled_to_original(&env, s.supplied, s.supply_index),
+        );
+        let rate = calculate_borrow_rate(&env, util, &p);
+        let single_shot = update_borrow_index(
+            &env,
+            s.borrow_index,
+            compound_interest(&env, rate, two_years),
+        );
+
+        assert!(
+            chunked.borrow_index.raw() > single_shot.raw(),
+            "chunked 2y accrual {} must exceed single-shot {}",
+            chunked.borrow_index.raw(),
+            single_shot.raw()
+        );
+        // Sanity: a 90%-utilization market over two years compounds well past
+        // the single-year index.
+        let one_year = simulate_update_indexes(&env, MILLISECONDS_PER_YEAR, &sync);
+        assert!(chunked.borrow_index.raw() > one_year.borrow_index.raw());
     }
 
     // Pins compound_interest against e^0.5 with tolerance tight enough to
