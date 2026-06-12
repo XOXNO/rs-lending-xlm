@@ -6,9 +6,9 @@ use soroban_sdk::{contractclient, Address, BytesN, Env, Symbol};
 
 /// Mirrors the controller admin ABI for governance forwarding.
 ///
-/// NOTE: `set_market_oracle_config` and `set_oracle_tolerance` are thin
-/// setters introduced by the governance split; they do not exist on the
-/// current controller and will be added in Task 4.
+/// `set_market_oracle_config` and `set_oracle_tolerance` are declared
+/// ahead of their on-chain implementation; calling them against a
+/// controller that does not export them traps.
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
     fn set_aggregator(env: Env, addr: Address);
@@ -54,5 +54,6 @@ pub trait ControllerAdmin {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
+    /// Read-back used by governance oracle validation (quote-market checks).
     fn get_market_config(env: Env, asset: Address) -> MarketConfig;
 }
