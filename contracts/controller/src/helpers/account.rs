@@ -30,19 +30,7 @@ pub fn require_no_supply_dust_for_assets(
     account: &Account,
     assets: &Vec<Address>,
 ) {
-    check_assets_side(
-        env,
-        cache,
-        assets,
-        Side::Supply,
-        |asset| {
-            account
-                .supply_positions
-                .get(asset.clone())
-                .map(|raw| Ray::from(raw.scaled_amount_ray))
-        },
-        |cfg| cfg.min_collat_floor_usd.raw(),
-    );
+    check_assets_side(env, cache, account, assets, Side::Supply);
 }
 
 /// Rejects sub-floor debt residue only for assets mutated by this action.
@@ -52,40 +40,48 @@ pub fn require_no_borrow_dust_for_assets(
     account: &Account,
     assets: &Vec<Address>,
 ) {
-    check_assets_side(
-        env,
-        cache,
-        assets,
-        Side::Borrow,
-        |asset| {
-            account
-                .borrow_positions
-                .get(asset.clone())
-                .map(|raw| Ray::from(raw.scaled_amount_ray))
-        },
-        |cfg| cfg.min_debt_floor_usd.raw(),
-    );
+    check_assets_side(env, cache, account, assets, Side::Borrow);
+}
+
+fn side_scaled(account: &Account, asset: &Address, side: Side) -> Option<Ray> {
+    match side {
+        Side::Supply => account
+            .supply_positions
+            .get(asset.clone())
+            .map(|raw| raw.scaled_amount_ray),
+        Side::Borrow => account
+            .borrow_positions
+            .get(asset.clone())
+            .map(|raw| raw.scaled_amount_ray),
+    }
+    .map(Ray::from)
+}
+
+fn side_floor(cfg: &controller_interface::types::AssetConfig, side: Side) -> i128 {
+    match side {
+        Side::Supply => cfg.min_collat_floor_usd.raw(),
+        Side::Borrow => cfg.min_debt_floor_usd.raw(),
+    }
 }
 
 fn check_assets_side(
     env: &Env,
     cache: &mut Cache,
+    account: &Account,
     assets: &Vec<Address>,
     side: Side,
-    scaled_for: impl Fn(&Address) -> Option<Ray>,
-    floor_for: impl Fn(&controller_interface::types::AssetConfig) -> i128,
 ) {
     // Single filter pass: only open positions on markets with a non-zero
     // floor are priced; the same set feeds the prefetch and the checks.
     let mut priceable: Vec<Address> = Vec::new(env);
     for asset in assets.iter() {
-        let Some(scaled) = scaled_for(&asset) else {
+        let Some(scaled) = side_scaled(account, &asset, side) else {
             continue;
         };
         if scaled == Ray::ZERO {
             continue;
         }
-        let floor = floor_for(&cache.cached_asset_config(&asset));
+        let floor = side_floor(&cache.cached_asset_config(&asset), side);
         if floor == 0 {
             continue;
         }
@@ -97,9 +93,10 @@ fn check_assets_side(
     crate::oracle::prefetch_redstone_feeds(cache, &priceable);
 
     for asset in priceable.iter() {
-        let scaled = scaled_for(&asset).expect("priceable is a filtered subset of assets");
+        let scaled =
+            side_scaled(account, &asset, side).expect("priceable is a filtered subset of assets");
         let cfg = cache.cached_asset_config(&asset);
-        check_position(env, cache, &asset, scaled, floor_for(&cfg), side);
+        check_position(env, cache, &asset, scaled, side_floor(&cfg, side), side);
     }
 }
 
