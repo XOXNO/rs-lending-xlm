@@ -5,7 +5,7 @@
 //! caller's responsibility.
 
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::{AccountPositionRaw, DebtPositionRaw};
+use controller_interface::types::{AccountPositionRaw, DebtPositionRaw};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::Cache;

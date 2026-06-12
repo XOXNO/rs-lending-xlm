@@ -1,4 +1,4 @@
-use common::constants::RAY;
+use controller::constants::RAY;
 use test_harness::{
     days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
     LIQUIDATOR,

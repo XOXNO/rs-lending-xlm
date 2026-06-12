@@ -5,7 +5,7 @@
 
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use common::types::{Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode};
+use controller_interface::types::{Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -177,7 +177,7 @@ fn execute_deposit_plan(
 
         // Emit with the exact supply index the pool used, not a re-read.
         cache.record_position_update(
-            common::events::PositionAction::Supply,
+            crate::events::PositionAction::Supply,
             asset,
             result.market_index.supply_index_ray,
             entry.action.amount,

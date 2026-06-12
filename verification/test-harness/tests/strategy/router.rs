@@ -1,7 +1,7 @@
 //! Router adversarial tests, panic-site coverage, oracle boundaries, and supply-cap gates.
 
-use common::constants::WAD;
-use common::types::{AssetConfigRaw, StrategySwap};
+use controller::constants::WAD;
+use controller::types::{AssetConfigRaw, StrategySwap};
 use soroban_sdk::token;
 use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
@@ -52,8 +52,8 @@ fn flatten<T>(
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller, || {
-        let key = common::types::ControllerKey::Market(asset.clone());
-        let mut market: common::types::MarketConfig =
+        let key = controller::types::ControllerKey::Market(asset.clone());
+        let mut market: controller::types::MarketConfig =
             t.env.storage().persistent().get(&key).unwrap();
         market.oracle_config.min_sanity_price_wad = min_wad;
         market.oracle_config.max_sanity_price_wad = max_wad;
@@ -92,7 +92,7 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -130,7 +130,7 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -172,7 +172,7 @@ fn test_swap_tokens_handles_zero_output_from_router() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -217,7 +217,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((wbtc, 100_000i128)),
         &None, // <- key: no convert_steps for third-token payment
@@ -236,7 +236,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         .build();
 
     // Create an account explicitly in Multiply mode.
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -254,7 +254,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Long, // mismatch
+        &controller::types::PositionMode::Long, // mismatch
         &steps,
         &None,
         &None,
@@ -418,7 +418,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
         &usdc,
         &1_0000000i128, // 1 ETH flash debt
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((usdc.clone(), 500_0000000i128)), // 500 USDC initial payment
         &None,
@@ -497,7 +497,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &main_steps,
         &Some((wbtc, 10_000_000i128)),
         &Some(convert_steps),
@@ -550,7 +550,7 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert!(result.is_err(), "OverPull must be rejected");
@@ -591,7 +591,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -628,7 +628,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -649,7 +649,7 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps2,
         &None,
         &None,
@@ -712,7 +712,7 @@ fn test_borrow_at_cap_then_step_over_rejected() {
         .with_market(eth_preset())
         .with_market_params("USDC", |p| {
             // Tight cap: 85 %. (Must stay ≥ optimal=80 % per validator.)
-            p.max_utilization_ray = common::constants::RAY * 85 / 100;
+            p.max_utilization_ray = controller::constants::RAY * 85 / 100;
         })
         .build();
 
@@ -818,7 +818,7 @@ fn test_strategy_multiply_supply_cap_reached() {
         "USDC",
         10.0,
         "ETH",
-        common::types::PositionMode::Multiply, // Multiply mode
+        controller::types::PositionMode::Multiply, // Multiply mode
         &steps,
     );
     assert_contract_error(res, 105);
@@ -843,7 +843,7 @@ fn test_strategy_multiply_unsupported_category() {
         "USDC",
         5.0,
         "ETH",
-        common::types::PositionMode::Multiply, // mode
+        controller::types::PositionMode::Multiply, // mode
         &steps,
     );
 

@@ -9,7 +9,7 @@ use soroban_sdk::Env;
 
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::ResolvedOracleComponents;
-use common::constants::WAD;
+use controller::constants::WAD;
 
 #[rule]
 fn strict_policies_forbid_degraded_dual_source() {

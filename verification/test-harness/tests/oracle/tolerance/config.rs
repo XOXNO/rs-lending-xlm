@@ -114,7 +114,7 @@ fn test_set_accumulator() {
         t.env
             .storage()
             .instance()
-            .get(&common::types::ControllerKey::Accumulator)
+            .get(&controller::types::ControllerKey::Accumulator)
             .unwrap()
     });
     assert_eq!(stored, accumulator, "accumulator address should be stored");
@@ -134,7 +134,7 @@ fn test_set_liquidity_pool_template() {
         t.env
             .storage()
             .instance()
-            .get(&common::types::ControllerKey::PoolTemplate)
+            .get(&controller::types::ControllerKey::PoolTemplate)
             .unwrap()
     });
     assert_eq!(stored, hash, "pool template hash should be stored");
@@ -176,12 +176,12 @@ fn test_edit_asset_in_e_mode_category() {
 
     // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
-    let config: Option<common::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
-        let cat: Option<common::types::EModeCategoryRaw> = t
+    let config: Option<controller::types::EModeAssetConfig> = t.env.as_contract(&t.controller, || {
+        let cat: Option<controller::types::EModeCategoryRaw> = t
             .env
             .storage()
             .persistent()
-            .get(&common::types::ControllerKey::EModeCategory(1));
+            .get(&controller::types::ControllerKey::EModeCategory(1));
         cat.and_then(|c| c.assets.get(usdc_asset))
     });
     let config = config.expect("emode asset config should exist");

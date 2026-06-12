@@ -1,6 +1,6 @@
-use common::constants::{RAY, WAD};
+use controller::constants::{RAY, WAD};
 use common::math::fp::Ray;
-use common::types::{AccountPositionType, ControllerKey, PositionLimits};
+use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
@@ -199,7 +199,7 @@ impl LendingTest {
     }
     // Account info
 
-    pub fn get_account_attributes(&self, user: &str) -> common::types::AccountAttributes {
+    pub fn get_account_attributes(&self, user: &str) -> controller::types::AccountAttributes {
         let account_id = self.resolve_account_id(user);
         self.ctrl_client().get_account_attributes(&account_id)
     }
@@ -216,7 +216,7 @@ impl LendingTest {
         accounts
     }
 
-    pub fn get_asset_config(&self, asset_name: &str) -> common::types::AssetConfigRaw {
+    pub fn get_asset_config(&self, asset_name: &str) -> controller::types::AssetConfigRaw {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().get_market_config(&asset).asset_config
     }
@@ -231,7 +231,7 @@ impl LendingTest {
             .pool_address
     }
 
-    pub fn get_position_limits(&self) -> common::types::PositionLimits {
+    pub fn get_position_limits(&self) -> controller::types::PositionLimits {
         self.env.as_contract(&self.controller, || {
             self.env
                 .storage()
@@ -246,7 +246,7 @@ impl LendingTest {
             self.env
                 .storage()
                 .persistent()
-                .get::<_, common::types::AccountMeta>(&ControllerKey::AccountMeta(account_id))
+                .get::<_, controller::types::AccountMeta>(&ControllerKey::AccountMeta(account_id))
                 .expect("account must exist")
                 .owner
         })

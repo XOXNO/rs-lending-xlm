@@ -261,7 +261,7 @@ fn test_strategy_empty_swap_payload_multiply() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &empty_steps,
     );
     // The controller rejects empty opaque swap bytes before routing.
@@ -281,7 +281,7 @@ fn test_multiply_zero_debt_amount() {
         "USDC",
         0.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
@@ -462,7 +462,7 @@ fn test_multiply_same_asset_is_caught() {
         "ETH",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);

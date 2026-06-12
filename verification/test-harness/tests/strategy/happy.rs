@@ -1,5 +1,5 @@
-use common::constants::WAD;
-use common::types::StrategySwap;
+use controller::constants::WAD;
+use controller::types::StrategySwap;
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
     mock_swap_payload_xdr, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE, BOB,
@@ -45,7 +45,7 @@ fn test_multiply_creates_leveraged_position() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -89,7 +89,7 @@ fn test_multiply_mode_long() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Long,
+        controller::types::PositionMode::Long,
         &steps,
     );
 
@@ -98,7 +98,7 @@ fn test_multiply_mode_long() {
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(
         attrs.mode,
-        common::types::PositionMode::Long,
+        controller::types::PositionMode::Long,
         "mode should be Long"
     );
 
@@ -138,7 +138,7 @@ fn test_multiply_mode_short() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Short,
+        controller::types::PositionMode::Short,
         &steps,
     );
 
@@ -147,7 +147,7 @@ fn test_multiply_mode_short() {
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(
         attrs.mode,
-        common::types::PositionMode::Short,
+        controller::types::PositionMode::Short,
         "mode should be Short"
     );
 
@@ -197,7 +197,7 @@ fn test_multiply_wbtc_collateral() {
         "WBTC",
         1000.0,
         "USDC",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -455,7 +455,7 @@ fn test_multiply_emode_stablecoin() {
         &collateral_addr,
         &1000_0000000i128, // borrow 1000 USDT
         &debt_addr,
-        &common::types::PositionMode::Multiply, // mode = Multiply
+        &controller::types::PositionMode::Multiply, // mode = Multiply
         &steps,
         &None, // initial_payment
         &None, // convert_steps
@@ -501,7 +501,7 @@ fn test_multiply_large_amounts() {
         "USDC",
         100.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -546,7 +546,7 @@ fn test_multiply_two_users() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps_alice,
     );
 
@@ -560,7 +560,7 @@ fn test_multiply_two_users() {
         "USDC",
         2.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps_bob,
     );
 
@@ -663,7 +663,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
@@ -686,7 +686,7 @@ fn test_multiply_rejects_non_collateralizable() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::NOT_COLLATERAL);
@@ -709,7 +709,7 @@ fn test_multiply_rejects_during_flash_loan() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
@@ -760,8 +760,8 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
             flashloan_fee_bps: 9,
             borrow_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
             supply_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
-            min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+            min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
         },
         params: test_harness::MarketParamsPreset {
             mid_utilization_ray: 500_000_000_000_000_000_000_000_000, // 0.5 RAY
@@ -805,7 +805,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
         &shit_addr,
         &50_000_000_000_i128, // 50k USDC debt to flash loan (decimals 6) -> 50,000 * 10^6
         &usdc_addr,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((shit_addr.clone(), 100_000 * WAD)),
         &None,

@@ -1,4 +1,4 @@
-use common::constants::RAY;
+use controller::constants::RAY;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
 };
@@ -158,7 +158,7 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
 #[test]
 fn test_update_params_rejects_max_below_optimal() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let model = common::types::InterestRateModel {
+    let model = controller::types::InterestRateModel {
         max_borrow_rate_ray: RAY,
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY * 4 / 100,
@@ -184,7 +184,7 @@ fn test_update_params_rejects_max_below_optimal() {
 #[test]
 fn test_update_params_rejects_max_above_one() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let model = common::types::InterestRateModel {
+    let model = controller::types::InterestRateModel {
         max_borrow_rate_ray: RAY,
         base_borrow_rate_ray: RAY / 100,
         slope1_ray: RAY * 4 / 100,

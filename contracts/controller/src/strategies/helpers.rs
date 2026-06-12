@@ -5,7 +5,7 @@
 //! input spend and output receipt from observed SAC balances.
 
 use common::errors::GenericError;
-use common::types::{Account, AccountPosition, DebtPosition, StrategySwap};
+use controller_interface::types::{Account, AccountPosition, DebtPosition, StrategySwap};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{assert_with_error, panic_with_error, symbol_short, Address, Env, IntoVal, Vec};
 
@@ -30,14 +30,14 @@ pub(crate) struct StrategyRepay<'a> {
     pub debt_token: &'a Address,
     pub debt_available: i128,
     pub debt_pos: &'a DebtPosition,
-    pub action: common::events::PositionAction,
+    pub action: crate::events::PositionAction,
 }
 
 pub(crate) struct StrategyWithdraw<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub position: &'a AccountPosition,
-    pub action: common::events::PositionAction,
+    pub action: crate::events::PositionAction,
 }
 
 struct SwapBalanceSnapshot {
@@ -45,7 +45,7 @@ struct SwapBalanceSnapshot {
     pub token_out: i128,
 }
 
-fn controller_event_context(env: &Env, action: common::events::PositionAction) -> EventContext {
+fn controller_event_context(env: &Env, action: crate::events::PositionAction) -> EventContext {
     EventContext {
         caller: env.current_contract_address(),
         action,
@@ -355,7 +355,7 @@ pub(crate) fn execute_withdraw_all(
                 account,
                 EventContext {
                     caller: destination.clone(),
-                    action: common::events::PositionAction::CloseWd,
+                    action: crate::events::PositionAction::CloseWd,
                 },
                 WithdrawalRequest {
                     asset: &asset,

@@ -1,7 +1,7 @@
-use crate::math::fp::{Bps, Ray, Wad};
+use common::math::fp::{Bps, Ray, Wad};
 use crate::types::oracle::MarketOracleConfig;
-use crate::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
-use crate::types::shared::PositionMode;
+use common::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
+use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
 /// Persistent asset risk and limit configuration.
@@ -263,7 +263,7 @@ pub struct SeizeEntry {
     pub amount: i128,
     pub protocol_fee: i128,
     pub feed: crate::types::oracle::PriceFeedRaw,
-    pub market_index: crate::types::pool::MarketIndexRaw,
+    pub market_index: common::types::pool::MarketIndexRaw,
 }
 
 #[contracttype]
@@ -273,7 +273,7 @@ pub struct RepayEntry {
     pub amount: i128,
     pub usd_wad: i128,
     pub feed: crate::types::oracle::PriceFeedRaw,
-    pub market_index: crate::types::pool::MarketIndexRaw,
+    pub market_index: common::types::pool::MarketIndexRaw,
 }
 
 #[contracttype]
@@ -393,7 +393,7 @@ impl From<&AccountMeta> for AccountAttributes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::WAD;
+    use common::constants::WAD;
     use soroban_sdk::{testutils::Address as _, Env};
 
     fn sample_asset_config_raw(env: &Env) -> AssetConfigRaw {
@@ -604,7 +604,7 @@ mod tests {
         let mut account = empty_account(&env, account_meta(&env, 0, false));
         let asset = Address::generate(&env);
         let stored = AccountPositionRaw {
-            scaled_amount_ray: 42 * crate::constants::RAY,
+            scaled_amount_ray: 42 * common::constants::RAY,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,
             loan_to_value_bps: 7_500,

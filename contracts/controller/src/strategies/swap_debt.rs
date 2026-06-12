@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError};
-use common::types::{DebtPosition, StrategySwap};
+use controller_interface::types::{DebtPosition, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -109,7 +109,7 @@ pub fn process_swap_debt(
             debt_token: existing_debt_token,
             debt_available: swapped_amount,
             debt_pos: &existing_pos,
-            action: common::events::PositionAction::SwDebtR,
+            action: crate::events::PositionAction::SwDebtR,
         },
     );
 

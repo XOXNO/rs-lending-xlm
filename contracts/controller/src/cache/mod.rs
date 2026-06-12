@@ -5,12 +5,12 @@
 //! Position deltas, market snapshots, and isolated-debt changes are buffered
 //! until the flow has written storage and emits the final batch events.
 
-use common::constants::MS_PER_SECOND;
-use common::events::{
+use crate::constants::MS_PER_SECOND;
+use crate::events::{
     EventBorrowDelta, EventDebtCeilingEntry, EventDepositDelta, EventMarketState, PositionAction,
     UpdateDebtCeilingBatchEvent, UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
 };
-use common::types::{
+use controller_interface::types::{
     Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, MarketConfig,
     MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed, PriceFeedRaw,
 };

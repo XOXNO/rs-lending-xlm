@@ -4,7 +4,7 @@
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
 
 use common::errors::GenericError;
-use common::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
+use controller_interface::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -91,7 +91,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         &mut account,
         account_id,
         caller,
-        common::events::PositionAction::Repay,
+        crate::events::PositionAction::Repay,
         &actions,
         &mut cache,
     );
@@ -118,7 +118,7 @@ pub(crate) fn settle_repay_actions(
     account: &mut Account,
     account_id: u64,
     payer: &Address,
-    action: common::events::PositionAction,
+    action: crate::events::PositionAction,
     actions: &Vec<PoolAction>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
@@ -136,7 +136,7 @@ pub(crate) fn finish_repayment(
     env: &Env,
     account: &mut Account,
     account_id: u64,
-    action: common::events::PositionAction,
+    action: crate::events::PositionAction,
     asset: &Address,
     result: &PoolPositionMutation,
     cache: &mut Cache,

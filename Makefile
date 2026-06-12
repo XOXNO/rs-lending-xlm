@@ -108,7 +108,7 @@ endif
 ## Build all contracts (WASM release)
 build:
 	@echo "Building all contracts (stack-size $(WASM_STACK_SIZE))..."
-	RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build
+	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build
 	@echo ""
 	@echo "WASM artifacts:"
 	@ls -lh $(RELEASE_DIR)/*.wasm 2>/dev/null || ls -lh target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || echo "  (none found)"
@@ -116,7 +116,7 @@ build:
 ## Build a single contract: make build-one CRATE=controller
 build-one:
 	@echo "Building $(CRATE) (stack-size $(WASM_STACK_SIZE))..."
-	RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE)
+	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE)
 
 ## Optimize WASM binaries for local tooling and inspection.
 optimize: build

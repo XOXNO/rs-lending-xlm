@@ -1,6 +1,6 @@
 //! Market, oracle, and position presets for integration tests.
 
-use common::constants::WAD;
+use controller::constants::WAD;
 
 use crate::context::{LendingTest, LendingTestBuilder};
 use crate::helpers::usd_cents;

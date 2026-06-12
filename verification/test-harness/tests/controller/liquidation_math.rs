@@ -1,4 +1,4 @@
-use common::constants::{RAY, WAD};
+use controller::constants::{RAY, WAD};
 use test_harness::{eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 // Rigorous liquidation math tests -- verify EXACT bonus, seizure, and HF.
 //

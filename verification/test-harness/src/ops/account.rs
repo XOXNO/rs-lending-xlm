@@ -1,4 +1,4 @@
-use common::types::{AccountMeta, ControllerKey, EModeCategoryRaw, PositionMode};
+use controller::types::{AccountMeta, ControllerKey, EModeCategoryRaw, PositionMode};
 use soroban_sdk::Address;
 
 use crate::core::{AccountEntry, LendingTest};

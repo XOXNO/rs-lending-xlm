@@ -1,4 +1,4 @@
-use common::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::testutils::Events as _;
 use soroban_sdk::vec;
 use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE};

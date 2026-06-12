@@ -1,4 +1,4 @@
-use common::constants::WAD;
+use controller::constants::WAD;
 
 use test_harness::{
     assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd, usd_cents, usdc_preset,

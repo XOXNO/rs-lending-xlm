@@ -4,7 +4,7 @@
 //! holds `FlashLoanOngoing` during the callback to block re-entrant mutations.
 
 use common::errors::FlashLoanError;
-use common::events::FlashLoanEvent;
+use crate::events::FlashLoanEvent;
 use common::math::fp::Bps;
 use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;

@@ -266,21 +266,21 @@ pub struct PriceFeedRaw {
 /// Typed oracle price used by controller math.
 #[derive(Clone, Copy, Debug)]
 pub struct PriceFeed {
-    pub price: crate::math::fp::Wad,
+    pub price: common::math::fp::Wad,
     pub asset_decimals: u32,
     pub timestamp: u64,
 }
 
 impl PriceFeed {
-    pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
-        crate::math::fp::Wad::from_token(token_amount, self.asset_decimals).mul(env, self.price)
+    pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> common::math::fp::Wad {
+        common::math::fp::Wad::from_token(token_amount, self.asset_decimals).mul(env, self.price)
     }
 }
 
 impl From<&PriceFeedRaw> for PriceFeed {
     fn from(r: &PriceFeedRaw) -> Self {
         Self {
-            price: crate::math::fp::Wad::from(r.price_wad),
+            price: common::math::fp::Wad::from(r.price_wad),
             asset_decimals: r.asset_decimals,
             timestamp: r.timestamp,
         }
@@ -300,7 +300,7 @@ impl From<&PriceFeed> for PriceFeedRaw {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::WAD;
+    use common::constants::WAD;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Symbol;
 
@@ -552,7 +552,7 @@ mod tests {
     fn test_price_feed_usd_value_wad_scales_by_decimals() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(2 * WAD), // $2/token
+            price: common::math::fp::Wad::from(2 * WAD), // $2/token
             asset_decimals: 7,
             timestamp: 0,
         };

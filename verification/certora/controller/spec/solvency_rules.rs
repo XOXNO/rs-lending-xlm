@@ -7,7 +7,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use common::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
+use controller::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
 use common::math::fp::{Ray, Wad};
 // Solvency Rules
 // Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md Sec.12)
@@ -316,7 +316,7 @@ fn supply_position_limit_enforced(
     let current_list = crate::storage::get_position_list(
         &e,
         account_id,
-        common::types::AccountPositionType::Deposit,
+        controller::types::AccountPositionType::Deposit,
     );
     cvlr_assume!(current_list.len() == limits.max_supply_positions as u32);
 
@@ -357,7 +357,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     let current_list = crate::storage::get_position_list(
         &e,
         account_id,
-        common::types::AccountPositionType::Borrow,
+        controller::types::AccountPositionType::Borrow,
     );
     cvlr_assume!(current_list.len() == limits.max_borrow_positions as u32);
     cvlr_assume!(limits.max_borrow_positions as u32 <= 10);
@@ -575,7 +575,7 @@ fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Addres
     let borrow_list = crate::storage::get_position_list(
         &e,
         account_id,
-        common::types::AccountPositionType::Borrow,
+        controller::types::AccountPositionType::Borrow,
     );
     cvlr_assume!(borrow_list.len() == 1);
 

@@ -2,7 +2,7 @@
 //! supply positions from the effective (e-mode aware) market config.
 
 use common::math::fp::{Bps, Wad};
-use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};
+use controller_interface::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::Cache;

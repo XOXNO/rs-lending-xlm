@@ -6,7 +6,7 @@
 
 use common::errors::CollateralError;
 use common::math::fp::{Ray, Wad};
-use common::types::{Account, AccountMeta, AccountPosition, DebtPosition, PositionMode};
+use controller_interface::types::{Account, AccountMeta, AccountPosition, DebtPosition, PositionMode};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use super::math::position_value;
@@ -73,7 +73,7 @@ fn check_assets_side(
     assets: &Vec<Address>,
     side: Side,
     scaled_for: impl Fn(&Address) -> Option<Ray>,
-    floor_for: impl Fn(&common::types::AssetConfig) -> i128,
+    floor_for: impl Fn(&controller_interface::types::AssetConfig) -> i128,
 ) {
     // Single filter pass: only open positions on markets with a non-zero
     // floor are priced; the same set feeds the prefetch and the checks.

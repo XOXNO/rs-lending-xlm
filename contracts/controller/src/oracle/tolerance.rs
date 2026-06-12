@@ -2,12 +2,12 @@
 //!
 //! Applies tolerance bands between primary and anchor prices.
 
-use common::constants::{
+use crate::constants::{
     BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, RAY,
 };
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
-use common::types::OraclePriceFluctuation;
+use controller_interface::types::OraclePriceFluctuation;
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
@@ -153,7 +153,7 @@ mod tests {
         assert!(!is_within_anchor(
             &env,
             0,
-            100 * common::constants::WAD,
+            100 * crate::constants::WAD,
             200,
             200
         ));
@@ -188,8 +188,8 @@ mod tests {
         };
         let _ = calculate_final_price(
             &cache,
-            Some(100 * common::constants::WAD),
-            Some(200 * common::constants::WAD),
+            Some(100 * crate::constants::WAD),
+            Some(200 * crate::constants::WAD),
             &tight,
         );
     }
@@ -204,10 +204,10 @@ mod tests {
             last_upper_ratio_bps: 10_020,
             last_lower_ratio_bps: 9_980,
         };
-        let primary = 200 * common::constants::WAD;
+        let primary = 200 * crate::constants::WAD;
         let price = calculate_final_price(
             &cache,
-            Some(100 * common::constants::WAD),
+            Some(100 * crate::constants::WAD),
             Some(primary),
             &tight,
         );

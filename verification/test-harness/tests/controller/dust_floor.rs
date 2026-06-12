@@ -35,7 +35,7 @@ fn test_supply_unrelated_asset_not_blocked_by_price_crashed_position() {
 
     // USDC crashes to $0.50. Alice's position is now $7.50 < $10 floor.
     // She did not cause this — the market moved.
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
 
     // Alice now deposits a healthy unrelated asset ($100 ETH). The
     // pre-existing crashed USDC position must not block this.
@@ -67,7 +67,7 @@ fn test_borrow_not_blocked_by_price_crashed_supply_position() {
 
     // USDC crashes to $0.50 → USDC supply position now worth $7.50, dust.
     // ETH collateral untouched ($1000) so the account is still healthy.
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
 
     // Alice borrows a healthy amount of USDT, well above the floor.
     let result = t.try_borrow(ALICE, "USDT", 50.0);
@@ -92,7 +92,7 @@ fn test_withdraw_not_blocked_by_price_crashed_other_supply_position() {
     t.supply_bulk(ALICE, &[("ETH", 0.5), ("USDC", 15.0)]);
 
     // USDC crashes — USDC supply position now sub-floor at $7.50.
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
 
     // Alice withdraws part of her ETH (leaves $900 of ETH, still well
     // above floor). The drifted USDC leg must not block this.
@@ -123,7 +123,7 @@ fn test_repay_not_blocked_by_price_crashed_other_borrow_position() {
 
     // ETH crashes hard. Alice's ETH debt is now 0.025 × $40 = $1, dust.
     // (Her supply ETH/USDC isn't relevant — USDC is the collateral.)
-    t.set_price("ETH", common::constants::WAD * 40);
+    t.set_price("ETH", controller::constants::WAD * 40);
 
     // Alice repays $50 of USDT. ETH debt is untouched; its dust state is
     // not the repay path's concern.
@@ -197,7 +197,7 @@ fn test_liquidation_expands_to_full_close_on_dust_residue() {
 
     // Crash USDC to make Alice liquidatable. New collateral $100, debt
     // $130, HF = $100 * 0.80 / $130 = 0.615 → underwater.
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
     // Liquidator repays $125 (just enough to push HF back near 1). A
@@ -226,7 +226,7 @@ fn test_liquidation_partial_payment_does_not_over_seize_on_dust_expansion() {
     // Alice supplies $200 USDC, borrows $130 ETH.
     t.supply(ALICE, "USDC", 200.0);
     t.borrow(ALICE, "ETH", 0.065);
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
     // Snapshot Alice's debt before. Under the over-seize bug, dust
@@ -281,7 +281,7 @@ fn test_liquidation_partial_above_optimal_rejects_when_residue_would_be_dust() {
 
     // Halve USDC. Collateral → $15, debt → $24, HF = $15·0.80/$24 ≈ 0.50.
     // d_max ≈ $15/1.05 ≈ $14.29 leaves residue ≈ $9.71 — sub-$10 floor.
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
     // Pay 0.010 ETH = $20 — above the optimal partial target (≈ $14)
@@ -313,7 +313,7 @@ fn test_liquidation_rejects_per_position_dust_on_multi_debt_account() {
     t.borrow(ALICE, "USDT", 100.0);
 
     // Crash USDC to push Alice underwater.
-    t.set_price("USDC", common::constants::WAD * 35 / 100);
+    t.set_price("USDC", controller::constants::WAD * 35 / 100);
     t.assert_liquidatable(ALICE);
 
     // Liquidator pays only on the small ETH leg, just enough to leave
@@ -338,7 +338,7 @@ fn test_liquidation_full_payment_closes_dust_position() {
     // $22 stays under that ceiling.
     t.supply(ALICE, "USDC", 30.0);
     t.borrow(ALICE, "ETH", 0.011);
-    t.set_price("USDC", common::constants::WAD / 2);
+    t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
     // Pay 0.011 ETH = $22 = total debt. Dust expansion fires AND the
@@ -362,16 +362,16 @@ fn test_update_params_threads_custom_max_utilization() {
 
     // Apply a non-default cap (85 %) via the controller's pool-params
     // update path.
-    let model = common::types::InterestRateModel {
-        max_borrow_rate_ray: 2 * common::constants::RAY,
-        base_borrow_rate_ray: common::constants::RAY / 100,
-        slope1_ray: common::constants::RAY * 4 / 100,
-        slope2_ray: common::constants::RAY * 10 / 100,
-        slope3_ray: common::constants::RAY * 80 / 100,
-        mid_utilization_ray: common::constants::RAY * 50 / 100,
-        optimal_utilization_ray: common::constants::RAY * 80 / 100,
+    let model = controller::types::InterestRateModel {
+        max_borrow_rate_ray: 2 * controller::constants::RAY,
+        base_borrow_rate_ray: controller::constants::RAY / 100,
+        slope1_ray: controller::constants::RAY * 4 / 100,
+        slope2_ray: controller::constants::RAY * 10 / 100,
+        slope3_ray: controller::constants::RAY * 80 / 100,
+        mid_utilization_ray: controller::constants::RAY * 50 / 100,
+        optimal_utilization_ray: controller::constants::RAY * 80 / 100,
         // Non-default — must survive the round-trip.
-        max_utilization_ray: common::constants::RAY * 85 / 100,
+        max_utilization_ray: controller::constants::RAY * 85 / 100,
         reserve_factor_bps: 1000,
     };
     t.ctrl_client()
@@ -383,7 +383,7 @@ fn test_update_params_threads_custom_max_utilization() {
     let sync = pool.get_sync_data(&asset);
     assert_eq!(
         sync.params.max_utilization_ray,
-        common::constants::RAY * 85 / 100,
+        controller::constants::RAY * 85 / 100,
         "update_params dropped max_utilization_ray"
     );
 }
@@ -398,7 +398,7 @@ fn test_isolated_repay_works_against_disabled_market() {
         .with_market_config("USDC", |c| {
             c.is_isolated_asset = true;
             c.isolation_borrow_enabled = true;
-            c.isolation_debt_ceiling_usd_wad = 1_000_000 * common::constants::WAD;
+            c.isolation_debt_ceiling_usd_wad = 1_000_000 * controller::constants::WAD;
         })
         .with_market(eth_preset())
         .with_market_config("ETH", |c| {
@@ -414,10 +414,10 @@ fn test_isolated_repay_works_against_disabled_market() {
 
     // Operator disables the USDC market (e.g. deprecation).
     t.env.as_contract(&t.controller, || {
-        let key = common::types::ControllerKey::Market(t.resolve_asset("USDC"));
-        let mut market: common::types::MarketConfig =
+        let key = controller::types::ControllerKey::Market(t.resolve_asset("USDC"));
+        let mut market: controller::types::MarketConfig =
             t.env.storage().persistent().get(&key).unwrap();
-        market.status = common::types::MarketStatus::Disabled;
+        market.status = controller::types::MarketStatus::Disabled;
         t.env.storage().persistent().set(&key, &market);
     });
 

@@ -1,4 +1,4 @@
-use common::constants::WAD;
+use controller::constants::WAD;
 use soroban_sdk::String;
 use test_harness::oracle::redstone::{
     anchor_market_with_redstone, anchor_market_with_redstone_feed, redstone_counters,
@@ -982,10 +982,10 @@ fn test_disabled_market_panics_same_through_prefetch() {
 
     // Disable the ETH market.
     t.env.as_contract(&t.controller, || {
-        let key = common::types::ControllerKey::Market(t.resolve_asset("ETH"));
-        let mut market: common::types::MarketConfig =
+        let key = controller::types::ControllerKey::Market(t.resolve_asset("ETH"));
+        let mut market: controller::types::MarketConfig =
             t.env.storage().persistent().get(&key).unwrap();
-        market.status = common::types::MarketStatus::Disabled;
+        market.status = controller::types::MarketStatus::Disabled;
         t.env.storage().persistent().set(&key, &market);
     });
 
@@ -1034,7 +1034,7 @@ fn test_multiply_fires_one_bulk_redstone_call() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 

@@ -1,4 +1,4 @@
-use common::types::{PositionMode, StrategySwap};
+use controller::types::{PositionMode, StrategySwap};
 
 use crate::core::{AccountEntry, LendingTest};
 use crate::helpers::f64_to_i128;

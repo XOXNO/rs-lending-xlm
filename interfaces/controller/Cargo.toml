@@ -9,3 +9,6 @@ crate-type = ["rlib"]
 [dependencies]
 soroban-sdk = { workspace = true }
 common = { path = "../../common" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

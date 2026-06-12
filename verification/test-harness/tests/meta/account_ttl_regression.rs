@@ -1,4 +1,4 @@
-use common::types::ControllerKey;
+use controller::types::ControllerKey;
 use soroban_sdk::testutils::storage::Persistent as _;
 use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
 

@@ -7,7 +7,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::{BPS, RAY};
+use controller::constants::{BPS, RAY};
 // Rule 1: LTV < liquidation_threshold (always)
 
 /// For every registered asset, LTV must be strictly less than the liquidation
@@ -63,7 +63,7 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
         let deposit_count = crate::storage::positions::count_positions(
             &e,
             account_id,
-            common::types::AccountPositionType::Deposit,
+            controller::types::AccountPositionType::Deposit,
         );
         cvlr_assert!(deposit_count <= 1);
 
@@ -72,7 +72,7 @@ fn isolated_single_collateral(e: Env, account_id: u64) {
             let deposit_list = crate::storage::positions::get_position_list(
                 &e,
                 account_id,
-                common::types::AccountPositionType::Deposit,
+                controller::types::AccountPositionType::Deposit,
             );
             let deposit_asset = deposit_list.get(0).unwrap();
             cvlr_assert!(deposit_asset == account_data.isolated_asset);
@@ -155,7 +155,7 @@ fn isolation_repay_decreases_counter(
     let borrow_pos = crate::storage::get_position(
         &e,
         account_id,
-        common::types::AccountPositionType::Borrow,
+        controller::types::AccountPositionType::Borrow,
         &asset,
     );
     cvlr_assume!(borrow_pos.is_some());

@@ -36,7 +36,7 @@ fn test_multiply_with_debt_token_initial_payment() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((eth.clone(), 5_000000i128)),
         &None,
@@ -93,7 +93,7 @@ fn test_multiply_rejects_unlisted_initial_payment_token() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((unlisted, 1_0000000i128)),
         &None,
@@ -124,7 +124,7 @@ fn test_multiply_rejects_when_paused() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::CONTRACT_PAUSED);
@@ -152,7 +152,7 @@ fn test_multiply_borrow_cap_would_exceed() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::BORROW_CAP_REACHED);
@@ -167,7 +167,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -191,7 +191,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &None,
         &None,
@@ -250,7 +250,7 @@ fn test_multiply_emode_wrong_category_debt() {
         &collateral_addr,
         &10_0000000i128,                        // 1 ETH worth of debt
         &debt_addr,                             // ETH -- not in e-mode category 1
-        &common::types::PositionMode::Multiply, // mode = 1 (multiply)
+        &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
         &None, // convert_steps
@@ -297,7 +297,7 @@ fn test_multiply_emode_wrong_category_collateral() {
         &collateral_addr, // ETH: not in e-mode category
         &1000_0000000i128,
         &debt_addr,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &None, // initial_payment
         &None, // convert_steps
@@ -329,7 +329,7 @@ fn test_multiply_isolated_debt_not_enabled() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
@@ -351,7 +351,7 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
         })
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -370,7 +370,7 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &None,
         &None,
@@ -399,7 +399,7 @@ fn test_multiply_rejects_normal_mode() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Normal,
+        controller::types::PositionMode::Normal,
         &steps,
     );
     assert_contract_error(result, errors::INVALID_POSITION_MODE);
@@ -416,7 +416,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .with_position_limits(1, 4)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -435,7 +435,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &None,
         &None,
@@ -452,7 +452,7 @@ fn test_multiply_existing_account_wrong_owner() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -467,7 +467,7 @@ fn test_multiply_existing_account_wrong_owner() {
         &usdc,
         &1_0000000i128,
         &eth,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &None,
         &None,
@@ -498,7 +498,7 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
         "USDC",
         0.05,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::SUPPLY_CAP_REACHED);
@@ -526,7 +526,7 @@ fn test_multiply_respects_borrow_position_limit() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
 
@@ -553,7 +553,7 @@ fn test_multiply_respects_borrow_position_limit() {
         &usdc,
         &1_000_000_000i128,
         &xlm,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps2,
         &None,
         &None,

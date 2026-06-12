@@ -5,7 +5,7 @@
 
 use super::renew_protocol_shared_key;
 use common::errors::GenericError;
-use common::types::{ControllerKey, MarketConfig};
+use controller_interface::types::{ControllerKey, MarketConfig};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 pub(crate) fn get_market_config(env: &Env, asset: &Address) -> MarketConfig {
@@ -40,8 +40,8 @@ pub(crate) fn try_get_market_config(env: &Env, asset: &Address) -> Option<Market
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
-    use common::types::{AssetConfigRaw, MarketOracleConfig, MarketStatus};
+    use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use controller_interface::types::{AssetConfigRaw, MarketOracleConfig, MarketStatus};
     use soroban_sdk::testutils::storage::Persistent as _;
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{Address, Env, Vec};

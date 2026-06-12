@@ -1,7 +1,7 @@
 // Spot-price read via Reflector lastprice.
 
 use common::errors::OracleError;
-use common::types::ReflectorSourceConfig;
+use controller_interface::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, Env};
 
 use super::reflector_lastprice_call;

@@ -1,6 +1,6 @@
 //! Market oracle configuration builders for test setup (`configure_market_oracle`).
 
-use common::types::{
+use controller::types::{
     MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy, RedStoneSourceConfigInput,
     ReflectorSourceConfigInput,
@@ -9,7 +9,7 @@ use soroban_sdk::{Address, String};
 
 pub const DEFAULT_REDSTONE_MAX_STALE_SECONDS: u64 = 900;
 pub const DEFAULT_MIN_SANITY_PRICE_WAD: i128 = 1;
-pub const DEFAULT_MAX_SANITY_PRICE_WAD: i128 = common::constants::MAX_REASONABLE_PRICE_WAD;
+pub const DEFAULT_MAX_SANITY_PRICE_WAD: i128 = controller::constants::MAX_REASONABLE_PRICE_WAD;
 
 pub fn reflector_source(
     oracle: &Address,

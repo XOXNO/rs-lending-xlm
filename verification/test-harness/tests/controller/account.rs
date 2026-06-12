@@ -1,4 +1,4 @@
-use common::constants::WAD;
+use controller::constants::WAD;
 
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
@@ -16,7 +16,7 @@ fn test_create_normal_account() {
     let attrs = t.get_account_attributes(ALICE);
     assert!(!attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
-    assert_eq!(attrs.mode, common::types::PositionMode::Normal);
+    assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
 // 2. test_create_emode_account
 
@@ -64,11 +64,11 @@ fn test_create_account_full_custom() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     // mode=1 for Multiply.
-    let account_id = t.create_account_full(ALICE, 0, common::types::PositionMode::Multiply, false);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.mode, common::types::PositionMode::Multiply);
+    assert_eq!(attrs.mode, controller::types::PositionMode::Multiply);
     assert!(!attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
 }
@@ -114,7 +114,7 @@ fn test_multiple_accounts_per_user() {
         .build();
 
     let id1 = t.create_account(ALICE);
-    let id2 = t.create_account_full(ALICE, 0, common::types::PositionMode::Normal, false);
+    let id2 = t.create_account_full(ALICE, 0, controller::types::PositionMode::Normal, false);
     assert_ne!(id1, id2, "accounts should have different IDs");
 
     // Supply to each account.

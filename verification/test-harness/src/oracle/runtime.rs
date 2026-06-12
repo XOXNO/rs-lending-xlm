@@ -2,7 +2,7 @@
 
 use crate::context::LendingTest;
 use crate::presets::TolerancePreset;
-use common::types::{
+use controller::types::{
     OracleAssetRef, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy,
     ReflectorBase, ReflectorSourceConfig,
 };
@@ -73,8 +73,8 @@ impl LendingTest {
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = common::types::ControllerKey::Market(asset.clone());
-            let mut market: common::types::MarketConfig =
+            let key = controller::types::ControllerKey::Market(asset.clone());
+            let mut market: controller::types::MarketConfig =
                 self.env.storage().persistent().get(&key).unwrap();
             market.oracle_config.strategy = OracleStrategy::Single;
             market.oracle_config.primary =
@@ -87,8 +87,8 @@ impl LendingTest {
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = common::types::ControllerKey::Market(asset.clone());
-            let mut market: common::types::MarketConfig =
+            let key = controller::types::ControllerKey::Market(asset.clone());
+            let mut market: controller::types::MarketConfig =
                 self.env.storage().persistent().get(&key).unwrap();
             market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
             market.oracle_config.primary =
@@ -110,8 +110,8 @@ impl LendingTest {
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = common::types::ControllerKey::Market(asset.clone());
-            let mut market: common::types::MarketConfig =
+            let key = controller::types::ControllerKey::Market(asset.clone());
+            let mut market: controller::types::MarketConfig =
                 self.env.storage().persistent().get(&key).unwrap();
             market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
             market.oracle_config.primary = match market.oracle_config.primary {

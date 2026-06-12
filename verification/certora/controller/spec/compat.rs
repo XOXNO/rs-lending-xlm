@@ -1,4 +1,4 @@
-use common::types::{Payment, PositionMode, StrategySwap};
+use controller::types::{Payment, PositionMode, StrategySwap};
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{vec, Address, Env, Vec};

@@ -20,7 +20,7 @@ pub(crate) use crate::spec::summaries::pool::{
 // Void privileged-config calls have no return value to summarize, so the
 // prover treats them as no-ops. They exist only so the production import
 // path in `router.rs` resolves under the certora feature.
-use common::types::InterestRateModel;
+use controller::types::InterestRateModel;
 use soroban_sdk::{Address, BytesN, Env};
 
 pub(crate) fn pool_keepalive_call(_env: &Env, _pool_addr: &Address) {}

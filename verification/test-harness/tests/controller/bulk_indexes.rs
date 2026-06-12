@@ -6,9 +6,9 @@
 //! `simulate_update_indexes`) derives, and that unlisted assets keep their
 //! pre-prefetch panic semantics.
 
-use common::constants::MS_PER_SECOND;
+use controller::constants::MS_PER_SECOND;
 use common::rates::simulate_update_indexes;
-use common::types::MarketIndexRaw;
+use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
 use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 
@@ -46,7 +46,7 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
         let view = views.get_unchecked(i as u32);
 
         assert!(
-            expected.borrow_index_ray > common::constants::RAY,
+            expected.borrow_index_ray > controller::constants::RAY,
             "market must have accrued for the equality to be meaningful"
         );
         assert_eq!(

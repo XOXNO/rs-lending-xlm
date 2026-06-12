@@ -4,9 +4,9 @@
 //! accounts that used the old category.
 
 use super::renew_protocol_shared_key;
-use common::constants::MAX_EMODE_ASSETS_PER_CATEGORY;
+use crate::constants::MAX_EMODE_ASSETS_PER_CATEGORY;
 use common::errors::EModeError;
-use common::types::{ControllerKey, EModeAssetConfig, EModeCategoryRaw};
+use controller_interface::types::{ControllerKey, EModeAssetConfig, EModeCategoryRaw};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 pub(crate) fn get_emode_category(env: &Env, id: u32) -> EModeCategoryRaw {
@@ -66,7 +66,7 @@ pub(crate) fn remove_emode_asset(env: &Env, category_id: u32, asset: &Address) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
     use soroban_sdk::testutils::storage::Persistent as _;
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{Address, Env, Map};

@@ -1,4 +1,4 @@
-use common::constants::RAY;
+use controller::constants::RAY;
 use test_harness::{days, eth_preset, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL};
 // Rigorous interest tests: verify amounts, not just direction.
 //
@@ -242,11 +242,11 @@ fn test_scaled_amount_times_index_equals_actual() {
 
     // Read the scaled position from the borrow side map.
     let scaled_borrow = t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, common::types::DebtPositionRaw> = t
+        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::DebtPositionRaw> = t
             .env
             .storage()
             .persistent()
-            .get(&common::types::ControllerKey::BorrowPositions(account_id))
+            .get(&controller::types::ControllerKey::BorrowPositions(account_id))
             .expect("borrow side map must exist");
         map.get(eth_addr.clone())
             .expect("borrow position for asset must exist")

@@ -5,7 +5,7 @@
 //! history validation.
 
 use common::errors::{GenericError, OracleError};
-use common::types::{
+use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, MarketStatus, OraclePriceFluctuation,
     OracleReadMode, OracleSourceConfig, OracleSourceConfigInput, RedStoneSourceConfig,
     ReflectorBase, ReflectorSourceConfig,
@@ -48,13 +48,13 @@ pub(crate) fn validate_market_oracle_sources(
     let asset_decimals = validation::validate_and_fetch_token_decimals(env, asset);
     let primary = validate_source(env, asset, &config.primary, config.max_price_stale_seconds);
     let anchor = match config.anchor.as_ref() {
-        Some(anchor) => common::types::OracleSourceConfigOption::Some(validate_source(
+        Some(anchor) => controller_interface::types::OracleSourceConfigOption::Some(validate_source(
             env,
             asset,
             anchor,
             config.max_price_stale_seconds,
         )),
-        None => common::types::OracleSourceConfigOption::None,
+        None => controller_interface::types::OracleSourceConfigOption::None,
     };
 
     MarketOracleConfig {

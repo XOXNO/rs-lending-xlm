@@ -32,7 +32,7 @@
 
 extern crate std;
 
-use common::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest, ALICE,
 };

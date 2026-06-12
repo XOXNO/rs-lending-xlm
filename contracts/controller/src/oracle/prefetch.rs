@@ -70,9 +70,9 @@ fn collect_redstone_feed(
     cache: &Cache,
     env: &soroban_sdk::Env,
     by_adapter: &mut Map<Address, Vec<String>>,
-    source: &common::types::OracleSourceConfig,
+    source: &controller_interface::types::OracleSourceConfig,
 ) {
-    let common::types::OracleSourceConfig::RedStone(r) = source else {
+    let controller_interface::types::OracleSourceConfig::RedStone(r) = source else {
         return;
     };
     if cache

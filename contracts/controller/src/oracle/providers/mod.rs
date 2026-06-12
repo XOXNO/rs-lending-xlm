@@ -4,7 +4,7 @@ pub(crate) mod redstone;
 pub(crate) mod reflector;
 
 use common::errors::OracleError;
-use common::types::OracleSourceConfig;
+use controller_interface::types::OracleSourceConfig;
 use soroban_sdk::panic_with_error;
 
 use super::observation::OracleObservation;

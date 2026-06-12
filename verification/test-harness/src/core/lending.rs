@@ -77,7 +77,7 @@ impl LendingTest {
     }
 
     pub fn account_exists(&self, account_id: u64) -> bool {
-        use common::types::ControllerKey;
+        use controller::types::ControllerKey;
 
         self.env.as_contract(&self.controller, || {
             self.env

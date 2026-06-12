@@ -1,7 +1,7 @@
 //! RedStone Price Feed provider.
 
 use common::errors::GenericError;
-use common::types::RedStoneSourceConfig;
+use controller_interface::types::RedStoneSourceConfig;
 use soroban_sdk::{panic_with_error, Env};
 
 use super::super::observation::{

@@ -1,5 +1,5 @@
-use common::constants::WAD;
-use common::types::ControllerKey;
+use controller::constants::WAD;
+use controller::types::ControllerKey;
 use soroban_sdk::{Address, Env, Map};
 
 use crate::context::LendingTest;
@@ -12,7 +12,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
     };
     env.storage()
         .persistent()
-        .get::<_, Map<Address, common::types::AccountPositionRaw>>(&key)
+        .get::<_, Map<Address, controller::types::AccountPositionRaw>>(&key)
         .map(|m| m.len())
         .unwrap_or(0)
 }
@@ -114,7 +114,7 @@ impl LendingTest {
                 .env
                 .storage()
                 .persistent()
-                .get::<_, soroban_sdk::Map<soroban_sdk::Address, common::types::AccountPositionRaw>>(
+                .get::<_, soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw>>(
                     &map_key,
                 )
                 .map(|m| m.contains_key(asset.clone()))

@@ -7,11 +7,11 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
-use common::constants::{BPS, RAY, WAD};
+use controller::constants::{BPS, RAY, WAD};
 use common::math::fp_core;
 
 use common::errors::{GenericError, OracleError};
-use common::types::OraclePriceFluctuation;
+use controller::types::OraclePriceFluctuation;
 use soroban_sdk::panic_with_error;
 
 use crate::cache::Cache;

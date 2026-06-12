@@ -143,9 +143,9 @@ fn test_bad_debt_index_floored_at_safety_floor() {
 
     // Supply index must remain at or above the configured floor.
     assert!(
-        si_after >= common::constants::SUPPLY_INDEX_FLOOR_RAW,
+        si_after >= controller::constants::SUPPLY_INDEX_FLOOR_RAW,
         "supply index should be floored at {}, got {}",
-        common::constants::SUPPLY_INDEX_FLOOR_RAW,
+        controller::constants::SUPPLY_INDEX_FLOOR_RAW,
         si_after
     );
 }

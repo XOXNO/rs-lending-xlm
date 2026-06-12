@@ -1,6 +1,6 @@
 //! Price, time, and token amount helpers for tests.
 
-use common::constants::WAD;
+use controller::constants::WAD;
 
 /// Whole-dollar price: usd(1) = 1 WAD, usd(2000) = 2000 WAD.
 pub const fn usd(n: i128) -> i128 {

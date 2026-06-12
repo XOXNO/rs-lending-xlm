@@ -1,5 +1,5 @@
 use crate::config::config_with_rejects;
-use common::constants::WAD;
+use controller::constants::WAD;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use proptest::prelude::*;

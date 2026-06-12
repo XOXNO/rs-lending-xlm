@@ -1,4 +1,4 @@
-use common::constants::WAD;
+use controller::constants::WAD;
 
 use soroban_sdk::{
     testutils::{ContractEvents, Events},

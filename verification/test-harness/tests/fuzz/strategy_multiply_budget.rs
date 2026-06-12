@@ -1,6 +1,6 @@
 use crate::config::config;
-use common::constants::WAD;
-use common::types::PositionMode;
+use controller::constants::WAD;
+use controller::types::PositionMode;
 use proptest::prelude::*;
 use test_harness::{LendingTest, ALICE};
 

@@ -1,5 +1,5 @@
-use common::constants::RAY;
-use common::types::OraclePriceFluctuation;
+use controller::constants::RAY;
+use controller::types::OraclePriceFluctuation;
 
 use crate::helpers::usd;
 // Wallet name constants
@@ -88,8 +88,8 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     supply_cap: 0, // 0 = no cap
     // $10 floor (= `MIN_DUST_FLOOR_WAD`). Production deployments may raise
     // per asset; the validator rejects any value below this.
-    min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
-    min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+    min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+    min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
@@ -200,8 +200,8 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // Conversion helpers (preset -> contract types)
 
 impl AssetConfigPreset {
-    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> common::types::AssetConfigRaw {
-        common::types::AssetConfigRaw {
+    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> controller::types::AssetConfigRaw {
+        controller::types::AssetConfigRaw {
             loan_to_value_bps: self.loan_to_value_bps,
             liquidation_threshold_bps: self.liquidation_threshold_bps,
             liquidation_bonus_bps: self.liquidation_bonus_bps,
@@ -230,8 +230,8 @@ impl MarketParamsPreset {
         &self,
         asset: &soroban_sdk::Address,
         decimals: u32,
-    ) -> common::types::MarketParamsRaw {
-        common::types::MarketParamsRaw {
+    ) -> controller::types::MarketParamsRaw {
+        controller::types::MarketParamsRaw {
             max_borrow_rate_ray: self.max_borrow_rate_ray,
             base_borrow_rate_ray: self.base_borrow_rate_ray,
             slope1_ray: self.slope1_ray,

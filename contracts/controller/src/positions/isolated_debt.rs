@@ -1,7 +1,7 @@
 use common::errors::{EModeError, GenericError};
 use common::math::fp::Ray;
 use common::math::fp_core::mul_div_floor;
-use common::types::{Account, DebtPosition};
+use controller_interface::types::{Account, DebtPosition};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::Cache;

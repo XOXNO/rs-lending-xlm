@@ -4,9 +4,9 @@
 //! threshold propagation; pool and token calls go through `external`.
 
 use common::errors::{CollateralError, GenericError, OracleError};
-use common::events::{CreateMarketEvent, UpdateMarketParamsEvent};
+use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::math::fp::Wad;
-use common::types::{
+use controller_interface::types::{
     AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel, MarketConfig,
     MarketOracleConfig, MarketParamsRaw, MarketStatus,
 };
@@ -440,7 +440,7 @@ fn update_position_threshold(
     // amount = 0: parameter change only, no deposit or withdraw.
     let market_index = cache.cached_market_index(asset);
     cache.record_position_update(
-        common::events::PositionAction::ParamUpd,
+        crate::events::PositionAction::ParamUpd,
         asset,
         market_index.supply_index.raw(),
         0,

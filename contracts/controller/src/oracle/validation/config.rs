@@ -1,9 +1,9 @@
 //! Pure oracle config validation. No external oracle calls.
 
 use common::errors::{GenericError, OracleError};
-use common::types::{MarketOracleConfigInput, OracleStrategy};
+use controller_interface::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
-use common::types::{OracleReadMode, OracleSourceConfigInput};
+use controller_interface::types::{OracleReadMode, OracleSourceConfigInput};
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use super::super::observation::{
@@ -76,7 +76,7 @@ pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     }
     assert_with_error!(
         env,
-        max_wad <= common::constants::MAX_REASONABLE_PRICE_WAD,
+        max_wad <= crate::constants::MAX_REASONABLE_PRICE_WAD,
         OracleError::InvalidSanityBounds
     );
 }
@@ -101,10 +101,10 @@ pub(crate) fn validate_twap_records(env: &Env, records: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::MAX_REASONABLE_PRICE_WAD;
+    use crate::constants::MAX_REASONABLE_PRICE_WAD;
     #[cfg(not(feature = "testing"))]
-    use common::types::RedStoneSourceConfigInput;
-    use common::types::{
+    use controller_interface::types::RedStoneSourceConfigInput;
+    use controller_interface::types::{
         MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,
         OracleSourceConfigInputOption, OracleStrategy, ReflectorSourceConfigInput,
     };

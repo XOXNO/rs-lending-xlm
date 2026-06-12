@@ -17,7 +17,7 @@ fn register_dex_oracle(t: &LendingTest, quote: &Address) -> Address {
     dex
 }
 
-fn index_view(t: &LendingTest, asset: &Address) -> common::types::MarketIndexView {
+fn index_view(t: &LendingTest, asset: &Address) -> controller::types::MarketIndexView {
     let assets = Vec::from_array(&t.env, [asset.clone()]);
     t.ctrl_client()
         .get_all_market_indexes_detailed(&assets)

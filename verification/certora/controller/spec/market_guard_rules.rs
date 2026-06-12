@@ -8,8 +8,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::WAD;
-use common::types::{AccountPositionType, MarketStatus};
+use controller::constants::WAD;
+use controller::types::{AccountPositionType, MarketStatus};
 
 #[rule]
 fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, amount: i128) {

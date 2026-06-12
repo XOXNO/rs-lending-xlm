@@ -5,7 +5,7 @@
 //! supply or debt shares. Position verbs bundle their payload in `PoolAction`,
 //! which carries the market asset the central pool routes on.
 
-use common::types::{
+use controller_interface::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
     PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
     PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,

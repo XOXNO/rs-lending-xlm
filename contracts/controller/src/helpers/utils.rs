@@ -4,7 +4,7 @@
 //! no policy or storage side effects of their own.
 
 use common::errors::GenericError;
-use common::types::Payment;
+use controller_interface::types::Payment;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::external::sac::sac_transfer_call;
@@ -97,5 +97,5 @@ fn aggregate_payment_amount(
 /// Shared context for position and debt update events.
 pub(crate) struct EventContext {
     pub caller: Address,
-    pub action: common::events::PositionAction,
+    pub action: crate::events::PositionAction,
 }

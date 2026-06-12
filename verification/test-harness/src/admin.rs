@@ -1,4 +1,4 @@
-use common::types::InterestRateModel;
+use controller::types::InterestRateModel;
 use soroban_sdk::{Address, Symbol};
 
 use crate::context::LendingTest;
@@ -35,7 +35,7 @@ impl LendingTest {
     pub fn edit_asset_config(
         &self,
         asset_name: &str,
-        f: impl FnOnce(&mut common::types::AssetConfigRaw),
+        f: impl FnOnce(&mut controller::types::AssetConfigRaw),
     ) {
         let asset = self.resolve_asset(asset_name);
         let ctrl = self.ctrl_client();
@@ -46,7 +46,7 @@ impl LendingTest {
     // Position limits
 
     pub fn set_position_limits(&self, max_supply: u32, max_borrow: u32) {
-        let limits = common::types::PositionLimits {
+        let limits = controller::types::PositionLimits {
             max_supply_positions: max_supply,
             max_borrow_positions: max_borrow,
         };

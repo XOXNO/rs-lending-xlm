@@ -6,7 +6,7 @@
 //! writes into the cache.
 
 use common::errors::{CollateralError, EModeError};
-use common::types::{
+use controller_interface::types::{
     Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolBorrowEntry,
     PoolPositionMutation,
 };
@@ -112,7 +112,7 @@ fn execute_borrow_plan(
         merge_borrow_result(
             account,
             &entry.action.asset,
-            common::events::PositionAction::Borrow,
+            crate::events::PositionAction::Borrow,
             &result,
             cache,
         );
@@ -123,7 +123,7 @@ fn execute_borrow_plan(
 fn merge_borrow_result(
     account: &mut Account,
     asset: &Address,
-    action: common::events::PositionAction,
+    action: crate::events::PositionAction,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -224,7 +224,7 @@ pub fn borrow_for_strategy(
     merge_borrow_result(
         account,
         debt_token,
-        common::events::PositionAction::Multiply,
+        crate::events::PositionAction::Multiply,
         &mutation,
         cache,
     );

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use common::types::PositionMode;
+use controller::types::PositionMode;
 use soroban_sdk::{token, Address};
 
 use crate::presets::{AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset};

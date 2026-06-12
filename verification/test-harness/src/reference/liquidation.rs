@@ -14,7 +14,7 @@ use num_bigint::{BigInt, Sign};
 use num_rational::BigRational;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-use common::constants::{BPS, RAY, WAD};
+use controller::constants::{BPS, RAY, WAD};
 
 use crate::context::LendingTest;
 // Public types

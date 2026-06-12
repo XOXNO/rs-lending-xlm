@@ -4,6 +4,11 @@
 //! Lending controller. Owns accounts, risk rules, oracle policy, strategies,
 //! flash loans, and admin configuration.
 
+pub mod constants;
+pub mod events;
+
+pub use controller_interface::types;
+
 mod cache;
 mod emode;
 mod external;

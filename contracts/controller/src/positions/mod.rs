@@ -5,7 +5,7 @@
 //! calls, post-checks, storage writes, and event recording.
 
 use common::errors::CollateralError;
-use common::types::{
+use controller_interface::types::{
     Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
     ScaledPositionRaw,
 };

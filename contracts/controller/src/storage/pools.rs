@@ -1,9 +1,9 @@
 //! Pool registry and listed asset storage.
 
 use super::renew_protocol_shared_key;
-use common::constants::MAX_POOLS_LIST_ENTRIES;
+use crate::constants::MAX_POOLS_LIST_ENTRIES;
 use common::errors::GenericError;
-use common::types::ControllerKey;
+use controller_interface::types::ControllerKey;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 /// Returns listed asset addresses from the controller pool registry.

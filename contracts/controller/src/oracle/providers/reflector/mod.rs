@@ -6,7 +6,7 @@ mod twap;
 
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::types::{
+use controller_interface::types::{
     MarketStatus, OracleAssetRef, OracleReadMode, OracleSourceConfig, PriceFeedRaw, ReflectorBase,
     ReflectorSourceConfig,
 };

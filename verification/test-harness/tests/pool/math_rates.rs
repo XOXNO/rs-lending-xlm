@@ -1,4 +1,4 @@
-use common::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use controller::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core::{
     div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
@@ -130,9 +130,9 @@ fn test_wad_min_max() {
 }
 // Rates edge cases
 
-fn make_test_params() -> common::types::MarketParams {
+fn make_test_params() -> controller::types::MarketParams {
     use common::math::fp::{Bps, Ray};
-    common::types::MarketParams {
+    controller::types::MarketParams {
         base_borrow_rate: Ray::from(RAY / 100),         // 1%.
         slope1: Ray::from(RAY * 4 / 100),               // 4%.
         slope2: Ray::from(RAY * 10 / 100),              // 10%.

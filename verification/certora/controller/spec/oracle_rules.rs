@@ -18,10 +18,10 @@ use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::{
+use controller::constants::{
     MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
 };
-use common::types::{
+use controller::types::{
     AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
     OracleStrategy, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
@@ -61,8 +61,8 @@ fn pinned_market_config(
             flashloan_fee_bps: 9,
             borrow_cap: 2_000_000,
             supply_cap: 3_000_000,
-            min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+            min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
         },
         pool_address: pool.clone(),
         oracle_config: MarketOracleConfig {

@@ -3,10 +3,10 @@
 //! Price math uses USD WAD. Pool-facing seizure and repayment entries use
 //! asset-native units.
 
-use common::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
+use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::types::{
+use controller_interface::types::{
     Account, AccountPositionRaw, DebtPosition, Payment, PaymentTuple, RepayEntry, SeizeEntry,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};

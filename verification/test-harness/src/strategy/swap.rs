@@ -1,4 +1,4 @@
-use common::types::StrategySwap;
+use controller::types::StrategySwap;
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env};
 
 use crate::core::LendingTest;

@@ -1,7 +1,7 @@
 use crate::config::config;
 use crate::strategy_helpers::{flash_guard_cleared, router_allowance};
-use common::constants::WAD;
-use common::types::PositionMode;
+use controller::constants::WAD;
+use controller::types::PositionMode;
 use proptest::prelude::*;
 use soroban_sdk::Bytes;
 use test_harness::{build_aggregator_swap, usdc_preset, usdt_stable_preset, LendingTest, ALICE};

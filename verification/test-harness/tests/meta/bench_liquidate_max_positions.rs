@@ -1,4 +1,4 @@
-use common::constants::WAD;
+use controller::constants::WAD;
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest, ALICE,
     LIQUIDATOR,

@@ -1,5 +1,5 @@
 use common::errors::{EModeError, GenericError};
-use common::types::{ControllerKey, EModeCategoryRaw};
+use controller::types::{ControllerKey, EModeCategoryRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
 use test_harness::{
@@ -134,7 +134,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
 
     // Sanity check: the account's stored category id is 1.
     let stored_id: u32 = t.env.as_contract(&t.controller_address(), || {
-        let meta: common::types::AccountMeta = t
+        let meta: controller::types::AccountMeta = t
             .env
             .storage()
             .persistent()
@@ -223,8 +223,8 @@ fn test_edit_asset_config_rejects_dust_floor_below_minimum() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.min_collat_floor_usd_wad = common::constants::MIN_DUST_FLOOR_WAD - 1;
-    cfg.min_debt_floor_usd_wad = common::constants::MIN_DUST_FLOOR_WAD - 1;
+    cfg.min_collat_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
+    cfg.min_debt_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
     t.ctrl_client().edit_asset_config(&asset, &cfg);
 }
 

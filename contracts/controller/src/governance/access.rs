@@ -9,7 +9,7 @@
 //! callable while paused.
 
 use common::errors::GenericError;
-use common::types::{ControllerKey, PositionLimits};
+use controller_interface::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
 };

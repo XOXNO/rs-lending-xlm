@@ -14,8 +14,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use common::constants::BAD_DEBT_USD_THRESHOLD;
-use common::types::{AccountPositionType, StrategySwap};
+use controller::constants::BAD_DEBT_USD_THRESHOLD;
+use controller::types::{AccountPositionType, StrategySwap};
 // Strategy Rules
 // Rule 1: multiply creates both deposit and borrow positions (split per branch)
 //

@@ -5,7 +5,7 @@
 //! controller mutations during flash-loan and strategy callbacks.
 
 use common::errors::GenericError;
-use common::types::{ControllerKey, PositionLimits};
+use controller_interface::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Cap on outstanding (approved but not yet consumed) token approvals.

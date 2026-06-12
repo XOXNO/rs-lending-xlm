@@ -10,7 +10,7 @@
 
 use common::math::fp::{Ray, Wad};
 use common::rates::{scaled_to_original, utilization};
-use common::types::{Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus};
+use controller_interface::types::{Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus};
 use common::validation::cap_is_enabled;
 use soroban_sdk::{Address, Env};
 

@@ -1,8 +1,8 @@
 // TWAP read via Reflector prices.
 
 use common::errors::{GenericError, OracleError};
-use common::events::OracleTwapDegradedEvent;
-use common::types::ReflectorSourceConfig;
+use crate::events::OracleTwapDegradedEvent;
+use controller_interface::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, panic_with_error};
 
 use super::reflector_prices_call;

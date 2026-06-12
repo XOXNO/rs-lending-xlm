@@ -1,5 +1,5 @@
-use common::constants::WAD;
-use common::types::StrategySwap;
+use controller::constants::WAD;
+use controller::types::StrategySwap;
 use test_harness::{
     assert_contract_error, errors, eth_preset, mock_swap_payload_xdr, usdc_preset, LendingTest,
     ALICE,
@@ -39,7 +39,7 @@ fn test_multiply_rejects_non_borrowable_debt() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
@@ -62,7 +62,7 @@ fn test_multiply_rejects_non_collateralizable() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::NOT_COLLATERAL);
@@ -85,7 +85,7 @@ fn test_multiply_rejects_during_flash_loan() {
         "USDC",
         1.0,
         "ETH",
-        common::types::PositionMode::Multiply,
+        controller::types::PositionMode::Multiply,
         &steps,
     );
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
@@ -136,8 +136,8 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
             flashloan_fee_bps: 9,
             borrow_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
             supply_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
-            min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+            min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
         },
         params: test_harness::MarketParamsPreset {
             mid_utilization_ray: 500_000_000_000_000_000_000_000_000, // 0.5 RAY
@@ -181,7 +181,7 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
         &shit_addr,
         &50_000_000_000_i128, // 50k USDC debt to flash loan (decimals 6) -> 50,000 * 10^6
         &usdc_addr,
-        &common::types::PositionMode::Multiply,
+        &controller::types::PositionMode::Multiply,
         &steps,
         &Some((shit_addr.clone(), 100_000 * WAD)),
         &None,

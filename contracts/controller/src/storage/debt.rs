@@ -6,7 +6,7 @@
 //! through the helpers here (and flushed via the cache in batch).
 
 use super::{renew_protocol_shared_key, renew_user_key};
-use common::types::ControllerKey;
+use controller_interface::types::ControllerKey;
 use soroban_sdk::{Address, Env};
 
 pub(crate) fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {

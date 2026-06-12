@@ -3,7 +3,7 @@
 //! Applies active category overrides and rejects isolation conflicts.
 
 use common::errors::EModeError;
-use common::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
+use controller_interface::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::Cache;

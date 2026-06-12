@@ -1,6 +1,6 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
-use crate::types::{
+use controller_interface::types::{
     Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition, EModeAssetConfig,
     EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
     OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode, ReflectorBase,
@@ -330,8 +330,8 @@ pub struct EventMarketState(
     pub Option<i128>,
 );
 
-impl From<&crate::types::MarketStateSnapshot> for EventMarketState {
-    fn from(s: &crate::types::MarketStateSnapshot) -> Self {
+impl From<&controller_interface::types::MarketStateSnapshot> for EventMarketState {
+    fn from(s: &controller_interface::types::MarketStateSnapshot) -> Self {
         Self(
             s.asset.clone(),
             s.timestamp,
@@ -606,7 +606,7 @@ pub struct OracleTwapDegradedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
+    use controller_interface::types::{
         AssetConfigRaw, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
         OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
         OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorBase,
@@ -910,7 +910,7 @@ mod tests {
             .publish(&env);
 
             let mut market_updates = Vec::new(&env);
-            market_updates.push_back(EventMarketState::from(&crate::types::MarketStateSnapshot {
+            market_updates.push_back(EventMarketState::from(&controller_interface::types::MarketStateSnapshot {
                 asset: asset.clone(),
                 timestamp: 0,
                 supply_index_ray: 0,

@@ -3,8 +3,8 @@
 //! Borrows and supplies through an aggregator route in one transaction.
 
 use common::errors::{CollateralError, GenericError, StrategyError};
-use common::events::InitialMultiplyPaymentEvent;
-use common::types::{Account, AssetConfig, PositionMode, StrategySwap};
+use crate::events::InitialMultiplyPaymentEvent;
+use controller_interface::types::{Account, AssetConfig, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
 

@@ -5,7 +5,7 @@
 
 use super::renew_user_key;
 use common::errors::GenericError;
-use common::types::{
+use controller_interface::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
     DebtPositionRaw,
 };

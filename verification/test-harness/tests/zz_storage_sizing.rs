@@ -1,6 +1,6 @@
 // Throwaway measurement harness: prints exact XDR-serialized on-chain sizes for
-// account position storage entries. Run: cargo test -p common --test zz_storage_sizing -- --nocapture
-use common::types::{
+// account position storage entries. Run: cargo test -p test-harness --test zz_storage_sizing -- --nocapture
+use controller::types::{
     AccountMeta, AccountPositionRaw, ControllerKey, DebtPositionRaw, PositionMode,
 };
 use soroban_sdk::testutils::Address as _;

@@ -1,10 +1,10 @@
 //! Shared validation gates for account ownership, market status, health factor,
 //! LTV, position limits, asset config bounds, token shape, and oracle ranges.
 
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD};
+use crate::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Wad;
-use common::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
+use controller_interface::types::{Account, AccountPositionType, AssetConfigRaw, MarketStatus, Payment};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::cache::Cache;
@@ -211,8 +211,8 @@ pub fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::{MAX_FLASHLOAN_FEE_BPS, WAD};
-    use common::types::{Account, AccountPositionType, AssetConfigRaw};
+    use crate::constants::{MAX_FLASHLOAN_FEE_BPS, WAD};
+    use controller_interface::types::{Account, AccountPositionType, AssetConfigRaw};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Vec};
 
@@ -284,7 +284,7 @@ mod tests {
             supply_positions: Map::new(&env),
             borrow_positions: Map::new(&env),
             e_mode_category_id: 0,
-            mode: common::types::PositionMode::Normal,
+            mode: controller_interface::types::PositionMode::Normal,
             is_isolated: false,
             isolated_asset: None,
         };

@@ -82,7 +82,7 @@ impl LendingTestBuilder {
 
     pub fn with_max_utilization_disabled_all_markets(mut self) -> Self {
         for pm in &mut self.pending_markets {
-            pm.params.max_utilization_ray = common::constants::RAY;
+            pm.params.max_utilization_ray = controller::constants::RAY;
         }
         self
     }
@@ -188,7 +188,7 @@ impl LendingTestBuilder {
         ctrl.grant_role(&keeper, &Symbol::new(&env, "KEEPER"));
 
         if let Some((max_supply, max_borrow)) = self.position_limits {
-            let limits = common::types::PositionLimits {
+            let limits = controller::types::PositionLimits {
                 max_supply_positions: max_supply,
                 max_borrow_positions: max_borrow,
             };
@@ -233,8 +233,8 @@ impl LendingTestBuilder {
             token_admin.mint(&pool_address, &liquidity_amount);
 
             env.as_contract(&pool_address, || {
-                let key = common::types::PoolKey::State(asset_address.clone());
-                let mut state: common::types::PoolStateRaw =
+                let key = controller::types::PoolKey::State(asset_address.clone());
+                let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
                 state.cash += liquidity_amount;
                 env.storage().persistent().set(&key, &state);

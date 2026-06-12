@@ -1,5 +1,5 @@
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_REASONABLE_PRICE_WAD, RAY, WAD};
-use common::types::{
+use controller::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MAX_REASONABLE_PRICE_WAD, RAY, WAD};
+use controller::types::{
     InterestRateModel, MarketOracleConfigInput, OracleReadMode, OracleSourceConfigInput,
     OracleSourceConfigInputOption, OracleStrategy,
 };

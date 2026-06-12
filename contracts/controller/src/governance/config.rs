@@ -2,14 +2,14 @@
 //! aggregator, accumulator, approved tokens, and pool templates.
 
 use common::errors::{EModeError, GenericError, OracleError};
-use common::events::{
+use crate::events::{
     ApproveTokenEvent, EventEModeCategory, EventOracleProvider, OracleDisabledEvent,
     RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
     UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
     UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
 
-use common::types::{
+use controller_interface::types::{
     AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfigInput, MarketStatus,
     PositionLimits,
 };

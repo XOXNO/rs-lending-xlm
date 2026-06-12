@@ -6,7 +6,7 @@
 
 use common::errors::{GenericError, OracleError};
 use common::rates::simulate_update_indexes;
-use common::types::{MarketIndex, MarketStatus, OracleSourceConfig, PriceFeedRaw};
+use controller_interface::types::{MarketIndex, MarketStatus, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;

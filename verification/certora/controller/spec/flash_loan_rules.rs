@@ -67,7 +67,7 @@ fn flash_loan_guard_cleared_after_completion(
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);
-    cvlr_assume!(market.status == common::types::MarketStatus::Active);
+    cvlr_assume!(market.status == controller::types::MarketStatus::Active);
     drop(cache); // production rebuilds its own cache inside process_flash_loan
 
     // Execute the flash loan. Third-party paths (callback panic, pool-side
@@ -103,7 +103,7 @@ fn flash_loan_guard_cleared_sanity(
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);
-    cvlr_assume!(market.status == common::types::MarketStatus::Active);
+    cvlr_assume!(market.status == controller::types::MarketStatus::Active);
     drop(cache);
 
     crate::strategies::flash_loan::process_flash_loan(

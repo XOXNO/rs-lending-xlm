@@ -1,4 +1,4 @@
-use common::constants::{RAY, WAD};
+use controller::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
     STABLECOIN_EMODE,

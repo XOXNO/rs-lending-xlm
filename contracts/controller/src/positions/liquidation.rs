@@ -5,9 +5,9 @@
 //! cleanup socializes residual debt only when collateral is below the USD threshold.
 
 use common::errors::{CollateralError, GenericError};
-use common::events::CleanBadDebtEvent;
+use crate::events::CleanBadDebtEvent;
 use common::math::fp::Wad;
-use common::types::{
+use controller_interface::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
     PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
@@ -242,7 +242,7 @@ fn apply_liquidation_repayments(
         account,
         account_id,
         liquidator,
-        common::events::PositionAction::LiqRepay,
+        crate::events::PositionAction::LiqRepay,
         &actions,
         cache,
     );
@@ -271,7 +271,7 @@ fn apply_liquidation_seizures(
         account,
         liquidator,
         true,
-        common::events::PositionAction::LiqSeize,
+        crate::events::PositionAction::LiqSeize,
         &entries,
         cache,
     );

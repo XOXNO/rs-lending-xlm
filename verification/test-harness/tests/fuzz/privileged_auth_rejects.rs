@@ -1,5 +1,5 @@
 use crate::config::config;
-use common::types::InterestRateModel;
+use controller::types::InterestRateModel;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Symbol, Vec as SVec};
@@ -23,8 +23,8 @@ where
     }
 }
 
-fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfigRaw {
-    common::types::AssetConfigRaw {
+fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfigRaw {
+    controller::types::AssetConfigRaw {
         loan_to_value_bps: 7500,
         liquidation_threshold_bps: 8000,
         liquidation_bonus_bps: 500,
@@ -40,18 +40,18 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> common::types::AssetConfigRaw 
         flashloan_fee_bps: 9,
         borrow_cap: i128::MAX,
         supply_cap: i128::MAX,
-        min_collat_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
-        min_debt_floor_usd_wad: common::constants::MIN_DUST_FLOOR_WAD,
+        min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+        min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
     }
 }
 
-fn sample_oracle_cfg(t: &LendingTest) -> common::types::MarketOracleConfigInput {
+fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfigInput {
     let asset = t.resolve_market("USDC").asset.clone();
     test_harness::reflector_single_spot_config(&t.mock_reflector, &asset, 100, 200)
 }
 
-fn sample_position_limits() -> common::types::PositionLimits {
-    common::types::PositionLimits {
+fn sample_position_limits() -> controller::types::PositionLimits {
+    controller::types::PositionLimits {
         max_supply_positions: 5,
         max_borrow_positions: 5,
     }
@@ -169,14 +169,14 @@ proptest! {
             slope3_ray: 0,
             mid_utilization_ray: 0,
             optimal_utilization_ray: 0,
-            max_utilization_ray: common::constants::RAY * 95 / 100,
+            max_utilization_ray: controller::constants::RAY * 95 / 100,
             reserve_factor_bps: 0,
         };
         expect_rejected("upgrade_liquidity_pool_params", || {
             ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
         }).unwrap();
         expect_rejected("create_liquidity_pool", || {
-            let params = common::types::MarketParamsRaw {
+            let params = controller::types::MarketParamsRaw {
                 max_borrow_rate_ray: 0,
                 base_borrow_rate_ray: 0,
                 slope1_ray: 0,
@@ -184,7 +184,7 @@ proptest! {
                 slope3_ray: 0,
                 mid_utilization_ray: 0,
                 optimal_utilization_ray: 0,
-                max_utilization_ray: common::constants::RAY * 95 / 100,
+                max_utilization_ray: controller::constants::RAY * 95 / 100,
                 reserve_factor_bps: 0,
                 asset_id: usdc.clone(),
                 asset_decimals: 7,

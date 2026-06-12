@@ -3,7 +3,7 @@
 //! Each scenario asserts the preview both ways: the returned amount executes,
 //! and a request just above it reverts with the gate the preview modeled.
 
-use common::constants::RAY;
+use controller::constants::RAY;
 use soroban_sdk::Vec as SorobanVec;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,

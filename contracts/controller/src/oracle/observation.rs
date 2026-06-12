@@ -5,7 +5,7 @@
 //! `OracleObservation` shape, and owns the clock-skew and freshness constants
 //! shared by production price resolution and the oracle config validators.
 
-use common::constants::MS_PER_SECOND;
+use crate::constants::MS_PER_SECOND;
 use common::errors::{GenericError, OracleError};
 use common::math::fp::Wad;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};

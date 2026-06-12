@@ -9,8 +9,8 @@
 //!
 //! Aggregates are harnessed under certora.
 
-use common::constants::WAD;
-use common::types::{
+use crate::constants::WAD;
+use controller_interface::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
     EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, Payment,
     PaymentTuple,

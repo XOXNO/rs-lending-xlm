@@ -1,4 +1,4 @@
-use common::types::PositionMode;
+use controller::types::PositionMode;
 use soroban_sdk::{vec, Address, Vec};
 
 use crate::core::LendingTest;

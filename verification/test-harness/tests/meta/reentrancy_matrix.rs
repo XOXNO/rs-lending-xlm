@@ -1,4 +1,4 @@
-use common::types::PositionMode;
+use controller::types::PositionMode;
 use soroban_sdk::Bytes;
 use test_harness::{
     assert_contract_error, build_aggregator_swap, errors, LendingTest, ALICE, BOB, LIQUIDATOR,

@@ -4,7 +4,7 @@
 //! and e-mode data under the `certora` feature.
 
 use super::*;
-use common::types::{
+use controller::types::{
     AccountAttributes, AccountPositionRaw, AccountPositionType, EModeAssetConfig, MarketIndex,
     MarketParamsRaw, PositionMode,
 };

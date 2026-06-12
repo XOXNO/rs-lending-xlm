@@ -1,5 +1,5 @@
-use common::constants::RAY;
-use common::types::InterestRateModel;
+use controller::constants::RAY;
+use controller::types::InterestRateModel;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
@@ -85,7 +85,7 @@ fn test_set_position_limits_rejects_above_cap() {
 }
 
 fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
-    let limits = common::types::PositionLimits {
+    let limits = controller::types::PositionLimits {
         max_supply_positions: supply,
         max_borrow_positions: borrow,
     };
@@ -172,7 +172,7 @@ fn test_upgrade_pool_params() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: common::constants::RAY * 95 / 100,
+            max_utilization_ray: controller::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -207,7 +207,7 @@ fn test_upgrade_liquidity_pool_params_alias() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: common::constants::RAY * 95 / 100,
+            max_utilization_ray: controller::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -244,7 +244,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: common::constants::RAY * 95 / 100,
+            max_utilization_ray: controller::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -271,7 +271,7 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
             slope3_ray: RAY * 150 / 100,
             mid_utilization_ray: RAY * 50 / 100,
             optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: common::constants::RAY * 95 / 100,
+            max_utilization_ray: controller::constants::RAY * 95 / 100,
             reserve_factor_bps: 1000,
         },
     );
@@ -302,9 +302,9 @@ fn test_configure_market_oracle() {
 
     let market = ctrl.get_market_config(&asset);
     match market.oracle_config.primary {
-        common::types::OracleSourceConfig::Reflector(source) => {
+        controller::types::OracleSourceConfig::Reflector(source) => {
             assert_eq!(source.contract, t.mock_reflector);
-            assert_eq!(source.read_mode, common::types::OracleReadMode::Twap(3));
+            assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(3));
         }
         _ => panic!("expected Reflector primary source"),
     }
@@ -333,7 +333,7 @@ fn test_set_aggregator() {
         t.env
             .storage()
             .instance()
-            .get(&common::types::ControllerKey::Aggregator)
+            .get(&controller::types::ControllerKey::Aggregator)
             .expect("aggregator must be stored")
     });
     assert_eq!(stored, new_aggregator, "aggregator must be persisted");
@@ -466,16 +466,16 @@ fn test_oracle_role_can_manage_oracle_endpoints() {
 
     let mut reflector =
         test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 200, 500);
-    if let common::types::OracleSourceConfigInput::Reflector(ref mut source) = reflector.primary {
-        source.read_mode = common::types::OracleReadMode::Twap(2);
+    if let controller::types::OracleSourceConfigInput::Reflector(ref mut source) = reflector.primary {
+        source.read_mode = controller::types::OracleReadMode::Twap(2);
     }
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     ctrl.configure_market_oracle(&bob_addr, &asset, &reflector);
     let after_configure = ctrl.get_market_config(&asset);
     match after_configure.oracle_config.primary {
-        common::types::OracleSourceConfig::Reflector(source) => {
+        controller::types::OracleSourceConfig::Reflector(source) => {
             assert_eq!(source.contract, t.mock_reflector);
-            assert_eq!(source.read_mode, common::types::OracleReadMode::Twap(2));
+            assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(2));
         }
         _ => panic!("expected Reflector primary source"),
     }

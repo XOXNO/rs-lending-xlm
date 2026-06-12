@@ -4,7 +4,7 @@
 //! debt-free accounts take the `RiskDecreasing` policy and skip both gates.
 
 use common::math::fp::Ray;
-use common::types::{
+use controller_interface::types::{
     Account, AccountPosition, EModeCategory, Payment, PoolPositionMutation, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
@@ -111,7 +111,7 @@ pub fn process_withdraw(
         &mut account,
         &recipient,
         false,
-        common::events::PositionAction::Withdraw,
+        crate::events::PositionAction::Withdraw,
         &entries,
         &mut cache,
     );
@@ -146,7 +146,7 @@ pub(crate) fn settle_withdraw_entries(
     account: &mut Account,
     recipient: &Address,
     is_liquidation: bool,
-    action: common::events::PositionAction,
+    action: crate::events::PositionAction,
     entries: &Vec<PoolWithdrawEntry>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
@@ -184,7 +184,7 @@ pub(crate) fn settle_withdraw_entries(
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,
-    action: common::events::PositionAction,
+    action: crate::events::PositionAction,
     asset: &Address,
     refresh_e_mode: Option<&Option<EModeCategory>>,
     result: &PoolPositionMutation,

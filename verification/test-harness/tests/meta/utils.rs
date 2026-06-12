@@ -1,5 +1,5 @@
-use common::constants::WAD;
-use common::types::ControllerKey;
+use controller::constants::WAD;
+use controller::types::ControllerKey;
 
 use test_harness::{eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE};
 
