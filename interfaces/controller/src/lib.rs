@@ -1,7 +1,10 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
+pub mod admin;
 pub mod types;
+
+pub use admin::{ControllerAdmin, ControllerAdminClient};
 
 use types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
