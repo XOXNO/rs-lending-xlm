@@ -12,9 +12,11 @@ stellar-access = { workspace = true }
 stellar-contract-utils = { workspace = true }
 stellar-macros = { workspace = true }
 common = { path = "../../common" }
+controller-interface = { path = "../../interfaces/controller" }
 
 [features]
 testing = []
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+controller = { path = "../controller", features = ["testing"] }

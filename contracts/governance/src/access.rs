@@ -70,12 +70,7 @@ impl Governance {
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
-        access_control::grant_role_no_auth(
-            &env,
-            &admin,
-            &Symbol::new(&env, ORACLE_ROLE),
-            &admin,
-        );
+        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, ORACLE_ROLE), &admin);
     }
 
     #[only_owner]
