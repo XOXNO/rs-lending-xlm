@@ -25,9 +25,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  STELLAR_VERSION: '26.0.0'
   # Pin untrusted workflow_dispatch inputs into env to avoid injection.
   FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
   PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # PR gate: fast smoke (5 min total).
@@ -61,16 +66,8 @@ jobs:
           key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
-        run: |
-          STELLAR_VERSION=26.0.0
-          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
-            mkdir -p "$HOME/.local/bin"
-            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
-              | tar -xz -C "$HOME/.local/bin"
-            chmod +x "$HOME/.local/bin/stellar"
-          fi
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/stellar" --version
+        # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
+        run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Build pool WASM (required by test-harness)
         run: stellar contract build
@@ -128,16 +125,8 @@ jobs:
           key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
-        run: |
-          STELLAR_VERSION=26.0.0
-          if ! command -v stellar >/dev/null 2>&1 || ! stellar --version | grep -qE "^stellar $STELLAR_VERSION"; then
-            mkdir -p "$HOME/.local/bin"
-            curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
-              | tar -xz -C "$HOME/.local/bin"
-            chmod +x "$HOME/.local/bin/stellar"
-          fi
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/stellar" --version
+        # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
+        run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Build pool WASM
         run: stellar contract build

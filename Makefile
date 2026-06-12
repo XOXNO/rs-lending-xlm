@@ -8,6 +8,7 @@
 #   make fmt                Format all code
 #   make clippy             Lint all code
 #   make clean              Clean build artifacts
+#   make install-stellar-cli  Install pinned stellar-cli (matches CI version)
 #
 # Deployment (requires stellar CLI + funded account):
 #   make testnet deploy             Deploy all contracts to testnet
@@ -30,7 +31,7 @@ SHELL := /bin/bash
         coverage coverage-controller coverage-pool coverage-merged \
         coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz \
-        wasm-size-check mutants clean \
+        wasm-size-check mutants clean install-stellar-cli \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -409,6 +410,16 @@ clean:
 	rm -rf $(WASM_ARTIFACTS_DIR)
 	rm -rf $(CERTORA_BUILD_DIR)
 	rm -rf $(COV_DIR)
+
+# ---------------------------------------------------------------------------
+# Tools (CI parity for local development)
+# ---------------------------------------------------------------------------
+
+## Install the exact stellar-cli version used across CI, fuzz, Certora, and release
+## workflows (26.0.0, matching soroban-sdk pin and rust-toolchain.toml).
+## The helper script is platform-aware (Linux + macOS darwin) and idempotent.
+install-stellar-cli:
+	STELLAR_VERSION=26.0.0 bash .github/scripts/install-stellar-cli.sh
 
 # ---------------------------------------------------------------------------
 # Fuzzing (function-level math primitives)

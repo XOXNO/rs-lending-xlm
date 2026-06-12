@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Keep GitHub Actions up to date (checkout, cache, dtolnay/rust-toolchain,
+  # upload-artifact, attest-build-provenance, setup-python, setup-java, etc.).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Group routine updates to reduce noise.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    # Open PRs with conventional commit style subject when possible.
+    commit-message-prefix: "ci(deps): "
+    # Limit to keep review load reasonable.
+    open-pull-requests-limit: 5
