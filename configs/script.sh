@@ -542,16 +542,16 @@ execute_op() {
     else
         args_json=$(jq -c '.args' "$path")
     fi
-    local executor
-    executor=$(get_signer_address)
-
     echo "Executing op ${op_id} -> ${function} on ${target}..." >&2
     local args_file
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
+    # Open execution: a ready op was already proposed, validated, and waited the
+    # full delay, so triggering it is unprivileged. `Option<Address>` is passed
+    # as JSON `null` (None); a bare address is not valid JSON for this arg.
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
-        --executor "$executor" \
+        --executor null \
         --target "$target" \
         --function "$function" \
         --args-file-path "$args_file" \
