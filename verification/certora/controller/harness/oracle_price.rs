@@ -5,7 +5,7 @@
 //! rules can reason about cache behavior and high-level price post-conditions
 //! at low prover cost. The real logic lives in `controller::oracle`.
 
-use controller::types::{MarketIndex, PriceFeedRaw};
+use crate::types::{MarketIndex, PriceFeedRaw};
 use soroban_sdk::Address;
 
 use crate::cache::Cache;

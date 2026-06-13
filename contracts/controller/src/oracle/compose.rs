@@ -13,6 +13,7 @@ pub struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
+    #[cfg_attr(feature = "certora", allow(dead_code))]
     pub timestamp: u64,
     pub within_first_tolerance: bool,
     pub within_second_tolerance: bool,

@@ -57,6 +57,7 @@ pub(crate) fn read_price_data_uncached(
 
 /// One cross-contract call for all feeds of one adapter. `None` on any
 /// failure or length mismatch; callers fall back to per-feed reads.
+#[cfg(not(feature = "certora"))]
 pub(crate) fn read_price_data_bulk(
     env: &Env,
     contract: &Address,

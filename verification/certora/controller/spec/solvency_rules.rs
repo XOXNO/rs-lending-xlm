@@ -7,7 +7,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use controller::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
+use crate::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
 use common::math::fp::{Ray, Wad};
 // Solvency Rules
 // Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md Sec.12)
@@ -23,7 +23,7 @@ fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    let pre_reserves = pool_client.reserves();
+    let pre_reserves = pool_client.reserves(&asset);
 
     let amounts = crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, asset]);
     let claimed = amounts.get(0).unwrap();
@@ -45,10 +45,10 @@ fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    let sync = pool_client.get_sync_data();
+    let sync = pool_client.get_sync_data(&asset);
     cvlr_assume!(sync.state.supplied_ray == 0);
 
-    cvlr_assert!(pool_client.capital_utilisation() == 0);
+    cvlr_assert!(pool_client.capital_utilisation(&asset) == 0);
 }
 // Rule 3d: Isolation debt stays non-negative across repay  (INVARIANTS.md Sec.11)
 
@@ -84,7 +84,7 @@ fn borrow_respects_reserves(e: Env, caller: Address, asset: Address, amount: i12
 
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-    let pre_reserves = pool_client.reserves();
+    let pre_reserves = pool_client.reserves(&asset);
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
@@ -157,12 +157,12 @@ fn supply_index_above_floor_after_supply(e: Env, caller: Address, asset: Address
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    let pre = pool_client.get_sync_data();
+    let pre = pool_client.get_sync_data(&asset);
     cvlr_assume!(pre.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let post = pool_client.get_sync_data();
+    let post = pool_client.get_sync_data(&asset);
     cvlr_assert!(post.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
 }
 // Rule 3h: Supply index does not decrease across borrow  (INVARIANTS.md Sec.7)
@@ -180,11 +180,11 @@ fn supply_index_monotonic_across_borrow(e: Env, caller: Address, asset: Address,
 
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-    let pre = pool_client.get_sync_data();
+    let pre = pool_client.get_sync_data(&asset);
 
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let post = pool_client.get_sync_data();
+    let post = pool_client.get_sync_data(&asset);
     cvlr_assert!(post.state.supply_index_ray >= pre.state.supply_index_ray);
 }
 // Rule 14: Supply index grows slower than borrow index
@@ -316,7 +316,7 @@ fn supply_position_limit_enforced(
     let current_list = crate::storage::get_position_list(
         &e,
         account_id,
-        controller::types::AccountPositionType::Deposit,
+        crate::types::AccountPositionType::Deposit,
     );
     cvlr_assume!(current_list.len() == limits.max_supply_positions as u32);
 
@@ -357,7 +357,7 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     let current_list = crate::storage::get_position_list(
         &e,
         account_id,
-        controller::types::AccountPositionType::Borrow,
+        crate::types::AccountPositionType::Borrow,
     );
     cvlr_assume!(current_list.len() == limits.max_borrow_positions as u32);
     cvlr_assume!(limits.max_borrow_positions as u32 <= 10);
@@ -575,7 +575,7 @@ fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Addres
     let borrow_list = crate::storage::get_position_list(
         &e,
         account_id,
-        controller::types::AccountPositionType::Borrow,
+        crate::types::AccountPositionType::Borrow,
     );
     cvlr_assume!(borrow_list.len() == 1);
 
@@ -703,9 +703,9 @@ fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset, amount);
+    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let post_supplied = pool_client.supplied_amount();
+    let post_supplied = pool_client.supplied_amount(&asset);
     cvlr_assert!(post_supplied <= supply_cap);
 }
 
@@ -721,9 +721,9 @@ fn borrow_respects_borrow_cap(e: Env, caller: Address, asset: Address, amount: i
     let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
     let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
 
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    let post_borrowed = pool_client.borrowed_amount();
+    let post_borrowed = pool_client.borrowed_amount(&asset);
     cvlr_assert!(post_borrowed <= borrow_cap);
 }
 

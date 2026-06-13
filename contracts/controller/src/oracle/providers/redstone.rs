@@ -11,8 +11,10 @@ use crate::cache::Cache;
 
 mod client;
 
+#[cfg(not(feature = "certora"))]
+pub(crate) use client::read_price_data_bulk;
 pub(crate) use client::{
-    read_price_data, read_price_data_bulk, read_price_data_uncached, RedStonePriceData,
+    read_price_data, read_price_data_uncached, RedStonePriceData,
     REDSTONE_DECIMALS,
 };
 

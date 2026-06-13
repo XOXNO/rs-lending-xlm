@@ -8,7 +8,8 @@ use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Env};
 
 use common::math::fp::{Bps, Wad};
-use common::types::{MarketIndex, PriceFeedRaw};
+use common::types::MarketIndex;
+use crate::types::PriceFeedRaw;
 
 use crate::cache::Cache;
 

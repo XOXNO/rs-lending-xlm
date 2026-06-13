@@ -18,10 +18,10 @@ use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use controller::constants::{
+use crate::constants::{
     MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
 };
-use controller::types::{
+use crate::types::{
     AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
     OracleStrategy, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
@@ -39,7 +39,7 @@ const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
 fn pinned_market_config(
     env: &Env,
     asset: &Address,
-    pool: &Address,
+    _pool: &Address,
     oracle: Address,
     status: MarketStatus,
 ) -> MarketConfig {
@@ -61,10 +61,9 @@ fn pinned_market_config(
             flashloan_fee_bps: 9,
             borrow_cap: 2_000_000,
             supply_cap: 3_000_000,
-            min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
+            min_collat_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
+            min_debt_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
         },
-        pool_address: pool.clone(),
         oracle_config: MarketOracleConfig {
             asset_decimals: 7,
             max_price_stale_seconds: 900,

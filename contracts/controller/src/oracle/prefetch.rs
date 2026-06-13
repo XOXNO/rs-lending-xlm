@@ -16,6 +16,7 @@ use crate::cache::Cache;
 /// bulk-of-one could fetch a feed the flow never prices (e.g. a full-close
 /// plan asset the dust gate skips), which would cost a call where the lazy
 /// path makes none.
+#[cfg(not(feature = "certora"))]
 const MIN_BULK_FEEDS: u32 = 2;
 
 /// No-op under Certora: pure performance optimization, identical semantics.

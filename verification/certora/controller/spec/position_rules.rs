@@ -8,7 +8,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use controller::types::AccountPositionType;
+use crate::types::AccountPositionType;
 // Rule 1: Supply increases deposit position
 
 /// After a successful supply, the user's deposit scaled amount for that asset
@@ -16,7 +16,7 @@ use controller::types::AccountPositionType;
 #[rule]
 fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= controller::constants::WAD * 1000);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
 
     // Get position before (0 if doesn't exist)
     let pos_before = crate::storage::positions::get_scaled_amount(
@@ -43,7 +43,7 @@ fn supply_increases_position(e: Env, caller: Address, asset: Address, amount: i1
 #[rule]
 fn borrow_increases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= controller::constants::WAD * 1000);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
 
     let pos_before = crate::storage::positions::get_scaled_amount(
         &e,
@@ -84,7 +84,7 @@ fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128)
     // Repay strictly more than the outstanding scaled debt. WAD (10^18)
     // dominates any realistic per-account scaled balance; the pool refunds
     // the surplus on overpayment.
-    cvlr_assume!(amount > pos_before && amount <= controller::constants::WAD);
+    cvlr_assume!(amount > pos_before && amount <= crate::constants::WAD);
 
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
 
@@ -102,7 +102,7 @@ fn full_repay_clears_debt(e: Env, caller: Address, asset: Address, amount: i128)
 #[rule]
 fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= controller::constants::WAD * 1000);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
 
     let pos_before = crate::storage::positions::get_scaled_amount(
         &e,
@@ -128,7 +128,7 @@ fn withdraw_decreases_position(e: Env, caller: Address, asset: Address, amount: 
 #[rule]
 fn repay_decreases_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= controller::constants::WAD * 1000);
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
 
     let pos_before = crate::storage::positions::get_scaled_amount(
         &e,
