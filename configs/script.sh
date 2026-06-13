@@ -105,6 +105,13 @@ get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
+# Governance owns the controller: all admin writes (markets, oracles, e-modes,
+# pause, roles) route through it. Views and operational role-gated calls
+# (update_indexes, claim_revenue) stay controller-direct.
+get_governance() {
+    stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
+}
+
 # Reflector oracle addresses sourced from networks.json per network.
 # Three classes per Reflector's V3 deployment:
 #   - CEX: External CEX/FX aggregator, keyed by Other(symbol) e.g. "USDC"
@@ -211,11 +218,11 @@ add_emode_category() {
     echo "  Liquidation Threshold: ${threshold}" >&2
     echo "  Liquidation Bonus: ${bonus}" >&2
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
     local admin=$(get_signer_address)
 
     local result
-    result=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    result=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- add_e_mode_category \
         --ltv "$ltv" \
         --threshold "$threshold" \
@@ -240,10 +247,10 @@ edit_emode_category() {
     local ltv=$(get_emode_value "$config_category_id" ".ltv")
     local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
     local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
 
     echo "Editing E-Mode category ${config_category_id} (${name}) on-chain id ${onchain_id}..."
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- edit_e_mode_category \
         --id "$onchain_id" \
         --ltv "$ltv" \
@@ -269,6 +276,7 @@ persist_emode_category_id() {
 }
 
 fetch_emode_category_json() {
+    # E-mode reads stay on the controller; only writes route through governance.
     local onchain_id=$1
     local ctrl=$(get_controller)
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
@@ -364,10 +372,10 @@ add_asset_to_emode() {
         exit 1
     fi
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
     local admin=$(get_signer_address)
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- add_asset_to_e_mode_category \
         --asset "$asset_address" \
         --category_id "$category_id" \
@@ -385,10 +393,10 @@ edit_asset_in_emode() {
     local asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..."
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- edit_asset_in_e_mode_category \
         --asset "$asset_address" \
         --category_id "$category_id" \
@@ -469,9 +477,10 @@ create_market() {
     fi
 
     local ctrl=$(get_controller)
+    local gov=$(get_governance)
     local admin=$(get_signer_address)
 
-    # Check if market already exists to avoid crash on re-runs
+    # Existence probe is a controller view; creation writes go via governance.
     if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_config --asset "$asset_address" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
@@ -501,11 +510,11 @@ create_market() {
     # market. `approve_token` is idempotent — calling on an already-approved
     # token is a no-op.
     echo "Approving token for market creation..."
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- approve_token \
         --token "$asset_address"
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- create_liquidity_pool \
         --asset "$asset_address" \
         --params "$params" \
@@ -527,10 +536,10 @@ edit_asset_config() {
         ".markets[] | select(.name == \"$market_name\") | .asset_config | .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
     local admin=$(get_signer_address)
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- edit_asset_config \
         --asset "$asset_address" \
         --cfg "$config"
@@ -554,9 +563,9 @@ update_market_params() {
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
         "$MARKET_CONFIG_FILE")
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- upgrade_liquidity_pool_params \
         --asset "$asset_address" \
         --params "$params"
@@ -589,6 +598,7 @@ update_indexes() {
 }
 
 claim_revenue() {
+    # claim_revenue is REVENUE-role operational, not admin: it stays controller-direct.
     if [ $# -eq 0 ]; then
         echo "Usage: $0 claimRevenue <market_name> [market_name...]" >&2
         list_markets >&2
@@ -645,14 +655,14 @@ set_aggregator() {
         exit 1
     fi
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
     echo "  Aggregator Address: ${router}"
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- set_aggregator \
         --addr "$router"
 
-    echo "Aggregator configured on Controller."
+    echo "Aggregator configured via governance."
 }
 
 set_accumulator() {
@@ -664,14 +674,14 @@ set_accumulator() {
         exit 1
     fi
 
-    local ctrl=$(get_controller)
+    local gov=$(get_governance)
     echo "  Accumulator Address: ${accumulator}"
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- set_accumulator \
         --addr "$accumulator"
 
-    echo "Accumulator configured on Controller."
+    echo "Accumulator configured via governance."
 }
 
 # ---------------------------------------------------------------------------
@@ -784,10 +794,12 @@ configure_market_oracle() {
         .markets[] | select(.name == $market) | .oracle | cli_union
     ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
-    local ctrl=$(get_controller)
+    # configure_market_oracle requires governance's own ORACLE role; the
+    # governance constructor grants it to the admin, others via grantGovRole.
+    local gov=$(get_governance)
     local admin=$(get_signer_address)
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- configure_market_oracle \
         --caller "$admin" \
         --asset "$asset_address" \
@@ -835,14 +847,14 @@ all_configured_asset_addresses() {
 # ---------------------------------------------------------------------------
 
 pause_protocol() {
-    local ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" -- pause
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- pause
     echo "Protocol paused on ${NETWORK}."
 }
 
 unpause_protocol() {
-    local ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" -- unpause
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- unpause
     echo "Protocol unpaused on ${NETWORK}."
 }
 
@@ -850,22 +862,44 @@ unpause_protocol() {
 # Role management
 # ---------------------------------------------------------------------------
 
+# Controller roles (KEEPER / REVENUE / ORACLE — keeper bots, claim_revenue,
+# disable_token_oracle) are granted on the controller through governance.
 grant_role_cmd() {
     local account=$1
     local role=$2
-    local ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
-        -- grant_role --account "$account" --role "$role"
-    echo "Role ${role} granted to ${account}."
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- grant_controller_role --account "$account" --role "$role"
+    echo "Controller role ${role} granted to ${account}."
 }
 
 revoke_role_cmd() {
     local account=$1
     local role=$2
-    local ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- revoke_controller_role --account "$account" --role "$role"
+    echo "Controller role ${role} revoked from ${account}."
+}
+
+# Governance's own ORACLE role (gates configure_market_oracle /
+# edit_oracle_tolerance) is granted via governance grant_role.
+grant_gov_role_cmd() {
+    local account=$1
+    local role=$2
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- grant_role --account "$account" --role "$role"
+    echo "Governance role ${role} granted to ${account}."
+}
+
+revoke_gov_role_cmd() {
+    local account=$1
+    local role=$2
+    local gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- revoke_role --account "$account" --role "$role"
-    echo "Role ${role} revoked from ${account}."
+    echo "Governance role ${role} revoked from ${account}."
 }
 
 has_role_cmd() {
@@ -881,11 +915,14 @@ has_role_cmd() {
 
 show_info() {
     echo "=== Deployment info (${NETWORK}) ==="
+    local gov_alias
+    gov_alias=$(stellar contract alias show governance --network "$NETWORK" 2>/dev/null || echo "not deployed")
     local ctrl_alias
     ctrl_alias=$(stellar contract alias show controller --network "$NETWORK" 2>/dev/null || echo "not deployed")
     local agg_alias
     agg_alias=$(stellar contract alias show aggregator --network "$NETWORK" 2>/dev/null || echo "not set")
     echo "Signer:     $(get_signer_address)"
+    echo "Governance: ${gov_alias} (controller owner; all admin ops route through it)"
     echo "Controller: ${ctrl_alias}"
     echo "Aggregator: ${agg_alias}"
     echo "Configured Aggregator: $(get_network_value "aggregator")"
@@ -1345,6 +1382,21 @@ case "$1" in
         fi
         revoke_role_cmd "$2" "$3"
         ;;
+    "grantGovRole")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 grantGovRole <account> <role>" >&2
+            echo "Governance roles: ORACLE (configure_market_oracle operator)" >&2
+            exit 1
+        fi
+        grant_gov_role_cmd "$2" "$3"
+        ;;
+    "revokeGovRole")
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: $0 revokeGovRole <account> <role>" >&2
+            exit 1
+        fi
+        revoke_gov_role_cmd "$2" "$3"
+        ;;
     "hasRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 hasRole <account> <role>" >&2
@@ -1468,10 +1520,12 @@ case "$1" in
         echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
         echo "  setupAllEModes                  Idempotently configure e-modes; no deploy/unpause"
         echo ""
-        echo "Protocol control (writes):"
+        echo "Protocol control (writes, all routed through governance):"
         echo "  pause | unpause                 Pause/unpause protocol"
-        echo "  grantRole <account> <role>      Grant KEEPER | REVENUE | ORACLE"
-        echo "  revokeRole <account> <role>     Revoke role"
+        echo "  grantRole <account> <role>      Grant controller KEEPER | REVENUE | ORACLE via governance"
+        echo "  revokeRole <account> <role>     Revoke controller role via governance"
+        echo "  grantGovRole <account> <role>   Grant governance's own role (ORACLE for configureMarketOracle)"
+        echo "  revokeGovRole <account> <role>  Revoke governance role"
         echo "  setAggregator                   Set aggregator from networks.json"
         echo "  setAccumulator                  Set accumulator from networks.json or aggregator fallback"
         echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
