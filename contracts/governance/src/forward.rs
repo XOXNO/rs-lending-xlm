@@ -62,6 +62,24 @@ fn schedule_controller(env: &Env, operation: &Operation) -> BytesN<32> {
     schedule_operation(env, operation, get_min_delay(env))
 }
 
+/// Validates and probes a market oracle input into the resolved
+/// `MarketOracleConfig` that `set_market_oracle_config` persists. Shared by the
+/// `propose_configure_market_oracle` proposer and the `resolve_market_oracle_config`
+/// view so the view returns byte-identical output to what the proposer schedules.
+pub(crate) fn resolve_market_oracle(
+    env: &Env,
+    asset: &Address,
+    cfg: &MarketOracleConfigInput,
+) -> controller_interface::types::MarketOracleConfig {
+    let tolerance = validate::tolerance::validate_and_calculate_tolerances(
+        env,
+        cfg.first_tolerance_bps,
+        cfg.last_tolerance_bps,
+    );
+    let controller = storage::get_controller(env);
+    validate::oracle_probe::validate_market_oracle_sources(env, &controller, asset, cfg, tolerance)
+}
+
 #[contractimpl]
 impl Governance {
     pub fn propose_set_aggregator(
@@ -449,19 +467,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        let tolerance = validate::tolerance::validate_and_calculate_tolerances(
-            &env,
-            cfg.first_tolerance_bps,
-            cfg.last_tolerance_bps,
-        );
-        let controller = storage::get_controller(&env);
-        let config = validate::oracle_probe::validate_market_oracle_sources(
-            &env,
-            &controller,
-            &asset,
-            &cfg,
-            tolerance,
-        );
+        let config = resolve_market_oracle(&env, &asset, &cfg);
         schedule_controller_op(
             &env,
             "set_market_oracle_config",

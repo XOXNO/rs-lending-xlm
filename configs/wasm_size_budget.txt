@@ -10,4 +10,8 @@ defindex_strategy.wasm 45000
 # Embedding the OpenZeppelin timelock trait adds 8 entrypoints
 # (schedule/execute/cancel/update_delay + 4 query defaults), the Operation /
 # OperationState types, role symbols, and storage helpers: 46,126 -> 52,628 B.
-governance.wasm 56000
+# TL-5b adds the read-only resolve_market_oracle_config / resolve_oracle_tolerance
+# views (CLI timelock-execute support), which pull the MarketOracleConfig and
+# OraclePriceFluctuation return types plus MarketOracleConfigInput into the
+# governance spec: 52,628 -> 57,429 B.
+governance.wasm 58000

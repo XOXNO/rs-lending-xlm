@@ -161,14 +161,19 @@ get_contract_decimals() {
 # file keyed by op-id under tmp/ops/<network>/, so `executeOp <op-id>` can
 # reconstruct the Operation without re-deriving anything.
 #
-# Reconstruction limit (honest): the two oracle proposers schedule the
+# Oracle ops (configureMarketOracle / editOracleTolerance) schedule the
 # governance-RESOLVED struct (MarketOracleConfig / OraclePriceFluctuation), not
-# the raw input. Those resolved structs are not part of governance's CLI spec and
-# cannot be rebuilt client-side, so their ops are NOT CLI-executable here — the
-# record is marked `cli_executable=false` and executeOp refuses them with a clear
-# pointer to the typed (SDK/keeper) execute path. Every other op (primitive and
-# the plain field-map structs: PositionLimits / AssetConfigRaw / MarketParamsRaw /
-# InterestRateModel) is fully reconstructed and CLI-executable.
+# the raw input. The CLI renders a struct view as friendly JSON, which is not the
+# ScVal `Vec<Val>` form `execute` needs, so we cannot capture the resolved args
+# directly from the view. Instead each oracle op record stores a `resolve` block
+# (the governance resolve_* view + its friendly inputs); at execute time
+# `resolve_oracle_op_args` runs the view, feeds the friendly result back through
+# the controller's typed setter with `--build-only`, and decodes the
+# CLI-encoded ScVal args. Those match the proposer's scheduled args byte-for-byte
+# because both encode the same `#[contracttype]` struct (canonical sorted map).
+# Every other op (primitives and the plain field-map structs: PositionLimits /
+# AssetConfigRaw / MarketParamsRaw / InterestRateModel) stores its ScVal args
+# directly. All ops are CLI-executable.
 # ---------------------------------------------------------------------------
 
 # 32-byte zero predecessor (no dependency), hex form for ScVal/record use.
@@ -332,6 +337,99 @@ write_op_record() {
     echo "  Recorded op $op_id -> $path" >&2
 }
 
+# Persist an oracle op record whose scheduled args are a governance-RESOLVED
+# struct (MarketOracleConfig / OraclePriceFluctuation). The CLI cannot capture
+# that struct as ScVal JSON from the friendly view output, so instead of storing
+# `args` we store a `resolve` block (the governance view + its friendly inputs).
+# At execute time `resolve_oracle_op_args` replays the view through the
+# controller's typed setter (`--build-only`) and decodes the ScVal args the CLI
+# itself encoded — byte-identical to the proposer's scheduled args because both
+# come from the same `#[contracttype]` spec.
+write_oracle_op_record() {
+    local op_id=$1
+    local controller_fn=$2
+    local view_fn=$3
+    local resolve_args_json=$4
+    local salt_hex=$5
+    local ctrl
+    ctrl=$(get_controller)
+    local path
+    path=$(op_record_path "$op_id")
+    jq -nc \
+        --arg op_id "$op_id" \
+        --arg network "$NETWORK" \
+        --arg target "$ctrl" \
+        --arg function "$controller_fn" \
+        --arg predecessor "$ZERO_PREDECESSOR_HEX" \
+        --arg salt "$salt_hex" \
+        --arg view_fn "$view_fn" \
+        --argjson resolve_args "$resolve_args_json" \
+        '{op_id:$op_id, network:$network, target:$target, function:$function,
+          predecessor:$predecessor, salt:$salt, cli_executable:true,
+          resolve:{view_fn:$view_fn, args:$resolve_args}}' > "$path"
+    echo "  Recorded oracle op $op_id -> $path" >&2
+}
+
+# Resolve an oracle op's scheduled ScVal `Vec<Val>` args at execute time.
+#
+# Reads the record's `resolve` block, invokes the matching governance view under
+# simulation to get the resolved struct (friendly JSON), feeds it back through
+# the controller's typed setter with `--build-only` so the CLI re-encodes it to
+# ScVal exactly as the proposer scheduled, then decodes that transaction and
+# extracts the InvokeContract args. Prints the ScVal `Vec<Val>` JSON array.
+resolve_oracle_op_args() {
+    local path=$1
+    local gov ctrl view_fn function asset
+    gov=$(get_governance)
+    ctrl=$(jq -r '.target' "$path")
+    function=$(jq -r '.function' "$path")
+    view_fn=$(jq -r '.resolve.view_fn' "$path")
+    asset=$(jq -r '.resolve.args.asset' "$path")
+
+    local resolved
+    case "$view_fn" in
+        resolve_market_oracle_config)
+            local cfg_file
+            cfg_file=$(mktemp)
+            jq -c '.resolve.args.cfg' "$path" > "$cfg_file"
+            resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+                --send=no -- "$view_fn" --asset "$asset" --cfg-file-path "$cfg_file")
+            rm -f "$cfg_file"
+            local cfg_file2
+            cfg_file2=$(mktemp)
+            printf '%s' "$resolved" > "$cfg_file2"
+            local tx_xdr
+            tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+                --build-only --send=no -- "$function" \
+                --asset "$asset" --config-file-path "$cfg_file2")
+            rm -f "$cfg_file2"
+            printf '%s' "$tx_xdr" | stellar tx decode \
+                | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
+            ;;
+        resolve_oracle_tolerance)
+            local first last
+            first=$(jq -r '.resolve.args.first_tolerance' "$path")
+            last=$(jq -r '.resolve.args.last_tolerance' "$path")
+            resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+                --send=no -- "$view_fn" --first_tolerance "$first" --last_tolerance "$last")
+            local tol_file
+            tol_file=$(mktemp)
+            printf '%s' "$resolved" > "$tol_file"
+            local tx_xdr
+            tx_xdr=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+                --build-only --send=no -- "$function" \
+                --asset "$asset" --tolerance-file-path "$tol_file")
+            rm -f "$tol_file"
+            printf '%s' "$tx_xdr" | stellar tx decode \
+                | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
+            ;;
+        *)
+            echo "ERROR: unknown oracle resolve view '${view_fn}' in ${path}." >&2
+            exit 1
+            ;;
+    esac
+}
+
 # Parse the operation id (quoted BytesN hex on the proposer's last output line).
 parse_op_id() {
     printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
@@ -422,8 +520,7 @@ execute_op() {
     cli_executable=$(jq -r '.cli_executable' "$path")
     if [ "$cli_executable" != "true" ]; then
         echo "ERROR: op ${op_id} (function $(jq -r '.function' "$path")) is not CLI-executable." >&2
-        echo "       Its scheduled args are a governance-resolved struct that the CLI cannot" >&2
-        echo "       reconstruct (oracle config). Execute it via the typed SDK/keeper path." >&2
+        echo "       Execute it via the typed SDK/keeper path." >&2
         exit 1
     fi
 
@@ -433,7 +530,18 @@ execute_op() {
     function=$(jq -r '.function' "$path")
     predecessor=$(jq -r '.predecessor' "$path")
     salt=$(jq -r '.salt' "$path")
-    args_json=$(jq -c '.args' "$path")
+    # Oracle ops carry a `resolve` block instead of stored args: the scheduled
+    # struct is re-derived through the governance view at execute time so it
+    # matches byte-for-byte. Every other op stores its ScVal args directly.
+    if [ "$(jq -r 'has("resolve")' "$path")" = "true" ]; then
+        args_json=$(resolve_oracle_op_args "$path")
+        if [ -z "$args_json" ] || [ "$args_json" = "null" ]; then
+            echo "ERROR: failed to resolve oracle op ${op_id} args via the governance view." >&2
+            exit 1
+        fi
+    else
+        args_json=$(jq -c '.args' "$path")
+    fi
     local executor
     executor=$(get_signer_address)
 
@@ -1210,20 +1318,23 @@ configure_market_oracle() {
 
     # propose_configure_market_oracle(proposer, asset, cfg, salt) validates+probes
     # the INPUT cfg, then schedules the controller's set_market_oracle_config with
-    # the governance-RESOLVED MarketOracleConfig. That resolved struct is not in
-    # governance's CLI spec, so its scheduled args cannot be rebuilt client-side:
-    # the op is recorded cli_executable=false and executeOp refuses it. Execute it
-    # via the typed SDK/keeper path after the delay (see executeOp message).
+    # the governance-RESOLVED MarketOracleConfig. The CLI can't capture that struct
+    # as ScVal from the friendly view output, so the op record stores a `resolve`
+    # block (the resolve_market_oracle_config view + the input cfg); executeOp
+    # replays the view through the controller's typed setter (`--build-only`) to
+    # reconstruct byte-identical args. See resolve_oracle_op_args.
     local gov=$(get_governance)
     local proposer=$(get_signer_address)
 
+    local cfg_json
+    cfg_json=$(jq -c . "$cfg_file")
     local salt
     local salt_input
-    salt_input=$(jq -nc --argjson cfg "$(jq -c . "$cfg_file")" --arg asset "$asset_address" \
+    salt_input=$(jq -nc --argjson cfg "$cfg_json" --arg asset "$asset_address" \
         '{asset:$asset, cfg:$cfg}')
     salt=$(gen_salt "set_market_oracle_config" "$salt_input")
 
-    echo "Scheduling market oracle config for ${market_name} (resolved struct; not CLI-executable)..." >&2
+    echo "Scheduling market oracle config for ${market_name}..." >&2
     local out
     out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose_configure_market_oracle \
@@ -1240,11 +1351,65 @@ configure_market_oracle() {
         echo "ERROR: propose_configure_market_oracle returned no operation id (output: $out)" >&2
         exit 1
     fi
-    # Record args=[] cli_executable=false: replay must come from the typed path.
-    write_op_record "$op_id" "set_market_oracle_config" "[]" "$salt" false
+    local resolve_args
+    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson cfg "$cfg_json" \
+        '{asset:$asset, cfg:$cfg}')
+    write_oracle_op_record "$op_id" "set_market_oracle_config" \
+        "resolve_market_oracle_config" "$resolve_args" "$salt"
 
     echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
-    echo "NOTE: oracle ops are not CLI-executable; execute op ${op_id} via the typed SDK/keeper path after the delay." >&2
+    schedule_and_maybe_execute "$op_id"
+}
+
+# Edit only a market's oracle tolerance bands. propose_edit_oracle_tolerance
+# schedules the controller's set_oracle_tolerance with the governance-RESOLVED
+# OraclePriceFluctuation; executeOp re-derives it via resolve_oracle_tolerance.
+edit_oracle_tolerance() {
+    local market_name=$1
+    local first=$2
+    local last=$3
+    if [ -z "$market_name" ] || [ -z "$first" ] || [ -z "$last" ]; then
+        echo "Usage: $0 editOracleTolerance <market> <first_tolerance_bps> <last_tolerance_bps>" >&2
+        exit 1
+    fi
+
+    local asset_address
+    asset_address=$(require_market_address "$market_name")
+    local gov
+    gov=$(get_governance)
+    local proposer
+    proposer=$(get_signer_address)
+
+    local salt_input
+    salt_input=$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
+        '{asset:$asset, first:$f, last:$l}')
+    local salt
+    salt=$(gen_salt "set_oracle_tolerance" "$salt_input")
+
+    echo "Scheduling oracle tolerance edit for ${market_name} (first=${first} last=${last})..." >&2
+    local out
+    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- propose_edit_oracle_tolerance \
+        --proposer "$proposer" \
+        --asset "$asset_address" \
+        --first_tolerance "$first" \
+        --last_tolerance "$last" \
+        --salt "$salt")
+
+    local op_id
+    op_id=$(parse_op_id "$out")
+    if [ -z "$op_id" ]; then
+        echo "ERROR: propose_edit_oracle_tolerance returned no operation id (output: $out)" >&2
+        exit 1
+    fi
+    local resolve_args
+    resolve_args=$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
+        '{asset:$asset, first_tolerance:$f, last_tolerance:$l}')
+    write_oracle_op_record "$op_id" "set_oracle_tolerance" \
+        "resolve_oracle_tolerance" "$resolve_args" "$salt"
+
+    echo "Oracle tolerance edit scheduled for ${market_name} as op ${op_id}." >&2
+    schedule_and_maybe_execute "$op_id"
 }
 
 setup_all_markets() {
@@ -1854,6 +2019,14 @@ case "$1" in
         fi
         configure_market_oracle "$2"
         ;;
+    "editOracleTolerance")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+            echo "Usage: $0 editOracleTolerance <market> <first_tolerance_bps> <last_tolerance_bps>"
+            list_markets
+            exit 1
+        fi
+        edit_oracle_tolerance "$2" "$3" "$4"
+        ;;
     "updateIndexes")
         if [ -z "$2" ]; then
             echo "Usage: $0 updateIndexes <market_name> [market_name...]"
@@ -2095,6 +2268,7 @@ case "$1" in
         echo "  createMarket <name>             Deploy market from config"
         echo "  editAssetConfig <name>          Update asset risk params from config"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
+        echo "  editOracleTolerance <m> <f> <l> Edit a market's oracle tolerance bands (bps)"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
         echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
         echo ""
@@ -2113,8 +2287,9 @@ case "$1" in
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
         echo "  awaitOp <op-id>                 Poll until the op is Ready"
-        echo "  NOTE: oracle ops (configureMarketOracle) schedule a governance-resolved"
-        echo "  struct and are NOT CLI-executable; execute them via the typed SDK/keeper path."
+        echo "  NOTE: oracle ops (configureMarketOracle, editOracleTolerance) schedule a"
+        echo "  governance-resolved struct; executeOp re-derives it via the resolve_* views"
+        echo "  (build-only re-encode), so they are CLI-executable like every other op."
         echo ""
         echo "Protocol control (writes, all routed through governance):"
         echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"

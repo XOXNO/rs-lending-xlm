@@ -13,10 +13,13 @@
 //! here re-arms a non-zero delay (owner-immediate `update_delay`) so the
 //! `Waiting` state is observable, then advances the ledger to reach `Ready`.
 
-use controller::types::{ControllerKey, PositionLimits};
+use controller::types::{ControllerKey, MarketOracleConfig, PositionLimits};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
-use test_harness::{assert_contract_error, errors, LendingTest};
+use test_harness::{
+    assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
+    DEFAULT_TOLERANCE,
+};
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
 
@@ -298,4 +301,123 @@ fn same_params_distinct_salts_schedule_independently() {
         gov.get_operation_state(&id_b),
         governance::OperationState::Waiting
     );
+}
+
+const SET_MARKET_ORACLE_CONFIG: &str = "set_market_oracle_config";
+
+// The CLI timelock linchpin (TL-5b): the `resolve_market_oracle_config` view runs
+// the SAME validate+probe path as `propose_configure_market_oracle`, so its output
+// is byte-identical to the resolved `MarketOracleConfig` the proposer scheduled.
+// If the two diverged by even one field the operation-id hash would not match and
+// `execute` would revert (OZ `InvalidOperationState`). This proves: (1) the view
+// output equals what the controller persists, and (2) feeding the view output as
+// execute args drives a successful execute end to end.
+#[test]
+fn resolve_market_oracle_view_matches_scheduled_and_executes() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_client();
+    let admin = t.admin();
+    let asset = t.resolve_asset("USDC");
+    let s = salt(&t.env, 8);
+
+    arm_delay(&t);
+
+    let cfg = reflector_single_spot_config(
+        &t.mock_reflector,
+        &asset,
+        DEFAULT_TOLERANCE.first_upper_bps,
+        DEFAULT_TOLERANCE.last_upper_bps,
+    );
+
+    // Resolve independently through the read-only view (no schedule, no state
+    // change): this is exactly what the CLI invokes under `--send=no`.
+    let resolved: MarketOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
+
+    // Schedule the same op through the proposer; it stores the resolved struct.
+    let id = gov.propose_configure_market_oracle(&admin, &asset, &cfg, &s);
+    assert_eq!(
+        gov.get_operation_state(&id),
+        governance::OperationState::Waiting
+    );
+
+    t.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
+
+    // Execute with the VIEW's output as args. This only succeeds if the view
+    // output hashes to the same operation id the proposer scheduled — i.e. it is
+    // byte-identical to the scheduled args.
+    gov.execute(
+        &Some(admin.clone()),
+        &t.controller,
+        &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
+        &soroban_sdk::vec![
+            &t.env,
+            asset.clone().into_val(&t.env),
+            resolved.clone().into_val(&t.env),
+        ],
+        &salt(&t.env, 0),
+        &s,
+    );
+    assert_eq!(
+        gov.get_operation_state(&id),
+        governance::OperationState::Done
+    );
+
+    // The controller now stores exactly the view's resolved config.
+    let stored = t.ctrl_client().get_market_config(&asset).oracle_config;
+    assert_eq!(stored, resolved);
+}
+
+// The tolerance view mirrors the proposer's `validate_and_calculate_tolerances`
+// path, so its `OraclePriceFluctuation` output replays a `set_oracle_tolerance`
+// op verbatim at execute time.
+#[test]
+fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_client();
+    let admin = t.admin();
+    let asset = t.resolve_asset("USDC");
+    let s = salt(&t.env, 9);
+
+    arm_delay(&t);
+
+    let first = DEFAULT_TOLERANCE.first_upper_bps;
+    let last = DEFAULT_TOLERANCE.last_upper_bps;
+
+    let resolved = gov.resolve_oracle_tolerance(&first, &last);
+
+    let id = gov.propose_edit_oracle_tolerance(&admin, &asset, &first, &last, &s);
+    assert_eq!(
+        gov.get_operation_state(&id),
+        governance::OperationState::Waiting
+    );
+
+    t.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
+
+    gov.execute(
+        &Some(admin.clone()),
+        &t.controller,
+        &Symbol::new(&t.env, "set_oracle_tolerance"),
+        &soroban_sdk::vec![
+            &t.env,
+            asset.clone().into_val(&t.env),
+            resolved.clone().into_val(&t.env),
+        ],
+        &salt(&t.env, 0),
+        &s,
+    );
+    assert_eq!(
+        gov.get_operation_state(&id),
+        governance::OperationState::Done
+    );
+
+    let stored = t
+        .ctrl_client()
+        .get_market_config(&asset)
+        .oracle_config
+        .tolerance;
+    assert_eq!(stored, resolved);
 }

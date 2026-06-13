@@ -17,6 +17,9 @@
 //! and self-authorization, which is why governance-self-targeted admin stays
 //! owner-immediate (see `access.rs`).
 
+use controller_interface::types::{
+    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
+};
 use soroban_sdk::{contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
 use stellar_access::access_control;
 use stellar_governance::timelock::{
@@ -107,6 +110,35 @@ impl Governance {
             salt,
         };
         hash_operation(&env, &operation)
+    }
+
+    /// Resolves a market oracle input to the `MarketOracleConfig` that
+    /// `propose_configure_market_oracle` schedules for `set_market_oracle_config`.
+    /// Runs the same validation and live oracle probes as the proposer, so the
+    /// output equals the scheduled args exactly — the CLI replays it verbatim at
+    /// `execute` time under simulation. Read-only.
+    pub fn resolve_market_oracle_config(
+        env: Env,
+        asset: Address,
+        cfg: MarketOracleConfigInput,
+    ) -> MarketOracleConfig {
+        crate::forward::resolve_market_oracle(&env, &asset, &cfg)
+    }
+
+    /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` that
+    /// `propose_edit_oracle_tolerance` schedules for `set_oracle_tolerance`. Same
+    /// computation as the proposer, so the CLI replays the output verbatim at
+    /// `execute` time. Read-only.
+    pub fn resolve_oracle_tolerance(
+        env: Env,
+        first_tolerance: u32,
+        last_tolerance: u32,
+    ) -> OraclePriceFluctuation {
+        crate::validate::tolerance::validate_and_calculate_tolerances(
+            &env,
+            first_tolerance,
+            last_tolerance,
+        )
     }
 }
 
