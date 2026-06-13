@@ -2,11 +2,11 @@
   "testnet": {
     "rpc_url": "https://soroban-testnet.stellar.org",
     "network_passphrase": "Test SDF Network ; September 2015",
-    "governance": "",
-    "controller": "CAOFYIVZUCWGLCJPQBN7TL5LYI5AVEGZFP3GRPRWT2X2FEY562KUMSUA",
+    "governance": "CAWVHPBYW2YOF3MZIR24GW2UW3TGGNYB36C6DEON36NLY7AMQRXOVA2Q",
+    "controller": "CDYAEY2DM7MHLYLO34CFPLCBSJUQMTXGP6MYQ7LASOLD5J5ZFC6UCGWY",
     "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
-    "pool_wasm_hash": "e1132ec99c260ef3ccb91b06e6b16e61cd7e86c8b69f8d4b5d4f84fa9e479954",
-    "controller_wasm_hash": "",
+    "pool_wasm_hash": "76189c3c00a6c6f5766b8e64d4ca909151b28437d0a89e025e0e2f644fba206a",
+    "controller_wasm_hash": "b806c36b6fb60268827a5d5e1ddc89231c7f7dcfa4ac4f21ba688d9a693b03c0",
     "ledger_index": 0,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -16,7 +16,7 @@
     "emode_category_ids": {
       "1": 1
     },
-    "pool": "CACEGZ3F3GA6ZGNNHIRTHELPUZ36OWJJDECB43X2Y4LUUBOE3F7ITRXL"
+    "pool": "CBHQUIC3IPN3T3PRZIHMWI75INBZMAMXYPFYAR633CBSYQNTRSRQ4DA5"
   },
   "mainnet": {
     "rpc_url": "https://soroban-rpc.mainnet.stellar.gateway.fm",
