@@ -1,9 +1,11 @@
 //! Ownership, the ORACLE role, and self-upgrade for the governance contract.
 //!
 //! Built on the `stellar_access` crate primitives. Governance owns the
-//! ORACLE role, which gates the oracle-configuration forwarders into the
-//! controller. Pause and position limits are absent by design: both are
-//! controller state and stay behind the controller's own entrypoints.
+//! ORACLE role, which gates the testing-only immediate oracle-configuration
+//! forwarders; production oracle config is timelocked through the PROPOSER-gated
+//! `propose_configure_market_oracle` / `propose_edit_oracle_tolerance` proposers.
+//! Pause and position limits are absent by design: both are controller state and
+//! stay behind the controller's own entrypoints.
 //!
 //! The entrypoints here (`upgrade`, `transfer_ownership`, `grant_role`,
 //! `revoke_role`) administer the governance contract ITSELF and are owner-gated
@@ -22,7 +24,7 @@ use crate::{Governance, GovernanceArgs, GovernanceClient};
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 
 /// Timelock roles. The crate leaves all role logic to the host; these gate the
-/// `schedule` / `execute` / `cancel` timelock entrypoints respectively.
+/// `propose_*` / `execute` / `cancel` timelock entrypoints respectively.
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
