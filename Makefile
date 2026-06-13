@@ -880,6 +880,7 @@ _deploy: deploy-artifacts
 		-- set_liquidity_pool_template --hash $$(cat $(POOL_WASM_HASH_FILE)); \
 	POOL=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
 		-- deploy_pool | tail -n1 | tr -d '"'); \
+	if [ -z "$$POOL" ]; then echo "deploy_pool returned no address"; exit 1; fi; \
 	echo "Central pool: $$POOL"; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool = "'$$POOL'"' \
