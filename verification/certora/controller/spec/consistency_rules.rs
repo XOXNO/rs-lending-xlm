@@ -8,8 +8,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
-use controller::constants::WAD;
-use controller::types::AccountPositionType;
+use crate::constants::WAD;
+use crate::types::AccountPositionType;
 
 #[rule]
 fn controller_supply_persists_pool_returned_position(

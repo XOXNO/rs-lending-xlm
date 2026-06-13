@@ -12,10 +12,10 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use controller::constants::{BPS, WAD};
+use crate::constants::{BPS, WAD};
+use crate::types::AccountPositionType;
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
-use controller::types::AccountPositionType;
 
 // Realistic per-call debt amount cap. The protocol's largest configured
 // debt position would be on the order of 10^12 raw token units (1M tokens

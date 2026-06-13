@@ -4,7 +4,7 @@
 //! and e-mode data under the `certora` feature.
 
 use super::*;
-use controller::types::{
+use crate::types::{
     AccountAttributes, AccountPositionRaw, AccountPositionType, EModeAssetConfig, MarketIndex,
     MarketParamsRaw, PositionMode,
 };
@@ -72,8 +72,14 @@ pub fn get_emode_assets(env: &Env, category_id: u32) -> Map<Address, EModeAssetC
 pub mod asset_pool {
     use super::*;
 
-    pub fn get_asset_pool(env: &Env, asset: &Address) -> Address {
-        get_market_config(env, asset).pool_address
+    /// The protocol runs a single central pool. `MarketConfig` no longer
+    /// carries a per-market `pool_address`; the pool is resolved from instance
+    /// storage via `storage::get_pool`. The `_asset` param is retained so the
+    /// asset-keyed solvency-rule callers stay unchanged: the rules express
+    /// "after op on `asset`, the pool views for `asset` are consistent", which
+    /// still holds under the shared, asset-keyed-at-the-view-level pool.
+    pub fn get_asset_pool(env: &Env, _asset: &Address) -> Address {
+        crate::storage::get_pool(env)
     }
 }
 
@@ -103,7 +109,8 @@ pub mod asset_config {
 
     pub fn get_asset_config(env: &Env, asset: &Address) -> CompatAssetConfig {
         let market = get_market_config(env, asset);
-        let sync = LiquidityPoolClient::new(env, &market.pool_address).get_sync_data();
+        let pool = crate::storage::get_pool(env);
+        let sync = LiquidityPoolClient::new(env, &pool).get_sync_data(asset);
         let cfg = market.asset_config;
         CompatAssetConfig {
             loan_to_value_bps: cfg.loan_to_value_bps as i128,
@@ -131,9 +138,9 @@ pub mod market_index {
 
     pub fn get_market_index(env: &Env, asset: &Address) -> MarketIndex {
         use common::math::fp::Ray;
-        let market = get_market_config(env, asset);
-        let state = LiquidityPoolClient::new(env, &market.pool_address)
-            .get_sync_data()
+        let pool = crate::storage::get_pool(env);
+        let state = LiquidityPoolClient::new(env, &pool)
+            .get_sync_data(asset)
             .state;
         MarketIndex {
             borrow_index: Ray::from(state.borrow_index_ray),
@@ -146,9 +153,9 @@ pub mod market_params {
     use super::*;
 
     pub fn get_market_params(env: &Env, asset: &Address) -> MarketParamsRaw {
-        let market = get_market_config(env, asset);
-        LiquidityPoolClient::new(env, &market.pool_address)
-            .get_sync_data()
+        let pool = crate::storage::get_pool(env);
+        LiquidityPoolClient::new(env, &pool)
+            .get_sync_data(asset)
             .params
     }
 }

@@ -8,8 +8,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use controller::constants::WAD;
-use controller::types::AccountPositionType;
+use crate::constants::WAD;
+use crate::types::AccountPositionType;
 
 #[rule]
 fn supply_does_not_change_other_account_positions(

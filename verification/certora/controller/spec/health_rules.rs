@@ -13,7 +13,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use controller::constants::WAD;
+use crate::constants::WAD;
 use common::math::fp::{Bps, Ray, Wad};
 
 /// Computes the borrow-side USD WAD total by inline iteration over the

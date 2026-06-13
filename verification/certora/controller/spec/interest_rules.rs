@@ -14,14 +14,14 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::Env;
 
-use controller::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::types::MarketParams;
 use common::math::fp::Ray;
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up};
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     update_borrow_index, update_supply_index,
 };
-use controller::types::MarketParams;
 
 fn nondet_valid_params(e: &Env) -> MarketParams {
     let base_borrow_rate_ray: i128 = cvlr::nondet::nondet();

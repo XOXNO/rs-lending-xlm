@@ -7,9 +7,9 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
+use crate::constants::WAD;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::ResolvedOracleComponents;
-use controller::constants::WAD;
 
 #[rule]
 fn strict_policies_forbid_degraded_dual_source() {

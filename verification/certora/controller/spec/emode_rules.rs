@@ -242,7 +242,7 @@ fn deprecated_emode_allows_withdraw(
     let position = crate::storage::get_position(
         &e,
         account_id,
-        controller::types::AccountPositionType::Deposit,
+        crate::types::AccountPositionType::Deposit,
         &asset,
     );
     cvlr_assume!(position.is_some());
@@ -253,7 +253,8 @@ fn deprecated_emode_allows_withdraw(
     // Withdraw must succeed -- deprecated categories do not block exits
     let mut withdrawals: Vec<(Address, i128)> = Vec::new(&e);
     withdrawals.push_back((asset.clone(), amount));
-    crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals);
+    // `to = None` is withdraw-to-self; the recipient branch is a Phase-5 gap.
+    crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals, None);
 
     // Post-state must show the withdraw actually happened: either the
     // position is gone (full withdraw) or its scaled amount strictly
@@ -261,7 +262,7 @@ fn deprecated_emode_allows_withdraw(
     let position_after = crate::storage::get_position(
         &e,
         account_id,
-        controller::types::AccountPositionType::Deposit,
+        crate::types::AccountPositionType::Deposit,
         &asset,
     );
     match position_after {
@@ -298,7 +299,7 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(asset_cats.contains(category_id));
 
     // Get base config and apply e-mode override
-    let mut asset_config = controller::types::AssetConfig::from(
+    let mut asset_config = crate::types::AssetConfig::from(
         &crate::storage::get_market_config(&e, &asset).asset_config,
     );
     let emode_cat = crate::emode::e_mode_category(&e, category_id);
@@ -429,7 +430,7 @@ fn emode_account_cannot_enter_isolation(e: Env, asset: Address, e_mode_category:
     cvlr_assume!(e_mode_category > 0);
 
     // Asset is an isolated asset.
-    let config = controller::types::AssetConfig::from(
+    let config = crate::types::AssetConfig::from(
         &crate::storage::get_market_config(&e, &asset).asset_config,
     );
     cvlr_assume!(config.is_isolated_asset);
@@ -490,7 +491,7 @@ fn emode_isolation_mutual_exclusion_after_multiply(
     debt_to_flash_loan: i128,
     debt_token: Address,
     mode: u32,
-    steps: controller::types::StrategySwap,
+    steps: crate::types::StrategySwap,
 ) {
     cvlr_assume!(debt_to_flash_loan > 0);
     // `compat::multiply` panics on `mode > 3`; constrain to a valid mode.
