@@ -178,6 +178,77 @@ fn test_dex_read_rejects_disabled_quote_market() {
     index_view(&t, &xlm);
 }
 
+/// Execute-time re-check: governance validates the quote market at propose time,
+/// but the controller stores the config ~48h later. If the quote market is
+/// disabled during the timelock delay, replaying the stale op (a direct
+/// `set_market_oracle_config` of the resolved config) reverts (#220) instead of
+/// landing a config that prices off a disabled quote.
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_oracle_config_execute_rejects_disabled_quote_market() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    t.set_price("USDC", usd(1));
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    // Configure XLM quoted in USDC while USDC is Active+USD (propose-time view).
+    let dex = register_dex_oracle(&t, &usdc);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
+    t.configure_market_oracle(
+        &xlm,
+        &reflector_single_spot_config(
+            &dex,
+            &xlm,
+            DEFAULT_TOLERANCE.first_upper_bps,
+            DEFAULT_TOLERANCE.last_upper_bps,
+        ),
+    );
+
+    // Capture the resolved config governance scheduled for the controller setter.
+    let stale = t.ctrl_client().get_market_config(&xlm).oracle_config;
+
+    // During the timelock delay the quote market is disabled.
+    t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
+
+    // Executing the stale op re-asserts the quote invariant and reverts.
+    t.ctrl_client().set_market_oracle_config(&xlm, &stale);
+}
+
+/// Happy path: re-applying the same resolved config while the quote market is
+/// still Active+USD passes the execute-time re-check (no behavior change for
+/// valid configs).
+#[test]
+fn test_oracle_config_execute_accepts_active_usd_quote_market() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    t.set_price("USDC", usd(1));
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    let dex = register_dex_oracle(&t, &usdc);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
+    t.configure_market_oracle(
+        &xlm,
+        &reflector_single_spot_config(
+            &dex,
+            &xlm,
+            DEFAULT_TOLERANCE.first_upper_bps,
+            DEFAULT_TOLERANCE.last_upper_bps,
+        ),
+    );
+
+    let resolved = t.ctrl_client().get_market_config(&xlm).oracle_config;
+
+    // USDC stays Active+USD: replaying the resolved config still applies.
+    t.ctrl_client().set_market_oracle_config(&xlm, &resolved);
+    assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
+}
+
 /// Conversion happens per-source BEFORE the tolerance band: a DEX (USDC-quoted)
 /// primary and a RedStone (USD) anchor agree while USDC is pegged, but a USDC
 /// depeg moves the converted primary away from the USD anchor and trips the

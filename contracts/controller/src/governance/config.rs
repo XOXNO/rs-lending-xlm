@@ -11,13 +11,15 @@ use crate::events::{
     UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
     UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
-use common::errors::{EModeError, GenericError};
+use common::errors::{EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
     AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfig, MarketStatus,
-    OraclePriceFluctuation, PositionLimits,
+    OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase,
 };
-use soroban_sdk::{assert_with_error, contractimpl, xdr::ToXdr, Address, BytesN, Env};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
+};
 use stellar_macros::{only_owner, only_role};
 
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
@@ -323,6 +325,11 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         GenericError::PairNotActive
     );
 
+    // Re-assert the quote-market USD/Active invariant at execute time: governance
+    // validated it at propose time, but the timelock delay opens a staleness
+    // window in which the quote market could be disabled or reconfigured.
+    require_quote_markets_active_usd(env, &asset, &config);
+
     // Test markets register pools with preset decimals that may diverge from
     // the live token probe; keep the registered value authoritative.
     if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
@@ -338,6 +345,51 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         oracle: EventOracleProvider::from_market(env, &asset, &market),
     }
     .publish(env);
+}
+
+/// Re-asserts that every quoted-base source in `config` still points at an
+/// Active, USD-based quote market. Pure storage reads: the resolved `base` lives
+/// in the stored config, so this never cross-calls the oracle. Mirrors the
+/// propose-time `validate_quote_is_usd_market` check, reading controller storage
+/// instead of the controller view. USD-direct and RedStone sources skip it.
+fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketOracleConfig) {
+    require_source_quote_active_usd(env, asset, &config.primary);
+    if let Some(anchor) = config.anchor.as_ref() {
+        require_source_quote_active_usd(env, asset, anchor);
+    }
+}
+
+fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSourceConfig) {
+    let OracleSourceConfig::Reflector(reflector) = source else {
+        return;
+    };
+    let ReflectorBase::Quoted(quote) = &reflector.base else {
+        return;
+    };
+
+    // A market quoted in itself would chain forever at read time; reject it here.
+    assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
+
+    let quote_market = match storage::try_get_market_config(env, quote) {
+        Some(market) => market,
+        None => panic_with_error!(env, OracleError::InvalidOracleBase),
+    };
+    assert_with_error!(
+        env,
+        matches!(quote_market.status, MarketStatus::Active),
+        OracleError::InvalidOracleBase
+    );
+
+    // The quote market's primary must itself be USD-based: keeps the conversion
+    // exactly one hop, forbidding a quote chain.
+    match &quote_market.oracle_config.primary {
+        OracleSourceConfig::RedStone(_) => {}
+        OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
+            env,
+            matches!(quote_primary.base, ReflectorBase::Usd),
+            OracleError::InvalidOracleBase
+        ),
+    }
 }
 
 pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
