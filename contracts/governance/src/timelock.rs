@@ -17,10 +17,11 @@
 //! and self-authorization, which is why governance-self-targeted admin stays
 //! owner-immediate (see `access.rs`).
 
+use common::errors::GenericError;
 use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
 };
-use soroban_sdk::{contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
 use stellar_access::access_control;
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
@@ -29,8 +30,20 @@ use stellar_governance::timelock::{
 use stellar_macros::only_owner;
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
+use crate::constants::MIN_TIMELOCK_DELAY_LEDGERS;
 use crate::storage::renew_governance_instance;
 use crate::{Governance, GovernanceArgs, GovernanceClient};
+
+/// Rejects a zero minimum timelock delay, which would make every scheduled op
+/// immediately Ready and silently nullify the timelock. Shared by the
+/// constructor and `update_delay`.
+pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
+    assert_with_error!(
+        env,
+        delay >= MIN_TIMELOCK_DELAY_LEDGERS,
+        GenericError::InvalidTimelockDelay
+    );
+}
 
 #[contractimpl]
 impl Governance {
@@ -75,6 +88,7 @@ impl Governance {
     #[only_owner]
     pub fn update_delay(env: Env, new_delay: u32) {
         renew_governance_instance(&env);
+        require_nonzero_delay(&env, new_delay);
         set_min_delay(&env, new_delay);
     }
 
@@ -400,6 +414,39 @@ mod tests {
 
         gov.update_delay(&5u32);
         assert_eq!(gov.get_min_delay(), 5u32);
+    }
+
+    // (g.3) A zero delay is rejected: it would make every scheduled op
+    // immediately Ready, nullifying the timelock (InvalidTimelockDelay #39).
+    #[test]
+    #[should_panic(expected = "Error(Contract, #39)")]
+    fn update_delay_rejects_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+
+        gov.update_delay(&0u32);
+    }
+
+    // (g.4) The minimum non-zero delay is accepted (the floor is exactly 1, so
+    // testnet's short delay still arms).
+    #[test]
+    fn update_delay_accepts_minimum_nonzero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+
+        gov.update_delay(&1u32);
+        assert_eq!(gov.get_min_delay(), 1u32);
+    }
+
+    // (g.5) The constructor rejects a zero min delay at deploy time.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #39)")]
+    fn constructor_rejects_zero_delay() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let _ = env.register(Governance, (admin, 0u32));
     }
 
     // (g.2) A non-owner cannot change the delay.

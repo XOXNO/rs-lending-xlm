@@ -101,7 +101,8 @@ impl Governance {
         );
 
         // Arm the timelock minimum delay; until this runs, `schedule` panics
-        // `MinDelayNotSet`.
+        // `MinDelayNotSet`. A zero delay would nullify the timelock, so reject it.
+        crate::timelock::require_nonzero_delay(&env, min_delay);
         stellar_governance::timelock::set_min_delay(&env, min_delay);
     }
 

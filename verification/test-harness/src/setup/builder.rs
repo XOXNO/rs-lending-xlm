@@ -156,9 +156,10 @@ impl LendingTestBuilder {
         // Governance owns admin validation; the controller keeps `admin` as its
         // constructor owner so direct thin-setter tests stay meaningful, while
         // every builder admin call routes through the governance forwarders
-        // (mock_all_auths covers the gov→controller owner auth). The harness
-        // arms a zero timelock delay so setup operations are immediately ready.
-        const HARNESS_TIMELOCK_MIN_DELAY_LEDGERS: u32 = 0;
+        // (mock_all_auths covers the gov→controller owner auth). Setup routes
+        // through the immediate testing forwarders, not the timelock, so the
+        // delay only has to clear the non-zero floor the constructor enforces.
+        const HARNESS_TIMELOCK_MIN_DELAY_LEDGERS: u32 = 1;
         let governance_address = env.register(
             governance::Governance,
             (admin.clone(), HARNESS_TIMELOCK_MIN_DELAY_LEDGERS),
