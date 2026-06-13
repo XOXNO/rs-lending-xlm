@@ -132,7 +132,7 @@ async fn run_ttl_tick(
     dry_run: bool,
     ids: &ContractIds,
 ) -> Result<()> {
-    let snap = snapshot(client, ids, cfg.schedule.asset_chunk).await?;
+    let snap = snapshot(client, ids, &cfg.schedule).await?;
     record_snapshot_metrics(metrics, &snap);
 
     let safety = cfg.safety_margin_ledgers();
@@ -179,7 +179,7 @@ async fn run_index_tick(
     dry_run: bool,
     ids: &ContractIds,
 ) -> Result<()> {
-    let snap = snapshot(client, ids, cfg.schedule.asset_chunk).await?;
+    let snap = snapshot(client, ids, &cfg.schedule).await?;
     record_snapshot_metrics(metrics, &snap);
 
     if snap.assets.is_empty() {

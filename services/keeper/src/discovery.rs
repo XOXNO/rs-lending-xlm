@@ -7,10 +7,10 @@ use stellar_xdr::curr::{
 };
 use tracing::{debug, info, warn};
 
-use crate::config::ContractsConfig;
+use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
-    ControllerPersistentKey, PoolPersistentKey,
+    ControllerPersistentKey, ControllerUserKey, PoolPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -22,14 +22,22 @@ pub struct ContractIds {
     pub controller: [u8; 32],
     pub pool_wasm_hash: [u8; 32],
     pub flash_receiver: [u8; 32],
+    /// Governance contract id; `None` when no `governance` address is configured.
+    pub governance: Option<[u8; 32]>,
 }
 
 impl ContractIds {
     pub fn resolve(contracts: &ContractsConfig) -> Result<Self> {
+        let governance = contracts
+            .governance
+            .as_deref()
+            .map(contract_id_from_strkey)
+            .transpose()?;
         Ok(Self {
             controller: contract_id_from_strkey(&contracts.controller)?,
             pool_wasm_hash: hash32_from_hex(&contracts.pool_wasm_hash)?,
             flash_receiver: contract_id_from_strkey(&contracts.flash_loan_receiver)?,
+            governance,
         })
     }
 }
@@ -39,9 +47,11 @@ impl ContractIds {
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
     pub assets: Vec<[u8; 32]>,
-    /// Persistent protocol entries. Per-user triplets are excluded.
+    /// Persistent protocol entries: per-asset, e-mode, role keys, the per-user
+    /// account keys (when `scan_users`), and governance role keys.
     pub persistent_entries: Vec<LedgerEntryQuery>,
-    /// Controller, central pool, and flash receiver instance entries.
+    /// Controller, central pool, flash receiver, and (when configured)
+    /// governance instance entries.
     pub instance_entries: Vec<LedgerEntryQuery>,
     /// WASM code entries for controller, pool, and flash receiver.
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
@@ -52,9 +62,9 @@ pub struct DiscoverySnapshot {
 pub async fn snapshot(
     client: &RpcClient,
     ids: &ContractIds,
-    asset_chunk: usize,
+    schedule: &ScheduleConfig,
 ) -> Result<DiscoverySnapshot> {
-    let chunk_size = asset_chunk.max(1);
+    let chunk_size = schedule.asset_chunk.max(1);
     let controller_id = ids.controller;
 
     let current_ledger = client.latest_ledger().await?;
@@ -143,6 +153,38 @@ pub async fn snapshot(
     // -- Access-control role keys --
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
+    // -- Per-user account keys (1..=AccountNonce) --
+    if schedule.scan_users && account_nonce > 0 {
+        persistent_entries.extend(
+            discover_user_keys(
+                client,
+                &controller_id,
+                account_nonce,
+                schedule.max_accounts_scan,
+                chunk_size,
+            )
+            .await?,
+        );
+    }
+
+    // -- Governance coverage (instance + MinDelay-via-instance + role keys) --
+    // A read failure must not sink the whole tick: warn and carry on with the
+    // controller/pool surface already gathered.
+    let mut governance_instance: Option<LedgerEntryQuery> = None;
+    if let Some(governance_id) = ids.governance {
+        match discover_governance(client, &governance_id, chunk_size).await {
+            Ok(gov) => {
+                governance_instance = Some(gov.instance);
+                persistent_entries.extend(gov.role_entries);
+            }
+            Err(err) => warn!(
+                target: "keeper.discovery",
+                error = %err,
+                "governance discovery failed — governance TTLs skipped this tick"
+            ),
+        }
+    }
+
     // -- Instance entries (controller + central pool + flash receiver) --
     let mut instance_keys = Vec::with_capacity(3);
     instance_keys.push(contract_instance_key(&controller_id));
@@ -151,7 +193,7 @@ pub async fn snapshot(
     }
     // Keep the flash receiver LAST: the wasm-hash harvest below relies on it.
     instance_keys.push(contract_instance_key(&ids.flash_receiver));
-    let instance_entries = client.get_ledger_entries(&instance_keys).await?;
+    let mut instance_entries = client.get_ledger_entries(&instance_keys).await?;
 
     // -- Wasm code entries (pool template + controller + live pool + flash receiver) --
     let mut wasm_keys: Vec<LedgerKey> = vec![contract_code_key(&ids.pool_wasm_hash)];
@@ -181,6 +223,15 @@ pub async fn snapshot(
         wasm_keys.push(contract_code_key(&flash_hash));
     }
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
+
+    // Append the governance instance only now: the flash-receiver wasm harvest
+    // above relies on the flash receiver staying LAST in `instance_entries`.
+    // One governance instance bump covers `Controller`, ownable `Owner`,
+    // access_control `Admin` + `RoleAdmin`, and the timelock `MinDelay`
+    // (instance-tier — see `keys.rs` governance notes).
+    if let Some(gov_instance) = governance_instance {
+        instance_entries.push(gov_instance);
+    }
 
     Ok(DiscoverySnapshot {
         current_ledger,
@@ -272,6 +323,170 @@ async fn discover_role_keys(
         "role keys discovered"
     );
     Ok(rows)
+}
+
+/// Governance entries discovered when a governance contract is configured.
+struct GovernanceEntries {
+    /// The governance instance entry (covers `Controller`, `Owner`, `Admin`,
+    /// `RoleAdmin`, and the instance-tier timelock `MinDelay`).
+    instance: LedgerEntryQuery,
+    /// Persistent access-control role-holder keys.
+    role_entries: Vec<LedgerEntryQuery>,
+}
+
+/// Discover the governance instance entry plus its persistent role keys.
+///
+/// `MinDelay` needs no standalone key: it is instance-tier in
+/// stellar-governance, so the instance bump covers it. The timelock
+/// `OperationLedger(BytesN<32>)` per-op keys are persistent but NOT enumerable
+/// on-chain (the id is a keccak256 hash from the schedule event); they are
+/// transient (resolved within `min_delay` ≪ TTL) and intentionally skipped.
+async fn discover_governance(
+    client: &RpcClient,
+    governance_id: &[u8; 32],
+    chunk_size: usize,
+) -> Result<GovernanceEntries> {
+    let instance_rows = client
+        .get_ledger_entries(&[contract_instance_key(governance_id)])
+        .await?;
+    let instance = instance_rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("governance instance query returned no row"))?;
+    if instance.value.is_none() {
+        warn!(
+            target: "keeper.discovery",
+            governance = %stellar_strkey::Contract(*governance_id),
+            "governance instance entry absent — instance bump will be skipped"
+        );
+    }
+
+    // Reuse the controller role-key discovery against the governance id; the
+    // access-control encoding is identical across contracts.
+    let role_entries = discover_role_keys(client, governance_id, chunk_size).await?;
+
+    debug!(
+        target: "keeper.discovery",
+        role_entries = role_entries.len(),
+        "governance keys discovered"
+    );
+    Ok(GovernanceEntries {
+        instance,
+        role_entries,
+    })
+}
+
+/// Discover the per-user controller keys for accounts `1..=account_nonce`.
+///
+/// Builds the three always-present per-account keys (`AccountMeta`,
+/// `SupplyPositions`, `BorrowPositions`) for every id, and an `IsolatedBasis`
+/// key only for accounts whose decoded `AccountMeta` is isolated — at most one
+/// per account, avoiding an O(accounts×assets) blowup.
+async fn discover_user_keys(
+    client: &RpcClient,
+    controller_id: &[u8; 32],
+    account_nonce: u64,
+    max_accounts_scan: u64,
+    chunk_size: usize,
+) -> Result<Vec<LedgerEntryQuery>> {
+    let scan_ceiling = account_nonce.min(max_accounts_scan.max(1));
+    if account_nonce > scan_ceiling {
+        warn!(
+            target: "keeper.discovery",
+            account_nonce,
+            max_accounts_scan,
+            dropped_from = scan_ceiling + 1,
+            dropped_to = account_nonce,
+            "AccountNonce exceeds max_accounts_scan — per-user scan TRUNCATED; \
+             ids {}..={} are NOT being bumped this tick (raise schedule.max_accounts_scan)",
+            scan_ceiling + 1,
+            account_nonce
+        );
+    }
+
+    let mut rows: Vec<LedgerEntryQuery> = Vec::new();
+    let chunk = chunk_size.max(1);
+    let ids: Vec<u64> = (1..=scan_ceiling).collect();
+
+    // The three per-account keys are bundled per chunk; the AccountMeta rows are
+    // decoded to learn which accounts are isolated.
+    for id_chunk in ids.chunks(chunk) {
+        let mut keys = Vec::with_capacity(id_chunk.len() * 3);
+        for &id in id_chunk {
+            keys.push(ControllerUserKey::AccountMeta(id).to_ledger_key(controller_id)?);
+            keys.push(ControllerUserKey::SupplyPositions(id).to_ledger_key(controller_id)?);
+            keys.push(ControllerUserKey::BorrowPositions(id).to_ledger_key(controller_id)?);
+        }
+        let fetched = client.get_ledger_entries(&keys).await?;
+
+        // The fetch preserves request order, so each id maps to a stride of 3
+        // rows: [AccountMeta, SupplyPositions, BorrowPositions].
+        let mut isolated_basis_keys = Vec::new();
+        for (i, &id) in id_chunk.iter().enumerate() {
+            let meta_row = &fetched[i * 3];
+            if let Some(asset) = isolated_asset_from_account_meta(meta_row) {
+                isolated_basis_keys.push(
+                    ControllerUserKey::IsolatedBasis(id, asset).to_ledger_key(controller_id)?,
+                );
+            }
+        }
+        rows.extend(fetched);
+
+        for basis_chunk in isolated_basis_keys.chunks(chunk) {
+            rows.extend(client.get_ledger_entries(basis_chunk).await?);
+        }
+    }
+
+    debug!(
+        target: "keeper.discovery",
+        scanned = scan_ceiling,
+        per_user_entries = rows.len(),
+        "per-user account keys discovered"
+    );
+    Ok(rows)
+}
+
+/// Decode an `AccountMeta` row's isolated collateral asset, if isolated.
+///
+/// `#[contracttype] struct AccountMeta` serializes as an `ScVal::Map` with
+/// fields sorted by symbol name: `e_mode_category_id`, `is_isolated`,
+/// `isolated_asset`, `mode`, `owner`. `isolated_asset: Option<Address>` encodes
+/// as `ScVal::Vec(Some([Address]))` for `Some` and `ScVal::Void` for `None`.
+/// Returns the asset only when `is_isolated` is true AND the asset is present.
+fn isolated_asset_from_account_meta(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
+    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
+        return None;
+    };
+    let ScVal::Map(Some(map)) = &cd.val else {
+        return None;
+    };
+
+    let mut is_isolated = false;
+    let mut asset: Option<[u8; 32]> = None;
+    for ScMapEntry { key, val } in map.0.iter() {
+        let ScVal::Symbol(ScSymbol(field)) = key else {
+            continue;
+        };
+        match field.to_utf8_string_lossy().as_str() {
+            "is_isolated" => {
+                if let ScVal::Bool(b) = val {
+                    is_isolated = *b;
+                }
+            }
+            "isolated_asset" => {
+                if let ScVal::Vec(Some(inner)) = val {
+                    if let Some(ScVal::Address(ScAddress::Contract(ContractId(Hash(b))))) =
+                        inner.0.first()
+                    {
+                        asset = Some(*b);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    is_isolated.then_some(asset).flatten()
 }
 
 /// Decode `ExistingRoles` (`Vec<Symbol>`) into role-name strings.
@@ -460,3 +675,130 @@ pub async fn assert_keeper_role(
 /// Nominal fee for a simulation-only envelope. The value is irrelevant to the
 /// simulator (no tx is submitted), but a sane base keeps the envelope valid.
 const SIM_FEE_STROOPS: u32 = 100;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stellar::client::LedgerEntryQuery;
+    use stellar_xdr::curr::{
+        ContractDataDurability, ContractDataEntry, ExtensionPoint, LedgerKeyContractData, ScMap,
+        ScVec, StringM,
+    };
+
+    /// The deployed testnet governance address must resolve through the same
+    /// strkey decoder the keeper uses for the controller.
+    #[test]
+    fn resolve_accepts_testnet_governance_address() {
+        let contracts = ContractsConfig {
+            controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
+            pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
+                .into(),
+            flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
+        };
+        let ids = ContractIds::resolve(&contracts).unwrap();
+        assert!(ids.governance.is_some());
+    }
+
+    #[test]
+    fn resolve_governance_none_when_unset() {
+        let contracts = ContractsConfig {
+            controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
+            pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
+                .into(),
+            flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            governance: None,
+        };
+        let ids = ContractIds::resolve(&contracts).unwrap();
+        assert!(ids.governance.is_none());
+    }
+
+    fn sym(text: &str) -> ScVal {
+        ScVal::Symbol(ScSymbol(StringM::<32>::try_from(text).unwrap()))
+    }
+
+    /// Build an `AccountMeta` contract-data row with the given isolation state.
+    /// Fields are emitted sorted by symbol name, mirroring soroban's encoding.
+    fn account_meta_row(is_isolated: bool, isolated_asset: Option<[u8; 32]>) -> LedgerEntryQuery {
+        let asset_val = match isolated_asset {
+            Some(b) => ScVal::Vec(Some(ScVec(
+                vec![ScVal::Address(ScAddress::Contract(ContractId(Hash(b))))]
+                    .try_into()
+                    .unwrap(),
+            ))),
+            None => ScVal::Void,
+        };
+        let entries = vec![
+            ScMapEntry {
+                key: sym("e_mode_category_id"),
+                val: ScVal::U32(0),
+            },
+            ScMapEntry {
+                key: sym("is_isolated"),
+                val: ScVal::Bool(is_isolated),
+            },
+            ScMapEntry {
+                key: sym("isolated_asset"),
+                val: asset_val,
+            },
+            ScMapEntry {
+                key: sym("mode"),
+                val: ScVal::U32(0),
+            },
+            ScMapEntry {
+                key: sym("owner"),
+                val: ScVal::Address(ScAddress::Contract(ContractId(Hash([1u8; 32])))),
+            },
+        ];
+        let map = ScVal::Map(Some(ScMap(entries.try_into().unwrap())));
+        let key = LedgerKey::ContractData(LedgerKeyContractData {
+            contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
+            key: ScVal::LedgerKeyContractInstance,
+            durability: ContractDataDurability::Persistent,
+        });
+        LedgerEntryQuery {
+            key: key.clone(),
+            value: Some(LedgerEntryData::ContractData(ContractDataEntry {
+                ext: ExtensionPoint::V0,
+                contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
+                key: ScVal::LedgerKeyContractInstance,
+                durability: ContractDataDurability::Persistent,
+                val: map,
+            })),
+            live_until_ledger: Some(1),
+        }
+    }
+
+    #[test]
+    fn isolated_account_meta_yields_its_asset() {
+        let row = account_meta_row(true, Some([9u8; 32]));
+        assert_eq!(isolated_asset_from_account_meta(&row), Some([9u8; 32]));
+    }
+
+    #[test]
+    fn non_isolated_account_meta_yields_none() {
+        let row = account_meta_row(false, None);
+        assert_eq!(isolated_asset_from_account_meta(&row), None);
+    }
+
+    #[test]
+    fn isolated_flag_without_asset_yields_none() {
+        // Defensive: isolated flag set but asset absent → no IsolatedBasis key.
+        let row = account_meta_row(true, None);
+        assert_eq!(isolated_asset_from_account_meta(&row), None);
+    }
+
+    #[test]
+    fn absent_account_meta_yields_none() {
+        let row = LedgerEntryQuery {
+            key: LedgerKey::ContractData(LedgerKeyContractData {
+                contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
+                key: ScVal::LedgerKeyContractInstance,
+                durability: ContractDataDurability::Persistent,
+            }),
+            value: None,
+            live_until_ledger: None,
+        };
+        assert_eq!(isolated_asset_from_account_meta(&row), None);
+    }
+}

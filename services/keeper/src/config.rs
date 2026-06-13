@@ -32,6 +32,10 @@ pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
     pub flash_loan_receiver: String,
+    /// Governance contract that owns the controller. When set, its instance,
+    /// `MinDelay` (instance-tier), and access-control role keys are bumped too.
+    #[serde(default)]
+    pub governance: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,6 +68,16 @@ pub struct ScheduleConfig {
     /// Enables the role-gated `update_indexes(assets)` sweep.
     #[serde(default)]
     pub enable_index_refresh: bool,
+    /// Scans + bumps per-user account keys (`AccountMeta` / `SupplyPositions` /
+    /// `BorrowPositions` / `IsolatedBasis`) for `1..=AccountNonce`. On by
+    /// default: keeping inactive positions alive is the keeper's job.
+    #[serde(default = "default_scan_users")]
+    pub scan_users: bool,
+    /// Hard ceiling on the account id range scanned per tick. If `AccountNonce`
+    /// exceeds it the keeper logs a loud `warn!` naming the dropped id range and
+    /// scans only `1..=max_accounts_scan` — it never silently truncates.
+    #[serde(default = "default_max_accounts_scan")]
+    pub max_accounts_scan: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,6 +104,12 @@ fn default_base_fee() -> u32 {
 }
 fn default_fee_multiplier() -> f64 {
     1.2
+}
+fn default_scan_users() -> bool {
+    true
+}
+fn default_max_accounts_scan() -> u64 {
+    50_000
 }
 fn default_log_level() -> String {
     "info".to_string()
@@ -127,6 +147,13 @@ impl KeeperConfig {
             return Err(anyhow!(
                 "config.contracts.flash_loan_receiver must be a C... address"
             ));
+        }
+        if let Some(governance) = &self.contracts.governance {
+            if !governance.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.governance must be a C... address when set"
+                ));
+            }
         }
         if self.contracts.pool_wasm_hash.len() != 64
             || hex::decode(&self.contracts.pool_wasm_hash).is_err()
