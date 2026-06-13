@@ -80,6 +80,7 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 |---|---|
 | `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
 | `prop_owner_only_endpoints_reject_unauthed` / `prop_wrong_role_rejected` | Privileged endpoint auth gates. |
+| `prop_governance_endpoints_reject_unauthed` | Governance timelock proposers and self meta-admin auth gates. |
 | `prop_strategy_under_budget` | `multiply` under Soroban default budget limits. |
 | `prop_multiply_leverage_hf_safe` / `prop_strategy_swap_collateral_balance_delta` | Strategy HF, allowance, payload guards. |
 | `prop_short_aggregator_rejected` | Zero-output aggregator rejection. |

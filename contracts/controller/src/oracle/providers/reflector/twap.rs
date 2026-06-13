@@ -1,6 +1,5 @@
 // TWAP read via Reflector prices.
 
-use crate::events::OracleTwapDegradedEvent;
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
     check_not_future_at, is_stale, normalize_positive_price, MAX_TWAP_RECORDS,
@@ -12,6 +11,7 @@ use controller_interface::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, panic_with_error};
 
 use crate::cache::Cache;
+use crate::events::OracleTwapDegradedEvent;
 use crate::oracle::observation::OracleObservation;
 
 use super::{observation_from_price_data, spot::read_spot};

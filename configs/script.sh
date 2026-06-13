@@ -1217,27 +1217,31 @@ set_accumulator() {
 # ---------------------------------------------------------------------------
 
 # `supply` — deposit collateral.
-# Args: <market> <amount_raw> [<account_id:0>]
+# Args: <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]
 supply_position() {
     local market=$1
     local amount_raw=$2
     local account_id=${3:-0}
+    local e_mode_category=${4:-0}
 
     local ctrl=$(get_controller)
     local caller=$SIGNER_ADDRESS
     local asset_addr=$(get_market_value "$market" "asset_address")
 
     echo "=== supply ==="
-    echo "  Account: $account_id  (0 = create new)"
-    echo "  Asset:   $market ($asset_addr)"
-    echo "  Amount:  $amount_raw"
+    echo "  Account:  $account_id  (0 = create new)"
+    echo "  E-mode:   $e_mode_category  (0 = none)"
+    echo "  Asset:    $market ($asset_addr)"
+    echo "  Amount:   $amount_raw"
     echo
 
+    # i128 amounts are decimal strings so large raw values stay exact.
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- supply \
         --caller "$caller" \
         --account_id "$account_id" \
-        --assets "[[\"$asset_addr\", $amount_raw]]"
+        --e_mode_category "$e_mode_category" \
+        --assets "[[\"$asset_addr\", \"$amount_raw\"]]"
 }
 
 # `borrow` — open a borrow position against existing collateral.
@@ -1257,11 +1261,12 @@ borrow_position() {
     echo "  Amount:  $amount_raw"
     echo
 
+    # i128 amounts are decimal strings so large raw values stay exact.
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- borrow \
         --caller "$caller" \
         --account_id "$account_id" \
-        --borrows "[[\"$asset_addr\", $amount_raw]]"
+        --borrows "[[\"$asset_addr\", \"$amount_raw\"]]"
 }
 
 configure_market_oracle() {
@@ -2064,11 +2069,11 @@ case "$1" in
         ;;
     "supply")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>]" >&2
+            echo "Usage: $0 supply <market> <amount_raw> [<account_id:0>] [<e_mode_category:0>]" >&2
             list_markets >&2
             exit 1
         fi
-        supply_position "$2" "$3" "$4"
+        supply_position "$2" "$3" "$4" "$5"
         ;;
     "borrow")
         if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then

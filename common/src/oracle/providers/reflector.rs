@@ -31,7 +31,6 @@ pub trait ReflectorOracle {
 
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
-// Thin wrappers isolate external Reflector calls.
 
 pub fn reflector_base_call(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()

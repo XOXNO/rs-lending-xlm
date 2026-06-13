@@ -37,6 +37,7 @@ cargo test -p test-harness --test fuzz prop_liquidation_matches_bigrational_refe
 | `prop_accounting_conservation` | After random supply/borrow/repay/withdraw/advance/claim sequences: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic supply/borrow indexes | Accounting drift, revenue skim, index regression |
 | `prop_owner_only_endpoints_reject_unauthed` | Privileged controller endpoints reject calls with no mocked auth | Missing `only_owner` / `only_role` gates |
 | `prop_wrong_role_rejected` | Caller with one role cannot invoke endpoints gated on another | Cross-role privilege escalation |
+| `prop_governance_endpoints_reject_unauthed` | Every governance entrypoint rejects unauthed calls: the timelock `propose_*` proposers (PROPOSER auth) and the governance-self meta-admin (`deploy_controller`, `upgrade`, `pause`/`unpause`, role and ownership management) | Missing PROPOSER gate, ungated meta-admin |
 | `prop_strategy_under_budget` | `multiply` either succeeds with live HF, fails cleanly, or panics only with budget-related messages | Soroban budget blow-up, opaque panics |
 | `prop_multiply_leverage_hf_safe` | Successful multiply: HF ≥ 1 WAD, zero ETH router allowance, flash guard cleared; failed multiply leaves no dangling account | Strategy HF regression, allowance leak |
 | `prop_strategy_swap_collateral_balance_delta` | Empty swap payload rejected; valid payload yields USDT collateral and zero allowance | Router payload validation gaps |
