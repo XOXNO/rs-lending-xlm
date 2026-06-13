@@ -626,9 +626,9 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
 	echo "Governance: $$GOV"; \
-	echo "New controller WASM hash: $$HASH"; \
-	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- upgrade_controller --new_wasm_hash $$HASH
+	echo "New controller WASM hash: $$HASH"
+	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeControllerHash $$HASH
 
 ## Upload the latest pool WASM and set it as the pool template via governance.
 upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifacts
@@ -649,11 +649,11 @@ upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifa
 	HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
 	echo "Governance: $$GOV"; \
 	echo "New pool template WASM hash: $$HASH"; \
-	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$HASH; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$HASH
 
 ## Upgrade the central liquidity pool to the latest pool template hash via governance.
 upgrade-pools: _preflight-upgrade-pools
@@ -674,8 +674,7 @@ upgrade-pools: _preflight-upgrade-pools
 	fi; \
 	echo "Governance: $$GOV"; \
 	echo "Pool WASM hash: $$HASH"; \
-	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- upgrade_pool --new_wasm_hash $$HASH
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePoolHash $$HASH
 
 ## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
@@ -848,12 +847,18 @@ _deploy: deploy-artifacts
 	@echo ""
 	@# 4. Deploy Governance with the deployer EOA as admin/owner.
 	@echo "4/6 Deploying Governance..."
-	@stellar contract deploy \
+	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -z "$$MIN_DELAY" ] || [ "$$MIN_DELAY" = "null" ]; then \
+		echo "timelock_min_delay_ledgers not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
+		exit 1; \
+	fi; \
+	echo "Timelock min delay: $$MIN_DELAY ledgers"; \
+	stellar contract deploy \
 		--wasm $(DEPLOY_DIR)/governance.wasm \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) \
 		--alias governance \
-		-- --admin $(SIGNER_ADDRESS)
+		-- --admin $(SIGNER_ADDRESS) --min_delay $$MIN_DELAY
 	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
 	if [ -z "$$GOV_ID" ]; then echo "Governance alias not resolvable after deploy"; exit 1; fi; \
 	TMP_JSON=$$(mktemp); \
@@ -873,14 +878,12 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 6. Set the pool template and deploy the central pool through governance.
-	@echo "6/6 Setting pool template and deploying central pool via governance..."
-	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
-	stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$(cat $(POOL_WASM_HASH_FILE)); \
-	POOL=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
-		-- deploy_pool | tail -n1 | tr -d '"'); \
-	if [ -z "$$POOL" ]; then echo "deploy_pool returned no address"; exit 1; fi; \
+	@# 6. Set the pool template and deploy the central pool through the timelock
+	@# (schedule -> await min_delay -> execute). Both ops route through governance.
+	@echo "6/6 Setting pool template and deploying central pool via governance timelock..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$(cat $(POOL_WASM_HASH_FILE))
+	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool | tail -n1 | tr -d '"'); \
+	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
 	echo "Central pool: $$POOL"; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool = "'$$POOL'"' \
@@ -933,15 +936,20 @@ _setup-markets:
 	fi
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
 
-## Create a single market via governance (interactive)
+## Schedule a single market create via the governance timelock (interactive).
+## This SCHEDULES the op; the config-driven `make <net> createMarket <name>` path
+## records it for executeOp and awaits+executes. Here we schedule only — run
+## `make <net> awaitOp <id>` then `make <net> executeOp <id>` after the delay.
 create-market:
-	@echo "Creating market for $(ASSET) on $(NETWORK)..."
+	@echo "Scheduling market create for $(ASSET) on $(NETWORK)..."
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK)); \
 	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- create_liquidity_pool \
+		-- propose_create_liquidity_pool \
+		--proposer $(SIGNER_ADDRESS) \
 		--asset $(ASSET_ADDRESS) \
 		--params '$(MARKET_PARAMS)' \
-		--config '$(ASSET_CONFIG)'
+		--config '$(ASSET_CONFIG)' \
+		--salt $$(printf '%s' "$(ASSET_ADDRESS)create_liquidity_pool" | shasum -a 256 | cut -c1-64)
 
 # ---------------------------------------------------------------------------
 # Config-driven operations (via configs/script.sh)
@@ -971,12 +979,13 @@ SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setupAll setupAllMarkets setupAllEModes \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
-                  claimRevenueAll
+                  claimRevenueAll deployPool
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams \
                              configureMarketOracle \
                              getPrice getMarket getIndex getIsolatedDebt \
                              getReflector
-POSITIONAL_ID_ACTIONS := addEModeCategory getEMode
+POSITIONAL_ID_ACTIONS := addEModeCategory getEMode \
+                         executeOp cancelOp opState awaitOp
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToEMode
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate

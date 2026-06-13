@@ -2,6 +2,7 @@
   "testnet": {
     "rpc_url": "https://soroban-testnet.stellar.org",
     "network_passphrase": "Test SDF Network ; September 2015",
+    "timelock_min_delay_ledgers": 12,
     "governance": "CAWVHPBYW2YOF3MZIR24GW2UW3TGGNYB36C6DEON36NLY7AMQRXOVA2Q",
     "controller": "CDYAEY2DM7MHLYLO34CFPLCBSJUQMTXGP6MYQ7LASOLD5J5ZFC6UCGWY",
     "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
@@ -21,6 +22,7 @@
   "mainnet": {
     "rpc_url": "https://soroban-rpc.mainnet.stellar.gateway.fm",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
+    "timelock_min_delay_ledgers": 34560,
     "governance": "",
     "controller": "",
     "aggregator": "",

@@ -148,6 +148,338 @@ get_contract_decimals() {
     invoke_view "$1" decimals | tail -n1
 }
 
+# ---------------------------------------------------------------------------
+# Timelock (OpenZeppelin governance) schedule / execute / cancel tooling
+#
+# Governance timelocks every controller-targeted admin op. Each op is queued by
+# a typed `propose_<op>` proposer (validates inputs, schedules at min_delay) that
+# returns an operation id. After the delay the op is replayed through the generic
+# `execute(executor, target=controller, function, args, predecessor=0, salt)`.
+#
+# To execute later we must replay the EXACT scheduled args (a `Vec<Val>`). We
+# persist each scheduled op's (target, function, ScVal args, salt) to a record
+# file keyed by op-id under tmp/ops/<network>/, so `executeOp <op-id>` can
+# reconstruct the Operation without re-deriving anything.
+#
+# Reconstruction limit (honest): the two oracle proposers schedule the
+# governance-RESOLVED struct (MarketOracleConfig / OraclePriceFluctuation), not
+# the raw input. Those resolved structs are not part of governance's CLI spec and
+# cannot be rebuilt client-side, so their ops are NOT CLI-executable here — the
+# record is marked `cli_executable=false` and executeOp refuses them with a clear
+# pointer to the typed (SDK/keeper) execute path. Every other op (primitive and
+# the plain field-map structs: PositionLimits / AssetConfigRaw / MarketParamsRaw /
+# InterestRateModel) is fully reconstructed and CLI-executable.
+# ---------------------------------------------------------------------------
+
+# 32-byte zero predecessor (no dependency), hex form for ScVal/record use.
+ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
+
+OPS_DIR="$ROOT_DIR/tmp/ops/$NETWORK"
+
+# Bounded await: poll get_operation_state until Ready, sleeping between polls.
+# Total wait ≈ AWAIT_MAX_POLLS × AWAIT_POLL_SECONDS; tune via env for longer
+# mainnet delays. Defaults cover the short testnet delay with headroom.
+AWAIT_POLL_SECONDS=${AWAIT_POLL_SECONDS:-5}
+AWAIT_MAX_POLLS=${AWAIT_MAX_POLLS:-120}
+
+ops_dir() {
+    mkdir -p "$OPS_DIR"
+    echo "$OPS_DIR"
+}
+
+op_record_path() {
+    echo "$(ops_dir)/$1.json"
+}
+
+# Deterministic, unique salt: sha256 over network|function|args-json, truncated
+# to 32 bytes (64 hex). Same op + same args ⇒ same salt ⇒ same op-id (idempotent
+# re-schedule); different args ⇒ different salt.
+gen_salt() {
+    local function=$1
+    local args_json=$2
+    local hash
+    if command -v sha256sum >/dev/null 2>&1; then
+        hash=$(printf '%s|%s|%s' "$NETWORK" "$function" "$args_json" | sha256sum | cut -c1-64)
+    else
+        hash=$(printf '%s|%s|%s' "$NETWORK" "$function" "$args_json" | shasum -a 256 | cut -c1-64)
+    fi
+    echo "$hash"
+}
+
+# ScVal JSON element builders (validated against `stellar xdr encode --type
+# ScVal`). i128 uses the decimal-string form so large RAY/WAD values stay exact.
+scval_address() { jq -nc --arg v "$1" '{address:$v}'; }
+scval_symbol()  { jq -nc --arg v "$1" '{symbol:$v}'; }
+scval_bytes()   { jq -nc --arg v "$1" '{bytes:$v}'; }
+scval_u32()     { jq -nc --argjson v "$1" '{u32:$v}'; }
+scval_u64()     { jq -nc --arg v "$1" '{u64:$v}'; }
+scval_bool()    { jq -nc --argjson v "$1" '{bool:$v}'; }
+scval_i128()    { jq -nc --arg v "$1" '{i128:$v}'; }
+scval_vec_u32() {
+    # $1 = friendly JSON array of integers (e.g. "[]" or "[1,2]")
+    jq -nc --argjson a "$1" '{vec: ($a | map({u32: .}))}'
+}
+
+# Struct → ScVal map. ScMap keys MUST be sorted; `--sort-keys`/explicit ordering
+# below keeps the symbol keys in canonical order so the host decodes the UDT.
+scval_position_limits() {
+    # $1 = {"max_supply_positions":N,"max_borrow_positions":M}
+    local j=$1
+    jq -nc \
+        --argjson mb "$(printf '%s' "$j" | jq '.max_borrow_positions')" \
+        --argjson ms "$(printf '%s' "$j" | jq '.max_supply_positions')" \
+        '{map:[
+            {key:{symbol:"max_borrow_positions"},val:{u32:$mb}},
+            {key:{symbol:"max_supply_positions"},val:{u32:$ms}}
+        ]}'
+}
+
+# Build an InterestRateModel ScVal map from a friendly params object carrying the
+# 9 rate fields (the RAY fields are i128 decimal strings, reserve_factor is u32).
+scval_interest_rate_model() {
+    local j=$1
+    jq -nc --argjson p "$j" '
+        def i(k): {key:{symbol:k}, val:{i128:($p[k] | tostring)}};
+        {map: [
+            i("base_borrow_rate_ray"),
+            i("max_borrow_rate_ray"),
+            i("max_utilization_ray"),
+            i("mid_utilization_ray"),
+            i("optimal_utilization_ray"),
+            {key:{symbol:"reserve_factor_bps"}, val:{u32:($p.reserve_factor_bps)}},
+            i("slope1_ray"),
+            i("slope2_ray"),
+            i("slope3_ray")
+        ]}'
+}
+
+# MarketParamsRaw = InterestRateModel fields + asset_id (address) + asset_decimals
+# (u32). Friendly object must already carry asset_id and asset_decimals.
+scval_market_params() {
+    local j=$1
+    jq -nc --argjson p "$j" '
+        def i(k): {key:{symbol:k}, val:{i128:($p[k] | tostring)}};
+        {map: [
+            {key:{symbol:"asset_decimals"}, val:{u32:($p.asset_decimals)}},
+            {key:{symbol:"asset_id"}, val:{address:($p.asset_id)}},
+            i("base_borrow_rate_ray"),
+            i("max_borrow_rate_ray"),
+            i("max_utilization_ray"),
+            i("mid_utilization_ray"),
+            i("optimal_utilization_ray"),
+            {key:{symbol:"reserve_factor_bps"}, val:{u32:($p.reserve_factor_bps)}},
+            i("slope1_ray"),
+            i("slope2_ray"),
+            i("slope3_ray")
+        ]}'
+}
+
+# AssetConfigRaw ScVal map (17 fields, sorted keys — matches the governance spec
+# exactly). i128 caps/ceilings/floors as decimal strings, u32 bps, bool flags,
+# e_mode_categories as vec<u32>. Missing or extra fields fail host decode, so the
+# full set is enumerated explicitly.
+scval_asset_config() {
+    local j=$1
+    jq -nc --argjson c "$j" '
+        def i(k): {key:{symbol:k}, val:{i128:($c[k] | tostring)}};
+        def u(k): {key:{symbol:k}, val:{u32:($c[k])}};
+        def b(k): {key:{symbol:k}, val:{bool:($c[k])}};
+        {map: [
+            i("borrow_cap"),
+            {key:{symbol:"e_mode_categories"}, val:{vec:((($c.e_mode_categories) // []) | map({u32:.}))}},
+            u("flashloan_fee_bps"),
+            b("is_borrowable"),
+            b("is_collateralizable"),
+            b("is_flashloanable"),
+            b("is_isolated_asset"),
+            b("is_siloed_borrowing"),
+            b("isolation_borrow_enabled"),
+            i("isolation_debt_ceiling_usd_wad"),
+            u("liquidation_bonus_bps"),
+            u("liquidation_fees_bps"),
+            u("liquidation_threshold_bps"),
+            u("loan_to_value_bps"),
+            i("min_collat_floor_usd_wad"),
+            i("min_debt_floor_usd_wad"),
+            i("supply_cap")
+        ]}'
+}
+
+# Persist an op record so executeOp/cancelOp can replay it. args_json is the full
+# ScVal `Vec<Val>` array (JSON); cli_executable gates executeOp.
+write_op_record() {
+    local op_id=$1
+    local controller_fn=$2
+    local args_json=$3
+    local salt_hex=$4
+    local cli_executable=$5
+    local ctrl
+    ctrl=$(get_controller)
+    local path
+    path=$(op_record_path "$op_id")
+    jq -nc \
+        --arg op_id "$op_id" \
+        --arg network "$NETWORK" \
+        --arg target "$ctrl" \
+        --arg function "$controller_fn" \
+        --argjson args "$args_json" \
+        --arg predecessor "$ZERO_PREDECESSOR_HEX" \
+        --arg salt "$salt_hex" \
+        --argjson cli_executable "$cli_executable" \
+        '{op_id:$op_id, network:$network, target:$target, function:$function,
+          args:$args, predecessor:$predecessor, salt:$salt,
+          cli_executable:$cli_executable}' > "$path"
+    echo "  Recorded op $op_id -> $path" >&2
+}
+
+# Parse the operation id (quoted BytesN hex on the proposer's last output line).
+parse_op_id() {
+    printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
+}
+
+# Core scheduler: invoke a typed proposer on governance and record the op.
+#   $1 propose_fn          governance proposer name (e.g. propose_set_aggregator)
+#   $2 controller_fn       controller thin-setter the op targets
+#   $3 args_json           ScVal Vec<Val> array (JSON) for replay
+#   $4 cli_executable      true|false (false ⇒ executeOp refuses; oracle ops)
+#   $5 salt_hex            deterministic salt (64 hex)
+#   $6.. propose_flags     CLI flags forwarded to the proposer invocation
+schedule_via_proposer() {
+    local propose_fn=$1; shift
+    local controller_fn=$1; shift
+    local args_json=$1; shift
+    local cli_executable=$1; shift
+    local salt_hex=$1; shift
+    local gov
+    gov=$(get_governance)
+    local proposer
+    proposer=$(get_signer_address)
+
+    echo "Scheduling ${controller_fn} via ${propose_fn} (salt ${salt_hex})..." >&2
+    local out
+    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- "$propose_fn" \
+        --proposer "$proposer" \
+        "$@" \
+        --salt "$salt_hex")
+
+    local op_id
+    op_id=$(parse_op_id "$out")
+    if [ -z "$op_id" ]; then
+        echo "ERROR: ${propose_fn} returned no operation id (output: $out)" >&2
+        exit 1
+    fi
+    write_op_record "$op_id" "$controller_fn" "$args_json" "$salt_hex" "$cli_executable"
+    echo "Scheduled op ${op_id} (function ${controller_fn})." >&2
+    echo "$op_id"
+}
+
+# Read an operation's lifecycle state as a bare string (Unset|Waiting|Ready|Done).
+op_state() {
+    local op_id=$1
+    local gov
+    gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
+}
+
+# Poll until the op is Ready (Done short-circuits as already executed). Fails
+# loudly after the bounded poll budget so setup never hangs forever.
+await_op_ready() {
+    local op_id=$1
+    local poll=0
+    local state
+    while [ "$poll" -lt "$AWAIT_MAX_POLLS" ]; do
+        state=$(op_state "$op_id")
+        case "$state" in
+            Ready) echo "Op ${op_id} is Ready." >&2; return 0 ;;
+            Done)  echo "Op ${op_id} already Done." >&2; return 0 ;;
+            Waiting) ;;
+            Unset) echo "ERROR: op ${op_id} is Unset (never scheduled or cancelled)." >&2; exit 1 ;;
+            *) echo "ERROR: unexpected op state '${state}' for ${op_id}." >&2; exit 1 ;;
+        esac
+        poll=$((poll + 1))
+        echo "  Op ${op_id} Waiting (poll ${poll}/${AWAIT_MAX_POLLS}); sleeping ${AWAIT_POLL_SECONDS}s..." >&2
+        sleep "$AWAIT_POLL_SECONDS"
+    done
+    echo "ERROR: op ${op_id} did not reach Ready within ${AWAIT_MAX_POLLS} polls." >&2
+    exit 1
+}
+
+# Execute a recorded op through governance generic execute. Replays the stored
+# Operation exactly: target=controller, function, ScVal args, zero predecessor,
+# recorded salt. Executor is the signer (holds EXECUTOR from construction).
+execute_op() {
+    local op_id=$1
+    local path
+    path=$(op_record_path "$op_id")
+    if [ ! -f "$path" ]; then
+        echo "ERROR: no op record for ${op_id} at ${path}." >&2
+        echo "       executeOp replays a locally-scheduled op; schedule it on this host first." >&2
+        exit 1
+    fi
+    local cli_executable
+    cli_executable=$(jq -r '.cli_executable' "$path")
+    if [ "$cli_executable" != "true" ]; then
+        echo "ERROR: op ${op_id} (function $(jq -r '.function' "$path")) is not CLI-executable." >&2
+        echo "       Its scheduled args are a governance-resolved struct that the CLI cannot" >&2
+        echo "       reconstruct (oracle config). Execute it via the typed SDK/keeper path." >&2
+        exit 1
+    fi
+
+    local gov target function predecessor salt args_json
+    gov=$(get_governance)
+    target=$(jq -r '.target' "$path")
+    function=$(jq -r '.function' "$path")
+    predecessor=$(jq -r '.predecessor' "$path")
+    salt=$(jq -r '.salt' "$path")
+    args_json=$(jq -c '.args' "$path")
+    local executor
+    executor=$(get_signer_address)
+
+    echo "Executing op ${op_id} -> ${function} on ${target}..." >&2
+    local args_file
+    args_file=$(mktemp)
+    printf '%s' "$args_json" > "$args_file"
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- execute \
+        --executor "$executor" \
+        --target "$target" \
+        --function "$function" \
+        --args-file-path "$args_file" \
+        --predecessor "$predecessor" \
+        --salt "$salt"
+    rm -f "$args_file"
+    echo "Executed op ${op_id}." >&2
+}
+
+# Cancel a pending op (CANCELLER role). Drops the local record on success.
+cancel_op() {
+    local op_id=$1
+    local gov
+    gov=$(get_governance)
+    local canceller
+    canceller=$(get_signer_address)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- cancel \
+        --canceller "$canceller" \
+        --operation_id "$op_id"
+    rm -f "$(op_record_path "$op_id")"
+    echo "Cancelled op ${op_id}." >&2
+}
+
+# Schedule, await the delay, then execute — the one-shot setup path. Honors
+# AUTO_EXECUTE=0 to schedule-only (record op-id for a later executeOp).
+schedule_and_maybe_execute() {
+    local op_id=$1
+    if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
+        echo "Scheduled op ${op_id} (AUTO_EXECUTE=0; run 'executeOp ${op_id}' after the delay)." >&2
+        return 0
+    fi
+    await_op_ready "$op_id"
+    execute_op "$op_id"
+}
+
 require_static_config
 
 # ---------------------------------------------------------------------------
@@ -218,20 +550,34 @@ add_emode_category() {
     echo "  Liquidation Threshold: ${threshold}" >&2
     echo "  Liquidation Bonus: ${bonus}" >&2
 
-    local gov=$(get_governance)
-    local admin=$(get_signer_address)
+    # add_e_mode_category(ltv, threshold, bonus) — three u32 args.
+    local args_json
+    args_json=$(jq -nc \
+        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
+        '[{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
+    local salt
+    salt=$(gen_salt "add_e_mode_category" "$args_json")
 
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_add_e_mode_category add_e_mode_category "$args_json" true "$salt" \
+        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
+
+    if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
+        echo "Scheduled e-mode category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
+        echo "$op_id"
+        return 0
+    fi
+
+    await_op_ready "$op_id"
+    # The controller's add_e_mode_category returns the new on-chain id; the
+    # generic execute prints that returned Val on its last line.
     local result
-    result=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- add_e_mode_category \
-        --ltv "$ltv" \
-        --threshold "$threshold" \
-        --bonus "$bonus")
-
+    result=$(execute_op "$op_id" 2>/dev/null)
     local onchain_id
     onchain_id=$(echo "$result" | sed -nE 's/.*([0-9]+).*/\1/p' | tail -n1)
     if [ -z "$onchain_id" ]; then
-        echo "ERROR: Could not parse on-chain e-mode category id from result: $result" >&2
+        echo "ERROR: Could not parse on-chain e-mode category id from execute result: $result" >&2
         exit 1
     fi
 
@@ -247,15 +593,23 @@ edit_emode_category() {
     local ltv=$(get_emode_value "$config_category_id" ".ltv")
     local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
     local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
-    local gov=$(get_governance)
 
-    echo "Editing E-Mode category ${config_category_id} (${name}) on-chain id ${onchain_id}..."
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- edit_e_mode_category \
-        --id "$onchain_id" \
-        --ltv "$ltv" \
-        --threshold "$threshold" \
-        --bonus "$bonus"
+    echo "Editing E-Mode category ${config_category_id} (${name}) on-chain id ${onchain_id}..." >&2
+
+    # edit_e_mode_category(id, ltv, threshold, bonus) — four u32 args.
+    local args_json
+    args_json=$(jq -nc \
+        --argjson id "$onchain_id" --argjson ltv "$ltv" \
+        --argjson threshold "$threshold" --argjson bonus "$bonus" \
+        '[{u32:$id},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
+    local salt
+    salt=$(gen_salt "edit_e_mode_category" "$args_json")
+
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_edit_e_mode_category edit_e_mode_category "$args_json" true "$salt" \
+        --id "$onchain_id" --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
+    schedule_and_maybe_execute "$op_id"
 }
 
 get_mapped_emode_category_id() {
@@ -372,17 +726,23 @@ add_asset_to_emode() {
         exit 1
     fi
 
-    local gov=$(get_governance)
-    local admin=$(get_signer_address)
+    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow).
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" --argjson cat "$category_id" \
+        --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb}]')
+    local salt
+    salt=$(gen_salt "add_asset_to_e_mode_category" "$args_json")
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- add_asset_to_e_mode_category \
-        --asset "$asset_address" \
-        --category_id "$category_id" \
-        --can_collateral "$can_collateral" \
-        --can_borrow "$can_borrow"
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_add_asset_to_e_mode add_asset_to_e_mode_category "$args_json" true "$salt" \
+        --asset "$asset_address" --category_id "$category_id" \
+        --can_collateral "$can_collateral" --can_borrow "$can_borrow")
+    schedule_and_maybe_execute "$op_id"
 
-    echo "Asset ${asset_name} added to E-Mode category ${category_id}."
+    echo "Asset ${asset_name} scheduled into E-Mode category ${category_id}."
 }
 
 edit_asset_in_emode() {
@@ -393,15 +753,24 @@ edit_asset_in_emode() {
     local asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
-    local gov=$(get_governance)
 
-    echo "Editing asset ${asset_name} in E-Mode category ${category_id}..."
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- edit_asset_in_e_mode_category \
-        --asset "$asset_address" \
-        --category_id "$category_id" \
-        --can_collateral "$can_collateral" \
-        --can_borrow "$can_borrow"
+    echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
+
+    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow).
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" --argjson cat "$category_id" \
+        --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb}]')
+    local salt
+    salt=$(gen_salt "edit_asset_in_e_mode_category" "$args_json")
+
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_edit_asset_in_e_mode edit_asset_in_e_mode_category "$args_json" true "$salt" \
+        --asset "$asset_address" --category_id "$category_id" \
+        --can_collateral "$can_collateral" --can_borrow "$can_borrow")
+    schedule_and_maybe_execute "$op_id"
 }
 
 ensure_asset_in_emode() {
@@ -477,8 +846,6 @@ create_market() {
     fi
 
     local ctrl=$(get_controller)
-    local gov=$(get_governance)
-    local admin=$(get_signer_address)
 
     # Existence probe is a controller view; creation writes go via governance.
     if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_config --asset "$asset_address" &>/dev/null; then
@@ -506,21 +873,39 @@ create_market() {
         "$MARKET_CONFIG_FILE")
 
     # Post-audit (T1-7): the controller gates `create_liquidity_pool` behind an
-    # admin allow-list. Pre-approve the token contract before creating the
-    # market. `approve_token` is idempotent — calling on an already-approved
-    # token is a no-op.
-    echo "Approving token for market creation..."
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- approve_token \
-        --token "$asset_address"
+    # admin allow-list. Pre-approve the token first (separate timelocked op,
+    # executed before the create op so the allow-list check passes).
+    # `approve_token` is idempotent on chain.
+    echo "Scheduling token approval for market creation..." >&2
+    local approve_args
+    approve_args=$(jq -nc --arg t "$asset_address" '[{address:$t}]')
+    local approve_salt
+    approve_salt=$(gen_salt "approve_token" "$approve_args")
+    local approve_op
+    approve_op=$(schedule_via_proposer \
+        propose_approve_token approve_token "$approve_args" true "$approve_salt" \
+        --token "$asset_address")
+    schedule_and_maybe_execute "$approve_op"
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- create_liquidity_pool \
-        --asset "$asset_address" \
-        --params "$params" \
-        --config "$pending_config"
+    # create_liquidity_pool(asset, params, config) — Address + two field-map
+    # structs. The scheduled args equal these inputs (governance validates but
+    # does not transform), so they are fully CLI-replayable.
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" \
+        --argjson params "$(scval_market_params "$params")" \
+        --argjson config "$(scval_asset_config "$pending_config")" \
+        '[{address:$asset}, $params, $config]')
+    local salt
+    salt=$(gen_salt "create_liquidity_pool" "$args_json")
 
-    echo "Market ${market_name} created."
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_create_liquidity_pool create_liquidity_pool "$args_json" true "$salt" \
+        --asset "$asset_address" --params "$params" --config "$pending_config")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Market ${market_name} scheduled/created."
 }
 
 edit_asset_config() {
@@ -536,15 +921,22 @@ edit_asset_config() {
         ".markets[] | select(.name == \"$market_name\") | .asset_config | .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
-    local gov=$(get_governance)
-    local admin=$(get_signer_address)
+    # edit_asset_config(asset, AssetConfigRaw) — Address + field-map struct.
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" \
+        --argjson cfg "$(scval_asset_config "$config")" \
+        '[{address:$asset}, $cfg]')
+    local salt
+    salt=$(gen_salt "edit_asset_config" "$args_json")
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- edit_asset_config \
-        --asset "$asset_address" \
-        --cfg "$config"
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_edit_asset_config edit_asset_config "$args_json" true "$salt" \
+        --asset "$asset_address" --cfg "$config")
+    schedule_and_maybe_execute "$op_id"
 
-    echo "Asset config updated for ${market_name}."
+    echo "Asset config scheduled for ${market_name}."
 }
 
 # Push the JSON's `market_params` (rate model + max_utilization_ray +
@@ -563,14 +955,22 @@ update_market_params() {
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
         "$MARKET_CONFIG_FILE")
 
-    local gov=$(get_governance)
+    # upgrade_liquidity_pool_params(asset, InterestRateModel) — Address + struct.
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" \
+        --argjson params "$(scval_interest_rate_model "$params")" \
+        '[{address:$asset}, $params]')
+    local salt
+    salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- upgrade_liquidity_pool_params \
-        --asset "$asset_address" \
-        --params "$params"
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_upgrade_pool_params upgrade_liquidity_pool_params "$args_json" true "$salt" \
+        --asset "$asset_address" --params "$params")
+    schedule_and_maybe_execute "$op_id"
 
-    echo "Market params updated for ${market_name}."
+    echo "Market params scheduled for ${market_name}."
 }
 
 update_indexes() {
@@ -655,14 +1055,21 @@ set_aggregator() {
         exit 1
     fi
 
-    local gov=$(get_governance)
-    echo "  Aggregator Address: ${router}"
+    echo "  Aggregator Address: ${router}" >&2
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- set_aggregator \
-        --addr "$router"
+    # set_aggregator(addr) — single Address arg.
+    local args_json
+    args_json=$(jq -nc --arg a "$router" '[{address:$a}]')
+    local salt
+    salt=$(gen_salt "set_aggregator" "$args_json")
 
-    echo "Aggregator configured via governance."
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_set_aggregator set_aggregator "$args_json" true "$salt" \
+        --addr "$router")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Aggregator scheduled via governance."
 }
 
 set_accumulator() {
@@ -674,14 +1081,21 @@ set_accumulator() {
         exit 1
     fi
 
-    local gov=$(get_governance)
-    echo "  Accumulator Address: ${accumulator}"
+    echo "  Accumulator Address: ${accumulator}" >&2
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- set_accumulator \
-        --addr "$accumulator"
+    # set_accumulator(addr) — single Address arg.
+    local args_json
+    args_json=$(jq -nc --arg a "$accumulator" '[{address:$a}]')
+    local salt
+    salt=$(gen_salt "set_accumulator" "$args_json")
 
-    echo "Accumulator configured via governance."
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_set_accumulator set_accumulator "$args_json" true "$salt" \
+        --addr "$accumulator")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Accumulator scheduled via governance."
 }
 
 # ---------------------------------------------------------------------------
@@ -794,20 +1208,43 @@ configure_market_oracle() {
         .markets[] | select(.name == $market) | .oracle | cli_union
     ' "$MARKET_CONFIG_FILE" > "$cfg_file"
 
-    # configure_market_oracle requires governance's own ORACLE role; the
-    # governance constructor grants it to the admin, others via grantGovRole.
+    # propose_configure_market_oracle(proposer, asset, cfg, salt) validates+probes
+    # the INPUT cfg, then schedules the controller's set_market_oracle_config with
+    # the governance-RESOLVED MarketOracleConfig. That resolved struct is not in
+    # governance's CLI spec, so its scheduled args cannot be rebuilt client-side:
+    # the op is recorded cli_executable=false and executeOp refuses it. Execute it
+    # via the typed SDK/keeper path after the delay (see executeOp message).
     local gov=$(get_governance)
-    local admin=$(get_signer_address)
+    local proposer=$(get_signer_address)
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- configure_market_oracle \
-        --caller "$admin" \
+    local salt
+    local salt_input
+    salt_input=$(jq -nc --argjson cfg "$(jq -c . "$cfg_file")" --arg asset "$asset_address" \
+        '{asset:$asset, cfg:$cfg}')
+    salt=$(gen_salt "set_market_oracle_config" "$salt_input")
+
+    echo "Scheduling market oracle config for ${market_name} (resolved struct; not CLI-executable)..." >&2
+    local out
+    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- propose_configure_market_oracle \
+        --proposer "$proposer" \
         --asset "$asset_address" \
-        --cfg-file-path "$cfg_file"
+        --cfg-file-path "$cfg_file" \
+        --salt "$salt")
 
     rm -f "$cfg_file"
 
-    echo "Market oracle configured for ${market_name}."
+    local op_id
+    op_id=$(parse_op_id "$out")
+    if [ -z "$op_id" ]; then
+        echo "ERROR: propose_configure_market_oracle returned no operation id (output: $out)" >&2
+        exit 1
+    fi
+    # Record args=[] cli_executable=false: replay must come from the typed path.
+    write_op_record "$op_id" "set_market_oracle_config" "[]" "$salt" false
+
+    echo "Market oracle scheduled for ${market_name} as op ${op_id}." >&2
+    echo "NOTE: oracle ops are not CLI-executable; execute op ${op_id} via the typed SDK/keeper path after the delay." >&2
 }
 
 setup_all_markets() {
@@ -843,6 +1280,98 @@ all_configured_asset_addresses() {
 }
 
 # ---------------------------------------------------------------------------
+# Upgrade / template ops (WASM hash inputs) — scheduled through governance.
+#
+# The Makefile uploads the WASM and passes the resulting hash here; we schedule
+# the matching proposer then await+execute (AUTO_EXECUTE=1) so the upgrade lands
+# after the delay. Hashes are BytesN<32>; their scheduled args are fully
+# CLI-replayable.
+# ---------------------------------------------------------------------------
+
+schedule_set_pool_template() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 setPoolTemplate <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    # set_liquidity_pool_template(hash) — single BytesN<32> arg.
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
+    local salt
+    salt=$(gen_salt "set_liquidity_pool_template" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_set_pool_template set_liquidity_pool_template "$args_json" true "$salt" \
+        --hash "$hash")
+    schedule_and_maybe_execute "$op_id"
+    echo "Pool template set scheduled (hash ${hash})."
+}
+
+schedule_upgrade_controller() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradeControllerHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    # upgrade(new_wasm_hash) — single BytesN<32> arg.
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
+    local salt
+    salt=$(gen_salt "upgrade" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_upgrade_controller upgrade "$args_json" true "$salt" \
+        --new_wasm_hash "$hash")
+    schedule_and_maybe_execute "$op_id"
+    echo "Controller upgrade scheduled (hash ${hash})."
+}
+
+# Schedule deploy_pool (no controller args), await, execute, and print the
+# deployed pool Address parsed from the execute result's last line.
+schedule_deploy_pool() {
+    local args_json="[]"
+    local salt
+    salt=$(gen_salt "deploy_pool" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_deploy_pool deploy_pool "$args_json" true "$salt")
+    if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
+        echo "Scheduled deploy_pool as op ${op_id} (AUTO_EXECUTE=0)." >&2
+        echo "$op_id"
+        return 0
+    fi
+    await_op_ready "$op_id"
+    local result
+    result=$(execute_op "$op_id" 2>/dev/null)
+    local pool
+    pool=$(printf '%s' "$result" | tail -n1 | tr -d '"' | tr -d '[:space:]')
+    if [ -z "$pool" ]; then
+        echo "ERROR: deploy_pool execute returned no address (result: $result)" >&2
+        exit 1
+    fi
+    echo "$pool"
+}
+
+schedule_upgrade_pool() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradePoolHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    # upgrade_pool(new_wasm_hash) — single BytesN<32> arg.
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
+    local salt
+    salt=$(gen_salt "upgrade_pool" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_upgrade_pool upgrade_pool "$args_json" true "$salt" \
+        --new_wasm_hash "$hash")
+    schedule_and_maybe_execute "$op_id"
+    echo "Pool upgrade scheduled (hash ${hash})."
+}
+
+# ---------------------------------------------------------------------------
 # Pause / unpause
 # ---------------------------------------------------------------------------
 
@@ -867,19 +1396,33 @@ unpause_protocol() {
 grant_role_cmd() {
     local account=$1
     local role=$2
-    local gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- grant_controller_role --account "$account" --role "$role"
-    echo "Controller role ${role} granted to ${account}."
+    # grant_role(account, role) — Address + Symbol; timelocked via governance.
+    local args_json
+    args_json=$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')
+    local salt
+    salt=$(gen_salt "grant_role" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_grant_controller_role grant_role "$args_json" true "$salt" \
+        --account "$account" --role "$role")
+    schedule_and_maybe_execute "$op_id"
+    echo "Controller role ${role} scheduled for ${account}."
 }
 
 revoke_role_cmd() {
     local account=$1
     local role=$2
-    local gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- revoke_controller_role --account "$account" --role "$role"
-    echo "Controller role ${role} revoked from ${account}."
+    # revoke_role(account, role) — Address + Symbol; timelocked via governance.
+    local args_json
+    args_json=$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')
+    local salt
+    salt=$(gen_salt "revoke_role" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_revoke_controller_role revoke_role "$args_json" true "$salt" \
+        --account "$account" --role "$role")
+    schedule_and_maybe_execute "$op_id"
+    echo "Controller role ${role} revoke scheduled for ${account}."
 }
 
 # Governance's own ORACLE role (gates configure_market_oracle /
@@ -1367,6 +1910,47 @@ case "$1" in
     "unpause")
         unpause_protocol
         ;;
+    "executeOp")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 executeOp <op-id>" >&2
+            echo "Replays a locally-scheduled op through governance execute after the delay." >&2
+            exit 1
+        fi
+        execute_op "$2"
+        ;;
+    "cancelOp")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 cancelOp <op-id>" >&2
+            exit 1
+        fi
+        cancel_op "$2"
+        ;;
+    "opState")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 opState <op-id>" >&2
+            exit 1
+        fi
+        op_state "$2"
+        ;;
+    "awaitOp")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 awaitOp <op-id>" >&2
+            exit 1
+        fi
+        await_op_ready "$2"
+        ;;
+    "setPoolTemplate")
+        schedule_set_pool_template "$2"
+        ;;
+    "upgradeControllerHash")
+        schedule_upgrade_controller "$2"
+        ;;
+    "upgradePoolHash")
+        schedule_upgrade_pool "$2"
+        ;;
+    "deployPool")
+        schedule_deploy_pool
+        ;;
     "grantRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantRole <account> <role>" >&2
@@ -1520,8 +2104,20 @@ case "$1" in
         echo "  addAssetToEMode <id> <asset>    Add asset to e-mode from config"
         echo "  setupAllEModes                  Idempotently configure e-modes; no deploy/unpause"
         echo ""
+        echo "Timelock (admin writes are scheduled then executed after the delay):"
+        echo "  Admin verbs (createMarket, editAssetConfig, configureMarketOracle, e-mode,"
+        echo "  setAggregator, grantRole, ...) SCHEDULE a governance op and, by default"
+        echo "  (AUTO_EXECUTE=1), await the min-delay then execute it. Set AUTO_EXECUTE=0"
+        echo "  to schedule-only and execute later with executeOp."
+        echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"
+        echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
+        echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
+        echo "  awaitOp <op-id>                 Poll until the op is Ready"
+        echo "  NOTE: oracle ops (configureMarketOracle) schedule a governance-resolved"
+        echo "  struct and are NOT CLI-executable; execute them via the typed SDK/keeper path."
+        echo ""
         echo "Protocol control (writes, all routed through governance):"
-        echo "  pause | unpause                 Pause/unpause protocol"
+        echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
         echo "  grantRole <account> <role>      Grant controller KEEPER | REVENUE | ORACLE via governance"
         echo "  revokeRole <account> <role>     Revoke controller role via governance"
         echo "  grantGovRole <account> <role>   Grant governance's own role (ORACLE for configureMarketOracle)"
