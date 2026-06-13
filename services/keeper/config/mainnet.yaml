@@ -11,6 +11,10 @@ contracts:
   controller: ""
   pool_wasm_hash: ""
   flash_loan_receiver: ""
+  # Optional: governance contract that owns the controller. When set, its
+  # instance + MinDelay (instance-tier) + role keys are bumped too. Populate
+  # alongside the other mainnet ids.
+  governance: ""
 
 keyvault:
   url: https://my-vault.vault.azure.net
