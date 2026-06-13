@@ -1,6 +1,6 @@
 # Timelock Integration Spec (OpenZeppelin `stellar-governance` 0.7.1)
 
-Status: **LOCKED** — design ready for Task 2 (wire trait) and Task 3 (route forwarders).
+Status: **REVISED (B1)** — Task 2 (trait wired) done. The original self-targeted-execute design is INVALID on Soroban (see "Revised design (B1)" at the end of this file — that section supersedes the self-target design in §(c)/§Locked below for Task 3 onward).
 
 Source of truth: the vendored crate at
 `vendor/openzeppelin/stellar-governance/`, copied verbatim from the published
@@ -362,3 +362,73 @@ minimally.
   --workspace` is green; cargo emits the expected
   "patch ... was not used in the crate graph" warning because no member depends
   on it yet (Task 2 adds the dependency).
+
+---
+
+## Revised design (B1) — supersedes the self-target design for Task 3+
+
+**Why:** empirically verified on soroban-env-host 26.1.3 — a contract CANNOT invoke
+itself (`invoke_contract` runs in `ContractReentryMode::Prohibited` → `Contract
+re-entry is not allowed`), and a contract CANNOT self-authorize
+(`current_contract_address().require_auth()` has no satisfier from its own frame,
+auth.rs `maybe_check_invoker_contract_auth`). So scheduled operations CANNOT target
+governance itself. They must target the **controller** (a normal governance→controller
+cross-call, which authorizes because governance is the controller's owner). Owner
+decision 2026-06-13: **B1 — typed validating proposers.**
+
+**The boundary this forces (honest scope):**
+- **Controller-targeted → timelockable.** Every protocol-affecting admin op forwards to
+  the controller, so all of them ARE timelocked.
+- **Governance-self-targeted → NOT timelockable** (self-reentry impossible): governance's
+  own `upgrade`, `update_delay`, and governance's own `grant_role`/`revoke_role`/
+  `transfer_ownership`. These stay **owner-gated immediate**. Documented limitation; a
+  future hardening (separate timelock-admin contract owning governance's upgrade) is
+  deferred. `pause`/`unpause` and `deploy_controller` also stay owner-immediate (per the
+  owner decision / genesis bootstrap).
+
+**Production surface (contracts/governance/src/forward.rs + timelock.rs):**
+- **`propose_<op>(args…) -> BytesN<32>` (one per controller-targeted forwarder, ~24):**
+  requires PROPOSER role (`proposer.require_auth()` + `ensure_role(PROPOSER)`), runs the
+  FULL validation now (the existing `validate::*` bodies), builds
+  `Operation{ target = controller_addr, function = <controller thin-setter name>, args =
+  <validated args as Vec<Val>>, predecessor, salt }`, calls
+  `stellar_governance::timelock::schedule_operation(env, &op, delay)` with delay ≥
+  `get_min_delay`, returns the operation id. The raw OZ generic `schedule` is **NOT**
+  exposed (so nothing unvalidated can be queued — only typed proposers exist).
+  - Oracle ops: `propose_configure_market_oracle(asset, cfg)` validates+probes →
+    `set_market_oracle_config(asset, MarketOracleConfig)` on the controller;
+    `propose_edit_oracle_tolerance(asset, first, last)` →
+    `set_oracle_tolerance(asset, OraclePriceFluctuation)`. (Controller thin-setter names,
+    NOT the governance forwarder names.)
+  - High-power ops likewise: `propose_upgrade_controller(hash)` → controller `upgrade`;
+    `propose_transfer_controller_ownership(...)` → controller `transfer_ownership`; etc.
+- **`execute(target, function, args, predecessor, salt, executor: Option<Address>) -> Val`:**
+  EXECUTOR role (when `Some`) + `execute_operation(env, &op)` → OZ does
+  `invoke_contract(controller, function, args)`. One generic execute for all ops.
+- **`cancel(operation_id, canceller)`:** CANCELLER role + `cancel_operation`.
+- **`update_delay(new_delay)`:** OWNER-gated immediate (self-target can't be timelocked).
+  Doc-note the limitation: shortening the delay is not itself delayed.
+- **Queries:** `get_min_delay`, `get_operation_state(id)`, `get_operation_ledger(id)`,
+  `hash_operation(...)` — read-only wrappers over the storage helpers.
+- **`pause`/`unpause`:** unchanged, owner-immediate, forward to controller.
+
+**Validation timing:** at propose/schedule time (in the typed proposers). For all
+pure-input ops this is identical to execute-time (inputs are fixed). For
+`configure_market_oracle` the live feed probes run at propose; a feed going stale over the
+48h is backstopped by the controller's fail-closed read path. Accepted tradeoff (B1).
+
+**Harness fast-path (keeps the 400+ functional tests green with minimal churn):** keep the
+EXISTING typed forwarders (`set_aggregator`, `create_liquidity_pool`,
+`configure_market_oracle`, …) but move them behind `#[cfg(any(test, feature = "testing"))]`
+in their own `#[contractimpl]` block — immediate, owner-gated (validate + controller
+client), used only by the harness builder (unchanged). Production wasm contains only
+`propose_*`/`execute`/`cancel`/queries + immediate `pause`/`unpause`. Same precedent as the
+testing-only `set_controller`. The real timelock lifecycle is tested separately (TL-3/TL-4).
+
+**TL-2 carryover to fix in TL-3:** the trait's `schedule` must NOT be a public passthrough
+(don't expose generic schedule) and `update_delay`'s self-auth gate (`current_contract_
+address().require_auth()`, uncallable) becomes owner-gated. Simplest: drop the
+`impl Timelock for Governance` passthrough and implement governance's own `execute`/`cancel`/
+`update_delay`/query entrypoints calling the OZ storage free functions directly; add the
+typed `propose_*`. (Still "uses the OZ module" — the Operation/OperationState/state-machine/
+hash/storage logic is all OZ; we just own our entrypoint surface.)
