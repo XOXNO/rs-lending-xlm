@@ -7,4 +7,7 @@ pool.wasm 42000
 common.wasm 21000
 flash_loan_receiver.wasm 27000
 defindex_strategy.wasm 45000
-governance.wasm 50000
+# Embedding the OpenZeppelin timelock trait adds 8 entrypoints
+# (schedule/execute/cancel/update_delay + 4 query defaults), the Operation /
+# OperationState types, role symbols, and storage helpers: 46,126 -> 52,628 B.
+governance.wasm 56000

@@ -20,7 +20,10 @@ use crate::{Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
     let admin = Address::generate(env);
-    let gov_id = env.register(Governance, (admin.clone(),));
+    let gov_id = env.register(
+        Governance,
+        (admin.clone(), crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
     let gov = GovernanceClient::new(env, &gov_id);
     (admin, gov_id, gov)
 }

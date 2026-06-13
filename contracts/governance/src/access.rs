@@ -14,6 +14,12 @@ use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 
+/// Timelock roles. The crate leaves all role logic to the host; these gate the
+/// `schedule` / `execute` / `cancel` timelock entrypoints respectively.
+pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
+pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
+pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
+
 fn default_operational_roles(env: &Env) -> [Symbol; 1] {
     [Symbol::new(env, ORACLE_ROLE)]
 }
@@ -67,10 +73,28 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
 
 #[contractimpl]
 impl Governance {
-    pub fn __constructor(env: Env, admin: Address) {
+    pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
         access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, ORACLE_ROLE), &admin);
+
+        // The timelock admin is governance itself (`update_delay` self-auth),
+        // so role grants flow through the access_control admin already set to
+        // `admin`. Arm the initial proposer/executor/canceller set to `admin`;
+        // EXECUTOR is also granted so an explicit-executor execute path works,
+        // while open execution (`executor: None`) stays available.
+        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, PROPOSER_ROLE), &admin);
+        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, EXECUTOR_ROLE), &admin);
+        access_control::grant_role_no_auth(
+            &env,
+            &admin,
+            &Symbol::new(&env, CANCELLER_ROLE),
+            &admin,
+        );
+
+        // Arm the timelock minimum delay; until this runs, `schedule` panics
+        // `MinDelayNotSet`.
+        stellar_governance::timelock::set_min_delay(&env, min_delay);
     }
 
     #[only_owner]
@@ -137,7 +161,10 @@ mod tests {
     fn constructor_grants_oracle_role_to_admin() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(Governance, (admin.clone(),));
+        let contract_id = env.register(
+            Governance,
+            (admin.clone(), crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
+        );
         let client = GovernanceClient::new(&env, &contract_id);
 
         assert!(client.has_role(&admin, &Symbol::new(&env, ORACLE_ROLE)));

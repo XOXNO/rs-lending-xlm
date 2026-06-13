@@ -5,16 +5,20 @@
 //! owner-gated setters.
 
 mod access;
+mod constants;
 mod deploy;
 mod events;
 mod forward;
 mod storage;
+mod timelock;
 mod validate;
 
 #[cfg(test)]
 mod tests;
 
 use soroban_sdk::{contract, contractmeta};
+
+pub use crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
 
 contractmeta!(key = "name", val = "Lending Governance");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
