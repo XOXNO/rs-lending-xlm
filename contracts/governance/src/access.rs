@@ -4,6 +4,13 @@
 //! ORACLE role, which gates the oracle-configuration forwarders into the
 //! controller. Pause and position limits are absent by design: both are
 //! controller state and stay behind the controller's own entrypoints.
+//!
+//! The entrypoints here (`upgrade`, `transfer_ownership`, `grant_role`,
+//! `revoke_role`) administer the governance contract ITSELF and are owner-gated
+//! and immediate. They cannot be timelocked: Soroban prohibits a contract from
+//! invoking and self-authorizing itself, so a scheduled op cannot target
+//! governance. Protocol-affecting controller admin IS timelocked, through the
+//! typed `propose_*` proposers in `forward.rs`.
 
 use common::errors::GenericError;
 use soroban_sdk::{contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
@@ -78,11 +85,10 @@ impl Governance {
         access_control::set_admin(&env, &admin);
         access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, ORACLE_ROLE), &admin);
 
-        // The timelock admin is governance itself (`update_delay` self-auth),
-        // so role grants flow through the access_control admin already set to
-        // `admin`. Arm the initial proposer/executor/canceller set to `admin`;
-        // EXECUTOR is also granted so an explicit-executor execute path works,
-        // while open execution (`executor: None`) stays available.
+        // Arm the initial proposer/executor/canceller set to `admin`. EXECUTOR
+        // is granted so an explicit-executor execute path works, while open
+        // execution (`executor: None`) stays available. `update_delay` is
+        // owner-gated, so the delay setter rides the ownable admin, not a role.
         access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, PROPOSER_ROLE), &admin);
         access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, EXECUTOR_ROLE), &admin);
         access_control::grant_role_no_auth(
