@@ -16,6 +16,7 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 common = { path = "../../common" }
 controller = { path = "../../contracts/controller", features = ["testing"] }
 governance = { path = "../../contracts/governance", features = ["testing"] }
+governance-interface = { path = "../../interfaces/governance" }
 pool = { path = "../../contracts/pool" }
 flash-loan-receiver = { path = "../../contracts/flash-loan-receiver" }
 # Exact rational arithmetic for the reference implementation used by the

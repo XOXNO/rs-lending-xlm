@@ -981,6 +981,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "governance-interface"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "controller-interface",
+ "soroban-sdk",
+ "stellar-governance",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2096,6 +2106,7 @@ dependencies = [
  "controller",
  "flash-loan-receiver",
  "governance",
+ "governance-interface",
  "num-bigint",
  "num-rational",
  "num-traits",

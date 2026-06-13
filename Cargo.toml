@@ -3,6 +3,7 @@ members = [
     "common",
     "interfaces/pool",
     "interfaces/controller",
+    "interfaces/governance",
     "contracts/pool",
     "contracts/controller",
     "contracts/governance",

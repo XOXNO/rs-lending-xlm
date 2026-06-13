@@ -50,8 +50,8 @@ fn read_controller_position_limits(t: &LendingTest) -> PositionLimits {
 // Re-arms a non-zero delay so scheduled ops sit in `Waiting` until the ledger
 // advances. Owner-immediate, mirroring production.
 fn arm_delay(t: &LendingTest) {
-    t.gov_client().update_delay(&TEST_DELAY_LEDGERS);
-    assert_eq!(t.gov_client().get_min_delay(), TEST_DELAY_LEDGERS);
+    t.gov_iface_client().update_delay(&TEST_DELAY_LEDGERS);
+    assert_eq!(t.gov_iface_client().get_min_delay(), TEST_DELAY_LEDGERS);
 }
 
 // The full state machine in one flow: an unknown id is `Unset`; after a proposer
@@ -60,7 +60,7 @@ fn arm_delay(t: &LendingTest) {
 #[test]
 fn operation_state_transitions_unset_waiting_ready_done() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let s = salt(&t.env, 1);
 
@@ -122,7 +122,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
 #[test]
 fn cancelled_operation_cannot_execute() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let s = salt(&t.env, 2);
 
@@ -167,7 +167,7 @@ fn cancelled_operation_cannot_execute() {
 #[test]
 fn non_proposer_propose_rejected() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let stranger = Address::generate(&t.env);
 
     let result = gov.try_propose_set_position_limits(&stranger, &limits(5, 4), &salt(&t.env, 3));
@@ -183,7 +183,7 @@ fn non_proposer_propose_rejected() {
 #[test]
 fn non_executor_execute_rejected() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let stranger = Address::generate(&t.env);
     let s = salt(&t.env, 4);
@@ -216,7 +216,7 @@ fn non_executor_execute_rejected() {
 #[test]
 fn non_canceller_cancel_rejected() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let stranger = Address::generate(&t.env);
     let s = salt(&t.env, 5);
@@ -244,7 +244,7 @@ fn non_canceller_cancel_rejected() {
 #[test]
 fn update_delay_owner_only() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
 
     // Owner succeeds and the new delay is observable.
     gov.update_delay(&7u32);
@@ -280,7 +280,7 @@ fn update_delay_owner_only() {
 #[test]
 fn same_params_distinct_salts_schedule_independently() {
     let t = LendingTest::new().build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
 
     arm_delay(&t);
@@ -315,7 +315,7 @@ const SET_MARKET_ORACLE_CONFIG: &str = "set_market_oracle_config";
 #[test]
 fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let asset = t.resolve_asset("USDC");
     let s = salt(&t.env, 8);
@@ -375,7 +375,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 #[test]
 fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let gov = t.gov_client();
+    let gov = t.gov_iface_client();
     let admin = t.admin();
     let asset = t.resolve_asset("USDC");
     let s = salt(&t.env, 9);

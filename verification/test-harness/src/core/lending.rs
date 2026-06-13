@@ -76,6 +76,14 @@ impl LendingTest {
         governance::GovernanceClient::new(&self.env, &self.governance)
     }
 
+    /// Drives governance through the published `governance-interface` ABI. Only
+    /// covers the production entrypoints; the testing-only immediate forwarders
+    /// stay on `gov_client`. Used by the timelock suite to prove the generated
+    /// client matches the real contract at call time.
+    pub fn gov_iface_client(&self) -> governance_interface::GovernanceClient<'_> {
+        governance_interface::GovernanceClient::new(&self.env, &self.governance)
+    }
+
     pub fn mock_reflector_client(&self) -> crate::mock_reflector::MockReflectorClient<'_> {
         crate::mock_reflector::MockReflectorClient::new(&self.env, &self.mock_reflector)
     }
