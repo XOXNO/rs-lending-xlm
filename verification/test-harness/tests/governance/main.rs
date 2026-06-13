@@ -11,5 +11,6 @@ mod admin_config;
 mod dex_usd_repricing;
 mod emode;
 mod redstone;
+mod timelock;
 mod tolerance;
 mod validation_admin;

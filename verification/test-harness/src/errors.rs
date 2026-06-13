@@ -90,6 +90,10 @@ pub mod codes {
     // OpenZeppelin Pausable (not in common::errors)
     pub const CONTRACT_PAUSED: u32 = 1000;
 
+    // OpenZeppelin AccessControl (not in common::errors): raised by `ensure_role`
+    // when a caller lacks a timelock role (PROPOSER/EXECUTOR/CANCELLER).
+    pub const UNAUTHORIZED: u32 = 2000;
+
     // Legacy aliases kept for existing tests (variant removed or renumbered in common)
     pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
     pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;

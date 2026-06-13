@@ -19,6 +19,7 @@ mod tests;
 use soroban_sdk::{contract, contractmeta};
 
 pub use crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
+pub use stellar_governance::timelock::OperationState;
 
 contractmeta!(key = "name", val = "Lending Governance");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
