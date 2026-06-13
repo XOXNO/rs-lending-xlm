@@ -20,6 +20,7 @@ resolver = "2"
 soroban-sdk = "=26.0.0"
 stellar-access = "=0.7.1"
 stellar-contract-utils = "=0.7.1"
+stellar-governance = "=0.7.1"
 stellar-macros = "=0.7.1"
 
 # Certora formal verification (only compiled with `certora` feature).
@@ -54,6 +55,7 @@ cvlr-soroban-derive = { path = "vendor/cvlr-soroban/cvlr-soroban-derive" }
 [patch.crates-io]
 stellar-access = { path = "vendor/openzeppelin/stellar-access" }
 stellar-contract-utils = { path = "vendor/openzeppelin/stellar-contract-utils" }
+stellar-governance = { path = "vendor/openzeppelin/stellar-governance" }
 
 [profile.release]
 opt-level = "z"
