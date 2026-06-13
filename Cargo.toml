@@ -16,12 +16,13 @@ exclude = ["verification/fuzz", "vendor"]
 resolver = "2"
 
 [workspace.dependencies]
-# F.2: pinned exactly during the audit window. Revert to caret post-audit.
-soroban-sdk = "=26.0.0"
-stellar-access = "=0.7.1"
-stellar-contract-utils = "=0.7.1"
-stellar-governance = "=0.7.1"
-stellar-macros = "=0.7.1"
+# Pinned exactly for a deterministic audited artifact. OpenZeppelin crates come
+# from crates.io (0.7.2 targets soroban-sdk 26.1); no local vendoring.
+soroban-sdk = "=26.1.0"
+stellar-access = "=0.7.2"
+stellar-contract-utils = "=0.7.2"
+stellar-governance = "=0.7.2"
+stellar-macros = "=0.7.2"
 
 # Certora formal verification (only compiled with `certora` feature).
 # F.1: upstream is still pinned, with local patches below for audit fixes.
@@ -51,11 +52,6 @@ cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
 cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
 cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }
 cvlr-soroban-derive = { path = "vendor/cvlr-soroban/cvlr-soroban-derive" }
-
-[patch.crates-io]
-stellar-access = { path = "vendor/openzeppelin/stellar-access" }
-stellar-contract-utils = { path = "vendor/openzeppelin/stellar-contract-utils" }
-stellar-governance = { path = "vendor/openzeppelin/stellar-governance" }
 
 [profile.release]
 opt-level = "z"
