@@ -1,10 +1,11 @@
 //! Composes primary and anchor observations into a final price.
 
 use common::errors::OracleError;
+use common::oracle::observation::is_stale;
 use controller_interface::types::{MarketOracleConfig, OracleStrategy};
 use soroban_sdk::{assert_with_error, panic_with_error};
 
-use super::observation::{is_stale, OracleObservation};
+use super::observation::OracleObservation;
 use super::providers;
 use super::tolerance::{calculate_final_price, is_within_anchor};
 use crate::cache::Cache;
@@ -13,7 +14,6 @@ pub struct ResolvedOracleComponents {
     pub primary_price_wad: Option<i128>,
     pub anchor_price_wad: Option<i128>,
     pub final_price_wad: i128,
-    #[cfg_attr(feature = "certora", allow(dead_code))]
     pub timestamp: u64,
     pub within_first_tolerance: bool,
     pub within_second_tolerance: bool,
@@ -76,9 +76,10 @@ pub(crate) fn resolve_components(
                 config.tolerance.first_upper_ratio_bps,
                 config.tolerance.first_lower_ratio_bps,
             );
-            // The second band is the wider `last` tolerance. `require_last_tolerance_gt_first`
-            // enforces last > first at configure time, so the first band is a strict
-            // subset of the last; within_first therefore implies within_second.
+            // The second band is the wider `last` tolerance. Governance config
+            // validation enforces last > first at configure time, so the first
+            // band is a strict subset of the last; within_first therefore
+            // implies within_second.
             let within_second = is_within_anchor(
                 cache.env(),
                 anchor.price_wad,

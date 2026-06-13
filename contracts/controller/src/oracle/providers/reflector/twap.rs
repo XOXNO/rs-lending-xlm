@@ -1,23 +1,20 @@
 // TWAP read via Reflector prices.
 
 use common::errors::{GenericError, OracleError};
-use crate::events::OracleTwapDegradedEvent;
+use common::oracle::observation::{
+    check_not_future_at, is_stale, normalize_positive_price, MAX_TWAP_RECORDS,
+};
+use common::oracle::providers::reflector::{
+    min_twap_observations, reflector_prices_call, to_reflector_asset,
+};
 use controller_interface::types::ReflectorSourceConfig;
 use soroban_sdk::{assert_with_error, panic_with_error};
 
-use super::reflector_prices_call;
 use crate::cache::Cache;
-use crate::oracle::observation::{
-    check_not_future_at, is_stale, normalize_positive_price, OracleObservation, MAX_TWAP_RECORDS,
-};
+use crate::events::OracleTwapDegradedEvent;
+use crate::oracle::observation::OracleObservation;
 
-use super::{observation_from_price_data, spot::read_spot, to_reflector_asset};
-
-// Min observations for trusted TWAP. Floor of 2 rules out single-sample
-// "TWAPs"; larger windows accept partial history above ceil(records/2).
-pub(crate) fn min_twap_observations(records: u32) -> u32 {
-    core::cmp::max(2, records.div_ceil(2))
-}
+use super::{observation_from_price_data, spot::read_spot};
 
 pub(crate) fn read_twap(
     cache: &mut Cache,
@@ -143,21 +140,5 @@ fn twap_fallback_or_panic(
         fallback.or_else(|| read_spot(cache.env(), config, required))
     } else {
         panic_with_error!(cache.env(), err);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_min_twap_observations_clamps_and_rounds_up() {
-        assert_eq!(min_twap_observations(0), 2);
-        assert_eq!(min_twap_observations(1), 2);
-        assert_eq!(min_twap_observations(2), 2);
-        assert_eq!(min_twap_observations(3), 2);
-        assert_eq!(min_twap_observations(4), 2);
-        assert_eq!(min_twap_observations(5), 3);
-        assert_eq!(min_twap_observations(12), 6);
     }
 }

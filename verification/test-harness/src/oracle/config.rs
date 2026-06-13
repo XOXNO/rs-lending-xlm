@@ -1,4 +1,8 @@
-//! Market oracle configuration builders for test setup (`configure_market_oracle`).
+//! Market oracle configuration input builders for test setup.
+//!
+//! Builders produce the `MarketOracleConfigInput` shapes consumed by the
+//! governance `configure_market_oracle` forwarder, which probes the mock
+//! oracles and computes the resolved `MarketOracleConfig` in-path.
 
 use controller::types::{
     MarketOracleConfigInput, OracleAssetRef, OracleReadMode, OracleSourceConfigInput,

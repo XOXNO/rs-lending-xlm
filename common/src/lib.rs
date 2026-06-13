@@ -3,6 +3,7 @@
 pub mod constants;
 pub mod errors;
 pub mod math;
+pub mod oracle;
 pub mod rates;
 pub mod types;
 pub mod validation;

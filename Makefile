@@ -36,7 +36,7 @@ SHELL := /bin/bash
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
         keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-pools upgrade-all _deploy \
-        _preflight-tools _preflight-network-config _preflight-setup _preflight-controller _preflight-pool-hash \
+        _preflight-tools _preflight-network-config _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
         configure-controller setup-testnet setup-mainnet _setup-markets create-market \
@@ -72,7 +72,7 @@ TEST_HARNESS_DIR := verification/test-harness
 FUZZ_DIR := verification/fuzz
 
 # Contract crates (order matters for deployment)
-CONTRACTS := pool controller
+CONTRACTS := pool controller governance
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (verification/test-harness internals, the Certora
@@ -570,6 +570,16 @@ _preflight-controller: _preflight-network-config
 		exit 1; \
 	fi
 
+_preflight-governance: _preflight-network-config
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$GOV" ]; then \
+		GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
+		echo "Governance not configured for $(NETWORK). Deploy first or set configs/networks.json."; \
+		exit 1; \
+	fi
+
 _preflight-pool-hash: _preflight-network-config
 	@HASH=$$(if [ -s $(POOL_WASM_HASH_FILE) ]; then cat $(POOL_WASM_HASH_FILE); else jq -r '.["$(NETWORK)"].pool_wasm_hash // empty' $(CONFIG_DIR)/networks.json; fi); \
 	if [ -z "$$HASH" ] || [ "$$HASH" = "null" ]; then \
@@ -577,9 +587,9 @@ _preflight-pool-hash: _preflight-network-config
 		exit 1; \
 	fi
 
-_preflight-configure-controller: _preflight-setup _preflight-controller _preflight-pool-hash
+_preflight-configure-controller: _preflight-setup _preflight-controller _preflight-governance
 
-_preflight-upgrade-pools: _preflight-controller _preflight-pool-hash
+_preflight-upgrade-pools: _preflight-controller _preflight-governance _preflight-pool-hash
 
 _post-setup-status:
 	@echo ""
@@ -595,16 +605,16 @@ deploy-testnet: _deploy
 deploy-mainnet: NETWORK=mainnet
 deploy-mainnet: _deploy
 
-## Upgrade the deployed controller contract in-place on the selected network.
-upgrade-controller: _preflight-controller deploy-artifacts
+## Upgrade the deployed controller contract in-place via governance.
+upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 	@echo "=== Upgrading controller on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
-	if [ -z "$$CTRL" ]; then \
-		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$GOV" ]; then \
+		GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
 	fi; \
-	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
-		echo "Controller alias not found on $(NETWORK)"; \
+	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
+		echo "Governance alias not found on $(NETWORK)"; \
 		exit 1; \
 	fi; \
 	stellar contract upload \
@@ -612,21 +622,24 @@ upgrade-controller: _preflight-controller deploy-artifacts
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(CONTROLLER_WASM_HASH_FILE); \
 	HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
-	echo "Controller: $$CTRL"; \
-	echo "New WASM hash: $$HASH"; \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- upgrade --new_wasm_hash $$HASH
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
+	echo "Governance: $$GOV"; \
+	echo "New controller WASM hash: $$HASH"
+	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeControllerHash $$HASH
 
-## Upload the latest pool WASM and set it as the controller's pool template.
-upgrade-pool-template: _preflight-controller deploy-artifacts
+## Upload the latest pool WASM and set it as the pool template via governance.
+upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifacts
 	@echo "=== Upgrading pool template on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
-	if [ -z "$$CTRL" ]; then \
-		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$GOV" ]; then \
+		GOV=$$(jq -r ".\"$(NETWORK)\".governance // empty" $(CONFIG_DIR)/networks.json); \
 	fi; \
-	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
-		echo "Controller not found for $(NETWORK)"; \
+	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
+		echo "Governance not found for $(NETWORK)"; \
 		exit 1; \
 	fi; \
 	stellar contract upload \
@@ -634,24 +647,24 @@ upgrade-pool-template: _preflight-controller deploy-artifacts
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(POOL_UPGRADE_WASM_HASH_FILE); \
 	HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
-	echo "Controller: $$CTRL"; \
+	echo "Governance: $$GOV"; \
 	echo "New pool template WASM hash: $$HASH"; \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$HASH; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@HASH=$$(cat $(POOL_UPGRADE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$HASH
 
-## Upgrade the central liquidity pool to the latest pool template hash.
+## Upgrade the central liquidity pool to the latest pool template hash via governance.
 upgrade-pools: _preflight-upgrade-pools
 	@echo "=== Upgrading central pool on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
-	if [ -z "$$CTRL" ]; then \
-		CTRL=$$(jq -r ".\"$(NETWORK)\".controller // empty" $(CONFIG_DIR)/networks.json); \
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$GOV" ]; then \
+		GOV=$$(jq -r ".\"$(NETWORK)\".governance // empty" $(CONFIG_DIR)/networks.json); \
 	fi; \
-	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
-		echo "Controller not found for $(NETWORK)"; \
+	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
+		echo "Governance not found for $(NETWORK)"; \
 		exit 1; \
 	fi; \
 	HASH=$$(if [ -s $(POOL_UPGRADE_WASM_HASH_FILE) ]; then cat $(POOL_UPGRADE_WASM_HASH_FILE); else jq -r ".\"$(NETWORK)\".pool_wasm_hash // empty" $(CONFIG_DIR)/networks.json; fi); \
@@ -659,10 +672,9 @@ upgrade-pools: _preflight-upgrade-pools
 		echo "Pool WASM hash not found. Run upgrade-pool-template first."; \
 		exit 1; \
 	fi; \
-	echo "Controller: $$CTRL"; \
+	echo "Governance: $$GOV"; \
 	echo "Pool WASM hash: $$HASH"; \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- upgrade_pool --new_wasm_hash $$HASH
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePoolHash $$HASH
 
 ## Upload pool template, upgrade controller, upgrade the central pool, then unpause.
 upgrade-all: upgrade-pool-template upgrade-controller upgrade-pools _unpause-after-setup _post-setup-status
@@ -800,7 +812,7 @@ _deploy: deploy-artifacts
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@echo ""
-	@echo "1/4 Checking Aggregator..."
+	@echo "1/6 Checking Aggregator..."
 	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator" $(CONFIG_DIR)/networks.json 2>/dev/null); \
 	if [ ! -z "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ] && [ "$$AGGREGATOR" != "" ]; then \
 		echo "Using Aggregator: $$AGGREGATOR"; \
@@ -810,73 +822,96 @@ _deploy: deploy-artifacts
 	fi
 	@echo ""
 	@# 2. Upload Pool WASM (template, not deployed directly)
-	@echo "2/4 Uploading Pool WASM template..."
+	@echo "2/6 Uploading Pool WASM template..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(POOL_WASM_HASH_FILE)
 	@echo "Pool WASM hash: $$(cat $(POOL_WASM_HASH_FILE))"
+	@POOL_HASH=$$(cat $(POOL_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].pool_wasm_hash = "'$$POOL_HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@# 3. Upload controller WASM explicitly so deploy references a network-installed hash.
-	@echo "3/4 Uploading Controller WASM..."
+	@# 3. Upload controller WASM so governance deploys a network-installed hash.
+	@echo "3/6 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
 		--network $(NETWORK) > $(CONTROLLER_WASM_HASH_FILE)
 	@echo "Controller WASM hash: $$(cat $(CONTROLLER_WASM_HASH_FILE))"
-	@echo ""
-	@# 4. Deploy Controller
-	@echo "4/4 Deploying Controller..."
-	@stellar contract deploy \
-		--wasm-hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) \
-		$(SOURCE_FLAG) \
-		--network $(NETWORK) \
-		--alias controller \
-		-- --admin $(SIGNER_ADDRESS)
-	@CTRL_ID=$$(stellar contract alias show controller --network $(NETWORK)); \
-	POOL_HASH=$$(cat $(POOL_WASM_HASH_FILE)); \
+	@CTRL_HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	TMP_JSON=$$(mktemp); \
-	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'" | .["$(NETWORK)"].pool_wasm_hash = "'$$POOL_HASH'"' \
+	jq '.["$(NETWORK)"].controller_wasm_hash = "'$$CTRL_HASH'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
-	@echo "=== Deployment complete ==="
-	@echo "Aggregator:     $$(stellar contract alias show aggregator --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
-	@echo "Controller:     $$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
-	@echo "Pool WASM Hash: $$(cat $(POOL_WASM_HASH_FILE))"
-
-## Configure controller after deployment
-configure-controller: _preflight-configure-controller
-	@echo "=== Configuring Controller on $(NETWORK) ==="
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAccumulator
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null | tail -n1); \
-	if [ -z "$$CTRL" ]; then \
-		CTRL=$$(jq -r '.["$(NETWORK)"].controller // empty' $(CONFIG_DIR)/networks.json); \
-	fi; \
-	if [ -z "$$CTRL" ] || [ "$$CTRL" = "null" ]; then \
-		echo "Controller not configured for $(NETWORK). Deploy first or set configs/networks.json."; \
+	@# 4. Deploy Governance with the deployer EOA as admin/owner.
+	@echo "4/6 Deploying Governance..."
+	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -z "$$MIN_DELAY" ] || [ "$$MIN_DELAY" = "null" ]; then \
+		echo "timelock_min_delay_ledgers not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
 		exit 1; \
 	fi; \
-	POOL_HASH=$$(if [ -s $(POOL_WASM_HASH_FILE) ]; then cat $(POOL_WASM_HASH_FILE); else jq -r '.["$(NETWORK)"].pool_wasm_hash // empty' $(CONFIG_DIR)/networks.json; fi); \
-	if [ -z "$$POOL_HASH" ] || [ "$$POOL_HASH" = "null" ]; then \
-		echo "Pool WASM hash not found. Run deploy/upgrade-pool-template first or set configs/networks.json."; \
-		exit 1; \
-	fi; \
-	echo "Setting pool template..."; \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- set_liquidity_pool_template --hash $$POOL_HASH; \
-	echo "Deploying central liquidity pool..."; \
-	POOL=$$(stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- deploy_pool | tr -d '"'); \
+	echo "Timelock min delay: $$MIN_DELAY ledgers"; \
+	stellar contract deploy \
+		--wasm $(DEPLOY_DIR)/governance.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) \
+		--alias governance \
+		-- --admin $(SIGNER_ADDRESS) --min_delay $$MIN_DELAY
+	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
+	if [ -z "$$GOV_ID" ]; then echo "Governance alias not resolvable after deploy"; exit 1; fi; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].governance = "'$$GOV_ID'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@echo ""
+	@# 5. Deploy Controller through governance — governance becomes its owner.
+	@# The CLI prints the returned address as a quoted strkey on the last line.
+	@echo "5/6 Deploying Controller via governance..."
+	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
+	CTRL_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
+		-- deploy_controller --wasm_hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
+	if [ -z "$$CTRL_ID" ]; then echo "deploy_controller returned no address"; exit 1; fi; \
+	echo "Controller: $$CTRL_ID"; \
+	stellar contract alias add controller --id $$CTRL_ID --network $(NETWORK) --overwrite; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].controller = "'$$CTRL_ID'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@echo ""
+	@# 6. Set the pool template and deploy the central pool through the timelock
+	@# (schedule -> await min_delay -> execute). Both ops route through governance.
+	@echo "6/6 Setting pool template and deploying central pool via governance timelock..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setPoolTemplate $$(cat $(POOL_WASM_HASH_FILE))
+	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool | tail -n1 | tr -d '"'); \
+	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
 	echo "Central pool: $$POOL"; \
 	TMP_JSON=$$(mktemp); \
 	jq '.["$(NETWORK)"].pool = "'$$POOL'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
-	@# Constructor only auto-grants KEEPER. ORACLE and REVENUE need explicit
-	@# grants before configure_market_oracle / claim_revenue can run.
-	@echo "Granting ORACLE role to deployer..."
+	@echo ""
+	@echo "=== Deployment complete ==="
+	@echo "Aggregator:     $$(stellar contract alias show aggregator --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
+	@echo "Governance:     $$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
+	@echo "Controller:     $$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
+	@echo "Pool:           $$(jq -r '.["$(NETWORK)"].pool // empty' $(CONFIG_DIR)/networks.json)"
+	@echo "Pool WASM Hash: $$(cat $(POOL_WASM_HASH_FILE))"
+	@echo "Controller WASM Hash: $$(cat $(CONTROLLER_WASM_HASH_FILE))"
+
+## Configure controller after deployment (all admin calls route via governance)
+configure-controller: _preflight-configure-controller
+	@echo "=== Configuring Controller via governance on $(NETWORK) ==="
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAccumulator
+	@# The controller constructor auto-grants KEEPER to governance (its admin).
+	@# The deployer EOA needs explicit controller roles: KEEPER for
+	@# update_indexes, ORACLE for disable_token_oracle, REVENUE for
+	@# claim_revenue. Governance's own ORACLE role (configure_market_oracle)
+	@# is granted to the deployer by the governance constructor.
+	@echo "Granting controller KEEPER role to deployer..."
+	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) KEEPER
+	@echo "Granting controller ORACLE role to deployer..."
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) ORACLE
-	@echo "Granting REVENUE role to deployer..."
+	@echo "Granting controller REVENUE role to deployer..."
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh grantRole $(SIGNER_ADDRESS) REVENUE
 	@echo "Controller configured."
 
@@ -889,7 +924,7 @@ setup-mainnet: NETWORK=mainnet
 setup-mainnet: _preflight-setup deploy-mainnet configure-controller _setup-markets _unpause-after-setup _post-setup-status
 
 _unpause-after-setup:
-	@echo "=== Unpausing $(NETWORK) controller ==="
+	@echo "=== Unpausing $(NETWORK) protocol via governance ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh unpause
 
 _setup-markets:
@@ -901,15 +936,20 @@ _setup-markets:
 	fi
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setupAll
 
-## Create a single market (interactive)
+## Schedule a single market create via the governance timelock (interactive).
+## This SCHEDULES the op; the config-driven `make <net> createMarket <name>` path
+## records it for executeOp and awaits+executes. Here we schedule only — run
+## `make <net> awaitOp <id>` then `make <net> executeOp <id>` after the delay.
 create-market:
-	@echo "Creating market for $(ASSET) on $(NETWORK)..."
-	@CTRL=$$(stellar contract alias show controller --network $(NETWORK)); \
-	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) \
-		-- create_liquidity_pool \
+	@echo "Scheduling market create for $(ASSET) on $(NETWORK)..."
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK)); \
+	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
+		-- propose_create_liquidity_pool \
+		--proposer $(SIGNER_ADDRESS) \
 		--asset $(ASSET_ADDRESS) \
 		--params '$(MARKET_PARAMS)' \
-		--config '$(ASSET_CONFIG)'
+		--config '$(ASSET_CONFIG)' \
+		--salt $$(printf '%s' "$(ASSET_ADDRESS)create_liquidity_pool" | shasum -a 256 | cut -c1-64)
 
 # ---------------------------------------------------------------------------
 # Config-driven operations (via configs/script.sh)
@@ -939,17 +979,18 @@ SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setupAll setupAllMarkets setupAllEModes \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
-                  claimRevenueAll
+                  claimRevenueAll deployPool
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams \
                              configureMarketOracle \
                              getPrice getMarket getIndex getIsolatedDebt \
                              getReflector
-POSITIONAL_ID_ACTIONS := addEModeCategory getEMode
+POSITIONAL_ID_ACTIONS := addEModeCategory getEMode \
+                         executeOp cancelOp opState awaitOp
 POSITIONAL_ID_ASSET_ACTIONS := addAssetToEMode
 POSITIONAL_ACCOUNT_ACTIONS := getHealth getAccount getCollateralUsd getBorrowUsd \
                               getLtvUsd getLiqAvailable canLiquidate
 POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow
-POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole
+POSITIONAL_ACCOUNT_ROLE_ACTIONS := grantRole revokeRole hasRole grantGovRole revokeGovRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 
@@ -1120,8 +1161,10 @@ help:
 	@echo "    make testnet pause"
 	@echo "    make testnet unpause"
 	@echo "    make testnet setAggregator"
-	@echo "    make testnet grantRole GAB...XYZ KEEPER     (roles: KEEPER|REVENUE|ORACLE)"
+	@echo "    make testnet grantRole GAB...XYZ KEEPER     Controller roles via governance (KEEPER|REVENUE|ORACLE)"
 	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
+	@echo "    make testnet grantGovRole GAB...XYZ ORACLE  Governance's own roles (ORACLE = configure_market_oracle)"
+	@echo "    make testnet revokeGovRole GAB...XYZ ORACLE"
 	@echo "    make testnet claimRevenue USDC XLM          Claim revenue for one or more markets (REVENUE role)"
 	@echo "    make testnet claimRevenueAll                Claim revenue for every configured market"
 	@echo ""
@@ -1154,7 +1197,7 @@ help:
 	@echo ""
 	@echo "Escape hatches for ad-hoc calls:"
 	@echo "    make view FN=get_market_config ARGS='--asset C...' NETWORK=testnet"
-	@echo "    make invoke FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
+	@echo "    make invoke CONTRACT=governance FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
 	@echo "    make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"
 	@echo ""
 	@echo "Ledger signing (any command):"

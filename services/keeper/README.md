@@ -15,10 +15,20 @@ Per TTL tick the service:
    - the controller's persistent keys — `PoolsList`, and per-asset `Market`
      (which embeds each asset's oracle config) and `IsolatedDebt`, plus each
      `EModeCategory`;
+   - the controller's per-user account keys — `AccountMeta`, `SupplyPositions`,
+     `BorrowPositions` for every account `1..=AccountNonce`, and
+     `IsolatedBasis(id, asset)` for accounts flagged isolated (the keeper
+     decodes each `AccountMeta` to learn the isolated asset, so it builds at
+     most one basis key per account);
    - the controller's access-control role keys (`ExistingRoles`, and per-role
      `RoleAccountsCount` / `RoleAccounts` / `HasRole` for `KEEPER` / `REVENUE` /
      `ORACLE`), which the contract self-extends only when a role-gated call
      reads them — so an idle protocol would otherwise let them archive;
+   - when a `governance` contract is configured: its instance entry (which
+     covers `Controller`, ownable `Owner`, access_control `Admin` + `RoleAdmin`,
+     and the timelock `MinDelay` — all instance-tier) and its persistent
+     access-control role keys for `PROPOSER` / `EXECUTOR` / `CANCELLER` /
+     `ORACLE`;
    - each pool's instance entry and the flash-loan receiver's instance entry;
    - the wasm-code entries for the controller, pool template, and flash-loan
      receiver.
@@ -30,10 +40,57 @@ Per TTL tick the service:
    then extended to the cap the same tick). Both ops are permissionless — the
    signer needs no on-chain role, only XLM for fees and rent.
 
-The keeper deliberately does **not** renew the per-user triplets
-(`AccountMeta`, `SupplyPositions`, `BorrowPositions`): a user auto-bumps their
-own three keys whenever they interact with the protocol. (Renewing keys for
-inactive users approaching liquidation is a separate, future concern.)
+### Per-user account keys
+
+The keeper renews the per-user account keys (`AccountMeta`, `SupplyPositions`,
+`BorrowPositions`, and `IsolatedBasis` for isolated accounts) for every account
+`1..=AccountNonce`. A user auto-bumps their own keys when they interact, but an
+inactive position would otherwise archive — losing it would block liquidation
+and freeze the user's collateral, so the keeper keeps the whole account surface
+alive. This is gated by `schedule.scan_users` (default `true`) and bounded by
+`schedule.max_accounts_scan` (default `50_000`): if `AccountNonce` exceeds the
+cap, the keeper logs a loud `warn!` naming the exact dropped id range and never
+silently truncates.
+
+### Governance
+
+When `contracts.governance` is set, the keeper also keeps the governance
+contract alive. Almost all of governance's state is instance-tier — `Controller`
+(the owned controller), ownable `Owner`, access_control `Admin` + `RoleAdmin`,
+and the timelock `MinDelay` — so a single instance bump covers it. Its
+persistent access-control role-holder keys (`PROPOSER` / `EXECUTOR` /
+`CANCELLER` / `ORACLE`) are discovered with the same code path as the
+controller's role keys.
+
+**`MinDelay` is instance-tier, not persistent** (verified against
+stellar-governance 0.7.2 `src/timelock/storage.rs`: both `get_min_delay` and
+`set_min_delay` use `e.storage().instance()`). The keeper therefore relies on
+the governance instance bump and does **not** build a standalone `MinDelay`
+persistent key — doing so would silently resolve to nothing.
+
+The timelock per-operation keys `OperationLedger(BytesN<32>)` are persistent but
+**not enumerable on-chain**: the operation id is a keccak256 hash known only
+from the schedule event. They are transient — a scheduled op resolves within
+`min_delay` ledgers, far inside any TTL window — so the keeper documents and
+intentionally skips them. Closing this gap would require off-chain event
+tracking (future work).
+
+### Coverage table
+
+| Class | Tier | Source | Renewed |
+|-------|------|--------|---------|
+| Controller instance (`Aggregator`, `Pool`, `Accumulator`, …) | instance | instance read | yes |
+| `PoolsList`, per-asset `Market` / `IsolatedDebt` | persistent | `PoolsList` | yes |
+| Pool `Params` / `State` per asset | persistent | `PoolsList` | yes |
+| `EModeCategory(1..=LastEModeCategoryId)` | persistent | instance | yes |
+| Controller role keys | persistent | `ExistingRoles` | yes |
+| Per-user `AccountMeta` / `SupplyPositions` / `BorrowPositions` | persistent | `AccountNonce` | yes (`scan_users`) |
+| Per-user `IsolatedBasis(id, asset)` | persistent | decoded `AccountMeta` | yes (isolated only) |
+| Governance instance (`Controller`, `Owner`, `Admin`, `RoleAdmin`, `MinDelay`) | instance | instance read | yes (when configured) |
+| Governance role keys (`PROPOSER` / `EXECUTOR` / `CANCELLER` / `ORACLE`) | persistent | `ExistingRoles` | yes (when configured) |
+| Pool / flash-receiver instances + all wasm code | instance / code | instance read | yes |
+| Timelock `OperationLedger(BytesN<32>)` | persistent | none (event only) | no — transient, documented gap |
+| `FlashLoanOngoing`, `PendingOwner`, `PendingAdmin` | temporary | n/a | no — auto-expire by design |
 
 Optionally, a second slower loop runs `update_indexes(assets)` so pool
 interest accrual stays current. That call mutates pool state and is the **only**
@@ -60,8 +117,8 @@ services/keeper/
     ├── config.rs            # YAML loader / validator
     ├── signer/              # KeyVault fetch + SLIP-0010 derivation
     ├── stellar/             # RPC, tx pipeline, op builders
-    ├── keys.rs              # ControllerKey + access-control key → ScVal encoding
-    ├── discovery.rs         # tick-time state read (incl. role keys) + self-check
+    ├── keys.rs              # controller/per-user/access-control key → ScVal encoding
+    ├── discovery.rs         # tick-time state read (per-asset, per-user, roles, governance) + self-check
     ├── scheduler/           # tick loops, extend/restore planner, per-tick budget
     ├── policy.rs            # per-entry extend / restore / skip decision
     ├── metrics.rs           # Prometheus surface + /health
@@ -111,11 +168,10 @@ cargo run --release -- \
 ```
 
 `testnet-fast.yaml` shortens the tick cadence to 20s so a short run observes a
-full discovery + plan cycle. Verified against live testnet 2026-05-29: 5 listed
-assets, encoding self-check passes, discovery reads no per-user keys, the
-planner batches the in-margin instance + wasm-code entries into a single
-`ExtendFootprintTtl` job, `/health` + `/metrics` serve, and SIGTERM shuts the
-loop down cleanly.
+full discovery + plan cycle. The `inspect_ttls` binary prints the full
+discovered surface grouped by coverage class (per-asset, e-mode, per-user,
+roles, governance, instances, wasm) with per-class counts, so coverage is
+auditable read-only against a live network without submitting anything.
 
 ## Docker build
 

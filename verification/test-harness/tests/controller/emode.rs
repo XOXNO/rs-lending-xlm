@@ -347,24 +347,6 @@ fn test_emode_two_assets_same_category() {
     t.assert_borrow_near(ALICE, "USDC", 2_000.0, 1.0);
     t.assert_healthy(ALICE);
 }
-// 15. test_emode_rejects_threshold_lte_ltv
-
-#[test]
-fn test_emode_rejects_threshold_lte_ltv() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    // Call the controller directly and assert the specific error code.
-    // threshold (8000) <= ltv (9000) must reject with InvalidLiqThreshold (113).
-    let result = t
-        .ctrl_client()
-        .try_add_e_mode_category(&9000u32, &8000u32, &200u32);
-    let flat: Result<(), soroban_sdk::Error> = match result {
-        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
-        Ok(Err(err)) => Err(err.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(flat, errors::INVALID_LIQ_THRESHOLD);
-}
 // 16. test_emode_deprecated_category_operations_rejected
 
 #[test]

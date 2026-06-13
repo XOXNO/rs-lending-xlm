@@ -253,6 +253,7 @@ fn deprecated_emode_allows_withdraw(
     // Withdraw must succeed -- deprecated categories do not block exits
     let mut withdrawals: Vec<(Address, i128)> = Vec::new(&e);
     withdrawals.push_back((asset.clone(), amount));
+    // `to = None` is withdraw-to-self; the recipient branch is a Phase-5 gap.
     crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals, None);
 
     // Post-state must show the withdraw actually happened: either the

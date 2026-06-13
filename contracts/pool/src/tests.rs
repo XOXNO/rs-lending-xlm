@@ -1165,6 +1165,32 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
         common::errors::CollateralError::MaxRateBelowBase as u32,
     );
 }
+
+#[test]
+fn test_update_params_rejects_max_borrow_rate_above_cap() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY (the compound-interest Taylor
+    // envelope); slopes stay below the cap so this is the only violation.
+    let model = InterestRateModel {
+        max_borrow_rate_ray: 2 * RAY + 1,
+        base_borrow_rate_ray: RAY / 100,
+        slope1_ray: RAY / 10,
+        slope2_ray: RAY / 5,
+        slope3_ray: RAY,
+        mid_utilization_ray: RAY / 2,
+        optimal_utilization_ray: RAY * 8 / 10,
+        max_utilization_ray: RAY * 95 / 100,
+        reserve_factor_bps: 1000,
+    };
+    let result = flatten_contract_result(client.try_update_params(&t.asset, &model));
+    assert_contract_error(
+        result,
+        common::errors::CollateralError::MaxBorrowRateTooHigh as u32,
+    );
+}
+
 #[test]
 fn test_views() {
     let t = TestSetup::new();

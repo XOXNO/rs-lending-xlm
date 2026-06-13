@@ -38,7 +38,7 @@ quote = "1"
 syn = "2"
 macrotest = "1"
 trybuild = "1"
-soroban-sdk = "=26.0.0"
+soroban-sdk = "=26.1.0"
 
 
 

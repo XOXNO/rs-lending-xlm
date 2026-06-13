@@ -18,7 +18,6 @@ pub(crate) mod tolerance;
 #[cfg(feature = "certora")]
 #[path = "../../../../verification/certora/controller/harness/oracle_tolerance.rs"]
 pub(crate) mod tolerance;
-pub(crate) mod validation;
 
 use soroban_sdk::Address;
 

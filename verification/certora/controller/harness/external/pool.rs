@@ -1,24 +1,33 @@
 //! Certora harness substitute for `controller::external::pool`.
 //!
-//! Under `--features certora`, `controller/src/external/mod.rs` path-swaps
-//! this file in. Each production wrapper is adapted onto the bounded nondet
-//! summaries in `verification/certora/shared/summaries/pool.rs`; the bulk
-//! endpoints map every entry through its per-entry summary and return the
-//! mutations input-ordered, mirroring the pool's loop semantics.
-
-use common::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
-    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
-    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
-};
-use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
+//! Under `--features certora --no-default-features`,
+//! `controller/src/external/mod.rs` path-swaps the production `pool` module to
+//! this file. Each wrapper mirrors the production ABI in
+//! `contracts/controller/src/external/pool.rs` exactly, but instead of issuing a
+//! cross-contract `LiquidityPoolClient` call it returns the bounded nondet model
+//! from `verification/certora/shared/summaries/pool.rs`.
+//!
+//! The central-pool ABI bulks the position verbs into `Vec<entry>` and returns
+//! `Vec<PoolPositionMutation>`. The harness models the batch element-wise:
+//! each entry is summarized independently and pushed input-ordered, so the
+//! returned `Vec` is length-preserving and every per-entry postcondition holds
+//! at its own index (matching the `results.get(i)` reads in production).
 
 use crate::spec::summaries::pool::{
     add_rewards_summary, borrow_summary, claim_revenue_summary, create_strategy_summary,
     flash_loan_summary, get_sync_data_summary, repay_summary, seize_position_summary,
     supply_summary, update_indexes_summary, withdraw_summary,
 };
+use crate::types::{
+    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
+    PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
+};
+use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 
+/// Void privileged-config call. No return value to summarize, so the prover
+/// treats it as a no-op. Exists only so the production import in `router.rs`
+/// resolves under the certora feature.
 pub(crate) fn pool_create_market_call(_env: &Env, _pool_addr: &Address, _params: &MarketParamsRaw) {
 }
 
@@ -43,7 +52,7 @@ pub(crate) fn pool_supply_call(
 pub(crate) fn pool_borrow_call(
     env: &Env,
     _pool_addr: &Address,
-    receiver: &Address,
+    _receiver: &Address,
     entries: &Vec<PoolBorrowEntry>,
 ) -> Vec<PoolPositionMutation> {
     let mut out: Vec<PoolPositionMutation> = Vec::new(env);
@@ -51,7 +60,6 @@ pub(crate) fn pool_borrow_call(
         out.push_back(borrow_summary(
             env,
             &entry.action.asset,
-            receiver.clone(),
             entry.action.amount,
             entry.action.position.clone(),
             entry.borrow_cap,
@@ -60,10 +68,28 @@ pub(crate) fn pool_borrow_call(
     out
 }
 
+pub(crate) fn pool_create_strategy_call(
+    env: &Env,
+    _pool_addr: &Address,
+    _receiver: &Address,
+    action: PoolAction,
+    fee: i128,
+    borrow_cap: i128,
+) -> PoolStrategyMutation {
+    create_strategy_summary(
+        env,
+        &action.asset,
+        action.position,
+        action.amount,
+        fee,
+        borrow_cap,
+    )
+}
+
 pub(crate) fn pool_withdraw_call(
     env: &Env,
     _pool_addr: &Address,
-    receiver: &Address,
+    _receiver: &Address,
     is_liquidation: bool,
     entries: &Vec<PoolWithdrawEntry>,
 ) -> Vec<PoolPositionMutation> {
@@ -72,7 +98,6 @@ pub(crate) fn pool_withdraw_call(
         out.push_back(withdraw_summary(
             env,
             &entry.action.asset,
-            receiver.clone(),
             entry.action.amount,
             entry.action.position.clone(),
             is_liquidation,
@@ -85,7 +110,7 @@ pub(crate) fn pool_withdraw_call(
 pub(crate) fn pool_repay_call(
     env: &Env,
     _pool_addr: &Address,
-    payer: &Address,
+    _payer: &Address,
     actions: &Vec<PoolAction>,
 ) -> Vec<PoolPositionMutation> {
     let mut out: Vec<PoolPositionMutation> = Vec::new(env);
@@ -93,31 +118,11 @@ pub(crate) fn pool_repay_call(
         out.push_back(repay_summary(
             env,
             &action.asset,
-            payer.clone(),
             action.amount,
             action.position.clone(),
         ));
     }
     out
-}
-
-pub(crate) fn pool_create_strategy_call(
-    env: &Env,
-    _pool_addr: &Address,
-    receiver: &Address,
-    action: PoolAction,
-    fee: i128,
-    borrow_cap: i128,
-) -> PoolStrategyMutation {
-    create_strategy_summary(
-        env,
-        &action.asset,
-        receiver.clone(),
-        action.position,
-        action.amount,
-        fee,
-        borrow_cap,
-    )
 }
 
 pub(crate) fn pool_seize_position_call(
@@ -130,7 +135,6 @@ pub(crate) fn pool_seize_position_call(
     seize_position_summary(env, asset, side, position)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn pool_flash_loan_call(
     env: &Env,
     _pool_addr: &Address,
@@ -164,9 +168,9 @@ pub(crate) fn pool_add_rewards_call(
     env: &Env,
     _pool_addr: &Address,
     asset: &Address,
-    _amount: i128,
+    amount: i128,
 ) -> MarketStateSnapshot {
-    add_rewards_summary(env, asset, _amount)
+    add_rewards_summary(env, asset, amount)
 }
 
 pub(crate) fn fetch_pool_sync_data(
@@ -176,6 +180,14 @@ pub(crate) fn fetch_pool_sync_data(
 ) -> PoolSyncData {
     get_sync_data_summary(env, asset)
 }
+
+// `fetch_pool_bulk_indexes` is intentionally absent: its only production caller
+// (`cache::Cache::prefetch_market_indexes`) is `#[cfg(not(feature = "certora"))]`,
+// so the certora build never references it.
+
+// Void privileged-config calls have no return value to summarize, so the
+// prover treats them as no-ops. They exist only so the production import path
+// in `router.rs` resolves under the certora feature.
 
 pub(crate) fn pool_update_params_call(
     _env: &Env,

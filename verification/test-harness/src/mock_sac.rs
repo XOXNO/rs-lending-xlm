@@ -1,5 +1,5 @@
-//! Minimal SAC stub: exposes `decimals` only (no `symbol`) for controller
-//! `validate_and_fetch_token_decimals` coverage.
+//! Minimal SAC stub: exposes `decimals` only (no `symbol`) for token-shape
+//! validation coverage (governance market-creation checks).
 
 use soroban_sdk::{contract, contractimpl, Env};
 

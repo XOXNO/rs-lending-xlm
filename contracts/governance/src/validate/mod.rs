@@ -1,0 +1,30 @@
+//! Admin-input validation enforced before forwarding to the controller.
+//!
+//! The controller's owner-gated setters are thin; every bound, shape, and
+//! live-probe check for admin inputs lives here.
+
+pub(crate) mod asset;
+pub(crate) mod oracle_config;
+pub(crate) mod oracle_probe;
+pub(crate) mod tolerance;
+
+use common::errors::GenericError;
+use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env, Executable};
+
+pub(crate) fn require_contract_address(
+    env: &Env,
+    addr: &Address,
+    error: impl Into<soroban_sdk::Error> + soroban_sdk::SpecShakingMarker,
+) {
+    if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
+        panic_with_error!(env, error);
+    }
+}
+
+pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
+    assert_with_error!(
+        env,
+        hash.to_array() != [0; 32],
+        GenericError::InvalidPoolTemplate
+    );
+}

@@ -4,7 +4,6 @@
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
-use cvlr_soroban::nondet_address;
 use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
@@ -60,7 +59,13 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
 }
 // Mutating endpoints
 
-/// Summary for `pool::LiquidityPool::supply`.
+/// Single-entry model for `pool::LiquidityPool::supply`.
+///
+/// The production ABI bulks supply into `Vec<PoolSupplyEntry>` and returns a
+/// `Vec<PoolPositionMutation>`. The certora harness loops this element model
+/// over the batch (length-preserving) so every per-entry postcondition holds
+/// independently. `asset` is the entry's market asset, stamped into the
+/// returned `market_state`.
 ///
 /// Modeled postconditions:
 ///   * `actual_amount == amount`; pool reports the exact gross credited
@@ -70,7 +75,7 @@ fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketSta
 ///   * `market_index` satisfies the global index invariants after accrual.
 pub fn supply_summary(
     _env: &Env,
-    pool_addr: &Address,
+    asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
     _supply_cap: i128,
@@ -81,7 +86,7 @@ pub fn supply_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
@@ -90,7 +95,10 @@ pub fn supply_summary(
     }
 }
 
-/// Summary for `pool::LiquidityPool::borrow`.
+/// Single-entry model for `pool::LiquidityPool::borrow`.
+///
+/// Looped element-wise by the harness over `Vec<PoolBorrowEntry>`. `asset` is
+/// the entry's market asset; `_receiver` is hoisted to the batch endpoint.
 ///
 /// Modeled postconditions:
 ///   * `actual_amount == amount`. The pool transfers exactly `amount` to the
@@ -100,8 +108,7 @@ pub fn supply_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn borrow_summary(
     _env: &Env,
-    pool_addr: &Address,
-    _caller: Address,
+    asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
     _borrow_cap: i128,
@@ -112,7 +119,7 @@ pub fn borrow_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
@@ -133,8 +140,7 @@ pub fn borrow_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn withdraw_summary(
     _env: &Env,
-    pool_addr: &Address,
-    _caller: Address,
+    asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
     _is_liquidation: bool,
@@ -151,7 +157,7 @@ pub fn withdraw_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
@@ -173,8 +179,7 @@ pub fn withdraw_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn repay_summary(
     _env: &Env,
-    pool_addr: &Address,
-    _caller: Address,
+    asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
@@ -189,7 +194,7 @@ pub fn repay_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
@@ -203,9 +208,9 @@ pub fn repay_summary(
 /// Modeled postcondition: a fresh sync of `(supply_index_ray, borrow_index_ray)`
 /// satisfying the global index invariants. No position mutation, no token
 /// transfer.
-pub fn update_indexes_summary(_env: &Env, pool_addr: &Address) -> MarketStateSnapshot {
+pub fn update_indexes_summary(_env: &Env, asset: &Address) -> MarketStateSnapshot {
     let market_index = nondet_market_index();
-    nondet_market_state(pool_addr, &market_index)
+    nondet_market_state(asset, &market_index)
 }
 
 /// Summary for `pool::LiquidityPool::add_rewards`.
@@ -215,9 +220,9 @@ pub fn update_indexes_summary(_env: &Env, pool_addr: &Address) -> MarketStateSna
 ///   * Empty-pool reward credits panic with `NoSuppliersToReward`. The summary
 ///     is pure side-effect, so this precondition is preserved by production
 ///     reachability rather than a return value.
-pub fn add_rewards_summary(_env: &Env, pool_addr: &Address, _amount: i128) -> MarketStateSnapshot {
+pub fn add_rewards_summary(_env: &Env, asset: &Address, _amount: i128) -> MarketStateSnapshot {
     let market_index = nondet_market_index();
-    nondet_market_state(pool_addr, &market_index)
+    nondet_market_state(asset, &market_index)
 }
 
 /// Summary for `pool::LiquidityPool::flash_loan`.
@@ -232,7 +237,7 @@ pub fn add_rewards_summary(_env: &Env, pool_addr: &Address, _amount: i128) -> Ma
 /// Pure side-effect; no return value.
 pub fn flash_loan_summary(
     _env: &Env,
-    pool_addr: &Address,
+    asset: &Address,
     _initiator: &Address,
     _receiver: &Address,
     amount: i128,
@@ -243,7 +248,7 @@ pub fn flash_loan_summary(
     cvlr_assume!(fee >= 0);
     cvlr_assume!(fee <= i128::MAX - amount);
     let market_index = nondet_market_index();
-    nondet_market_state(pool_addr, &market_index)
+    nondet_market_state(asset, &market_index)
 }
 
 /// Summary for `pool::LiquidityPool::create_strategy`.
@@ -258,8 +263,7 @@ pub fn flash_loan_summary(
 ///   * `market_index` satisfies the global index invariants.
 pub fn create_strategy_summary(
     _env: &Env,
-    pool_addr: &Address,
-    _caller: Address,
+    asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
@@ -279,7 +283,7 @@ pub fn create_strategy_summary(
     cvlr_assume!(fee <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolStrategyMutation {
         position: new_position,
         market_index: (&market_index).into(),
@@ -305,14 +309,19 @@ pub fn create_strategy_summary(
 ///     `borrow_index_ray >= RAY`.
 pub fn seize_position_summary(
     _env: &Env,
-    pool_addr: &Address,
+    asset: &Address,
     _side: AccountPositionType,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
     let mut zeroed = position.clone();
     zeroed.scaled_amount_ray = 0;
+    // `nondet_market_index` floors the supply index at `SUPPLY_INDEX_FLOOR_RAW`
+    // without a monotone constraint against any prior snapshot. That is the
+    // bad-debt write-down property: seize_position is the only path where the
+    // supply index may drop, still bounded by the floor. Preserved verbatim
+    // through the asset-keyed signature rewrite.
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(pool_addr, &market_index);
+    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: zeroed,
         market_index: (&market_index).into(),
@@ -329,12 +338,12 @@ pub fn seize_position_summary(
 ///   * On the zero-revenue early-return branch the function returns 0.
 ///   * State updates are committed before the external token call so
 ///     reentrant claims observe the post-burn state.
-pub fn claim_revenue_summary(_env: &Env, pool_addr: &Address) -> PoolAmountMutation {
+pub fn claim_revenue_summary(_env: &Env, asset: &Address) -> PoolAmountMutation {
     let amount: i128 = nondet();
     cvlr_assume!(amount >= 0);
     let market_index = nondet_market_index();
     PoolAmountMutation {
-        market_state: nondet_market_state(pool_addr, &market_index),
+        market_state: nondet_market_state(asset, &market_index),
         actual_amount: amount,
     }
 }
@@ -352,7 +361,7 @@ pub fn claim_revenue_summary(_env: &Env, pool_addr: &Address) -> PoolAmountMutat
 ///
 /// `params` is fully havoced -- rules that depend on a specific param
 /// shape should constrain it themselves.
-pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
+pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let supplied_ray: i128 = nondet();
     let borrowed_ray: i128 = nondet();
     let revenue_ray: i128 = nondet();
@@ -380,7 +389,7 @@ pub fn get_sync_data_summary(_env: &Env, _pool_addr: &Address) -> PoolSyncData {
     cvlr_assume!(i128::from(reserve_factor_bps) < common::constants::BPS);
     let asset_decimals: u32 = nondet();
     cvlr_assume!(asset_decimals <= 27);
-    let asset_id: Address = nondet_address();
+    let asset_id: Address = asset.clone();
 
     PoolSyncData {
         params: MarketParamsRaw {

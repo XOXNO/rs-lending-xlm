@@ -184,8 +184,7 @@ fn test_reflector_spot_missing_lastprice_panics_under_strict() {
         test_harness::DEFAULT_TOLERANCE.first_upper_bps,
         test_harness::DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &eth_asset, &spot_cfg);
+    t.configure_market_oracle(&eth_asset, &spot_cfg);
 
     // Establish USDC collateral so the borrow path can reach the ETH price.
     let _ = usdc_asset;

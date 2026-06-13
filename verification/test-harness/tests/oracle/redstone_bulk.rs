@@ -579,10 +579,8 @@ fn test_shared_feed_two_assets_single_redstone_call() {
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &t.resolve_asset("USDC"), &usdc_cfg);
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &t.resolve_asset("ETH"), &eth_cfg);
+    t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
+    t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
     // BOB supplies ETH so ALICE can borrow.
     // With SHARED=$1 and ETH having 8 decimals, borrow at least $10 to clear
@@ -693,10 +691,8 @@ fn test_redstone_primary_markets_fire_one_bulk() {
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &t.resolve_asset("USDC"), &usdc_cfg);
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &t.resolve_asset("ETH"), &eth_cfg);
+    t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
+    t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
     // BOB provides ETH liquidity.
     t.supply(BOB, "ETH", 100.0);

@@ -15,10 +15,10 @@ use cvlr::{cvlr_assert, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::types::MarketParams;
 use common::math::fp::{Bps, Ray};
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up, rescale_half_up};
 use common::rates::{calculate_borrow_rate, compound_interest};
-use crate::types::MarketParams;
 
 /// Builds a well-known set of market params with predictable boundary points.
 /// base = 1%, slope1 = 4%, slope2 = 10%, slope3 = 80%, mid = 50%,

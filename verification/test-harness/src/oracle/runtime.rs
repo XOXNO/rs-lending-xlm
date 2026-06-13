@@ -45,16 +45,28 @@ impl LendingTest {
         }
     }
 
-    /// Set oracle tolerance for an asset.
+    /// Set oracle tolerance for an asset through the governance forwarder,
+    /// which validates the bounds and computes the ratio bands in-path.
     pub fn set_oracle_tolerance(&self, asset_name: &str, preset: TolerancePreset) {
         let asset = self.resolve_asset(asset_name);
-        let ctrl = self.ctrl_client();
-        ctrl.edit_oracle_tolerance(
+        self.gov_client().edit_oracle_tolerance(
             &self.admin,
             &asset,
             &preset.first_upper_bps,
             &preset.last_upper_bps,
         );
+    }
+
+    /// Configure a market oracle through the governance forwarder, which
+    /// probes the mock oracles, validates the input, and forwards the
+    /// resolved config to the controller's thin setter.
+    pub fn configure_market_oracle(
+        &self,
+        asset: &Address,
+        input: &controller::types::MarketOracleConfigInput,
+    ) {
+        self.gov_client()
+            .configure_market_oracle(&self.admin, asset, input);
     }
 
     /// Set the TWAP ("safe") leg for dual-source tolerance tests.

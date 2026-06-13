@@ -20,8 +20,8 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 use crate::external::pool::fetch_pool_bulk_indexes;
 use crate::external::pool::fetch_pool_sync_data;
 use crate::oracle::policy::OraclePolicy;
-use crate::oracle::providers::redstone::RedStonePriceData;
 use crate::oracle::{token_price, update_asset_index};
+use common::oracle::providers::redstone::RedStonePriceData;
 use crate::storage;
 
 pub struct Cache {

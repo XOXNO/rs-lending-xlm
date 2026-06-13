@@ -3,8 +3,8 @@
 //! Holds market bootstrap, keeper index updates, revenue claiming, and
 //! threshold propagation; pool and token calls go through `external`.
 
-use common::errors::{CollateralError, GenericError, OracleError};
 use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
+use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
     AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel, MarketConfig,
@@ -24,10 +24,6 @@ use crate::{
     helpers::{self, utils, THRESHOLD_UPDATE_MIN_HF_RAW},
     storage, validation, Controller, ControllerArgs, ControllerClient,
 };
-
-// Supported SAC decimal range for RAY/WAD conversions.
-const MIN_ASSET_DECIMALS: u32 = 1;
-const MAX_ASSET_DECIMALS: u32 = 18;
 
 /// Deterministic salt for the one-time central pool deployment; the pool
 /// address derives from (controller address, salt).
@@ -163,31 +159,6 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
     }
 }
 
-fn validate_market_creation(
-    env: &Env,
-    asset: &Address,
-    params: &MarketParamsRaw,
-    config: &AssetConfigRaw,
-    _token_decimals: u32,
-) {
-    assert_with_error!(env, params.asset_id == *asset, GenericError::WrongToken);
-    #[cfg(not(feature = "testing"))]
-    assert_with_error!(
-        env,
-        params.asset_decimals == _token_decimals,
-        GenericError::InvalidAsset
-    );
-
-    assert_with_error!(
-        env,
-        (MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&params.asset_decimals),
-        GenericError::InvalidAsset
-    );
-
-    validation::validate_asset_config(env, config);
-    params.verify_rate_model(env);
-}
-
 /// Registers the market in `PendingOracle` state on the central pool and
 /// consumes the token approval.
 pub fn create_liquidity_pool(
@@ -196,8 +167,6 @@ pub fn create_liquidity_pool(
     params: &MarketParamsRaw,
     config: &AssetConfigRaw,
 ) -> Address {
-    let token_decimals = validation::validate_and_fetch_token_decimals(env, asset);
-
     assert_with_error!(
         env,
         !storage::has_market_config(env, asset),
@@ -209,8 +178,6 @@ pub fn create_liquidity_pool(
         storage::is_token_approved(env, asset),
         GenericError::TokenNotApproved
     );
-
-    validate_market_creation(env, asset, params, config, token_decimals);
 
     let pool_address = storage::get_pool(env);
     pool_create_market_call(env, &pool_address, params);
@@ -254,8 +221,6 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     validation::require_asset_supported(env, &mut cache, asset);
 
     let pool_addr = cache.cached_pool_address();
-
-    params.verify(env);
 
     let state = pool_update_indexes_call(env, &pool_addr, asset);
     cache.record_market_update(&state);

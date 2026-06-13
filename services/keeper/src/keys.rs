@@ -38,6 +38,42 @@ impl ControllerPersistentKey {
     }
 }
 
+/// Controller per-user persistent keys, keyed by the `u64` account id.
+///
+/// The contract splits each account across three persistent entries plus an
+/// optional isolated-debt basis: `AccountMeta(id)`, `SupplyPositions(id)`,
+/// `BorrowPositions(id)`, and `IsolatedBasis(id, asset)` for isolated accounts.
+#[derive(Debug, Clone)]
+pub enum ControllerUserKey {
+    AccountMeta(u64),
+    SupplyPositions(u64),
+    BorrowPositions(u64),
+    /// `(account_id, debt_asset)` isolated-debt principal basis.
+    IsolatedBasis(u64, [u8; 32]),
+}
+
+impl ControllerUserKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::AccountMeta(id) => sc_enum("AccountMeta", &[ScVal::U64(*id)])?,
+            Self::SupplyPositions(id) => sc_enum("SupplyPositions", &[ScVal::U64(*id)])?,
+            Self::BorrowPositions(id) => sc_enum("BorrowPositions", &[ScVal::U64(*id)])?,
+            Self::IsolatedBasis(id, asset) => sc_enum(
+                "IsolatedBasis",
+                &[ScVal::U64(*id), sc_address_contract(asset)],
+            )?,
+        })
+    }
+
+    pub fn to_ledger_key(&self, controller_id: &[u8; 32]) -> Result<LedgerKey> {
+        Ok(contract_data_key(
+            controller_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
+    }
+}
+
 /// Persistent role keys managed by `stellar_access`.
 #[derive(Debug, Clone)]
 pub enum AccessControlPersistentKey {
@@ -101,6 +137,27 @@ impl PoolPersistentKey {
         ))
     }
 }
+
+// Governance storage needs no enum here: the contract keeps almost everything
+// in INSTANCE storage, so a single instance bump covers `GovernanceKey::
+// Controller`, ownable `Owner`, access_control `Admin` + per-role `RoleAdmin`,
+// and the timelock `MinDelay`.
+//
+// `MinDelay` is INSTANCE, not Persistent: `stellar_governance::timelock`
+// reads/writes it via `e.storage().instance()` (verified against
+// stellar-governance 0.7.2 `src/timelock/storage.rs`: `get_min_delay` /
+// `set_min_delay` both use `instance()`). A *persistent* `MinDelay` key would
+// silently resolve to nothing, so the keeper relies on the instance bump.
+//
+// The access_control role-holder keys (`ExistingRoles`, `RoleAccountsCount`,
+// `RoleAccounts`, `HasRole`) ARE persistent and are discovered by reusing
+// `discover_role_keys` against the governance contract id — the same encoding
+// as the controller's role keys (`AccessControlPersistentKey`).
+//
+// The timelock per-operation key `OperationLedger(BytesN<32>)` is persistent
+// but NOT enumerable on-chain (the op id is a keccak256 hash known only from
+// the schedule event). It is transient — resolved within `min_delay` ledgers,
+// far inside any TTL window — so it is documented and intentionally skipped.
 
 /// Controller instance-storage keys read from `ScContractInstance.storage`.
 #[derive(Debug, Clone, Copy)]
@@ -361,5 +418,71 @@ mod tests {
             }
             other => panic!("expected ContractData, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn account_meta_user_key_carries_u64_id() {
+        let sv = ControllerUserKey::AccountMeta(7).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "AccountMeta");
+        assert!(matches!(items[1], ScVal::U64(7)));
+    }
+
+    #[test]
+    fn supply_positions_user_key_carries_u64_id() {
+        let sv = ControllerUserKey::SupplyPositions(42).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "SupplyPositions");
+        assert!(matches!(items[1], ScVal::U64(42)));
+    }
+
+    #[test]
+    fn borrow_positions_user_key_carries_u64_id() {
+        let sv = ControllerUserKey::BorrowPositions(1).to_sc_val().unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(sym_text(&items[0]), "BorrowPositions");
+        assert!(matches!(items[1], ScVal::U64(1)));
+    }
+
+    #[test]
+    fn isolated_basis_user_key_carries_id_then_asset() {
+        let sv = ControllerUserKey::IsolatedBasis(9, [5u8; 32])
+            .to_sc_val()
+            .unwrap();
+        let ScVal::Vec(Some(ScVec(items))) = sv else {
+            panic!("expected Vec");
+        };
+        // `IsolatedBasis(u64, Address)` → [Symbol, U64(id), Address(asset)].
+        assert_eq!(items.len(), 3);
+        assert_eq!(sym_text(&items[0]), "IsolatedBasis");
+        assert!(matches!(items[1], ScVal::U64(9)));
+        assert!(matches!(
+            &items[2],
+            ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if *b == [5u8; 32]
+        ));
+    }
+
+    #[test]
+    fn user_key_is_persistent_contract_data_on_controller() {
+        let key = ControllerUserKey::AccountMeta(3)
+            .to_ledger_key(&[6u8; 32])
+            .unwrap();
+        let LedgerKey::ContractData(cd) = key else {
+            panic!("expected ContractData");
+        };
+        assert!(matches!(cd.durability, ContractDataDurability::Persistent));
+        assert!(matches!(
+            cd.contract,
+            ScAddress::Contract(ContractId(Hash(b))) if b == [6u8; 32]
+        ));
     }
 }

@@ -72,9 +72,14 @@ pub fn get_emode_assets(env: &Env, category_id: u32) -> Map<Address, EModeAssetC
 pub mod asset_pool {
     use super::*;
 
+    /// The protocol runs a single central pool. `MarketConfig` no longer
+    /// carries a per-market `pool_address`; the pool is resolved from instance
+    /// storage via `storage::get_pool`. The `_asset` param is retained so the
+    /// asset-keyed solvency-rule callers stay unchanged: the rules express
+    /// "after op on `asset`, the pool views for `asset` are consistent", which
+    /// still holds under the shared, asset-keyed-at-the-view-level pool.
     pub fn get_asset_pool(env: &Env, _asset: &Address) -> Address {
-        // Central-pool architecture: every market routes through one pool.
-        super::get_pool(env)
+        crate::storage::get_pool(env)
     }
 }
 
@@ -104,7 +109,7 @@ pub mod asset_config {
 
     pub fn get_asset_config(env: &Env, asset: &Address) -> CompatAssetConfig {
         let market = get_market_config(env, asset);
-        let pool = super::get_pool(env);
+        let pool = crate::storage::get_pool(env);
         let sync = LiquidityPoolClient::new(env, &pool).get_sync_data(asset);
         let cfg = market.asset_config;
         CompatAssetConfig {
@@ -133,8 +138,10 @@ pub mod market_index {
 
     pub fn get_market_index(env: &Env, asset: &Address) -> MarketIndex {
         use common::math::fp::Ray;
-        let pool = super::get_pool(env);
-        let state = LiquidityPoolClient::new(env, &pool).get_sync_data(asset).state;
+        let pool = crate::storage::get_pool(env);
+        let state = LiquidityPoolClient::new(env, &pool)
+            .get_sync_data(asset)
+            .state;
         MarketIndex {
             borrow_index: Ray::from(state.borrow_index_ray),
             supply_index: Ray::from(state.supply_index_ray),
@@ -146,8 +153,10 @@ pub mod market_params {
     use super::*;
 
     pub fn get_market_params(env: &Env, asset: &Address) -> MarketParamsRaw {
-        let pool = super::get_pool(env);
-        LiquidityPoolClient::new(env, &pool).get_sync_data(asset).params
+        let pool = crate::storage::get_pool(env);
+        LiquidityPoolClient::new(env, &pool)
+            .get_sync_data(asset)
+            .params
     }
 }
 

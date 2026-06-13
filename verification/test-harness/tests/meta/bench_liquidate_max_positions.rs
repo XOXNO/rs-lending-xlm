@@ -121,7 +121,7 @@ fn bench_liquidate_5_supply_5_borrow_within_default_budget() {
 // borrow positions, but the controller-level cap is 10. If the cap is ever
 // raised past the preset count, this test fails so the operator must
 // either: (a) widen the preset set and bump the bench, or (b) revert the
-// cap. Refer to controller/src/config.rs `POSITION_LIMIT_MAX`.
+// cap. The cap is enforced by governance position-limit validation.
 #[test]
 fn test_position_limit_cap_matches_bench_coverage() {
     let t = build_ctx();

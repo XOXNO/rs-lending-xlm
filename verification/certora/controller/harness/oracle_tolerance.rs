@@ -8,9 +8,9 @@
 use crate::constants::{
     BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
 };
+use crate::types::OraclePriceFluctuation;
 use common::errors::{GenericError, OracleError};
 use common::math::fp_core;
-use crate::types::OraclePriceFluctuation;
 use cvlr::nondet::nondet;
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 

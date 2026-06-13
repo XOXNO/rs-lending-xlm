@@ -2,9 +2,12 @@
   "testnet": {
     "rpc_url": "https://soroban-testnet.stellar.org",
     "network_passphrase": "Test SDF Network ; September 2015",
-    "controller": "CAOFYIVZUCWGLCJPQBN7TL5LYI5AVEGZFP3GRPRWT2X2FEY562KUMSUA",
+    "timelock_min_delay_ledgers": 12,
+    "governance": "CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH",
+    "controller": "CCH62TUXDPIKBJ3OGSCR2GFYXVO5HWTGVCEXHLYM27UA4QHBA5OKSVWQ",
     "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
-    "pool_wasm_hash": "4bc9a6a891fd37af07a3834217f668b330b92fe2f3c10bf89ee7c9c8c180c26e",
+    "pool_wasm_hash": "76189c3c00a6c6f5766b8e64d4ca909151b28437d0a89e025e0e2f644fba206a",
+    "controller_wasm_hash": "b806c36b6fb60268827a5d5e1ddc89231c7f7dcfa4ac4f21ba688d9a693b03c0",
     "ledger_index": 0,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -14,14 +17,17 @@
     "emode_category_ids": {
       "1": 1
     },
-    "pool": "CACEGZ3F3GA6ZGNNHIRTHELPUZ36OWJJDECB43X2Y4LUUBOE3F7ITRXL"
+    "pool": "CC4GOJKPQFY4FUNPLGSZH4AFENXFX63QXJUNF4WYN4QKZJAB4EG7IPMS"
   },
   "mainnet": {
     "rpc_url": "https://soroban-rpc.mainnet.stellar.gateway.fm",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
+    "timelock_min_delay_ledgers": 34560,
+    "governance": "",
     "controller": "",
     "aggregator": "",
     "pool_wasm_hash": "",
+    "controller_wasm_hash": "",
     "ledger_index": 0,
     "reflector_cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
     "reflector_dex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",

@@ -24,7 +24,16 @@ pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address,
 }
 
 pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
-    crate::Controller::withdraw(env.clone(), caller, account_id, vec![&env, (asset, amount)], None);
+    // `to = None` is withdraw-to-self, preserving the existing rule intent.
+    // The `Some(recipient)` withdraw-to-recipient branch is a Phase-5 coverage
+    // gap (no rule yet).
+    crate::Controller::withdraw(
+        env.clone(),
+        caller,
+        account_id,
+        vec![&env, (asset, amount)],
+        None,
+    );
 }
 
 pub fn repay_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {

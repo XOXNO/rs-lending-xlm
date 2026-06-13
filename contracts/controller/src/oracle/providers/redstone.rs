@@ -1,22 +1,17 @@
 //! RedStone Price Feed provider.
 
 use common::errors::GenericError;
+use common::oracle::observation::{check_not_future_at, millis_to_seconds, u256_to_i128};
+use common::oracle::providers::redstone::RedStonePriceData;
 use controller_interface::types::RedStoneSourceConfig;
 use soroban_sdk::{panic_with_error, Env};
 
-use super::super::observation::{
-    build_observation, check_not_future_at, millis_to_seconds, u256_to_i128, OracleObservation,
-};
+use super::super::observation::{build_observation, OracleObservation};
 use crate::cache::Cache;
 
 mod client;
 
-#[cfg(not(feature = "certora"))]
-pub(crate) use client::read_price_data_bulk;
-pub(crate) use client::{
-    read_price_data, read_price_data_uncached, RedStonePriceData,
-    REDSTONE_DECIMALS,
-};
+pub(crate) use client::{read_price_data, read_price_data_bulk};
 
 pub(crate) fn read_redstone_source(
     cache: &mut Cache,

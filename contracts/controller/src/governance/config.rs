@@ -1,30 +1,28 @@
 //! Owner- and role-gated configuration for markets, oracles, e-mode, caps,
 //! aggregator, accumulator, approved tokens, and pool templates.
+//!
+//! Owner setters are thin: input validation lives in the governance
+//! contract, which owns the controller in production. The controller keeps
+//! storage writes, state-dependent invariants, and event emission.
 
-use common::errors::{EModeError, GenericError, OracleError};
 use crate::events::{
     ApproveTokenEvent, EventEModeCategory, EventOracleProvider, OracleDisabledEvent,
     RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
     UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
     UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
 };
+use common::errors::{EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfigInput, MarketStatus,
-    PositionLimits,
+    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfig, MarketStatus,
+    OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase,
 };
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env, Executable,
+    assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
 };
 use stellar_macros::{only_owner, only_role};
 
-use crate::oracle::tolerance::validate_and_calculate_tolerances;
-use crate::oracle::validation::validate_market_oracle_sources;
-
-use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
-
-/// Max supply/borrow positions configurable per account.
-const POSITION_LIMIT_MAX: u32 = 10;
+use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -116,27 +114,16 @@ impl Controller {
         set_token_approval(&env, token, false);
     }
 
-    #[only_role(caller, "ORACLE")]
-    pub fn configure_market_oracle(
-        env: Env,
-        caller: Address,
-        asset: Address,
-        cfg: MarketOracleConfigInput,
-    ) {
+    #[only_owner]
+    pub fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig) {
         storage::renew_controller_instance(&env);
-        configure_market_oracle(&env, asset, cfg);
+        set_market_oracle_config(&env, asset, config);
     }
 
-    #[only_role(caller, "ORACLE")]
-    pub fn edit_oracle_tolerance(
-        env: Env,
-        caller: Address,
-        asset: Address,
-        first_tolerance: u32,
-        last_tolerance: u32,
-    ) {
+    #[only_owner]
+    pub fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation) {
         storage::renew_controller_instance(&env);
-        edit_oracle_tolerance(&env, asset, first_tolerance, last_tolerance);
+        set_oracle_tolerance(&env, asset, tolerance);
     }
 
     #[only_role(caller, "ORACLE")]
@@ -144,24 +131,6 @@ impl Controller {
         storage::renew_controller_instance(&env);
         disable_token_oracle(&env, asset);
     }
-}
-
-fn require_contract_address(
-    env: &Env,
-    addr: &Address,
-    error: impl Into<soroban_sdk::Error> + soroban_sdk::SpecShakingMarker,
-) {
-    if !addr.exists() || !matches!(addr.executable(), Some(Executable::Wasm(_))) {
-        panic_with_error!(env, error);
-    }
-}
-
-fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
-    assert_with_error!(
-        env,
-        hash.to_array() != [0; 32],
-        GenericError::InvalidPoolTemplate
-    );
 }
 
 fn set_token_approval(env: &Env, token: Address, approved: bool) {
@@ -176,26 +145,21 @@ fn set_token_approval(env: &Env, token: Address, approved: bool) {
 }
 
 pub fn set_aggregator(env: &Env, addr: Address) {
-    require_contract_address(env, &addr, OracleError::InvalidAggregator);
     storage::set_aggregator(env, &addr);
     UpdateAggregatorEvent { aggregator: addr }.publish(env);
 }
 
 pub fn set_accumulator(env: &Env, addr: Address) {
-    require_contract_address(env, &addr, GenericError::NotSmartContract);
     storage::set_accumulator(env, &addr);
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
 }
 
 pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
-    require_nonzero_wasm_hash(env, &hash);
     storage::set_pool_template(env, &hash);
     UpdatePoolTemplateEvent { wasm_hash: hash }.publish(env);
 }
 
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
-    validation::validate_asset_config(env, &next_config);
-
     let mut market = storage::get_market_config(env, &asset);
     next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
     market.asset_config = next_config.clone();
@@ -209,13 +173,6 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
 }
 
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    if limits.max_supply_positions == 0
-        || limits.max_borrow_positions == 0
-        || limits.max_supply_positions > POSITION_LIMIT_MAX
-        || limits.max_borrow_positions > POSITION_LIMIT_MAX
-    {
-        panic_with_error!(env, GenericError::InvalidPositionLimits);
-    }
     storage::set_position_limits(env, &limits);
     UpdatePositionLimitsEvent {
         max_supply_positions: limits.max_supply_positions,
@@ -225,8 +182,6 @@ pub fn set_position_limits(env: &Env, limits: PositionLimits) {
 }
 
 pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
-    validation::validate_risk_bounds(env, ltv, threshold, bonus);
-
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategoryRaw {
         loan_to_value_bps: ltv,
@@ -246,7 +201,6 @@ pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u
 }
 
 pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
-    validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let mut cat = storage::get_emode_category(env, id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     cat.loan_to_value_bps = ltv;
@@ -359,7 +313,7 @@ pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
     RemoveEModeAssetEvent { asset, category_id }.publish(env);
 }
 
-pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleConfigInput) {
+pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOracleConfig) {
     let mut market = storage::get_market_config(env, &asset);
 
     assert_with_error!(
@@ -371,17 +325,18 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
         GenericError::PairNotActive
     );
 
-    let tolerance = validate_and_calculate_tolerances(
-        env,
-        config.first_tolerance_bps,
-        config.last_tolerance_bps,
-    );
-    let mut oracle_config = validate_market_oracle_sources(env, &asset, &config, tolerance);
+    // Re-assert the quote-market USD/Active invariant at execute time: governance
+    // validated it at propose time, but the timelock delay opens a staleness
+    // window in which the quote market could be disabled or reconfigured.
+    require_quote_markets_active_usd(env, &asset, &config);
+
+    // Test markets register pools with preset decimals that may diverge from
+    // the live token probe; keep the registered value authoritative.
     if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
-        oracle_config.asset_decimals = market.oracle_config.asset_decimals;
+        config.asset_decimals = market.oracle_config.asset_decimals;
     }
 
-    market.oracle_config = oracle_config;
+    market.oracle_config = config;
     market.status = MarketStatus::Active;
     storage::set_market_config(env, &asset, &market);
 
@@ -392,9 +347,52 @@ pub fn configure_market_oracle(env: &Env, asset: Address, config: MarketOracleCo
     .publish(env);
 }
 
-pub fn edit_oracle_tolerance(env: &Env, asset: Address, first_tolerance: u32, last_tolerance: u32) {
-    let tolerance = validate_and_calculate_tolerances(env, first_tolerance, last_tolerance);
+/// Re-asserts that every quoted-base source in `config` still points at an
+/// Active, USD-based quote market. Pure storage reads: the resolved `base` lives
+/// in the stored config, so this never cross-calls the oracle. Mirrors the
+/// propose-time `validate_quote_is_usd_market` check, reading controller storage
+/// instead of the controller view. USD-direct and RedStone sources skip it.
+fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketOracleConfig) {
+    require_source_quote_active_usd(env, asset, &config.primary);
+    if let Some(anchor) = config.anchor.as_ref() {
+        require_source_quote_active_usd(env, asset, anchor);
+    }
+}
 
+fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSourceConfig) {
+    let OracleSourceConfig::Reflector(reflector) = source else {
+        return;
+    };
+    let ReflectorBase::Quoted(quote) = &reflector.base else {
+        return;
+    };
+
+    // A market quoted in itself would chain forever at read time; reject it here.
+    assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
+
+    let quote_market = match storage::try_get_market_config(env, quote) {
+        Some(market) => market,
+        None => panic_with_error!(env, OracleError::InvalidOracleBase),
+    };
+    assert_with_error!(
+        env,
+        matches!(quote_market.status, MarketStatus::Active),
+        OracleError::InvalidOracleBase
+    );
+
+    // The quote market's primary must itself be USD-based: keeps the conversion
+    // exactly one hop, forbidding a quote chain.
+    match &quote_market.oracle_config.primary {
+        OracleSourceConfig::RedStone(_) => {}
+        OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
+            env,
+            matches!(quote_primary.base, ReflectorBase::Usd),
+            OracleError::InvalidOracleBase
+        ),
+    }
+}
+
+pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
     let mut market = storage::get_market_config(env, &asset);
     market.oracle_config.tolerance = tolerance;
     storage::set_market_config(env, &asset, &market);

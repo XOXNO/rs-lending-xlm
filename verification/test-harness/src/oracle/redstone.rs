@@ -45,8 +45,7 @@ pub fn anchor_market_with_redstone_feed(
         DEFAULT_TOLERANCE.first_upper_bps,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.ctrl_client()
-        .configure_market_oracle(&t.admin(), &asset, &cfg);
+    t.configure_market_oracle(&asset, &cfg);
 }
 
 /// Return a client for the mock RedStone adapter at `adapter`.

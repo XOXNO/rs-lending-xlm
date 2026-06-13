@@ -60,6 +60,7 @@ pub(crate) struct PendingEMode {
 pub struct LendingTest {
     pub env: soroban_sdk::Env,
     pub admin: Address,
+    pub governance: Address,
     pub controller: Address,
     pub mock_reflector: Address,
     #[allow(dead_code)]
