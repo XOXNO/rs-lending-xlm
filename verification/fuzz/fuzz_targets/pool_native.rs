@@ -73,16 +73,16 @@ fuzz_target!(|i: In| {
 
     let params = make_params(&env, &asset, &i);
 
-    // Register the pool natively at a fresh address. Running
-    // `__constructor` via register's second argument keeps the contract's
-    // instance storage populated.
-    let pool_addr = env.register(LiquidityPool, (admin, params.clone()));
+    // Register the pool natively at a fresh address; `__constructor` sets the
+    // owner. The asset-keyed market is then created so per-asset views resolve.
+    let pool_addr = env.register(LiquidityPool, (admin,));
     let pool = LiquidityPoolClient::new(&env, &pool_addr);
+    pool.create_market(&params);
 
     // Baseline: supplied/borrowed are both zero, indices at RAY.
-    assert_eq!(pool.supplied_amount(), 0);
-    assert_eq!(pool.borrowed_amount(), 0);
-    assert_eq!(pool.reserves(), 0);
+    assert_eq!(pool.supplied_amount(&asset), 0);
+    assert_eq!(pool.borrowed_amount(&asset), 0);
+    assert_eq!(pool.reserves(&asset), 0);
 
     let mut prev_borrow_index: i128 = RAY;
     let mut prev_supply_index: i128 = RAY;
@@ -102,7 +102,7 @@ fuzz_target!(|i: In| {
                 // update_indexes — interest accrual path. Use try_* so
                 // rejected calls (e.g. math overflow on extreme inputs)
                 // don't crash the harness.
-                if let Ok(Ok(idx)) = pool.try_update_indexes() {
+                if let Ok(Ok(idx)) = pool.try_update_indexes(&asset) {
                     assert!(
                         idx.borrow_index_ray >= prev_borrow_index,
                         "borrow index regressed: prev={} new={}",
@@ -123,20 +123,20 @@ fuzz_target!(|i: In| {
                 // add_rewards — fails with NoSuppliersToReward (#37) when
                 // supplied == 0. Expected; swallow via try_*.
                 let amount = ((*price_raw as i128) % 10_000_000) + 1;
-                let _ = pool.try_add_rewards(&amount);
+                let _ = pool.try_add_rewards(&asset, &amount);
             }
             _ => {
                 // Pure-view sweep — read-only functions shouldn't fail
                 // under fresh-pool state; assert cross-function invariants.
-                let util = pool.capital_utilisation();
-                let reserves = pool.reserves();
-                let deposit = pool.deposit_rate();
-                let borrow = pool.borrow_rate();
-                let rev = pool.protocol_revenue();
-                let supplied = pool.supplied_amount();
-                let borrowed = pool.borrowed_amount();
-                let _dt = pool.delta_time();
-                let _sync = pool.get_sync_data();
+                let util = pool.capital_utilisation(&asset);
+                let reserves = pool.reserves(&asset);
+                let deposit = pool.deposit_rate(&asset);
+                let borrow = pool.borrow_rate(&asset);
+                let rev = pool.protocol_revenue(&asset);
+                let supplied = pool.supplied_amount(&asset);
+                let borrowed = pool.borrowed_amount(&asset);
+                let _dt = pool.delta_time(&asset);
+                let _sync = pool.get_sync_data(&asset);
 
                 assert!(
                     supplied >= borrowed,
