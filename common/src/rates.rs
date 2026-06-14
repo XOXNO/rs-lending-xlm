@@ -461,13 +461,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #33)")]
-    fn test_update_borrow_index_above_max_panics() {
+    fn test_update_borrow_index_above_max_clamps() {
         let env = Env::default();
         let old_index = Ray::from(MAX_BORROW_INDEX_RAY);
-        // factor = 1 + 1 ulp → product strictly exceeds MAX.
+        // factor = 1 + 1 ulp → product strictly exceeds MAX. The index clamps
+        // at the ceiling instead of panicking, so an extreme-but-reachable
+        // index can never brick the market on accrual.
         let factor = Ray::from(RAY + 1);
-        let _ = update_borrow_index(&env, old_index, factor);
+        let new_index = update_borrow_index(&env, old_index, factor);
+        assert_eq!(new_index.raw(), MAX_BORROW_INDEX_RAY);
     }
 
     // `simulate_update_indexes` early-return guard `if delta_ms == 0`: with a
