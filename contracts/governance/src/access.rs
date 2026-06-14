@@ -29,8 +29,17 @@ pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 
-fn default_operational_roles(env: &Env) -> [Symbol; 1] {
-    [Symbol::new(env, ORACLE_ROLE)]
+/// Operational roles seeded on the admin at construction and migrated as a unit
+/// on ownership transfer: ORACLE plus the timelock PROPOSER/EXECUTOR/CANCELLER.
+/// Keeping the full set here ensures an ownership handoff moves every role to
+/// the new owner and off the previous one.
+fn default_operational_roles(env: &Env) -> [Symbol; 4] {
+    [
+        Symbol::new(env, ORACLE_ROLE),
+        Symbol::new(env, PROPOSER_ROLE),
+        Symbol::new(env, EXECUTOR_ROLE),
+        Symbol::new(env, CANCELLER_ROLE),
+    ]
 }
 
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
@@ -85,20 +94,16 @@ impl Governance {
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
-        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, ORACLE_ROLE), &admin);
 
-        // Arm the initial proposer/executor/canceller set to `admin`. EXECUTOR
-        // is granted so an explicit-executor execute path works, while open
-        // execution (`executor: None`) stays available. `update_delay` is
+        // Seed the full operational role set on `admin`: ORACLE plus the timelock
+        // PROPOSER/EXECUTOR/CANCELLER. EXECUTOR is granted so an explicit-executor
+        // execute path works, while open execution (`executor: None`) stays
+        // available. Granting via `default_operational_roles` keeps the set
+        // identical to what an ownership transfer migrates. `update_delay` is
         // owner-gated, so the delay setter rides the ownable admin, not a role.
-        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, PROPOSER_ROLE), &admin);
-        access_control::grant_role_no_auth(&env, &admin, &Symbol::new(&env, EXECUTOR_ROLE), &admin);
-        access_control::grant_role_no_auth(
-            &env,
-            &admin,
-            &Symbol::new(&env, CANCELLER_ROLE),
-            &admin,
-        );
+        for role in default_operational_roles(&env) {
+            access_control::grant_role_no_auth(&env, &admin, &role, &admin);
+        }
 
         // Arm the timelock minimum delay; until this runs, `schedule` panics
         // `MinDelayNotSet`. A zero delay would nullify the timelock, so reject it.
