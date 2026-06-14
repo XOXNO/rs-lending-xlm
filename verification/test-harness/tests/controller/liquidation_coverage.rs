@@ -1,6 +1,26 @@
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Vec};
 use test_harness::{
-    assert_contract_error, eth_preset, usd_cents, usdc_preset, LendingTest, LIQUIDATOR,
+    assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd_cents, usdc_preset,
+    LendingTest, ALICE, LIQUIDATOR,
 };
+
+fn try_liquidate_payments(
+    t: &mut LendingTest,
+    liquidator: &str,
+    target_user: &str,
+    payments: Vec<(Address, i128)>,
+) -> Result<(), soroban_sdk::Error> {
+    let liquidator_addr = t.get_or_create_user(liquidator);
+    let account_id = t.resolve_account_id(target_user);
+    let ctrl = t.ctrl_client();
+
+    match ctrl.try_liquidate(&liquidator_addr, &account_id, &payments) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    }
+}
 
 #[test]
 fn test_liquidation_aggregates_duplicate_debt_payments() {
@@ -147,4 +167,47 @@ fn test_liquidation_multi_debt_capped() {
     // The USDC debt must remain UNCHANGED because the contract skipped it.
     let debt_usdc = t.borrow_balance(alice, "USDC");
     assert_eq!(debt_usdc, 100.0);
+}
+
+#[test]
+fn test_liquidation_rejects_empty_payments() {
+    let mut t = liquidatable_usdc_eth();
+
+    let payments = Vec::new(&t.env);
+    let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
+
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+}
+
+#[test]
+fn test_liquidation_rejects_negative_raw_payment() {
+    let mut t = liquidatable_usdc_eth();
+
+    let eth = t.resolve_asset("ETH");
+    let payments = soroban_sdk::vec![&t.env, (eth, -1i128)];
+    let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
+
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
+}
+
+#[test]
+fn test_liquidation_rejects_unsupported_payment_asset() {
+    let mut t = liquidatable_usdc_eth();
+
+    let unsupported = Address::generate(&t.env);
+    let payments = soroban_sdk::vec![&t.env, (unsupported, 1i128)];
+    let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
+
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
+}
+
+#[test]
+fn test_liquidation_rejects_supported_payment_asset_without_debt_position() {
+    let mut t = liquidatable_usdc_eth();
+
+    let usdc = t.resolve_asset("USDC");
+    let payments = soroban_sdk::vec![&t.env, (usdc, 1i128)];
+    let result = try_liquidate_payments(&mut t, LIQUIDATOR, ALICE, payments);
+
+    assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }

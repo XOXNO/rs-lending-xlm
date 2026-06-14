@@ -167,7 +167,8 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -220,6 +221,125 @@ fn test_multiply_preserves_existing_collateral_balance() {
         hf
     );
 }
+
+#[test]
+fn test_multiply_reuses_emode_account_with_zero_category() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    let account_id =
+        t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply, false);
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let usdt = t.resolve_asset("USDT");
+
+    t.fund_router("USDC", 2_000.0);
+    let steps = build_aggregator_swap(
+        &t,
+        "USDT",
+        "USDC",
+        apply_flash_fee(10_000_000_000),
+        20_000_000_000,
+    );
+
+    let result = t.ctrl_client().try_multiply(
+        &caller,
+        &account_id,
+        &0u32,
+        &usdc,
+        &1_000_0000000i128,
+        &usdt,
+        &controller::types::PositionMode::Multiply,
+        &steps,
+        &None,
+        &None,
+    );
+    assert!(
+        matches!(result, Ok(Ok(id)) if id == account_id),
+        "expected multiply to reuse account {account_id}, got {result:?}"
+    );
+
+    let attrs = t.ctrl_client().get_account_attributes(&account_id);
+    assert_eq!(
+        attrs.e_mode_category_id, 1,
+        "zero e_mode_category must reuse the account's stored e-mode category"
+    );
+    assert!(
+        t.supply_balance_for(ALICE, account_id, "USDC") > 1_999.0,
+        "multiply should add USDC collateral to the existing e-mode account"
+    );
+    assert!(
+        (999.0..=1001.0).contains(&t.borrow_balance_for(ALICE, account_id, "USDT")),
+        "multiply should open the USDT debt leg on the existing e-mode account"
+    );
+}
+
+#[test]
+fn test_multiply_missing_owner_auth_rejects_before_validation() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
+
+    expect_host_auth_rejection(
+        "multiply",
+        t.ctrl_client().set_auths(&no_auths).try_multiply(
+            &caller,
+            &0u64,
+            &0u32,
+            &usdc,
+            &1_0000000i128,
+            &eth,
+            &controller::types::PositionMode::Multiply,
+            &steps,
+            &None,
+            &None,
+        ),
+    );
+}
+
+#[test]
+fn test_multiply_existing_account_not_found() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let missing_account_id = 999u64;
+
+    let result = t.ctrl_client().try_multiply(
+        &caller,
+        &missing_account_id,
+        &0u32,
+        &usdc,
+        &1_0000000i128,
+        &eth,
+        &controller::types::PositionMode::Multiply,
+        &steps,
+        &None,
+        &None,
+    );
+
+    assert_contract_error(
+        flatten(result),
+        errors::GenericError::AccountNotFound as u32,
+    );
+}
 // E-mode account in the stablecoin category, but debt is ETH (not in
 // category). Validation runs before the swap, so the error is clean.
 
@@ -248,8 +368,8 @@ fn test_multiply_emode_wrong_category_debt() {
         &0u64, // account_id = 0 (create new)
         &1u32, // e_mode_category = 1
         &collateral_addr,
-        &10_0000000i128,                        // 1 ETH worth of debt
-        &debt_addr,                             // ETH -- not in e-mode category 1
+        &10_0000000i128,                            // 1 ETH worth of debt
+        &debt_addr,                                 // ETH -- not in e-mode category 1
         &controller::types::PositionMode::Multiply, // mode = 1 (multiply)
         &steps,
         &None, // initial_payment
@@ -351,7 +471,8 @@ fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() 
         })
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -416,7 +537,8 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .with_position_limits(1, 4)
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -452,7 +574,8 @@ fn test_multiply_existing_account_wrong_owner() {
         .with_market(eth_preset())
         .build();
 
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");

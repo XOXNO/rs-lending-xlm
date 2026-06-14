@@ -1,6 +1,24 @@
+use soroban_sdk::{vec, Address, Vec};
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, PositionType, ALICE,
 };
+
+fn try_withdraw_payments(
+    t: &mut LendingTest,
+    user: &str,
+    withdrawals: Vec<(Address, i128)>,
+) -> Result<Vec<(Address, i128)>, soroban_sdk::Error> {
+    let account_id = t.resolve_account_id(user);
+    let caller = t.users.get(user).unwrap().address.clone();
+    let ctrl = t.ctrl_client();
+
+    match ctrl.try_withdraw(&caller, &account_id, &withdrawals, &None) {
+        Ok(Ok(paid)) => Ok(paid),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    }
+}
+
 // 1. test_withdraw_partial
 
 #[test]
@@ -142,10 +160,10 @@ fn test_withdraw_rejects_during_flash_loan() {
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 8. test_withdraw_rejects_when_paused
+// 8. test_withdraw_allowed_when_paused
 
 #[test]
-fn test_withdraw_rejects_when_paused() {
+fn test_withdraw_allowed_when_paused() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
@@ -155,7 +173,10 @@ fn test_withdraw_rejects_when_paused() {
     t.pause();
 
     let result = t.try_withdraw(ALICE, "USDC", 1_000.0);
-    assert_contract_error(result, errors::CONTRACT_PAUSED);
+    assert!(
+        result.is_ok(),
+        "withdraw should remain available while paused"
+    );
 }
 // 9. test_withdraw_removes_position_when_empty
 
@@ -410,4 +431,100 @@ fn test_withdraw_with_debt_still_requires_oracle() {
 
     let result = t.try_withdraw(ALICE, "USDC", 100.0);
     assert_contract_error(result, errors::INVALID_PRICE);
+}
+
+#[test]
+fn test_withdraw_empty_vector_is_noop() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let wallet_before = t.token_balance_raw(ALICE, "USDC");
+    let supply_before = t.supply_balance_raw(ALICE, "USDC");
+
+    let withdrawals = Vec::new(&t.env);
+    let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
+
+    assert_eq!(paid.len(), 0, "empty withdraw should return no payments");
+    assert_eq!(t.token_balance_raw(ALICE, "USDC"), wallet_before);
+    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), supply_before);
+    t.assert_supply_count(ALICE, 1);
+}
+
+#[test]
+fn test_withdraw_aggregates_duplicate_assets() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let usdc = t.resolve_asset("USDC");
+    let wallet_before = t.token_balance_raw(ALICE, "USDC");
+    let withdrawals = vec![
+        &t.env,
+        (usdc.clone(), 10_000_000_000i128),
+        (usdc, 25_000_000_000i128),
+    ];
+
+    let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
+
+    assert_eq!(paid.len(), 1, "duplicates should merge into one pool entry");
+    let (_, paid_amount) = paid.get(0).unwrap();
+    assert_eq!(paid_amount, 35_000_000_000);
+    assert_eq!(
+        t.token_balance_raw(ALICE, "USDC") - wallet_before,
+        35_000_000_000
+    );
+    t.assert_supply_near(ALICE, "USDC", 6_500.0, 1.0);
+}
+
+#[test]
+fn test_withdraw_duplicate_zero_full_close_is_sticky() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let usdc = t.resolve_asset("USDC");
+    let wallet_before = t.token_balance_raw(ALICE, "USDC");
+    let withdrawals = vec![
+        &t.env,
+        (usdc.clone(), 10_000_000_000i128),
+        (usdc.clone(), 0i128),
+        (usdc, 5_000_000_000i128),
+    ];
+
+    let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
+
+    assert_eq!(paid.len(), 1, "zero sentinel should stay aggregated");
+    let (_, paid_amount) = paid.get(0).unwrap();
+    assert!(
+        (99_999_999_999..=100_000_000_000).contains(&paid_amount),
+        "sticky zero should full-close and pay ~10k USDC, got {paid_amount}"
+    );
+    assert_eq!(
+        t.token_balance_raw(ALICE, "USDC") - wallet_before,
+        paid_amount
+    );
+    assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
+    assert_eq!(t.get_active_accounts(ALICE).len(), 0);
+}
+
+#[test]
+fn test_withdraw_rejects_negative_raw_amount() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let usdc = t.resolve_asset("USDC");
+    let withdrawals = vec![&t.env, (usdc, -1i128)];
+
+    let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }

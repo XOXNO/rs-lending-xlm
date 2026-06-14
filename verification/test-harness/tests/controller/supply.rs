@@ -163,6 +163,67 @@ fn test_supply_rejects_zero_amount() {
     let result = t.try_supply(ALICE, "USDC", 0.0);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
+
+#[test]
+fn test_supply_rejects_empty_asset_vector() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let assets: soroban_sdk::Vec<(soroban_sdk::Address, i128)> = vec![&t.env];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+}
+
+#[test]
+fn test_supply_rejects_negative_raw_amount() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let assets = vec![&t.env, (usdc, -1i128)];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
+}
+
+#[test]
+fn test_supply_duplicate_raw_amount_overflow_reverts() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let assets = vec![&t.env, (usdc.clone(), i128::MAX), (usdc, 1i128)];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::GenericError::MathOverflow as u32);
+}
+
+#[test]
+fn test_supply_rejects_disabled_market_with_pair_not_active() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
+
+    let assets = vec![&t.env, (usdc, 1_000_0000i128)];
+    let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::PAIR_NOT_ACTIVE);
+}
 // 7. test_supply_rejects_non_collateralizable
 
 #[test]
@@ -348,6 +409,37 @@ fn test_third_party_supply_to_existing_account_succeeds() {
         "Alice collateral should increase after Bob's supply: before={}, after={}",
         before,
         after
+    );
+}
+
+#[test]
+fn test_third_party_supply_cannot_force_low_threshold_update() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value_bps = 5000;
+        c.liquidation_threshold_bps = 6100;
+    });
+
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1.0)
+        .expect("third-party top-up should still be allowed");
+
+    let (supplies, _borrows) = t.ctrl_client().get_account_positions(&account_id);
+    let position = supplies
+        .get(usdc)
+        .expect("USDC supply position should remain");
+    assert_eq!(
+        position.liquidation_threshold_bps, 8000,
+        "supply must not force a lower LT snapshot while HF is below the update buffer"
     );
 }
 

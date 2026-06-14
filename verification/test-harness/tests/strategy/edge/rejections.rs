@@ -1,5 +1,18 @@
 use super::*;
 
+fn flatten_void(
+    r: Result<
+        Result<(), soroban_sdk::ConversionError>,
+        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+    >,
+) -> Result<(), soroban_sdk::Error> {
+    match r {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.into()),
+        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
+    }
+}
+
 // The same-asset flow is intentionally supported (self-collateralized
 // unwinds): withdrawn collateral repays same-asset debt directly and skips
 // the router. This exercises the direct-payment short-circuit.
@@ -41,6 +54,56 @@ fn test_repay_debt_with_collateral_same_token_nets_positions() {
         (supply_delta - 10_000.0).abs() < 100.0,
         "USDC supply should drop ~10k, actually dropped {supply_delta}"
     );
+}
+
+#[test]
+fn test_repay_debt_with_collateral_same_token_empty_swap_succeeds() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 20.0);
+    t.borrow(ALICE, "USDC", 30_000.0);
+
+    let debt_before = t.borrow_balance(ALICE, "USDC");
+    let supply_before = t.supply_balance(ALICE, "USDC");
+    let empty_steps = Bytes::new(&t.env);
+
+    let result =
+        t.try_repay_debt_with_collateral(ALICE, "USDC", 10_000.0, "USDC", &empty_steps, false);
+    assert!(
+        result.is_ok(),
+        "same-token repay should skip the router and accept empty swap bytes: {result:?}"
+    );
+
+    let debt_after = t.borrow_balance(ALICE, "USDC");
+    let supply_after = t.supply_balance(ALICE, "USDC");
+    assert!(
+        debt_before - debt_after > 9_900.0,
+        "USDC debt should drop by about the withdrawn collateral amount"
+    );
+    assert!(
+        supply_before - supply_after > 9_900.0,
+        "USDC collateral should be consumed directly without a swap"
+    );
+}
+
+#[test]
+fn test_repay_debt_with_collateral_non_same_token_empty_swap_rejects() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let empty_steps = Bytes::new(&t.env);
+    let result =
+        t.try_repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "ETH", &empty_steps, false);
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 // Favorable repay slippage must refund only the per-call excess.
 
@@ -99,6 +162,43 @@ fn test_repay_debt_with_collateral_health_factor_guard() {
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 50_000.0, "ETH", &steps, false);
 
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
+}
+
+#[test]
+fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let account_id = t.create_account(ALICE);
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+    let ctrl = t.ctrl_client();
+
+    let zero = ctrl.try_repay_debt_with_collateral(
+        &caller,
+        &account_id,
+        &usdc,
+        &0i128,
+        &eth,
+        &steps,
+        &false,
+    );
+    assert_contract_error(flatten_void(zero), errors::AMOUNT_MUST_BE_POSITIVE);
+
+    let negative = ctrl.try_repay_debt_with_collateral(
+        &caller,
+        &account_id,
+        &usdc,
+        &-1i128,
+        &eth,
+        &steps,
+        &false,
+    );
+    assert_contract_error(flatten_void(negative), errors::AMOUNT_MUST_BE_POSITIVE);
 }
 // A full close must repay the debt, drain remaining collateral, and remove
 // the account.
@@ -411,6 +511,62 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
             &steps,
             &false,
         ),
+    );
+}
+
+#[test]
+fn test_repay_debt_with_collateral_wrong_account_owner() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let alice_account_id = t.resolve_account_id(ALICE);
+    let bob = t.get_or_create_user(BOB);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+
+    let result = t.ctrl_client().try_repay_debt_with_collateral(
+        &bob,
+        &alice_account_id,
+        &usdc,
+        &1000_0000000i128,
+        &eth,
+        &steps,
+        &false,
+    );
+    assert_contract_error(flatten_void(result), errors::ACCOUNT_NOT_IN_MARKET);
+}
+
+#[test]
+fn test_repay_debt_with_collateral_nonexistent_account() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    let steps = build_swap_steps(&t, "USDC", "ETH", 1_0000000);
+    let missing_account_id = 999u64;
+
+    let result = t.ctrl_client().try_repay_debt_with_collateral(
+        &caller,
+        &missing_account_id,
+        &usdc,
+        &1000_0000000i128,
+        &eth,
+        &steps,
+        &false,
+    );
+    assert_contract_error(
+        flatten_void(result),
+        errors::GenericError::AccountNotFound as u32,
     );
 }
 // Bob tries to swap Alice's collateral: must be rejected.

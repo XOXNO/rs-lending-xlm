@@ -99,10 +99,10 @@ fn test_repay_overpayment_refunded() {
     let borrow = t.borrow_balance(ALICE, "ETH");
     assert!(borrow < 0.01, "borrow should be ~0");
 }
-// 4. test_repay_rejects_when_paused
+// 4. test_repay_allowed_when_paused
 
 #[test]
-fn test_repay_rejects_when_paused() {
+fn test_repay_allowed_when_paused() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -113,9 +113,7 @@ fn test_repay_rejects_when_paused() {
     t.pause();
 
     let result = t.try_repay(ALICE, "ETH", 0.5);
-    assert_contract_error(result, errors::CONTRACT_PAUSED);
-
-    t.unpause();
+    assert!(result.is_ok(), "repay should remain available while paused");
 }
 
 // 5. test_repay_by_third_party
@@ -243,6 +241,85 @@ fn test_repay_rejects_zero_amount() {
     // Must reject with the precise AMOUNT_MUST_BE_POSITIVE (14), not just any
     // failure in the validator chain.
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
+}
+
+#[test]
+fn test_repay_rejects_empty_payment_vector() {
+    let mut t = LendingTest::new().with_market(eth_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let payments: soroban_sdk::Vec<(soroban_sdk::Address, i128)> = soroban_sdk::vec![&t.env];
+    let result = match t.ctrl_client().try_repay(&caller, &999_999u64, &payments) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+}
+
+#[test]
+fn test_repay_rejects_negative_raw_amount() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let caller = t.users.get(ALICE).unwrap().address.clone();
+    let account_id = t.resolve_account_id(ALICE);
+    let eth = t.resolve_asset("ETH");
+    let payments = soroban_sdk::vec![&t.env, (eth, -1i128)];
+    let result = match t.ctrl_client().try_repay(&caller, &account_id, &payments) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
+}
+
+#[test]
+fn test_repay_duplicate_asset_payments_aggregate() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let caller = t.users.get(ALICE).unwrap().address.clone();
+    let account_id = t.resolve_account_id(ALICE);
+    let eth_market = t.resolve_market("ETH");
+    let eth = eth_market.asset.clone();
+    eth_market.token_admin.mint(&caller, &1_0100000i128);
+
+    let payments = soroban_sdk::vec![&t.env, (eth.clone(), 5000000i128), (eth, 5100000i128)];
+    t.ctrl_client().repay(&caller, &account_id, &payments);
+
+    let borrow = t.borrow_balance(ALICE, "ETH");
+    assert!(
+        borrow < 0.01,
+        "duplicate repayment entries should aggregate and clear the debt, got {}",
+        borrow
+    );
+    t.assert_borrow_count(ALICE, 0);
+}
+
+#[test]
+fn test_repay_rejects_nonexistent_account_id() {
+    let mut t = LendingTest::new().with_market(eth_preset()).build();
+
+    let caller = t.get_or_create_user(ALICE);
+    let eth = t.resolve_asset("ETH");
+    let payments = soroban_sdk::vec![&t.env, (eth, 1i128)];
+    let result = match t.ctrl_client().try_repay(&caller, &999_999u64, &payments) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+
+    assert_contract_error(result, errors::ACCOUNT_NOT_IN_MARKET);
 }
 // 7. test_repay_rejects_position_not_found
 

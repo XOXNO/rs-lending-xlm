@@ -147,6 +147,112 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         result
     );
 }
+
+#[test]
+fn test_swap_tokens_refunds_router_underspend() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let bad = install_bad_router(&t, BadMode::UnderPull);
+    mint_to(&t, "USDC", &bad, SWAP_MIN_OUT_USDC);
+
+    let alice = t.get_or_create_user(ALICE);
+    let eth_before = t.token_balance(ALICE, "ETH");
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(SWAP_REQUESTED_ETH),
+        SWAP_MIN_OUT_USDC,
+    );
+
+    t.try_multiply(
+        ALICE,
+        "USDC",
+        1.0,
+        "ETH",
+        controller::types::PositionMode::Multiply,
+        &steps,
+    )
+    .expect("underspend should be refunded, not rejected");
+
+    let eth_after = token::Client::new(&t.env, &t.resolve_asset("ETH")).balance(&alice);
+    assert!(
+        (eth_after as f64 / 10_000_000.0) > eth_before + 0.49,
+        "Alice should receive the unspent borrowed ETH"
+    );
+}
+
+#[test]
+fn test_swap_collateral_refunds_router_underspend_to_caller() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let bad = install_bad_router(&t, BadMode::UnderPull);
+    mint_to(&t, "ETH", &bad, 50_000_000);
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    let alice_usdc_before = t.token_balance_raw(ALICE, "USDC");
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 50_000_000);
+
+    t.try_swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps)
+        .expect("swap_collateral should refund router underspend");
+
+    let alice_usdc_after = t.token_balance_raw(ALICE, "USDC");
+    assert_eq!(
+        alice_usdc_after - alice_usdc_before,
+        5_000_000_000,
+        "half of the withdrawn USDC should be refunded to Alice's wallet"
+    );
+
+    let usdc = t.resolve_asset("USDC");
+    let usdc_tok = token::Client::new(&t.env, &usdc);
+    assert_eq!(
+        usdc_tok.balance(&t.controller_address()),
+        0,
+        "controller must not strand unspent swap_collateral input"
+    );
+}
+
+#[test]
+fn test_repay_debt_with_collateral_refunds_router_underspend_to_caller() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let bad = install_bad_router(&t, BadMode::UnderPull);
+    mint_to(&t, "ETH", &bad, 5_000_000);
+
+    t.supply(ALICE, "USDC", 2_000.0);
+    t.borrow(ALICE, "ETH", 0.5);
+    let account_id = t.resolve_account_id(ALICE);
+    let alice_usdc_before = t.token_balance_raw(ALICE, "USDC");
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 20_000_000_000, 5_000_000);
+
+    t.try_repay_debt_with_collateral(ALICE, "USDC", 2_000.0, "ETH", &steps, false)
+        .expect("repay_debt_with_collateral should refund router underspend");
+
+    let alice_usdc_after = t.token_balance_raw(ALICE, "USDC");
+    assert_eq!(
+        alice_usdc_after - alice_usdc_before,
+        10_000_000_000,
+        "half of the withdrawn USDC should be refunded to Alice's wallet"
+    );
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "router output should fully repay the ETH debt"
+    );
+    assert!(
+        !t.account_exists(account_id),
+        "fully repaid and fully withdrawn account should be removed"
+    );
+}
 // BadMode::OutputShortfall -- router pulls token_in but transfers zero
 // token_out. The controller's positive output-delta check rejects the swap
 // immediately.
@@ -236,7 +342,8 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         .build();
 
     // Create an account explicitly in Multiply mode.
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);

@@ -74,6 +74,77 @@ fn test_swap_debt_health_factor_guard_after_swap() {
 
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
+
+#[test]
+fn test_swap_debt_empty_swap_payload_rolls_back_new_debt() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let eth_debt_before = t.borrow_balance_raw(ALICE, "ETH");
+    let wbtc_debt_before = t.borrow_balance_raw(ALICE, "WBTC");
+    let empty_steps = Bytes::new(&t.env);
+
+    let result = t.try_swap_debt(ALICE, "ETH", 0.005, "WBTC", &empty_steps);
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        eth_debt_before,
+        "existing ETH debt must roll back unchanged after an invalid route"
+    );
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "WBTC"),
+        wbtc_debt_before,
+        "flash-opened WBTC debt must not survive empty route rejection"
+    );
+}
+
+#[test]
+fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let eth = t.resolve_asset("ETH");
+    t.env.as_contract(&t.controller_address(), || {
+        let mut market: MarketConfig = t
+            .env
+            .storage()
+            .persistent()
+            .get(&ControllerKey::Market(eth.clone()))
+            .expect("ETH market should exist");
+        market.asset_config.is_borrowable = false;
+        t.env
+            .storage()
+            .persistent()
+            .set(&ControllerKey::Market(eth.clone()), &market);
+    });
+
+    t.fund_router("ETH", 1.0);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(50_000), 1_0000000);
+    t.swap_debt(ALICE, "ETH", 0.005, "WBTC", &steps);
+
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "swap_debt should fully close the disabled existing debt asset"
+    );
+    assert!(
+        t.borrow_balance_raw(ALICE, "WBTC") > 0,
+        "new WBTC debt should remain after the rotation"
+    );
+}
 // Swap debt edge cases
 
 #[test]
@@ -137,6 +208,34 @@ fn test_swap_collateral_applies_emode_params_to_destination_position() {
     assert_eq!(
         threshold, 9800,
         "destination collateral should use eMode liquidation threshold"
+    );
+}
+
+#[test]
+fn test_swap_collateral_merges_existing_destination_and_removes_source() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.supply(ALICE, "ETH", 2.0);
+
+    let eth_supply_before = t.supply_balance_raw(ALICE, "ETH");
+    t.fund_router("ETH", 5.0);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_0000000);
+
+    t.swap_collateral(ALICE, "USDC", 1_000.0, "ETH", &steps);
+
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        0,
+        "full source collateral swap should remove the old USDC position"
+    );
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "ETH"),
+        eth_supply_before + 5_0000000,
+        "destination ETH collateral should merge with the existing position"
     );
 }
 // New debt asset is_borrowable=false: must reject before the swap.
