@@ -21,6 +21,9 @@ pub const MIN_DUST_FLOOR_WAD: i128 = 10 * WAD;
 /// Maximum flash-loan and strategy fee in BPS.
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
+/// Maximum supply/borrow positions configurable per account (protocol-wide).
+pub const POSITION_LIMIT_MAX: u32 = 10;
+
 /// Minimum first-price tolerance input (BPS) for oracle config validation.
 pub const MIN_FIRST_TOLERANCE: u32 = 50;
 

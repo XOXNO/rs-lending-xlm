@@ -1,9 +1,12 @@
 //! Shared validation gates for account ownership, market status, health factor,
 //! LTV, and position limits.
 
+use common::constants::POSITION_LIMIT_MAX;
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Wad;
-use controller_interface::types::{Account, AccountPositionType, MarketStatus, Payment};
+use controller_interface::types::{
+    Account, AccountPositionType, MarketStatus, Payment, PositionLimits,
+};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::cache::Cache;
@@ -92,6 +95,21 @@ pub fn require_within_ltv(env: &Env, cache: &mut Cache, account: &Account) {
         ltv_collateral_wad >= total_borrow_wad,
         CollateralError::InsufficientCollateral
     );
+}
+
+/// Re-checks position-limit bounds at the controller boundary. Governance owns
+/// the authoritative validation, but the thin setter mirrors it so a
+/// misconfigured owner can never persist limits outside the budget-proven
+/// `1..=POSITION_LIMIT_MAX` envelope — the same defense-in-depth as the
+/// oracle-config execute-time re-check.
+pub fn validate_position_limits(env: &Env, limits: &PositionLimits) {
+    if limits.max_supply_positions == 0
+        || limits.max_borrow_positions == 0
+        || limits.max_supply_positions > POSITION_LIMIT_MAX
+        || limits.max_borrow_positions > POSITION_LIMIT_MAX
+    {
+        panic_with_error!(env, GenericError::InvalidPositionLimits);
+    }
 }
 
 pub fn validate_bulk_position_limits(

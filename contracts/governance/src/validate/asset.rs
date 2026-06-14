@@ -1,7 +1,7 @@
 //! Risk-bound, asset-config, position-limit, and market-creation validation,
 //! plus the live token-shape probe.
 
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD};
+use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::types::MarketParamsRaw;
 use controller_interface::types::{AssetConfigRaw, PositionLimits};
@@ -10,9 +10,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 // Supported SAC decimal range for RAY/WAD conversions.
 const MIN_ASSET_DECIMALS: u32 = 1;
 const MAX_ASSET_DECIMALS: u32 = 18;
-
-/// Max supply/borrow positions configurable per account.
-const POSITION_LIMIT_MAX: u32 = 10;
 
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv_i = i128::from(ltv);
