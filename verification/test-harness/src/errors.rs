@@ -22,6 +22,9 @@ pub mod codes {
     pub const ACCOUNT_MODE_MISMATCH: u32 = GenericError::AccountModeMismatch as u32;
     pub const INTERNAL_ERROR: u32 = GenericError::InternalError as u32;
     pub const INVALID_POSITION_LIMITS: u32 = GenericError::InvalidPositionLimits as u32;
+    pub const NOT_SMART_CONTRACT: u32 = GenericError::NotSmartContract as u32;
+    pub const TIMELOCK_OPERATION_EXPIRED: u32 = GenericError::TimelockOperationExpired as u32;
+    pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
 
     // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;

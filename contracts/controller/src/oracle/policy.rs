@@ -102,6 +102,13 @@ impl OraclePolicy {
     pub fn allows_sanity_violation(self) -> bool {
         Allowances::for_policy(self).sanity_violation
     }
+
+    pub const fn requires_blended_first_band(self) -> bool {
+        matches!(
+            self,
+            OraclePolicy::RiskIncreasing | OraclePolicy::Liquidation
+        )
+    }
 }
 
 #[cfg(test)]

@@ -45,7 +45,9 @@ impl MockAggregator {
 //      and panic with InternalError.
 //   2. OverPull: pull MORE than `total_in` from `sender` —
 //      the controller's `actual_in_spent > amount_in` guard must fire.
-//   3. OutputShortfall: pull input but skip the output transfer —
+//   3. UnderPull: pull less than `total_in` while still returning output —
+//      the controller must refund leftover input instead of stranding it.
+//   4. OutputShortfall: pull input but skip the output transfer —
 //      the controller's positive-output balance-delta guard must fire.
 
 #[contracttype]
@@ -53,6 +55,7 @@ impl MockAggregator {
 pub enum BadMode {
     Refund,
     OverPull,
+    UnderPull,
     OutputShortfall,
 }
 
@@ -91,6 +94,12 @@ impl BadAggregator {
             BadMode::OverPull => {
                 let overshoot = total_in.saturating_mul(2);
                 in_client.transfer(&sender, &router, &overshoot);
+                if payload.min_out > 0 {
+                    out_client.transfer(&router, &sender, &payload.min_out);
+                }
+            }
+            BadMode::UnderPull => {
+                in_client.transfer(&sender, &router, &(total_in / 2));
                 if payload.min_out > 0 {
                     out_client.transfer(&router, &sender, &payload.min_out);
                 }

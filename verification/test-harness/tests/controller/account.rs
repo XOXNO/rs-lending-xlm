@@ -64,7 +64,8 @@ fn test_create_account_full_custom() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     // mode=1 for Multiply.
-    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+    let account_id =
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);

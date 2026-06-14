@@ -3,10 +3,9 @@
 //! Built on the `stellar_access` crate primitives. The three operational
 //! roles are the only way to reach privileged-but-not-owner entrypoints
 //! (index updates, revenue claims, oracle configuration). Pause is a
-//! global circuit-breaker: every position/strategy entrypoint — including
-//! repay, liquidate, and flash loans — is gated `when_not_paused`; views,
-//! `renew_account` (TTL keep-alive only), and owner/role governance remain
-//! callable while paused.
+//! risk freeze: risk-increasing position paths, strategies, and flash loans are
+//! gated `when_not_paused`; withdraw, repay, liquidation, views, `renew_account`
+//! (TTL keep-alive only), and owner/role governance remain callable while paused.
 
 use common::errors::GenericError;
 use controller_interface::types::{ControllerKey, PositionLimits};

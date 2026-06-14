@@ -62,6 +62,10 @@ pub enum GenericError {
     SpotOnlyNotProductionSafe = 38,
     /// Timelock minimum delay is zero, which would nullify the timelock.
     InvalidTimelockDelay = 39,
+    /// Timelock operation is past its execution grace period.
+    TimelockOperationExpired = 40,
+    /// Requested role is not part of the protocol role allowlist.
+    InvalidRole = 41,
 }
 
 #[contracterror]

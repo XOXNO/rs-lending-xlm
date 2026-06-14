@@ -910,17 +910,19 @@ mod tests {
             .publish(&env);
 
             let mut market_updates = Vec::new(&env);
-            market_updates.push_back(EventMarketState::from(&controller_interface::types::MarketStateSnapshot {
-                asset: asset.clone(),
-                timestamp: 0,
-                supply_index_ray: 0,
-                borrow_index_ray: 0,
-                reserves_ray: 0,
-                supplied_ray: 0,
-                borrowed_ray: 0,
-                revenue_ray: 0,
-                asset_price_wad: None,
-            }));
+            market_updates.push_back(EventMarketState::from(
+                &controller_interface::types::MarketStateSnapshot {
+                    asset: asset.clone(),
+                    timestamp: 0,
+                    supply_index_ray: 0,
+                    borrow_index_ray: 0,
+                    reserves_ray: 0,
+                    supplied_ray: 0,
+                    borrowed_ray: 0,
+                    revenue_ray: 0,
+                    asset_price_wad: None,
+                },
+            ));
             UpdateMarketStateBatchEvent {
                 updates: market_updates,
             }

@@ -19,7 +19,9 @@ use common::errors::{GenericError, OracleError};
 use common::types::{InterestRateModel, MarketParamsRaw};
 use controller_interface::types::{AssetConfigRaw, MarketOracleConfigInput, PositionLimits};
 use controller_interface::ControllerAdminClient;
-use soroban_sdk::{contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{
+    assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val,
+};
 use stellar_access::access_control;
 use stellar_governance::timelock::{get_min_delay, schedule_operation, Operation};
 use stellar_macros::only_owner;
@@ -60,6 +62,17 @@ fn schedule_controller_op(
 
 fn schedule_controller(env: &Env, operation: &Operation) -> BytesN<32> {
     schedule_operation(env, operation, get_min_delay(env))
+}
+
+fn require_known_controller_role(env: &Env, role: &Symbol) {
+    let keeper = Symbol::new(env, "KEEPER");
+    let revenue = Symbol::new(env, "REVENUE");
+    let oracle = Symbol::new(env, "ORACLE");
+    assert_with_error!(
+        env,
+        role == &keeper || role == &revenue || role == &oracle,
+        GenericError::InvalidRole
+    );
 }
 
 /// Validates and probes a market oracle input into the resolved
@@ -385,6 +398,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
+        require_known_controller_role(&env, &role);
         schedule_controller_op(
             &env,
             "grant_role",
@@ -401,6 +415,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
+        require_known_controller_role(&env, &role);
         schedule_controller_op(
             &env,
             "revoke_role",
@@ -447,6 +462,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
+        validate::require_contract_address(&env, &new_owner, GenericError::NotSmartContract);
         schedule_controller_op(
             &env,
             "transfer_ownership",

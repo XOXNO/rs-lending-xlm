@@ -5,7 +5,9 @@
 
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
-use controller_interface::types::{Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode};
+use controller_interface::types::{
+    Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode,
+};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
@@ -48,12 +50,15 @@ pub fn process_supply(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     // Aggregate once at the entrypoint so every downstream stage, including the
     // post-flight dust scope, operates on the deduped plan.
     let plan = utils::aggregate_positive_payments(env, assets);
+    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     let (acct_id, mut account) =
         resolve_supply_account(env, caller, account_id, e_mode_category, &plan, &mut cache);
+    if !account.borrow_positions.is_empty() {
+        cache = Cache::new(env, OraclePolicy::RiskIncreasing);
+    }
 
     process_deposit(env, caller, &mut account, &plan, &mut cache);
 
@@ -81,7 +86,7 @@ fn resolve_supply_account(
     if account_id == 0 {
         create_account_for_first_asset(env, caller, e_mode_category, plan, cache)
     } else {
-        let account = storage::get_account_supply_only(env, account_id);
+        let account = storage::get_account(env, account_id);
         // Zero is the unspecified sentinel; any non-zero value must match the
         // account's stored mode.
         if e_mode_category != 0 && e_mode_category != account.e_mode_category_id {

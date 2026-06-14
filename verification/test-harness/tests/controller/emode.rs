@@ -1,8 +1,8 @@
 use controller::constants::WAD;
 
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd_cents, usdc_preset, usdt_stable_preset,
-    LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
+    assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
+    usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
 // 1. test_emode_category_creation
 
@@ -222,6 +222,28 @@ fn test_emode_remove_category_deprecates() {
     // EModeCategoryDeprecated (301).
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_DEPRECATED);
+}
+
+#[test]
+fn test_deprecated_emode_debt_free_account_can_withdraw_all_collateral() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 1_000.0);
+    assert_eq!(t.borrow_balance(ALICE, "USDC"), 0.0);
+
+    t.remove_e_mode_category(1);
+
+    let result = t.try_withdraw(ALICE, "USDC", 0.0);
+    assert!(
+        result.is_ok(),
+        "debt-free e-mode account should be able to exit after category deprecation; got {result:?}"
+    );
+    assert_eq!(t.supply_balance(ALICE, "USDC"), 0.0);
 }
 // 11. test_emode_add_asset_to_category
 
@@ -451,4 +473,293 @@ fn test_supply_zero_e_mode_does_not_trigger_mismatch_against_active_category() {
          trigger the mismatch guard; got {:?}",
         result
     );
+}
+
+#[test]
+fn test_deprecated_emode_debt_free_account_can_partially_withdraw_collateral() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.remove_e_mode_category(1);
+
+    let result = t.try_withdraw(ALICE, "USDC", 100.0);
+    assert!(
+        result.is_ok(),
+        "deprecated e-mode must not block debt-free partial exits; got {result:?}"
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") < 901.0,
+        "partial withdraw should reduce the existing collateral position"
+    );
+}
+
+#[test]
+fn test_deprecated_emode_repay_allowed_but_new_borrow_blocked() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+    t.remove_e_mode_category(1);
+
+    let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
+    assert_contract_error(borrow_more, errors::EMODE_CATEGORY_DEPRECATED);
+
+    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let repay = t.try_repay(ALICE, "USDT", 500.0);
+    assert!(
+        repay.is_ok(),
+        "deprecated e-mode must not block debt-reducing repay; got {repay:?}"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "USDT") < debt_before,
+        "repay should reduce the existing debt position"
+    );
+}
+
+#[test]
+fn test_deprecated_emode_with_debt_keeps_stored_params_on_withdraw() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 5_000.0);
+    t.remove_e_mode_category(1);
+
+    // This withdrawal would fail under base USDC LTV (6000 * 75% < 5000 debt),
+    // but it is safe under the e-mode LTV snapshot stored on the position.
+    let result = t.try_withdraw(ALICE, "USDC", 4_000.0);
+    assert!(
+        result.is_ok(),
+        "deprecated e-mode must keep stored position params on safe withdrawals; got {result:?}"
+    );
+    t.assert_healthy(ALICE);
+}
+
+#[test]
+fn test_deprecated_emode_with_debt_withdraw_still_enforces_stored_emode_ltv() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 5_000.0);
+    t.remove_e_mode_category(1);
+
+    // Even with the frozen e-mode LTV snapshot, leaving only 5000 USDC cannot
+    // support 5000 USDT debt (5000 * 97% < 5000).
+    let result = t.try_withdraw(ALICE, "USDC", 5_000.0);
+    assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
+}
+
+#[test]
+fn test_deprecated_emode_category_still_allows_liquidation() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 9_500.0);
+    t.remove_e_mode_category(1);
+    t.set_price("USDC", usd_cents(85));
+    t.assert_liquidatable(ALICE);
+
+    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
+    assert!(
+        result.is_ok(),
+        "deprecated e-mode must not block liquidation; got {result:?}"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "USDT") < debt_before,
+        "liquidation should reduce debt"
+    );
+}
+
+#[test]
+fn test_deprecated_emode_views_block_new_borrow_but_preserve_exit_preview() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let usdc = t.resolve_asset("USDC");
+    let usdt = t.resolve_asset("USDT");
+
+    t.remove_e_mode_category(1);
+
+    assert_eq!(
+        t.ctrl_client().max_borrow(&account_id, &usdt),
+        0,
+        "deprecated e-mode must preview no additional borrow capacity"
+    );
+    assert!(
+        t.ctrl_client().max_withdraw(&account_id, &usdc)
+            >= f64_to_i128(4_000.0, t.resolve_market("USDC").decimals),
+        "deprecated e-mode must preview exits using the stored position params, not base fallback"
+    );
+}
+
+#[test]
+fn test_removed_emode_collateral_asset_blocks_new_supply_but_existing_withdraw_works() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 5_000.0);
+    t.remove_asset_from_e_mode("USDC", 1);
+
+    let add_more = t.try_supply(ALICE, "USDC", 1.0);
+    assert_contract_error(add_more, errors::EMODE_CATEGORY_NOT_FOUND);
+
+    // Removing the asset from the category must block new supply, but the
+    // existing collateral position keeps its e-mode snapshot.
+    let withdraw = t.try_withdraw(ALICE, "USDC", 4_000.0);
+    assert!(
+        withdraw.is_ok(),
+        "removed collateral asset must still allow safe withdrawal of an existing position; got {withdraw:?}"
+    );
+    t.assert_healthy(ALICE);
+}
+
+#[test]
+fn test_removed_emode_debt_asset_blocks_new_borrow_but_existing_repay_works() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+    t.remove_asset_from_e_mode("USDT", 1);
+
+    let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
+    assert_contract_error(borrow_more, errors::EMODE_CATEGORY_NOT_FOUND);
+
+    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let repay = t.try_repay(ALICE, "USDT", 500.0);
+    assert!(
+        repay.is_ok(),
+        "removed debt asset must still allow debt-reducing repay; got {repay:?}"
+    );
+    assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
+}
+
+#[test]
+fn test_removed_emode_collateral_asset_still_allows_liquidation() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 9_500.0);
+    t.remove_asset_from_e_mode("USDC", 1);
+    t.set_price("USDC", usd_cents(85));
+    t.assert_liquidatable(ALICE);
+
+    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
+    assert!(
+        result.is_ok(),
+        "removed collateral asset must not block liquidation; got {result:?}"
+    );
+    assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
+}
+
+#[test]
+fn test_emode_collateral_flag_update_blocks_new_supply_but_existing_withdraw_works() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.edit_asset_in_e_mode("USDC", 1, false, true);
+
+    let add_more = t.try_supply(ALICE, "USDC", 1.0);
+    assert_contract_error(add_more, errors::NOT_COLLATERAL);
+
+    let withdraw = t.try_withdraw(ALICE, "USDC", 100.0);
+    assert!(
+        withdraw.is_ok(),
+        "collateral flag removal must not block withdrawing an existing position; got {withdraw:?}"
+    );
+}
+
+#[test]
+fn test_emode_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+    t.edit_asset_in_e_mode("USDT", 1, true, false);
+
+    let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
+    assert_contract_error(borrow_more, errors::ASSET_NOT_BORROWABLE);
+
+    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let repay = t.try_repay(ALICE, "USDT", 500.0);
+    assert!(
+        repay.is_ok(),
+        "borrow flag removal must not block repaying an existing debt; got {repay:?}"
+    );
+    assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }

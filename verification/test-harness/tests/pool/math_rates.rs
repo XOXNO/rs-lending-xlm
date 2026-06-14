@@ -1,9 +1,9 @@
-use controller::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::math::fp::{Ray, Wad};
 use common::math::fp_core::{
     div_by_int_half_up, mul_div_half_up, mul_div_half_up_signed, rescale_half_up,
 };
 use common::rates::*;
+use controller::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use soroban_sdk::Env;
 // Math edge cases
 // 1. test_rescale_same_decimals

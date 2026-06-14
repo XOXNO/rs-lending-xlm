@@ -1,7 +1,6 @@
-use soroban_sdk::{assert_with_error, panic_with_error, Env, I256};
+use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_INDEX_FLOOR_RAW};
-use crate::errors::GenericError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
@@ -100,11 +99,9 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
 
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
     let new_index = old_index.mul(env, interest_factor);
-    assert_with_error!(
-        env,
-        new_index.raw() <= MAX_BORROW_INDEX_RAY,
-        GenericError::MathOverflow
-    );
+    if new_index.raw() > MAX_BORROW_INDEX_RAY {
+        return Ray::from(MAX_BORROW_INDEX_RAY);
+    }
     new_index
 }
 

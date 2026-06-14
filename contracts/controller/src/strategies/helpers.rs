@@ -129,10 +129,9 @@ pub(crate) fn withdraw_collateral_to_controller(
     balance_delta(env, &token, balance_before)
 }
 
-// Any router-leftover input (underspend) stays on the controller;
-// `verify_router_input_spend` bounds overspend, not underspend.
 pub(crate) fn swap_tokens(
     env: &Env,
+    refund_to: &Address,
     token_in: &Address,
     amount_in: i128,
     token_out: &Address,
@@ -156,8 +155,15 @@ pub(crate) fn swap_tokens(
     call_router_with_reentrancy_guard(env, &router, amount_in, swap);
 
     // Defense-in-depth: reject any pull above the committed input. Underspend
-    // stays on the controller; the aggregator payload enforces slippage.
+    // is refunded instead of being stranded on the controller.
     verify_router_input_spend(env, &token_in_client, balance_before.token_in, amount_in);
+    refund_router_underspend(
+        env,
+        &token_in_client,
+        balance_before.token_in,
+        amount_in,
+        refund_to,
+    );
 
     verify_router_output(env, &token_out_client, balance_before.token_out)
 }
@@ -234,14 +240,32 @@ fn verify_router_input_spend(
         GenericError::InternalError
     );
     let actual_in_spent = balance_before - balance_after;
-    // Allow underspend (leftover stays on the controller; the aggregator
-    // payload enforces slippage); reject overspend — router/token pulled more
-    // than committed.
+    // Allow underspend; `swap_tokens` refunds the leftover after this bound
+    // check. Reject overspend — router/token pulled more than committed.
     assert_with_error!(
         env,
         actual_in_spent <= amount_in,
         GenericError::InternalError
     );
+}
+
+fn refund_router_underspend(
+    env: &Env,
+    token_in_client: &soroban_sdk::token::Client,
+    balance_before: i128,
+    amount_in: i128,
+    refund_to: &Address,
+) {
+    let balance_after = token_in_client.balance(&env.current_contract_address());
+    let actual_spent = balance_before
+        .checked_sub(balance_after)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let leftover = amount_in
+        .checked_sub(actual_spent)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    if leftover > 0 {
+        token_in_client.transfer(&env.current_contract_address(), refund_to, &leftover);
+    }
 }
 
 fn verify_router_output(

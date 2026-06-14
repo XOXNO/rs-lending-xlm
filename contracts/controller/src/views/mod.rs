@@ -112,7 +112,7 @@ impl Controller {
         ltv_collateral_in_usd(&env, account_id)
     }
 
-    /// Largest currently executable `withdraw` amount; `0` while paused.
+    /// Largest currently executable `withdraw` amount.
     pub fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128 {
         limits::max_withdraw(&env, account_id, &asset)
     }

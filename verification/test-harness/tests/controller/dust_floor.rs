@@ -1,6 +1,6 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    LIQUIDATOR,
+    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, usdt_stable_preset,
+    LendingTest, ALICE, LIQUIDATOR,
 };
 // Open-time gate
 
@@ -181,10 +181,10 @@ fn test_withdraw_all_closes_position() {
     // `withdraw_all` is the closure helper — burns full position.
     t.withdraw_all(ALICE, "USDC");
 }
-// Liquidation full-close-on-dust-residue
+// Liquidation debt-dust caps
 
 #[test]
-fn test_liquidation_expands_to_full_close_on_dust_residue() {
+fn test_liquidation_caps_debt_dust_without_over_closing() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -200,24 +200,19 @@ fn test_liquidation_expands_to_full_close_on_dust_residue() {
     t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
-    // Liquidator repays $125 (just enough to push HF back near 1). A
-    // mathematically partial liquidation would leave a few-dollar residue
-    // on at least one side — the dust full-close path should expand
-    // repayment to the full debt.
+    // Liquidator repays $125 (just enough to push HF back near 1). The debt
+    // dust cap must not force liquidation past the normal close amount.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.0625);
 
-    // Post-liquidation: either the debt closed entirely (full-close fired)
-    // or the position is healthy again. The relevant assertion is that
-    // Alice is no longer in a sub-floor residue state.
+    // The call succeeds without leaving a nonzero sub-floor debt residue.
 }
 
-// Regression for Codex adversarial-review #1: dust expansion may never
+// Regression for Codex adversarial-review #1: debt-dust handling may never
 // raise the seizure target beyond what the liquidator has actually paid.
 // A liquidator who supplies a partial payment must receive collateral
-// scaled to *that* payment — never collateral scaled to the (expanded)
-// full-debt value.
+// scaled to *that* payment — never collateral scaled to full debt.
 #[test]
-fn test_liquidation_partial_payment_does_not_over_seize_on_dust_expansion() {
+fn test_liquidation_partial_payment_does_not_over_seize_on_dust_cap() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -229,45 +224,42 @@ fn test_liquidation_partial_payment_does_not_over_seize_on_dust_expansion() {
     t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
-    // Snapshot Alice's debt before. Under the over-seize bug, dust
-    // expansion would zero out her debt position based on a partial
-    // payment. Under the fix, debt drops by ~payment value (not full).
+    // Snapshot Alice's debt before. Under the over-seize bug, dust handling
+    // would zero out her debt position based on a partial payment. Under the
+    // fix, debt drops by ~payment value (not full).
     let debt_before = t.borrow_balance(ALICE, "ETH");
 
     // Liquidator submits a deliberately small payment (~$2 ETH = 0.001
-    // ETH). Under the bug this would expand seizure to full debt
-    // (~$130 worth of USDC collateral); under the fix the repay target is
-    // bounded by the paid value, and dust expansion to full close requires
-    // the payment to settle every position's full token debt.
+    // ETH). Under the bug this would seize against full debt (~$130 worth of
+    // USDC collateral); under the fix the repay target is bounded by the paid
+    // value and any debt-dust adjustment can only cap/refund repayment.
     let _ = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
     let debt_after = t.borrow_balance(ALICE, "ETH");
     let debt_reduction = debt_before - debt_after;
 
-    // The liquidator paid 0.001 ETH (~$2). Debt should drop by at most
-    // that same amount (or zero — full close only fires when the
-    // payment actually covers full debt). If debt drops by anything
-    // close to the full ~0.065 ETH the over-seize bug is back.
+    // The liquidator paid 0.001 ETH (~$2). Debt should drop by at most that
+    // same amount. If debt drops by anything close to the full ~0.065 ETH the
+    // over-seize bug is back.
     assert!(
         debt_reduction < 0.005,
         "debt dropped by {:.4} ETH on a 0.001 ETH partial payment — \
-         dust-expansion is over-seizing (Codex #1 regression)",
+         dust cap is over-seizing (Codex #1 regression)",
         debt_reduction
     );
 }
 
-// Regression for Codex re-review of #1: a liquidator whose payment is
-// large enough that dust expansion would fire (optimal repayment leaves
-// sub-floor residue) but still doesn't cover total debt must be rejected
-// with `DustResidueNotAllowed`. Half-expanding to the payment ceiling
-// would still strand dust on either side.
+// A liquidator whose payment would leave the repaid debt leg below its min debt
+// floor, but still does not cover that leg fully, must not make liquidation
+// revert. The engine caps that leg's repayment to leave at least the asset's
+// debt floor and refunds the excess.
 //
 // Setup: collateral barely above debt × (1 + base_bonus). The math
 // engine's `d_max = collateral / (1 + base_bonus)` lands within $10 of
-// `total_debt`, so the optimal partial repayment already triggers the
-// dust gate. With a payment short of full debt, the fix must reject.
+// `total_debt`, so the optimal partial repayment would leave dust. With a
+// payment short of full debt, the fix caps the debt leg instead of rejecting.
 #[test]
-fn test_liquidation_partial_above_optimal_rejects_when_residue_would_be_dust() {
+fn test_liquidation_partial_above_optimal_clamps_when_residue_would_be_dust() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -285,19 +277,36 @@ fn test_liquidation_partial_above_optimal_rejects_when_residue_would_be_dust() {
     t.assert_liquidatable(ALICE);
 
     // Pay 0.010 ETH = $20 — above the optimal partial target (≈ $14)
-    // but $2 short of total debt ($22). Without the fix, the engine
-    // would expand to $20 and still leave a $2 sub-floor residue. The
-    // fix must refuse.
+    // but $2 short of total debt ($22). The engine clamps the close amount
+    // rather than reverting.
+    let debt_before = t.borrow_balance(ALICE, "ETH");
+    t.get_or_create_user(LIQUIDATOR);
+    let liquidator_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.010);
-    assert_contract_error(result, errors::DUST_RESIDUE_NOT_ALLOWED);
+    assert!(
+        result.is_ok(),
+        "liquidation should clamp instead of reverting"
+    );
+    let debt_after = t.borrow_balance(ALICE, "ETH");
+    assert!(debt_after < debt_before);
+    assert!(
+        debt_after < 0.0001 || debt_after >= 0.0049,
+        "ETH debt residue should be zero or stay near/above the $10 floor, got {} ETH",
+        debt_after
+    );
+    let liquidator_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
+    let seized_usdc = liquidator_usdc_after - liquidator_usdc_before;
+    assert!(
+        seized_usdc < 27.0,
+        "seizure must be sized from the capped repayment, not the pre-cap close amount; got {seized_usdc} USDC"
+    );
 }
 
-// Regression for Codex re-review of #1 (multi-asset case). A user with
-// multiple debt positions where ONE position's residue would land
-// sub-floor — but the aggregate residue stays above the floor — must
-// not strand the dust leg. The per-position dust gate fires.
+// Multi-asset companion: a user with multiple debt positions where one touched
+// debt position's residue would land sub-floor must still remain liquidatable,
+// but the touched leg must be capped so it does not end below its own floor.
 #[test]
-fn test_liquidation_rejects_per_position_dust_on_multi_debt_account() {
+fn test_liquidation_caps_per_position_dust_on_multi_debt_account() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -317,16 +326,22 @@ fn test_liquidation_rejects_per_position_dust_on_multi_debt_account() {
     t.assert_liquidatable(ALICE);
 
     // Liquidator pays only on the small ETH leg, just enough to leave
-    // ~$1–2 ETH dust. The USDT leg is untouched (still ~$100), so the
-    // aggregate residue debt stays well above $10. Without the
-    // per-position gate the ETH leg would land in the dust window.
+    // ~$1–2 ETH dust. The USDT leg is untouched (still ~$100), so the account
+    // should not be protected from liquidation by the small-leg residue.
+    let debt_before = t.borrow_balance(ALICE, "ETH");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.010);
-    assert_contract_error(result, errors::DUST_RESIDUE_NOT_ALLOWED);
+    assert!(result.is_ok(), "liquidation should remain live");
+    let eth_debt_after = t.borrow_balance(ALICE, "ETH");
+    assert!(eth_debt_after < debt_before);
+    assert!(
+        eth_debt_after < 0.0001 || eth_debt_after >= 0.0049,
+        "ETH debt residue should be zero or stay near/above the $10 floor, got {} ETH",
+        eth_debt_after
+    );
 }
 
-// Companion: when the same setup gets a payment that fully covers
-// total debt, the full-close path succeeds — proving the rejection is
-// scoped to short payments only.
+// Companion: when the same setup gets a payment that fully covers total debt,
+// liquidation still settles without leaving a nonzero sub-floor debt residue.
 #[test]
 fn test_liquidation_full_payment_closes_dust_position() {
     let mut t = LendingTest::new()
@@ -341,14 +356,79 @@ fn test_liquidation_full_payment_closes_dust_position() {
     t.set_price("USDC", controller::constants::WAD / 2);
     t.assert_liquidatable(ALICE);
 
-    // Pay 0.011 ETH = $22 = total debt. Dust expansion fires AND the
-    // payment ceiling allows it → full close.
+    // Pay 0.011 ETH = $22 = total debt.
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
     let debt_after = t.borrow_balance(ALICE, "ETH");
     assert!(
         debt_after < 0.0001,
         "full payment should close the position, got {} ETH residual",
         debt_after
+    );
+}
+
+// Regression: if a debt position drifted wholly below its debt floor and the
+// liquidator offers enough to close it, the close-factor refund pass must not
+// shrink that leg below full close. Otherwise the dust cap drops the only repay
+// leg, liquidation reverts as empty, and collateral above the bad-debt cleanup
+// threshold leaves the account stuck.
+#[test]
+fn test_liquidation_full_closes_wholly_subfloor_debt_above_bad_debt_cleanup_threshold() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 20.0);
+    t.borrow(ALICE, "ETH", 0.006);
+
+    // ETH debt -> $8.10, below the $10 debt floor. USDC collateral -> $6.40,
+    // above the $5 standalone bad-debt cleanup threshold but below debt.
+    t.set_price("ETH", usd(1350));
+    t.set_price("USDC", usd_cents(32));
+    t.assert_liquidatable(ALICE);
+
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.006);
+    assert!(
+        result.is_ok(),
+        "full-covered wholly-sub-floor debt must close instead of becoming stuck: {result:?}"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 0.0001,
+        "sub-floor ETH debt should be fully closed"
+    );
+}
+
+// The same wholly-sub-floor account must also be clearable by the normal
+// profitable path: repay up to available collateral, seize it, then socialize
+// the residual bad debt inline. Otherwise only an overpaying keeper could clear
+// this debt band.
+#[test]
+fn test_liquidation_partial_socializes_wholly_subfloor_debt_after_seizing_collateral() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 20.0);
+    t.borrow(ALICE, "ETH", 0.006);
+
+    t.set_price("ETH", usd(1350));
+    t.set_price("USDC", usd_cents(32));
+    t.assert_liquidatable(ALICE);
+
+    t.get_or_create_user(LIQUIDATOR);
+    let liquidator_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
+    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.0045);
+    assert!(
+        result.is_ok(),
+        "profitable partial liquidation should seize collateral then socialize residual debt: {result:?}"
+    );
+
+    assert_eq!(t.borrow_balance(ALICE, "ETH"), 0.0);
+    assert_eq!(t.supply_balance(ALICE, "USDC"), 0.0);
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") > liquidator_usdc_before,
+        "liquidator should receive seized collateral"
     );
 }
 

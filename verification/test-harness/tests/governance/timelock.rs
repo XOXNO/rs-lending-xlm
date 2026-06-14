@@ -178,6 +178,23 @@ fn non_proposer_propose_rejected() {
     assert_contract_error(mapped, errors::UNAUTHORIZED);
 }
 
+#[test]
+fn propose_transfer_controller_ownership_rejects_non_contract_owner() {
+    let t = LendingTest::new().build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let new_owner = Address::generate(&t.env);
+    let live_until = t.env.ledger().sequence() + 1_000;
+
+    let result =
+        gov.try_propose_transfer_ctrl_ownership(&admin, &new_owner, &live_until, &salt(&t.env, 9));
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::NOT_SMART_CONTRACT);
+}
+
 // A non-EXECUTOR cannot execute a ready op: the explicit-executor path rejects
 // with `Unauthorized` (#2000) once it sees the caller lacks EXECUTOR.
 #[test]

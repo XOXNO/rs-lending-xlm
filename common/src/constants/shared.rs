@@ -25,7 +25,7 @@ pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 pub const MIN_FIRST_TOLERANCE: u32 = 50;
 
 /// Maximum first-price tolerance input (BPS).
-pub const MAX_FIRST_TOLERANCE: u32 = 5_000;
+pub const MAX_FIRST_TOLERANCE: u32 = 500;
 
 /// Minimum last-price tolerance input (BPS).
 pub const MIN_LAST_TOLERANCE: u32 = 150;

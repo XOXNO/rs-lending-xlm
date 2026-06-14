@@ -87,17 +87,18 @@ fn test_liquidation_rejects_healthy_account() {
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_HIGH);
 }
-// 4. test_liquidation_rejects_when_paused
+// 4. test_liquidation_allowed_when_paused
 
 #[test]
-fn test_liquidation_rejects_when_paused() {
+fn test_liquidation_allowed_when_paused() {
     let mut t = liquidatable_usdc_eth();
     t.pause();
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::CONTRACT_PAUSED);
-
-    t.unpause();
+    assert!(
+        result.is_ok(),
+        "liquidation should remain available while paused"
+    );
 }
 // 5. test_liquidation_dynamic_bonus_moderate
 

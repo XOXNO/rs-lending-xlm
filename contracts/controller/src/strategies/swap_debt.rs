@@ -87,6 +87,7 @@ pub fn process_swap_debt(
 
     let swapped_amount = swap_tokens(
         env,
+        caller,
         new_debt_token,
         amount_received,
         existing_debt_token,

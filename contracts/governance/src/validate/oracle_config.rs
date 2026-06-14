@@ -43,6 +43,9 @@ pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfi
 
         // Production anchored markets must cross providers.
         if config.strategy == OracleStrategy::PrimaryWithAnchor {
+            if primary_is_spot {
+                panic_with_error!(env, GenericError::SpotOnlyNotProductionSafe);
+            }
             if let Some(anchor) = config.anchor.as_ref() {
                 let same_provider = matches!(
                     (&config.primary, anchor),

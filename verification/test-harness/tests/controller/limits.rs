@@ -242,7 +242,7 @@ fn test_max_withdraw_with_debt_respects_ltv() {
 }
 
 #[test]
-fn test_max_withdraw_zero_when_paused_or_absent() {
+fn test_max_withdraw_available_when_paused_zero_when_absent() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 100.0);
 
@@ -250,7 +250,7 @@ fn test_max_withdraw_zero_when_paused_or_absent() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.pause();
-    assert_eq!(t.ctrl_client().max_withdraw(&account_id, &asset), 0);
+    assert!(t.ctrl_client().max_withdraw(&account_id, &asset) > 0);
     t.unpause();
 
     // Unknown account and unlisted position degrade to zero, not panic.
@@ -362,7 +362,10 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
     let account_id = t.resolve_account_id(ALICE);
 
     let max = t.ctrl_client().max_borrow(&account_id, &usdc);
-    assert!(max > 0, "ETH collateral should allow a USDC borrow, got {max}");
+    assert!(
+        max > 0,
+        "ETH collateral should allow a USDC borrow, got {max}"
+    );
 
     // The preview executes to the stroop.
     t.borrow_raw(ALICE, "USDC", max);
@@ -370,7 +373,10 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
     // Headroom collapses and one more unit trips the LTV gate the preview
     // modeled, so the preview never overstated.
     let after = t.ctrl_client().max_borrow(&account_id, &usdc);
-    assert!(after <= UNIT, "headroom should be ~0 after borrowing max, got {after}");
+    assert!(
+        after <= UNIT,
+        "headroom should be ~0 after borrowing max, got {after}"
+    );
     let res = t.try_borrow(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
 }

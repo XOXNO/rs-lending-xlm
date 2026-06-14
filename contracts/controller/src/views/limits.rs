@@ -10,8 +10,10 @@
 
 use common::math::fp::{Ray, Wad};
 use common::rates::{scaled_to_original, utilization};
-use controller_interface::types::{Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus};
 use common::validation::cap_is_enabled;
+use controller_interface::types::{
+    Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus,
+};
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
@@ -66,9 +68,6 @@ impl MarketLimitCtx {
 }
 
 pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    if stellar_contract_utils::pausable::paused(env) {
-        return 0;
-    }
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
@@ -202,7 +201,10 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     }
 
     let config = cache.cached_asset_config(asset);
-    let mut hi = market.cash.min(borrow_cap_headroom(env, &market, &config)).max(0);
+    let mut hi = market
+        .cash
+        .min(borrow_cap_headroom(env, &market, &config))
+        .max(0);
     if hi <= 0 {
         return 0;
     }

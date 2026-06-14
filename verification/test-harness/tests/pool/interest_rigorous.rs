@@ -246,7 +246,9 @@ fn test_scaled_amount_times_index_equals_actual() {
             .env
             .storage()
             .persistent()
-            .get(&controller::types::ControllerKey::BorrowPositions(account_id))
+            .get(&controller::types::ControllerKey::BorrowPositions(
+                account_id,
+            ))
             .expect("borrow side map must exist");
         map.get(eth_addr.clone())
             .expect("borrow position for asset must exist")

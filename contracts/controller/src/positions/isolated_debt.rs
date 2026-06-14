@@ -1,7 +1,7 @@
 use common::errors::{EModeError, GenericError};
 use common::math::fp::Ray;
 use common::math::fp_core::mul_div_floor;
-use controller_interface::types::{Account, DebtPosition};
+use controller_interface::types::Account;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::Cache;
@@ -29,18 +29,6 @@ pub(crate) fn clear_position_isolated_debt(
     }
     decrement_counter(cache, &isolated_asset, basis);
     storage::set_isolated_basis(env, account_id, asset, 0);
-}
-
-pub(crate) fn actual_borrow_amount(
-    env: &Env,
-    position: &DebtPosition,
-    borrow_index: Ray,
-    asset_decimals: u32,
-) -> i128 {
-    position
-        .scaled_amount
-        .mul(env, borrow_index)
-        .to_asset(asset_decimals)
 }
 
 /// Decrements the isolated-debt ceiling counter and per-position basis when a

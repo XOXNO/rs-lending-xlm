@@ -4,22 +4,21 @@
 //! repays debt, seizes collateral, and refunds payment above the close amount. Bad-debt
 //! cleanup socializes residual debt only when collateral is below the USD threshold.
 
-use common::errors::{CollateralError, GenericError};
 use crate::events::CleanBadDebtEvent;
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Wad;
 use controller_interface::types::{
     Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
     PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
-use stellar_macros::{only_role, when_not_paused};
+use stellar_macros::only_role;
 
 use super::liquidation_math::*;
 use super::{repay, withdraw};
 use crate::cache::Cache;
 use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
-use crate::helpers::{require_no_borrow_dust_for_assets, require_no_supply_dust_for_assets};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
@@ -30,7 +29,6 @@ use crate::{
 
 #[contractimpl]
 impl Controller {
-    #[when_not_paused]
     pub fn liquidate(
         env: Env,
         liquidator: Address,
@@ -40,7 +38,6 @@ impl Controller {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
-    #[when_not_paused]
     #[only_role(caller, "KEEPER")]
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
         validation::require_not_flash_loaning(&env);
@@ -82,7 +79,9 @@ pub fn process_liquidation(
         validation::require_asset_supported(env, &mut cache, &asset);
     }
 
-    let result = execute_liquidation(env, &account, &plan, &mut cache);
+    let liquidation_plan = build_liquidation_plan(env, &account, &plan, &mut cache);
+    let requires_post_socialization = liquidation_plan.requires_post_socialization();
+    let result = liquidation_plan.into_result();
 
     validation::require_non_empty_payments(env, &result.repaid);
 
@@ -96,8 +95,6 @@ pub fn process_liquidation(
     );
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
-    // Per-leg dust gate scoped to the assets this liquidation touched (seized supply
-    // + repaid debt); positions that drifted under floor on price moves must not block it.
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
         env,
         &mut cache,
@@ -105,12 +102,11 @@ pub fn process_liquidation(
         &account.borrow_positions,
     );
     let will_socialize = is_socializable_bad_debt(post_total_debt, post_total_coll);
-    if !will_socialize {
-        let seized_assets = unique_assets(env, &result.seized, |e| e.asset.clone());
-        let repaid_assets = unique_assets(env, &result.repaid, |e| e.asset.clone());
-        require_no_supply_dust_for_assets(env, &mut cache, &account, &seized_assets);
-        require_no_borrow_dust_for_assets(env, &mut cache, &account, &repaid_assets);
-    }
+    assert_with_error!(
+        env,
+        !requires_post_socialization || will_socialize,
+        CollateralError::DustResidueNotAllowed
+    );
 
     storage::set_supply_positions(env, account_id, &account.supply_positions);
     storage::set_debt_positions(env, account_id, &account.borrow_positions);
@@ -139,8 +135,15 @@ pub(crate) fn execute_liquidation(
     plan: &Vec<Payment>,
     cache: &mut Cache,
 ) -> LiquidationResult {
-    let mut refunds = Vec::new(env);
+    build_liquidation_plan(env, account, plan, cache).into_result()
+}
 
+fn build_liquidation_plan(
+    env: &Env,
+    account: &Account,
+    plan: &Vec<Payment>,
+    cache: &mut Cache,
+) -> LiquidationPlan {
     // One totals pass feeds both the HF gate and the snapshot; the inlined HF
     // mirrors calculate_health_factor, including the debt-free early panic
     // that prices nothing.
@@ -171,46 +174,17 @@ pub(crate) fn execute_liquidation(
         hf,
     };
 
-    let (total_debt_payment_usd, repaid_tokens, payment_covers_full_debt) =
-        calculate_repayment_amounts(env, plan, account, &mut refunds, cache);
+    let repayment = normalize_repayment_plan(env, account, plan, &snap, bonus_bounds, cache);
 
-    let (max_debt_to_repay_usd, bonus) =
-        calculate_liquidation_amounts(env, &snap, bonus_bounds, total_debt_payment_usd);
+    let seized_collaterals =
+        calculate_seized_collateral(env, account, total_collateral, &repayment, cache);
 
-    let max_debt_to_repay_usd = expand_to_full_close_on_dust_residue(
-        env,
-        cache,
-        account,
-        DustExpansionInputs {
-            snap: &snap,
-            bonus,
-            payment_covers_full_debt,
-            repay_usd: max_debt_to_repay_usd,
-        },
-    );
-
-    let seized_collaterals = calculate_seized_collateral(
-        env,
-        account,
-        total_collateral,
-        max_debt_to_repay_usd,
-        bonus,
-        cache,
-    );
-
-    let mut final_repayment_tokens = repaid_tokens;
-    if total_debt_payment_usd > max_debt_to_repay_usd {
-        let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
-        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
-    }
-
-    LiquidationResult {
+    let plan = LiquidationPlan {
+        repayment,
         seized: seized_collaterals,
-        repaid: final_repayment_tokens,
-        refunds,
-        max_debt_usd: max_debt_to_repay_usd.raw(),
-        bonus_bps: bonus.raw(),
-    }
+    };
+    plan.validate(env);
+    plan
 }
 
 fn apply_liquidation_repayments(
@@ -275,19 +249,6 @@ fn apply_liquidation_seizures(
         &entries,
         cache,
     );
-}
-
-// Order-preserving unique asset list from any entry vector keyed by `asset_of`.
-fn unique_assets<T>(env: &Env, entries: &Vec<T>, asset_of: impl Fn(&T) -> Address) -> Vec<Address>
-where
-    T: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
-{
-    let mut out: Vec<Address> = Vec::new(env);
-    for i in 0..entries.len() {
-        let entry = validation::expect_invariant(env, entries.get(i));
-        utils::push_unique_address(&mut out, asset_of(&entry));
-    }
-    out
 }
 
 fn check_bad_debt_after_liquidation(

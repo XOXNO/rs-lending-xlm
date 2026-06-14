@@ -107,6 +107,7 @@ pub fn process_swap_collateral(
 
     let swapped_amount = swap_tokens(
         env,
+        caller,
         current_collateral,
         actual_withdrawn,
         new_collateral,

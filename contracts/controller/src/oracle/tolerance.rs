@@ -26,7 +26,11 @@ pub(crate) fn calculate_final_price(
                 tolerance.first_upper_ratio_bps,
                 tolerance.first_lower_ratio_bps,
             ) {
-                primary_price
+                if cache.oracle_policy.requires_blended_first_band() {
+                    midpoint_price(env, anchor_price, primary_price)
+                } else {
+                    primary_price
+                }
             } else if is_within_anchor(
                 env,
                 anchor_price,
@@ -34,10 +38,7 @@ pub(crate) fn calculate_final_price(
                 tolerance.last_upper_ratio_bps,
                 tolerance.last_lower_ratio_bps,
             ) {
-                anchor_price
-                    .checked_add(primary_price)
-                    .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-                    / 2
+                midpoint_price(env, anchor_price, primary_price)
             } else {
                 // Beyond the last band: only single-source fallback policies tolerate
                 // this divergence (all others, incl. liquidation, revert); keep the
@@ -54,6 +55,13 @@ pub(crate) fn calculate_final_price(
             panic_with_error!(env, OracleError::NoLastPrice);
         }
     }
+}
+
+fn midpoint_price(env: &Env, anchor_price: i128, primary_price: i128) -> i128 {
+    anchor_price
+        .checked_add(primary_price)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+        / 2
 }
 
 pub(crate) fn is_within_anchor(
@@ -109,6 +117,30 @@ mod tests {
         let cache = Cache::build(&env, OraclePolicy::View);
         let price = calculate_final_price(&cache, Some(500), None, &sample_tolerance());
         assert_eq!(price, 500);
+    }
+
+    #[test]
+    fn test_calculate_final_price_first_band_risk_increasing_uses_midpoint() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::RiskIncreasing);
+        let anchor = 100 * crate::constants::WAD;
+        let primary = 101 * crate::constants::WAD;
+        let price = calculate_final_price(&cache, Some(anchor), Some(primary), &sample_tolerance());
+        assert_eq!(price, (anchor + primary) / 2);
+    }
+
+    #[test]
+    fn test_calculate_final_price_first_band_risk_decreasing_keeps_primary() {
+        let env = Env::default();
+        let cache = Cache::build(&env, OraclePolicy::RiskDecreasing);
+        let primary = 101 * crate::constants::WAD;
+        let price = calculate_final_price(
+            &cache,
+            Some(100 * crate::constants::WAD),
+            Some(primary),
+            &sample_tolerance(),
+        );
+        assert_eq!(price, primary);
     }
 
     #[test]

@@ -6,8 +6,8 @@
 //! `simulate_update_indexes`) derives, and that unlisted assets keep their
 //! pre-prefetch panic semantics.
 
-use controller::constants::MS_PER_SECOND;
 use common::rates::simulate_update_indexes;
+use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
 use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};

@@ -2,8 +2,8 @@
 //!
 //! Borrows and supplies through an aggregator route in one transaction.
 
-use common::errors::{CollateralError, GenericError, StrategyError};
 use crate::events::InitialMultiplyPaymentEvent;
+use common::errors::{CollateralError, GenericError, StrategyError};
 use controller_interface::types::{Account, AssetConfig, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -150,7 +150,14 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    let swapped_collateral = swap_tokens(env, debt_token, swap_amount_in, collateral_token, swap);
+    let swapped_collateral = swap_tokens(
+        env,
+        caller,
+        debt_token,
+        swap_amount_in,
+        collateral_token,
+        swap,
+    );
 
     let total_collateral = collateral_amount
         .checked_add(swapped_collateral)
@@ -219,6 +226,7 @@ fn collect_initial_multiply_payment(
             };
             collateral_amount = swap_tokens(
                 env,
+                caller,
                 payment_token,
                 *payment_amount,
                 collateral_token,

@@ -42,7 +42,23 @@ pub fn refresh_supply_risk_params_for_asset(
     asset: &Address,
     position: &mut AccountPosition,
 ) {
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+    // Views that model exits must not reject solely because governance
+    // deprecated a category or removed an asset from it. In those cases existing
+    // positions keep their stored risk params; only active category membership
+    // may refresh them.
+    let e_mode = match emode::e_mode_category(env, account.e_mode_category_id) {
+        Some(category) => {
+            if category.is_deprecated
+                || cache
+                    .cached_emode_asset(account.e_mode_category_id, asset)
+                    .is_none()
+            {
+                return;
+            }
+            Some(category)
+        }
+        None => None,
+    };
     let config = emode::effective_asset_config(env, account, asset, cache, &e_mode);
     refresh_supply_risk_params(env, cache, account, asset, position, &config);
 }

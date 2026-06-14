@@ -28,7 +28,7 @@ fn test_tolerance_config_rejects_first_below_min() {
     assert_contract_error(result, OracleError::BadFirstTolerance as u32);
 }
 
-// MAX_FIRST_TOLERANCE = 5000 BPS.
+// MAX_FIRST_TOLERANCE = 500 BPS.
 #[test]
 fn test_tolerance_config_rejects_first_above_max() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

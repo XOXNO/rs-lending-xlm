@@ -30,7 +30,6 @@ use stellar_governance::timelock::{
 use stellar_macros::only_owner;
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
-use crate::constants::MIN_TIMELOCK_DELAY_LEDGERS;
 use crate::storage::renew_governance_instance;
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
@@ -38,10 +37,26 @@ use crate::{Governance, GovernanceArgs, GovernanceClient};
 /// immediately Ready and silently nullify the timelock. Shared by the
 /// constructor and `update_delay`.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
+    #[cfg(not(any(test, feature = "testing")))]
+    let min_delay = crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
+    #[cfg(any(test, feature = "testing"))]
+    let min_delay = crate::constants::MIN_TIMELOCK_DELAY_LEDGERS;
+    assert_with_error!(env, delay >= min_delay, GenericError::InvalidTimelockDelay);
+}
+
+fn require_operation_not_expired(env: &Env, operation: &Operation) {
+    let operation_id = hash_operation(env, operation);
+    let ready_ledger = get_operation_ledger(env, &operation_id);
+    if ready_ledger <= 1 {
+        return;
+    }
+
+    let expires_at =
+        ready_ledger.saturating_add(crate::constants::TIMELOCK_OPERATION_GRACE_LEDGERS);
     assert_with_error!(
         env,
-        delay >= MIN_TIMELOCK_DELAY_LEDGERS,
-        GenericError::InvalidTimelockDelay
+        env.ledger().sequence() <= expires_at,
+        GenericError::TimelockOperationExpired
     );
 }
 
@@ -71,6 +86,7 @@ impl Governance {
             predecessor,
             salt,
         };
+        require_operation_not_expired(&env, &operation);
         execute_operation(&env, &operation)
     }
 
@@ -165,7 +181,7 @@ mod tests {
     use controller_interface::types::{ControllerKey, PositionLimits};
 
     use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
-    use crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
+    use crate::constants::{TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS};
     use crate::{Governance, GovernanceClient};
 
     const ZERO_SALT: [u8; 32] = [0u8; 32];
@@ -304,6 +320,34 @@ mod tests {
         assert_eq!(stored.max_borrow_positions, 3);
     }
 
+    #[test]
+    #[should_panic(expected = "Error(Contract, #40)")]
+    fn execute_after_grace_period_reverts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let delay = 10u32;
+        let (admin, controller, gov) = register_with_controller(&env, delay);
+
+        let limits = PositionLimits {
+            max_supply_positions: 6,
+            max_borrow_positions: 3,
+        };
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        let _id = gov.propose_set_position_limits(&admin, &limits, &salt);
+
+        env.ledger()
+            .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
+
+        gov.execute(
+            &Some(admin.clone()),
+            &controller,
+            &Symbol::new(&env, "set_position_limits"),
+            &vec![&env, limits.into_val(&env)],
+            &BytesN::<32>::from_array(&env, &ZERO_SALT),
+            &salt,
+        );
+    }
+
     // (d) Validation runs at PROPOSE time: a zero position limit reverts when
     // scheduling, before anything is queued (InvalidPositionLimits #36).
     #[test]
@@ -319,6 +363,17 @@ mod tests {
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
         gov.propose_set_position_limits(&admin, &limits, &salt);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #41)")]
+    fn propose_controller_role_rejects_unknown_role() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _controller, gov) = register_with_controller(&env, 10);
+
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        gov.propose_grant_controller_role(&admin, &admin, &Symbol::new(&env, "BAD_ROLE"), &salt);
     }
 
     // (e) A CANCELLER cancels a pending op; its state returns to Unset.

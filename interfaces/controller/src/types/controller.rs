@@ -1,5 +1,5 @@
-use common::math::fp::{Bps, Ray, Wad};
 use crate::types::oracle::MarketOracleConfig;
+use common::math::fp::{Bps, Ray, Wad};
 use common::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
 use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};

@@ -6,7 +6,9 @@
 
 use common::errors::CollateralError;
 use common::math::fp::{Ray, Wad};
-use controller_interface::types::{Account, AccountMeta, AccountPosition, DebtPosition, PositionMode};
+use controller_interface::types::{
+    Account, AccountMeta, AccountPosition, DebtPosition, PositionMode,
+};
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use super::math::position_value;

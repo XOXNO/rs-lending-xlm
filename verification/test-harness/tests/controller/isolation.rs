@@ -208,7 +208,10 @@ fn test_isolated_debt_basis_excludes_accrued_interest() {
         "exact basis must exclude accrued interest: after={after} must exceed the \
          interest-inclusive decrement {old_buggy}"
     );
-    assert!(after < basis, "a partial repay must still reduce the counter");
+    assert!(
+        after < basis,
+        "a partial repay must still reduce the counter"
+    );
 
     // Fully repay (overpay forces a full close); the counter returns to zero.
     let remaining_raw = t.borrow_balance_raw(ALICE, "USDC");

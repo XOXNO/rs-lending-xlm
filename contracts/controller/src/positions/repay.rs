@@ -4,9 +4,10 @@
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
 
 use common::errors::GenericError;
-use controller_interface::types::{Account, DebtPosition, Payment, PoolAction, PoolPositionMutation};
+use controller_interface::types::{
+    Account, DebtPosition, Payment, PoolAction, PoolPositionMutation,
+};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
-use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::external::pool::pool_repay_call;
@@ -29,7 +30,6 @@ impl Controller {
     // Permissionless w.r.t. the owner: any caller (authorizing itself) can
     // settle another account's debt — needed by liquidators and debt-swap
     // strategies — and repay can't harm the owner.
-    #[when_not_paused]
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
@@ -126,7 +126,15 @@ pub(crate) fn settle_repay_actions(
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repayment(env, account, account_id, action, &entry.asset, &result, cache);
+        finish_repayment(
+            env,
+            account,
+            account_id,
+            action,
+            &entry.asset,
+            &result,
+            cache,
+        );
     }
     results
 }

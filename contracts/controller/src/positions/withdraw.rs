@@ -8,7 +8,6 @@ use controller_interface::types::{
     Account, AccountPosition, EModeCategory, Payment, PoolPositionMutation, PoolWithdrawEntry,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
-use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::emode;
@@ -35,7 +34,6 @@ pub(crate) struct WithdrawalRequest<'a> {
 #[contractimpl]
 impl Controller {
     /// Tokens go to `to` (else `caller`); returns actual paid per asset.
-    #[when_not_paused]
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -152,18 +150,21 @@ pub(crate) fn settle_withdraw_entries(
 ) -> Vec<PoolPositionMutation> {
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
-    // Resolve e-mode once for the whole batch; liquidation seizures never
-    // refresh risk params, so they skip the read.
-    let refresh_e_mode = if is_liquidation {
+    // Resolve the category once, then decide per asset whether it is still
+    // active membership. Deprecated categories and removed assets must not block
+    // exits, but they also must not rewrite existing position risk params.
+    let e_mode_category = if is_liquidation {
         None
     } else {
-        Some(emode::active_e_mode_category(
-            env,
-            account.e_mode_category_id,
-        ))
+        Some(emode::e_mode_category(env, account.e_mode_category_id))
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
+        let refresh_e_mode = if is_liquidation {
+            None
+        } else {
+            withdraw_refresh_e_mode_for_asset(cache, account, &entry.action.asset, &e_mode_category)
+        };
         finish_withdrawal(
             env,
             account,
@@ -177,10 +178,34 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
+fn withdraw_refresh_e_mode_for_asset(
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    e_mode_category: &Option<Option<EModeCategory>>,
+) -> Option<Option<EModeCategory>> {
+    if account.e_mode_category_id == 0 {
+        return Some(None);
+    }
+
+    let Some(Some(category)) = e_mode_category else {
+        return None;
+    };
+    if category.is_deprecated
+        || cache
+            .cached_emode_asset(account.e_mode_category_id, asset)
+            .is_none()
+    {
+        return None;
+    }
+
+    Some(Some(category.clone()))
+}
+
 /// Merges one pool withdraw result back into the account and event buffers.
-/// `refresh_e_mode` is `Some` for user flows (risk params refresh from the
-/// e-mode-adjusted config) and `None` for liquidation seizures (params stay
-/// frozen).
+/// `refresh_e_mode` is `Some` when the withdrawn asset should refresh from
+/// current config and `None` when risk params must stay frozen (liquidation,
+/// deprecated category, or removed e-mode membership).
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,

@@ -101,8 +101,14 @@ pub fn process_repay_debt_with_collateral(
         },
     );
 
-    let debt_available =
-        swap_or_net_collateral_to_debt(env, collateral_token, debt_token, actual_withdrawn, swap);
+    let debt_available = swap_or_net_collateral_to_debt(
+        env,
+        caller,
+        collateral_token,
+        debt_token,
+        actual_withdrawn,
+        swap,
+    );
     repay_debt_from_controller(
         env,
         &mut account,
@@ -153,6 +159,7 @@ fn load_repay_with_collateral_positions(
 
 fn swap_or_net_collateral_to_debt(
     env: &Env,
+    caller: &Address,
     collateral_token: &Address,
     debt_token: &Address,
     collateral_amount: i128,
@@ -162,7 +169,14 @@ fn swap_or_net_collateral_to_debt(
         return collateral_amount;
     }
 
-    swap_tokens(env, collateral_token, collateral_amount, debt_token, swap)
+    swap_tokens(
+        env,
+        caller,
+        collateral_token,
+        collateral_amount,
+        debt_token,
+        swap,
+    )
 }
 
 fn close_remaining_collateral_if_requested(

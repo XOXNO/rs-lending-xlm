@@ -146,12 +146,6 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     account_from_parts(meta, Map::new(env), borrow_positions)
 }
 
-pub(crate) fn get_account_supply_only(env: &Env, account_id: u64) -> Account {
-    let meta = get_account_meta(env, account_id);
-    let supply_positions = get_supply_positions(env, account_id);
-    account_from_parts(meta, supply_positions, Map::new(env))
-}
-
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
