@@ -100,14 +100,45 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
+/// Separation of powers: a single delegated address must not hold BOTH the
+/// EXECUTOR and CANCELLER timelock roles — whoever executes a scheduled
+/// operation must not also be able to veto one. The owner is exempt: it holds
+/// the full role set via the constructor / ownership sync, which call
+/// `grant_role_no_auth` directly and bypass this path, so governance can never
+/// deadlock (the owner can always both execute and cancel).
+fn require_executor_canceller_separation(env: &Env, account: &Address, role: &Symbol) {
+    let executor = Symbol::new(env, EXECUTOR_ROLE);
+    let canceller = Symbol::new(env, CANCELLER_ROLE);
+    let conflicting = if role == &executor {
+        canceller
+    } else if role == &canceller {
+        executor
+    } else {
+        return;
+    };
+    assert_with_error!(
+        env,
+        access_control::has_role(env, account, &conflicting).is_none(),
+        GenericError::InvalidRole
+    );
+}
+
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     crate::storage::renew_governance_instance(env);
+    require_executor_canceller_separation(env, account, role);
     let owner = ownable::get_owner(env).unwrap();
     access_control::grant_role_no_auth(env, account, role, &owner);
 }
 
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     crate::storage::renew_governance_instance(env);
+    // Fail loud if the target does not hold the role: a silent no-op could let
+    // an operator believe a privilege was removed when it never was.
+    assert_with_error!(
+        env,
+        access_control::has_role(env, account, role).is_some(),
+        GenericError::InvalidRole
+    );
     let owner = ownable::get_owner(env).unwrap();
     access_control::revoke_role_no_auth(env, account, role, &owner);
 }
@@ -161,6 +192,61 @@ mod tests {
         env.as_contract(&contract_id, || {
             assert_eq!(ownable::get_owner(&env), Some(admin.clone()));
             assert_eq!(access_control::get_admin(&env), Some(admin));
+        });
+    }
+
+    fn fresh_governance(env: &Env) -> Address {
+        let admin = Address::generate(env);
+        env.register(
+            Governance,
+            (admin, crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
+        )
+    }
+
+    // #7: a single delegate cannot hold both EXECUTOR and CANCELLER.
+    #[test]
+    #[should_panic]
+    fn grant_role_enforces_executor_canceller_separation() {
+        let env = Env::default();
+        let id = fresh_governance(&env);
+        let delegate = Address::generate(&env);
+        env.as_contract(&id, || {
+            apply_grant_role(&env, &delegate, &Symbol::new(&env, CANCELLER_ROLE));
+            // Granting EXECUTOR to the same delegate must revert.
+            apply_grant_role(&env, &delegate, &Symbol::new(&env, EXECUTOR_ROLE));
+        });
+    }
+
+    // #7: separated EXECUTOR and CANCELLER delegates are allowed.
+    #[test]
+    fn grant_role_allows_separated_executor_and_canceller() {
+        let env = Env::default();
+        let id = fresh_governance(&env);
+        let executor = Address::generate(&env);
+        let canceller = Address::generate(&env);
+        env.as_contract(&id, || {
+            apply_grant_role(&env, &executor, &Symbol::new(&env, EXECUTOR_ROLE));
+            apply_grant_role(&env, &canceller, &Symbol::new(&env, CANCELLER_ROLE));
+            assert!(
+                access_control::has_role(&env, &executor, &Symbol::new(&env, EXECUTOR_ROLE))
+                    .is_some()
+            );
+            assert!(
+                access_control::has_role(&env, &canceller, &Symbol::new(&env, CANCELLER_ROLE))
+                    .is_some()
+            );
+        });
+    }
+
+    // #8: revoking a role the account does not hold reverts (no silent no-op).
+    #[test]
+    #[should_panic]
+    fn revoke_role_rejects_unheld() {
+        let env = Env::default();
+        let id = fresh_governance(&env);
+        let stranger = Address::generate(&env);
+        env.as_contract(&id, || {
+            apply_revoke_role(&env, &stranger, &Symbol::new(&env, ORACLE_ROLE));
         });
     }
 }

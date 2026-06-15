@@ -1,6 +1,6 @@
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
-use test_harness::{usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, ALICE, BOB};
 
 fn fresh() -> LendingTest {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -87,6 +87,24 @@ fn test_grant_role_then_revoke_round_trip() {
     assert!(t.ctrl_client().has_role(&bob_addr, &oracle_sym));
     t.revoke_role(BOB, "ORACLE");
     assert!(!t.ctrl_client().has_role(&bob_addr, &oracle_sym));
+}
+
+// #8: revoking a role the account never held must revert (loud), not no-op.
+#[test]
+fn test_revoke_role_rejects_unheld() {
+    let t = fresh();
+    t.env.mock_all_auths();
+    let bob_addr = t.users.get(BOB).unwrap().address.clone();
+    let oracle_sym = Symbol::new(&t.env, "ORACLE");
+    assert!(!t.ctrl_client().has_role(&bob_addr, &oracle_sym));
+
+    let result = t.ctrl_client().try_revoke_role(&bob_addr, &oracle_sym);
+    let flat: Result<(), soroban_sdk::Error> = match result {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat, errors::INVALID_ROLE);
 }
 
 #[test]

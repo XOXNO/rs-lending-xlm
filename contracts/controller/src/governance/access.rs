@@ -164,6 +164,13 @@ impl Controller {
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
         let owner = ownable::get_owner(&env).unwrap();
+        // Fail loud if the target does not hold the role, rather than silently
+        // no-op'ing (an operator could otherwise believe a privilege was removed).
+        assert_with_error!(
+            &env,
+            access_control::has_role(&env, &account, &role).is_some(),
+            GenericError::InvalidRole
+        );
         access_control::revoke_role_no_auth(&env, &account, &role, &owner);
     }
 
