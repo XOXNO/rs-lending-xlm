@@ -1,45 +1,37 @@
-//! Ownership, the ORACLE role, and self-upgrade for the governance contract.
+//! Ownership, governance roles, and self-admin apply helpers.
 //!
-//! Built on the `stellar_access` crate primitives. Governance owns the
-//! ORACLE role, which gates the testing-only immediate oracle-configuration
-//! forwarders; production oracle config is timelocked through the PROPOSER-gated
-//! `propose_configure_market_oracle` / `propose_edit_oracle_tolerance` proposers.
-//! Pause and position limits are absent by design: both are controller state and
-//! stay behind the controller's own entrypoints.
-//!
-//! The entrypoints here (`upgrade`, `transfer_ownership`, `grant_role`,
-//! `revoke_role`) administer the governance contract ITSELF and are owner-gated
-//! and immediate. They cannot be timelocked: Soroban prohibits a contract from
-//! invoking and self-authorizing itself, so a scheduled op cannot target
-//! governance. Protocol-affecting controller admin IS timelocked, through the
-//! typed `propose_*` proposers in `forward.rs`.
+//! Governance-self mutations (`upgrade`, delay changes, role grants/revokes,
+//! ownership transfer initiation) are timelocked in `self_timelock.rs`.
+//! This module holds the constructor, `accept_ownership`, shared apply
+//! helpers, and the role allowlist.
 
 use common::errors::GenericError;
-use soroban_sdk::{contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
 use stellar_access::{access_control, ownable};
-use stellar_macros::only_owner;
 
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
-
-/// Timelock roles. The crate leaves all role logic to the host; these gate the
-/// `propose_*` / `execute` / `cancel` timelock entrypoints respectively.
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 
-/// Operational roles seeded on the admin at construction and migrated as a unit
-/// on ownership transfer: ORACLE plus the timelock PROPOSER/EXECUTOR/CANCELLER.
-/// Keeping the full set here ensures an ownership handoff moves every role to
-/// the new owner and off the previous one.
-fn default_operational_roles(env: &Env) -> [Symbol; 4] {
+pub(crate) fn default_operational_roles(env: &Env) -> [Symbol; 4] {
     [
         Symbol::new(env, ORACLE_ROLE),
         Symbol::new(env, PROPOSER_ROLE),
         Symbol::new(env, EXECUTOR_ROLE),
         Symbol::new(env, CANCELLER_ROLE),
     ]
+}
+
+pub(crate) fn require_known_governance_role(env: &Env, role: &Symbol) {
+    for known in default_operational_roles(env) {
+        if role == &known {
+            return;
+        }
+    }
+    assert_with_error!(env, false, GenericError::InvalidRole);
 }
 
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
@@ -89,47 +81,49 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     }
 }
 
+pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
+    crate::storage::renew_governance_instance(env);
+    stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
+}
+
+pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
+    crate::storage::renew_governance_instance(env);
+    let current_owner = ownable::get_owner(env).unwrap();
+
+    stellar_access::role_transfer::transfer_role(
+        env,
+        new_owner,
+        &ownable::OwnableStorageKey::PendingOwner,
+        live_until_ledger,
+    );
+    ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
+    sync_pending_admin_transfer(env, new_owner, live_until_ledger);
+}
+
+pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
+    crate::storage::renew_governance_instance(env);
+    let owner = ownable::get_owner(env).unwrap();
+    access_control::grant_role_no_auth(env, account, role, &owner);
+}
+
+pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
+    crate::storage::renew_governance_instance(env);
+    let owner = ownable::get_owner(env).unwrap();
+    access_control::revoke_role_no_auth(env, account, role, &owner);
+}
+
 #[contractimpl]
 impl Governance {
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
         access_control::set_admin(&env, &admin);
 
-        // Seed the full operational role set on `admin`: ORACLE plus the timelock
-        // PROPOSER/EXECUTOR/CANCELLER. EXECUTOR is granted so an explicit-executor
-        // execute path works, while open execution (`executor: None`) stays
-        // available. Granting via `default_operational_roles` keeps the set
-        // identical to what an ownership transfer migrates. `update_delay` is
-        // owner-gated, so the delay setter rides the ownable admin, not a role.
         for role in default_operational_roles(&env) {
             access_control::grant_role_no_auth(&env, &admin, &role, &admin);
         }
 
-        // Arm the timelock minimum delay; until this runs, `schedule` panics
-        // `MinDelayNotSet`. A zero delay would nullify the timelock, so reject it.
         crate::timelock::require_nonzero_delay(&env, min_delay);
         stellar_governance::timelock::set_min_delay(&env, min_delay);
-    }
-
-    #[only_owner]
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        crate::storage::renew_governance_instance(&env);
-        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
-    }
-
-    #[only_owner]
-    pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
-        crate::storage::renew_governance_instance(&env);
-        let current_owner = ownable::get_owner(&env).unwrap();
-
-        stellar_access::role_transfer::transfer_role(
-            &env,
-            &new_owner,
-            &ownable::OwnableStorageKey::PendingOwner,
-            live_until_ledger,
-        );
-        ownable::emit_ownership_transfer(&env, &current_owner, &new_owner, live_until_ledger);
-        sync_pending_admin_transfer(&env, &new_owner, live_until_ledger);
     }
 
     pub fn accept_ownership(env: Env) {
@@ -140,24 +134,6 @@ impl Governance {
         sync_owner_access_control(&env, &previous_owner, &new_owner);
     }
 
-    #[only_owner]
-    pub fn grant_role(env: Env, account: Address, role: Symbol) {
-        crate::storage::renew_governance_instance(&env);
-        let owner = ownable::get_owner(&env).unwrap();
-        access_control::grant_role_no_auth(&env, &account, &role, &owner);
-    }
-
-    #[only_owner]
-    pub fn revoke_role(env: Env, account: Address, role: Symbol) {
-        crate::storage::renew_governance_instance(&env);
-        let owner = ownable::get_owner(&env).unwrap();
-        access_control::revoke_role_no_auth(&env, &account, &role, &owner);
-    }
-}
-
-#[cfg(any(test, feature = "testing"))]
-#[contractimpl]
-impl Governance {
     pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
         access_control::has_role(&env, &account, &role).is_some()
     }

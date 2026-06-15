@@ -1,5 +1,11 @@
 # Protocol deployment and market administration against a fresh controller.
 #
+# deploy_protocol() is a **fast-path integration harness**: EOA-owned controller,
+# immediate admin calls (no governance timelock). Production / operator deploys
+# use the governance-owned path instead:
+#   make testnet setup   (or make mainnet setup with AGGREGATOR_CONTRACT=...)
+# See configs/script.sh + Makefile _deploy / configure-controller.
+#
 # Market creation follows the production sequence: approve_token →
 # create_liquidity_pool (pending: not collateralizable/borrowable) →
 # configure_market_oracle → edit_asset_config (activate). Oracle configs for
@@ -47,9 +53,9 @@ deploy_protocol() {
     fi
     if [ -z "${WIRED:-}" ]; then
         inv set_aggregator "$ADMIN" "$CONTROLLER" -- set_aggregator --addr "$AGGREGATOR" >/dev/null
-        # Accumulator must be a contract address (#18 on G-accounts);
-        # production wires the aggregator.
-        inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$AGGREGATOR" >/dev/null
+        # Revenue treasury (wallet ok). Not the swap aggregator — claim_revenue
+        # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
+        inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv grant_role_oracle "$ADMIN" "$CONTROLLER" -- grant_role --account "$ADMIN_ADDR" --role ORACLE >/dev/null
         inv grant_role_revenue "$ADMIN" "$CONTROLLER" -- grant_role --account "$ADMIN_ADDR" --role REVENUE >/dev/null
         save_state WIRED 1

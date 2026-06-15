@@ -9,6 +9,7 @@ mod constants;
 mod deploy;
 mod events;
 mod forward;
+mod self_timelock;
 mod storage;
 mod timelock;
 mod validate;

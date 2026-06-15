@@ -7,11 +7,11 @@
 //! cross-contract and off-chain callers. Client-only: `#[contractclient]`
 //! generates `GovernanceClient`; the governance contract does NOT formally
 //! `impl` this trait — its entrypoints match by ABI name (its production
-//! methods span the `deploy`, `timelock`, `forward`, and `access` modules), the
-//! same convention `controller-interface` uses. The testing-only immediate
-//! forwarders, `set_controller`, `has_role`, and `__constructor` are excluded:
-//! constructors are not trait methods (clients call via `register`), and the
-//! rest exist only under the contract's `testing` feature.
+//! methods span the `deploy`, `timelock`, `forward`, `self_timelock`, and
+//! `access` modules), the same convention `controller-interface` uses. The
+//! testing-only immediate forwarders, `set_controller`, and `__constructor` are
+//! excluded: constructors are not trait methods (clients call via `register`),
+//! and the forwarders exist only under the contract's `testing` feature.
 
 use common::types::{InterestRateModel, MarketParamsRaw};
 use controller_interface::types::{
@@ -52,8 +52,91 @@ pub trait GovernanceInterface {
     /// Cancels a pending operation; the caller must hold CANCELLER.
     fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>);
 
-    /// Sets the minimum timelock delay; owner-gated and immediate.
-    fn update_delay(env: Env, new_delay: u32);
+    /// Schedules a governance self-upgrade.
+    fn propose_governance_upgrade(
+        env: Env,
+        proposer: Address,
+        new_wasm_hash: BytesN<32>,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a scheduled governance self-upgrade.
+    fn execute_governance_upgrade(
+        env: Env,
+        executor: Option<Address>,
+        new_wasm_hash: BytesN<32>,
+        salt: BytesN<32>,
+    );
+
+    /// Schedules a minimum timelock delay update (monotonic in production).
+    fn propose_update_delay(
+        env: Env,
+        proposer: Address,
+        new_delay: u32,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a scheduled minimum timelock delay update.
+    fn execute_update_delay(
+        env: Env,
+        executor: Option<Address>,
+        new_delay: u32,
+        salt: BytesN<32>,
+    );
+
+    /// Schedules a governance role grant.
+    fn propose_grant_governance_role(
+        env: Env,
+        proposer: Address,
+        account: Address,
+        role: Symbol,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a scheduled governance role grant.
+    fn execute_grant_governance_role(
+        env: Env,
+        executor: Option<Address>,
+        account: Address,
+        role: Symbol,
+        salt: BytesN<32>,
+    );
+
+    /// Schedules a governance role revocation.
+    fn propose_revoke_governance_role(
+        env: Env,
+        proposer: Address,
+        account: Address,
+        role: Symbol,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a scheduled governance role revocation.
+    fn execute_revoke_governance_role(
+        env: Env,
+        executor: Option<Address>,
+        account: Address,
+        role: Symbol,
+        salt: BytesN<32>,
+    );
+
+    /// Schedules initiation of governance ownership transfer.
+    fn propose_transfer_gov_own(
+        env: Env,
+        proposer: Address,
+        new_owner: Address,
+        live_until_ledger: u32,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Executes a scheduled governance ownership transfer initiation.
+    fn execute_transfer_gov_own(
+        env: Env,
+        executor: Option<Address>,
+        new_owner: Address,
+        live_until_ledger: u32,
+        salt: BytesN<32>,
+    );
 
     /// Minimum timelock delay in ledgers.
     fn get_min_delay(env: Env) -> u32;
@@ -315,20 +398,11 @@ pub trait GovernanceInterface {
     /// Resumes the controller, owner-gated and immediate.
     fn unpause(env: Env);
 
-    // --- access.rs: governance-self administration ---
-
-    /// Self-upgrades the governance contract; owner-gated.
-    fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
-
-    /// Initiates a two-step ownership transfer of the governance contract.
-    fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
+    // --- access.rs / self_timelock.rs: governance-self administration ---
 
     /// Accepts a pending ownership transfer of the governance contract.
     fn accept_ownership(env: Env);
 
-    /// Grants a governance role; owner-gated.
-    fn grant_role(env: Env, account: Address, role: Symbol);
-
-    /// Revokes a governance role; owner-gated.
-    fn revoke_role(env: Env, account: Address, role: Symbol);
+    /// Returns whether `account` holds `role` on the governance contract.
+    fn has_role(env: Env, account: Address, role: Symbol) -> bool;
 }

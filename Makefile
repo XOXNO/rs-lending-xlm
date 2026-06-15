@@ -14,6 +14,7 @@
 #   make testnet deploy             Deploy all contracts to testnet
 #   make mainnet deploy             Deploy all contracts to mainnet
 #   make testnet upgradeController  Upgrade controller in-place on testnet
+#   make testnet upgradeGovernance  Upgrade governance in-place on testnet
 #   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
 #   make testnet setup              Deploy + configure markets/e-modes, then unpause
 #   make mainnet setup              Deploy + configure markets/e-modes, then unpause
@@ -35,7 +36,7 @@ SHELL := /bin/bash
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
-        keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-pools upgrade-all _deploy \
+        keygen deploy-testnet deploy-mainnet upgrade-pool-template upgrade-controller upgrade-governance upgrade-pools upgrade-all _deploy \
         _preflight-tools _preflight-network-config _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pools _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
@@ -92,6 +93,7 @@ FLASH_RECEIVER_FUND ?= 10000000
 POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
+GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
 # Stellar CLI source account flag
@@ -555,8 +557,16 @@ _preflight-network-config: _preflight-tools
 
 _preflight-setup: _preflight-network-config
 	@AGG=$$(jq -r '.["$(NETWORK)"].aggregator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGG="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -z "$$AGG" ] || [ "$$AGG" = "null" ]; then \
-		echo "Aggregator not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
+		echo "Aggregator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json or AGGREGATOR_CONTRACT=<addr>."; \
+		exit 1; \
+	fi; \
+	ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
+	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
+		echo "Accumulator not configured for $(NETWORK). Set $(CONFIG_DIR)/networks.json accumulator or ACCUMULATOR_CONTRACT=<treasury-wallet>."; \
+		echo "claimRevenue fails with NoAccumulator (#211) until setAccumulator runs."; \
 		exit 1; \
 	fi
 
@@ -629,6 +639,31 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 	echo "New controller WASM hash: $$HASH"
 	@HASH=$$(cat $(CONTROLLER_WASM_HASH_FILE)); \
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeControllerHash $$HASH
+
+## Upgrade the deployed governance contract in-place via its self-timelock.
+upgrade-governance: _preflight-governance deploy-artifacts
+	@echo "=== Upgrading governance on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
+	if [ -z "$$GOV" ]; then \
+		GOV=$$(jq -r '.["$(NETWORK)"].governance // empty' $(CONFIG_DIR)/networks.json); \
+	fi; \
+	if [ -z "$$GOV" ] || [ "$$GOV" = "null" ]; then \
+		echo "Governance alias not found on $(NETWORK)"; \
+		exit 1; \
+	fi; \
+	stellar contract upload \
+		--wasm $(DEPLOY_DIR)/governance.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(GOVERNANCE_WASM_HASH_FILE); \
+	HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].governance_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json; \
+	echo "Governance: $$GOV"; \
+	echo "New governance WASM hash: $$HASH"
+	@HASH=$$(cat $(GOVERNANCE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradeGovernanceHash $$HASH
 
 ## Upload the latest pool WASM and set it as the pool template via governance.
 upgrade-pool-template: _preflight-controller _preflight-governance deploy-artifacts
@@ -813,12 +848,13 @@ _deploy: deploy-artifacts
 	@echo "Signer: $(SIGNER)"
 	@echo ""
 	@echo "1/6 Checking Aggregator..."
-	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator" $(CONFIG_DIR)/networks.json 2>/dev/null); \
-	if [ ! -z "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ] && [ "$$AGGREGATOR" != "" ]; then \
+	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator // empty" $(CONFIG_DIR)/networks.json 2>/dev/null); \
+	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGGREGATOR="$$AGGREGATOR_CONTRACT"; fi; \
+	if [ -n "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ]; then \
 		echo "Using Aggregator: $$AGGREGATOR"; \
 		stellar contract alias add aggregator --id $$AGGREGATOR --network $(NETWORK) --overwrite || echo "Warning: Failed to set aggregator alias"; \
 	else \
-		echo "Skipping Aggregator setup (not configured or invalid)"; \
+		echo "Skipping Aggregator alias (set networks.json aggregator or AGGREGATOR_CONTRACT before configure-controller)"; \
 	fi
 	@echo ""
 	@# 2. Upload Pool WASM (template, not deployed directly)
@@ -901,7 +937,14 @@ _deploy: deploy-artifacts
 configure-controller: _preflight-configure-controller
 	@echo "=== Configuring Controller via governance on $(NETWORK) ==="
 	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAggregator
-	@NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh setAccumulator
+	@echo "Setting revenue accumulator (treasury wallet; required for claimRevenue)..."
+	@ACC=$$(jq -r '.["$(NETWORK)"].accumulator // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$${ACCUMULATOR_CONTRACT:-}" ]; then ACC="$$ACCUMULATOR_CONTRACT"; fi; \
+	if [ -z "$$ACC" ] || [ "$$ACC" = "null" ]; then \
+		echo "ERROR: accumulator not configured. Set networks.json accumulator or ACCUMULATOR_CONTRACT before configure-controller."; \
+		exit 1; \
+	fi; \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) ACCUMULATOR_CONTRACT=$$ACC bash $(CONFIG_DIR)/script.sh setAccumulator
 	@# The controller constructor auto-grants KEEPER to governance (its admin).
 	@# The deployer EOA needs explicit controller roles: KEEPER for
 	@# update_indexes, ORACLE for disable_token_oracle, REVENUE for
@@ -996,7 +1039,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
-MAKEFILE_ACTIONS := deploy upgradeController upgradePoolTemplate upgradePools upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver setup
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
@@ -1026,6 +1069,7 @@ define NETWORK_DISPATCH
 			case "$$action" in \
 				deploy)             $(MAKE) --no-print-directory _deploy NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePoolTemplate) $(MAKE) --no-print-directory upgrade-pool-template NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePools)       $(MAKE) --no-print-directory upgrade-pools NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
@@ -1123,8 +1167,12 @@ help:
 	@echo "  make keygen                         Generate deployer key"
 	@echo "  make setup-testnet                  Same as 'make testnet setup'"
 	@echo "  make testnet deploy                 Deploy all contracts"
-	@echo "  make testnet upgradeController      Upgrade controller WASM in-place"
+	@echo "  make testnet upgradeController      Upgrade controller WASM in-place (timelocked)"
+	@echo "  make testnet upgradeGovernance      Upgrade governance WASM in-place (timelocked)"
 	@echo "  make testnet upgradeAll             Upgrade pool template, controller, all pools, then unpause"
+	@echo "  AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup"
+	@echo "    Aggregator = swap router (contract). Accumulator = revenue treasury (wallet or contract)."
+	@echo "  AWAIT_MAX_WAIT_SECONDS=259200 make mainnet setup   Optional cap for ~48h mainnet timelock await"
 	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
 	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
 	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
@@ -1163,7 +1211,7 @@ help:
 	@echo "    make testnet setAggregator"
 	@echo "    make testnet grantRole GAB...XYZ KEEPER     Controller roles via governance (KEEPER|REVENUE|ORACLE)"
 	@echo "    make testnet revokeRole GAB...XYZ KEEPER"
-	@echo "    make testnet grantGovRole GAB...XYZ ORACLE  Governance's own roles (ORACLE = configure_market_oracle)"
+	@echo "    make testnet grantGovRole GAB...XYZ ORACLE  Governance roles via timelock (ORACLE|PROPOSER|EXECUTOR|CANCELLER)"
 	@echo "    make testnet revokeGovRole GAB...XYZ ORACLE"
 	@echo "    make testnet claimRevenue USDC XLM          Claim revenue for one or more markets (REVENUE role)"
 	@echo "    make testnet claimRevenueAll                Claim revenue for every configured market"

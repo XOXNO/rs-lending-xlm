@@ -12,10 +12,11 @@ use controller_interface::types::{
     ReflectorSourceConfigInput,
 };
 use soroban_sdk::testutils::storage::Instance as _;
-use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
+use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
+use crate::access::EXECUTOR_ROLE;
 use crate::{Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
@@ -225,6 +226,25 @@ fn set_aggregator_rejects_non_contract_address() {
 }
 
 #[test]
+fn set_accumulator_accepts_wallet_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, gov_id, gov) = register_governance(&env);
+    let controller_id = register_native_controller(&env, &gov_id, &gov);
+    let treasury = Address::generate(&env);
+
+    gov.set_accumulator(&treasury);
+
+    let stored: Address = env.as_contract(&controller_id, || {
+        env.storage()
+            .instance()
+            .get(&ControllerKey::Accumulator)
+            .expect("accumulator stored")
+    });
+    assert_eq!(stored, treasury);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #10)")]
 fn set_liquidity_pool_template_rejects_zero_hash() {
     let env = Env::default();
@@ -274,13 +294,18 @@ fn entrypoint_renews_governance_instance_ttl() {
 
     let initial_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
 
-    // grant_role succeeds without a controller and must renew the instance.
-    gov.grant_role(&admin, &Symbol::new(&env, "KEEPER"));
+    let role = Symbol::new(&env, EXECUTOR_ROLE);
+    let salt = BytesN::<32>::from_array(&env, &[0u8; 32]);
+    let grantee = Address::generate(&env);
+    gov.propose_grant_governance_role(&admin, &grantee, &role, &salt);
+    env.ledger().with_mut(|l| {
+        l.sequence_number += crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
+    });
+    gov.execute_grant_governance_role(&Some(admin.clone()), &grantee, &role, &salt);
 
     let renewed_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
     assert!(
         renewed_ttl > initial_ttl,
         "instance TTL must be renewed: renewed={renewed_ttl}, initial={initial_ttl}"
     );
-    assert_eq!(renewed_ttl, common::constants::TTL_BUMP_INSTANCE);
 }

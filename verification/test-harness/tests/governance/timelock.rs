@@ -9,9 +9,8 @@
 //! longer execute, role rejection via the typed `try_` client methods, and
 //! salt-driven id distinctness.
 //!
-//! The harness arms a zero timelock delay so setup runs in one frame; each test
-//! here re-arms a non-zero delay (owner-immediate `update_delay`) so the
-//! `Waiting` state is observable, then advances the ledger to reach `Ready`.
+//! The harness constructor arms a short non-zero delay so scheduled ops sit in
+//! `Waiting` until the ledger advances to `Ready`.
 
 use controller::types::{ControllerKey, MarketOracleConfig, PositionLimits};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
@@ -47,10 +46,7 @@ fn read_controller_position_limits(t: &LendingTest) -> PositionLimits {
     })
 }
 
-// Re-arms a non-zero delay so scheduled ops sit in `Waiting` until the ledger
-// advances. Owner-immediate, mirroring production.
-fn arm_delay(t: &LendingTest) {
-    t.gov_iface_client().update_delay(&TEST_DELAY_LEDGERS);
+fn assert_harness_delay(t: &LendingTest) {
     assert_eq!(t.gov_iface_client().get_min_delay(), TEST_DELAY_LEDGERS);
 }
 
@@ -64,7 +60,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     let admin = t.admin();
     let s = salt(&t.env, 1);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let new_limits = limits(9, 7);
 
@@ -126,7 +122,7 @@ fn cancelled_operation_cannot_execute() {
     let admin = t.admin();
     let s = salt(&t.env, 2);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let new_limits = limits(8, 6);
     let id = gov.propose_set_position_limits(&admin, &new_limits, &s);
@@ -205,7 +201,7 @@ fn non_executor_execute_rejected() {
     let stranger = Address::generate(&t.env);
     let s = salt(&t.env, 4);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let new_limits = limits(5, 4);
     gov.propose_set_position_limits(&admin, &new_limits, &s);
@@ -238,7 +234,7 @@ fn non_canceller_cancel_rejected() {
     let stranger = Address::generate(&t.env);
     let s = salt(&t.env, 5);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let id = gov.propose_set_position_limits(&admin, &limits(5, 4), &s);
 
@@ -255,34 +251,20 @@ fn non_canceller_cancel_rejected() {
     );
 }
 
-// The owner may shorten the delay immediately (owner-gated, not timelocked); a
-// non-owner cannot. The owner path is exercised by `arm_delay`; here the
-// non-owner is rejected with the owner-gate error.
+// Delay updates are timelocked and PROPOSER-gated; a stranger cannot schedule one.
 #[test]
-fn update_delay_owner_only() {
+fn propose_update_delay_requires_proposer() {
     let t = LendingTest::new().build();
     let gov = t.gov_iface_client();
-
-    // Owner succeeds and the new delay is observable.
-    gov.update_delay(&7u32);
-    assert_eq!(gov.get_min_delay(), 7u32);
-
-    // Non-owner is rejected. `mock_all_auths_allowing_non_root_auth` satisfies the
-    // stranger's signature, so the revert comes from the ownable gate, not auth.
     let stranger = Address::generate(&t.env);
-    t.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &stranger,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
-            contract: &t.governance,
-            fn_name: "update_delay",
-            args: (11u32,).into_val(&t.env),
-            sub_invokes: &[],
-        },
-    }]);
-    let result = gov.try_update_delay(&11u32);
-    assert!(result.is_err(), "non-owner update_delay must revert");
-    // The delay is unchanged.
-    assert_eq!(gov.get_min_delay(), 7u32);
+
+    let result = gov.try_propose_update_delay(&stranger, &60u32, &salt(&t.env, 10));
+    let mapped = match result {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(mapped, errors::UNAUTHORIZED);
+    assert_eq!(gov.get_min_delay(), TEST_DELAY_LEDGERS);
 }
 
 // Two ops with identical params but different salt hash to distinct ids and both
@@ -300,7 +282,7 @@ fn same_params_distinct_salts_schedule_independently() {
     let gov = t.gov_iface_client();
     let admin = t.admin();
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let new_limits = limits(5, 4);
     let salt_a = salt(&t.env, 6);
@@ -337,7 +319,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let asset = t.resolve_asset("USDC");
     let s = salt(&t.env, 8);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let cfg = reflector_single_spot_config(
         &t.mock_reflector,
@@ -397,7 +379,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     let asset = t.resolve_asset("USDC");
     let s = salt(&t.env, 9);
 
-    arm_delay(&t);
+    assert_harness_delay(&t);
 
     let first = DEFAULT_TOLERANCE.first_upper_bps;
     let last = DEFAULT_TOLERANCE.last_upper_bps;

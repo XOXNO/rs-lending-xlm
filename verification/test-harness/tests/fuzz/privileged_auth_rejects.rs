@@ -251,11 +251,10 @@ proptest! {
         }).unwrap();
     }
 
-    // Governance timelock proposers + immediate meta-admin: every privileged
-    // entrypoint must reject when no auth is presented, before any validation
-    // or scheduling. Protocol-affecting ops are reached through `propose_*`
-    // (PROPOSER auth); governance-self meta-admin (`upgrade`, `pause`, role and
-    // ownership management) stays owner-immediate.
+    // Governance timelock proposers + immediate emergency/meta entrypoints: every
+    // privileged surface must reject when no auth is presented, before any
+    // validation or scheduling. Protocol and governance-self admin both route
+    // through `propose_*` (PROPOSER auth); `pause`/`unpause` stay owner-immediate.
     #[test]
     fn prop_governance_endpoints_reject_unauthed(
         ltv in 0u32..10_000,
@@ -275,6 +274,7 @@ proptest! {
         let usdc = t.resolve_asset("USDC");
         let random_addr = Address::generate(&env);
         let role_kp = Symbol::new(&env, "KEEPER");
+        let role_executor = Symbol::new(&env, "EXECUTOR");
         let salt = dummy_bytes_n(&env, seed);
 
         // Timelock proposers: PROPOSER auth must gate every controller-targeted
@@ -364,9 +364,8 @@ proptest! {
                 .try_propose_remove_asset_from_e_mode(&random_addr, &usdc, &category_id, &salt)
         }).unwrap();
 
-        // Deployment / upgrade / lifecycle. `deploy_controller` and `upgrade`
-        // (governance self) stay owner-immediate; the controller upgrade path
-        // is timelocked.
+        // Deployment / upgrade / lifecycle. `deploy_controller` stays
+        // owner-immediate; governance-self and controller upgrades are timelocked.
         expect_rejected("gov.deploy_controller", || {
             gov.set_auths(&no_auths).try_deploy_controller(&dummy_bytes_n(&env, seed))
         }).unwrap();
@@ -384,8 +383,12 @@ proptest! {
         expect_rejected("gov.propose_migrate_controller", || {
             gov.set_auths(&no_auths).try_propose_migrate_controller(&random_addr, &2u32, &salt)
         }).unwrap();
-        expect_rejected("gov.upgrade (self)", || {
-            gov.set_auths(&no_auths).try_upgrade(&dummy_bytes_n(&env, seed))
+        expect_rejected("gov.propose_governance_upgrade", || {
+            gov.set_auths(&no_auths)
+                .try_propose_governance_upgrade(&random_addr, &dummy_bytes_n(&env, seed), &salt)
+        }).unwrap();
+        expect_rejected("gov.propose_update_delay", || {
+            gov.set_auths(&no_auths).try_propose_update_delay(&random_addr, &60u32, &salt)
         }).unwrap();
         expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
         expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
@@ -403,14 +406,17 @@ proptest! {
             gov.set_auths(&no_auths)
                 .try_propose_transfer_ctrl_ownership(&random_addr, &random_addr, &1_000_000u32, &salt)
         }).unwrap();
-        expect_rejected("gov.grant_role", || {
-            gov.set_auths(&no_auths).try_grant_role(&random_addr, &role_kp)
+        expect_rejected("gov.propose_grant_governance_role", || {
+            gov.set_auths(&no_auths)
+                .try_propose_grant_governance_role(&random_addr, &random_addr, &role_executor, &salt)
         }).unwrap();
-        expect_rejected("gov.revoke_role", || {
-            gov.set_auths(&no_auths).try_revoke_role(&random_addr, &role_kp)
+        expect_rejected("gov.propose_revoke_governance_role", || {
+            gov.set_auths(&no_auths)
+                .try_propose_revoke_governance_role(&random_addr, &random_addr, &role_executor, &salt)
         }).unwrap();
-        expect_rejected("gov.transfer_ownership", || {
-            gov.set_auths(&no_auths).try_transfer_ownership(&random_addr, &1_000_000u32)
+        expect_rejected("gov.propose_transfer_gov_own", || {
+            gov.set_auths(&no_auths)
+                .try_propose_transfer_gov_own(&random_addr, &random_addr, &1_000_000u32, &salt)
         }).unwrap();
 
         // Oracle proposers: PROPOSER auth gates the oracle schedules too.

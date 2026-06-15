@@ -45,9 +45,11 @@ Each run writes `runs/<RUN_TS>/`:
 - `lib/oracle.sh` — deployable mock Reflector / mock RedStone price control.
   Liquidations are only force-able on mock-priced markets (real-feed HF can't
   be pushed underwater); deploy fresh mocks per run or feeds go stale (#206).
-- `lib/protocol.sh` — deploy + the production market bring-up sequence
-  (approve_token → create pending → configure_market_oracle → activate);
-  JSON builders for params / asset config / single + dual oracle configs.
+- `lib/protocol.sh` — **integration fast-path** deploy (EOA-owned controller,
+  immediate admin). Production deploy is `make testnet setup` (governance
+  timelock). Market bring-up sequence: approve_token → create pending →
+  configure_market_oracle → activate; JSON builders for params / asset config /
+  single + dual oracle configs.
 - `lib/report.sh` — markdown report. Resource columns are the declared
   Soroban resources decoded from each signed envelope; the explorer link on
   every row shows the full per-tx resource report (incl. memory).

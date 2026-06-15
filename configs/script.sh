@@ -112,6 +112,35 @@ get_governance() {
     stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
 }
 
+# Aggregator router (WASM contract): networks.json first, then AGGREGATOR_CONTRACT.
+get_aggregator_address() {
+    local addr
+    addr=$(jq -r ".\"$NETWORK\".aggregator // empty" "$NETWORKS_FILE")
+    if [ -n "${AGGREGATOR_CONTRACT:-}" ]; then
+        addr="$AGGREGATOR_CONTRACT"
+    fi
+    if [ -z "$addr" ] || [ "$addr" = "null" ]; then
+        echo ""
+        return 1
+    fi
+    echo "$addr"
+}
+
+# Revenue treasury (G-account wallet or contract). Required for claimRevenue (#211
+# NoAccumulator if unset). Never falls back to the swap aggregator.
+get_accumulator_address() {
+    local addr
+    addr=$(jq -r ".\"$NETWORK\".accumulator // empty" "$NETWORKS_FILE")
+    if [ -n "${ACCUMULATOR_CONTRACT:-}" ]; then
+        addr="$ACCUMULATOR_CONTRACT"
+    fi
+    if [ -z "$addr" ] || [ "$addr" = "null" ]; then
+        echo ""
+        return 1
+    fi
+    echo "$addr"
+}
+
 # Reflector oracle addresses sourced from networks.json per network.
 # Three classes per Reflector's V3 deployment:
 #   - CEX: External CEX/FX aggregator, keyed by Other(symbol) e.g. "USDC"
@@ -181,11 +210,12 @@ ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000
 
 OPS_DIR="$ROOT_DIR/tmp/ops/$NETWORK"
 
-# Bounded await: poll get_operation_state until Ready, sleeping between polls.
-# Total wait ≈ AWAIT_MAX_POLLS × AWAIT_POLL_SECONDS; tune via env for longer
-# mainnet delays. Defaults cover the short testnet delay with headroom.
+# Ledger-aware await: poll until the chain sequence reaches the op's ready
+# ledger (from get_operation_ledger), then confirm Ready/Done. AWAIT_MAX_WAIT_
+# SECONDS caps total wall time (default scales with governance min_delay).
 AWAIT_POLL_SECONDS=${AWAIT_POLL_SECONDS:-5}
-AWAIT_MAX_POLLS=${AWAIT_MAX_POLLS:-120}
+# ~6s/ledger close + 2h headroom when unset; override for soak runs.
+AWAIT_MAX_WAIT_SECONDS=${AWAIT_MAX_WAIT_SECONDS:-0}
 
 ops_dir() {
     mkdir -p "$OPS_DIR"
@@ -329,10 +359,33 @@ write_op_record() {
         --arg predecessor "$ZERO_PREDECESSOR_HEX" \
         --arg salt "$salt_hex" \
         --argjson cli_executable "$cli_executable" \
-        '{op_id:$op_id, network:$network, target:$target, function:$function,
+        '{kind:"controller", op_id:$op_id, network:$network, target:$target, function:$function,
           args:$args, predecessor:$predecessor, salt:$salt,
           cli_executable:$cli_executable}' > "$path"
     echo "  Recorded op $op_id -> $path" >&2
+}
+
+# Governance-self ops use typed execute_* entrypoints (not generic execute).
+write_gov_self_op_record() {
+    local op_id=$1
+    local execute_fn=$2
+    local salt_hex=$3
+    local cli_executable=$4
+    shift 4
+    local path
+    path=$(op_record_path "$op_id")
+    local flags_json
+    flags_json=$(printf '%s\0' "$@" | jq -Rs 'split("\u0000") | map(select(length > 0))')
+    jq -nc \
+        --arg op_id "$op_id" \
+        --arg network "$NETWORK" \
+        --arg execute_fn "$execute_fn" \
+        --arg salt "$salt_hex" \
+        --argjson execute_flags "$flags_json" \
+        --argjson cli_executable "$cli_executable" \
+        '{kind:"governance_self", op_id:$op_id, network:$network, execute_fn:$execute_fn,
+          salt:$salt, execute_flags:$execute_flags, cli_executable:$cli_executable}' > "$path"
+    echo "  Recorded governance-self op $op_id -> $path" >&2
 }
 
 # Persist an oracle op record whose scheduled args are a governance-RESOLVED
@@ -362,7 +415,7 @@ write_oracle_op_record() {
         --arg salt "$salt_hex" \
         --arg view_fn "$view_fn" \
         --argjson resolve_args "$resolve_args_json" \
-        '{op_id:$op_id, network:$network, target:$target, function:$function,
+        '{kind:"controller", op_id:$op_id, network:$network, target:$target, function:$function,
           predecessor:$predecessor, salt:$salt, cli_executable:true,
           resolve:{view_fn:$view_fn, args:$resolve_args}}' > "$path"
     echo "  Recorded oracle op $op_id -> $path" >&2
@@ -470,6 +523,74 @@ schedule_via_proposer() {
     echo "$op_id"
 }
 
+# Schedule a governance-self admin op (target = governance contract).
+schedule_via_gov_self_proposer() {
+    local propose_fn=$1
+    shift
+    local execute_fn=$1
+    shift
+    local salt_hex=$1
+    shift
+    local gov
+    gov=$(get_governance)
+    local proposer
+    proposer=$(get_signer_address)
+
+    echo "Scheduling governance-self ${execute_fn} via ${propose_fn} (salt ${salt_hex})..." >&2
+    local out
+    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- "$propose_fn" \
+        --proposer "$proposer" \
+        "$@" \
+        --salt "$salt_hex")
+
+    local op_id
+    op_id=$(parse_op_id "$out")
+    if [ -z "$op_id" ]; then
+        echo "ERROR: ${propose_fn} returned no operation id (output: $out)" >&2
+        exit 1
+    fi
+    write_gov_self_op_record "$op_id" "$execute_fn" "$salt_hex" true "$@"
+    echo "Scheduled governance-self op ${op_id} (${execute_fn})." >&2
+    echo "$op_id"
+}
+
+current_ledger_sequence() {
+    stellar ledger latest --network "$NETWORK" 2>/dev/null \
+        | awk -F': ' '/^Sequence:/ {print $2; exit}'
+}
+
+min_delay_ledgers() {
+    local gov min_delay
+    gov=$(get_governance)
+    min_delay=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_min_delay | tr -d '"' | tr -d '[:space:]')
+    if [ -z "$min_delay" ] || [ "$min_delay" = "null" ]; then
+        echo "0"
+        return
+    fi
+    echo "$min_delay"
+}
+
+await_max_wait_seconds() {
+    if [ "${AWAIT_MAX_WAIT_SECONDS:-0}" -gt 0 ]; then
+        echo "$AWAIT_MAX_WAIT_SECONDS"
+        return
+    fi
+    local delay
+    delay=$(min_delay_ledgers)
+    # ~6s/ledger + 2h buffer for mainnet-scale delays.
+    echo $(( delay * 6 + 7200 ))
+}
+
+op_ready_ledger() {
+    local op_id=$1
+    local gov
+    gov=$(get_governance)
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_operation_ledger --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
+}
+
 # Read an operation's lifecycle state as a bare string (Unset|Waiting|Ready|Done).
 op_state() {
     local op_id=$1
@@ -479,32 +600,69 @@ op_state() {
         -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
 }
 
-# Poll until the op is Ready (Done short-circuits as already executed). Fails
-# loudly after the bounded poll budget so setup never hangs forever.
+# Poll until the op is Ready (Done short-circuits as already executed). Uses
+# ledger sequence + get_operation_ledger so mainnet-scale delays are supported.
 await_op_ready() {
     local op_id=$1
-    local poll=0
-    local state
-    while [ "$poll" -lt "$AWAIT_MAX_POLLS" ]; do
+    local started_at ready_ledger current state max_wait waited
+    started_at=$(date +%s)
+    max_wait=$(await_max_wait_seconds)
+
+    while true; do
         state=$(op_state "$op_id")
         case "$state" in
             Ready) echo "Op ${op_id} is Ready." >&2; return 0 ;;
             Done)  echo "Op ${op_id} already Done." >&2; return 0 ;;
-            Waiting) ;;
+            Waiting)
+                ready_ledger=$(op_ready_ledger "$op_id")
+                current=$(current_ledger_sequence)
+                if [ -n "$ready_ledger" ] && [ "$ready_ledger" != "0" ] && [ "$ready_ledger" != "1" ] \
+                    && [ -n "$current" ] && [ "$current" -ge "$ready_ledger" ]; then
+                    state=$(op_state "$op_id")
+                    if [ "$state" = "Ready" ] || [ "$state" = "Done" ]; then
+                        echo "Op ${op_id} is ${state} (ledger ${current} >= ${ready_ledger})." >&2
+                        return 0
+                    fi
+                fi
+                waited=$(( $(date +%s) - started_at ))
+                if [ "$waited" -ge "$max_wait" ]; then
+                    echo "ERROR: op ${op_id} did not reach Ready within ${max_wait}s (ready_ledger=${ready_ledger}, current=${current})." >&2
+                    echo "       Re-run: NETWORK=$NETWORK $0 awaitOp ${op_id} && $0 executeOp ${op_id}" >&2
+                    exit 1
+                fi
+                echo "  Op ${op_id} Waiting (ledger ${current:-?}/${ready_ledger:-?}, waited ${waited}s/${max_wait}s); sleeping ${AWAIT_POLL_SECONDS}s..." >&2
+                sleep "$AWAIT_POLL_SECONDS"
+                ;;
             Unset) echo "ERROR: op ${op_id} is Unset (never scheduled or cancelled)." >&2; exit 1 ;;
             *) echo "ERROR: unexpected op state '${state}' for ${op_id}." >&2; exit 1 ;;
         esac
-        poll=$((poll + 1))
-        echo "  Op ${op_id} Waiting (poll ${poll}/${AWAIT_MAX_POLLS}); sleeping ${AWAIT_POLL_SECONDS}s..." >&2
-        sleep "$AWAIT_POLL_SECONDS"
     done
-    echo "ERROR: op ${op_id} did not reach Ready within ${AWAIT_MAX_POLLS} polls." >&2
-    exit 1
 }
 
-# Execute a recorded op through governance generic execute. Replays the stored
-# Operation exactly: target=controller, function, ScVal args, zero predecessor,
-# recorded salt. Executor is the signer (holds EXECUTOR from construction).
+# Execute a governance-self op via its typed execute_* entrypoint.
+execute_gov_self_op() {
+    local op_id=$1
+    local path
+    path=$(op_record_path "$op_id")
+    local gov execute_fn salt
+    gov=$(get_governance)
+    execute_fn=$(jq -r '.execute_fn' "$path")
+    salt=$(jq -r '.salt' "$path")
+    echo "Executing governance-self op ${op_id} -> ${execute_fn}..." >&2
+    local -a invoke_args=()
+    while IFS= read -r flag; do
+        invoke_args+=("$flag")
+    done < <(jq -r '.execute_flags[]' "$path")
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- "$execute_fn" \
+        --executor null \
+        "${invoke_args[@]}" \
+        --salt "$salt"
+    echo "Executed governance-self op ${op_id}." >&2
+}
+
+# Execute a recorded op. Controller ops replay through generic execute;
+# governance-self ops use typed execute_* entrypoints.
 execute_op() {
     local op_id=$1
     local path
@@ -517,9 +675,16 @@ execute_op() {
     local cli_executable
     cli_executable=$(jq -r '.cli_executable' "$path")
     if [ "$cli_executable" != "true" ]; then
-        echo "ERROR: op ${op_id} (function $(jq -r '.function' "$path")) is not CLI-executable." >&2
+        echo "ERROR: op ${op_id} is not CLI-executable." >&2
         echo "       Execute it via the typed SDK/keeper path." >&2
         exit 1
+    fi
+
+    local kind
+    kind=$(jq -r '.kind // "controller"' "$path")
+    if [ "$kind" = "governance_self" ]; then
+        execute_gov_self_op "$op_id"
+        return 0
     fi
 
     local gov target function predecessor salt args_json
@@ -1154,10 +1319,9 @@ claim_revenue_all() {
 
 set_aggregator() {
     echo "Configuring Aggregator for ${NETWORK}..."
-    local router=$(jq -r ".\"$NETWORK\".aggregator" "$NETWORKS_FILE")
-
-    if [ -z "$router" ] || [ "$router" = "null" ] || [ "$router" = "" ]; then
-        echo "ERROR: No aggregator address found for ${NETWORK} in ${NETWORKS_FILE}"
+    local router
+    if ! router=$(get_aggregator_address); then
+        echo "ERROR: No aggregator address for ${NETWORK}. Set networks.json aggregator or AGGREGATOR_CONTRACT." >&2
         exit 1
     fi
 
@@ -1180,10 +1344,11 @@ set_aggregator() {
 
 set_accumulator() {
     echo "Configuring Accumulator for ${NETWORK}..."
-    local accumulator=$(jq -r ".\"$NETWORK\".accumulator // .\"$NETWORK\".aggregator" "$NETWORKS_FILE")
-
-    if [ -z "$accumulator" ] || [ "$accumulator" = "null" ] || [ "$accumulator" = "" ]; then
-        echo "ERROR: No accumulator or aggregator address found for ${NETWORK} in ${NETWORKS_FILE}"
+    local accumulator
+    if ! accumulator=$(get_accumulator_address); then
+        echo "ERROR: No revenue accumulator for ${NETWORK}." >&2
+        echo "       claimRevenue fails with NoAccumulator (#211) until this is set." >&2
+        echo "       Set networks.json accumulator or ACCUMULATOR_CONTRACT (G-wallet or contract)." >&2
         exit 1
     fi
 
@@ -1494,6 +1659,55 @@ schedule_upgrade_controller() {
     echo "Controller upgrade scheduled (hash ${hash})."
 }
 
+schedule_upgrade_governance() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradeGovernanceHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    local salt
+    salt=$(gen_salt "governance_upgrade" "$(jq -nc --arg h "$hash" '{hash:$h}')")
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        propose_governance_upgrade execute_governance_upgrade "$salt" \
+        --new_wasm_hash "$hash")
+    schedule_and_maybe_execute "$op_id"
+    echo "Governance upgrade scheduled (hash ${hash})."
+}
+
+schedule_update_delay() {
+    local new_delay=$1
+    if [ -z "$new_delay" ]; then
+        echo "Usage: $0 updateDelay <new_delay_ledgers>" >&2
+        exit 1
+    fi
+    local salt
+    salt=$(gen_salt "update_delay" "$(jq -nc --argjson d "$new_delay" '{delay:$d}')")
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        propose_update_delay execute_update_delay "$salt" \
+        --new_delay "$new_delay")
+    schedule_and_maybe_execute "$op_id"
+    echo "Governance min-delay update scheduled (${new_delay} ledgers)."
+}
+
+schedule_transfer_gov_ownership() {
+    local new_owner=$1
+    local live_until=$2
+    if [ -z "$new_owner" ] || [ -z "$live_until" ]; then
+        echo "Usage: $0 transferGovOwnership <new_owner> <live_until_ledger>" >&2
+        exit 1
+    fi
+    local salt
+    salt=$(gen_salt "transfer_gov_ownership" "$(jq -nc --arg o "$new_owner" --argjson l "$live_until" '{owner:$o,live:$l}')")
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        propose_transfer_gov_own execute_transfer_gov_own "$salt" \
+        --new_owner "$new_owner" --live_until_ledger "$live_until")
+    schedule_and_maybe_execute "$op_id"
+    echo "Governance ownership transfer scheduled to ${new_owner}."
+}
+
 # Schedule deploy_pool (no controller args), await, execute, and print the
 # deployed pool Address parsed from the execute result's last line.
 schedule_deploy_pool() {
@@ -1593,24 +1807,44 @@ revoke_role_cmd() {
     echo "Controller role ${role} revoke scheduled for ${account}."
 }
 
-# Governance's own ORACLE role (gates configure_market_oracle /
-# edit_oracle_tolerance) is granted via governance grant_role.
+validate_governance_role() {
+    case "$1" in
+        ORACLE|PROPOSER|EXECUTOR|CANCELLER) return 0 ;;
+        *)
+            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, or CANCELLER." >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Governance operational roles (ORACLE / PROPOSER / EXECUTOR / CANCELLER) are
+# timelocked via propose_grant_governance_role / propose_revoke_governance_role.
 grant_gov_role_cmd() {
     local account=$1
     local role=$2
-    local gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- grant_role --account "$account" --role "$role"
-    echo "Governance role ${role} granted to ${account}."
+    validate_governance_role "$role"
+    local salt
+    salt=$(gen_salt "grant_governance_role" "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a,role:$r}')")
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        propose_grant_governance_role execute_grant_governance_role "$salt" \
+        --account "$account" --role "$role")
+    schedule_and_maybe_execute "$op_id"
+    echo "Governance role ${role} grant scheduled for ${account}."
 }
 
 revoke_gov_role_cmd() {
     local account=$1
     local role=$2
-    local gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
-        -- revoke_role --account "$account" --role "$role"
-    echo "Governance role ${role} revoked from ${account}."
+    validate_governance_role "$role"
+    local salt
+    salt=$(gen_salt "revoke_governance_role" "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a,role:$r}')")
+    local op_id
+    op_id=$(schedule_via_gov_self_proposer \
+        propose_revoke_governance_role execute_revoke_governance_role "$salt" \
+        --account "$account" --role "$role")
+    schedule_and_maybe_execute "$op_id"
+    echo "Governance role ${role} revoke scheduled for ${account}."
 }
 
 has_role_cmd() {
@@ -1636,7 +1870,8 @@ show_info() {
     echo "Governance: ${gov_alias} (controller owner; all admin ops route through it)"
     echo "Controller: ${ctrl_alias}"
     echo "Aggregator: ${agg_alias}"
-    echo "Configured Aggregator: $(get_network_value "aggregator")"
+    echo "Configured Aggregator: $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
+    echo "Configured Accumulator: $(get_accumulator_address 2>/dev/null || echo 'not set (required for claimRevenue)')"
     echo "Pool WASM Hash: $(get_network_value "pool_wasm_hash")"
     echo "E-Mode ID Map: $(jq -c --arg network "$NETWORK" '.[$network].emode_category_ids // {}' "$NETWORKS_FILE")"
     echo "Reflector CEX: $(get_cex_oracle)"
@@ -2121,6 +2356,15 @@ case "$1" in
     "upgradeControllerHash")
         schedule_upgrade_controller "$2"
         ;;
+    "upgradeGovernanceHash")
+        schedule_upgrade_governance "$2"
+        ;;
+    "updateDelay")
+        schedule_update_delay "$2"
+        ;;
+    "transferGovOwnership")
+        schedule_transfer_gov_ownership "$2" "$3"
+        ;;
     "upgradePoolHash")
         schedule_upgrade_pool "$2"
         ;;
@@ -2145,7 +2389,7 @@ case "$1" in
     "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
-            echo "Governance roles: ORACLE (configure_market_oracle operator)" >&2
+            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER (timelocked)" >&2
             exit 1
         fi
         grant_gov_role_cmd "$2" "$3"
@@ -2298,10 +2542,14 @@ case "$1" in
         echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
         echo "  grantRole <account> <role>      Grant controller KEEPER | REVENUE | ORACLE via governance"
         echo "  revokeRole <account> <role>     Revoke controller role via governance"
-        echo "  grantGovRole <account> <role>   Grant governance's own role (ORACLE for configureMarketOracle)"
-        echo "  revokeGovRole <account> <role>  Revoke governance role"
-        echo "  setAggregator                   Set aggregator from networks.json"
-        echo "  setAccumulator                  Set accumulator from networks.json or aggregator fallback"
+        echo "  grantGovRole <account> <role>   Grant governance role (ORACLE|PROPOSER|EXECUTOR|CANCELLER; timelocked)"
+        echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
+        echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
+        echo "  updateDelay <ledgers>           Timelocked min-delay increase (cannot shorten)"
+        echo "  transferGovOwnership <addr> <ledger>  Timelocked governance ownership handoff"
+        echo "  setAggregator                   Set aggregator (networks.json or AGGREGATOR_CONTRACT)"
+        echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
+        echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
         echo "  setupAll                        Markets + E-Modes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue for one or more markets (REVENUE role)"
         echo "  claimRevenueAll                 Claim revenue for every configured market"

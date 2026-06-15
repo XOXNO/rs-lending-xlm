@@ -10,9 +10,4 @@ pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 /// proposals from being executed long after the social context has changed.
 pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
 
-/// Hard floor for any configured min delay: reject the timelock-nullifying zero
-/// (which makes every scheduled op immediately Ready). The meaningful mainnet
-/// delay is `TIMELOCK_MIN_DELAY_LEDGERS`, a deploy-config choice; testnet arms a
-/// short non-zero value, so the floor stays at 1 rather than the mainnet value.
-#[cfg(any(test, feature = "testing"))]
-pub const MIN_TIMELOCK_DELAY_LEDGERS: u32 = 1;
+

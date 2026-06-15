@@ -5,17 +5,15 @@
 //! `Timelock::schedule`. The only way to queue an operation is through a typed
 //! `propose_*` proposer in `forward.rs`, each of which validates its inputs and
 //! builds an `Operation` targeting the controller. This module supplies the
-//! generic `execute`/`cancel` lifecycle, the owner-gated `update_delay`, and the
-//! read-only query views — all thin wrappers over the OZ storage free
-//! functions, which carry the operation state machine, hashing, and events.
+//! generic `execute`/`cancel` lifecycle, and the read-only query views — all
+//! thin wrappers over the OZ storage free functions, which carry the operation
+//! state machine, hashing, and events.
 //!
 //! Auth model: EXECUTOR gates an explicit-executor `execute` (open execution is
-//! allowed with `executor: None`); CANCELLER gates `cancel`; `update_delay` is
-//! owner-gated and immediate. Scheduled operations target the controller (a
-//! governance->controller cross-call authorized by governance's ownership), so
-//! `execute` never re-enters governance: Soroban prohibits contract self-reentry
-//! and self-authorization, which is why governance-self-targeted admin stays
-//! owner-immediate (see `access.rs`).
+//! allowed with `executor: None`); CANCELLER gates `cancel`. Controller-targeted
+//! ops use `execute_operation` (cross-call). Governance-self ops use the typed
+//! `execute_*` entrypoints in `self_timelock.rs` (inline dispatch). The generic
+//! `execute` rejects self-target calls because Soroban prohibits self-reentry.
 
 use common::errors::GenericError;
 use controller_interface::types::{
@@ -25,26 +23,41 @@ use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol,
 use stellar_access::access_control;
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
-    hash_operation, set_min_delay, Operation, OperationState,
+    hash_operation, Operation, OperationState,
 };
-use stellar_macros::only_owner;
-
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
 use crate::storage::renew_governance_instance;
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
-/// Rejects a zero minimum timelock delay, which would make every scheduled op
-/// immediately Ready and silently nullify the timelock. Shared by the
-/// constructor and `update_delay`.
+/// Rejects a zero minimum timelock delay, which would nullify the timelock.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
-    #[cfg(not(any(test, feature = "testing")))]
-    let min_delay = crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
-    #[cfg(any(test, feature = "testing"))]
-    let min_delay = crate::constants::MIN_TIMELOCK_DELAY_LEDGERS;
-    assert_with_error!(env, delay >= min_delay, GenericError::InvalidTimelockDelay);
+    assert_with_error!(env, delay >= 1, GenericError::InvalidTimelockDelay);
 }
 
-fn require_operation_not_expired(env: &Env, operation: &Operation) {
+/// Delay updates must not shorten the timelock window.
+pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
+    require_nonzero_delay(env, new_delay);
+    let current = get_min_delay(env);
+    assert_with_error!(
+        env,
+        new_delay >= current,
+        GenericError::InvalidTimelockDelay
+    );
+}
+
+pub(crate) fn apply_update_delay(env: &Env, new_delay: u32) {
+    validate_delay_update(env, new_delay);
+    stellar_governance::timelock::set_min_delay(env, new_delay);
+}
+
+pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
+    if let Some(exec) = executor {
+        exec.require_auth();
+        access_control::ensure_role(env, &Symbol::new(env, EXECUTOR_ROLE), exec);
+    }
+}
+
+pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
     let operation_id = hash_operation(env, operation);
     let ready_ledger = get_operation_ledger(env, &operation_id);
     if ready_ledger <= 1 {
@@ -75,10 +88,12 @@ impl Governance {
         salt: BytesN<32>,
     ) -> Val {
         renew_governance_instance(&env);
-        if let Some(ref exec) = executor {
-            exec.require_auth();
-            access_control::ensure_role(&env, &Symbol::new(&env, EXECUTOR_ROLE), exec);
-        }
+        authorize_executor(&env, executor.as_ref());
+        assert_with_error!(
+            &env,
+            target != env.current_contract_address(),
+            GenericError::InternalError
+        );
         let operation = Operation {
             target,
             function,
@@ -96,16 +111,6 @@ impl Governance {
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
         cancel_operation(&env, &operation_id);
-    }
-
-    /// Sets the minimum timelock delay. Owner-gated and immediate: the delay
-    /// governs governance itself, which cannot be timelocked (self-reentry is
-    /// impossible), so shortening the delay is not itself delayed.
-    #[only_owner]
-    pub fn update_delay(env: Env, new_delay: u32) {
-        renew_governance_instance(&env);
-        require_nonzero_delay(&env, new_delay);
-        set_min_delay(&env, new_delay);
     }
 
     /// Minimum timelock delay in ledgers.
@@ -459,43 +464,7 @@ mod tests {
         gov.cancel(&stranger, &id);
     }
 
-    // (g.1) The owner may shorten the delay immediately (owner-gated, not
-    // timelocked).
-    #[test]
-    fn update_delay_by_owner_succeeds() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-
-        gov.update_delay(&5u32);
-        assert_eq!(gov.get_min_delay(), 5u32);
-    }
-
-    // (g.3) A zero delay is rejected: it would make every scheduled op
-    // immediately Ready, nullifying the timelock (InvalidTimelockDelay #39).
-    #[test]
-    #[should_panic(expected = "Error(Contract, #39)")]
-    fn update_delay_rejects_zero() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-
-        gov.update_delay(&0u32);
-    }
-
-    // (g.4) The minimum non-zero delay is accepted (the floor is exactly 1, so
-    // testnet's short delay still arms).
-    #[test]
-    fn update_delay_accepts_minimum_nonzero() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-
-        gov.update_delay(&1u32);
-        assert_eq!(gov.get_min_delay(), 1u32);
-    }
-
-    // (g.5) The constructor rejects a zero min delay at deploy time.
+    // (g) The constructor rejects a zero min delay at deploy time.
     #[test]
     #[should_panic(expected = "Error(Contract, #39)")]
     fn constructor_rejects_zero_delay() {
@@ -504,23 +473,4 @@ mod tests {
         let _ = env.register(Governance, (admin, 0u32));
     }
 
-    // (g.2) A non-owner cannot change the delay.
-    #[test]
-    #[should_panic]
-    fn update_delay_by_non_owner_reverts() {
-        let env = Env::default();
-        let (_admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
-        let stranger = Address::generate(&env);
-
-        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-            address: &stranger,
-            invoke: &soroban_sdk::testutils::MockAuthInvoke {
-                contract: &gov.address,
-                fn_name: "update_delay",
-                args: (5u32,).into_val(&env),
-                sub_invokes: &[],
-            },
-        }]);
-        gov.update_delay(&5u32);
-    }
 }

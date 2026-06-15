@@ -118,7 +118,8 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        validate::require_contract_address(&env, &addr, GenericError::NotSmartContract);
+        // Revenue treasury may be a G-account wallet or a contract; not validated
+        // as WASM (unlike the swap aggregator).
         schedule_controller_op(
             &env,
             "set_accumulator",
@@ -568,7 +569,6 @@ impl Governance {
     #[only_owner]
     pub fn set_accumulator(env: Env, addr: Address) {
         storage::renew_governance_instance(&env);
-        validate::require_contract_address(&env, &addr, GenericError::NotSmartContract);
         controller_client(&env).set_accumulator(&addr);
     }
 

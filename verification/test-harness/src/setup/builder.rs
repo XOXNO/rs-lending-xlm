@@ -157,9 +157,9 @@ impl LendingTestBuilder {
         // constructor owner so direct thin-setter tests stay meaningful, while
         // every builder admin call routes through the governance forwarders
         // (mock_all_auths covers the gov→controller owner auth). Setup routes
-        // through the immediate testing forwarders, not the timelock, so the
-        // delay only has to clear the non-zero floor the constructor enforces.
-        const HARNESS_TIMELOCK_MIN_DELAY_LEDGERS: u32 = 1;
+        // through the immediate testing forwarders, not the timelock. Use the
+        // same short non-zero delay as the governance timelock integration suite.
+        const HARNESS_TIMELOCK_MIN_DELAY_LEDGERS: u32 = 50;
         let governance_address = env.register(
             governance::Governance,
             (admin.clone(), HARNESS_TIMELOCK_MIN_DELAY_LEDGERS),
@@ -194,8 +194,8 @@ impl LendingTestBuilder {
 
         gov.set_aggregator(&aggregator_address);
 
-        let accumulator = aggregator_address.clone();
-        gov.set_accumulator(&accumulator);
+        let treasury = Address::generate(&env);
+        gov.set_accumulator(&treasury);
 
         let keeper = Address::generate(&env);
         gov.grant_controller_role(&keeper, &Symbol::new(&env, "KEEPER"));
