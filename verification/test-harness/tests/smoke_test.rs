@@ -1,8 +1,9 @@
 extern crate std;
 
 use test_harness::{
-    days, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, PositionType, ALICE, BOB,
-    LIQUIDATOR, STABLECOIN_EMODE,
+    apply_flash_fee, build_aggregator_swap, days, eth_preset, usd_cents, usdc_preset,
+    usdt_stable_preset,
+    LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
 };
 // 1. test_supply_creates_position
 
@@ -198,5 +199,36 @@ fn test_revenue_accrues_over_time() {
         "revenue should increase over time: before={}, after={}",
         revenue_before,
         revenue_after
+    );
+}
+
+#[test]
+fn test_multiply_smoke_creates_leveraged_position() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.fund_router("USDC", 3_000.0);
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
+    let account_id = t.multiply(
+        ALICE,
+        "USDC",
+        1.0,
+        "ETH",
+        controller::types::PositionMode::Multiply,
+        &steps,
+    );
+    assert!(account_id > 0, "multiply should create an account");
+    t.assert_healthy(ALICE);
+    assert!(
+        t.supply_balance(ALICE, "USDC") > 1_000.0,
+        "multiply should deposit swapped USDC collateral"
     );
 }

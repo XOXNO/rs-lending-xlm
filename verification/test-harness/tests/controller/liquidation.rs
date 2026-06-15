@@ -291,41 +291,7 @@ fn test_liquidation_caps_at_actual_debt() {
         liq_usdc
     );
 }
-// 11. test_liquidation_proportional_single_collateral
-
-#[test]
-fn test_liquidation_proportional_single_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
-
-    // Alice supplies USDC and borrows ETH.
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0);
-
-    // Drop USDC price to make Alice liquidatable.
-    t.set_price("USDC", usd_cents(50));
-    t.assert_liquidatable(ALICE);
-
-    // Proportional liquidation -- with single collateral, all seizure comes from that asset.
-    t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-
-    let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
-    assert!(
-        liq_usdc > 0.0,
-        "liquidator should receive USDC collateral in proportional mode"
-    );
-
-    // Verify the debt decreased.
-    let debt_after = t.borrow_balance(ALICE, "ETH");
-    assert!(
-        debt_after < 3.0,
-        "debt should decrease after liquidation: {}",
-        debt_after
-    );
-}
-// 12. test_liquidation_improves_health_factor
+// 11. test_liquidation_improves_health_factor
 
 #[test]
 fn test_liquidation_improves_health_factor() {

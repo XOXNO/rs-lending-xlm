@@ -31,7 +31,7 @@ flow_admin() {
     # Oracle admin: tolerance edit + role guard.
     inv edit_oracle_tolerance "$ADMIN" "$CONTROLLER" -- edit_oracle_tolerance \
         --caller "$ADMIN_ADDR" --asset "$SAC_LIQA" --first_tolerance 300 --last_tolerance 600 >/dev/null
-    xfail oracle_role_guard 'Error' "$ALICE" "$CONTROLLER" -- edit_oracle_tolerance \
+    xfail oracle_role_guard 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- edit_oracle_tolerance \
         --caller "$ALICE_ADDR" --asset "$SAC_LIQA" --first_tolerance 100 --last_tolerance 200
 
     # Keeper ops.
@@ -44,11 +44,13 @@ flow_admin() {
     # Revenue: rewards in, revenue out (REVENUE role). Admin's USDC is spent
     # on seeding by this point — top up from carol for the reward deposit.
     sac_transfer "$CAROL" "$USDC_SAC" "$CAROL_ADDR" "$ADMIN_ADDR" 20000000 fund_admin_rewards
+    local pool_rev_before
+    pool_rev_before=$(_view_pool_int pool_revenue_pre protocol_revenue --asset "$USDC_SAC")
     inv add_rewards "$ADMIN" "$CONTROLLER" -- add_rewards \
         --caller "$ADMIN_ADDR" --rewards "$(pay_vec "$USDC_SAC" 10000000)" >/dev/null
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
         --caller "$ADMIN_ADDR" --assets "[\"$USDC_SAC\"]" >/dev/null
-    view pool_revenue_view "$POOL" -- protocol_revenue --asset "$USDC_SAC" >/dev/null
+    assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
     view pool_rates_view "$POOL" -- borrow_rate --asset "$USDC_SAC" >/dev/null
     view pool_util_view "$POOL" -- capital_utilisation --asset "$USDC_SAC" >/dev/null
 

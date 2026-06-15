@@ -56,24 +56,26 @@ flow_liq_single() {
         --borrows "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))" >/dev/null
 
     # Healthy-account guards.
-    view liq1_can_liq_pre "$CONTROLLER" -- can_be_liquidated --account_id "$acct" >/dev/null
+    assert_can_liquidated liq1_can_liq_pre "$acct" false
     xfail liq1_liquidate_healthy 'Error\(Contract, #101\)' "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQB" $((100 * LIQ_UNIT)))"
 
     # Crash collateral 30% → HF ≈ 0.875.
     set_mock_price "$SAC_LIQA" $((WAD / 10 * 7)) liq1_crash
-    view liq1_hf "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
-    view liq1_can_liq "$CONTROLLER" -- can_be_liquidated --account_id "$acct" >/dev/null
+    assert_hf_below_wad liq1_hf "$acct"
+    assert_can_liquidated liq1_can_liq "$acct" true
     view liq1_estimate "$CONTROLLER" -- liquidation_estimations_detailed \
         --account_id "$acct" --debt_payments "$(pay_vec "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     view liq1_avail "$CONTROLLER" -- liquidation_collateral_available --account_id "$acct" >/dev/null
 
     # Partial liquidation: repay 100 of 600 debt.
+    local liq1_debt_pre_partial=$((600 * LIQ_UNIT))
     inv liq1_liquidate_partial "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
-    view liq1_hf_after_partial "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
+    assert_borrow_decreased liq1_debt_post_partial "$acct" "$SAC_LIQB" "$liq1_debt_pre_partial"
+    assert_borrow_at_most liq1_debt_cap_partial "$acct" "$SAC_LIQB" $((500 * LIQ_UNIT))
 
     # Full liquidation. An overpay cannot be submitted directly: the contract
     # transfers the ON-CHAIN recomputed close amount from the liquidator, so
@@ -92,7 +94,7 @@ flow_liq_single() {
             --debt_payments "$(pay_vec "$SAC_LIQB" $(( close * 998 / 1000 )))" >/dev/null
     }
     retry_leg leg_liq1_full
-    view liq1_positions_final "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null || true
+    assert_borrow_at_most liq1_debt_cleared "$acct" "$SAC_LIQB" 0
     save_state LIQ1_ACCT "$acct"
 }
 
@@ -112,12 +114,16 @@ flow_liq_bulk() {
     # Crash both collaterals 30% (LIQA from its current 0.70 → 0.49).
     set_mock_price "$SAC_LIQC" $((WAD / 10 * 7)) liq2_crash_c
     set_mock_price "$SAC_LIQA" $((WAD / 100 * 49)) liq2_crash_a
-    view liq2_hf "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
+    assert_hf_below_wad liq2_hf "$acct"
 
+    local liq2_debt_b_pre liq2_debt_d_pre
+    liq2_debt_b_pre=$(_view_int liq2_debt_b_pre borrow_amount_for_token --account_id "$acct" --asset "$SAC_LIQB")
+    liq2_debt_d_pre=$(_view_int liq2_debt_d_pre borrow_amount_for_token --account_id "$acct" --asset "$SAC_LIQD")
     inv liq2_liquidate_bulk "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQB" $((150 * LIQ_UNIT)) "$SAC_LIQD" $((150 * LIQ_UNIT)))" >/dev/null
-    view liq2_positions_after "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null
+    assert_borrow_decreased liq2_debt_b_post "$acct" "$SAC_LIQB" "$liq2_debt_b_pre"
+    assert_borrow_decreased liq2_debt_d_post "$acct" "$SAC_LIQD" "$liq2_debt_d_pre"
     save_state LIQ2_ACCT "$acct"
 }
 
@@ -146,10 +152,12 @@ flow_liq_emode() {
         --borrows "$(pay_vec "$SAC_LIQF" $((920 * LIQ_UNIT)))" >/dev/null
     # 6% price drop puts HF under 1 at the 97% e-mode threshold.
     set_mock_price "$SAC_LIQE" $((WAD / 100 * 94)) liq3_crash
-    view liq3_hf "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
+    assert_hf_below_wad liq3_hf "$acct"
+    local liq3_debt_pre=$((920 * LIQ_UNIT))
     inv liq3_liquidate_emode "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQF" $((400 * LIQ_UNIT)))" >/dev/null
+    assert_borrow_decreased liq3_debt_post "$acct" "$SAC_LIQF" "$liq3_debt_pre"
     save_state LIQ3_ACCT "$acct"
 }
 
@@ -169,7 +177,12 @@ flow_liq_isolation() {
     inv iso_borrow_ok "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$SAC_LIQB" $((50 * LIQ_UNIT)))" >/dev/null
-    view iso_debt_view "$CONTROLLER" -- get_isolated_debt --asset "$SAC_LIQG" >/dev/null
+    local iso_debt
+    iso_debt=$(_view_int iso_debt_view get_isolated_debt --asset "$SAC_LIQG")
+    if [ -z "$iso_debt" ] || [ "$iso_debt" -lt $((50 * LIQ_UNIT)) ]; then
+        log "ASSERT FAIL [iso_debt_view]: isolated_debt=$iso_debt want >= $((50 * LIQ_UNIT))"
+        return 1
+    fi
     save_state ISO_ACCT "$acct"
 }
 
@@ -179,7 +192,7 @@ flow_liq_isolation() {
 flow_clean_bad_debt() {
     phase clean_bad_debt
     # Healthy-account guard first.
-    xfail cbd_healthy 'Error\(Contract, #1[0-9][0-9]\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
+    xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "${LIQ2_ACCT:-1}"
     local acct
     acct=$(inv cbd_supply "$BOB" "$CONTROLLER" -- supply \
@@ -193,4 +206,5 @@ flow_clean_bad_debt() {
     set_mock_price "$SAC_LIQC" $((WAD / 100 * 15)) cbd_crash
     inv cbd_clean "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "$acct" >/dev/null
+    assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0
 }

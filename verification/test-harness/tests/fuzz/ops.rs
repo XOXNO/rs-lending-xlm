@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 use soroban_sdk::Vec;
-use test_harness::{LendingTest, ALICE, BOB};
+use test_harness::{LendingTest, ALICE, BOB, LIQUIDATOR};
 
 pub const ASSETS: [&str; 3] = ["USDC", "ETH", "WBTC"];
 pub const USERS: [&str; 2] = [ALICE, BOB];
@@ -35,6 +35,15 @@ pub enum LendingOp {
     ClaimRevenue {
         asset: &'static str,
     },
+    Liquidate {
+        user: &'static str,
+        asset: &'static str,
+        frac_bps: u16,
+    },
+    SwapDebt {
+        user: &'static str,
+        new_debt_amt: u32,
+    },
 }
 
 fn user_strat() -> impl Strategy<Value = &'static str> {
@@ -57,6 +66,10 @@ pub fn op_strategy() -> impl Strategy<Value = LendingOp> {
         1 => (user_strat(), asset_strat(), 1u32..100u32)
             .prop_map(|(u, a, amt)| LendingOp::Borrow { user: u, asset: a, amt }),
         1 => asset_strat().prop_map(|a| LendingOp::ClaimRevenue { asset: a }),
+        1 => (user_strat(), prop_oneof![Just("ETH"), Just("WBTC")], 100u16..5_000u16)
+            .prop_map(|(u, a, f)| LendingOp::Liquidate { user: u, asset: a, frac_bps: f }),
+        1 => (user_strat(), 1u32..80u32)
+            .prop_map(|(u, amt)| LendingOp::SwapDebt { user: u, new_debt_amt: amt }),
     ]
 }
 
@@ -95,6 +108,32 @@ pub fn execute_op(t: &mut LendingTest, op: &LendingOp) {
         }
         LendingOp::ClaimRevenue { asset } => {
             let _ = t.try_claim_revenue(asset);
+        }
+        LendingOp::Liquidate {
+            user,
+            asset,
+            frac_bps,
+        } => {
+            if t.borrow_balance(user, asset) <= 0.0001 {
+                return;
+            }
+            t.set_price("USDC", controller::constants::WAD / 2);
+            let bal = t.borrow_balance(user, asset);
+            let repay = (bal * *frac_bps as f64 / 10_000.0).max(0.01);
+            let _ = t.try_liquidate(LIQUIDATOR, user, asset, repay);
+        }
+        LendingOp::SwapDebt { user, new_debt_amt } => {
+            if t.borrow_balance(user, "USDC") < 10.0 {
+                return;
+            }
+            let steps = t.mock_swap_steps("ETH", "USDC", controller::constants::WAD * 2_000);
+            let _ = t.try_swap_debt(
+                user,
+                "USDC",
+                *new_debt_amt as f64 * 0.1,
+                "ETH",
+                &steps,
+            );
         }
     }
 }

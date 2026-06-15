@@ -63,3 +63,14 @@ fn test_tolerance_config_rejects_last_less_than_first() {
     let result = try_tolerance(&t, &asset, 300, 200);
     assert_contract_error(result, OracleError::BadAnchorTolerances as u32);
 }
+
+#[test]
+fn test_tolerance_config_accepts_valid_bounds() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let asset = t.resolve_market("USDC").asset.clone();
+    let expected = t.gov_iface_client().resolve_oracle_tolerance(&200, &500);
+    try_tolerance(&t, &asset, 200, 500).expect("valid tolerance pair should be accepted");
+
+    let stored = t.ctrl_client().get_market_config(&asset).oracle_config.tolerance;
+    assert_eq!(stored, expected);
+}

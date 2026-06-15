@@ -4,29 +4,16 @@ mod multiply;
 mod rejections;
 mod swap;
 
-use controller::types::{ControllerKey, MarketConfig, StrategySwap};
+use controller::types::{ControllerKey, MarketConfig};
 use soroban_sdk::token;
 use soroban_sdk::Bytes;
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
-    mock_swap_payload_xdr, usd, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
-    MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, usd,
+    usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB,
+    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_EMODE,
 };
 
-/// Placeholder swap that should only be used by tests failing before router execution.
-fn build_swap_steps(
-    t: &LendingTest,
-    token_in: &str,
-    token_out: &str,
-    min_out: i128,
-) -> StrategySwap {
-    mock_swap_payload_xdr(
-        &t.env,
-        t.resolve_asset(token_in),
-        t.resolve_asset(token_out),
-        min_out,
-    )
-}
+use super::helpers::build_swap_steps;
 
 fn dai_preset() -> MarketPreset {
     MarketPreset {

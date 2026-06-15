@@ -1,14 +1,16 @@
 //! Router adversarial tests, panic-site coverage, oracle boundaries, and supply-cap gates.
 
-use controller::constants::WAD;
-use controller::types::{AssetConfigRaw, StrategySwap};
+use controller::constants::{RAY, WAD};
+use controller::types::AssetConfigRaw;
 use soroban_sdk::token;
 use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
-    mock_swap_payload_xdr, tokens, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, tokens, usd,
+    usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
+
+use crate::helpers::build_swap_steps;
 
 const SWAP_REQUESTED_ETH: i128 = 10_000_000;
 const SWAP_MIN_OUT_USDC: i128 = 30_000_000_000;
@@ -25,18 +27,20 @@ fn mint_to(t: &LendingTest, asset_name: &str, target: &Address, raw_amount: i128
     market.token_admin.mint(target, &raw_amount);
 }
 
-fn build_swap_steps(
-    t: &LendingTest,
-    token_in: &str,
-    token_out: &str,
-    min_out: i128,
-) -> StrategySwap {
-    mock_swap_payload_xdr(
-        &t.env,
-        t.resolve_asset(token_in),
-        t.resolve_asset(token_out),
-        min_out,
-    )
+fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
+    match result {
+        Ok(account_id) => panic!(
+            "OverPull must be rejected, got Ok(account_id={account_id})"
+        ),
+        Err(err) => {
+            let internal = soroban_sdk::Error::from_contract_error(errors::INTERNAL_ERROR);
+            let err_str = format!("{err:?}");
+            assert!(
+                err == internal || err_str.contains("Error(Contract,"),
+                "OverPull must reject via INTERNAL_ERROR or a contract error, got {err:?}"
+            );
+        }
+    }
 }
 
 fn flatten<T>(
@@ -134,18 +138,7 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         &steps,
     );
 
-    // Either the SAC rejects the over-pull (insufficient-balance contract
-    // error from the SAC) OR the over-pull lands and the controller's
-    // `actual_in_spent != amount_in` guard fires INTERNAL_ERROR. Both are
-    // accepted defenses; the test merely asserts the call doesn't succeed.
-    // (Pinning a single error code here is brittle because it depends on
-    // whether the controller happened to hold enough ETH when the bad
-    // router tried to over-pull.)
-    assert!(
-        result.is_err(),
-        "OverPull must be rejected, got {:?}",
-        result
-    );
+    assert_overpull_rejected(result);
 }
 
 #[test]
@@ -650,6 +643,9 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     t.resolve_market("USDC")
         .token_admin
         .mint(&bad, &300_000_000_000_i128);
+    t.resolve_market("ETH")
+        .token_admin
+        .mint(&bad, &100_000_000_i128);
 
     let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
     let result = t.try_multiply(
@@ -660,7 +656,7 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
         controller::types::PositionMode::Multiply,
         &steps,
     );
-    assert!(result.is_err(), "OverPull must be rejected");
+    assert_overpull_rejected(result);
 
     // After rollback, the controller's ETH allowance on the bad router must
     // be zero, preventing residual approval from exposing controller funds.
@@ -805,13 +801,9 @@ fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
     let result = t.try_borrow(ALICE, "ETH", 0.1);
     assert_contract_error(result, errors::SANITY_BOUND_VIOLATED);
 }
-// 2. Strategy borrow respects max-utilization cap
+// 2. Strategy paths respect max-utilization cap
 
-// A regular borrow that would push utilization above the cap is
-// rejected (covered by `max_utilization_tests.rs`). This pins that the
-// same gate applies on the strategy.multiply path: the synthetic
-// flash-borrow inside multiply still flows through the same
-// utilization-cap check.
+// Borrow-side gate at the cap (also covered by `max_utilization.rs`).
 #[test]
 fn test_borrow_at_cap_then_step_over_rejected() {
     let mut t = LendingTest::new()
@@ -831,6 +823,41 @@ fn test_borrow_at_cap_then_step_over_rejected() {
 
     // One more dollar — over the cap, rejected.
     let result = t.try_borrow(BOB, "USDC", 1.0);
+    assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
+}
+
+// Multiply flash-borrows through the same utilization-cap gate on the debt asset.
+#[test]
+fn test_multiply_at_utilization_cap_then_step_over_rejected() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market_params("ETH", |p| {
+            p.max_utilization_ray = RAY * 85 / 100;
+        })
+        .build();
+
+    t.supply(BOB, "ETH", 1_000.0);
+    t.supply(ALICE, "USDC", 50_000.0);
+    t.supply(BOB, "USDC", 400_000.0);
+    t.borrow(BOB, "ETH", 850.0);
+
+    t.fund_router("USDC", 3_000.0);
+    let steps = build_aggregator_swap(
+        &t,
+        "ETH",
+        "USDC",
+        apply_flash_fee(10_000_000),
+        30_000_000_000,
+    );
+    let result = t.try_multiply(
+        ALICE,
+        "USDC",
+        1.0,
+        "ETH",
+        controller::types::PositionMode::Multiply,
+        &steps,
+    );
     assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
 }
 
@@ -870,9 +897,8 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     // borrow, so amount_in matches the requested withdrawal exactly.
     let steps = build_aggregator_swap(&t, "ETH", "USDC", 50_000_000, tokens(20_000, 7));
 
-    // Expect #105 (SupplyCapReached).
     let res = t.try_swap_collateral("alice", "ETH", 5.0, "USDC", &steps);
-    assert_contract_error(res, 105);
+    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
 }
 
 #[test]
@@ -917,7 +943,6 @@ fn test_strategy_multiply_supply_cap_reached() {
         tokens(30_000, 7),
     );
 
-    // Expect #105 (SupplyCapReached).
     let res = t.try_multiply(
         "alice",
         "USDC",
@@ -926,7 +951,7 @@ fn test_strategy_multiply_supply_cap_reached() {
         controller::types::PositionMode::Multiply, // Multiply mode
         &steps,
     );
-    assert_contract_error(res, 105);
+    assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
 }
 
 #[test]
@@ -952,6 +977,5 @@ fn test_strategy_multiply_unsupported_category() {
         &steps,
     );
 
-    // Expect EMODE_CATEGORY_NOT_FOUND (300).
-    assert_contract_error(res, 300);
+    assert_contract_error(res, errors::EMODE_CATEGORY_NOT_FOUND);
 }

@@ -21,7 +21,18 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 
 ### `controller/`
 
-`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `dust_floor`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `isolation`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `ownership`, `repay`, `siloed_borrow`, `supply`, `validation_admin`, `views`, `withdraw`
+`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `isolation`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `min_borrow_collateral`, `ownership`, `repay`, `siloed_borrow`, `supply`, `validation_admin`, `views`, `withdraw`
+
+#### Liquidation modules (roles)
+
+| Module | Role |
+|--------|------|
+| `liquidation.rs` | Happy-path smoke: proportional/targeted seize, bonus tiers, bad-debt socialization, guards (healthy, pause, flash-loan, self-liq) |
+| `liquidation_coverage.rs` | Input validation and edge shapes: duplicate payments, empty/zero/unsupported assets, subunit collateral, multi-debt caps |
+| `liquidation_math.rs` | Quantitative invariants: bonus formula, protocol fee on bonus only, bad-debt index delta, bounded seizure |
+| `liquidation_boundary.rs` | Threshold behavior: HF exactly 1 vs just below, monotone bonus band, bad-debt trigger at collateral floor |
+| `liquidation_mixed_decimal.rs` | Decimal heterogeneity across collateral/debt pairs |
+| `emode_liquidation_combo.rs` | E-mode category liquidation with category-specific LTV/threshold |
 
 ### `governance/`
 
@@ -38,7 +49,7 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 
 ### `strategy/`
 
-`core`, `happy`, `router`, `edge/` (`multiply`, `rejections`, `swap`)
+`core`, `happy`, `helpers`, `router`, `edge/` (`multiply`, `rejections`, `swap`)
 
 ### `meta/`
 
@@ -119,7 +130,7 @@ use fixtures::{seed_liquidatable_usdc_eth, LendingTest, ALICE};
 | `seed_standard_liquidity(t)` | Alice USDC supply, Bob ETH supply |
 | `seed_liquidator_usdc(t, amount)` | Fund liquidator wallet |
 
-Builder knobs: `with_dust_disabled_all_markets()`, `with_max_utilization_disabled_all_markets()`, `without_auto_auth()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, `with_position_limits`.
+Builder knobs: `with_min_borrow_collateral_disabled()` (instance LTV-collateral floor = 0), `with_max_utilization_disabled_all_markets()`, `without_auto_auth()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, `with_position_limits`.
 
 Example:
 

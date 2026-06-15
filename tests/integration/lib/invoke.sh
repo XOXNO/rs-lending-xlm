@@ -78,24 +78,37 @@ inv() {
 }
 
 # Invoke that MUST revert with an error matching the given pattern.
+# Retries transient sim/apply infra failures (Trapped, ResourceLimitExceeded
+# without a contract error), same as `inv`.
 #   xfail <label> <grep-pattern> <signer> <contract> -- <fn> [args...]
 xfail() {
     local label="$1" pattern="$2" signer="$3" contract="$4"; shift 4
     [ "$1" = "--" ] && shift
     local fn="$1"
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
-    log "xfail [$label] $fn (expect: $pattern)"
-    if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
-        >"$out_f" 2>"$err_f"; then
-        record "$label" UNEXPECTED-OK "$fn" "" "" "" "" "" "expected revert '$pattern'"
-        log "UNEXPECTED-OK [$label]"
-        return 1
-    fi
-    if grep -qE "$pattern" "$err_f"; then
-        record "$label" xfail "$fn" "" "" "" "" "" "reverted as expected: $pattern"
-        return 0
-    fi
-    record "$label" FAIL "$fn" "" "" "" "" "" "wrong revert; wanted '$pattern' got: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
+    local attempt
+    for attempt in 1 2 3; do
+        [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
+        log "xfail [$label] $fn (expect: $pattern)"
+        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
+            >"$out_f" 2>"$err_f"; then
+            record "$label" UNEXPECTED-OK "$fn" "" "" "" "" "" "expected revert '$pattern'"
+            log "UNEXPECTED-OK [$label]"
+            return 1
+        fi
+        if grep -qE "$pattern" "$err_f"; then
+            record "$label" xfail "$fn" "" "" "" "" "" "reverted as expected: $pattern"
+            return 0
+        fi
+        if [ "$attempt" -lt 3 ] \
+            && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
+            && ! grep -q "Error(Contract" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "transient infra failure; resimulating"
+            continue
+        fi
+        break
+    done
+    record "$label" "${INV_FAIL_STATUS:-FAIL}" "$fn" "" "" "" "" "" "wrong revert; wanted '$pattern' got: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
     log "WRONG-REVERT [$label]: $(tail -2 "$err_f")"
     return 1
 }

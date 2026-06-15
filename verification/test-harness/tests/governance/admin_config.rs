@@ -109,18 +109,4 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     assert_contract_error(mapped, errors::MAX_BORROW_RATE_TOO_HIGH);
 }
 
-// `edit_oracle_tolerance` with `first` below MIN_FIRST_TOLERANCE (50 bps).
-#[test]
-fn test_oracle_tolerance_validation() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-
-    let asset = t.resolve_market("USDC").asset.clone();
-    let result = t
-        .gov_client()
-        .try_edit_oracle_tolerance(&t.admin(), &asset, &10, &500);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, errors::BAD_FIRST_TOLERANCE);
-}
+// Oracle tolerance negative bounds live in `governance/tolerance.rs`.

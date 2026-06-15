@@ -13,7 +13,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"
-for f in core invoke wallet assets aggregator oracle protocol report; do
+for f in core invoke assert wallet assets aggregator oracle protocol report; do
     source "$INTEG_DIR/lib/$f.sh"
 done
 source "$INTEG_DIR/flows/stress.sh"
@@ -83,7 +83,8 @@ if [ -z "${LIQ20_CRASHED:-}" ]; then
     done
     save_state LIQ20_CRASHED 1
 fi
-view liq20_can_liq "$CONTROLLER" -- can_be_liquidated --account_id "$ACCT" >/dev/null
+assert_can_liquidated liq20_can_liq "$ACCT" true
+assert_hf_below_wad liq20_hf "$ACCT"
 
 phase liq20_liquidate
 # Repay-1 liquidation: reads all 20 position feeds dual-source, seizes
@@ -94,10 +95,15 @@ sim_probe probe_liquidate_10coll_10debt "$CAROL" "$CONTROLLER" -- liquidate \
     --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
     --debt_payments "$(pay_vec "$(stress_sac 19)" "$REPAY")"
 if [ "$PROBE_STATUS" = ok ]; then
-    inv liq20_liquidate_proof "$CAROL" "$CONTROLLER" -- liquidate \
+    local liq20_debt_pre
+    liq20_debt_pre=$(_view_int liq20_debt_pre borrow_amount_for_token \
+        --account_id "$ACCT" --asset "$(stress_sac 19)")
+    if inv liq20_liquidate_proof "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
-        --debt_payments "$(pay_vec "$(stress_sac 19)" "$REPAY")" >/dev/null \
-        && log "20-feed liquidation LANDED on-chain (10 colls seized, 1 of 10 debts repaid)"
+        --debt_payments "$(pay_vec "$(stress_sac 19)" "$REPAY")" >/dev/null; then
+        log "20-feed liquidation LANDED on-chain (10 colls seized, 1 of 10 debts repaid)"
+        assert_borrow_decreased liq20_debt_post "$ACCT" "$(stress_sac 19)" "$liq20_debt_pre"
+    fi
 else
     log "20-feed liquidation probe: $PROBE_STATUS"
 fi

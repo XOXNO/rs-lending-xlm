@@ -1,24 +1,9 @@
 use controller::constants::WAD;
-use controller::types::StrategySwap;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, mock_swap_payload_xdr, usdc_preset, LendingTest,
-    ALICE,
+    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE,
 };
 
-/// Placeholder swap that should only be used by tests failing before router execution.
-fn build_swap_steps(
-    t: &LendingTest,
-    token_in: &str,
-    token_out: &str,
-    min_out: i128,
-) -> StrategySwap {
-    mock_swap_payload_xdr(
-        &t.env,
-        t.resolve_asset(token_in),
-        t.resolve_asset(token_out),
-        min_out,
-    )
-}
+use crate::helpers::build_swap_steps;
 // 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
 
 #[test]

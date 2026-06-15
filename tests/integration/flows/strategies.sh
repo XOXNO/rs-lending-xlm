@@ -22,16 +22,16 @@ flow_flash_loans() {
         --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
 
-    local mode name
+    local mode name pattern
     for mode in 1 2 3 4 5; do
         case $mode in
-            1) name=no_repay ;;
-            2) name=under_repay ;;
-            3) name=reenter_pool ;;
-            4) name=panic ;;
-            5) name=reenter_supply ;;
+            1) name=no_repay; pattern='Error\(Contract, #402\)' ;;
+            2) name=under_repay; pattern='Error\(Contract, #402\)' ;;
+            3) name=reenter_pool; pattern='Error\(Contract, #40[0-9]\)' ;;
+            4) name=panic; pattern='Error\(Contract, #40[0-9]\)|Trapped' ;;
+            5) name=reenter_supply; pattern='Error\(Contract, #400\)' ;;
         esac
-        xfail "flash_loan_$name" 'Error' "$ALICE" "$CONTROLLER" -- flash_loan \
+        xfail "flash_loan_$name" "$pattern" "$ALICE" "$CONTROLLER" -- flash_loan \
             --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \
             --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex $mode)"
     done
@@ -56,7 +56,7 @@ flow_strategies() {
         --initial_payment "[\"$XLM_SAC\",\"5000000000\"]" | tr -d '"')
     save_state ALICE_MACCT "$macct"
     log "multiply account = $macct"
-    view hf_multiply "$CONTROLLER" -- health_factor --account_id "$macct" >/dev/null
+    assert_hf_at_least hf_multiply "$macct" "$WAD"
 
     # swap_debt: convert part of the USDC debt into XLM debt (forward quote on
     # the NEW debt; both remaining USDC debt and new XLM debt stay above the
@@ -101,7 +101,7 @@ flow_strategies() {
     }
     retry_leg leg_repay_debt_with_coll
 
-    view hf_post_strategies "$CONTROLLER" -- health_factor --account_id "$macct" >/dev/null
+    assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
     # multiply SHORT: flash 300 XLM debt ($57 oracle), swap into USDC
     # collateral (~$40 at DEX rate) + 45 USDC initial payment — covers the
@@ -119,5 +119,5 @@ flow_strategies() {
     }
     retry_leg leg_multiply_short || return 1
     save_state ALICE_SACCT "$sacct"
-    view hf_short "$CONTROLLER" -- health_factor --account_id "$sacct" >/dev/null
+    assert_hf_at_least hf_short "$sacct" "$WAD"
 }

@@ -75,9 +75,14 @@ impl LendingTestBuilder {
     }
 
     /// Disables the instance-level min-borrow-collateral gate (floor = 0).
-    pub fn with_dust_disabled_all_markets(mut self) -> Self {
+    pub fn with_min_borrow_collateral_disabled(mut self) -> Self {
         self.min_borrow_collateral_usd_wad = Some(0);
         self
+    }
+
+    /// Alias for [`Self::with_min_borrow_collateral_disabled`].
+    pub fn with_dust_disabled_all_markets(self) -> Self {
+        self.with_min_borrow_collateral_disabled()
     }
 
     pub fn with_max_utilization_disabled_all_markets(mut self) -> Self {

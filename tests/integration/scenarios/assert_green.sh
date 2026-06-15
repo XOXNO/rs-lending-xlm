@@ -2,6 +2,8 @@
 # Gate for CI: succeeds only when a run has zero unresolved failures.
 # A FAIL or UNEXPECTED-OK row whose action later passed (same label, status
 # ok/xfail) does not count — retried steps settle themselves.
+# Rows with status=research (20-feed width probes) are intentional frontier
+# misses and never fail this gate.
 #
 #   RUN_TS=<run> bash tests/integration/scenarios/assert_green.sh
 set -uo pipefail

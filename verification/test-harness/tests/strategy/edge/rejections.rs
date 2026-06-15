@@ -300,9 +300,8 @@ fn test_swap_collateral_emode_wrong_category() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDC collateral to ETH: ETH is not in e-mode. The error
-    // may be ASSET_NOT_IN_EMODE or EMODE_CATEGORY_NOT_FOUND, depending on
-    // how the validation resolves the e-mode asset lookup.
+    // Try to swap USDC collateral to ETH: ETH is not listed in category 1.
+    // `validate_e_mode_asset` rejects missing category membership with #300.
     let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);

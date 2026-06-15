@@ -100,7 +100,14 @@ flow_lifecycle() {
     inv borrow_bulk "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$USDC_SAC" 150000000 "$XLM_SAC" 1000000000)" >/dev/null
-    view borrow_usd_alice "$CONTROLLER" -- total_borrow_in_usd --account_id "$acct" >/dev/null
+    local borrow_usd
+    borrow_usd=$(_view_int borrow_usd_alice total_borrow_in_usd --account_id "$acct")
+    if [ -z "$borrow_usd" ] || [ "$borrow_usd" -le 0 ]; then
+        log "ASSERT FAIL [borrow_usd_alice]: total_borrow_usd=$borrow_usd want > 0"
+        return 1
+    fi
+    assert_hf_at_least hf_alice_post_borrow "$acct" "$WAD"
+    assert_borrow_at_least debt_usdc_post_borrow "$acct" "$USDC_SAC" 200000000
 
     # Guard reverts: zero amount, over-LTV borrow, paused-state behavior is in admin flow.
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \
@@ -115,16 +122,20 @@ flow_lifecycle() {
     # Retried: live Reflector round rotation between sim and apply can surface
     # as ResourceLimitExceeded instead of the contract revert under test.
     leg_withdraw_locked() {
-        xfail withdraw_locked 'Error\(Contract, #1[0-9][0-9]\)' "$ALICE" "$CONTROLLER" -- withdraw \
+        xfail withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
             --caller "$ALICE_ADDR" --account_id "$acct" \
             --withdrawals "$(pay_vec "$XLM_SAC" 15000000000)"
     }
     retry_leg leg_withdraw_locked
 
     # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
+    local usdc_debt_pre_partial
+    usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial borrow_amount_for_token \
+        --account_id "$acct" --asset "$USDC_SAC")
     inv repay_partial "$ALICE" "$CONTROLLER" -- repay \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --payments "$(pay_vec "$USDC_SAC" 100000000)" >/dev/null
+    assert_borrow_decreased debt_usdc_post_partial "$acct" "$USDC_SAC" "$usdc_debt_pre_partial"
     local usdc_debt xlm_debt
     usdc_debt=$(view debt_usdc_alice "$CONTROLLER" -- borrow_amount_for_token \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
@@ -133,6 +144,8 @@ flow_lifecycle() {
     inv repay_full_bulk "$ALICE" "$CONTROLLER" -- repay \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --payments "$(pay_vec "$USDC_SAC" $((usdc_debt + 10000000)) "$XLM_SAC" $((xlm_debt + 10000000)))" >/dev/null
+    assert_borrow_at_most debt_usdc_cleared "$acct" "$USDC_SAC" 1000000
+    assert_borrow_at_most debt_xlm_cleared "$acct" "$XLM_SAC" 1000000
 
     # Cross-account repay: bob repays on alice's account (ownership not required).
     # Both legs retry: live Reflector round rotation between sim and apply
@@ -142,6 +155,13 @@ flow_lifecycle() {
         inv borrow_again "$ALICE" "$CONTROLLER" -- borrow \
             --caller "$ALICE_ADDR" --account_id "$acct" \
             --borrows "$(pay_vec "$USDC_SAC" 120000000)" >/dev/null
+        local debt_after_borrow
+        debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- borrow_amount_for_token \
+            --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
+        if [ -z "$debt_after_borrow" ] || [ "$debt_after_borrow" -lt 120000000 ]; then
+            log "borrow_again: USDC debt too low ($debt_after_borrow) for cross-account repay"
+            return 1
+        fi
     }
     retry_leg leg_borrow_again
     leg_repay_cross_account() {
@@ -162,10 +182,12 @@ flow_lifecycle() {
         --account_id "$acct" --asset "$XLM_SAC" | tr -d '"')
     usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- collateral_amount_for_token \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
-    # Full close via the amount-0 sentinel: withdrawing the view-read exact
-    # amounts races per-second accrual and trips the dust gate (#126) when
-    # the supply index moves between the view and the withdraw.
-    inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \
-        --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" >/dev/null
+    # Full close via the amount-0 sentinel: retried because live oracle round
+    # rotation can trap between sim and apply.
+    leg_withdraw_full_bulk() {
+        inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \
+            --caller "$ALICE_ADDR" --account_id "$acct" \
+            --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" >/dev/null
+    }
+    retry_leg leg_withdraw_full_bulk
 }

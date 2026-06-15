@@ -16,7 +16,19 @@ RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/full_e2e.sh
 
 # Subset of phases, resuming an existing run's contracts/wallets:
 PHASES="liquidation stress" RUN_TS=<existing> bash tests/integration/scenarios/full_e2e.sh
+
+# CI green gate (release runs only — not width research):
+RUN_TS=<ts> bash tests/integration/scenarios/assert_green.sh
 ```
+
+### CI vs research scenarios
+
+| Tier | Scripts | Gate |
+|------|---------|------|
+| **Release CI** | `full_e2e.sh` → `assert_green.sh` | All actions must be `ok`, `xfail`, or `read`; no unresolved `FAIL` |
+| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress |
+
+Shared width logic lives in `lib/liq20_width.sh`. **`liq20_v2_walk.sh`** is the canonical instruction-cap walk; `liq_20feed_walk.sh`, `width.sh`, `bisect.sh`, and `retry9.sh` are thin wrappers.
 
 Each run writes `runs/<RUN_TS>/`:
 
@@ -35,6 +47,8 @@ Each run writes `runs/<RUN_TS>/`:
   (expected revert), `view` (read-only), `sim_probe` (build+simulate budget
   probe, no fees). Tx hash parsed from the CLI's `Signing transaction:` line —
   present only after simulation passes, so it doubles as the success signal.
+- `lib/assert.sh` — parsed on-chain assertions (HF, debt, `can_be_liquidated`, pool revenue).
+- `lib/liq20_width.sh` — 20-feed liquidation width research helpers (`research` status).
 - `lib/wallet.sh` — per-run unique friendbot-funded wallets (reused aliases
   run dry across runs; never share wallets between runs).
 - `lib/assets.sh` — self-issued SACs, classic trustlines, mint, balances,

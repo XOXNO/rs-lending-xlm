@@ -48,9 +48,8 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
 
     let debt = t.borrow_balance(alice, "ETH");
     assert!(
-        debt > 0.0,
-        "Alice should have significant debt left, got {}",
-        debt
+        debt > 0.0 && debt < 2.5,
+        "capped repayment should leave residual debt below principal, got {debt}"
     );
 }
 
@@ -59,7 +58,7 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
 // `OracleError::InvalidPrice` (#217).
 #[test]
 #[should_panic(expected = "Error(Contract, #217)")]
-fn test_liquidation_zero_collateral_proportion() {
+fn test_oracle_rejects_zero_price_before_liquidation_check() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -78,7 +77,7 @@ fn test_liquidation_zero_collateral_proportion() {
 }
 
 #[test]
-fn test_liquidation_seize_proportional_dust_collateral() {
+fn test_liquidation_seize_proportional_subunit_collateral() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -102,10 +101,26 @@ fn test_liquidation_seize_proportional_dust_collateral() {
 
     t.assert_liquidatable(alice);
 
+    let usdc_before = t.supply_balance(alice, "USDC");
+    let eth_before = t.supply_balance(alice, "ETH");
+    let debt_before = t.borrow_balance(alice, "ETH");
+
     t.liquidate(LIQUIDATOR, alice, "ETH", 0.01);
 
-    let eth_bal = t.supply_balance(alice, "ETH");
-    assert!(eth_bal > 0.0);
+    let eth_after = t.supply_balance(alice, "ETH");
+    let debt_after = t.borrow_balance(alice, "ETH");
+    assert!(
+        debt_after < debt_before,
+        "liquidation should repay ETH debt: before={debt_before}, after={debt_after}"
+    );
+    assert!(
+        eth_after < eth_before || t.supply_balance(alice, "USDC") < usdc_before,
+        "liquidation should seize collateral from ETH dust and/or USDC: eth {eth_before}->{eth_after}"
+    );
+    assert!(
+        t.supply_balance(alice, "USDC") <= usdc_before,
+        "USDC collateral should not grow on ETH-targeted liquidation"
+    );
 }
 
 #[test]
@@ -124,7 +139,7 @@ fn test_liquidation_rejects_if_no_debt_repaid() {
 
     // Pay with a tiny amount that rescale might turn into 0.
     let result = t.try_liquidate(LIQUIDATOR, "alice_rej", "ETH", 0.000000001);
-    assert_contract_error(result, 14); // AmountMustBePositive.
+    assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
 #[test]

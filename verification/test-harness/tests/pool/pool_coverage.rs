@@ -41,7 +41,10 @@ fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
 
     // 5. Claim revenue. This must hit pool/src/lib.rs:401.
     let claimed = t.claim_revenue("USDC");
-    assert!(claimed > 0, "Should have claimed some revenue");
+    assert_eq!(
+        claimed, rev,
+        "full-burn branch must claim the entire accrued revenue"
+    );
 
     // Verify the pool burned the revenue.
     let rev_after = t.snapshot_revenue("USDC");
@@ -111,9 +114,8 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
 
     let claimed = t.claim_revenue("USDC");
 
-    // For coverage, this only needs to run.
-    assert!(claimed > 0);
-    assert_eq!(claimed, res_raw); // Capped at reserves.
+    assert!(claimed > 0, "proportional burn branch must claim positive revenue");
+    assert_eq!(claimed, res_raw, "claim must be capped at pool reserves");
 
     // Verify the token flow on the proportional-burn branch: pool released
     // exactly `claimed`, and the accumulator received exactly `claimed`.
