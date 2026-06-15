@@ -167,6 +167,52 @@ fn test_clean_bad_debt_rejects_above_threshold() {
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::CANNOT_CLEAN_BAD_DEBT);
 }
+// 4a. test_bad_debt_gap_band_resolved_by_liquidation
+//
+// Finding #2 — the ($5, total_debt) gap band. An insolvent account whose
+// collateral sits ABOVE the $5 socialization threshold but BELOW its debt is
+// NOT directly socializable (`clean_bad_debt` reverts `CannotCleanBadDebt`),
+// yet it is NOT protocol-stuck: a single liquidation's max-collateral close
+// seizes the collateral down to <=$5, which triggers the IN-TX bad-debt
+// socialization (`liquidation.rs` `will_socialize`) and winds the account down
+// — without ever calling `clean_bad_debt`. So there IS a guaranteed protocol
+// terminal transition; the only residual is whether a liquidator is
+// economically motivated to act, which is off-chain (not assertable on-chain).
+#[test]
+fn test_bad_debt_gap_band_resolved_by_liquidation() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    // $1000 USDC collateral, ~$600 ETH debt (within LTV).
+    t.supply(ALICE, "USDC", 1000.0);
+    t.borrow(ALICE, "ETH", 0.3);
+
+    // Crash USDC to $0.30: collateral = $300. Now $5 < collateral ($300) <
+    // debt ($600) with HF < 1 — squarely inside the gap band.
+    t.set_price("USDC", usd_cents(30));
+    assert!(t.can_be_liquidated(ALICE), "account should be insolvent");
+
+    // (1) Direct socialization is gated out while collateral > $5.
+    let account_id = t.resolve_account_id(ALICE);
+    let gated = t.try_clean_bad_debt_by_id(account_id);
+    assert_contract_error(gated, errors::CANNOT_CLEAN_BAD_DEBT);
+
+    // (2) A liquidation resolves it anyway. Repaying the full debt lets the
+    // contract cap the repaid amount to what the ~$300 collateral covers,
+    // seize all of it (post-state <=$5), and socialize the residual in-tx.
+    t.liquidate(BOB, ALICE, "ETH", 0.3);
+
+    // (3) Terminal transition reached without clean_bad_debt: the account is
+    // wound down and no longer insolvent.
+    t.assert_no_positions(ALICE);
+    assert!(
+        !t.can_be_liquidated_by_id(account_id),
+        "account must be resolved after the gap-band liquidation"
+    );
+}
 // 4b. test_clean_bad_debt_rejected_under_oracle_deviation
 //
 // Standalone bad-debt cleanup runs under `OraclePolicy::Liquidation`, which
