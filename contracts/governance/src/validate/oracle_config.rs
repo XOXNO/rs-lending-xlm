@@ -1,5 +1,6 @@
 //! Pure oracle config validation. No external oracle calls.
 
+#[cfg(test)]
 use common::constants::MAX_REASONABLE_PRICE_WAD;
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
@@ -9,7 +10,9 @@ use common::oracle::observation::{
 use controller_interface::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
 use controller_interface::types::{OracleReadMode, OracleSourceConfigInput};
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+use soroban_sdk::{assert_with_error, Env};
+#[cfg(not(feature = "testing"))]
+use soroban_sdk::panic_with_error;
 
 /// Validates oracle shape without live calls.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {
@@ -74,14 +77,8 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
 }
 
 pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
-    if min_wad <= 0 || max_wad <= 0 || min_wad >= max_wad {
-        panic_with_error!(env, OracleError::InvalidSanityBounds);
-    }
-    assert_with_error!(
-        env,
-        max_wad <= MAX_REASONABLE_PRICE_WAD,
-        OracleError::InvalidSanityBounds
-    );
+    // Single source of truth shared with the controller's set_market_oracle_config.
+    common::validation::validate_sanity_bounds(env, min_wad, max_wad);
 }
 
 pub(crate) fn validate_decimals(env: &Env, decimals: u32) {

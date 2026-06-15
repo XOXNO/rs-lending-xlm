@@ -763,3 +763,48 @@ fn test_emode_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     );
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
+
+// Defense-in-depth (AAVE-D-028): the controller's own edit_e_mode_category
+// rejects an edit that would invert the LTV<threshold gap or breach the
+// seizure ceiling, even on a direct call that bypasses the governance
+// contract's validation. Because a position inherits BOTH ltv and threshold
+// from its category (apply_e_mode_to_asset_config), a category that can never
+// hold ltv >= threshold means no member position can either.
+#[test]
+fn test_edit_e_mode_category_rejects_inverted_or_unsafe_bounds() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    // ltv >= threshold must reject (the borrow-buffer invariant).
+    let inverted = t
+        .ctrl_client()
+        .try_edit_e_mode_category(&1u32, &8_500u32, &8_000u32, &200u32);
+    let flat_inverted: Result<(), soroban_sdk::Error> = match inverted {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat_inverted, errors::INVALID_LIQ_THRESHOLD);
+
+    // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
+    // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
+    let unsafe_bonus = t
+        .ctrl_client()
+        .try_edit_e_mode_category(&1u32, &9_400u32, &9_500u32, &600u32);
+    let flat_unsafe: Result<(), soroban_sdk::Error> = match unsafe_bonus {
+        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(flat_unsafe, errors::INVALID_LIQ_THRESHOLD);
+
+    // A valid edit still succeeds and the stored category keeps threshold > ltv.
+    t.edit_e_mode_category(1, 9_000, 9_300, 200);
+    let cat = t.ctrl_client().get_e_mode_category(&1u32);
+    assert_eq!(cat.loan_to_value_bps, 9_000);
+    assert_eq!(cat.liquidation_threshold_bps, 9_300);
+    assert!(cat.liquidation_threshold_bps > cat.loan_to_value_bps);
+}

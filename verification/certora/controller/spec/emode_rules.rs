@@ -337,6 +337,42 @@ fn emode_category_has_valid_params(e: Env, category_id: u32) {
 
     cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
 }
+// Rule 8b: add_emode_enforces_valid_bounds
+
+/// Operation-level companion to `emode_category_has_valid_params` (which is a
+/// state invariant). `add_e_mode_category` can never PERSIST an inverted
+/// category: any successful call (i.e. `validate_risk_bounds` did not revert)
+/// yields a stored category with `threshold > ltv`. Formalizes the
+/// controller-side defense-in-depth added for AAVE-D-028 so the bound holds
+/// regardless of which owner calls the setter.
+#[rule]
+fn add_emode_enforces_valid_bounds(e: Env, ltv: u32, threshold: u32, bonus: u32) {
+    let id = crate::governance::config::add_e_mode_category(&e, ltv, threshold, bonus);
+
+    let category = crate::storage::get_emode_category(&e, id);
+    cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
+}
+// Rule 8c: edit_emode_enforces_valid_bounds
+
+/// `edit_e_mode_category` likewise cannot invert a live category: any successful
+/// edit leaves `threshold > ltv` in storage. Because a member position inherits
+/// BOTH its ltv and threshold from the category (`apply_e_mode_to_asset_config`),
+/// this guarantees no edit can push a live account to `ltv >= threshold`.
+#[rule]
+fn edit_emode_enforces_valid_bounds(
+    e: Env,
+    category_id: u32,
+    ltv: u32,
+    threshold: u32,
+    bonus: u32,
+) {
+    cvlr_assume!(category_id > 0);
+
+    crate::governance::config::edit_e_mode_category(&e, category_id, ltv, threshold, bonus);
+
+    let category = crate::storage::get_emode_category(&e, category_id);
+    cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
+}
 // Rule 9: emode_remove_deprecated_only
 
 /// Removing (deprecating) an e-mode category via `remove_e_mode_category`

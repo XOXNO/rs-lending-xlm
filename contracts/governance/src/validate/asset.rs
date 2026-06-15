@@ -7,24 +7,15 @@ use common::types::MarketParamsRaw;
 use controller_interface::types::{AssetConfigRaw, PositionLimits};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
-// Supported SAC decimal range for RAY/WAD conversions.
-const MIN_ASSET_DECIMALS: u32 = 1;
+// Supported SAC decimal range for RAY/WAD conversions. Floor raised to 6
+// (matching Aave v3.1's minimum-decimals guard): low-decimal, high-price assets
+// can truncate small collateral toward zero in fixed-point valuation.
+const MIN_ASSET_DECIMALS: u32 = 6;
 const MAX_ASSET_DECIMALS: u32 = 18;
 
 pub(crate) fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
-    let ltv_i = i128::from(ltv);
-    let threshold_i = i128::from(threshold);
-    let bonus_i = i128::from(bonus);
-    if threshold_i <= ltv_i || threshold_i > BPS {
-        panic_with_error!(env, CollateralError::InvalidLiqThreshold);
-    }
-    // threshold * (1 + bonus) <= 100%: liquidation seizure can never exceed the
-    // collateral backing a position, so the bonus can never mint bad debt.
-    assert_with_error!(
-        env,
-        threshold_i * (BPS + bonus_i) <= BPS * BPS,
-        CollateralError::InvalidLiqThreshold
-    );
+    // Single source of truth shared with the controller's own setters.
+    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
 }
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {

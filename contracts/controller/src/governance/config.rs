@@ -170,6 +170,12 @@ pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
 }
 
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
+    common::validation::validate_risk_bounds(
+        env,
+        next_config.loan_to_value_bps,
+        next_config.liquidation_threshold_bps,
+        next_config.liquidation_bonus_bps,
+    );
     let mut market = storage::get_market_config(env, &asset);
     next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
     market.asset_config = next_config.clone();
@@ -202,6 +208,7 @@ pub fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
 }
 
 pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
+    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategoryRaw {
         loan_to_value_bps: ltv,
@@ -221,6 +228,7 @@ pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u
 }
 
 pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
+    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let mut cat = storage::get_emode_category(env, id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     cat.loan_to_value_bps = ltv;
@@ -343,6 +351,16 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
             MarketStatus::PendingOracle | MarketStatus::Active | MarketStatus::Disabled
         ),
         GenericError::PairNotActive
+    );
+
+    // Re-validate the sanity band at the controller boundary (defense-in-depth):
+    // governance already enforces it, but this guarantees a market can never be
+    // activated with an unset/invalid band — which would otherwise surface only
+    // as a runtime revert on the first risk-increasing / liquidation read.
+    common::validation::validate_sanity_bounds(
+        env,
+        config.min_sanity_price_wad,
+        config.max_sanity_price_wad,
     );
 
     // Re-assert the quote-market USD/Active invariant at execute time: governance

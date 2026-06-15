@@ -115,6 +115,10 @@ pub struct ReflectorSourceConfig {
     pub asset: OracleAssetRef,
     pub read_mode: OracleReadMode,
     pub decimals: u32,
+    /// Feed cadence, validated at listing time only (a config-time sanity bound).
+    /// NOT consulted on the price-read path — runtime freshness is gated
+    /// separately by `max_stale_seconds`/`is_stale`, so leaving this unread does
+    /// not fail open. Do not assume it gates reads.
     pub resolution_seconds: u32,
     /// Quote base captured at config time; the read path reads this instead of
     /// calling the oracle's `base()`.
