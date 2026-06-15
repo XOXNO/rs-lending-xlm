@@ -1,17 +1,31 @@
+//! Collateral swap strategy.
+//!
+//! Pipeline: auth → flash guard → account → cache(policy) → preflight →
+//! prefetch → withdraw → swap → deposit → `strategy_finalize`.
+
 use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use controller_interface::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::oracle::policy::OraclePolicy;
-use crate::strategies::helpers::{
-    strategy_finalize, swap_tokens, withdraw_collateral_to_controller, StrategyWithdraw,
+use crate::strategies::{
+    prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
+    StrategyWithdraw,
 };
 use crate::{
-    emode, helpers::utils, positions::supply, storage, validation, Controller, ControllerArgs,
-    ControllerClient,
+    emode, positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient,
 };
+
+/// Parameters for `process_swap_collateral`.
+pub struct SwapCollateralParams<'a> {
+    pub account_id: u64,
+    pub current_collateral: &'a Address,
+    pub from_amount: i128,
+    pub new_collateral: &'a Address,
+    pub swap: &'a StrategySwap,
+}
 
 #[contractimpl]
 impl Controller {
@@ -28,25 +42,26 @@ impl Controller {
         process_swap_collateral(
             &env,
             &caller,
-            account_id,
-            &current_collateral,
-            amount,
-            &new_collateral,
-            &swap,
+            SwapCollateralParams {
+                account_id,
+                current_collateral: &current_collateral,
+                from_amount: amount,
+                new_collateral: &new_collateral,
+                swap: &swap,
+            },
         );
     }
 }
 
-// Swaps collateral to different token.
-pub fn process_swap_collateral(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    current_collateral: &Address,
-    from_amount: i128,
-    new_collateral: &Address,
-    swap: &StrategySwap,
-) {
+pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollateralParams<'_>) {
+    let SwapCollateralParams {
+        account_id,
+        current_collateral,
+        from_amount,
+        new_collateral,
+        swap,
+    } = params;
+
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -65,8 +80,6 @@ pub fn process_swap_collateral(
         FlashLoanError::SwapCollateralNoIso
     );
 
-    // Debt-free swaps are risk-neutral: no borrow can be liquidated, so the
-    // tightest oracle tolerance is unnecessary.
     let policy = if account.borrow_positions.is_empty() {
         OraclePolicy::RiskDecreasing
     } else {
@@ -78,14 +91,8 @@ pub fn process_swap_collateral(
 
     validate_swap_new_collateral_preflight(env, &mut cache, &account, new_collateral);
 
-    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
-    // Universe: existing supply + borrow positions (required for the post-swap
-    // LTV/HF checks in strategy_finalize) plus the two collateral tokens.
-    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
-    prefetch_assets.append(&account.borrow_positions.keys());
-    utils::push_unique_address(&mut prefetch_assets, current_collateral.clone());
-    utils::push_unique_address(&mut prefetch_assets, new_collateral.clone());
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
+    let extra_assets = soroban_sdk::vec![env, current_collateral.clone(), new_collateral.clone()];
+    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let current_pos: AccountPosition = (&account
         .supply_positions
@@ -123,32 +130,19 @@ pub fn process_swap_collateral(
         &mut cache,
     );
 
-    strategy_finalize(
-        env,
-        account_id,
-        &mut account,
-        &mut cache,
-        crate::strategies::helpers::StrategyTouched {
-            supply_assets: &[current_collateral, new_collateral],
-            borrow_assets: &[],
-        },
-    );
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
 /// Rejects replacement collateral that cannot be supplied after the swap.
-pub fn validate_swap_new_collateral_preflight(
+pub(crate) fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
     new_collateral: &Address,
 ) {
-    // Reject deprecated e-mode categories before withdrawal/swap side effects:
-    // the tx cannot deposit the replacement collateral anyway.
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
     let config = emode::effective_asset_config(env, account, new_collateral, cache, &e_mode);
     if config.is_isolated_asset {
-        // swap_collateral generally serves non-isolated positions only.
-        // Isolated accounts use repayDebtWithCollateral to deleverage.
         panic_with_error!(env, EModeError::MixIsolatedCollateral);
     }
     emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
@@ -156,7 +150,6 @@ pub fn validate_swap_new_collateral_preflight(
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 
-    // A new destination asset adds a position slot, so enforce deposit limits.
     if !account
         .supply_positions
         .contains_key(new_collateral.clone())

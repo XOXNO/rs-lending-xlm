@@ -894,8 +894,6 @@ fn test_strategy_multiply_supply_cap_reached() {
         &t.resolve_asset("USDC"),
         &AssetConfigRaw {
             supply_cap: 10_100_000_000_000,
-            min_collat_floor_usd_wad: 0,
-            min_debt_floor_usd_wad: 0,
             ..usdc_preset().config.to_asset_config(&t.env)
         },
     );

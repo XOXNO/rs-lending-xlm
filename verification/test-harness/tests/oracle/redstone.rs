@@ -3,7 +3,7 @@ use controller::types::{
 };
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{usd, usdc_preset, LendingTest, ALICE, DEFAULT_TOLERANCE};
+use test_harness::{usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
@@ -180,6 +180,8 @@ fn test_redstone_runtime_missing_price_panics_with_invalid_ticker() {
         t.env.storage().temporary().remove(&key);
     });
 
-    // Supply triggers a primary-source price read on the USDC market.
-    t.supply(ALICE, "USDC", 1_000.0);
+    // Supply no longer prices collateral; borrow does (RiskIncreasing LTV/HF).
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDC", 100.0);
 }

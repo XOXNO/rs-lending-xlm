@@ -58,43 +58,35 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
-pub fn require_healthy_account(env: &Env, cache: &mut Cache, account: &Account) {
+/// Post-pool LTV, health factor, and min-borrow-collateral gates in one
+/// prefetch and one portfolio walk. No-op when the account is debt-free.
+pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
     if account.borrow_positions.is_empty() {
         return;
     }
 
-    let hf = helpers::calculate_health_factor(
+    let totals = helpers::calculate_post_pool_risk_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    assert_with_error!(env, hf >= Wad::ONE, CollateralError::InsufficientCollateral);
-}
-
-pub fn require_within_ltv(env: &Env, cache: &mut Cache, account: &Account) {
-    if account.borrow_positions.is_empty() {
-        return;
-    }
-
-    // The gate owns its data: prefetch RedStone feeds and market indexes for
-    // the union so the supply and debt valuations below share one bulk call
-    // per side.
-    let mut index_assets = account.supply_positions.keys();
-    index_assets.append(&account.borrow_positions.keys());
-    crate::oracle::prefetch_redstone_feeds(cache, &index_assets);
-    cache.prefetch_market_indexes(&index_assets);
-
-    let ltv_collateral_wad =
-        helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions).raw();
-    let total_borrow_wad =
-        helpers::calculate_total_debt_wad(env, cache, &account.borrow_positions).raw();
 
     assert_with_error!(
         env,
-        ltv_collateral_wad >= total_borrow_wad,
+        totals.ltv_collateral.raw() >= totals.total_debt.raw(),
         CollateralError::InsufficientCollateral
     );
+
+    if totals.total_debt != Wad::ZERO {
+        let hf = totals.weighted_collateral.div_floor(env, totals.total_debt);
+        assert_with_error!(env, hf >= Wad::ONE, CollateralError::InsufficientCollateral);
+    }
+
+    let floor = storage::get_min_borrow_collateral_usd_wad(env);
+    if floor != 0 && totals.ltv_collateral.raw() < floor {
+        panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
+    }
 }
 
 /// Re-checks position-limit bounds at the controller boundary. Governance owns
@@ -116,7 +108,7 @@ pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
     position_type: AccountPositionType,
-    plan: &Vec<Payment>,
+    aggregated: &Vec<Payment>,
 ) {
     let limits = storage::get_position_limits(env);
 
@@ -131,7 +123,7 @@ pub fn validate_bulk_position_limits(
 
     let mut seen: Map<Address, bool> = Map::new(env);
     let mut new_positions_count: u32 = 0;
-    for (asset, _) in plan.iter() {
+    for (asset, _) in aggregated.iter() {
         if seen.contains_key(asset.clone()) {
             continue;
         }

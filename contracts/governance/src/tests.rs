@@ -258,8 +258,7 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
         flashloan_fee_bps: 9,
         borrow_cap: 0,
         supply_cap: 0,
-        min_collat_floor_usd_wad: 0,
-        min_debt_floor_usd_wad: 0,
+
         e_mode_categories: soroban_sdk::Vec::new(&env),
     };
     gov.edit_asset_config(&asset, &cfg);

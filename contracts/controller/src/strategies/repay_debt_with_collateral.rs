@@ -1,15 +1,20 @@
+//! Repay debt with collateral strategy.
+//!
+//! Pipeline: auth → flash guard → account → cache → load positions → prefetch
+//! → withdraw → swap/net → repay → [close] → `strategy_finalize`.
+
 use common::errors::CollateralError;
 use controller_interface::types::{Account, AccountPosition, DebtPosition, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::oracle::policy::OraclePolicy;
-use crate::strategies::helpers::{
-    execute_withdraw_all, repay_debt_from_controller, strategy_finalize, swap_tokens,
-    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+use crate::strategies::{
+    execute_withdraw_all, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
+    swap_tokens, withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
-use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {
@@ -49,7 +54,6 @@ impl Controller {
     }
 }
 
-// Repays debt with swapped collateral.
 pub fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -68,26 +72,16 @@ pub fn process_repay_debt_with_collateral(
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, collateral_amount);
 
-    // Same-asset flow is intentional: self-collateralized positions
-    // (e.g. stablecoin/stablecoin) net both legs atomically, no aggregator route.
-
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    // RiskIncreasing policy: swap slippage can leave the post-repay HF lower.
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
 
     let (collateral_pos, debt_pos) =
         load_repay_with_collateral_positions(env, &account, collateral_token, debt_token);
 
-    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
-    // Universe: existing supply + borrow positions (required for the post-repay
-    // LTV/HF checks in strategy_finalize) plus both strategy legs.
-    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
-    prefetch_assets.append(&account.borrow_positions.keys());
-    utils::push_unique_address(&mut prefetch_assets, collateral_token.clone());
-    utils::push_unique_address(&mut prefetch_assets, debt_token.clone());
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
+    let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
+    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
@@ -125,16 +119,7 @@ pub fn process_repay_debt_with_collateral(
 
     close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
 
-    strategy_finalize(
-        env,
-        account_id,
-        &mut account,
-        &mut cache,
-        crate::strategies::helpers::StrategyTouched {
-            supply_assets: &[collateral_token],
-            borrow_assets: &[debt_token],
-        },
-    );
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
 fn load_repay_with_collateral_positions(
@@ -143,8 +128,6 @@ fn load_repay_with_collateral_positions(
     collateral_token: &Address,
     debt_token: &Address,
 ) -> (AccountPosition, DebtPosition) {
-    // Validate both positions before moving tokens so a missing position
-    // surfaces as its specific error, not a host panic on a later transfer.
     let collateral_pos = account
         .supply_positions
         .get(collateral_token.clone())

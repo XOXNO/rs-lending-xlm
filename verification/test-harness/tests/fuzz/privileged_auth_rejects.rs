@@ -40,8 +40,6 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfig
         flashloan_fee_bps: 9,
         borrow_cap: i128::MAX,
         supply_cap: i128::MAX,
-        min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
-        min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
     }
 }
 

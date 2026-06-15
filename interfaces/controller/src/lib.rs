@@ -140,6 +140,12 @@ pub trait ControllerInterface {
         Map<Address, DebtPositionRaw>,
     );
 
+    /// Returns whether `account_id` still has controller metadata on-chain.
+    fn account_exists(env: Env, account_id: u64) -> bool;
+
+    /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
+    fn get_min_borrow_collateral_usd(env: Env) -> i128;
+
     /// Returns account mode, e-mode, and isolation attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
@@ -151,6 +157,9 @@ pub trait ControllerInterface {
 
     /// Returns total isolated debt for an isolated collateral asset, in USD WAD.
     fn get_isolated_debt(env: Env, asset: Address) -> i128;
+
+    /// Returns the central liquidity pool shared by every listed market.
+    fn get_pool_address(env: Env) -> Address;
 
     /// Returns config and oracle data for each requested market.
     fn get_all_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;

@@ -252,7 +252,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
         &account_id,
         &0u32,
         &usdc,
-        &1_000_0000000i128,
+        &1_000_000_000i128,
         &usdt,
         &controller::types::PositionMode::Multiply,
         &steps,

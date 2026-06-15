@@ -5,16 +5,15 @@
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
 use controller_interface::types::{Account, AssetConfig, PositionMode, StrategySwap};
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::oracle::policy::OraclePolicy;
-use crate::strategies::helpers::{open_strategy_borrow, strategy_finalize, swap_tokens};
-use crate::{
-    helpers::utils, positions::supply, storage, validation, Controller, ControllerArgs,
-    ControllerClient,
+use crate::strategies::{
+    open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
+use crate::{positions::supply, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
@@ -127,15 +126,8 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         mode,
     );
 
-    // Bulk-prefetch all RedStone feeds for this tx before the first price read.
-    // Universe: existing supply + borrow positions (required for the post-deposit
-    // LTV/HF checks in strategy_finalize) plus collateral_token and debt_token
-    // (the two legs this strategy prices explicitly).
-    let mut prefetch_assets: Vec<Address> = account.supply_positions.keys();
-    prefetch_assets.append(&account.borrow_positions.keys());
-    utils::push_unique_address(&mut prefetch_assets, collateral_token.clone());
-    utils::push_unique_address(&mut prefetch_assets, debt_token.clone());
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &prefetch_assets);
+    let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
+    prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     let amount_received = open_strategy_borrow(
         env,
@@ -173,16 +165,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         &mut cache,
     );
 
-    strategy_finalize(
-        env,
-        account_id,
-        &mut account,
-        &mut cache,
-        crate::strategies::helpers::StrategyTouched {
-            supply_assets: &[collateral_token],
-            borrow_assets: &[debt_token],
-        },
-    );
+    strategy_finalize(env, account_id, &mut account, &mut cache);
 
     emit_multiply_initial_payment(env, &mut cache, account_id, initial_payment);
 

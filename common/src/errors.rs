@@ -118,10 +118,8 @@ pub enum CollateralError {
     CannotCloseWithRemainingDebt = 122,
     /// Post-mutation pool state would violate the solvency invariant.
     PoolInsolvent = 123,
-    /// Dust floor must be zero/zero or at least the protocol minimum.
-    DustFloorTooLow = 125,
-    /// Operation would leave a non-zero position below the dust floor.
-    DustResidueNotAllowed = 126,
+    /// LTV-weighted collateral is below the instance minimum while debt remains.
+    MinBorrowCollateralNotMet = 126,
     /// Operation would push utilization above the configured max.
     UtilizationAboveMax = 127,
     /// Base borrow rate cannot be negative.

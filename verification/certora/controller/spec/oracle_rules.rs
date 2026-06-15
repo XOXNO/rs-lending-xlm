@@ -61,8 +61,6 @@ fn pinned_market_config(
             flashloan_fee_bps: 9,
             borrow_cap: 2_000_000,
             supply_cap: 3_000_000,
-            min_collat_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
         },
         oracle_config: MarketOracleConfig {
             asset_decimals: 7,

@@ -49,8 +49,8 @@ pub mod codes {
     pub const CANNOT_CLOSE_WITH_REMAINING_DEBT: u32 =
         CollateralError::CannotCloseWithRemainingDebt as u32;
     pub const POOL_INSOLVENT: u32 = CollateralError::PoolInsolvent as u32;
-    pub const DUST_FLOOR_TOO_LOW: u32 = CollateralError::DustFloorTooLow as u32;
-    pub const DUST_RESIDUE_NOT_ALLOWED: u32 = CollateralError::DustResidueNotAllowed as u32;
+    pub const MIN_BORROW_COLLATERAL_NOT_MET: u32 =
+        CollateralError::MinBorrowCollateralNotMet as u32;
     pub const UTILIZATION_ABOVE_MAX: u32 = CollateralError::UtilizationAboveMax as u32;
     pub const BASE_RATE_NEGATIVE: u32 = CollateralError::BaseRateNegative as u32;
     pub const SLOPE_NON_MONOTONIC: u32 = CollateralError::SlopeNonMonotonic as u32;

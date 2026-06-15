@@ -1,9 +1,10 @@
 //! Borrow and strategy-internal borrow flows.
 //!
-//! Borrows use `OraclePolicy::RiskIncreasing`, update scaled debt shares, and
-//! increment isolated-debt counters when the account is isolated. LTV and
-//! health gates run post-pool against the market indexes the pool borrow
-//! writes into the cache.
+//! Pipeline: auth → aggregate → cache → configs → validate → settle →
+//! post-pool gates → persist → emit. Borrows use `OraclePolicy::RiskIncreasing`,
+//! update scaled debt shares, and increment isolated-debt counters when the
+//! account is isolated. LTV and health gates run post-pool against the market
+//! indexes the pool borrow writes into the cache.
 
 use common::errors::{CollateralError, EModeError};
 use controller_interface::types::{
@@ -13,11 +14,11 @@ use controller_interface::types::{
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::PlanConfigs;
+use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
 use crate::emode;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
-use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
+use crate::helpers::update_or_remove_debt_position;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::add_isolated_debt;
 use crate::positions::make_pool_action;
@@ -41,43 +42,47 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     validation::require_account_owner_match(env, &account, caller);
 
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
-    // Dedup once at the entrypoint so every downstream stage, including the
-    // post-flight dust scope, sees one entry per asset.
-    let plan = utils::aggregate_positive_payments(env, borrows);
+    let aggregated = utils::aggregate_positive_payments(env, borrows);
 
-    let configs = PlanConfigs::resolve(env, &account, &plan, &mut cache);
-    prepare_borrow_plan(env, &account, account_id, &plan, &configs, &mut cache);
-    execute_borrow_plan(env, caller, &mut account, &plan, &configs, &mut cache);
+    let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);
+    validate_borrow(env, &account, account_id, &aggregated, &configs, &mut cache);
+    settle_borrow(env, caller, &mut account, &aggregated, &configs, &mut cache);
 
-    // A failure in either gate panics and reverts the atomic tx.
-    validation::require_within_ltv(env, &mut cache, &account);
-    validation::require_healthy_account(env, &mut cache, &account);
-    // Scope the dust gate to borrowed assets only: borrow never mutates supply,
-    // so it must not be blocked by pre-existing positions that drifted under the floor.
-    require_no_borrow_dust_for_assets(env, &mut cache, &account, &utils::plan_assets(env, &plan));
+    // A failure in any gate panics and reverts the atomic tx.
+    validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
-    storage::set_debt_positions(env, account_id, &account.borrow_positions);
-    cache.flush_isolated_debts();
-    cache.emit_position_batch(account_id, &account);
-    cache.emit_market_batch();
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::DEBT,
+        false,
+        true,
+    );
 }
 
 // Pre-pool gates only: emptiness, position limits, siloed set, then per-asset
 // market-active, borrowability, and isolated-debt ceilings. LTV valuation runs
-// post-pool in `require_within_ltv` to reuse the borrow's cached market index.
-fn prepare_borrow_plan(
+// post-pool in `require_post_pool_risk_gates` to reuse the borrow's cached market index.
+fn validate_borrow(
     env: &Env,
     account: &Account,
     account_id: u64,
-    plan: &Vec<Payment>,
-    configs: &PlanConfigs,
+    aggregated: &AggregatedPayments,
+    configs: &AggregatedConfigs,
     cache: &mut Cache,
 ) {
-    validation::require_non_empty_payments(env, plan);
-    validation::validate_bulk_position_limits(env, account, AccountPositionType::Borrow, plan);
-    validate_siloed_borrow_set(env, account, plan, cache);
+    validation::require_non_empty_payments(env, aggregated);
+    validation::validate_bulk_position_limits(
+        env,
+        account,
+        AccountPositionType::Borrow,
+        aggregated,
+    );
+    validate_siloed_borrow_set(env, account, aggregated, cache);
 
-    for (asset, amount) in plan {
+    for (asset, amount) in aggregated {
         validation::require_market_active(env, cache, &asset);
         let asset_config = configs.get(env, &asset);
         validate_asset_borrowable(env, account, &asset, &asset_config, cache);
@@ -85,18 +90,18 @@ fn prepare_borrow_plan(
     }
 }
 
-fn execute_borrow_plan(
+fn settle_borrow(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    plan: &Vec<Payment>,
-    configs: &PlanConfigs,
+    aggregated: &AggregatedPayments,
+    configs: &AggregatedConfigs,
     cache: &mut Cache,
 ) {
-    // Build the whole plan's entries, make ONE pool call, then merge results
+    // Build the whole batch's entries, make ONE pool call, then merge results
     // input-ordered — one cross-contract frame instead of one per asset.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
-    for (asset, amount) in plan {
+    for (asset, amount) in aggregated {
         let asset_config = configs.get(env, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
@@ -162,18 +167,18 @@ fn validate_asset_borrowable(
 }
 
 /// Siloed assets must be an account's only borrow; checks the union of
-/// existing debt and the incoming plan.
+/// existing debt and the incoming aggregated payments.
 fn validate_siloed_borrow_set(
     env: &Env,
     account: &Account,
-    plan: &Vec<Payment>,
+    aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
     let mut union: Vec<Address> = Vec::new(env);
     for asset in account.borrow_positions.keys() {
         utils::push_unique_address(&mut union, asset);
     }
-    for (asset, _) in plan {
+    for (asset, _) in aggregated {
         utils::push_unique_address(&mut union, asset);
     }
 
@@ -201,10 +206,11 @@ pub fn borrow_for_strategy(
     amount: i128,
     cache: &mut Cache,
 ) -> i128 {
-    let mut plan: Vec<Payment> = Vec::new(env);
-    plan.push_back((debt_token.clone(), amount));
-    let configs = PlanConfigs::resolve(env, account, &plan, cache);
-    prepare_borrow_plan(env, account, account_id, &plan, &configs, cache);
+    let mut payments: AggregatedPayments = Vec::new(env);
+    payments.push_back((debt_token.clone(), amount));
+    let aggregated = utils::aggregate_positive_payments(env, &payments);
+    let configs = AggregatedConfigs::resolve(env, account, &aggregated, cache);
+    validate_borrow(env, account, account_id, &aggregated, &configs, cache);
 
     let debt_config = configs.get(env, debt_token);
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);

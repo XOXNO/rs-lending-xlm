@@ -25,8 +25,6 @@ pub struct AssetConfigRaw {
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
-    pub min_collat_floor_usd_wad: i128,
-    pub min_debt_floor_usd_wad: i128,
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -47,8 +45,6 @@ pub struct AssetConfig {
     pub flashloan_fee: Bps,
     pub borrow_cap: i128,
     pub supply_cap: i128,
-    pub min_collat_floor_usd: Wad,
-    pub min_debt_floor_usd: Wad,
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -95,8 +91,6 @@ impl From<&AssetConfigRaw> for AssetConfig {
             flashloan_fee: Bps::from(i128::from(r.flashloan_fee_bps)),
             borrow_cap: r.borrow_cap,
             supply_cap: r.supply_cap,
-            min_collat_floor_usd: Wad::from(r.min_collat_floor_usd_wad),
-            min_debt_floor_usd: Wad::from(r.min_debt_floor_usd_wad),
             e_mode_categories: r.e_mode_categories.clone(),
         }
     }
@@ -119,8 +113,6 @@ impl From<&AssetConfig> for AssetConfigRaw {
             flashloan_fee_bps: t.flashloan_fee.raw() as u32,
             borrow_cap: t.borrow_cap,
             supply_cap: t.supply_cap,
-            min_collat_floor_usd_wad: t.min_collat_floor_usd.raw(),
-            min_debt_floor_usd_wad: t.min_debt_floor_usd.raw(),
             e_mode_categories: t.e_mode_categories.clone(),
         }
     }
@@ -415,8 +407,6 @@ mod tests {
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,
             supply_cap: 5_000_000,
-            min_collat_floor_usd_wad: 10 * WAD,
-            min_debt_floor_usd_wad: 10 * WAD,
             e_mode_categories: categories,
         }
     }
@@ -458,8 +448,6 @@ mod tests {
         assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
         assert_eq!(back.borrow_cap, raw.borrow_cap);
         assert_eq!(back.supply_cap, raw.supply_cap);
-        assert_eq!(back.min_collat_floor_usd_wad, raw.min_collat_floor_usd_wad);
-        assert_eq!(back.min_debt_floor_usd_wad, raw.min_debt_floor_usd_wad);
         assert_eq!(back.e_mode_categories, raw.e_mode_categories);
     }
 
@@ -669,4 +657,6 @@ pub enum ControllerKey {
     IsolatedBasis(u64, Address),
     PoolsList,
     AppVersion,
+    /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
+    MinBorrowCollateralUsd,
 }

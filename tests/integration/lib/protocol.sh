@@ -109,8 +109,6 @@ asset_config_json() {
         flashloan_fee_bps: 5,
         borrow_cap: "0",
         supply_cap: "0",
-        min_collat_floor_usd_wad: "10000000000000000000",
-        min_debt_floor_usd_wad: "10000000000000000000",
         e_mode_categories: []
     }' | jq -c "$overrides"
 }

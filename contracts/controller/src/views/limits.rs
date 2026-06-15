@@ -1,16 +1,16 @@
 //! Integrator preview views: `max_withdraw` and `max_supply`.
 //!
-//! `max_withdraw` evaluates feasibility with replicas of the exact
-//! fixed-point gates the mutating path runs (pool cash, max-utilization,
-//! solvency, the account LTV/HF gates, the dust floor) at view-simulated
-//! indexes, then binary-searches the largest passing amount — feasibility is
-//! monotone in the amount, so the result never overstates what the next
-//! transaction allows. Indexes keep accruing after the read, so callers
-//! acting later should leave a margin.
+//! `max_withdraw` first tries a full close, then caps a partial by closed-form
+//! pool solvency headroom and settles with a short stroop walk
+//! against the exact `partial_ok` replica of the mutating path. Indexes keep
+//! accruing after the read, so callers acting later should leave a margin.
 
+use common::constants::{RAY, WAD};
 use common::math::fp::{Ray, Wad};
+use common::math::fp_core;
 use common::rates::{scaled_to_original, utilization};
 use common::validation::cap_is_enabled;
+use controller_interface::types::PriceFeed;
 use controller_interface::types::{
     Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus,
 };
@@ -18,6 +18,9 @@ use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
 use crate::{emode, helpers, storage};
+
+/// Stroop walks before falling back to binary search on the residual range.
+const PARTIAL_SETTLE_STEPS: u32 = 24;
 
 /// Pool-side market state at view-simulated indexes.
 struct MarketLimitCtx {
@@ -43,6 +46,26 @@ impl MarketLimitCtx {
             decimals: sync.params.asset_decimals,
             borrow_index: index.borrow_index,
         }
+    }
+
+    /// Largest partial bounded by cash and post-withdraw utilization.
+    fn pool_partial_cap(&self, env: &Env, full_request: i128) -> i128 {
+        let cap = self.cash.min(full_request);
+        if self.max_utilization >= Ray::ONE || self.borrowed == Ray::ZERO {
+            return cap;
+        }
+        let borrowed_orig = scaled_to_original(env, self.borrowed, self.borrow_index);
+        if borrowed_orig == Ray::ZERO {
+            return cap;
+        }
+        let min_supplied = ray_div_ceil(env, borrowed_orig, self.max_utilization);
+        if self.supplied <= min_supplied {
+            return 0;
+        }
+        let max_scaled_out = self.supplied - min_supplied;
+        let util_cap =
+            scaled_to_original(env, max_scaled_out, self.supply_index).to_asset(self.decimals);
+        cap.min(util_cap)
     }
 
     /// Mirrors the pool's post-withdraw reserve, utilization, and solvency
@@ -106,24 +129,23 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
         return full_request;
     }
 
-    let floor_wad = cache.cached_asset_config(asset).min_collat_floor_usd.raw();
-
-    // Feasibility is monotone below the full request: every gate only
-    // tightens as the amount grows. Binary-search the largest passing
-    // partial.
-    let mut lo: i128 = 0;
-    let mut hi = market.cash.min(full_request.saturating_sub(1)).max(0);
-    while lo < hi {
-        let mid = hi - (hi - lo) / 2;
-        if partial_ok(
-            env, &mut cache, &account, asset, &market, pos_scaled, floor_wad, mid,
-        ) {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
+    let ceiling = full_request.saturating_sub(1).max(0);
+    if ceiling == 0 {
+        return 0;
     }
-    lo
+
+    let candidate = analytical_partial_cap(
+        env,
+        &mut cache,
+        &account,
+        asset,
+        &position,
+        &market,
+        full_request,
+    );
+    settle_partial_max(
+        env, &mut cache, &account, asset, &market, pos_scaled, candidate, ceiling,
+    )
 }
 
 pub fn max_supply(env: &Env, asset: &Address) -> i128 {
@@ -224,7 +246,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
 }
 
 /// Amount-independent borrowability of `asset` for `account`, mirroring the
-/// pre-pool gates in `prepare_borrow_plan`/`validate_asset_borrowable` without
+/// pre-pool gates in `validate_borrow`/`validate_asset_borrowable` without
 /// throwing.
 fn account_can_borrow_asset(
     env: &Env,
@@ -376,8 +398,185 @@ fn borrow_ok(
     account_gates_ok(env, cache, &adjusted)
 }
 
+fn ray_div_ceil(env: &Env, num: Ray, den: Ray) -> Ray {
+    Ray::from(fp_core::mul_div_ceil(env, num.raw(), RAY, den.raw()))
+}
+
+fn wad_div_ceil(env: &Env, num: Wad, den: Wad) -> Wad {
+    Wad::from(fp_core::mul_div_ceil(env, num.raw(), WAD, den.raw()))
+}
+
+/// Converts a USD WAD slack into a conservative token upper bound.
+fn usd_wad_to_token_cap(env: &Env, usd: Wad, feed: PriceFeed, decimals: u32) -> i128 {
+    if usd == Wad::ZERO || feed.price == Wad::ZERO {
+        return 0;
+    }
+    Wad::from(fp_core::mul_div_floor(
+        env,
+        usd.raw(),
+        WAD,
+        feed.price.raw(),
+    ))
+    .to_token_floor(decimals)
+}
+
+/// Closed-form upper bound on a partial; `partial_ok` settlement tightens it.
+fn analytical_partial_cap(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    position: &AccountPosition,
+    market: &MarketLimitCtx,
+    full_request: i128,
+) -> i128 {
+    let cap = market.pool_partial_cap(env, full_request);
+    if account.borrow_positions.is_empty() {
+        return cap;
+    }
+    cap.min(risk_partial_cap(
+        env,
+        cache,
+        account,
+        asset,
+        position,
+        market,
+        full_request,
+    ))
+}
+
+/// Max partial before LTV / HF gates bind on the withdrawn asset.
+fn risk_partial_cap(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    position: &AccountPosition,
+    market: &MarketLimitCtx,
+    full_request: i128,
+) -> i128 {
+    let (_, debt, hf_weighted) = helpers::calculate_account_totals(
+        env,
+        cache,
+        &account.supply_positions,
+        &account.borrow_positions,
+    );
+    if debt == Wad::ZERO {
+        return full_request;
+    }
+    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
+    let ltv_slack = ltv_weighted.raw().saturating_sub(debt.raw());
+    let hf_slack = hf_weighted.raw().saturating_sub(debt.raw());
+    if ltv_slack == 0 && hf_slack == 0 {
+        return 0;
+    }
+
+    let feed = cache.cached_price(asset);
+    let ltv_ratio = position.loan_to_value.to_wad(env);
+    let hf_ratio = position.liquidation_threshold.to_wad(env);
+    let ltv_cap = if ltv_slack == 0 || ltv_ratio == Wad::ZERO {
+        0
+    } else {
+        usd_wad_to_token_cap(
+            env,
+            wad_div_ceil(env, Wad::from(ltv_slack), ltv_ratio),
+            feed,
+            market.decimals,
+        )
+    };
+    let hf_cap = if hf_slack == 0 || hf_ratio == Wad::ZERO {
+        0
+    } else {
+        usd_wad_to_token_cap(
+            env,
+            wad_div_ceil(env, Wad::from(hf_slack), hf_ratio),
+            feed,
+            market.decimals,
+        )
+    };
+    ltv_cap.min(hf_cap).min(full_request)
+}
+
+/// Tightens an analytical partial cap against `partial_ok`, then binary-searches
+/// any remaining slack.
+fn settle_partial_max(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    market: &MarketLimitCtx,
+    pos_scaled: Ray,
+    candidate: i128,
+    ceiling: i128,
+) -> i128 {
+    if ceiling == 0 {
+        return 0;
+    }
+
+    let mut amount = candidate.min(ceiling).max(0);
+    for _ in 0..PARTIAL_SETTLE_STEPS {
+        if partial_ok(env, cache, account, asset, market, pos_scaled, amount) {
+            break;
+        }
+        if amount == 0 {
+            return binary_search_partial(
+                env, cache, account, asset, market, pos_scaled, 0, ceiling,
+            );
+        }
+        amount -= 1;
+    }
+    if !partial_ok(env, cache, account, asset, market, pos_scaled, amount) {
+        return binary_search_partial(env, cache, account, asset, market, pos_scaled, 0, ceiling);
+    }
+
+    let mut steps = 0;
+    while amount < ceiling && steps < PARTIAL_SETTLE_STEPS {
+        if !partial_ok(env, cache, account, asset, market, pos_scaled, amount + 1) {
+            break;
+        }
+        amount += 1;
+        steps += 1;
+    }
+    if amount < ceiling && partial_ok(env, cache, account, asset, market, pos_scaled, amount + 1) {
+        return binary_search_partial(
+            env,
+            cache,
+            account,
+            asset,
+            market,
+            pos_scaled,
+            amount + 1,
+            ceiling,
+        );
+    }
+    amount
+}
+
+fn binary_search_partial(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    market: &MarketLimitCtx,
+    pos_scaled: Ray,
+    lo: i128,
+    hi: i128,
+) -> i128 {
+    let mut lo = lo;
+    let mut hi = hi;
+    while lo < hi {
+        let mid = hi - (hi - lo) / 2;
+        if partial_ok(env, cache, account, asset, market, pos_scaled, mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
 /// Exact replica of a full close: pool guards on the floor payout plus the
-/// account gates with the position removed (dust never applies).
+/// account gates with the position removed.
 fn full_close_ok(
     env: &Env,
     cache: &mut Cache,
@@ -406,7 +605,6 @@ fn partial_ok(
     asset: &Address,
     market: &MarketLimitCtx,
     pos_scaled: Ray,
-    floor_wad: i128,
     amount: i128,
 ) -> bool {
     // resolve_withdrawal replica: shares burnt at the half-up conversion.
@@ -432,20 +630,10 @@ fn partial_ok(
     };
     pos_raw.scaled_amount_ray = remaining.raw();
     adjusted.supply_positions.set(asset.clone(), pos_raw);
-    if !account_gates_ok(env, cache, &adjusted) {
-        return false;
-    }
-
-    // Replica of the touched-asset dust gate on the residue.
-    if floor_wad == 0 {
-        return true;
-    }
-    let feed = cache.cached_price(asset);
-    let value = helpers::position_value(env, remaining, market.supply_index, feed.price);
-    !(value > Wad::ZERO && value.raw() < floor_wad)
+    account_gates_ok(env, cache, &adjusted)
 }
 
-/// Replica of `require_within_ltv` + `require_healthy_account`; HF >= 1 in
+/// Replica of `require_post_pool_risk_gates` LTV/HF legs; HF >= 1 in
 /// floor division is equivalent to `weighted >= debt`.
 fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     if account.borrow_positions.is_empty() {
@@ -464,5 +652,9 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
         return false;
     }
     let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
-    ltv_weighted.raw() >= debt.raw()
+    if ltv_weighted.raw() < debt.raw() {
+        return false;
+    }
+    let floor = storage::get_min_borrow_collateral_usd_wad(env);
+    floor == 0 || ltv_weighted.raw() >= floor
 }

@@ -15,7 +15,7 @@
 //! The testing block mirrors the old immediate forwarders so the harness builder
 //! can configure markets in one frame; it is excluded from the production wasm.
 
-use common::errors::{GenericError, OracleError};
+use common::errors::{CollateralError, GenericError, OracleError};
 use common::types::{InterestRateModel, MarketParamsRaw};
 use controller_interface::types::{AssetConfigRaw, MarketOracleConfigInput, PositionLimits};
 use controller_interface::ControllerAdminClient;
@@ -172,6 +172,22 @@ impl Governance {
             &env,
             "set_position_limits",
             vec![&env, limits.into_val(&env)],
+            salt,
+        )
+    }
+
+    pub fn propose_set_min_borrow_collat(
+        env: Env,
+        proposer: Address,
+        floor_wad: i128,
+        salt: BytesN<32>,
+    ) -> BytesN<32> {
+        begin_proposal(&env, &proposer);
+        assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
+        schedule_controller_op(
+            &env,
+            "set_min_borrow_collateral_usd",
+            vec![&env, floor_wad.into_val(&env)],
             salt,
         )
     }
@@ -575,6 +591,13 @@ impl Governance {
         storage::renew_governance_instance(&env);
         validate::asset::validate_position_limits(&env, &limits);
         controller_client(&env).set_position_limits(&limits);
+    }
+
+    #[only_owner]
+    pub fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
+        storage::renew_governance_instance(&env);
+        assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
+        controller_client(&env).set_min_borrow_collateral_usd(&floor_wad);
     }
 
     #[only_owner]

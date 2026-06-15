@@ -6,7 +6,6 @@
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
-use common::math::fp_core;
 use controller_interface::types::{
     Account, AccountPositionRaw, DebtPosition, LiquidationResult, Payment, PaymentTuple,
     RepayEntry, SeizeEntry,
@@ -45,7 +44,6 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub refunds: Vec<PaymentTuple>,
     pub repay_usd: Wad,
     pub bonus: Bps,
-    pub requires_post_socialization: bool,
 }
 
 impl NormalizedRepaymentPlan {
@@ -82,10 +80,6 @@ impl LiquidationPlan {
             max_debt_usd: self.repayment.repay_usd.raw(),
             bonus_bps: self.repayment.bonus.raw(),
         }
-    }
-
-    pub(crate) fn requires_post_socialization(&self) -> bool {
-        self.repayment.requires_post_socialization
     }
 }
 
@@ -125,8 +119,8 @@ pub(crate) fn calculate_repayment_amounts(
     let merged = utils::aggregate_positive_payments(env, raw_payments);
 
     // Full coverage is decided in token terms — the only quantization the
-    // pool settles in: the deduped plan reaches every debt position (plan
-    // assets must exist as positions, so length equality is set equality)
+    // pool settles in: the aggregated payments reach every debt position
+    // (assets must exist as positions, so length equality is set equality)
     // and every payment settles its position's full token debt.
     let mut covers_full_debt = merged.len() == account.borrow_positions.len();
 
@@ -190,268 +184,20 @@ pub(crate) fn normalize_repayment_plan(
     let (max_debt_to_repay_usd, bonus) =
         calculate_liquidation_amounts(env, snap, bonus_bounds, total_debt_payment_usd);
 
-    let protected_minimums = protected_full_close_minimums(env, account, cache, &repaid_tokens);
-
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
         let excess_usd = total_debt_payment_usd - max_debt_to_repay_usd;
-        process_excess_payment(
-            env,
-            &mut final_repayment_tokens,
-            &mut refunds,
-            excess_usd,
-            &protected_minimums,
-        );
+        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
-    let mut repayment = NormalizedRepaymentPlan {
+    let repayment = NormalizedRepaymentPlan {
         repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
         repaid: final_repayment_tokens,
         refunds,
         bonus,
-        requires_post_socialization: false,
     };
-    repayment.validate(env);
-
-    if repayment_has_wholly_subfloor_underpayment(env, account, cache, &repayment.repaid)
-        && repayment_leaves_socializable_bad_debt(env, account, snap, &repayment, cache)
-    {
-        repayment.requires_post_socialization = true;
-        return repayment;
-    }
-
-    cap_repaid_tokens_to_debt_floors(
-        env,
-        account,
-        cache,
-        &mut repayment.repaid,
-        &mut repayment.refunds,
-    );
-
-    repayment.repay_usd = sum_repaid_usd(env, &repayment.repaid);
     repayment.validate(env);
     repayment
-}
-
-fn repayment_has_wholly_subfloor_underpayment(
-    env: &Env,
-    account: &Account,
-    cache: &mut Cache,
-    repaid_tokens: &Vec<RepayEntry>,
-) -> bool {
-    for i in 0..repaid_tokens.len() {
-        let entry = validation::expect_invariant(env, repaid_tokens.get(i));
-        let debt_position: DebtPosition = (&account
-            .borrow_positions
-            .get(entry.asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
-            .into();
-        let market_index: common::types::pool::MarketIndex = (&entry.market_index).into();
-        let actual_debt = debt_close_amount(
-            env,
-            &debt_position,
-            market_index.borrow_index,
-            entry.feed.asset_decimals,
-        );
-        if entry.amount >= actual_debt {
-            continue;
-        }
-
-        let min_debt_floor = cache
-            .cached_asset_config(&entry.asset)
-            .min_debt_floor_usd
-            .raw();
-        if min_debt_floor <= 0 {
-            continue;
-        }
-
-        let min_residual = min_residual_token_amount(env, min_debt_floor, &entry.feed);
-        if actual_debt <= min_residual {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn repayment_leaves_socializable_bad_debt(
-    env: &Env,
-    account: &Account,
-    snap: &LiquidationSnapshot,
-    repayment: &NormalizedRepaymentPlan,
-    cache: &mut Cache,
-) -> bool {
-    if repayment.repaid.is_empty() {
-        return false;
-    }
-
-    let seized = calculate_seized_collateral(env, account, snap.total_collateral, repayment, cache);
-    let seized_usd = sum_seized_usd(env, &seized).min(snap.total_collateral);
-    let post_collateral = snap.total_collateral - seized_usd;
-    let conservative_post_collateral =
-        post_collateral + socialization_rounding_buffer(env, &seized);
-    let post_debt = if repayment.repay_usd >= snap.total_debt {
-        Wad::ZERO
-    } else {
-        snap.total_debt - repayment.repay_usd
-    };
-
-    is_socializable_bad_debt(post_debt, conservative_post_collateral)
-}
-
-fn sum_seized_usd(env: &Env, seized: &Vec<SeizeEntry>) -> Wad {
-    let mut total = Wad::ZERO;
-    for i in 0..seized.len() {
-        let entry = validation::expect_invariant(env, seized.get(i));
-        let feed: controller_interface::types::PriceFeed = (&entry.feed).into();
-        total += feed.usd_value_wad(env, entry.amount);
-    }
-    total
-}
-
-fn socialization_rounding_buffer(env: &Env, seized: &Vec<SeizeEntry>) -> Wad {
-    let mut buffer = Wad::from(1);
-    for i in 0..seized.len() {
-        let entry = validation::expect_invariant(env, seized.get(i));
-        let feed: controller_interface::types::PriceFeed = (&entry.feed).into();
-        let one_unit_usd = feed.usd_value_wad(env, 1);
-        buffer += if one_unit_usd > Wad::ZERO {
-            one_unit_usd
-        } else {
-            Wad::from(1)
-        };
-    }
-    buffer
-}
-
-fn protected_full_close_minimums(
-    env: &Env,
-    account: &Account,
-    cache: &mut Cache,
-    repaid_tokens: &Vec<RepayEntry>,
-) -> Vec<PaymentTuple> {
-    let mut protected: Vec<PaymentTuple> = Vec::new(env);
-
-    for i in 0..repaid_tokens.len() {
-        let entry = validation::expect_invariant(env, repaid_tokens.get(i));
-        let debt_position: DebtPosition = (&account
-            .borrow_positions
-            .get(entry.asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
-            .into();
-        let market_index: common::types::pool::MarketIndex = (&entry.market_index).into();
-        let actual_debt = debt_close_amount(
-            env,
-            &debt_position,
-            market_index.borrow_index,
-            entry.feed.asset_decimals,
-        );
-
-        if entry.amount < actual_debt {
-            continue;
-        }
-
-        let min_debt_floor = cache
-            .cached_asset_config(&entry.asset)
-            .min_debt_floor_usd
-            .raw();
-        if min_debt_floor <= 0 {
-            continue;
-        }
-
-        let min_residual = min_residual_token_amount(env, min_debt_floor, &entry.feed);
-        if actual_debt <= min_residual {
-            protected.push_back(PaymentTuple {
-                asset: entry.asset,
-                amount: actual_debt,
-            });
-        }
-    }
-
-    protected
-}
-
-pub(crate) fn cap_repaid_tokens_to_debt_floors(
-    env: &Env,
-    account: &Account,
-    cache: &mut Cache,
-    repaid_tokens: &mut Vec<RepayEntry>,
-    refunds: &mut Vec<PaymentTuple>,
-) {
-    let mut i = 0;
-    while i < repaid_tokens.len() {
-        let entry = validation::expect_invariant(env, repaid_tokens.get(i));
-        let debt_position: DebtPosition = (&account
-            .borrow_positions
-            .get(entry.asset.clone())
-            .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
-            .into();
-        let market_index: common::types::pool::MarketIndex = (&entry.market_index).into();
-        let actual_debt = debt_close_amount(
-            env,
-            &debt_position,
-            market_index.borrow_index,
-            entry.feed.asset_decimals,
-        );
-
-        if entry.amount >= actual_debt {
-            i += 1;
-            continue;
-        }
-
-        let min_debt_floor = cache
-            .cached_asset_config(&entry.asset)
-            .min_debt_floor_usd
-            .raw();
-        if min_debt_floor <= 0 {
-            i += 1;
-            continue;
-        }
-
-        let feed: controller_interface::types::PriceFeed = (&entry.feed).into();
-        let residual = actual_debt - entry.amount;
-        let residual_usd = feed.usd_value_wad(env, residual).raw();
-        if residual_usd >= min_debt_floor {
-            i += 1;
-            continue;
-        }
-
-        let min_residual = min_residual_token_amount(env, min_debt_floor, &entry.feed);
-        let capped_amount = actual_debt.saturating_sub(min_residual);
-        if capped_amount <= 0 {
-            // A fully covered wholly-sub-floor position is protected before the
-            // excess-refund pass and reaches the full-close branch above. If we
-            // get here, the liquidator did not cover enough to close the debt,
-            // so the only dust-safe mutation for this leg is no mutation.
-            refunds.push_back(PaymentTuple {
-                asset: entry.asset,
-                amount: entry.amount,
-            });
-            repaid_tokens.remove(i);
-            continue;
-        }
-
-        if capped_amount < entry.amount {
-            let refund_amount = entry.amount - capped_amount;
-            let capped_usd = feed.usd_value_wad(env, capped_amount);
-            refunds.push_back(PaymentTuple {
-                asset: entry.asset.clone(),
-                amount: refund_amount,
-            });
-            repaid_tokens.set(
-                i,
-                RepayEntry {
-                    asset: entry.asset,
-                    amount: capped_amount,
-                    usd_wad: capped_usd.raw(),
-                    feed: entry.feed,
-                    market_index: entry.market_index,
-                },
-            );
-        }
-
-        i += 1;
-    }
 }
 
 fn debt_close_amount(
@@ -473,22 +219,6 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
         total += Wad::from(entry.usd_wad);
     }
     total
-}
-
-fn min_residual_token_amount(
-    env: &Env,
-    min_debt_floor_usd_wad: i128,
-    feed: &controller_interface::types::PriceFeedRaw,
-) -> i128 {
-    if feed.price_wad <= 0 {
-        panic_with_error!(env, GenericError::InternalError);
-    }
-    let min_residual_wad = fp_core::mul_div_ceil(env, min_debt_floor_usd_wad, WAD, feed.price_wad);
-    fp_core::rescale_ceil(
-        min_residual_wad,
-        common::constants::WAD_DECIMALS,
-        feed.asset_decimals,
-    )
 }
 
 pub(crate) fn calculate_liquidation_amounts(
@@ -584,7 +314,6 @@ pub(crate) fn process_excess_payment(
     repaid_tokens: &mut Vec<RepayEntry>,
     refunds: &mut Vec<PaymentTuple>,
     excess_usd: Wad,
-    protected_minimums: &Vec<PaymentTuple>,
 ) {
     let mut remaining_excess_usd = excess_usd;
 
@@ -592,29 +321,20 @@ pub(crate) fn process_excess_payment(
     while remaining_excess_usd > Wad::ZERO && current_index > 0 {
         current_index -= 1;
         let entry = validation::expect_invariant(env, repaid_tokens.get(current_index));
-        let minimum_amount = protected_minimum_amount(env, protected_minimums, &entry.asset);
-        if entry.amount <= minimum_amount {
+        if entry.amount <= 0 {
             continue;
         }
 
         let usd = Wad::from(entry.usd_wad);
-        let minimum_usd = if minimum_amount > 0 {
-            let feed: controller_interface::types::PriceFeed = (&entry.feed).into();
-            feed.usd_value_wad(env, minimum_amount)
-        } else {
-            Wad::ZERO
-        };
-        if usd <= minimum_usd {
+        if usd == Wad::ZERO {
             continue;
         }
-        let refundable_usd = usd - minimum_usd;
-        let refundable_amount = entry.amount - minimum_amount;
 
-        if refundable_usd > remaining_excess_usd {
+        if usd > remaining_excess_usd {
             // Floor every step: the refund returned to the payer never exceeds
             // the exact pro-rata share; sub-ulp remainder stays as repayment.
-            let ratio = remaining_excess_usd.div_floor(env, refundable_usd);
-            let refund_amount = Wad::from_token(refundable_amount, entry.feed.asset_decimals)
+            let ratio = remaining_excess_usd.div_floor(env, usd);
+            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
                 .mul_floor(env, ratio)
                 .to_token_floor(entry.feed.asset_decimals);
 
@@ -642,41 +362,12 @@ pub(crate) fn process_excess_payment(
         } else {
             refunds.push_back(PaymentTuple {
                 asset: entry.asset.clone(),
-                amount: refundable_amount,
+                amount: entry.amount,
             });
-            if minimum_amount > 0 {
-                let new_amount_wad = Wad::from_token(minimum_amount, entry.feed.asset_decimals);
-                let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
-                repaid_tokens.set(
-                    current_index,
-                    RepayEntry {
-                        asset: entry.asset,
-                        amount: minimum_amount,
-                        usd_wad: new_usd.raw(),
-                        feed: entry.feed,
-                        market_index: entry.market_index,
-                    },
-                );
-            } else {
-                repaid_tokens.remove(current_index);
-            }
-            remaining_excess_usd -= refundable_usd;
+            repaid_tokens.remove(current_index);
+            remaining_excess_usd -= usd;
         }
     }
-}
-
-fn protected_minimum_amount(
-    env: &Env,
-    protected_minimums: &Vec<PaymentTuple>,
-    asset: &Address,
-) -> i128 {
-    for i in 0..protected_minimums.len() {
-        let protected = validation::expect_invariant(env, protected_minimums.get(i));
-        if protected.asset == *asset {
-            return protected.amount;
-        }
-    }
-    0
 }
 
 /// Interpolates liquidation bonus from base to max as HF falls below target.

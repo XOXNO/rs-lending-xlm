@@ -19,13 +19,21 @@ pub fn assert_global_invariants(t: &LendingTest, user: &str, assets: &[&str], mi
 
 #[derive(Clone, Debug)]
 pub struct StateSnapshot {
+    pub health_raw: i128,
+    pub token_raw: Vec<i128>,
     pub reserves: Vec<f64>,
     pub supply_raw: Vec<i128>,
     pub borrow_raw: Vec<i128>,
+    pub active_accounts: usize,
 }
 
 pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
     StateSnapshot {
+        health_raw: t.health_factor_raw(user),
+        token_raw: assets
+            .iter()
+            .map(|a| t.token_balance_raw(user, a))
+            .collect(),
         reserves: assets.iter().map(|a| t.pool_reserves(a)).collect(),
         supply_raw: assets
             .iter()
@@ -35,10 +43,19 @@ pub fn snapshot(t: &LendingTest, user: &str, assets: &[&str]) -> StateSnapshot {
             .iter()
             .map(|a| t.borrow_balance_raw(user, a))
             .collect(),
+        active_accounts: t.get_active_accounts(user).len() as usize,
     }
 }
 
 pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSnapshot) {
+    assert_eq!(
+        before.health_raw, after.health_raw,
+        "health factor drifted on failed op"
+    );
+    assert_eq!(before.token_raw.len(), after.token_raw.len());
+    for (i, (b, a)) in before.token_raw.iter().zip(&after.token_raw).enumerate() {
+        assert_eq!(b, a, "asset[{}] wallet balance drifted on failed op", i);
+    }
     assert_eq!(before.reserves.len(), after.reserves.len());
     for (i, (b, a)) in before.reserves.iter().zip(&after.reserves).enumerate() {
         assert!(
@@ -67,4 +84,8 @@ pub fn assert_state_preserved_on_failure(before: &StateSnapshot, after: &StateSn
             a
         );
     }
+    assert_eq!(
+        before.active_accounts, after.active_accounts,
+        "active account count drifted on failed op"
+    );
 }

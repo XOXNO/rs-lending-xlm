@@ -10,17 +10,16 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 use crate::external::sac::sac_transfer_call;
 use crate::validation;
 
-/// Deduplicates by asset and sums amounts; panics on zero or negative entries
-/// (used by every mutating entrypoint before plan execution).
+/// Deduplicates by asset and sums amounts; panics on zero or negative entries.
 pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
     aggregate_payments(env, payments, false)
 }
 
-// Asset addresses from an already-aggregated plan: aggregation guarantees
-// uniqueness, so this is a tuple-to-address projection — no dedup.
-pub fn plan_assets(env: &Env, plan: &Vec<Payment>) -> Vec<Address> {
+/// Asset addresses from aggregated payments. Aggregation guarantees uniqueness,
+/// so this is a tuple-to-address projection — no dedup.
+pub fn aggregated_assets(env: &Env, aggregated: &Vec<Payment>) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new(env);
-    for (asset, _) in plan {
+    for (asset, _) in aggregated {
         out.push_back(asset);
     }
     out

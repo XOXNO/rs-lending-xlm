@@ -590,6 +590,12 @@ pub struct UpdatePositionLimitsEvent {
     pub max_borrow_positions: u32,
 }
 
+#[contractevent(topics = ["config", "min_borrow_collateral"])]
+#[derive(Clone, Debug)]
+pub struct UpdateMinBorrowCollateralEvent {
+    pub min_borrow_collateral_usd_wad: i128,
+}
+
 #[contractevent(topics = ["config", "oracle_disabled"])]
 #[derive(Clone, Debug)]
 pub struct OracleDisabledEvent {
@@ -645,8 +651,6 @@ mod tests {
             flashloan_fee_bps: 9,
             borrow_cap: 0,
             supply_cap: 0,
-            min_collat_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: crate::constants::MIN_DUST_FLOOR_WAD,
         }
     }
 

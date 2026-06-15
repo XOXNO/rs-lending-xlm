@@ -38,8 +38,6 @@ pub struct AssetConfigPreset {
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
-    pub min_collat_floor_usd_wad: i128,
-    pub min_debt_floor_usd_wad: i128,
 }
 
 #[derive(Clone)]
@@ -86,10 +84,6 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     flashloan_fee_bps: 9,
     borrow_cap: 0, // 0 = no cap (tests that need caps override per-market)
     supply_cap: 0, // 0 = no cap
-    // $10 floor (= `MIN_DUST_FLOOR_WAD`). Production deployments may raise
-    // per asset; the validator rejects any value below this.
-    min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
-    min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
@@ -216,8 +210,6 @@ impl AssetConfigPreset {
             flashloan_fee_bps: self.flashloan_fee_bps,
             borrow_cap: self.borrow_cap,
             supply_cap: self.supply_cap,
-            min_collat_floor_usd_wad: self.min_collat_floor_usd_wad,
-            min_debt_floor_usd_wad: self.min_debt_floor_usd_wad,
             // Memberships are populated via `add_asset_to_e_mode_category`,
             // never at preset → market construction time.
             e_mode_categories: soroban_sdk::Vec::new(env),

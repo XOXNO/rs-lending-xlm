@@ -133,6 +133,14 @@ pub trait GovernanceInterface {
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
+    /// Schedules `set_min_borrow_collateral_usd`.
+    fn propose_set_min_borrow_collat(
+        env: Env,
+        proposer: Address,
+        floor_wad: i128,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
     /// Schedules `add_e_mode_category`.
     fn propose_add_e_mode_category(
         env: Env,

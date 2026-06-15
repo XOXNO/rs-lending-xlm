@@ -73,8 +73,6 @@
         "flashloan_fee_bps": 9,
         "borrow_cap": "30000000000000",
         "supply_cap": "50000000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -149,8 +147,6 @@
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000000",
         "supply_cap": "250000000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -225,8 +221,6 @@
         "flashloan_fee_bps": 9,
         "borrow_cap": "10000000000000",
         "supply_cap": "20000000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -301,8 +295,6 @@
         "flashloan_fee_bps": 0,
         "borrow_cap": "500000000000",
         "supply_cap": "1000000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -377,8 +369,6 @@
         "flashloan_fee_bps": 0,
         "borrow_cap": "750000000000",
         "supply_cap": "1500000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -453,8 +443,6 @@
         "flashloan_fee_bps": 0,
         "borrow_cap": "500000000000",
         "supply_cap": "1000000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -529,8 +517,6 @@
         "flashloan_fee_bps": 9,
         "borrow_cap": "2000000000",
         "supply_cap": "4000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     },
     {
@@ -605,8 +591,6 @@
         "flashloan_fee_bps": 9,
         "borrow_cap": "2000000000",
         "supply_cap": "3000000000",
-        "min_collat_floor_usd_wad": "10000000000000000000",
-        "min_debt_floor_usd_wad": "10000000000000000000"
       }
     }
   ]

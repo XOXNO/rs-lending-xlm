@@ -1,7 +1,7 @@
 //! Account-math helpers, split by responsibility:
 //!
 //! - `math`: health-factor, LTV, and debt aggregation over position maps.
-//! - `account`: per-asset dust gates and in-memory account lifecycle.
+//! - `account`: min-borrow-collateral gate and in-memory account lifecycle.
 //! - `utils`: payment aggregation and small shared utilities.
 //!
 //! Price and index reads go through `Cache`, so the active

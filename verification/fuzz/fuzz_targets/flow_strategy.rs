@@ -2,61 +2,106 @@
 //! Strategy entrypoints: multiply, swap debt/collateral, repay-with-collateral.
 //! Asserts HF floor, reserve non-negativity, router allowance cleanup, and rollback.
 
-use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
+use libfuzzer_sys::fuzz_target;
 use soroban_sdk::token;
 use stellar_fuzz::{
-    arb_amount, assert_global_invariants, assert_state_preserved_on_failure, build_wide_context,
-    snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
+    amount_for_value, assert_global_invariants, assert_state_preserved_on_failure, asset_price_usd,
+    build_wide_context, fraction, snapshot, LendingTest, ALICE, HF_WAD_FLOOR,
 };
 
 use common::types::{PositionMode, StrategySwap};
 
 const ASSETS: [&str; 3] = ["USDC", "ETH", "XLM"];
 const MAX_OPS: usize = 6;
+const OP_WIDTH: usize = 5;
 
-#[derive(Arbitrary, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Op {
-    /// Create a new leveraged account. `collateral_idx`/`debt_idx` pick
-    /// asset pair from ASSETS; amount is the flash-loaned debt size.
     Multiply {
         collateral_idx: u8,
         debt_idx: u8,
-        amount: u32,
+        size: u8,
         mode_bits: u8,
     },
-    /// Replace existing debt with a new token. Requires a prior debt
-    /// position — when absent, the try-call fails and the on-failure
-    /// snapshot check kicks in.
     SwapDebt {
         existing_idx: u8,
         new_idx: u8,
-        amount: u32,
+        size: u8,
     },
-    /// Rotate collateral from `current_idx` to `new_idx`.
     SwapCollateral {
         current_idx: u8,
         new_idx: u8,
-        amount: u32,
+        size: u8,
     },
-    /// Repay debt by swapping collateral; `close_position` toggles the
-    /// full-close flag (requires exact debt match).
     RepayWithCollateral {
         collateral_idx: u8,
         debt_idx: u8,
-        amount: u32,
+        size: u8,
         close_position: bool,
+        allow_same_asset: bool,
     },
-    /// Time advance + keeper sync. Lets accrual move the HF boundary.
-    AdvanceAndSync { hours: u16 },
+    AdvanceAndSync {
+        hours: u8,
+    },
 }
 
-#[derive(Arbitrary, Debug)]
-struct Input {
-    ops: Vec<Op>,
+impl Op {
+    fn decode(chunk: [u8; OP_WIDTH]) -> Self {
+        match chunk[0] % 5 {
+            0 => Op::Multiply {
+                collateral_idx: chunk[1],
+                debt_idx: chunk[2],
+                size: chunk[3],
+                mode_bits: chunk[4],
+            },
+            1 => Op::SwapDebt {
+                existing_idx: chunk[1],
+                new_idx: chunk[2],
+                size: chunk[3],
+            },
+            2 => Op::SwapCollateral {
+                current_idx: chunk[1],
+                new_idx: chunk[2],
+                size: chunk[3],
+            },
+            3 => Op::RepayWithCollateral {
+                collateral_idx: chunk[1],
+                debt_idx: chunk[2],
+                size: chunk[3],
+                close_position: chunk[4] & 1 == 1,
+                allow_same_asset: chunk[4] & 2 == 2,
+            },
+            _ => Op::AdvanceAndSync { hours: chunk[3] },
+        }
+    }
+}
+
+fn decode_ops(data: &[u8]) -> Vec<Op> {
+    let mut ops = Vec::new();
+    for idx in 0..MAX_OPS {
+        let start = idx * OP_WIDTH;
+        if start >= data.len() {
+            break;
+        }
+
+        let mut chunk = [0u8; OP_WIDTH];
+        let end = (start + OP_WIDTH).min(data.len());
+        chunk[..end - start].copy_from_slice(&data[start..end]);
+        ops.push(Op::decode(chunk));
+    }
+    ops
 }
 
 fn pick_asset(idx: u8) -> &'static str {
     ASSETS[(idx as usize) % ASSETS.len()]
+}
+
+fn next_asset(asset: &str) -> &'static str {
+    match asset {
+        "USDC" => "ETH",
+        "ETH" => "XLM",
+        _ => "USDC",
+    }
 }
 
 fn pick_mode(bits: u8) -> PositionMode {
@@ -67,43 +112,36 @@ fn pick_mode(bits: u8) -> PositionMode {
     }
 }
 
-/// Build a bytes-only `StrategySwap` with a permissive output
-/// (just 1 token-unit). The mock aggregator delivers exactly that, so a
-/// small value keeps the op from
-/// exhausting the router funding and lets many ops chain in one sequence.
-/// Strategy correctness is asserted via HF floor + reserve checks, not via
-/// matching a specific swap rate.
-fn build_steps(t: &LendingTest, token_in: &str, token_out: &str) -> StrategySwap {
+fn swap_min_out_raw(t: &LendingTest, token_in: &str, token_out: &str, amount_in: f64) -> i128 {
+    if token_in == token_out {
+        return 0;
+    }
+    let out_amount = amount_in * asset_price_usd(token_in) / asset_price_usd(token_out) * 0.97;
+    let decimals = t.resolve_market(token_out).decimals;
+    test_harness::f64_to_i128(out_amount.max(f64::EPSILON), decimals).max(1)
+}
+
+fn build_steps(t: &LendingTest, token_in: &str, token_out: &str, amount_in: f64) -> StrategySwap {
     test_harness::mock_swap_payload_xdr(
         &t.env,
         t.resolve_asset(token_in),
         t.resolve_asset(token_out),
-        1,
+        swap_min_out_raw(t, token_in, token_out, amount_in),
     )
 }
 
-/// Pre-fund the aggregator with a generous amount of every asset so the
-/// mock swap calls have tokens to transfer out. 10 million tokens per
-/// asset is far more than any fuzz sequence can consume in `MAX_OPS`.
 fn fund_aggregator(t: &LendingTest) {
     for a in ASSETS {
         t.fund_router(a, 10_000_000.0);
     }
 }
 
-/// Seed ALICE with a baseline supply position so the first few ops have
-/// something to mutate (swap_collateral requires an existing supply;
-/// swap_debt requires an existing borrow). Without this bootstrap,
-/// ~80% of fuzzed ops would short-circuit on "no position".
 fn bootstrap(t: &mut LendingTest) {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(ALICE, "ETH", 10.0);
-    // A small borrow primes swap_debt without leaving ALICE underwater.
     t.borrow(ALICE, "XLM", 1_000.0);
 }
 
-/// Asserts that no residual router allowance remains after a successful
-/// strategy operation.
 fn assert_router_allowance_zeroed(t: &LendingTest) {
     for a in ASSETS {
         let addr = t.resolve_asset(a);
@@ -117,8 +155,60 @@ fn assert_router_allowance_zeroed(t: &LendingTest) {
     }
 }
 
-fuzz_target!(|inp: Input| {
-    let ops: Vec<_> = inp.ops.into_iter().take(MAX_OPS).collect();
+fn debt_asset(t: &LendingTest, preferred: &'static str) -> &'static str {
+    if t.borrow_balance(ALICE, preferred) > 0.0 {
+        return preferred;
+    }
+    ASSETS
+        .iter()
+        .copied()
+        .find(|asset| t.borrow_balance(ALICE, asset) > 0.0)
+        .unwrap_or(preferred)
+}
+
+fn supply_asset(t: &LendingTest, preferred: &'static str) -> &'static str {
+    if t.supply_balance(ALICE, preferred) > 0.0 {
+        return preferred;
+    }
+    ASSETS
+        .iter()
+        .copied()
+        .find(|asset| t.supply_balance(ALICE, asset) > 0.0)
+        .unwrap_or(preferred)
+}
+
+fn position_amount(balance: f64, raw: u8, asset: &str, min_usd: f64, max_usd: f64) -> f64 {
+    if balance > 0.0 {
+        (balance * fraction(raw)).max(f64::EPSILON)
+    } else {
+        amount_for_value(raw, asset, min_usd, max_usd)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum HealthCheck {
+    User(&'static str, f64),
+    Account(u64, f64),
+}
+
+fn assert_health_check(t: &LendingTest, check: HealthCheck) {
+    match check {
+        HealthCheck::User(user, min_hf) => assert_global_invariants(t, user, &ASSETS, min_hf),
+        HealthCheck::Account(account_id, min_hf) => {
+            let hf = t.health_factor_for(ALICE, account_id);
+            assert!(
+                hf + 1e-9 >= min_hf && hf > 0.0,
+                "account {} health factor {} < floor {}",
+                account_id,
+                hf,
+                min_hf
+            );
+        }
+    }
+}
+
+fuzz_target!(|data: &[u8]| {
+    let ops = decode_ops(data);
     if ops.is_empty() {
         return;
     }
@@ -130,11 +220,14 @@ fuzz_target!(|inp: Input| {
 
     for op in ops {
         let before = snapshot(&t, ALICE, &ASSETS);
+        let accounts_before = t.get_active_accounts(ALICE).len();
 
-        let (ok, min_hf) = dispatch(&mut t, &op);
+        let (ok, checks) = dispatch(&mut t, &op);
 
         if ok {
-            assert_global_invariants(&t, ALICE, &ASSETS, min_hf);
+            for check in checks {
+                assert_health_check(&t, check);
+            }
             for a in ASSETS {
                 assert!(t.pool_reserves(a) >= 0.0, "{} reserves negative", a);
             }
@@ -145,76 +238,91 @@ fuzz_target!(|inp: Input| {
         } else {
             let after = snapshot(&t, ALICE, &ASSETS);
             assert_state_preserved_on_failure(&before, &after);
+            assert_eq!(
+                accounts_before,
+                t.get_active_accounts(ALICE).len(),
+                "failed strategy op leaked or removed an account"
+            );
+            assert_router_allowance_zeroed(&t);
         }
     }
 });
 
-fn dispatch(t: &mut LendingTest, op: &Op) -> (bool, f64) {
+fn dispatch(t: &mut LendingTest, op: &Op) -> (bool, Vec<HealthCheck>) {
     match *op {
         Op::Multiply {
             collateral_idx,
             debt_idx,
-            amount,
+            size,
             mode_bits,
         } => {
             let collateral = pick_asset(collateral_idx);
-            let debt = pick_asset(debt_idx);
+            let mut debt = pick_asset(debt_idx);
             if collateral == debt {
-                // Same-asset multiply is degenerate; skip without mutation.
-                return (true, 0.0);
+                debt = next_asset(collateral);
             }
-            let amt = arb_amount(amount, 0.1, 1_000.0);
-            let steps = build_steps(t, debt, collateral);
-            let ok = t
-                .try_multiply(ALICE, collateral, amt, debt, pick_mode(mode_bits), &steps)
-                .is_ok();
-            (ok, HF_WAD_FLOOR)
+            let amt = amount_for_value(size, debt, 25.0, 1_000.0);
+            let steps = build_steps(t, debt, collateral, amt);
+            match t.try_multiply(ALICE, collateral, amt, debt, pick_mode(mode_bits), &steps) {
+                Ok(account_id) => (
+                    true,
+                    vec![
+                        HealthCheck::User(ALICE, 0.0),
+                        HealthCheck::Account(account_id, HF_WAD_FLOOR),
+                    ],
+                ),
+                Err(_) => (false, vec![]),
+            }
         }
         Op::SwapDebt {
             existing_idx,
             new_idx,
-            amount,
+            size,
         } => {
-            let existing = pick_asset(existing_idx);
-            let new = pick_asset(new_idx);
+            let existing = debt_asset(t, pick_asset(existing_idx));
+            let mut new = pick_asset(new_idx);
             if existing == new {
-                return (true, 0.0);
+                new = next_asset(existing);
             }
-            let amt = arb_amount(amount, 1.0, 5_000.0);
-            let steps = build_steps(t, existing, new);
+            let current_debt = t.borrow_balance(ALICE, existing);
+            let amt = position_amount(current_debt, size, existing, 10.0, 1_000.0);
+            let steps = build_steps(t, existing, new, amt);
             let ok = t.try_swap_debt(ALICE, existing, amt, new, &steps).is_ok();
-            (ok, HF_WAD_FLOOR)
+            (ok, vec![HealthCheck::User(ALICE, HF_WAD_FLOOR)])
         }
         Op::SwapCollateral {
             current_idx,
             new_idx,
-            amount,
+            size,
         } => {
-            let current = pick_asset(current_idx);
-            let new = pick_asset(new_idx);
+            let current = supply_asset(t, pick_asset(current_idx));
+            let mut new = pick_asset(new_idx);
             if current == new {
-                return (true, 0.0);
+                new = next_asset(current);
             }
-            let amt = arb_amount(amount, 1.0, 5_000.0);
-            let steps = build_steps(t, current, new);
+            let current_supply = t.supply_balance(ALICE, current);
+            let amt = position_amount(current_supply, size, current, 10.0, 1_000.0);
+            let steps = build_steps(t, current, new, amt);
             let ok = t
                 .try_swap_collateral(ALICE, current, amt, new, &steps)
                 .is_ok();
-            (ok, HF_WAD_FLOOR)
+            (ok, vec![HealthCheck::User(ALICE, HF_WAD_FLOOR)])
         }
         Op::RepayWithCollateral {
             collateral_idx,
             debt_idx,
-            amount,
+            size,
             close_position,
+            allow_same_asset,
         } => {
-            let collateral = pick_asset(collateral_idx);
-            let debt = pick_asset(debt_idx);
-            if collateral == debt {
-                return (true, 0.0);
+            let collateral = supply_asset(t, pick_asset(collateral_idx));
+            let mut debt = debt_asset(t, pick_asset(debt_idx));
+            if collateral == debt && !allow_same_asset {
+                debt = next_asset(collateral);
             }
-            let amt = arb_amount(amount, 1.0, 5_000.0);
-            let steps = build_steps(t, collateral, debt);
+            let current_supply = t.supply_balance(ALICE, collateral);
+            let amt = position_amount(current_supply, size, collateral, 10.0, 1_000.0);
+            let steps = build_steps(t, collateral, debt, amt);
             let ok = t
                 .try_repay_debt_with_collateral(
                     ALICE,
@@ -225,15 +333,12 @@ fn dispatch(t: &mut LendingTest, op: &Op) -> (bool, f64) {
                     close_position,
                 )
                 .is_ok();
-            // Repay is risk-decreasing: HF can be anything positive.
-            (ok, 0.0)
+            (ok, vec![HealthCheck::User(ALICE, 0.0)])
         }
         Op::AdvanceAndSync { hours } => {
-            let secs = (hours as u64) * 3_600;
-            if secs > 0 {
-                t.advance_and_sync(secs);
-            }
-            (true, 0.0)
+            let secs = ((hours as u64 % 72) + 1) * 3_600;
+            t.advance_and_sync(secs);
+            (true, vec![HealthCheck::User(ALICE, 0.0)])
         }
     }
 }

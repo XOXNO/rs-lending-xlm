@@ -52,7 +52,7 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 |---|---|---|
 | Function fuzzing | `verification/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs` | Pure math, rounding, overflow, rates, and index transitions. Fast and cheap. |
 | Native pool fuzzing | `verification/fuzz/fuzz_targets/pool_native.rs` | Pool constructor, index update, rewards, views, and reserve invariants without token transfer setup. |
-| Protocol flow fuzzing | `verification/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Multi-asset user flows, liquidations, flash-loan failure paths, strategy routes, router allowance cleanup, and rollback behavior. |
+| Protocol flow fuzzing | `verification/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Fixed-width byte op streams for multi-asset user flows, liquidations, flash-loan failure paths, strategy routes, router allowance cleanup, and rollback behavior. |
 | Property tests | `verification/test-harness/tests/fuzz/` | Deterministic proptest suites for accounting conservation, auth, strategy invariants, budget metering, and liquidation differentials. |
 | Miri | `common/src/math/fp_core.rs` tests | Undefined-behavior checks for pure i128 fixed-point helpers. |
 
@@ -96,7 +96,8 @@ verification/fuzz/artifacts/
 verification/fuzz/coverage/
 ```
 
-Seed the corpus from generated ledger snapshots before long campaigns:
+Seed the corpus from generated ledger snapshots before long campaigns. Flow
+seeds are valid 5-byte operation streams, not `Arbitrary<Vec<_>>` prefixes.
 
 ```bash
 make fuzz-seed-corpus
@@ -132,8 +133,9 @@ target/coverage/fuzz/<target>/index.html
 ```
 
 Coverage filters out harness code, dependencies, and standard library files so
-the report focuses on `common/`, `controller/`, `pool/`, and shared harness
-helpers.
+the report focuses on `common/`, `controller/`, and native `pool/` code. Flow
+targets execute the pool through uploaded WASM, so native pool source coverage
+comes from `pool_native`, not `flow_e2e` or `flow_strategy`.
 
 ## CI
 

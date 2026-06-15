@@ -171,7 +171,7 @@ fn test_supply_rejects_empty_asset_vector() {
     let caller = t.get_or_create_user(ALICE);
     let assets: soroban_sdk::Vec<(soroban_sdk::Address, i128)> = vec![&t.env];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
-        Ok(res) => res.map_err(|e| e.into()),
+        Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
 
@@ -186,7 +186,7 @@ fn test_supply_rejects_negative_raw_amount() {
     let usdc = t.resolve_asset("USDC");
     let assets = vec![&t.env, (usdc, -1i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
-        Ok(res) => res.map_err(|e| e.into()),
+        Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
 
@@ -201,7 +201,7 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
     let usdc = t.resolve_asset("USDC");
     let assets = vec![&t.env, (usdc.clone(), i128::MAX), (usdc, 1i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
-        Ok(res) => res.map_err(|e| e.into()),
+        Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
 
@@ -216,9 +216,9 @@ fn test_supply_rejects_disabled_market_with_pair_not_active() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
 
-    let assets = vec![&t.env, (usdc, 1_000_0000i128)];
+    let assets = vec![&t.env, (usdc, 10_000_000i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
-        Ok(res) => res.map_err(|e| e.into()),
+        Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
 

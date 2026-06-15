@@ -87,6 +87,11 @@ impl Cache {
         &self.env
     }
 
+    /// Drops resolved oracle feeds so the next read re-runs policy checks.
+    pub(crate) fn clear_resolved_prices(&mut self) {
+        self.prices_cache = Map::new(&self.env);
+    }
+
     /// Ledger timestamp in whole seconds (derived from `current_timestamp_ms`).
     pub fn ledger_timestamp_secs(&self) -> u64 {
         self.current_timestamp_ms / MS_PER_SECOND

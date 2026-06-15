@@ -1,5 +1,6 @@
 //! Repay and strategy-internal repay flows.
 //!
+//! Pipeline: auth → aggregate → cache → validate → settle → persist → emit.
 //! Repay is permissionless w.r.t. the account owner and can only reduce risk;
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
 
@@ -9,10 +10,11 @@ use controller_interface::types::{
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
+use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
 use crate::external::pool::pool_repay_call;
+use crate::helpers::update_or_remove_debt_position;
 use crate::helpers::utils::{self, EventContext};
-use crate::helpers::{require_no_borrow_dust_for_assets, update_or_remove_debt_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::isolated_debt::adjust_isolated_debt_for_repay;
 use crate::positions::{get_debt_position_or_panic, make_pool_action};
@@ -52,30 +54,54 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     };
     let mut cache = Cache::new(env, policy);
 
-    // Aggregate once and reuse for the loop AND the post-flight dust scope.
-    let repayment_plan = utils::aggregate_positive_payments(env, payments);
-    // Non-isolated repay sets price = Wad::ZERO for every asset, so the loop
-    // prices nothing; any pricing the dust gate still needs (partially repaid
-    // positions) is covered by the gate's own prefetch. An entrypoint
-    // prefetch here would add calls for nothing — skip it.
-    if account.is_isolated {
-        // Prefetch only assets the account actually owes; unknown or
-        // position-less assets are rejected by the loop below with their
-        // pre-existing error codes.
-        let mut owed: Vec<Address> = Vec::new(env);
-        for (asset, _) in repayment_plan.iter() {
-            if account.borrow_positions.contains_key(asset.clone()) {
-                owed.push_back(asset);
-            }
-        }
-        crate::oracle::prefetch_redstone_feeds(&mut cache, &owed);
+    let aggregated = utils::aggregate_positive_payments(env, payments);
+    validate_repay(env, &account, &aggregated, &mut cache);
+    settle_repay(
+        env,
+        caller,
+        &mut account,
+        account_id,
+        &aggregated,
+        &mut cache,
+    );
+
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::DEBT,
+        false,
+        true,
+    );
+}
+
+fn validate_repay(
+    env: &Env,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+) {
+    validation::require_non_empty_payments(env, aggregated);
+    prefetch_isolated_repay_oracles(env, cache, account, aggregated);
+
+    for (asset, _) in aggregated.iter() {
+        let _ = get_debt_position_or_panic(env, account, &asset);
     }
-    // Transfer each repayment in while building the plan's actions for one
-    // bulk pool call.
+}
+
+fn settle_repay(
+    env: &Env,
+    caller: &Address,
+    account: &mut Account,
+    account_id: u64,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+) {
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
-    for (asset, amount) in repayment_plan.iter() {
-        let position = get_debt_position_or_panic(env, &account, &asset);
+    for (asset, amount) in aggregated.iter() {
+        let position = get_debt_position_or_panic(env, account, &asset);
         let amount_in = utils::transfer_amount(
             env,
             &asset,
@@ -88,27 +114,31 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     }
     settle_repay_actions(
         env,
-        &mut account,
+        account,
         account_id,
         caller,
         crate::events::PositionAction::Repay,
         &actions,
-        &mut cache,
+        cache,
     );
+}
 
-    // Dust gate scoped to repaid assets: repay never mutates supply positions,
-    // so untouched borrows that drifted under floor must not block the call.
-    require_no_borrow_dust_for_assets(
-        env,
-        &mut cache,
-        &account,
-        &utils::plan_assets(env, &repayment_plan),
-    );
-
-    storage::set_debt_positions(env, account_id, &account.borrow_positions);
-    cache.flush_isolated_debts();
-    cache.emit_position_batch(account_id, &account);
-    cache.emit_market_batch();
+/// Isolated repay prices each repaid asset for the debt-ceiling adjustment.
+/// Non-isolated repay uses zero prices, so prefetch is skipped entirely.
+fn prefetch_isolated_repay_oracles(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+) {
+    if !account.is_isolated {
+        return;
+    }
+    let mut owed: Vec<Address> = Vec::new(env);
+    for (asset, _) in aggregated.iter() {
+        owed.push_back(asset);
+    }
+    crate::oracle::prefetch_redstone_feeds(cache, &owed);
 }
 
 /// Executes one bulk pool repay for `actions` (one cross-contract frame) and

@@ -156,6 +156,19 @@ pub(crate) fn get_last_emode_category_id(env: &Env) -> u32 {
         .unwrap_or(0u32)
 }
 
+pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&ControllerKey::MinBorrowCollateralUsd)
+        .unwrap_or(crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD)
+}
+
+pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
+    env.storage()
+        .instance()
+        .set(&ControllerKey::MinBorrowCollateralUsd, &floor_wad);
+}
+
 pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
     let current = get_last_emode_category_id(env);
     let next = current

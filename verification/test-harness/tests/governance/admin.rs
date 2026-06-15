@@ -36,16 +36,12 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     assert_contract_error(result, errors::INVALID_ASSET);
 }
 
-// `validate_asset_config` dust floor (#125).
+// `set_min_borrow_collateral_usd` rejects negative floors (#116).
 #[test]
-#[should_panic(expected = "Error(Contract, #125)")]
-fn test_edit_asset_config_rejects_dust_floor_below_minimum() {
+#[should_panic(expected = "Error(Contract, #116)")]
+fn test_set_min_borrow_collateral_rejects_negative_floor() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.min_collat_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
-    cfg.min_debt_floor_usd_wad = controller::constants::MIN_DUST_FLOOR_WAD - 1;
-    t.gov_client().edit_asset_config(&asset, &cfg);
+    t.gov_client().set_min_borrow_collateral_usd(&-1);
 }
 
 // `validate_risk_bounds` threshold above 100% (#113).

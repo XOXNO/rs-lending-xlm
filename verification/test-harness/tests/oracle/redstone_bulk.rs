@@ -20,7 +20,7 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
     //      prefetch with [supply_assets + borrow_assets] before the HF check.
     //   2. helpers/math.rs HF body (calculate_account_totals_body): a second
     //      prefetch_redstone_feeds call for the same feed set.
-    //   3. helpers/account.rs dust gate: a third prefetch_redstone_feeds call.
+    //   3. helpers/math.rs min-borrow-collateral body: a third prefetch site.
     // All three deduplicate to exactly one bulk adapter call because the
     // tx-local Cache is populated by site 1 and the subsequent sites find all
     // feeds already resolved — this is the idempotency property the assertions
@@ -66,17 +66,14 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
 }
 
 #[test]
-fn test_multi_asset_supply_dust_check_uses_one_bulk_call() {
-    // Two RedStone-anchored markets on the SAME adapter; a pure supply (no
-    // debt → no HF body) triggers only the dust gate, which must dispatch
-    // exactly one bulk call for both assets.
+fn test_multi_asset_supply_fires_zero_redstone_calls() {
+    // Pure supply no longer runs per-asset dust pricing; even a multi-asset
+    // deposit must not touch RedStone when the account carries no debt.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .build();
 
-    // Both presets use DEFAULT_ASSET_CONFIG where min_collat_floor_usd_wad =
-    // MIN_DUST_FLOOR_WAD (non-zero), so the dust gate will price both assets.
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
@@ -85,20 +82,18 @@ fn test_multi_asset_supply_dust_check_uses_one_bulk_call() {
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Supply both assets in one controller call — no debt means HF is
-    // skipped; the dust gate is the sole price consumer.
     t.supply_bulk(ALICE, &[("USDC", 100.0), ("ETH", 1.0)]);
 
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.bulk_calls() - bulk_before,
-        1,
-        "dust gate must bulk-fetch RedStone feeds once"
+        0,
+        "supply must not bulk-fetch RedStone feeds"
     );
     assert_eq!(
         rs.single_calls() - single_before,
         0,
-        "no per-feed RedStone calls when bulk prefetch covers the dust scope"
+        "supply must not single-fetch RedStone feeds"
     );
 }
 
@@ -150,25 +145,17 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
     // ALICE supplies USDC collateral (USDC anchor present — succeeds).
     t.supply(ALICE, "USDC", 10_000.0);
 
-    // Each single-asset supply triggers a one-feed dust gate; MIN_BULK_FEEDS=2
-    // means bulk is skipped.  The per-feed lazy path fires directly:
-    //   • USDC supply: RedStone single call → feed found → Some → success;
-    //     the bump from this committed tx is visible in storage.
-    //   • ETH supply: RedStone single call → feed missing → Err-returning
-    //     mock frame; the ETH counter bump rolls back with that frame, so it
-    //     is NOT observable here — only the USDC read's bump commits.
-    // The assertion therefore checks that at least the successful USDC read
-    // engaged the lazy path; the ETH engagement is pinned indirectly by the
-    // supply succeeding despite the missing anchor (RiskDecreasing fallback).
+    // Setup supplies no longer price collateral, so counters stay flat.
     let rs = redstone_counters(&t, &redstone);
-    assert!(
-        rs.single_calls() > single_before_setup,
-        "lazy path engaged: at least the USDC single read committed (ETH bump rolls back with its erroring frame)"
+    assert_eq!(
+        rs.single_calls(),
+        single_before_setup,
+        "supply must not single-fetch RedStone feeds"
     );
     assert_eq!(
         rs.bulk_calls(),
         bulk_before_setup,
-        "no bulk call expected when each supply touches only one feed"
+        "supply must not bulk-fetch RedStone feeds"
     );
 
     // Borrow: HF check collects [USDC, ETH] → two feeds → bulk attempted →
@@ -402,14 +389,9 @@ fn test_non_isolated_full_repay_fires_zero_redstone_calls() {
 // ── No-debt withdraw scopes prefetch to plan assets ───────────────────────────
 
 #[test]
-fn test_no_debt_withdraw_prefetch_covers_only_plan_assets() {
-    // Account with NO debt and ≥2 RedStone-anchored supplies.  Withdraw part of
-    // one asset.  Without debt the LTV and HF checks early-return, so only the
-    // plan assets need pricing (the dust gate).
-    //
-    // Invariant: the entrypoint prefetch covers only plan assets; one feed
-    // below MIN_BULK_FEEDS means no bulk call fires.  The dust gate's lazy
-    // path does one single read for that one feed.
+fn test_no_debt_withdraw_fires_zero_redstone_calls() {
+    // Debt-free withdrawals skip LTV/HF/min-collateral gates, so no oracle
+    // reads run even when the account holds multiple RedStone-anchored supplies.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -419,28 +401,25 @@ fn test_no_debt_withdraw_prefetch_covers_only_plan_assets() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // ALICE supplies both assets; no debt.
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
 
-    // Snapshot counters before the withdraw.
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Withdraw part of USDC only — the plan has one feed (USDC).
     t.withdraw(ALICE, "USDC", 100.0);
 
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.bulk_calls() - bulk_before,
         0,
-        "no-debt single-asset withdraw must fire zero bulk calls (plan has 1 feed < MIN_BULK_FEEDS)"
+        "no-debt withdraw must fire zero bulk RedStone calls"
     );
     assert_eq!(
         rs.single_calls() - single_before,
-        1,
-        "no-debt single-asset withdraw: dust gate fires exactly one single read for the plan asset"
+        0,
+        "no-debt withdraw must fire zero single RedStone calls"
     );
 }
 
@@ -836,18 +815,19 @@ fn test_mixed_adapter_groups() {
 #[test]
 fn test_committed_bulk_failure_degrades_to_singles() {
     // Two anchored markets on one adapter; ETH feed is removed after
-    // configure-time validation so it is absent at runtime.  supply_bulk
-    // supplies BOTH assets in a single committed tx.
+    // configure-time validation so it is absent at runtime.  A view that
+    // prices both supplies exercises the same bulk-fail → lazy-single path
+    // supply used to hit via the removed dust gate.
     //
-    // Inside the tx the sequence is:
+    // Inside the view the sequence is:
     //   1. prefetch bulk [USDC, ETH] → ETH absent → whole-call Err → bulk
     //      counter bump rolls back with the Err frame → prefetch map empty.
-    //   2. USDC dust gate: lazy single → feed found → USDC single bump commits.
-    //   3. ETH dust gate: lazy single → ETH absent → Err frame → ETH single
-    //      bump rolls back.
+    //   2. USDC cached_price: lazy single → feed found → USDC single commits.
+    //   3. ETH cached_price: lazy single → ETH absent → Err frame rolls back;
+    //      View policy falls back to the Reflector primary.
     //
-    // Observable after the committed tx:
-    //   • supply succeeds (RiskDecreasing tolerates missing anchor).
+    // Observable after the committed view:
+    //   • view succeeds (View tolerates missing anchor).
     //   • committed bulk delta == 0 (Err frame rolled back).
     //   • committed single delta == 1 (only USDC's read committed).
     let mut t = LendingTest::new()
@@ -859,7 +839,8 @@ fn test_committed_bulk_failure_degrades_to_singles() {
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
-    // Remove ETH feed from mock storage after anchors are configured.
+    t.supply_bulk(ALICE, &[("USDC", 100.0), ("ETH", 1.0)]);
+
     t.env.as_contract(&redstone, || {
         let key = test_harness::mock_redstone::MockKey::PriceData(String::from_str(&t.env, "ETH"));
         t.env.storage().temporary().remove(&key);
@@ -869,8 +850,7 @@ fn test_committed_bulk_failure_degrades_to_singles() {
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // Supply both in a single committed tx (RiskDecreasing).
-    t.supply_bulk(ALICE, &[("USDC", 100.0), ("ETH", 1.0)]);
+    let _ = t.total_collateral(ALICE);
 
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
@@ -919,25 +899,17 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
         &stale_ms,
     );
 
-    // BOB supplies ETH liquidity (only one feed in scope — single supply, no
-    // bulk here).  ALICE supplies USDC.
     t.supply(BOB, "ETH", 100.0);
-
-    // (a) ALICE supplies USDC — supply also has USDC only, single supply → no bulk.
-    // Snapshot around supply_bulk [USDC, ETH] to exercise the bulk path.
-    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
     let rs = redstone_counters(&t, &redstone);
     let bulk_before = rs.bulk_calls();
     let single_before = rs.single_calls();
 
-    // supply_bulk fires the bulk prefetch for [USDC, ETH]:
+    // total_collateral_in_usd prefetches [USDC, ETH]:
     //   bulk succeeds → cache holds stale ETH payload.
-    // USDC supply: compose uses USDC anchor (fresh) → ok.
-    // ETH supply: compose reads stale ETH anchor → RiskDecreasing:
-    //   anchor_is_usable returns false → fallback_to_primary → ok.
-    // Supply succeeds despite stale anchor.
-    t.supply_bulk(ALICE, &[("USDC", 100.0), ("ETH", 1.0)]);
+    // View policy tolerates stale anchors, so the read completes.
+    let _ = t.total_collateral(ALICE);
 
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(

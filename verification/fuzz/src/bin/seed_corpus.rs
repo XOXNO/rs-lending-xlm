@@ -3,12 +3,11 @@
 //! Walks `*/test_snapshots/**/*.json`, extracts numeric fields (i128, u32, u64)
 //! from `ledger_entries.contract_data` maps (MarketParams, MarketState,
 //! positions, etc.), then packs them into per-target byte layouts matching
-//! each fuzz target's `Arbitrary`-derived input struct.
+//! each fuzz target's byte layout.
 //!
-//! Seeds are not required to match the `Arbitrary` decoder byte-for-byte;
-//! libFuzzer accepts short or partial seeds that decode to valid inputs. The
-//! value is populating the input space with realistic numeric magnitudes
-//! (RAY indexes, bps rates, timestamps, position amounts) before mutation.
+//! Flow seeds are fixed-width op streams. Numeric targets keep compact
+//! structure-aware layouts seeded with realistic magnitudes (RAY indexes, bps
+//! rates, timestamps, position amounts) before mutation.
 //!
 //! Usage:
 //!   cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
@@ -331,6 +330,14 @@ fn push_u16_le(buf: &mut Vec<u8>, v: u16) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
+fn push_u32_le(buf: &mut Vec<u8>, v: u32) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
+fn push_i64_le(buf: &mut Vec<u8>, v: i64) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
 /// Pack `fp_math` seeds for the MulDiv, DivByInt, and Rescale arms.
 /// Layout: kind, a, b, choice, extra in little-endian order.
 fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
@@ -396,6 +403,38 @@ fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
         }
     }
 
+    out
+}
+
+/// `fp_ops`: 29 bytes matching `fuzz_targets/fp_ops.rs::In`.
+fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut mags: BTreeSet<u64> = BTreeSet::new();
+    for &v in f.i128s.iter().chain(f.position_amounts.iter()) {
+        mags.insert(v.unsigned_abs().min(u64::MAX as u128) as u64);
+    }
+    for v in [0, 1, 10_000_000, 1_000_000_000_000_000_000, u64::MAX / 2] {
+        mags.insert(v);
+    }
+
+    let mags: Vec<u64> = mags.into_iter().take(8).collect();
+    for (idx, &a) in mags.iter().enumerate() {
+        for &b in mags.iter().skip(idx).take(3) {
+            for bps in [0u16, 1, 5_000, 10_000, 15_000] {
+                for decimals in [0u8, 6, 7, 18, 27] {
+                    let mut buf = Vec::with_capacity(29);
+                    push_u64_le(&mut buf, a);
+                    buf.push((idx & 1) as u8);
+                    push_u64_le(&mut buf, b);
+                    buf.push(((idx + 1) & 1) as u8);
+                    push_u16_le(&mut buf, bps);
+                    buf.push(decimals);
+                    push_i64_le(&mut buf, (a.min(i64::MAX as u64) as i64) / 10);
+                    out.push(buf);
+                }
+            }
+        }
+    }
     out
 }
 
@@ -487,54 +526,154 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `flow_supply_borrow_liquidate`: Arbitrary layout is 8 bytes LE:
-/// `{ supply_raw: u32, borrow_frac_raw: u8, jump_hours: u16, liq_frac_raw: u8 }`.
-/// `flow_e2e`: Arbitrary over `{ ops: Vec<Op> }`. libFuzzer's vec-length
-/// prefix allows short seeds; the coverage-guided engine extends useful
-/// operation-sequence prefixes during mutation.
-///
-/// The seeds below cover common bootstraps: empty input, supply, supply and
-/// borrow, supply and liquidation, and flash loan.
+/// `pool_native`: 82 bytes matching `fuzz_targets/pool_native.rs::In`.
+fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut params = Vec::new();
+
+    let to_pct = |v: Option<i128>, default: i128| -> u8 {
+        v.map(|r| r * 100 / RAY)
+            .unwrap_or(default)
+            .clamp(0, u8::MAX as i128) as u8
+    };
+
+    for p in f.market_params.iter().take(12) {
+        params.push((
+            to_pct(p.base_borrow_rate_ray, 1),
+            to_pct(p.slope1_ray, 4),
+            to_pct(p.slope2_ray, 10),
+            to_pct(p.slope3_ray, 150) as u16,
+            to_pct(p.mid_utilization_ray, 50),
+            to_pct(p.optimal_utilization_ray, 80),
+            to_pct(p.max_borrow_rate_ray, 200) as u16,
+            p.reserve_factor_bps
+                .map(|r| (r / 100).clamp(0, 50) as u8)
+                .unwrap_or(10),
+        ));
+    }
+
+    if params.is_empty() {
+        params.push((1, 4, 10, 150, 50, 80, 200, 10));
+        params.push((0, 20, 75, 200, 30, 70, 200, 0));
+    }
+
+    let op_sets: [[(u32, u32, u8); 8]; 4] = [
+        [
+            (2_000, 0, 0),      // supply
+            (3_000, 1, 1),      // borrow
+            (4_000, 60, 2),     // withdraw
+            (5_000, 3_600, 3),  // repay
+            (6_000, 3_600, 4),  // update indexes
+            (7_000, 86_400, 5), // add rewards
+            (8_000, 86_400, 6), // update params
+            (9_000, 0, 7),      // claim revenue
+        ],
+        [
+            (1_000, 0, 8),        // seize borrow position
+            (1_000, 3_600, 8),    // seize deposit position
+            (1_000, 7_200, 9),    // create strategy
+            (1_000, 604_800, 10), // views
+            (1_000, 1, 0),
+            (1_000, 1, 1),
+            (1_000, 1, 2),
+            (1_000, 1, 3),
+        ],
+        [
+            (10, 8_640_000, 0),
+            (100, 8_640_000, 1),
+            (1_000, 8_640_000, 2),
+            (10_000, 8_640_000, 3),
+            (100_000, 8_640_000, 4),
+            (1_000_000, 8_640_000, 5),
+            (1_000_000, 8_640_000, 6),
+            (1_000_000, 0, 7),
+        ],
+        [
+            (500, 0, 10),
+            (750, 120, 0),
+            (1_250, 240, 1),
+            (1_500, 360, 2),
+            (1_750, 480, 3),
+            (2_000, 600, 4),
+            (2_250, 720, 5),
+            (2_500, 840, 6),
+        ],
+    ];
+
+    for (base, s1, s2, s3, mid, opt, max, reserve) in params {
+        for ops in op_sets {
+            let mut buf = Vec::with_capacity(82);
+            buf.push(base);
+            buf.push(s1);
+            buf.push(s2);
+            push_u16_le(&mut buf, s3);
+            buf.push(mid);
+            buf.push(opt);
+            push_u16_le(&mut buf, max);
+            buf.push(reserve);
+            for (price, dt, kind) in ops {
+                push_u32_le(&mut buf, price);
+                push_u32_le(&mut buf, dt);
+                buf.push(kind);
+            }
+            out.push(buf);
+        }
+    }
+    out
+}
+
+fn flow_op(op: u8, a: u8, b: u8, c: u8, d: u8) -> [u8; 5] {
+    [op, a, b, c, d]
+}
+
+fn flow_seq(ops: &[[u8; 5]]) -> Vec<u8> {
+    ops.iter().flatten().copied().collect()
+}
+
+/// `flow_e2e`: 5-byte ops: `[op, user/debtor, asset, size/frac/hours, mode]`.
+/// The target derives amounts from live positions, so these seeds are mostly
+/// path selectors.
 fn pack_flow_e2e(_f: &ExtractedFields) -> Vec<Vec<u8>> {
     vec![
-        // Empty op sequence.
-        vec![],
-        // Single Supply (Op discriminant 0, user=0, asset=0, amount=small).
-        vec![0, 0, 0, 0, 0x00, 0x10, 0x00, 0x00],
-        // Supply → Borrow pair.
-        vec![
-            0, 0, 0, 0, 0x00, 0x10, 0x00, 0x00, // Supply ALICE USDC
-            1, 0, 1, 0, 0x00, 0x10, 0x00, 0x00, // Borrow ALICE ETH
-        ],
-        // Supply → Borrow → AdvanceAndSync → Liquidate.
-        vec![
-            0, 0, 0, 0, 0x00, 0x40, 0x00, 0x00, // Supply ALICE USDC large
-            1, 0, 1, 0, 0x00, 0x08, 0x00, 0x00, // Borrow ALICE ETH
-            7, 0x20, 0x00, // AdvanceAndSync 32h
-            4, 0, 1, 0xC0, // Liquidate ALICE ETH 75%
-        ],
-        // FlashLoan good + bad.
-        vec![5, 0, 0, 0, 0x00, 0x04, 0x00, 0x00, 0], // good
-        vec![5, 0, 0, 0, 0x00, 0x04, 0x00, 0x00, 1], // bad
+        flow_seq(&[flow_op(0, 0, 0, 128, 0)]), // supply
+        flow_seq(&[flow_op(1, 0, 2, 96, 0)]),  // borrow
+        flow_seq(&[flow_op(3, 0, 2, 128, 0)]), // repay existing debt
+        flow_seq(&[flow_op(2, 0, 0, 96, 0)]),  // partial withdraw
+        flow_seq(&[flow_op(2, 1, 1, 0, 1)]),   // withdraw-all sentinel
+        flow_seq(&[
+            flow_op(1, 0, 2, 220, 0), // borrow near boundary
+            flow_op(4, 0, 2, 192, 1), // stress prices, liquidate
+        ]),
+        flow_seq(&[flow_op(5, 0, 0, 96, 0)]), // good flash loan
+        flow_seq(&[flow_op(5, 0, 0, 96, 1)]), // bad flash loan
+        flow_seq(&[
+            flow_op(8, 0, 0, 192, 0), // add rewards
+            flow_op(7, 0, 0, 12, 0),  // accrue
+            flow_op(9, 0, 0, 0, 0),   // claim revenue
+        ]),
+        flow_seq(&[
+            flow_op(6, 0, 0, 200, 0), // oracle deviation
+            flow_op(1, 0, 2, 64, 0),  // borrow under shifted oracle
+        ]),
+        flow_seq(&[flow_op(10, 1, 0, 0, 0)]), // clean bad debt attempt
     ]
 }
 
-/// `flow_strategy`: short Vec<Op> seeds covering each strategy variant plus
-/// an AdvanceAndSync. The bootstrap does the heavy setup, so seeds stay tiny.
+/// `flow_strategy`: 5-byte ops: `[op, asset_a, asset_b, size/hours, mode]`.
 fn pack_flow_strategy(_f: &ExtractedFields) -> Vec<Vec<u8>> {
     vec![
-        // Empty — forces bootstrap-only path.
-        vec![],
-        // Multiply USDC-collateral / ETH-debt.
-        vec![0, 0, 1, 0x00, 0x10, 0x00, 0x00, 0],
-        // SwapDebt XLM → USDC.
-        vec![1, 2, 0, 0x00, 0x10, 0x00, 0x00],
-        // SwapCollateral USDC → ETH.
-        vec![2, 0, 1, 0x00, 0x10, 0x00, 0x00],
-        // RepayWithCollateral USDC→XLM, close_position=false.
-        vec![3, 0, 2, 0x00, 0x10, 0x00, 0x00, 0],
-        // AdvanceAndSync 8h.
-        vec![4, 0x08, 0x00],
+        flow_seq(&[flow_op(0, 0, 1, 96, 0)]),  // multiply
+        flow_seq(&[flow_op(1, 2, 0, 96, 0)]),  // swap debt
+        flow_seq(&[flow_op(2, 0, 1, 96, 0)]),  // swap collateral
+        flow_seq(&[flow_op(3, 0, 2, 96, 0)]),  // repay with collateral
+        flow_seq(&[flow_op(3, 0, 2, 255, 1)]), // close through collateral
+        flow_seq(&[flow_op(4, 0, 0, 8, 0)]),   // accrue
+        flow_seq(&[
+            flow_op(0, 0, 1, 64, 1),
+            flow_op(1, 2, 0, 128, 0),
+            flow_op(2, 0, 1, 128, 0),
+            flow_op(3, 1, 0, 192, 0),
+        ]),
     ]
 }
 // Output
@@ -646,9 +785,11 @@ fn main() -> std::io::Result<()> {
     // Per-target packing.
     let targets: Vec<(&str, Vec<Vec<u8>>)> = vec![
         ("fp_math", pack_fp_math(&merged)),
+        ("fp_ops", pack_fp_ops(&merged)),
         ("rates_and_index", pack_rates_and_index(&merged)),
         ("flow_e2e", pack_flow_e2e(&merged)),
         ("flow_strategy", pack_flow_strategy(&merged)),
+        ("pool_native", pack_pool_native(&merged)),
     ];
 
     for (target, inputs) in targets {

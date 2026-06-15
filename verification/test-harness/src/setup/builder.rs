@@ -15,6 +15,7 @@ pub struct LendingTestBuilder {
     pending_markets: Vec<PendingMarket>,
     pending_emodes: Vec<PendingEMode>,
     position_limits: Option<(u32, u32)>,
+    min_borrow_collateral_usd_wad: Option<i128>,
     budget_enabled: bool,
     skip_mock_auths: bool,
 }
@@ -26,6 +27,7 @@ impl LendingTest {
             pending_markets: Vec::new(),
             pending_emodes: Vec::new(),
             position_limits: None,
+            min_borrow_collateral_usd_wad: None,
             budget_enabled: false,
             skip_mock_auths: false,
         }
@@ -72,11 +74,9 @@ impl LendingTestBuilder {
         self
     }
 
+    /// Disables the instance-level min-borrow-collateral gate (floor = 0).
     pub fn with_dust_disabled_all_markets(mut self) -> Self {
-        for pm in &mut self.pending_markets {
-            pm.config.min_collat_floor_usd_wad = 0;
-            pm.config.min_debt_floor_usd_wad = 0;
-        }
+        self.min_borrow_collateral_usd_wad = Some(0);
         self
     }
 
@@ -206,6 +206,10 @@ impl LendingTestBuilder {
                 max_borrow_positions: max_borrow,
             };
             gov.set_position_limits(&limits);
+        }
+
+        if let Some(floor_wad) = self.min_borrow_collateral_usd_wad {
+            gov.set_min_borrow_collateral_usd(&floor_wad);
         }
 
         let mock_reflector_client =

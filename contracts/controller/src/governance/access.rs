@@ -15,6 +15,8 @@ use soroban_sdk::{
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
 
+use common::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 const INITIAL_APP_VERSION: u32 = 1;
@@ -95,6 +97,8 @@ impl Controller {
             },
         );
 
+        storage::set_min_borrow_collateral_usd_wad(&env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
+
         env.storage()
             .instance()
             .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
@@ -110,7 +114,7 @@ impl Controller {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    // Post-upgrade migration entrypoint. Enforces strict version monotonicity.
+    // Bumps stored AppVersion; enforces strict monotonicity (no data rewrite).
     #[only_owner]
     pub fn migrate(env: Env, new_version: u32) {
         storage::renew_controller_instance(&env);

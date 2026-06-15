@@ -1,7 +1,7 @@
 //! Risk-bound, asset-config, position-limit, and market-creation validation,
 //! plus the live token-shape probe.
 
-use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, MIN_DUST_FLOOR_WAD, POSITION_LIMIT_MAX};
+use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::types::MarketParamsRaw;
 use controller_interface::types::{AssetConfigRaw, PositionLimits};
@@ -70,14 +70,6 @@ pub(crate) fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
         i128::from(config.flashloan_fee_bps) <= MAX_FLASHLOAN_FEE_BPS,
         FlashLoanError::StrategyFeeExceeds
     );
-
-    let dust_disabled = config.min_collat_floor_usd_wad == 0 && config.min_debt_floor_usd_wad == 0;
-    if !dust_disabled
-        && (config.min_collat_floor_usd_wad < MIN_DUST_FLOOR_WAD
-            || config.min_debt_floor_usd_wad < MIN_DUST_FLOOR_WAD)
-    {
-        panic_with_error!(env, CollateralError::DustFloorTooLow);
-    }
 }
 
 pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {
@@ -138,8 +130,6 @@ mod tests {
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,
             supply_cap: 5_000_000,
-            min_collat_floor_usd_wad: 10 * WAD,
-            min_debt_floor_usd_wad: 10 * WAD,
             e_mode_categories: Vec::new(env),
         }
     }
@@ -173,15 +163,6 @@ mod tests {
         let env = Env::default();
         let mut cfg = sample_asset_config(&env);
         cfg.supply_cap = -1;
-        validate_asset_config(&env, &cfg);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_validate_asset_config_rejects_dust_floor_below_minimum() {
-        let env = Env::default();
-        let mut cfg = sample_asset_config(&env);
-        cfg.min_collat_floor_usd_wad = MIN_DUST_FLOOR_WAD - 1;
         validate_asset_config(&env, &cfg);
     }
 

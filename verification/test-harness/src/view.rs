@@ -221,14 +221,8 @@ impl LendingTest {
         self.ctrl_client().get_market_config(&asset).asset_config
     }
 
-    pub fn get_pool_address(&self, asset_name: &str) -> soroban_sdk::Address {
-        let asset = self.resolve_asset(asset_name);
-        let assets = soroban_sdk::vec![&self.env, asset];
-        self.ctrl_client()
-            .get_all_markets_detailed(&assets)
-            .get(0)
-            .expect("market view row must exist")
-            .pool_address
+    pub fn get_pool_address(&self, _asset_name: &str) -> soroban_sdk::Address {
+        self.ctrl_client().get_pool_address()
     }
 
     pub fn get_position_limits(&self) -> controller::types::PositionLimits {

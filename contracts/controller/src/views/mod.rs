@@ -73,6 +73,11 @@ impl Controller {
         get_account_attributes(&env, account_id)
     }
 
+    /// Whether `account_id` still has on-chain account metadata.
+    pub fn account_exists(env: Env, account_id: u64) -> bool {
+        account_exists(&env, account_id)
+    }
+
     pub fn get_market_config(env: Env, asset: Address) -> MarketConfig {
         storage::get_market_config(&env, &asset)
     }
@@ -83,6 +88,11 @@ impl Controller {
 
     pub fn get_isolated_debt(env: Env, asset: Address) -> i128 {
         storage::get_isolated_debt(&env, &asset)
+    }
+
+    /// Central liquidity pool for all markets; reads instance storage only.
+    pub fn get_pool_address(env: Env) -> Address {
+        get_pool_address(&env)
     }
 
     pub fn get_all_markets_detailed(
@@ -191,6 +201,10 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 }
 
 /// Returns raw scaled supply and debt maps for `account_id`.
+pub fn account_exists(env: &Env, account_id: u64) -> bool {
+    storage::try_get_account_meta(env, account_id).is_some()
+}
+
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,
@@ -198,7 +212,7 @@ pub fn get_account_positions(
     Map<Address, AccountPositionRaw>,
     Map<Address, DebtPositionRaw>,
 ) {
-    if storage::try_get_account_meta(env, account_id).is_none() {
+    if !account_exists(env, account_id) {
         return (Map::new(env), Map::new(env));
     }
 
@@ -226,6 +240,10 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
         &account.borrow_positions,
     );
     weighted_coll.raw()
+}
+
+pub fn get_pool_address(env: &Env) -> Address {
+    storage::get_pool(env)
 }
 
 pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetExtendedConfigView> {

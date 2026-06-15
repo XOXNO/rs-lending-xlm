@@ -441,14 +441,14 @@ endif
 
 ## Run all fuzz targets for $(FUZZ_TIME) seconds each (default: 60s)
 fuzz:
-	@for t in $(FUZZ_TARGETS); do \
+	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
 		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
 	done
 
 ## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
 fuzz-contract:
-	@for t in $(FUZZ_CONTRACT_TARGETS); do \
+	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
 		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
 	done
@@ -1198,6 +1198,7 @@ help:
 	@echo "Escape hatches for ad-hoc calls:"
 	@echo "    make view FN=get_market_config ARGS='--asset C...' NETWORK=testnet"
 	@echo "    make invoke CONTRACT=governance FN=set_position_limits ARGS='--limits {...}' NETWORK=testnet"
+	@echo "    make invoke CONTRACT=governance FN=set_min_borrow_collateral_usd ARGS='--floor_wad 5000000000000000000' NETWORK=testnet"
 	@echo "    make update-indexes NETWORK=testnet ASSETS='[\"C...\",\"C...\"]'"
 	@echo ""
 	@echo "Ledger signing (any command):"

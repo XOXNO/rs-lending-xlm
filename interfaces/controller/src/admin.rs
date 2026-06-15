@@ -12,6 +12,7 @@ pub trait ControllerAdmin {
     fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
     fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw);
     fn set_position_limits(env: Env, limits: PositionLimits);
+    fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
     fn add_e_mode_category(env: Env, ltv: u32, threshold: u32, bonus: u32) -> u32;
     fn edit_e_mode_category(env: Env, id: u32, ltv: u32, threshold: u32, bonus: u32);
     fn remove_e_mode_category(env: Env, id: u32);

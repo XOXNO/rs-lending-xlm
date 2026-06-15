@@ -1,29 +1,19 @@
 #![no_std]
-//! Reference DeFindex strategy over the XOXNO lending controller.
+//! DeFindex strategy over the XOXNO lending controller.
 //!
-//! Implements the `DeFindexStrategyTrait` ABI (vendored below) so a DeFindex
-//! vault can allocate one asset into the central lending pool:
+//! One WASM per underlying asset. Each vault (`from`) gets its own controller
+//! `account_id`; positions are not shared across vaults.
 //!
-//! - the strategy owns one lending account (`account_id`) and keeps a
-//!   per-depositor share ledger, so several vaults can share one instance —
-//!   the same layout DeFindex's Blend strategy uses;
-//! - `balance`/`deposit`/`withdraw` all report in underlying units from the
-//!   controller's accrued-to-now views, never in shares;
-//! - `withdraw` pays the recipient directly through the controller's `to`
-//!   parameter (no token hop through the strategy);
-//! - `harvest` is a no-op: lending interest auto-compounds via the supply
-//!   index, there is no emissions token to claim or swap.
-//!
-//! Integration rules this contract demonstrates:
-//! - the only auth a calling contract needs for `supply` is one
-//!   `authorize_as_current_contract` entry for the nested SAC
-//!   `transfer(strategy -> pool)`;
-//! - a full close deletes the lending account, so the stored `account_id`
-//!   is reset to `0` and the next deposit opens a fresh one;
-//! - deposits below the market's USD dust floor and partial withdrawals
-//!   leaving a sub-floor residue revert in the controller; callers can clamp
-//!   with `max_withdrawable` / the controller's `max_withdraw` view.
+//! - `balance` / `deposit` / `withdraw` use `collateral_amount_for_token` (no internal shares);
+//! - `withdraw` pays `to` via the controller; full exit uses `amount == balance()`
+//!   (controller withdraw-all sentinel). Integrators query `max_withdraw` off-chain
+//!   to pick a feasible amount; invalid requests revert in the controller.
+//! - vault→account mapping is cleared only after withdraw when the account is gone
+//!   or collateral is zero;
+//! - `harvest` emits Blend-compatible `price_per_share` from the market supply index;
+//! - stale `account_id` entries self-heal when `account_exists` is false.
 
+use common::constants::RAY;
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -31,8 +21,7 @@ use soroban_sdk::{
     Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
-/// Sampled by DeFindex's off-chain APY tooling: price per share in 12
-/// decimals, the convention their `HarvestEvent` established.
+/// Sampled by DeFindex off-chain APY tooling (12-decimal convention).
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug)]
 pub struct HarvestEvent {
@@ -41,29 +30,17 @@ pub struct HarvestEvent {
     pub price_per_share: i128,
 }
 
-/// First-deposit share forfeit guarding against share-price inflation; the
-/// burned shares are paid out with the terminal exit. Same constant the
-/// DeFindex Blend strategy uses.
-const MINIMUM_SHARES: i128 = 1_000;
-
-/// Price-per-share scale for the harvest event, matching the 12-decimal
-/// convention DeFindex's APY tooling expects.
 const PPS_SCALAR: i128 = 1_000_000_000_000;
+const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
 
-/// Persistent share entries survive at least this long without touches;
-/// every touch re-extends. (~30 days threshold, ~180 days extension.)
-const SHARE_TTL_THRESHOLD: u32 = 17_280 * 30;
-const SHARE_TTL_EXTEND_TO: u32 = 17_280 * 180;
+/// Persistent vault→account mappings: ~30-day threshold, ~180-day extension.
+const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
+const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
 
-/// Error codes 401/418 mirror `defindex-strategy-core`'s `StrategyError`;
-/// codes from 460 are local to this reference implementation. The type is
-/// not named `StrategyError` because `common::errors::StrategyError` is
-/// linked into the WASM spec and the names would collide.
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeFindexStrategyError {
     NotInitialized = 401,
-    NotAuthorized = 418,
     AmountNotPositive = 460,
     InsufficientBalance = 461,
     ArithmeticError = 462,
@@ -79,21 +56,11 @@ pub struct Config {
 
 #[contracttype]
 pub enum DataKey {
-    /// Instance: immutable wiring.
     Config,
-    /// Instance: the strategy's lending account; `0` means none open.
-    AccountId,
-    /// Instance: total shares including the inflation-guard forfeit.
-    TotalShares,
-    /// Persistent: shares per depositor (usually a DeFindex vault).
-    Shares(Address),
+    /// Per-vault controller account; `0` = none open / cleared after full close.
+    VaultAccount(Address),
 }
 
-/// Local mirror of `defindex-strategy-core` 0.2.0's `DeFindexStrategyTrait`
-/// (github.com/paltalabs/defindex, `apps/contracts/strategies/core`).
-/// Signatures match verbatim so the compiled WASM satisfies the DeFindex
-/// vault ABI; depend on the published crate instead when its pinned
-/// soroban-sdk matches this workspace.
 pub trait DeFindexStrategyTrait {
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
@@ -110,11 +77,75 @@ pub trait DeFindexStrategyTrait {
 #[contract]
 pub struct Strategy;
 
+struct Ctx<'a> {
+    env: &'a Env,
+    cfg: Config,
+    controller: ControllerClient<'a>,
+    strategy: Address,
+}
+
+impl<'a> Ctx<'a> {
+    fn try_load(env: &'a Env) -> Result<Self, DeFindexStrategyError> {
+        let cfg = config(env)?;
+        Ok(Self {
+            strategy: env.current_contract_address(),
+            controller: ControllerClient::new(env, &cfg.controller),
+            cfg,
+            env,
+        })
+    }
+
+    fn load(env: &'a Env) -> Self {
+        Self::try_load(env).unwrap_or_else(|_| {
+            soroban_sdk::panic_with_error!(env, DeFindexStrategyError::NotInitialized)
+        })
+    }
+
+    fn collateral(&self, account_id: u64) -> i128 {
+        self.controller
+            .collateral_amount_for_token(&account_id, &self.cfg.asset)
+    }
+
+    fn reconcile(&self, vault: &Address) -> u64 {
+        reconcile_vault_account(self.env, &self.controller, vault)
+    }
+
+    fn vault_balance(&self, vault: &Address) -> i128 {
+        self.collateral(self.reconcile(vault))
+    }
+
+    fn harvest_price_per_share(&self) -> Result<i128, DeFindexStrategyError> {
+        let supply_index_ray = self
+            .controller
+            .get_market_index(&self.cfg.asset)
+            .supply_index_ray;
+        supply_index_ray
+            .checked_div(RAY_PER_PPS)
+            .ok_or(DeFindexStrategyError::ArithmeticError)
+    }
+
+    fn to_payment(&self, amount: i128) -> Vec<(Address, i128)> {
+        vec![self.env, (self.cfg.asset.clone(), amount)]
+    }
+
+    fn authorize_supply_to_pool(&self, amount: i128) {
+        self.env.authorize_as_current_contract(vec![
+            self.env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: self.cfg.asset.clone(),
+                    fn_name: Symbol::new(self.env, "transfer"),
+                    args: (self.strategy.clone(), self.cfg.pool.clone(), amount).into_val(self.env),
+                },
+                sub_invocations: Vec::new(self.env),
+            }),
+        ]);
+    }
+}
+
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller: Address]`, mirroring the DeFindex
-    /// constructor shape. The market for `asset` must already be listed:
-    /// the pool address is resolved from the controller at deploy time.
+    /// `init_args = [controller: Address]`. The market for `asset` must be listed.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args.get(0).unwrap_or_else(|| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
@@ -123,25 +154,26 @@ impl Strategy {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
         });
 
-        let pool = ControllerClient::new(&env, &controller)
-            .get_all_markets_detailed(&vec![&env, asset.clone()])
-            .get(0)
-            .unwrap_or_else(|| {
-                soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
-            })
-            .pool_address;
-
-        let storage = env.storage().instance();
-        storage.set(
+        let controller_client = ControllerClient::new(&env, &controller);
+        controller_client.get_market_config(&asset);
+        env.storage().instance().set(
             &DataKey::Config,
             &Config {
                 asset,
                 controller,
-                pool,
+                pool: controller_client.get_pool_address(),
             },
         );
-        storage.set(&DataKey::AccountId, &0u64);
-        storage.set(&DataKey::TotalShares, &0i128);
+    }
+
+    /// Stored controller account for `vault` after reconciliation (`0` = none).
+    pub fn lending_account_id(env: Env, vault: Address) -> u64 {
+        Ctx::load(&env).reconcile(&vault)
+    }
+
+    /// Whether the vault still has a live lending account on the controller.
+    pub fn has_lending_account(env: Env, vault: Address) -> bool {
+        Ctx::load(&env).reconcile(&vault) != 0
     }
 }
 
@@ -151,96 +183,46 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(config(&env)?.asset)
     }
 
-    /// Pulls `amount` from `from`, supplies it into the lending account, and
-    /// returns `from`'s post-deposit underlying balance — the value the
-    /// DeFindex vault books as the strategy's state.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError> {
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
         }
         from.require_auth();
-        let cfg = config(&env)?;
-        let strategy = env.current_contract_address();
 
-        let account_id = stored_account_id(&env);
-        let total_before = protocol_balance(&env, &cfg, account_id);
+        let ctx = Ctx::try_load(&env)?;
+        let balance_before = ctx.vault_balance(&from);
 
-        // The vault pre-authorizes this pull, exactly as it does for its
-        // other strategies.
-        token::Client::new(&env, &cfg.asset).transfer(&from, &strategy, &amount);
+        token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
+        ctx.authorize_supply_to_pool(amount);
 
-        // The controller's supply runs one nested SAC transfer
-        // (strategy -> pool); authorize precisely that sub-invocation.
-        authorize_pool_transfer(&env, &cfg, amount);
-        let new_account_id = ControllerClient::new(&env, &cfg.controller).supply(
-            &strategy,
-            &account_id,
-            &0u32,
-            &vec![&env, (cfg.asset.clone(), amount)],
-        );
-        set_account_id(&env, new_account_id);
+        let account_id = ctx.reconcile(&from);
+        let new_account_id =
+            ctx.controller
+                .supply(&ctx.strategy, &account_id, &0u32, &ctx.to_payment(amount));
+        set_vault_account(ctx.env, &from, new_account_id);
 
-        // Measure the credited value instead of trusting `amount`: exact at
-        // the index the pool just used, no rounding replication needed.
-        let total_after = protocol_balance(&env, &cfg, new_account_id);
-        let credited = total_after
-            .checked_sub(total_before)
-            .filter(|v| *v > 0)
-            .ok_or(DeFindexStrategyError::ArithmeticError)?;
-
-        let total_shares = total_shares(&env);
-        if total_shares == 0 {
-            if credited <= MINIMUM_SHARES {
-                return Err(DeFindexStrategyError::InsufficientBalance);
-            }
-            // Forfeit shares are parked on the strategy address; the
-            // terminal exit pays out their backing.
-            set_shares(&env, &strategy, MINIMUM_SHARES);
-            set_shares(&env, &from, credited - MINIMUM_SHARES);
-            set_total_shares(&env, credited);
-        } else {
-            let minted = muldiv_floor(credited, total_shares, total_before)?;
-            if minted == 0 {
-                return Err(DeFindexStrategyError::InsufficientBalance);
-            }
-            set_shares(&env, &from, shares_of(&env, &from) + minted);
-            set_total_shares(&env, total_shares + minted);
+        let balance_after = ctx.collateral(new_account_id);
+        if balance_after <= balance_before {
+            return Err(DeFindexStrategyError::ArithmeticError);
         }
-
-        balance_of(&env, &cfg, &from)
+        Ok(balance_after)
     }
 
-    /// No-op: interest accrues into the supply index, so there is nothing to
-    /// claim or compound. Emits the price-per-share the DeFindex APY
-    /// tooling samples.
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
-        let cfg = config(&env)?;
-        let total_shares = total_shares(&env);
-        let pps = if total_shares == 0 {
-            PPS_SCALAR
-        } else {
-            let total = protocol_balance(&env, &cfg, stored_account_id(&env));
-            muldiv_floor(total, PPS_SCALAR, total_shares)?
-        };
+        let ctx = Ctx::try_load(&env)?;
         HarvestEvent {
             from,
             amount: 0,
-            price_per_share: pps,
+            price_per_share: ctx.harvest_price_per_share()?,
         }
         .publish(&env);
         Ok(())
     }
 
-    /// Current underlying value attributable to `from`, accrued to now.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
-        let cfg = config(&env)?;
-        balance_of(&env, &cfg, &from)
+        Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
-    /// Withdraws `amount` of underlying for `from`, paying `to` directly via
-    /// the controller. Returns `from`'s post-withdraw balance. The terminal
-    /// exit (last holder leaving) closes the lending account with the `0`
-    /// sentinel and resets `account_id`, so the next deposit reopens one.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -251,98 +233,38 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::AmountNotPositive);
         }
         from.require_auth();
-        let cfg = config(&env)?;
-        let strategy = env.current_contract_address();
-        let account_id = stored_account_id(&env);
+
+        let ctx = Ctx::try_load(&env)?;
+        let account_id = ctx.reconcile(&from);
         if account_id == 0 {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        let total_underlying = protocol_balance(&env, &cfg, account_id);
-        let total_shares = total_shares(&env);
-        let from_shares = shares_of(&env, &from);
-        let from_balance = muldiv_floor(from_shares, total_underlying, total_shares)?;
-        if amount > from_balance {
+        let balance = ctx.collateral(account_id);
+        if amount > balance {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        let forfeit = shares_of(&env, &strategy);
-        // Sole holder asking for their entire balance: close the lending
-        // account outright instead of leaving a sub-dust-floor residue
-        // backing only the forfeit shares.
-        let terminal = amount == from_balance && total_shares == from_shares + forfeit;
-        let controller = ControllerClient::new(&env, &cfg.controller);
+        // `0` = controller withdraw-all sentinel when exiting the full balance.
+        let withdraw_amount = if amount == balance { 0 } else { amount };
+        ctx.controller.withdraw(
+            &ctx.strategy,
+            &account_id,
+            &ctx.to_payment(withdraw_amount),
+            &Some(to),
+        );
 
-        if terminal {
-            // Full close: the pool pays the floor-rounded position value —
-            // `from`'s share plus the forfeit backing — straight to `to`,
-            // and the controller deletes the account.
-            controller.withdraw(
-                &strategy,
-                &account_id,
-                &vec![&env, (cfg.asset.clone(), 0i128)],
-                &Some(to),
-            );
-            set_account_id(&env, 0);
-            set_shares(&env, &from, 0);
-            set_shares(&env, &strategy, 0);
-            set_total_shares(&env, 0);
+        if !ctx.controller.account_exists(&account_id) {
+            clear_vault_account(ctx.env, &from);
             return Ok(0);
         }
 
-        let mut burned = muldiv_ceil(amount, total_shares, total_underlying)?;
-        if burned > from_shares {
-            burned = from_shares;
+        let remaining = ctx.collateral(account_id);
+        if remaining == 0 {
+            clear_vault_account(ctx.env, &from);
+            return Ok(0);
         }
-
-        // Partial: reverts in the controller if the pool lacks liquidity or
-        // the residue would fall below the USD dust floor; vault keepers can
-        // clamp with `max_withdrawable` first.
-        controller.withdraw(
-            &strategy,
-            &account_id,
-            &vec![&env, (cfg.asset.clone(), amount)],
-            &Some(to),
-        );
-        set_shares(&env, &from, from_shares - burned);
-        set_total_shares(&env, total_shares - burned);
-
-        balance_of(&env, &cfg, &from)
-    }
-}
-
-/// Integrator conveniences beyond the DeFindex trait. Plain returns keep
-/// `DeFindexStrategyError` out of this block's spec (single export from the trait
-/// impl); they panic `NotInitialized` before the constructor ran.
-#[contractimpl]
-impl Strategy {
-    /// Underlying value of the whole strategy position, accrued to now.
-    pub fn total_underlying(env: Env) -> i128 {
-        let cfg = expect_config(&env);
-        protocol_balance(&env, &cfg, stored_account_id(&env))
-    }
-
-    /// Largest withdrawal the lending market currently allows for this
-    /// strategy's account (controller `max_withdraw` passthrough).
-    pub fn max_withdrawable(env: Env) -> i128 {
-        let cfg = expect_config(&env);
-        let account_id = stored_account_id(&env);
-        if account_id == 0 {
-            return 0;
-        }
-        ControllerClient::new(&env, &cfg.controller).max_withdraw(&account_id, &cfg.asset)
-    }
-
-    pub fn shares(env: Env, of: Address) -> i128 {
-        shares_of(&env, &of)
-    }
-
-    pub fn total_shares(env: Env) -> i128 {
-        total_shares(&env)
-    }
-
-    pub fn lending_account_id(env: Env) -> u64 {
-        stored_account_id(&env)
+        Ok(remaining)
     }
 }
 
@@ -353,102 +275,47 @@ fn config(env: &Env) -> Result<Config, DeFindexStrategyError> {
         .ok_or(DeFindexStrategyError::NotInitialized)
 }
 
-fn expect_config(env: &Env) -> Config {
-    config(env).unwrap_or_else(|_| {
-        soroban_sdk::panic_with_error!(env, DeFindexStrategyError::NotInitialized)
-    })
-}
-
-fn stored_account_id(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::AccountId)
-        .unwrap_or(0)
-}
-
-fn set_account_id(env: &Env, id: u64) {
-    env.storage().instance().set(&DataKey::AccountId, &id);
-}
-
-fn total_shares(env: &Env) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::TotalShares)
-        .unwrap_or(0)
-}
-
-fn set_total_shares(env: &Env, value: i128) {
-    env.storage().instance().set(&DataKey::TotalShares, &value);
-}
-
-fn shares_of(env: &Env, of: &Address) -> i128 {
-    let key = DataKey::Shares(of.clone());
+fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
+    let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
-    let value = storage.get(&key).unwrap_or(0);
-    if value > 0 {
-        storage.extend_ttl(&key, SHARE_TTL_THRESHOLD, SHARE_TTL_EXTEND_TO);
-    }
-    value
+    storage.set(&key, &account_id);
+    storage.extend_ttl(
+        &key,
+        VAULT_ACCOUNT_TTL_THRESHOLD,
+        VAULT_ACCOUNT_TTL_EXTEND_TO,
+    );
 }
 
-fn set_shares(env: &Env, of: &Address, value: i128) {
-    let key = DataKey::Shares(of.clone());
+fn clear_vault_account(env: &Env, vault: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::VaultAccount(vault.clone()));
+}
+
+fn extend_vault_account_ttl(env: &Env, vault: &Address) {
+    let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
-    if value == 0 {
-        storage.remove(&key);
-    } else {
-        storage.set(&key, &value);
-        storage.extend_ttl(&key, SHARE_TTL_THRESHOLD, SHARE_TTL_EXTEND_TO);
+    if storage.has(&key) {
+        storage.extend_ttl(
+            &key,
+            VAULT_ACCOUNT_TTL_THRESHOLD,
+            VAULT_ACCOUNT_TTL_EXTEND_TO,
+        );
     }
 }
 
-/// Underlying value of the strategy's lending position; zero with no account.
-fn protocol_balance(env: &Env, cfg: &Config, account_id: u64) -> i128 {
-    if account_id == 0 {
+/// Clears a stale stored id when the controller no longer has that account.
+fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
+    let key = DataKey::VaultAccount(vault.clone());
+    let stored: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+    if stored == 0 {
         return 0;
     }
-    ControllerClient::new(env, &cfg.controller).collateral_amount_for_token(&account_id, &cfg.asset)
-}
-
-fn balance_of(env: &Env, cfg: &Config, of: &Address) -> Result<i128, DeFindexStrategyError> {
-    let total_shares = total_shares(env);
-    if total_shares == 0 {
-        return Ok(0);
+    if controller.account_exists(&stored) {
+        extend_vault_account_ttl(env, vault);
+        stored
+    } else {
+        env.storage().persistent().remove(&key);
+        0
     }
-    let total = protocol_balance(env, cfg, stored_account_id(env));
-    muldiv_floor(shares_of(env, of), total, total_shares)
-}
-
-/// Pre-authorizes the controller's nested `transfer(strategy -> pool)`.
-fn authorize_pool_transfer(env: &Env, cfg: &Config, amount: i128) {
-    env.authorize_as_current_contract(vec![
-        env,
-        InvokerContractAuthEntry::Contract(SubContractInvocation {
-            context: ContractContext {
-                contract: cfg.asset.clone(),
-                fn_name: Symbol::new(env, "transfer"),
-                args: (env.current_contract_address(), cfg.pool.clone(), amount).into_val(env),
-            },
-            sub_invocations: Vec::new(env),
-        }),
-    ]);
-}
-
-fn muldiv_floor(a: i128, b: i128, denominator: i128) -> Result<i128, DeFindexStrategyError> {
-    if denominator == 0 {
-        return Err(DeFindexStrategyError::ArithmeticError);
-    }
-    a.checked_mul(b)
-        .map(|product| product / denominator)
-        .ok_or(DeFindexStrategyError::ArithmeticError)
-}
-
-fn muldiv_ceil(a: i128, b: i128, denominator: i128) -> Result<i128, DeFindexStrategyError> {
-    if denominator == 0 {
-        return Err(DeFindexStrategyError::ArithmeticError);
-    }
-    a.checked_mul(b)
-        .and_then(|product| product.checked_add(denominator - 1))
-        .map(|padded| padded / denominator)
-        .ok_or(DeFindexStrategyError::ArithmeticError)
 }

@@ -136,8 +136,6 @@ fn test_multiply_rejects_isolated_debt_ceiling_breach() {
             flashloan_fee_bps: 9,
             borrow_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
             supply_cap: 10_000_000_000_000_000_000_000_000, // 10M tokens (18 decimals)
-            min_collat_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
-            min_debt_floor_usd_wad: controller::constants::MIN_DUST_FLOOR_WAD,
         },
         params: test_harness::MarketParamsPreset {
             mid_utilization_ray: 500_000_000_000_000_000_000_000_000, // 0.5 RAY

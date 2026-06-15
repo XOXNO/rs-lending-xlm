@@ -69,6 +69,66 @@ pub fn calculate_ltv_collateral_wad(
     ltv
 }
 
+/// LTV collateral, total debt, and HF-weighted collateral from one prefetch and
+/// one pass per side — shared by post-pool solvency gates.
+pub(crate) struct PostPoolRiskTotals {
+    pub ltv_collateral: Wad,
+    pub total_debt: Wad,
+    pub weighted_collateral: Wad,
+}
+
+pub fn calculate_post_pool_risk_totals(
+    env: &Env,
+    cache: &mut Cache,
+    supply_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
+) -> PostPoolRiskTotals {
+    let mut priced_assets = supply_positions.keys();
+    priced_assets.append(&borrow_positions.keys());
+    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    cache.prefetch_market_indexes(&priced_assets);
+
+    let mut ltv_collateral = Wad::ZERO;
+    let mut hf_weighted_collateral = Wad::ZERO;
+
+    for (asset, position) in iter_typed_positions(supply_positions) {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
+
+        let gate_value = position_value_floor(
+            env,
+            position.scaled_amount,
+            market_index.supply_index,
+            feed.price,
+        );
+
+        ltv_collateral += position.loan_to_value.apply_to_wad_floor(env, gate_value);
+        hf_weighted_collateral +=
+            weighted_collateral(env, gate_value, position.liquidation_threshold);
+    }
+
+    let mut total_debt = Wad::ZERO;
+    for (asset, position) in iter_debt_positions(borrow_positions) {
+        let feed = cache.cached_price(&asset);
+        let market_index = cache.cached_market_index(&asset);
+
+        let value = position_value_ceil(
+            env,
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.price,
+        );
+
+        total_debt += value;
+    }
+
+    PostPoolRiskTotals {
+        ltv_collateral,
+        total_debt,
+        weighted_collateral: hf_weighted_collateral,
+    }
+}
+
 pub fn calculate_health_factor(
     env: &Env,
     cache: &mut Cache,

@@ -304,8 +304,6 @@ scval_asset_config() {
             u("liquidation_fees_bps"),
             u("liquidation_threshold_bps"),
             u("loan_to_value_bps"),
-            i("min_collat_floor_usd_wad"),
-            i("min_debt_floor_usd_wad"),
             i("supply_cap")
         ]}'
 }

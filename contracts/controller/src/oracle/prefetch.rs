@@ -14,7 +14,7 @@ use crate::cache::Cache;
 
 /// Below this many distinct feeds per adapter, bulk saves nothing — and a
 /// bulk-of-one could fetch a feed the flow never prices (e.g. a full-close
-/// plan asset the dust gate skips), which would cost a call where the lazy
+/// withdrawal asset that never gets priced), which would cost a call where the lazy
 /// path makes none.
 const MIN_BULK_FEEDS: u32 = 2;
 

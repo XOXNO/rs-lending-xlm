@@ -296,7 +296,7 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
 /// After an account has reached `max_supply_positions`, attempting to supply
 /// a NEW (not already held) asset must revert.
 ///
-/// The list iteration in production (`process_supply` / `prepare_deposit_plan`)
+/// The list iteration in production (`process_supply` / `validate_deposit`)
 /// runs over a symbolic-length list. To keep the loop bounded for the prover,
 /// assume the list length is exactly `max_supply_positions`, the precondition
 /// that triggers the panic for a new asset.

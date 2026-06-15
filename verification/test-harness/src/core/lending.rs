@@ -89,14 +89,7 @@ impl LendingTest {
     }
 
     pub fn account_exists(&self, account_id: u64) -> bool {
-        use controller::types::ControllerKey;
-
-        self.env.as_contract(&self.controller, || {
-            self.env
-                .storage()
-                .persistent()
-                .has(&ControllerKey::AccountMeta(account_id))
-        })
+        self.ctrl_client().account_exists(&account_id)
     }
 
     pub fn default_account_id_or_zero(&self, user: &str) -> u64 {

@@ -170,6 +170,45 @@ fn test_get_all_markets_single() {
         markets.len()
     );
 }
+
+#[test]
+fn test_get_pool_address_matches_market_view() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let ctrl = t.ctrl_client();
+    let pool = ctrl.get_pool_address();
+    let assets =
+        soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC"), t.resolve_asset("ETH")]);
+    for row in ctrl.get_all_markets_detailed(&assets).iter() {
+        assert_eq!(row.pool_address, pool, "pool address must be global");
+    }
+    assert_eq!(t.get_pool_address("USDC"), pool);
+}
+
+#[test]
+fn test_account_exists_view() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    assert!(!t.account_exists(999_999), "bogus id should not exist");
+
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    assert!(
+        t.account_exists(account_id),
+        "account should exist after supply"
+    );
+
+    t.withdraw_all(ALICE, "USDC");
+
+    assert!(
+        !t.account_exists(account_id),
+        "account should be gone after full close"
+    );
+}
+
 // 9. test_get_account_owner_correct
 
 #[test]

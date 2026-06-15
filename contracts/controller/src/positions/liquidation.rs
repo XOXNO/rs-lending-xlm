@@ -1,7 +1,9 @@
 //! Liquidation and keeper bad-debt cleanup.
 //!
-//! Liquidation requires health factor below one, prices with `OraclePolicy::Liquidation`,
-//! repays debt, seizes collateral, and refunds payment above the close amount. Bad-debt
+//! Pipeline: auth → aggregate → cache → validate inputs → plan → apply repay
+//! → apply seize → post-checks → persist → emit. Liquidation requires health
+//! factor below one, prices with `OraclePolicy::Liquidation`, repays debt,
+//! seizes collateral, and refunds payment above the close amount. Bad-debt
 //! cleanup socializes residual debt only when collateral is below the USD threshold.
 
 use crate::events::CleanBadDebtEvent;
@@ -15,7 +17,10 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, En
 use stellar_macros::only_role;
 
 use super::liquidation_math::*;
-use super::{repay, withdraw};
+use super::{
+    emit_account_updates, persist_account_positions, repay, withdraw, AggregatedPayments,
+    PositionSides,
+};
 use crate::cache::Cache;
 use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
@@ -55,18 +60,10 @@ pub fn process_liquidation(
 ) {
     liquidator.require_auth();
     validation::require_not_flash_loaning(env);
-    validation::require_non_empty_payments(env, debt_payments);
 
     let mut account = storage::get_account(env, account_id);
 
-    // Reject self-liquidation.
-    assert_with_error!(
-        env,
-        account.owner != *liquidator,
-        GenericError::AccountNotInMarket
-    );
-
-    let plan = utils::aggregate_positive_payments(env, debt_payments);
+    let aggregated = utils::aggregate_positive_payments(env, debt_payments);
 
     // Liquidation policy: seizure needs a defensible price, so it denies every
     // loosening (stale/deviation/TWAP). Beyond the last tolerance band it
@@ -75,12 +72,9 @@ pub fn process_liquidation(
     // selection applies.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
-    for (asset, _) in plan.iter() {
-        validation::require_asset_supported(env, &mut cache, &asset);
-    }
+    validate_liquidation_inputs(env, &account, liquidator, &aggregated, &mut cache);
 
-    let liquidation_plan = build_liquidation_plan(env, &account, &plan, &mut cache);
-    let requires_post_socialization = liquidation_plan.requires_post_socialization();
+    let liquidation_plan = build_liquidation_plan(env, &account, &aggregated, &mut cache);
     let result = liquidation_plan.into_result();
 
     validation::require_non_empty_payments(env, &result.repaid);
@@ -102,14 +96,8 @@ pub fn process_liquidation(
         &account.borrow_positions,
     );
     let will_socialize = is_socializable_bad_debt(post_total_debt, post_total_coll);
-    assert_with_error!(
-        env,
-        !requires_post_socialization || will_socialize,
-        CollateralError::DustResidueNotAllowed
-    );
 
-    storage::set_supply_positions(env, account_id, &account.supply_positions);
-    storage::set_debt_positions(env, account_id, &account.borrow_positions);
+    persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
 
     // Reuse the post-liquidation account snapshot for bad-debt cleanup.
     check_bad_debt_after_liquidation(
@@ -122,26 +110,44 @@ pub fn process_liquidation(
         will_socialize,
     );
 
-    cache.flush_isolated_debts();
-    cache.emit_position_batch(account_id, &account);
-    cache.emit_market_batch();
+    emit_account_updates(&mut cache, account_id, &account, true);
+}
+
+fn validate_liquidation_inputs(
+    env: &Env,
+    account: &Account,
+    liquidator: &Address,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+) {
+    validation::require_non_empty_payments(env, aggregated);
+
+    assert_with_error!(
+        env,
+        account.owner != *liquidator,
+        GenericError::AccountNotInMarket
+    );
+
+    for (asset, _) in aggregated.iter() {
+        validation::require_asset_supported(env, cache, &asset);
+    }
 }
 
 /// Computes the liquidation outcome (repayments, seizures, refunds) from the
-/// account snapshot and the liquidator's payment plan; mutates nothing.
+/// account snapshot and the liquidator's aggregated debt payments; mutates nothing.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
-    plan: &Vec<Payment>,
+    aggregated_debt: &Vec<Payment>,
     cache: &mut Cache,
 ) -> LiquidationResult {
-    build_liquidation_plan(env, account, plan, cache).into_result()
+    build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
 }
 
 fn build_liquidation_plan(
     env: &Env,
     account: &Account,
-    plan: &Vec<Payment>,
+    aggregated_debt: &Vec<Payment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
     // One totals pass feeds both the HF gate and the snapshot; the inlined HF
@@ -174,7 +180,8 @@ fn build_liquidation_plan(
         hf,
     };
 
-    let repayment = normalize_repayment_plan(env, account, plan, &snap, bonus_bounds, cache);
+    let repayment =
+        normalize_repayment_plan(env, account, aggregated_debt, &snap, bonus_bounds, cache);
 
     let seized_collaterals =
         calculate_seized_collateral(env, account, total_collateral, &repayment, cache);

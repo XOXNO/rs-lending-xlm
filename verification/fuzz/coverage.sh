@@ -65,10 +65,22 @@ if command -v rustfilt >/dev/null 2>&1; then
     DEMANGLER_ARGS=(-Xdemangler=rustfilt)
 fi
 
-# Source files to exclude. Keeps only project surface: common/, controller/,
-# pool/, verification/test-harness/src/. Filters std (toolchain), deps
-# (cargo registry), the fuzz harness itself, test-harness tests, types, and events.
-IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/verification/fuzz/|verification/test-harness/tests/|/types/|events\.rs)'
+# Source files to exclude. Keep protocol/product surface and hide toolchain,
+# dependencies, fuzz harness code, test harness code, generated types, events,
+# and controller governance/views noise when focusing on runtime flows.
+IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/verification/fuzz/|verification/test-harness/|/types/|events\.rs|contracts/controller/src/(governance|views)/)'
+
+focus_regex() {
+    case "$1" in
+        fp_math) echo '(^|/)math/fp_core\.rs|TOTAL' ;;
+        fp_ops) echo '(^|/)math/fp(_core)?\.rs|TOTAL' ;;
+        rates_and_index) echo '(^|/)rates\.rs|(^|/)math/fp(_core)?\.rs|TOTAL' ;;
+        flow_e2e) echo 'contracts/controller/src/(positions|strategies|oracle|helpers|storage|cache|router|validation)|common/src/oracle|TOTAL' ;;
+        flow_strategy) echo 'contracts/controller/src/(strategies|positions|router|helpers|validation|cache)|TOTAL' ;;
+        pool_native) echo 'contracts/pool/src|common/src/(rates|math|validation)|TOTAL' ;;
+        *) echo 'TOTAL' ;;
+    esac
+}
 
 mkdir -p "$COV_OUT"
 
@@ -96,7 +108,7 @@ for target in "${TARGETS[@]}"; do
     if [ "$FUZZ_COV_TIME" -gt 0 ]; then
         echo "  [1/3] short fuzz run (${FUZZ_COV_TIME}s)"
         cargo +nightly fuzz run --fuzz-dir . "$target" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} -- \
-            -max_total_time="$FUZZ_COV_TIME" >/dev/null 2>&1 || true
+            -max_total_time="$FUZZ_COV_TIME" 2>&1 | tail -20
     fi
 
     echo "  [2/3] coverage build + corpus replay"
@@ -139,7 +151,10 @@ for target in "${TARGETS[@]}"; do
         ${DEMANGLER_ARGS[@]+"${DEMANGLER_ARGS[@]}"} \
         -instr-profile="$profdata" \
         -ignore-filename-regex="$IGNORE_REGEX" \
-        | tee "$html_dir/summary.txt" | tail -30
+        | tee "$html_dir/summary.txt" >/dev/null
+
+    echo "  focused summary"
+    grep -E "$(focus_regex "$target")" "$html_dir/summary.txt" || tail -30 "$html_dir/summary.txt"
 done
 
 echo

@@ -422,7 +422,7 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
 /// An account with e_mode_category > 0 cannot have is_isolated = true.
 /// The production gate is `ensure_e_mode_compatible_with_asset`
 /// (`controller/src/positions/emode.rs:47-51`), invoked from
-/// `prepare_deposit_plan` before any pool I/O. Calling it directly is
+/// `validate_deposit` before any pool I/O. Calling it directly is
 /// orders of magnitude cheaper than traversing the full `process_supply`
 /// entry point and exercises the exact panic this rule is asserting.
 #[rule]

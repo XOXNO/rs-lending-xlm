@@ -147,16 +147,16 @@ fn test_max_withdraw_prefers_full_close_over_dusty_partial() {
         .collateral_amount_for_token(&account_id, &asset);
     assert_eq!(max, balance, "full close is feasible, so max = balance");
 
-    // A partial leaving a $5 residue is exactly what the preview avoids.
-    let res = t.try_withdraw(ALICE, "USDC", 95.0);
-    assert_contract_error(res, errors::DUST_RESIDUE_NOT_ALLOWED);
+    // Debt-free accounts may leave small collateral residue.
+    t.withdraw(ALICE, "USDC", 95.0);
+    t.assert_supply_near(ALICE, "USDC", 5.0, 1.0);
 
     t.withdraw_raw(ALICE, "USDC", max);
     assert_eq!(t.supply_balance_raw(ALICE, "USDC"), 0);
 }
 
 #[test]
-fn test_max_withdraw_dust_floor_bounds_partial_when_full_close_blocked() {
+fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -164,8 +164,7 @@ fn test_max_withdraw_dust_floor_bounds_partial_when_full_close_blocked() {
         .build();
 
     // ALICE is the sole USDC supplier and BOB holds debt, so a full close
-    // would leave the pool insolvent; the partial is bounded by the $10
-    // residue floor (one stroop inside the cash bound).
+    // would leave the pool insolvent; the partial is bounded by pool cash.
     t.supply(ALICE, "USDC", 200.0);
     t.supply(BOB, "ETH", 10.0);
     t.borrow(BOB, "USDC", 10.0);
@@ -175,11 +174,11 @@ fn test_max_withdraw_dust_floor_bounds_partial_when_full_close_blocked() {
 
     let max = t.ctrl_client().max_withdraw(&account_id, &asset);
     assert!(
-        max > 189 * UNIT && max <= 190 * UNIT,
-        "expected ~190 USDC (dust-floor bound), got {max}"
+        max > 189 * UNIT && max < 200 * UNIT,
+        "expected a large partial below full balance, got {max}"
     );
 
-    // Anything meaningfully above the preview fails (cash or dust gate).
+    // Anything meaningfully above the preview fails (pool cash / solvency).
     let alice = t.get_or_create_user(ALICE);
     let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max + 3)];
     let res = match t
@@ -197,8 +196,8 @@ fn test_max_withdraw_dust_floor_bounds_partial_when_full_close_blocked() {
         .ctrl_client()
         .collateral_amount_for_token(&account_id, &asset);
     assert!(
-        residue >= 10 * UNIT,
-        "residue must stay at or above the $10 floor, got {residue}"
+        residue > 0,
+        "partial withdraw must leave pool-liquid residue, got {residue}"
     );
 }
 

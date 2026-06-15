@@ -1,7 +1,9 @@
 //! Withdraw and strategy-internal withdraw flows.
 //!
-//! Withdrawals re-check LTV, health factor, and touched-asset dust post-pool;
-//! debt-free accounts take the `RiskDecreasing` policy and skip both gates.
+//! Pipeline: auth → aggregate → cache → validate → settle → post-pool gates
+//! → persist → emit. Withdrawals re-check LTV, health factor, and min-borrow
+//! collateral when the account carries debt; debt-free accounts take
+//! `RiskDecreasing` and skip gates.
 
 use common::math::fp::Ray;
 use controller_interface::types::{
@@ -13,12 +15,12 @@ use crate::cache::Cache;
 use crate::emode;
 use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
-use crate::helpers::{
-    refresh_supply_risk_params, remove_account, require_no_supply_dust_for_assets,
-    update_or_remove_supply_position,
-};
+use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
 use crate::oracle::policy::OraclePolicy;
-use crate::positions::{get_supply_position_or_panic, make_pool_action};
+use crate::positions::{
+    finalize_position_flow, get_supply_position_or_panic, make_pool_action, AggregatedPayments,
+    PositionSides,
+};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
@@ -45,7 +47,7 @@ impl Controller {
     }
 }
 
-/// Withdraws collateral and re-checks LTV, health factor, and touched-asset dust.
+/// Withdraws collateral and re-checks solvency gates when debt is present.
 ///
 /// User amount `0` maps to the pool's `i128::MAX` full-withdraw sentinel.
 pub fn process_withdraw(
@@ -71,29 +73,41 @@ pub fn process_withdraw(
     };
     let mut cache = Cache::new(env, policy);
 
-    // Aggregate once and reuse for the loop AND the post-flight dust scope.
-    let plan = utils::aggregate_payments(env, withdrawals, true);
+    let aggregated = utils::aggregate_payments(env, withdrawals, true);
+    if aggregated.is_empty() {
+        return Vec::new(env);
+    }
+    let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
-    // When the account has debt, the post-pool gates (LTV, health) price the
-    // full supply+borrow set; prefetch the union here so those reads and any
-    // mid-merge risk-param refresh hit the cache. When there is no debt, the
-    // gates early-return and only the dust gate prices the withdrawn assets —
-    // scope the prefetch to plan assets so no unread feeds are fetched.
-    let dust_assets = utils::plan_assets(env, &plan);
-    let priced_assets = if account.borrow_positions.is_empty() {
-        dust_assets.clone()
-    } else {
-        let mut all = account.supply_positions.keys();
-        all.append(&account.borrow_positions.keys());
-        all
-    };
-    crate::oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    validation::require_post_pool_risk_gates(env, &mut cache, &account);
 
-    // Build the whole plan's entries for one bulk pool call.
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::SUPPLY,
+        true,
+        false,
+    );
+
+    paid
+}
+
+fn settle_withdraw(
+    env: &Env,
+    account: &mut Account,
+    recipient: &Address,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+) -> Vec<Payment> {
+    validation::require_non_empty_payments(env, aggregated);
+    prefetch_withdraw_oracles(env, cache, account, aggregated);
+
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
-    for (asset, amount) in plan.iter() {
+    for (asset, amount) in aggregated.iter() {
         // `0` means withdraw all.
-        let position = get_supply_position_or_panic(env, &account, &asset);
+        let position = get_supply_position_or_panic(env, account, &asset);
         let withdraw_amount = if amount == 0 {
             WITHDRAW_ALL_SENTINEL
         } else {
@@ -106,12 +120,12 @@ pub fn process_withdraw(
     }
     let results = settle_withdraw_entries(
         env,
-        &mut account,
-        &recipient,
+        account,
+        recipient,
         false,
         crate::events::PositionAction::Withdraw,
         &entries,
-        &mut cache,
+        cache,
     );
 
     let mut paid: Vec<Payment> = Vec::new(env);
@@ -119,22 +133,26 @@ pub fn process_withdraw(
         let result = validation::expect_invariant(env, results.get(i as u32));
         paid.push_back((entry.action.asset.clone(), result.actual_amount));
     }
-
-    validation::require_within_ltv(env, &mut cache, &account);
-    validation::require_healthy_account(env, &mut cache, &account);
-    // Dust gate scoped to withdrawn assets only: withdraw never touches borrow
-    // positions, so untouched positions that drifted under the floor must not block it.
-    require_no_supply_dust_for_assets(env, &mut cache, &account, &dust_assets);
-
-    if account.is_empty() {
-        remove_account(env, account_id);
-    } else {
-        storage::set_supply_positions(env, account_id, &account.supply_positions);
-    }
-    cache.emit_position_batch(account_id, &account);
-    cache.emit_market_batch();
-
     paid
+}
+
+/// Bulk-prefetches RedStone feeds for the assets withdraw may price.
+/// Debt-free exits scope to the aggregated withdrawal set; indebted accounts
+/// prefetch the full supply+borrow union for post-pool LTV/HF gates.
+fn prefetch_withdraw_oracles(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+) {
+    let priced_assets = if account.borrow_positions.is_empty() {
+        utils::aggregated_assets(env, aggregated)
+    } else {
+        let mut all = account.supply_positions.keys();
+        all.append(&account.borrow_positions.keys());
+        all
+    };
+    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
 /// Executes one bulk pool withdraw for `entries` (one cross-contract frame)

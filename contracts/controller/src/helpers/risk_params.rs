@@ -2,11 +2,14 @@
 //! supply positions from the effective (e-mode aware) market config.
 
 use common::math::fp::{Bps, Wad};
-use controller_interface::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};
+use controller_interface::types::{
+    Account, AccountPosition, AccountPositionRaw, AssetConfig, DebtPositionRaw,
+};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::Cache;
 use crate::emode;
+use crate::oracle::policy::OraclePolicy;
 
 use super::calculate_health_factor;
 
@@ -83,10 +86,35 @@ fn apply_liquidation_threshold(
     }
 
     let supply_positions = supply_positions_with(account, asset, position, new_lt);
-    let hf = calculate_health_factor(env, cache, &supply_positions, &account.borrow_positions);
+    let hf = health_factor_for_threshold_downgrade(
+        env,
+        cache,
+        &supply_positions,
+        &account.borrow_positions,
+    );
     if hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW) {
         position.liquidation_threshold = new_lt;
     }
+}
+
+/// Threshold downgrades on indebted accounts require a strict HF read even when
+/// the caller's flow is otherwise risk-decreasing (e.g. supply).
+fn health_factor_for_threshold_downgrade(
+    env: &Env,
+    cache: &mut Cache,
+    supply_positions: &Map<Address, AccountPositionRaw>,
+    borrow_positions: &Map<Address, DebtPositionRaw>,
+) -> Wad {
+    let prior_policy = cache.oracle_policy;
+    cache.oracle_policy = OraclePolicy::RiskIncreasing;
+    // Only supply runs under RiskDecreasing before this gate; strict flows
+    // already resolved prices under an equally strict policy.
+    if prior_policy == OraclePolicy::RiskDecreasing {
+        cache.clear_resolved_prices();
+    }
+    let hf = calculate_health_factor(env, cache, supply_positions, borrow_positions);
+    cache.oracle_policy = prior_policy;
+    hf
 }
 
 fn supply_positions_with(
