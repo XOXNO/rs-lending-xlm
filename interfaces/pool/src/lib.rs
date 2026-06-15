@@ -71,6 +71,8 @@ pub trait LiquidityPoolInterface {
     fn update_params(env: Env, asset: Address, model: InterestRateModel);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn capital_utilisation(env: Env, asset: Address) -> i128;
+    /// Available reserves = accounted `cash` (asset decimals), not the live token
+    /// balance, so direct donations cannot inflate it.
     fn reserves(env: Env, asset: Address) -> i128;
     fn deposit_rate(env: Env, asset: Address) -> i128;
     fn borrow_rate(env: Env, asset: Address) -> i128;

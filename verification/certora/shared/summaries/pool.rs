@@ -433,15 +433,21 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
 //     borrowed <= supplied + revenue) for rules that need cross-view
 //     consistency.
 
-/// Summary for `pool::LiquidityPool::reserves` (`pool/src/lib.rs:708-710`,
-/// real impl at `pool/src/views.rs:44-48`).
+/// Summary for `pool::LiquidityPool::reserves` (real impl at
+/// `pool/src/views.rs`: `reserves` -> `load_state(..).cash`).
 ///
-/// Production reads the SAC `balance` of the pool contract address. SAC
-/// guarantees a non-negative balance (negative transfers panic in the host).
+/// Production returns the pool's accounted `cash` (liquid token units backing
+/// borrows/withdrawals/revenue claims), NOT the live SAC balance — so a direct
+/// donation cannot inflate it. `cash` is a non-negative state field (every
+/// mutating path keeps it >= 0 via checked subtraction), so the model is
+/// `nondet >= 0`. Crucially this is the SAME quantity the borrow/claim reserve
+/// guards (`has_reserves`, `claim_revenue`) check against, so reserve-availability
+/// rules now read and assert over one consistent value.
 pub fn reserves_summary(_env: &Env) -> i128 {
-    let amount: i128 = nondet();
-    cvlr_assume!(amount >= 0);
-    amount
+    // Accounted `cash` >= 0 (state invariant); see `views.rs::reserves`.
+    let cash: i128 = nondet();
+    cvlr_assume!(cash >= 0);
+    cash
 }
 
 /// Summary for `pool::LiquidityPool::supplied_amount`
@@ -519,10 +525,12 @@ pub struct PoolViewsSnapshot {
 ///   * `borrowed <= supplied + revenue` -- borrowed principal is bounded by
 ///     the supplier-funded liquidity plus accrued protocol revenue.
 ///
-/// Reserves is left independent of the other three: SAC balance can drift
-/// from the accounting view via direct token transfers. Production does not
-/// reconcile this for trusted listed SACs; only the untrusted aggregator /
-/// flash-loan paths measure balance deltas.
+/// `reserves` is the accounted `cash` (the value `reserves()` now returns from
+/// `views.rs`), so it is donation-independent rather than the drift-prone SAC
+/// balance. Its exact relationship to (supplied, borrowed, revenue) — the
+/// solvency identity `cash = supplied + revenue - borrowed` in underlying terms
+/// — is left unconstrained here so rules that don't need it stay general; a rule
+/// that needs the identity should constrain it explicitly.
 pub fn pool_snapshot_summary(_env: &Env) -> PoolViewsSnapshot {
     let reserves: i128 = nondet();
     let supplied: i128 = nondet();

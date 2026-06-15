@@ -26,13 +26,14 @@ pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
     Cache::load(env, asset).calculate_utilization().raw()
 }
 
-// Pool's live token reserves in asset decimals. Reads the on-chain token balance
-// directly (unlike internal `cash`, which is the source of truth for all
-// liquidity decisions and caps). Direct donations are visible here but inert
-// for borrowing.
+// Pool's available reserves in asset decimals: the internally-tracked `cash`
+// (liquid token units backing borrows, withdrawals, and revenue claims) — the
+// same source of truth used by every liquidity decision and cap. Reads the
+// persisted checkpoint directly (no TTL renewal, no interest accrual). A direct
+// token donation is NOT counted here, so this view cannot be inflated by an
+// unsolicited transfer; it stays consistent with `require_reserves`/`claim_revenue`.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
-    let token = soroban_sdk::token::Client::new(env, asset);
-    token.balance(&env.current_contract_address())
+    load_state(env, asset).cash
 }
 
 // Current deposit APR in RAY. Does not trigger interest accrual.
@@ -160,7 +161,9 @@ mod tests {
         t.as_contract(|| {
             assert_eq!(load_params(&t.env, &t.asset).asset_id, t.asset);
             assert_eq!(load_state(&t.env, &t.asset).supplied_ray, 10 * RAY);
-            assert_eq!(reserves(&t.env, &t.asset), 12_345);
+            // reserves() returns accounted `cash` (50_000_000), independent of the
+            // 12_345 tokens minted directly to the contract.
+            assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
             // View amounts are returned in asset decimals (7).
             // supplied: 10 scaled * 2.0 index = 20.0 -> 200_000_000 (7 dec).
             assert_eq!(supplied_amount(&t.env, &t.asset), 200_000_000);
@@ -265,11 +268,19 @@ mod tests {
     }
 
     #[test]
-    fn test_reserves_returns_the_token_balance_view() {
+    fn test_reserves_returns_accounted_cash_not_token_balance() {
         let t = TestSetup::new();
+        // Fixture diverges accounted `cash` (50_000_000) from the directly-minted
+        // token balance (12_345) — the latter models an unsolicited donation.
         t.as_contract(|| {
-            // Setup already minted 12_345 to the contract address.
-            assert_eq!(reserves(&t.env, &t.asset), 12_345);
+            assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
+            assert_ne!(reserves(&t.env, &t.asset), 12_345);
+        });
+
+        // A further direct donation must NOT change the reported reserves.
+        token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.contract, &1_000_000);
+        t.as_contract(|| {
+            assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
         });
     }
 }

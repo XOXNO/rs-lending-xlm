@@ -12,9 +12,10 @@ use common::math::fp::{Ray, Wad};
 // Solvency Rules
 // Rule 3b: claim_revenue bounded by reserves  (INVARIANTS.md Sec.12)
 
-/// Claimed revenue must never exceed the pool's pre-call token reserves.
-/// Pool-side `claim_revenue` caps the transfer at `min(reserves, treasury_actual)`
-/// (`pool/src/lib.rs:467-477`), so the controller-returned amount is bounded by
+/// Claimed revenue must never exceed the pool's pre-call accounted reserves
+/// (`cash`). Pool-side `claim_revenue` caps the transfer at
+/// `min(cash, treasury_actual)` (`pool/src/lib.rs:467-477`), and `reserves()`
+/// now returns that same `cash`, so the controller-returned amount is bounded by
 /// the reserves snapshot taken immediately before the call.
 ///
 /// Invariant: claimed_amount <= pre_reserves
@@ -73,9 +74,12 @@ fn isolation_debt_never_negative_after_repay(
 // Rule 3e: Borrow respects pool reserves  (INVARIANTS.md Sec.13)
 
 /// A successful borrow requires `pre_reserves >= amount`. The pool enforces
-/// this via `has_reserves(amount)` (`pool/src/lib.rs:139`); if the guard
-/// fails the call panics with `InsufficientLiquidity`. Therefore any path
-/// that reaches the post-state with the borrow applied must have had
+/// this via `has_reserves(amount)`, which checks accounted `cash`
+/// (`pool/src/lib.rs:139`); if the guard fails the call panics with
+/// `InsufficientLiquidity`. `reserves()` now returns that same `cash`, so the
+/// snapshot read here and the guard reference one consistent quantity — a direct
+/// donation can no longer make the snapshot disagree with the guard. Therefore
+/// any path that reaches the post-state with the borrow applied must have had
 /// sufficient reserves pre-call.
 #[rule]
 fn borrow_respects_reserves(e: Env, caller: Address, asset: Address, amount: i128) {
