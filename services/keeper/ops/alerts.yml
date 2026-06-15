@@ -1,0 +1,87 @@
+# Prometheus alerting rules for the rs-lending keeper.
+#
+# WHY THIS IS A DEPLOYMENT REQUIREMENT, NOT OPTIONAL:
+# the keeper is the only thing extending the protocol's footprint TTLs. If it
+# silently dies (crash / OOM / lost RPC / out-of-funds signer) and nobody is
+# paged, entries eventually archive and the protocol FREEZES until manually
+# restored. The keeper exposes the right metrics on :9090/metrics but does not
+# page itself — these rules close that loop.
+#
+# Load via Prometheus `rule_files:` (see prometheus.example.yml). The rules
+# assume the keeper scrape job is labelled job="keeper".
+groups:
+  - name: keeper.liveness
+    rules:
+      # Process unreachable: no /metrics scrape. With no keeper, no TTL is
+      # extended. TTL safety margins are hours/days, so a 5m down alert fires
+      # well before any entry can archive — this is the key early warning.
+      - alert: KeeperDown
+        expr: up{job="keeper"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "rs-lending keeper is DOWN ({{ $labels.instance }})"
+          description: >
+            No metrics scrape for 5m. While the keeper is down, footprint TTLs
+            are not extended; sustained downtime archives protocol storage and
+            freezes the contract. Restart the keeper and verify it boots
+            (GET :9090/health == ok).
+
+      # Storage already archived: the keeper fell behind / was down past the
+      # safety margin and TTL lapsed. Calls touching these entries fail until
+      # restored. This is the "it already failed" incident signal.
+      - alert: KeeperEntriesArchived
+        expr: keeper_entries_archived > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "rs-lending storage entries archived ({{ $value }})"
+          description: >
+            keeper_entries_archived={{ $value }} for 10m: TTL lapsed on protocol
+            storage. Run the keeper restore path (it auto-restores archived keys)
+            and investigate why extension did not happen in time.
+
+      # Alive but not making progress: work was planned but nothing landed
+      # (RPC outage, unfunded/again-wrong-role signer, bad config). Caught early,
+      # before it becomes KeeperEntriesArchived.
+      - alert: KeeperNotProgressing
+        expr: |
+          increase(keeper_jobs_planned_total[15m]) > 0
+          and increase(keeper_txs_total{status="success"}[15m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "rs-lending keeper planning jobs but completing none"
+          description: >
+            Jobs were planned in the last 15m but no transaction succeeded. Check
+            RPC connectivity, signer XLM balance and KEEPER role, and recent
+            keeper_txs_total{status=~"failed|error"} / keeper_sim_failures_total.
+
+      # The planning/submit loop itself is erroring each tick.
+      - alert: KeeperTickFailing
+        expr: increase(keeper_tick_failed_total[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "rs-lending keeper tick failures ({{ $labels.loop }} loop)"
+          description: >
+            keeper_tick_failed_total for the {{ $labels.loop }} loop has been
+            increasing for 15m. Recurring tick failures stop TTL extension;
+            escalate toward critical if it persists past ~1h.
+
+      # Submitted transactions are failing/erroring on-chain.
+      - alert: KeeperTxFailures
+        expr: increase(keeper_txs_total{status=~"failed|error"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "rs-lending keeper transactions failing ({{ $labels.kind }})"
+          description: >
+            keeper_txs_total{status=~"failed|error"} increasing for 15m for kind
+            {{ $labels.kind }}. Check fees, sequence, and RPC health; persistent
+            failures lead to missed TTL extension.

@@ -195,6 +195,16 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
 
 - **Health**: `GET :9090/health` returns `ok` once boot completed.
 - **Metrics**: `GET :9090/metrics` (Prometheus text format).
+- **Alerting (required, not optional)**: a silently-dead keeper → un-extended
+  TTLs → archived storage → frozen protocol is this service's highest-impact
+  failure mode, so the metrics MUST be alerted on, not merely exposed. Ship the
+  Prometheus rules in [`ops/alerts.yml`](ops/alerts.yml) (scrape example in
+  [`ops/prometheus.example.yml`](ops/prometheus.example.yml)) and wire
+  Alertmanager so `severity: critical` actually pages. Key signals: `KeeperDown`
+  (`up==0` — early warning, fires long before any TTL can lapse),
+  `KeeperEntriesArchived` (`keeper_entries_archived > 0` — active eviction
+  incident), plus `KeeperNotProgressing` / `KeeperTickFailing` /
+  `KeeperTxFailures` (alive-but-stuck).
 - **Dry run**: `--dry-run` (or `KEEPER_DRY_RUN=1`) — runs discovery and planning,
   then **simulates** each planned extend / restore against the RPC and logs
   whether it would be accepted (`sim ok` with the resource fee, or
@@ -215,8 +225,6 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
 
 ## Open items
 
-- `mx-keyvault` is sourced from `XOXNO/mx-chain-rust@production`. Pin to a
-  tagged release / commit once available.
 - Mainnet contract IDs in `config/mainnet.yaml` are placeholders — populate
   before deploying to mainnet.
 - The keeper assumes only source-account auth is required by `update_indexes`.

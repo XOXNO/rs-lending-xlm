@@ -1,0 +1,21 @@
+# Minimal Prometheus config that scrapes the rs-lending keeper and loads the
+# liveness alert rules. The job MUST be named "keeper" — alerts.yml matches
+# up{job="keeper"}. Point `targets` at the keeper's metrics address (:9090 by
+# default) and wire Alertmanager so `severity: critical` actually pages.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: keeper
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["keeper:9090"] # adjust to the keeper's metrics host:port
