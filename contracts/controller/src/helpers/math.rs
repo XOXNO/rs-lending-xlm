@@ -227,13 +227,6 @@ fn calculate_account_totals_body(
     (total_collateral, total_debt, weighted_coll)
 }
 
-/// Thin Certora entry used by liquidation rules; production callers use
-/// `calculate_linear_bonus_with_target` in `positions/liquidation_math`.
-#[cfg(feature = "certora")]
-pub fn calculate_linear_bonus(env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
-    crate::spec::summaries::calculate_linear_bonus_summary(env, hf, base_bonus, max_bonus)
-}
-
 pub fn calculate_total_debt_wad(
     env: &Env,
     cache: &mut Cache,

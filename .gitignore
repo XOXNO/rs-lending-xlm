@@ -41,6 +41,9 @@ docs/*
 **/upgrade.json
 *.interaction.json
 
+# act local secrets (copy from .github/act/.secrets.example)
+.github/act/.secrets
+
 # Coverage
 lcov.info
 *.profraw

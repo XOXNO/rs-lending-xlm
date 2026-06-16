@@ -91,17 +91,29 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
 
 /// Dynamic liquidation bonus stays within [base_bonus, max_bonus] for liquidatable HF.
 #[rule]
-fn bonus_bounded(e: Env, hf_wad: i128, base_bonus_bps: i128, max_bonus_bps: i128) {
+fn bonus_bounded(
+    e: Env,
+    hf_wad: i128,
+    base_bonus_bps: i128,
+    max_bonus_bps: i128,
+    target_wad: i128,
+) {
     cvlr_assume!(base_bonus_bps >= 0);
     cvlr_assume!(max_bonus_bps >= base_bonus_bps);
+    cvlr_assume!(max_bonus_bps <= BPS);
     cvlr_assume!(hf_wad >= 0);
     cvlr_assume!(hf_wad < WAD);
+    cvlr_assume!(target_wad > 0 && target_wad <= 2 * WAD);
 
-    let bonus = crate::helpers::calculate_linear_bonus(
+    // Real production bonus math (NOT the certora summary `calculate_linear_bonus`,
+    // which would assume the very bounds asserted here). Proves the production
+    // function keeps the bonus in [base, max] for any liquidation target.
+    let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf_wad),
         Bps::from(base_bonus_bps),
         Bps::from(max_bonus_bps),
+        Wad::from(target_wad),
     );
 
     cvlr_assert!(bonus.raw() <= max_bonus_bps);
@@ -244,12 +256,19 @@ fn liquidation_bonus_sanity(e: Env) {
     let hf: i128 = cvlr::nondet::nondet();
     let base: i128 = cvlr::nondet::nondet();
     let max: i128 = cvlr::nondet::nondet();
+    let target: i128 = cvlr::nondet::nondet();
     cvlr_assume!(hf > 0 && hf < WAD);
     cvlr_assume!(base > 0 && base <= 500);
     cvlr_assume!(max >= base && max <= BPS);
+    cvlr_assume!(target > 0 && target <= 2 * WAD);
 
-    let bonus =
-        crate::helpers::calculate_linear_bonus(&e, Wad::from(hf), Bps::from(base), Bps::from(max));
+    let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
+        &e,
+        Wad::from(hf),
+        Bps::from(base),
+        Bps::from(max),
+        Wad::from(target),
+    );
     cvlr_satisfy!(bonus.raw() > 0);
 }
 

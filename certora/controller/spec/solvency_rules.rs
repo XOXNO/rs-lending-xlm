@@ -4,34 +4,21 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW, WAD};
+use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::math::fp::{Ray, Wad};
 
-/// Claimed revenue does not exceed pre-call pool reserves.
-#[rule]
-fn claim_revenue_bounded_by_reserves(e: Env, caller: Address, asset: Address) {
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-
-    let pre_reserves = pool_client.reserves(&asset);
-
-    let amounts = crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, asset]);
-    let claimed = amounts.get(0).unwrap();
-
-    cvlr_assert!(claimed <= pre_reserves);
-}
-
-/// Capital utilization is zero when supplied_ray is zero.
-#[rule]
-fn utilization_zero_when_supplied_zero(e: Env, asset: Address) {
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-
-    let sync = pool_client.get_sync_data(&asset);
-    cvlr_assume!(sync.state.supplied_ray == 0);
-
-    cvlr_assert!(pool_client.capital_utilisation(&asset) == 0);
-}
+// Rules that read pool quantity views (`reserves`, `capital_utilisation`,
+// `supplied_amount`, `borrowed_amount`) or `get_sync_data` and asserted a relation
+// over them were removed: under the certora harness those resolve to independent
+// nondet summaries (shared/summaries/pool.rs), so the asserts either re-stated a
+// summary's own assume (tautology) or compared two unrelated nondet draws (not
+// entailed). The real invariants belong on the pool side where the math runs:
+//   * utilization==0 when supplied==0 — common/spec/rates_rules.rs.
+//   * supply-index floor / monotonicity — pool/spec/integrity_rules.rs and
+//     common/spec/rates_rules.rs.
+//   * claim<=reserves, borrow<=reserves, supply/borrow caps — TODO: prove pool-side
+//     by constraining the corresponding pool summary postcondition and adding a
+//     `*_satisfies_*` lemma in pool/spec/summary_contract_rules.rs.
 
 /// Isolated debt stays non-negative after repay.
 #[rule]
@@ -48,21 +35,6 @@ fn isolation_debt_never_negative_after_repay(
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
 
     cvlr_assert!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
-}
-
-/// Successful borrow implies pre-call reserves covered the amount.
-#[rule]
-fn borrow_respects_reserves(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-    let pre_reserves = pool_client.reserves(&asset);
-
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
-
-    cvlr_assert!(pre_reserves >= amount);
 }
 
 /// Post-borrow total debt does not exceed LTV-weighted collateral.
@@ -102,74 +74,6 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
     }
 
     cvlr_assert!(total_debt.raw() <= ltv_collateral.raw());
-}
-
-/// Supply index stays at or above SUPPLY_INDEX_FLOOR_RAW after supply.
-#[rule]
-fn supply_index_above_floor_after_supply(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-
-    let pre = pool_client.get_sync_data(&asset);
-    cvlr_assume!(pre.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
-
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let post = pool_client.get_sync_data(&asset);
-    cvlr_assert!(post.state.supply_index_ray >= SUPPLY_INDEX_FLOOR_RAW);
-}
-
-/// Supply index does not decrease across borrow.
-#[rule]
-fn supply_index_monotonic_across_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-    let pre = pool_client.get_sync_data(&asset);
-
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let post = pool_client.get_sync_data(&asset);
-    cvlr_assert!(post.state.supply_index_ray >= pre.state.supply_index_ray);
-}
-
-/// Supply index growth does not exceed borrow index growth after accrual.
-#[rule]
-fn supply_index_grows_slower(
-    e: Env,
-    asset: Address,
-    caller: Address,
-    e_mode_category: u32,
-    amount: i128,
-) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_before = index_before.supply_index.raw();
-    let borrow_before = index_before.borrow_index.raw();
-
-    cvlr_assume!(supply_before >= RAY);
-    cvlr_assume!(borrow_before >= RAY);
-
-    let mut assets = Vec::new(&e);
-    assets.push_back((asset.clone(), amount));
-
-    crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
-
-    let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_after = index_after.supply_index.raw();
-    let borrow_after = index_after.borrow_index.raw();
-
-    let supply_growth = supply_after - supply_before;
-    let borrow_growth = borrow_after - borrow_before;
-
-    cvlr_assert!(supply_growth <= borrow_growth);
 }
 
 /// Supply with amount zero reverts.
@@ -486,42 +390,6 @@ fn compound_no_wrap_sanity(e: Env) {
     cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
     let factor = common::rates::compound_interest(&e, Ray::from(rate), time);
     cvlr_satisfy!(factor.raw() > RAY);
-}
-
-/// Supply keeps total supplied within the supply cap.
-#[rule]
-fn supply_respects_supply_cap(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let market = crate::storage::get_market_config(&e, &asset);
-    let supply_cap = market.asset_config.supply_cap;
-
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let post_supplied = pool_client.supplied_amount(&asset);
-    cvlr_assert!(post_supplied <= supply_cap);
-}
-
-/// Borrow keeps total borrowed within the borrow cap.
-#[rule]
-fn borrow_respects_borrow_cap(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let market = crate::storage::get_market_config(&e, &asset);
-    let borrow_cap = market.asset_config.borrow_cap;
-
-    let pool_addr = crate::storage::asset_pool::get_asset_pool(&e, &asset);
-    let pool_client = pool_interface::LiquidityPoolClient::new(&e, &pool_addr);
-
-    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let post_borrowed = pool_client.borrowed_amount(&asset);
-    cvlr_assert!(post_borrowed <= borrow_cap);
 }
 
 /// Scaled balances reconstruct to actual balances at the current index.

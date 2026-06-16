@@ -4,62 +4,17 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::RAY;
 use common::math::fp::Ray;
 
-/// Supply index stays at or above the bad-debt socialization floor.
-#[rule]
-fn supply_index_above_floor(e: Env, asset: Address) {
-    let config = crate::storage::asset_config::get_asset_config(&e, &asset);
-    cvlr_assume!(config.liquidation_threshold_bps > 0);
-
-    let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
-
-    cvlr_assert!(cache_entry.supply_index.raw() >= SUPPLY_INDEX_FLOOR_RAW);
-}
-
-/// Borrow index stays at or above `RAY` (1.0).
-#[rule]
-fn borrow_index_gte_ray(e: Env, asset: Address) {
-    let config = crate::storage::asset_config::get_asset_config(&e, &asset);
-    cvlr_assume!(config.liquidation_threshold_bps > 0);
-
-    let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
-
-    cvlr_assert!(cache_entry.borrow_index.raw() >= RAY);
-}
-
-/// Borrow index does not decrease after accrual-triggering operations.
-#[rule]
-fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
-    let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let borrow_before = index_before.borrow_index.raw();
-
-    let amount: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(amount > 0);
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let borrow_after = index_after.borrow_index.raw();
-
-    cvlr_assert!(borrow_after >= borrow_before);
-}
-
-/// Supply index does not decrease after accrual-triggering operations.
-#[rule]
-fn supply_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
-    let index_before = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_before = index_before.supply_index.raw();
-
-    let amount: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(amount > 0);
-    crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    let index_after = crate::storage::market_index::get_market_index(&e, &asset);
-    let supply_after = index_after.supply_index.raw();
-
-    cvlr_assert!(supply_after >= supply_before);
-}
+// Index floor/monotonicity rules that read `get_market_index` were removed: under
+// the certora harness that resolves to `get_sync_data_summary`, an independent
+// nondet per call, so "floor" asserts were tautologies (re-asserting the summary's
+// own assume) and "monotonic across op" asserts compared two unrelated nondet
+// draws (not entailed). Those invariants are proved where the real math runs:
+// the supply-index floor in `pool/spec/integrity_rules.rs`
+// (bad_debt_socialization_keeps_supply_index_above_floor) and index monotonicity
+// in `common/spec/rates_rules.rs` (update_borrow/supply_index_monotonic_*).
 
 /// Zero elapsed time leaves both indexes unchanged.
 #[rule]

@@ -49,10 +49,7 @@ jobs:
         # the workflow env (kept in sync with rust-toolchain.toml + soroban-sdk pin).
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Build contracts
-        run: stellar contract build
-
-      - name: WASM size budget
+      - name: Build deploy artifacts and WASM size budget
         run: make wasm-size-check
 
       - name: Run tests

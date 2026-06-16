@@ -8,7 +8,8 @@ name: Release Build
 # that env var, the soroban-sdk build script panics before compile.
 #
 # This workflow installs the same stellar-cli (v26.0.0) used by ci.yml and
-# fuzz.yml, which sets the env var correctly, and runs the build inline.
+# fuzz.yml, which sets the env var correctly. Release WASM is packaged from
+# `make wasm-size-check` / artifacts/wasm/deploy/ (same bytes CI gates).
 
 on:
   release:
@@ -35,12 +36,8 @@ concurrency:
 
 jobs:
   build:
-    name: Build ${{ matrix.package }}
+    name: Build release WASM
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [controller, pool]
     steps:
       - uses: actions/checkout@v6
 
@@ -67,35 +64,30 @@ jobs:
         # and handles GITHUB_PATH for subsequent steps.
         run: bash .github/scripts/install-stellar-cli.sh
 
-      # `stellar contract build --optimize` replaces the deprecated
-      # `stellar contract optimize` step: it builds the WASM and optimizes
-      # it with a single pass, preserving the meta section that the
-      # deprecated optimize pass would strip after the fact.
-      - name: Build and optimize ${{ matrix.package }}
-        env:
-          # 16KB wasm shadow stack (rustc default 1MB): Soroban charges the
-          # callee's full initial linear memory per cross-contract call, so
-          # the default stack is ~70% of per-oracle-feed memory cost. 16KB
-          # fits stack + data in ONE page; stack-first layout traps overflow.
-          RUSTFLAGS: -C link-arg=-zstack-size=16384
+      # Same bytes CI gates: optimize, strip spec docs, enforce wasm_size_budget.txt.
+      - name: Build deploy artifacts and WASM size budget
+        run: make wasm-size-check
+
+      - name: Package release WASM
         run: |
           mkdir -p dist
-          # Use build --optimize (single pass, preserves meta section) per the
-          # comment above. Output is the optimized WASM in the normal release dir.
-          stellar contract build --optimize --package "${{ matrix.package }}"
-          cp "target/wasm32v1-none/release/${{ matrix.package }}.wasm" "dist/${{ matrix.package }}.wasm"
-          ls -lh dist/${{ matrix.package }}.wasm
+          cp artifacts/wasm/deploy/controller.wasm dist/controller.wasm
+          cp artifacts/wasm/deploy/pool.wasm dist/pool.wasm
+          ls -lh dist/*.wasm
 
-      - name: SHA256 checksum
+      - name: SHA256 checksums
         run: |
           cd dist
-          sha256sum ${{ matrix.package }}.wasm > ${{ matrix.package }}.wasm.sha256
-          cat ${{ matrix.package }}.wasm.sha256
+          sha256sum controller.wasm > controller.wasm.sha256
+          sha256sum pool.wasm > pool.wasm.sha256
+          cat controller.wasm.sha256 pool.wasm.sha256
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/${{ matrix.package }}.wasm
+          subject-path: |
+            dist/controller.wasm
+            dist/pool.wasm
 
       # Untrusted inputs (release tag_name, workflow_dispatch tag input) are
       # moved into env to avoid shell-injection via ${{ }} interpolation in
@@ -106,11 +98,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          PKG: ${{ matrix.package }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            "dist/${PKG}.wasm" \
-            "dist/${PKG}.wasm.sha256" \
+            dist/controller.wasm \
+            dist/controller.wasm.sha256 \
+            dist/pool.wasm \
+            dist/pool.wasm.sha256 \
             --clobber
 
       - name: Upload to release (workflow_dispatch)
@@ -118,20 +111,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.inputs.tag }}
-          PKG: ${{ matrix.package }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            "dist/${PKG}.wasm" \
-            "dist/${PKG}.wasm.sha256" \
+            dist/controller.wasm \
+            dist/controller.wasm.sha256 \
+            dist/pool.wasm \
+            dist/pool.wasm.sha256 \
             --clobber
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.package }}-wasm
+          name: release-wasm
           path: |
-            dist/${{ matrix.package }}.wasm
-            dist/${{ matrix.package }}.wasm.sha256
+            dist/controller.wasm
+            dist/controller.wasm.sha256
+            dist/pool.wasm
+            dist/pool.wasm.sha256
           if-no-files-found: error
 
   # Live testnet end-to-end: fresh wallets via friendbot, fresh deploy,
@@ -178,20 +174,9 @@ jobs:
       - name: Install harness tools
         run: sudo apt-get update -q && sudo apt-get install -y -q jq xxd
 
-      # The harness deploys from target/optimized: the raw controller wasm
-      # exceeds testnet's per-tx write cap, and every other contract
-      # (pool, flash receiver, oracle mocks) deploys from the same dir.
-      - name: Build and optimize all contract wasm
-        env:
-          RUSTFLAGS: -C link-arg=-zstack-size=16384
-        run: |
-          stellar contract build
-          mkdir -p target/optimized
-          for pkg in controller pool flash_loan_receiver mock_oracle mock_redstone; do
-            stellar contract optimize \
-              --wasm "target/wasm32v1-none/release/${pkg}.wasm" \
-              --wasm-out "target/optimized/${pkg}.wasm"
-          done
+      # Deploy-sized controller/pool/flash receiver + optimized oracle mocks.
+      - name: Build integration WASM
+        run: make integration-wasm
 
       - name: Run live testnet e2e
         env:

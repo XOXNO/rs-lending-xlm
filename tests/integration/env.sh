@@ -15,9 +15,8 @@ REFLECTOR_CEX="${REFLECTOR_CEX:-CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OY
 USDC_SAC="${USDC_SAC:-CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA}"
 EURC_SAC="${EURC_SAC:-CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ}"
 
-# Optimized artifacts: the raw controller wasm exceeds testnet's 132096-byte
-# per-tx write cap; `make optimize` output fits. (`stellar contract build`
-# then `make optimize` before running.)
+# Deploy-sized WASM for controller/pool/flash receiver + optimized mocks.
+# Default layout from `make integration-wasm` (see target/optimized/).
 WASM_DIR="${WASM_DIR:-$REPO_ROOT/target/optimized}"
 
 # Single run directory keyed by RUN_TS. Re-using a RUN_TS resumes that run

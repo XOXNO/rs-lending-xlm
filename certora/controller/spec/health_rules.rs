@@ -196,7 +196,15 @@ fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: 
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
+    // The skolem reserve must be one the account actually holds (or the operated
+    // asset). A fresh empty address makes the safe-direction disjunct trivially
+    // true (0 >= 0 && 0 <= 0) and the ghost is never load-bearing.
     let reserve = cvlr_soroban::nondet_address();
+    cvlr_assume!(
+        reserve == asset
+            || pre_account.supply_positions.contains_key(reserve.clone())
+            || pre_account.borrow_positions.contains_key(reserve.clone())
+    );
     let pre_coll = scaled_supply_at(&e, account_id, &reserve);
     let pre_debt = scaled_borrow_at(&e, account_id, &reserve);
 
@@ -225,7 +233,15 @@ fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
+    // The skolem reserve must be one the account actually holds (or the operated
+    // asset). A fresh empty address makes the safe-direction disjunct trivially
+    // true (0 >= 0 && 0 <= 0) and the ghost is never load-bearing.
     let reserve = cvlr_soroban::nondet_address();
+    cvlr_assume!(
+        reserve == asset
+            || pre_account.supply_positions.contains_key(reserve.clone())
+            || pre_account.borrow_positions.contains_key(reserve.clone())
+    );
     let pre_coll = scaled_supply_at(&e, account_id, &reserve);
     let pre_debt = scaled_borrow_at(&e, account_id, &reserve);
 

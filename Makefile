@@ -25,14 +25,14 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts certora-wasm wasm-artifacts \
+        build build-one optimize deploy-artifacts integration-wasm certora-wasm wasm-artifacts \
         certora certora-list \
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
         coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz \
-        wasm-size-check mutants clean install-stellar-cli \
+        wasm-size-check act-ci act-ci-dryrun mutants clean install-stellar-cli \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -74,6 +74,9 @@ FUZZ_DIR := tests/fuzz
 
 # Contract crates (order matters for deployment)
 CONTRACTS := pool controller governance
+
+# WASM artifacts gated by `wasm-size-check` (optimized + spec-doc stripped).
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy
 
 # Coverage exclusions (no executable code / stubs only).
 # Exclude test scaffolding (tests/test-harness internals, the Certora
@@ -123,7 +126,7 @@ build-one:
 ## Optimize WASM binaries for local tooling and inspection.
 optimize: build
 	@mkdir -p $(OPTIMIZED_DIR)
-	@for contract in $(CONTRACTS); do \
+	@for contract in $(WASM_SIZE_CONTRACTS); do \
 		echo "Optimizing $$contract..."; \
 		if command -v stellar &>/dev/null; then \
 			stellar contract optimize \
@@ -146,7 +149,7 @@ optimize: build
 ## contractMaxSizeBytes and the reference docs live in the interface crates.
 deploy-artifacts: optimize
 	@mkdir -p $(DEPLOY_DIR)
-	@for contract in $(CONTRACTS); do \
+	@for contract in $(WASM_SIZE_CONTRACTS); do \
 		src="$(OPTIMIZED_DIR)/$$contract.wasm"; \
 		dst="$(DEPLOY_DIR)/$$contract.wasm"; \
 		python3 scripts/strip_spec_docs.py "$$src" "$$dst" || cp "$$src" "$$dst"; \
@@ -173,6 +176,27 @@ certora-wasm:
 	@echo ""
 	@echo "Certora WASM ($(CERTORA_WASM_DIR)):"
 	@ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
+
+## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
+integration-wasm: deploy-artifacts
+	@mkdir -p $(OPTIMIZED_DIR)
+	@for wasm in controller pool flash_loan_receiver; do \
+		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
+	done
+	@for pkg in mock_oracle mock_redstone; do \
+		echo "Optimizing $$pkg for integration..."; \
+		if command -v stellar &>/dev/null; then \
+			stellar contract optimize \
+				--wasm $(RELEASE_DIR)/$$pkg.wasm \
+				--wasm-out $(OPTIMIZED_DIR)/$$pkg.wasm 2>/dev/null || \
+			cp $(RELEASE_DIR)/$$pkg.wasm $(OPTIMIZED_DIR)/$$pkg.wasm; \
+		else \
+			cp $(RELEASE_DIR)/$$pkg.wasm $(OPTIMIZED_DIR)/$$pkg.wasm; \
+		fi; \
+	done
+	@echo ""
+	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
+	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
 ## Production deploy WASM + certora prover WASM (local build once, cloud proves).
 wasm-artifacts: deploy-artifacts certora-wasm
@@ -355,8 +379,8 @@ clippy-fuzz:
 
 WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
-## Fail if any release WASM exceeds the committed budget.
-wasm-size-check: build
+## Fail if any deploy WASM exceeds the committed budget.
+wasm-size-check: deploy-artifacts
 	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
 		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
 		echo "Create one with 'path bytes' lines (one per contract)."; \
@@ -365,7 +389,7 @@ wasm-size-check: build
 	@status=0; \
 	while IFS=' ' read -r rel_path budget; do \
 		case "$$rel_path" in ''|\#*) continue ;; esac; \
-		path="$(RELEASE_DIR)/$$rel_path"; \
+		path="$(DEPLOY_DIR)/$$rel_path"; \
 		if [ ! -f "$$path" ]; then \
 			echo "WASM not built: $$path"; status=1; continue; \
 		fi; \
@@ -378,6 +402,14 @@ wasm-size-check: build
 		fi; \
 	done <$(WASM_BUDGET_FILE); \
 	exit $$status
+
+## Dry-run ci.yml build-and-test in Docker via nektos/act (requires Docker + act).
+act-ci-dryrun:
+	bash .github/scripts/act-local.sh -n ci
+
+## Run ci.yml build-and-test job in Docker via nektos/act (requires Docker + act).
+act-ci:
+	bash .github/scripts/act-local.sh ci
 
 # ---------------------------------------------------------------------------
 # Mutation testing
@@ -1145,6 +1177,10 @@ help:
 	@echo "  make build              Build all contracts (WASM)"
 	@echo "  make optimize           Build + optimize WASM binaries"
 	@echo "  make deploy-artifacts   Optimized WASM for mainnet ($(DEPLOY_DIR))"
+	@echo "  make wasm-size-check    Build deploy artifacts + enforce size budget"
+	@echo "  make integration-wasm   Deploy-sized WASM + mocks for testnet harness"
+	@echo "  make act-ci-dryrun      Dry-run ci.yml in Docker via nektos/act"
+	@echo "  make act-ci             Run ci.yml build-and-test job via act"
 	@echo "  make certora-wasm       Certora-feature WASM for hosted prover"
 	@echo "  make wasm-artifacts     Build deploy + certora WASM ($(WASM_ARTIFACTS_DIR))"
 	@echo "  make certora            Submit Certora cloud jobs (CERTORA_PROFILE=sanity)"

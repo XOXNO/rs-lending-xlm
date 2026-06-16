@@ -329,9 +329,12 @@ pub fn protocol_revenue_summary(_env: &Env) -> i128 {
 
 /// Capital utilisation in RAY, `0 <= util <= RAY`.
 pub fn capital_utilisation_summary(_env: &Env) -> i128 {
+    // Only `>= 0` is sound: production `capital_utilisation` returns
+    // `borrowed/supplied` in RAY, which a bad-debt write-down (borrowed >
+    // supplied) pushes above RAY. An upper bound here would exclude that real
+    // state and be unsound; consumers must not assume `util <= RAY`.
     let util_ray: i128 = nondet();
     cvlr_assume!(util_ray >= 0);
-    cvlr_assume!(util_ray <= RAY);
     util_ray
 }
 

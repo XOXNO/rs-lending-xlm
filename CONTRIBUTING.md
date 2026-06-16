@@ -64,10 +64,33 @@ For protocol-sensitive changes, also include the relevant verification output:
 
 ```bash
 ./certora/compile_all.sh
-./certora/run_fast.sh
+./certora/run_profile.py fast
 make fuzz FUZZ_TIME=30
 make proptest PROPTEST_CASES=256
 ```
+
+To mirror CI locally you have two options:
+
+**Option A — shell script (runs on the host, fastest):**
+
+```bash
+bash .github/scripts/ci-local.sh
+# optional: --security (OpenZeppelin scan), --fuzz (fuzz.yml pr-smoke + miri)
+```
+
+**Option B — [nektos/act](https://github.com/nektos/act) (runs workflows in Docker, closest to GitHub):**
+
+```bash
+brew install act          # once; Docker must be running
+.github/scripts/act-local.sh list
+.github/scripts/act-local.sh -n ci    # dry-run
+.github/scripts/act-local.sh ci       # ci.yml build-and-test job
+.github/scripts/act-local.sh ci --full   # + security-scan (slow)
+```
+
+Runner image mappings live in `.actrc` at the repo root (`self-hosted` →
+`catthehacker/ubuntu:act-latest`). Certora workflows need
+`.github/act/.secrets` (see `.github/act/.secrets.example`).
 
 Each pull request should explain:
 

@@ -1,5 +1,5 @@
-# WASM size budget, in bytes, per release artifact under
-# target/wasm32v1-none/release.
+# WASM size budget, in bytes, per deploy artifact under
+# artifacts/wasm/deploy/ (optimized + spec-doc stripped via make deploy-artifacts).
 # Format: <wasm filename> <max bytes>
 
 controller.wasm 140000

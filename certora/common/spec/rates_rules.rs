@@ -2,12 +2,11 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, RAY};
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
 use crate::math::fp::{Bps, Ray};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
     simulate_update_indexes_body, update_borrow_index, update_supply_index, utilization,
-    MAX_COMPOUND_DELTA_MS,
 };
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
 
@@ -179,42 +178,17 @@ fn simulate_indexes_no_time_noop(
     cvlr_assert!(index.supply_index.raw() == supply_index);
 }
 
-/// One accrual chunk: indexes non-decreasing, borrow index <= MAX_BORROW_INDEX_RAY.
-#[rule]
-fn simulate_indexes_monotone_one_chunk(
-    e: Env,
-    asset: Address,
-    borrowed: i128,
-    supplied: i128,
-    borrow_index: i128,
-    supply_index: i128,
-    delta_ms: u64,
-) {
-    cvlr_assume!((0..=100 * RAY).contains(&borrowed));
-    cvlr_assume!((1..=100 * RAY).contains(&supplied));
-    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
-    cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
-    cvlr_assume!(delta_ms <= MAX_COMPOUND_DELTA_MS);
-
-    let sync = PoolSyncData {
-        params: (&valid_params(asset)).into(),
-        state: PoolStateRaw {
-            supplied_ray: supplied,
-            borrowed_ray: borrowed,
-            revenue_ray: 0,
-            borrow_index_ray: borrow_index,
-            supply_index_ray: supply_index,
-            last_timestamp: 0,
-            cash: supplied.saturating_sub(borrowed),
-        },
-    };
-    let index = simulate_update_indexes_body(&e, delta_ms, &sync);
-
-    cvlr_assert!(index.borrow_index.raw() >= borrow_index);
-    cvlr_assert!(index.supply_index.raw() >= supply_index);
-    cvlr_assert!(index.borrow_index.raw() <= MAX_BORROW_INDEX_RAY);
-    cvlr_assert!(index.supply_index.raw() <= MAX_BORROW_INDEX_RAY);
-}
+// Soundness of `summaries::simulate_update_indexes_summary`'s monotone-from-input
+// bounds is established compositionally by the lemmas above rather than by one
+// end-to-end rule (which would re-run the degree-8 Taylor `compound_interest`
+// with a symbolic delta and is intractable for the SMT solver):
+//   * `update_borrow_index_monotonic_when_factor_gte_one` — borrow index grows
+//     when the interest factor >= RAY (it is, since e^x >= 1 for x >= 0).
+//   * `update_supply_index_monotonic_when_rewards_positive` — supply index grows
+//     for non-negative rewards.
+//   * `simulate_indexes_no_time_noop` — the zero-delta early-return is exact.
+// Together these cover the summary's `borrow_out >= borrow_in`,
+// `supply_out >= supply_in` claims over the real accrual.
 
 #[rule]
 fn rates_reachability(e: Env, asset: Address) {

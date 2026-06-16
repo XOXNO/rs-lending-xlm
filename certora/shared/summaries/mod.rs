@@ -74,18 +74,6 @@ pub fn calculate_account_totals_summary(
     )
 }
 
-/// Linear bonus: in `[base_bonus, max_bonus]`; equals `base_bonus` when HF >= 1.02 WAD.
-pub fn calculate_linear_bonus_summary(_env: &Env, hf: Wad, base_bonus: Bps, max_bonus: Bps) -> Bps {
-    let bonus_raw: i128 = nondet();
-    cvlr_assume!(bonus_raw >= base_bonus.raw());
-    cvlr_assume!(bonus_raw <= max_bonus.raw());
-    let target_hf_wad: i128 = 102 * common::constants::WAD / 100;
-    if hf.raw() >= target_hf_wad {
-        cvlr_assume!(bonus_raw == base_bonus.raw());
-    }
-    Bps::from(bonus_raw)
-}
-
 /// Total collateral in USD, non-negative.
 pub fn total_collateral_in_usd_summary(_env: &Env, _account_id: u64) -> i128 {
     let total: i128 = nondet();

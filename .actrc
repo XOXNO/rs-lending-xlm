@@ -1,0 +1,9 @@
+# nektos/act — run GitHub Actions locally in Docker.
+# https://github.com/nektos/act
+#
+# Most workflows in this repo use runs-on: self-hosted; map it to the same
+# medium image used for ubuntu-latest jobs.
+-P self-hosted=catthehacker/ubuntu:act-latest
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+# Apple Silicon: run linux/amd64 images (stellar-cli + Rust wasm targets match CI).
+--container-architecture linux/amd64

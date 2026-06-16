@@ -1,0 +1,31 @@
+Certora cloud prover run — project 2781038
+Submitted 2026-06-16 from branch feat/certora-blend-hardening (commit a6792a7)
+WASM: make certora-wasm (--optimize=false), rebuilt 2026-06-16 04:45
+Dashboard: https://prover.certora.com  (project 2781038)
+
+NEW/CHANGED CONFS (this session's work):
+  view-soundness   https://prover.certora.com/output/2781038/e1da55ead8c3427f8de9653b0bfb03a7
+  health-gated     https://prover.certora.com/output/2781038/202fd9ef38084199bb470a93a410c843
+  rates (full)     https://prover.certora.com/output/2781038/1aa1e2fe5408439895bf157fa4bee639
+
+SANITY PROFILE (16 reachability — build smoke test):
+  common_math_reachability      https://prover.certora.com/output/2781038/781777a514194883ac7057a1bd5b2526
+  rates_reachability            https://prover.certora.com/output/2781038/1a468a20c81e46dc934af2314f822929
+  pool_integrity_reachability   https://prover.certora.com/output/2781038/4abbcbf114804023adaddacf85bc5798
+  pool_additivity_reachability  https://prover.certora.com/output/2781038/ad8b45f945e7437f880dc80cf92b8790
+  supply_sanity                 https://prover.certora.com/output/2781038/decd84a8369b4e4eb645b43208d80f9f
+  hf_borrow_sanity              https://prover.certora.com/output/2781038/93c6561cca6a4bfa891fd1074444a9d3
+  oracle_tolerance_sanity       https://prover.certora.com/output/2781038/b93e28635e294a3d8348eacfc1197c76
+  flash_loan_sanity             https://prover.certora.com/output/2781038/53a40fca989f4dc798c746ceedac9d85
+  estimate_liquidation_sanity   https://prover.certora.com/output/2781038/d87d503abdc441bd8e49e4ebdaa6eece
+  emode_supply_sanity           https://prover.certora.com/output/2781038/880248a3ca1c4b858acbf6510072e019
+  solvency_sanity_supply        https://prover.certora.com/output/2781038/3240b409eca24789b05922199738326d
+  multiply_sanity               https://prover.certora.com/output/2781038/73f81a25b2214895a816e554ea898429
+  account_isolation_reachability https://prover.certora.com/output/2781038/8960034a4fb04b6495493bc262aae790
+  market_guard_reachability     https://prover.certora.com/output/2781038/e274899a4938447caae0ffacfac2d9aa
+  oracle_compose_reachability   https://prover.certora.com/output/2781038/5ee5c9d7ff584b438d2e7dc4d1896a1f
+  tolerance_math_reachability   https://prover.certora.com/output/2781038/191983d24a914006844b4cc3cc5c96e0
+
+WATCH: the four that came back Violated on the stale build (rates_reachability,
+common_math_reachability, pool_integrity_reachability, flash_loan_sanity) — should
+now be reachable with the fresh --optimize=false WASM if FunctionIndex_294 is gone.
