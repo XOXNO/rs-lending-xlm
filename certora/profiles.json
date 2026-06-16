@@ -209,6 +209,12 @@
             },
             {
                 "conf": "certora/controller/confs/controller-pool-consistency-light.conf"
+            },
+            {
+                "conf": "certora/pool/confs/view-soundness.conf"
+            },
+            {
+                "conf": "certora/controller/confs/health-gated.conf"
             }
         ],
         "critical": [

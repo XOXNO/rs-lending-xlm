@@ -2,11 +2,12 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY};
+use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, RAY};
 use crate::math::fp::{Bps, Ray};
 use crate::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    simulate_update_indexes, update_borrow_index, update_supply_index, utilization,
+    simulate_update_indexes_body, update_borrow_index, update_supply_index, utilization,
+    MAX_COMPOUND_DELTA_MS,
 };
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
 
@@ -172,10 +173,51 @@ fn simulate_indexes_no_time_noop(
             cash: supplied.saturating_sub(borrowed),
         },
     };
-    let index = simulate_update_indexes(&e, timestamp, &sync);
+    let index = simulate_update_indexes_body(&e, timestamp, &sync);
 
     cvlr_assert!(index.borrow_index.raw() == borrow_index);
     cvlr_assert!(index.supply_index.raw() == supply_index);
+}
+
+/// Soundness of `summaries::simulate_update_indexes_summary`: over a single
+/// accrual chunk the real read-path indexes never shrink, and the borrow index
+/// stays under `MAX_BORROW_INDEX_RAY`. The summary over-approximates this as
+/// monotone-from-input. `last_timestamp = 0` with `delta_ms <=
+/// MAX_COMPOUND_DELTA_MS` keeps the accrual loop to one iteration.
+#[rule]
+fn simulate_indexes_monotone_one_chunk(
+    e: Env,
+    asset: Address,
+    borrowed: i128,
+    supplied: i128,
+    borrow_index: i128,
+    supply_index: i128,
+    delta_ms: u64,
+) {
+    cvlr_assume!((0..=100 * RAY).contains(&borrowed));
+    cvlr_assume!((1..=100 * RAY).contains(&supplied));
+    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
+    cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
+    cvlr_assume!(delta_ms <= MAX_COMPOUND_DELTA_MS);
+
+    let sync = PoolSyncData {
+        params: (&valid_params(asset)).into(),
+        state: PoolStateRaw {
+            supplied_ray: supplied,
+            borrowed_ray: borrowed,
+            revenue_ray: 0,
+            borrow_index_ray: borrow_index,
+            supply_index_ray: supply_index,
+            last_timestamp: 0,
+            cash: supplied.saturating_sub(borrowed),
+        },
+    };
+    let index = simulate_update_indexes_body(&e, delta_ms, &sync);
+
+    cvlr_assert!(index.borrow_index.raw() >= borrow_index);
+    cvlr_assert!(index.supply_index.raw() >= supply_index);
+    cvlr_assert!(index.borrow_index.raw() <= MAX_BORROW_INDEX_RAY);
+    cvlr_assert!(index.supply_index.raw() <= MAX_BORROW_INDEX_RAY);
 }
 
 #[rule]

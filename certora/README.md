@@ -153,6 +153,51 @@ Run `sanity` profile rules first (16 reachability checks) before `fast`/`core`.
 - `loop_iter`: `1` (light math), `2` (boundary), `3` (state rules)
 - `precise_bitwise_ops: true` only for math/boundary configs
 - EVM-only options (`multi_assert_check`, `solc`, Gambit) are not used
+- `-maxCommandCount` must exceed the rule's expanded command count, or the job
+  errors (`expanded to too many commands: N > limit`). Controller state confs
+  set `2000000`; raise it (not lower it) when a sanity rule trips the cap.
+
+### Difficulty timeouts (hard stop at `global_timeout`)
+
+Confs whose rules run the full position/strategy/solvency paths (high path
+count, kinked-rate nonlinearity, multi-loop portfolios) can hit the
+`global_timeout` hard stop rather than the SMT `smt_timeout`. Provisioning
+policy across all confs:
+
+- **`-maxCommandCount`** is set on every state/oracle conf (≥ `2000000`); the
+  prover default (`1000000`) is below what a single position-mutation sanity
+  rule expands to. Pure fixed-point math confs (`common/math`, `controller/math`,
+  `tolerance-math`) stay lower — they never approach the cap.
+- **`-splitParallel true`** is on every conf with `global_timeout: 7200` (the
+  heavy tier) — parallel splitting is pure upside.
+- **Eager splitting** (`-smt_initialSplitDepth 5 -depth 15`) is reserved for the
+  confs observed to hard-stop or run long (`health`, `market-guard`, `strategy`,
+  `solvency-roundtrip`, `account-isolation`, `emode`, `interest`, `liquidation`,
+  `liquidation-light`, `health-gated`).
+
+The escape hatch — the same lever the Certora/Blend pool confs use on their
+hardest status rules:
+
+```json
+"prover_args": [
+    "-maxBlockCount 500000",
+    "-maxCommandCount 2000000",
+    "-splitParallel true",
+    "-smt_initialSplitDepth 5",
+    "-depth 15"
+]
+```
+
+`-splitParallel true` solves control-flow splits across workers instead of
+sequentially; eager splitting (`-smt_initialSplitDepth 5 -depth 15`) carves the
+large rule body into solvable sub-problems early. If a conf still hard-stops,
+run it one rule at a time (`--rule <name>`) and/or summarise the nonlinear
+hotspot (the kinked interest-rate model) rather than only raising the timeout.
+
+**`Inconsistent ref stack sizes … FunctionIndex_294`** is the Stellar-optimizer
+internal error: re-run `make certora-wasm` (it builds `--optimize=false`) and
+submit the freshly-built `artifacts/wasm/certora/*.wasm`. A stale or optimized
+artifact reproduces it and cascades into spurious `Violated` sanity rules.
 
 ## Learning resources
 

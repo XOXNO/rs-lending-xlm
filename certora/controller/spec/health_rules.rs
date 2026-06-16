@@ -14,6 +14,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::WAD;
+use crate::spec::health_ghost;
 use common::math::fp::{Bps, Ray, Wad};
 
 /// Computes the borrow-side USD WAD total by inline iteration over the
@@ -204,4 +205,111 @@ fn hf_withdraw_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
     cvlr_assume!(amount > 0);
     crate::spec::compat::withdraw_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(true);
+}
+// Blend-style "safe-direction OR health-gated" rules
+//
+// Faithful port of Certora/Blend `health_rules.rs::user_health_execute_submit`
+// (which uses a `GHOST_CHECKED` flag + a Skolem index over the position map):
+// for an ARBITRARY reserve (the Skolem `asset`, drawn nondeterministically),
+// after a risk-changing op the borrower either ended debt-free, OR moved in a
+// safe direction at that reserve (collateral non-decreasing AND debt
+// non-increasing), OR the production solvency gate executed
+// (`health_ghost::get_checked()`). Proving it for an arbitrary Skolem asset
+// generalises the property to every reserve from one proof — the coverage our
+// math-anchored rules above lack (they pin a single position).
+//
+// Unlike the aggregate-inequality rules, these read only the Skolem reserve's
+// scaled balances (no per-position sums), so they carry no fixed-point
+// nonlinearity of their own; cost comes only from the operation path.
+
+/// Scaled supply (collateral) balance at `asset`, or 0 when absent.
+fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
+    let account = crate::storage::get_account(env, account_id);
+    account
+        .supply_positions
+        .get(asset.clone())
+        .map(|p| p.scaled_amount_ray)
+        .unwrap_or(0)
+}
+
+/// Scaled borrow (debt) balance at `asset`, or 0 when absent.
+fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
+    let account = crate::storage::get_account(env, account_id);
+    account
+        .borrow_positions
+        .get(asset.clone())
+        .map(|p| p.scaled_amount_ray)
+        .unwrap_or(0)
+}
+
+/// After any borrow, for an arbitrary reserve the borrower is either debt-free,
+/// moved safely at that reserve, or had the solvency gate run.
+#[rule]
+fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    // Bound the account to <= 1 position per side so the real gate's portfolio
+    // walk stays bounded; the Skolem `reserve` still generalises the property
+    // to any asset.
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    let reserve = cvlr_soroban::nondet_address();
+    let pre_coll = scaled_supply_at(&e, account_id, &reserve);
+    let pre_debt = scaled_borrow_at(&e, account_id, &reserve);
+
+    health_ghost::reset();
+    crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
+
+    let post_account = crate::storage::get_account(&e, account_id);
+    let has_debt = !post_account.borrow_positions.is_empty();
+    let post_coll = scaled_supply_at(&e, account_id, &reserve);
+    let post_debt = scaled_borrow_at(&e, account_id, &reserve);
+
+    cvlr_assert!(
+        health_ghost::get_checked()
+            || !has_debt
+            || (post_coll >= pre_coll && post_debt <= pre_debt)
+    );
+}
+
+/// After any withdraw, for an arbitrary reserve the withdrawer is either
+/// debt-free, moved safely at that reserve, or had the solvency gate run.
+#[rule]
+fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
+
+    let pre_account = crate::storage::get_account(&e, account_id);
+    cvlr_assume!(pre_account.supply_positions.len() <= 1);
+    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+
+    let reserve = cvlr_soroban::nondet_address();
+    let pre_coll = scaled_supply_at(&e, account_id, &reserve);
+    let pre_debt = scaled_borrow_at(&e, account_id, &reserve);
+
+    health_ghost::reset();
+    crate::spec::compat::withdraw_single(e.clone(), caller, account_id, asset, amount);
+
+    let post_account = crate::storage::get_account(&e, account_id);
+    let has_debt = !post_account.borrow_positions.is_empty();
+    let post_coll = scaled_supply_at(&e, account_id, &reserve);
+    let post_debt = scaled_borrow_at(&e, account_id, &reserve);
+
+    cvlr_assert!(
+        health_ghost::get_checked()
+            || !has_debt
+            || (post_coll >= pre_coll && post_debt <= pre_debt)
+    );
+}
+
+#[rule]
+fn borrow_gated_sanity(e: Env, caller: Address, asset: Address, amount: i128) {
+    let account_id: u64 = 1;
+    cvlr_assume!(amount > 0);
+    health_ghost::reset();
+    crate::spec::compat::borrow_single(e, caller, account_id, asset, amount);
+    cvlr_satisfy!(health_ghost::get_checked());
 }

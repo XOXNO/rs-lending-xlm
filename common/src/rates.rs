@@ -165,6 +165,39 @@ pub fn simulate_update_indexes(
     current_timestamp: u64,
     sync: &PoolSyncData,
 ) -> crate::types::MarketIndex {
+    _simulate_update_indexes_impl(env, current_timestamp, sync)
+}
+
+#[cfg(not(feature = "certora"))]
+fn _simulate_update_indexes_impl(
+    env: &Env,
+    current_timestamp: u64,
+    sync: &PoolSyncData,
+) -> crate::types::MarketIndex {
+    simulate_update_indexes_body(env, current_timestamp, sync)
+}
+
+// The read-path accrual loop runs an 8-term Taylor `compound_interest` per
+// chunk -- the dominant nonlinearity in every controller pricing path. Under
+// `certora` the prover replaces the whole loop with a monotone nondet index
+// model; the real body is proved sound in `rates_rules::simulate_indexes_*`.
+#[cfg(feature = "certora")]
+cvlr_soroban_macros::apply_summary!(
+    crate::spec::summaries::simulate_update_indexes_summary,
+    pub(crate) fn _simulate_update_indexes_impl(
+        env: &Env,
+        current_timestamp: u64,
+        sync: &PoolSyncData,
+    ) -> crate::types::MarketIndex {
+        simulate_update_indexes_body(env, current_timestamp, sync)
+    }
+);
+
+pub(crate) fn simulate_update_indexes_body(
+    env: &Env,
+    current_timestamp: u64,
+    sync: &PoolSyncData,
+) -> crate::types::MarketIndex {
     let state = PoolState::from(&sync.state);
     let total_delta_ms = current_timestamp.saturating_sub(state.last_timestamp);
 

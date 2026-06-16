@@ -78,6 +78,11 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
         CollateralError::InsufficientCollateral
     );
 
+    // Mark that the solvency gate executed its collateral-covers-debt check.
+    // Read only by the Blend-style "health-gated" Certora rules.
+    #[cfg(feature = "certora")]
+    crate::spec::health_ghost::set_checked();
+
     if totals.total_debt != Wad::ZERO {
         let hf = totals.weighted_collateral.div_floor(env, totals.total_debt);
         assert_with_error!(env, hf >= Wad::ONE, CollateralError::InsufficientCollateral);

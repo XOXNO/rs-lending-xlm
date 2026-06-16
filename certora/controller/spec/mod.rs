@@ -34,6 +34,7 @@ pub mod compat;
 pub mod consistency_rules;
 pub mod emode_rules;
 pub mod flash_loan_rules;
+pub mod health_ghost;
 pub mod health_rules;
 pub mod index_rules;
 pub mod interest_rules;
