@@ -4,7 +4,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::{BPS, RAY};
+use crate::constants::BPS;
 
 /// LTV is strictly below the liquidation threshold for every asset.
 #[rule]
@@ -32,15 +32,11 @@ fn reserve_factor_bounded(e: Env, asset: Address) {
     cvlr_assert!(config.reserve_factor_bps < 10000);
 }
 
-/// Utilization curve parameters are ordered: mid < optimal < 100%.
-#[rule]
-fn utilization_params_ordered(e: Env, asset: Address) {
-    let params = crate::storage::market_params::get_market_params(&e, &asset);
-
-    cvlr_assert!(params.mid_utilization_ray > 0);
-    cvlr_assert!(params.optimal_utilization_ray > params.mid_utilization_ray);
-    cvlr_assert!(params.optimal_utilization_ray < RAY);
-}
+// `utilization_params_ordered` removed: it asserted IRM ordering on params read
+// via `get_sync_data_summary`, which havocs them with no ordering constraint, so
+// the assert was not entailed. The ordering invariant is enforced by
+// `MarketParamsRaw::verify` at config time and belongs in a rule that exercises
+// that validator directly.
 
 /// Isolated accounts hold at most one collateral asset.
 #[rule]

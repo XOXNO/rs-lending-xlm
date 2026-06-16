@@ -12,6 +12,11 @@ use crate::cache::Cache;
 use crate::spec::summaries::{token_price_summary, update_asset_index_summary};
 
 pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
+    // Cache-hit returns the stored feed unchanged (mirrors production
+    // `oracle::price::token_price`); only a cache-miss resolves nondet.
+    if let Some(feed) = cache.prices_cache.get(asset.clone()) {
+        return feed;
+    }
     token_price_summary(cache, asset)
 }
 
