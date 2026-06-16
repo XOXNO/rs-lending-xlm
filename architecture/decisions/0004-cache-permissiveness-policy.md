@@ -204,11 +204,11 @@ liquidation is no longer a permissive cache for the deviation gate.
 Regression coverage:
 
 - `test_clean_bad_debt_rejected_under_oracle_deviation`
-  (`verification/test-harness/tests/keeper_tests.rs`)
+  (`tests/test-harness/tests/keeper_tests.rs`)
 - `test_unsafe_price_blocks_liquidation`
-  (`verification/test-harness/tests/oracle_tolerance_tests.rs`)
+  (`tests/test-harness/tests/oracle_tolerance_tests.rs`)
 - `test_liquidation_blocked_under_flash_crash`
-  (`verification/test-harness/tests/oracle_tolerance_tests.rs`)
+  (`tests/test-harness/tests/oracle_tolerance_tests.rs`)
 
 ## References
 

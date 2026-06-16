@@ -8,7 +8,7 @@ mod views;
 mod test_support;
 
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/pool/spec/mod.rs"]
+#[path = "../../../certora/pool/spec/mod.rs"]
 pub mod spec;
 
 use cache::Cache;

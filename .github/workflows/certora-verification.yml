@@ -27,7 +27,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Compile and coverage gates
-        run: ./verification/certora/compile_all.sh
+        run: ./certora/compile_all.sh
 
   sanity:
     name: Sanity — ${{ matrix.label }}
@@ -39,67 +39,67 @@ jobs:
       matrix:
         include:
           - label: common-math
-            conf_dir: verification/certora/common/confs
+            conf_dir: certora/common/confs
             conf: math.conf
             rule: common_math_reachability
           - label: common-rates
-            conf_dir: verification/certora/common/confs
+            conf_dir: certora/common/confs
             conf: rates.conf
             rule: rates_reachability
           - label: pool-integrity
-            conf_dir: verification/certora/pool/confs
+            conf_dir: certora/pool/confs
             conf: integrity.conf
             rule: pool_integrity_reachability
           - label: pool-additivity
-            conf_dir: verification/certora/pool/confs
+            conf_dir: certora/pool/confs
             conf: additivity.conf
             rule: pool_additivity_reachability
           - label: positions
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: positions.conf
             rule: supply_sanity
           - label: health
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: health.conf
             rule: hf_borrow_sanity
           - label: oracle
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: oracle.conf
             rule: oracle_tolerance_sanity
           - label: flash-loan
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: flash_loan.conf
             rule: flash_loan_sanity
           - label: liquidation-light
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: liquidation-light.conf
             rule: estimate_liquidation_sanity
           - label: emode
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: emode.conf
             rule: emode_supply_sanity
           - label: solvency
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: solvency-roundtrip.conf
             rule: solvency_sanity_supply
           - label: strategy
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: strategy.conf
             rule: multiply_sanity
           - label: account-isolation
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: account-isolation.conf
             rule: account_isolation_reachability
           - label: market-guard
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: market-guard.conf
             rule: market_guard_reachability
           - label: oracle-compose
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: oracle-compose.conf
             rule: oracle_compose_reachability
           - label: tolerance-math
-            conf_dir: verification/certora/controller/confs
+            conf_dir: certora/controller/confs
             conf: tolerance-math.conf
             rule: tolerance_math_reachability
     steps:

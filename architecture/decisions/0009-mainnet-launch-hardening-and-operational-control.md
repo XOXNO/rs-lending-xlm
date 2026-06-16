@@ -163,4 +163,4 @@ Negative / accepted costs:
 - `contracts/controller/src/router.rs`
 - `contracts/controller/src/storage/ttl.rs`
 - `architecture/INVARIANTS.md`
-- `verification/certora/README.md`
+- `certora/README.md`

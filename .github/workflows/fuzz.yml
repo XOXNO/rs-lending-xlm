@@ -7,8 +7,8 @@ on:
       - 'common/**'
       - 'contracts/pool/**'
       - 'contracts/controller/**'
-      - 'verification/test-harness/**'
-      - 'verification/fuzz/**'
+      - 'tests/test-harness/**'
+      - 'tests/fuzz/**'
   schedule:
     # Nightly long-run at 02:00 UTC
     - cron: '0 2 * * *'
@@ -62,8 +62,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-            verification/fuzz/target
-          key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
+            tests/fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
         # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
@@ -121,8 +121,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-            verification/fuzz/target
-          key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'verification/fuzz/Cargo.lock') }}
+            tests/fuzz/target
+          key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
         # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
@@ -152,5 +152,5 @@ jobs:
         with:
           name: fuzz-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            verification/fuzz/artifacts/
-            verification/test-harness/tests/*.proptest-regressions
+            tests/fuzz/artifacts/
+            tests/test-harness/tests/*.proptest-regressions

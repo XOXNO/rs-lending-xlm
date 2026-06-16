@@ -16,7 +16,7 @@ mod market;
 mod pools;
 mod ttl;
 #[cfg(feature = "certora")]
-#[path = "../../../../verification/certora/controller/harness/storage.rs"]
+#[path = "../../../../certora/controller/harness/storage.rs"]
 mod verification_storage;
 // Certora-only getters preserve storage signatures while replacing heavy reads
 // with verifier-friendly values.

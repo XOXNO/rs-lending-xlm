@@ -1029,9 +1029,9 @@ A non-exhaustive list of checks present in the code:
 
 ## 16. Verification Surface
 
-The repository contains unit tests, the `verification/test-harness/`
-integration suite, fuzz targets under `verification/fuzz/fuzz_targets/`,
-Certora profiles under `verification/certora/`, fixed-point and protocol
+The repository contains unit tests, the `tests/test-harness/`
+integration suite, fuzz targets under `tests/fuzz/fuzz_targets/`,
+Certora profiles under `certora/`, fixed-point and protocol
 invariants in `architecture/INVARIANTS.md`, vulnerability reporting in
 `SECURITY.md`, and ADRs under `architecture/decisions/`.
 
@@ -1042,7 +1042,7 @@ result status before public unpause.
 | Command / evidence | Purpose | Pass condition | Launch requirement | Result / status |
 | --- | --- | --- | --- | --- |
 | `cargo test --workspace` | Workspace unit and integration tests. | No test failures on the target commit. | Required before public unpause. | Target-commit log. |
-| `make test` | Serial Soroban test-harness suite. | All `verification/test-harness` tests pass with `--test-threads=1`. | Required before public unpause. | Target-commit log. |
+| `make test` | Serial Soroban test-harness suite. | All `tests/test-harness` tests pass with `--test-threads=1`. | Required before public unpause. | Target-commit log. |
 | `make test-pool` | Pool accounting unit tests. | Pool tests pass without ignored failure. | Required before public unpause. | Target-commit log. |
 | `make clippy` | Rust lint gate. | Clippy completes with warnings denied. | Required before public unpause. | Target-commit log. |
 | `make build` | Build controller and pool WASM artifacts. | WASM artifacts build for the target commit. | Required before deploy. | Artifact hashes. |
@@ -1051,10 +1051,10 @@ result status before public unpause.
 | `make fuzz FUZZ_TIME=300` | Function-level fuzz targets (`fp_math`, `fp_ops`, `pool_native`, `rates_and_index`, and related targets). | Every target completes 300 seconds without crash or new corpus failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
 | `make fuzz-contract FUZZ_TIME=300` | Contract-flow fuzz targets (`flow_e2e`, `flow_strategy`, and related targets). | Every target completes 300 seconds without crash or invariant failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
 | Per-crate `cargo check --features certora` (common, pool, controller) | Compile all Certora feature paths. | Common, pool, and controller `certora` feature builds pass. | Required before proof submission. | Compile log. |
-| `./verification/certora/run_profile.py sanity` | Non-vacuity and reachability smoke proofs. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
-| `./verification/certora/run_profile.py fast` | Stable CI proof profile for common math/rates, pool integrity, and controller light safety. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
-| `./verification/certora/run_profile.py critical` | Highest-signal accounting and safety proofs. | Profile completes without failed rules or documented launch-blocking counterexamples. | Required before public unpause. | Certora run links. |
-| `./verification/certora/run_profile.py manual` | Core plus heavy audit proof profile. | Profile completes, or any timeout/deferred rule is documented with risk acceptance and launch impact. | Required before cap increase beyond launch caps. | Certora run links and residual-risk notes. |
+| `./certora/run_profile.py sanity` | Non-vacuity and reachability smoke proofs. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
+| `./certora/run_profile.py fast` | Stable CI proof profile for common math/rates, pool integrity, and controller light safety. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
+| `./certora/run_profile.py critical` | Highest-signal accounting and safety proofs. | Profile completes without failed rules or documented launch-blocking counterexamples. | Required before public unpause. | Certora run links. |
+| `./certora/run_profile.py manual` | Core plus heavy audit proof profile. | Profile completes, or any timeout/deferred rule is documented with risk acceptance and launch impact. | Required before cap increase beyond launch caps. | Certora run links and residual-risk notes. |
 | External audit closure | Independent review of the target branch. | Findings are fixed, accepted with rationale, or explicitly deferred from launch scope. | Required before public unpause. | Audit closure record. |
 | Testnet soak | Real deployment rehearsal. | 14 consecutive days with no unresolved P0/P1 incidents, no unexplained accounting drift, no stale TTL windows, and no oracle configuration drift. | Required before public unpause. | Monitoring summary. |
 | Pause drill | Operational response rehearsal. | Testnet pause rejects user mutations, required views/checks remain usable, and unpause restores operation. | Required before public unpause. | Runbook transcript. |

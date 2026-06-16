@@ -157,6 +157,6 @@ Negative / accepted costs:
 - `contracts/governance/src/access.rs` (constructor role grants, self-admin).
 - `contracts/governance/src/constants.rs` (`TIMELOCK_MIN_DELAY_LEDGERS`).
 - `vendor/openzeppelin/stellar-governance/src/timelock/` (OZ state machine).
-- `contracts/governance/src/timelock.rs` tests + `verification/test-harness/tests/governance/timelock.rs`.
+- `contracts/governance/src/timelock.rs` tests + `tests/test-harness/tests/governance/timelock.rs`.
 - ADR 0001 (Controller / Pool Ownership Boundary), ADR 0009 (Mainnet Launch
   Hardening) — this ADR fulfills 0009's deferred timelock decision.

@@ -130,7 +130,7 @@ serialization cost, putting width 10 on the boundary and width 9 safely in.
   build the v2 payloads; price backfill applies only to market entries.
 - Call sites: replace action `Symbol` literals with enum variants
   (grep `record_position_update|record_debt_position_update`).
-- Tests: `verification/test-harness/tests/controller/events.rs` asserts
+- Tests: `tests/test-harness/tests/controller/events.rs` asserts
   event shapes — rewrite against v2; add a size-regression test asserting
   a 10+10 liquidation's serialized events stay under ~13 KB.
 - Certora: events are not modeled in specs; verify the harness mirrors

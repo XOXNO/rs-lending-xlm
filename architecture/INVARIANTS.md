@@ -22,8 +22,8 @@ rather than line numbers so the document remains stable as the code evolves.
 Evidence references:
 
 - Runtime code: `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*`
-- Certora rules: `verification/certora/{common,pool,controller}/spec/*_rules.rs`
-- Fuzz/property tests: `verification/fuzz/fuzz_targets/*`, `verification/test-harness/tests/*`
+- Certora rules: `certora/{common,pool,controller}/spec/*_rules.rs`
+- Fuzz/property tests: `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*`
 
 ---
 

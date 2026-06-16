@@ -23,7 +23,7 @@ mod validation;
 mod views;
 
 #[cfg(feature = "certora")]
-#[path = "../../../verification/certora/controller/spec/mod.rs"]
+#[path = "../../../certora/controller/spec/mod.rs"]
 pub mod spec;
 
 #[cfg(feature = "testing")]

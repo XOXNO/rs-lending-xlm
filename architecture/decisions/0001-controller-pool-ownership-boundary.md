@@ -74,7 +74,7 @@ Positive:
   (`contracts/controller/src/positions/*.rs`), so health-factor and oracle checks have
   a coherent view.
 - Pools are simple, single-asset, owner-gated state machines whose
-  invariants are tractable to verify (`verification/certora/pool/spec/`).
+  invariants are tractable to verify (`certora/pool/spec/`).
 - The `LiquidityPoolInterface` trait gives a typed, audit-friendly surface
   for cross-contract calls.
 

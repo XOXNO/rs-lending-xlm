@@ -13,4 +13,4 @@ controller-interface = { path = "../../interfaces/controller" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-test-harness = { path = "../../verification/test-harness" }
+test-harness = { path = "../../tests/test-harness" }

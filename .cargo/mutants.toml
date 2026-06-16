@@ -14,9 +14,9 @@ exclude_globs = [
     "contracts/pool/src/abi.rs",
 
     # Test scaffolding — mutating tests just produces noise.
-    "verification/test-harness/**",
-    "verification/fuzz/**",
-    "verification/certora/**",
+    "tests/test-harness/**",
+    "tests/fuzz/**",
+    "certora/**",
     "**/test_support.rs",
     "**/tests.rs",
 

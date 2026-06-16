@@ -69,18 +69,18 @@ DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
 COV_DIR := target/coverage
-TEST_HARNESS_DIR := verification/test-harness
-FUZZ_DIR := verification/fuzz
+TEST_HARNESS_DIR := tests/test-harness
+FUZZ_DIR := tests/fuzz
 
 # Contract crates (order matters for deployment)
 CONTRACTS := pool controller governance
 
 # Coverage exclusions (no executable code / stubs only).
-# Exclude test scaffolding (verification/test-harness internals, the Certora
+# Exclude test scaffolding (tests/test-harness internals, the Certora
 # spec layer, vendored cvlr/OZ crates) and trivial type-alias files that have
 # no executable lines. Protocol code in `common/`, `contracts/`, and
 # `interfaces/` stays in scope.
-COV_IGNORE := --ignore-filename-regex='(^|/)(verification/test-harness|verification/certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
+COV_IGNORE := --ignore-filename-regex='(^|/)(tests/test-harness|tests/fuzz|certora|vendor|target)/|common/src/types/(shared|aggregator)\.rs$$'
 
 # Network config (override via env or CLI, for example `make SIGNER=ledger mainnet setupAll`)
 NETWORK     ?= testnet
@@ -184,7 +184,7 @@ CERTORA_PROFILE ?= sanity
 
 ## List Certora verification profiles.
 certora-list:
-	@./verification/certora/run_profile.py --list
+	@./certora/run_profile.py --list
 
 ## Submit profile to Certora cloud: make certora [CERTORA_PROFILE=fast]
 certora: certora-wasm
@@ -193,10 +193,10 @@ certora: certora-wasm
 		echo "certoraSorobanProver not found; install with: pip install certora-cli"; \
 		exit 1; \
 	}
-	@./verification/certora/scripts/run-all.sh $(CERTORA_PROFILE) $(CERTORA_ARGS)
+	@./certora/scripts/run-all.sh $(CERTORA_PROFILE) $(CERTORA_ARGS)
 
 _wasm-manifest:
-	@python3 verification/certora/scripts/write_wasm_manifest.py \
+	@python3 certora/scripts/write_wasm_manifest.py \
 		$(if $(DEPLOY),--deploy,) \
 		$(if $(CERTORA),--certora,)
 
@@ -384,7 +384,7 @@ wasm-size-check: build
 # ---------------------------------------------------------------------------
 
 ## Run cargo-mutants on common/ + controller/src/helpers/.
-## We deliberately exclude verification/certora spec files because they
+## We deliberately exclude certora spec files and test scaffolding because they
 ## contain large amounts of test-only / modeling code that produces noisy
 ## "missed" mutants and are not part of the production attack surface we
 ## care about protecting with mutation testing.
@@ -397,7 +397,7 @@ mutants:
 	cargo mutants --package common --package controller \
 		--file 'common/src/**/*.rs' \
 		--file 'contracts/controller/src/helpers/**/*.rs' \
-		--exclude '**/verification/**' \
+		--exclude '**/tests/**' \
 		--exclude '**/certora/**' \
 		--jobs 1
 
@@ -463,7 +463,7 @@ fuzz-one:
 fuzz-build:
 	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
 
-## Seed verification/fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
+## Seed tests/fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
 ## a campaign to give libFuzzer realistic numeric entropy from the start.
 fuzz-seed-corpus:
 	@cd $(FUZZ_DIR) && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
@@ -517,7 +517,7 @@ fuzz-coverage-clean:
 
 PROPTEST_CASES ?= 256
 
-## Run all contract-level property tests (`verification/test-harness/tests/fuzz/`).
+## Run all contract-level property tests (`tests/test-harness/tests/fuzz/`).
 ## Set PROPTEST_CASES=10000 (or higher) for longer runs on dedicated hardware.
 proptest:
 	@echo "=== fuzz (proptest) ==="

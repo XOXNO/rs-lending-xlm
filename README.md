@@ -24,7 +24,7 @@ and verification assets.
   solvency rules, oracle constraints, and accounting invariants.
 - [Architecture decisions](./architecture/decisions/README.md) — ADRs for the
   load-bearing design choices.
-- [Certora verification](./verification/certora/README.md) — proof domains,
+- [Certora verification](./certora/README.md) — proof domains,
   profiles, and local prover commands.
 - [Security policy](./SECURITY.md) — private vulnerability reporting and safe
   harbor.
@@ -84,7 +84,10 @@ rs-lending-xlm/
 │   ├── controller/     # Controller external ABI trait and client
 │   └── pool/           # Cross-contract pool ABI used by the controller
 ├── services/           # Off-chain keeper service (separate workspace)
-├── verification/       # Certora specs, test harness, fuzzing, corpora
+├── certora/            # Certora formal verification specs and harness
+├── tests/
+│   ├── test-harness/   # Integration and property tests
+│   └── fuzz/           # cargo-fuzz targets and corpora
 ├── architecture/       # Invariants, ADRs, and architecture reference material
 ├── configs/            # Market, network, and deployment configuration inputs
 └── vendor/             # Pinned local dependencies used during audit work
@@ -134,8 +137,8 @@ Use `make help` to see the full command surface.
 Verification is layered:
 
 - Rust unit tests in production crates.
-- Soroban integration tests in `verification/test-harness`.
-- Property tests and fuzz targets in `verification/fuzz`.
+- Soroban integration tests in `tests/test-harness`.
+- Property tests and fuzz targets in `tests/fuzz`.
 - Certora profiles for common math, pool accounting, controller risk logic,
   oracle rules, flash loans, liquidation, isolation, strategies, and
   controller-pool consistency.

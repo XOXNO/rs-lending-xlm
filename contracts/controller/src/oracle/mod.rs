@@ -10,13 +10,13 @@ mod prefetch;
 #[cfg(not(feature = "certora"))]
 mod price;
 #[cfg(feature = "certora")]
-#[path = "../../../../verification/certora/controller/harness/oracle_price.rs"]
+#[path = "../../../../certora/controller/harness/oracle_price.rs"]
 mod price;
 pub(crate) mod providers;
 #[cfg(not(feature = "certora"))]
 pub(crate) mod tolerance;
 #[cfg(feature = "certora")]
-#[path = "../../../../verification/certora/controller/harness/oracle_tolerance.rs"]
+#[path = "../../../../certora/controller/harness/oracle_tolerance.rs"]
 pub(crate) mod tolerance;
 
 use soroban_sdk::Address;

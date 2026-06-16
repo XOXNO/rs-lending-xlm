@@ -65,7 +65,7 @@ jobs:
         run: make clippy-fuzz
 
       - name: Certora compile and rule coverage
-        run: ./verification/certora/compile_all.sh
+        run: ./certora/compile_all.sh
 
   security-scan:
     name: Security Scan (OpenZeppelin)
@@ -111,7 +111,7 @@ jobs:
         # 5 times to absorb upstream's non-deterministic stack-overflow.
         # Output is piped through scope_scanner_output.py, which narrows
         # findings to the deployable crates (common, pool-interface, pool,
-        # controller) — verification/test-harness and verification/fuzz stay in the scan
+        # controller) — tests/test-harness and tests/fuzz stay in the scan
         # corpus so the symbol resolver can see cross-crate references
         # (passing a smaller corpus makes the resolver recurse unboundedly),
         # but their findings are noise for an audit gate.

@@ -20,7 +20,7 @@ use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
 #[cfg(not(feature = "certora"))]
 mod aggregates;
 #[cfg(feature = "certora")]
-#[path = "../../../../verification/certora/controller/harness/views/aggregates.rs"]
+#[path = "../../../../certora/controller/harness/views/aggregates.rs"]
 mod aggregates;
 mod limits;
 // Certora swaps the pure position-iteration aggregates for summary re-exports

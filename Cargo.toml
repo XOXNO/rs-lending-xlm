@@ -11,9 +11,9 @@ members = [
     "contracts/flash-loan-receiver",
     "contracts/mock-oracle",
     "contracts/mock-redstone",
-    "verification/test-harness",
+    "tests/test-harness",
 ]
-exclude = ["verification/fuzz", "vendor"]
+exclude = ["tests/fuzz", "vendor"]
 resolver = "2"
 
 [workspace.dependencies]

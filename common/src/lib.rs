@@ -9,5 +9,5 @@ pub mod types;
 pub mod validation;
 
 #[cfg(feature = "certora")]
-#[path = "../../verification/certora/common/spec/mod.rs"]
+#[path = "../../certora/common/spec/mod.rs"]
 pub mod spec;

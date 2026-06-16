@@ -63,8 +63,8 @@ make test-pool
 For protocol-sensitive changes, also include the relevant verification output:
 
 ```bash
-./verification/certora/compile_all.sh
-./verification/certora/run_fast.sh
+./certora/compile_all.sh
+./certora/run_fast.sh
 make fuzz FUZZ_TIME=30
 make proptest PROPTEST_CASES=256
 ```

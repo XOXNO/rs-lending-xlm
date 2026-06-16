@@ -12,12 +12,12 @@ target/
 
 # Certora prover debug output (regenerated on every prover run)
 **/.certora_internal/
-verification/certora/controller/results/*.md
+certora/controller/results/*.md
 
-# Fuzz artifacts (mirrors verification/fuzz/.gitignore)
-verification/fuzz/corpus/
-verification/fuzz/artifacts/
-verification/fuzz/coverage/
+# Fuzz artifacts (mirrors tests/fuzz/.gitignore)
+tests/fuzz/corpus/
+tests/fuzz/artifacts/
+tests/fuzz/coverage/
 # cargo-mutants run output (regenerated per invocation)
 mutants.out/
 mutants.out.old/
