@@ -458,10 +458,10 @@ clean:
 # ---------------------------------------------------------------------------
 
 ## Install the exact stellar-cli version used across CI, fuzz, Certora, and release
-## workflows (26.0.0, matching soroban-sdk pin and rust-toolchain.toml).
+## workflows.
 ## The helper script is platform-aware (Linux + macOS darwin) and idempotent.
 install-stellar-cli:
-	STELLAR_VERSION=26.0.0 bash .github/scripts/install-stellar-cli.sh
+	STELLAR_VERSION=26.1.0 bash .github/scripts/install-stellar-cli.sh
 
 # ---------------------------------------------------------------------------
 # Fuzzing (function-level math primitives)

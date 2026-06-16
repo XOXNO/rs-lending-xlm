@@ -25,7 +25,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '26.0.0'
+  STELLAR_VERSION: '26.1.0'
   # Pin untrusted workflow_dispatch inputs into env to avoid injection.
   FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
   PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}

@@ -5,14 +5,14 @@
 # - In GitHub Actions: appends $HOME/.local/bin to $GITHUB_PATH so later steps in the job see it.
 # - Locally / via Makefile: updates PATH for the current shell when possible.
 # - Cross-platform: selects the correct release asset for Linux (gnu) and macOS (darwin x86_64/aarch64).
-# - Version is controlled by $STELLAR_VERSION (defaults to 26.0.0 to match workspace soroban-sdk and rust-toolchain.toml).
+# - Version is controlled by $STELLAR_VERSION (defaults to the CI-pinned version).
 #
 # Usage:
-#   STELLAR_VERSION=26.0.0 bash .github/scripts/install-stellar-cli.sh
+#   STELLAR_VERSION=26.1.0 bash .github/scripts/install-stellar-cli.sh
 #   # or from Makefile (see target below)
 set -euo pipefail
 
-STELLAR_VERSION="${STELLAR_VERSION:-26.0.0}"
+STELLAR_VERSION="${STELLAR_VERSION:-26.1.0}"
 
 detect_target() {
   local os

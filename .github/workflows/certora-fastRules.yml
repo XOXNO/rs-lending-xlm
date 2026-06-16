@@ -15,7 +15,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '26.0.0'
+  STELLAR_VERSION: '26.1.0'
   CERTORAKEY: ${{ secrets.CERTORAKEY }}
 
 concurrency:

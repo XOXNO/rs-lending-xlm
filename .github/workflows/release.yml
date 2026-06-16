@@ -7,7 +7,7 @@ name: Release Build
 # `stellar-contract-utils` 0.7.0 pin on in `soroban-sdk` 25.3.1. Without
 # that env var, the soroban-sdk build script panics before compile.
 #
-# This workflow installs the same stellar-cli (v26.0.0) used by ci.yml and
+# This workflow installs the same stellar-cli used by ci.yml and
 # fuzz.yml, which sets the env var correctly. Release WASM is packaged from
 # `make wasm-size-check` / artifacts/wasm/deploy/ (same bytes CI gates).
 
@@ -26,7 +26,7 @@ permissions:
   attestations: write
 
 env:
-  STELLAR_VERSION: '26.0.0'
+  STELLAR_VERSION: '26.1.0'
 
 # Releases and manual dispatches are not cancelled; the testnet-e2e job
 # additionally serializes itself with its own concurrency group.
