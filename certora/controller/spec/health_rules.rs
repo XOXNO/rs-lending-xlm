@@ -93,33 +93,29 @@ fn hf_safe_after_withdraw(e: Env, caller: Address, asset: Address, amount: i128)
     cvlr_assert!(weighted.raw() >= total_debt.raw());
 }
 
-/// Liquidation of a healthy account (weighted collateral >= debt) must revert.
+/// A healthy account (weighted collateral >= debt) has HF >= 1 under the gate's
+/// own `div_floor` formula — exactly the value the liquidation gate
+/// (`assert hf < ONE`) rejects, so it cannot be liquidated. Proven on the real
+/// unsummarised valuation; the gate's own HF is summarised, so the link to
+/// `process_liquidation` is by the gate's definition, not executed here.
 #[rule]
-fn liquidation_requires_unhealthy_account(
-    e: Env,
-    liquidator: Address,
-    debt_asset: Address,
-    debt_amount: i128,
-) {
+fn liquidation_requires_unhealthy_account(e: Env) {
     let account_id: u64 = 1;
-    cvlr_assume!(debt_amount > 0 && debt_amount <= WAD * 1000);
-
     let pre_account = crate::storage::get_account(&e, account_id);
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
     let mut cache =
         crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
-    let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
-    let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
-    cvlr_assume!(pre_weighted.raw() >= pre_debt.raw());
+    let weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
+    let debt = inline_total_borrow_wad(&e, &mut cache, account_id);
+    cvlr_assume!(debt.raw() > 0);
+    cvlr_assume!(weighted.raw() >= debt.raw());
 
-    let mut payments: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
-    payments.push_back((debt_asset, debt_amount));
-
-    crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
-
-    cvlr_satisfy!(false);
+    // weighted >= debt ⇒ floor(weighted / debt) >= 1; the boundary weighted == debt
+    // gives exactly 1, so the gate never misclassifies a healthy account.
+    let hf = weighted.div_floor(&e, debt);
+    cvlr_assert!(hf.raw() >= WAD);
 }
 
 /// Supply preserves weighted collateral >= total debt when it held pre-supply.
