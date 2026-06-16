@@ -1,10 +1,10 @@
 //! Debt swap strategy.
 //!
-//! Pipeline: auth → flash guard → account → cache → prefetch → borrow → swap →
-//! repay → `strategy_finalize`.
+//! Pipeline: auth → flash guard → account → cache → preflight → prefetch →
+//! borrow → swap → repay → `strategy_finalize`.
 
 use common::errors::{CollateralError, GenericError};
-use controller_interface::types::{DebtPosition, StrategySwap};
+use controller_interface::types::{Account, DebtPosition, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -76,6 +76,9 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     validation::require_positive_amount(env, new_debt_amount);
 
+    let existing_pos =
+        load_existing_debt_position(env, &account, existing_debt_token);
+
     let extra_assets = soroban_sdk::vec![env, existing_debt_token.clone(), new_debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
@@ -96,12 +99,6 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         swap,
     );
 
-    let existing_pos: DebtPosition = (&account
-        .borrow_positions
-        .get(existing_debt_token.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
-        .into();
-
     repay_debt_from_controller(
         env,
         &mut account,
@@ -116,4 +113,16 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     );
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
+}
+
+fn load_existing_debt_position(
+    env: &Env,
+    account: &Account,
+    existing_debt_token: &Address,
+) -> DebtPosition {
+    account
+        .borrow_positions
+        .get(existing_debt_token.clone())
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound))
+        .into()
 }
