@@ -275,8 +275,12 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
         state(100 * RAY, 0, RAY, e.ledger().timestamp()),
     );
 
+    // Claimed amount is non-negative and never exceeds pre-call reserves: the
+    // solvency check gates the transfer at `cash`, and `reserves() == cash`.
+    let pre_reserves = crate::LiquidityPool::reserves(e.clone(), asset.clone());
     let amount = crate::LiquidityPool::claim_revenue(e, asset).actual_amount;
     cvlr_assert!(amount >= 0);
+    cvlr_assert!(amount <= pre_reserves);
 }
 
 #[rule]
