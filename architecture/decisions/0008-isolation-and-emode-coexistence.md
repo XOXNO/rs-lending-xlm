@@ -42,13 +42,26 @@ is active. Only siloed borrowing composes with each of them.
 
 - An isolated account uses exactly one isolated collateral asset.
 - Borrows are limited to assets with `isolation_borrow_enabled = true`.
-- Total isolated debt is tracked in `ControllerKey::IsolatedDebt(asset)`
-  in USD WAD. Borrowing increments; repay and liquidation decrement.
-- Isolated accounts opt into `OraclePolicy::IsolatedRepay` on `repay`
-  (ADR 0004), because the global counter would otherwise drift under
-  permissive pricing.
-- Isolated debt updates are batched in the cache and flushed once per
-  controller op via `cache.flush_isolated_debts()`.
+- Aggregate exposure against an isolated collateral is tracked in two
+  persistent layers:
+  - `ControllerKey::IsolatedDebt(collateral)` — protocol-wide USD WAD
+    counter (cached per tx, flushed via `cache.flush_isolated_debts()`).
+  - `ControllerKey::IsolatedBasis(account_id, debt_asset)` — per-position
+    USD WAD principal recorded at borrow time for symmetric decrement on
+    repay and liquidation.
+- **Borrow** (`add_isolated_debt`, pre-pool): prices the debt asset under
+  `OraclePolicy::RiskIncreasing`, converts the borrow amount to USD WAD,
+  checks `current + amount <= isolation_debt_ceiling_usd` on the
+  **collateral** config, increments the global counter, and adds the same
+  WAD to the position basis.
+- **Repay / liquidation** (`adjust_isolated_debt_for_repay`): no oracle
+  reads (`OraclePolicy::Repay` on repay). Decrement is proportional to the
+  repaid share of scaled debt against the stored basis (floored on partial
+  repays; full close removes the remaining basis). Bad-debt cleanup uses
+  `clear_position_isolated_debt` to drop the full basis for a seized leg.
+- `OraclePolicy::IsolatedRepay` remains in the policy enum for Certora/spec
+  compatibility but is **not** used on the repay hot path; basis accounting
+  removed the oracle-drift problem that policy was meant to solve.
 
 **E-mode** (`ControllerKey::EModeCategory(u32)`):
 
@@ -110,25 +123,24 @@ Negative / accepted costs:
 - Two flags in `AccountMeta` (`is_isolated`, `isolated_asset`) plus a
   category id and a mode field; their interaction increases verification
   and monitoring complexity.
-- Strict oracle pricing on isolated `repay` reduces the surface where
-  permissive pricing would otherwise let users repay; this is
-  intentional and belongs in protocol risk disclosures.
-- The `IsolatedDebt(asset)` counter is **principal-in / (principal +
-  interest)-out**: borrow increments by borrowed principal, repay and
-  liquidation decrement by the repaid amount including accrued interest.
-  Interest accrues outside transactions and is never added on the increment
-  side, so the global per-asset counter drifts monotonically below true
-  aggregate outstanding isolated debt, and one account's interest-inflated
-  decrement can consume a sibling account's principal contribution. The
-  ceiling is therefore a **monitored soft bound**, not a hard cap on
-  marked-to-market aggregate exposure (drift is always permissive). Accepted
-  because every isolated position stays LTV-collateralized and independently
-  liquidatable, and operators monitor the counter and can pause / re-cap a
-  market. Making it a hard guarantee would require per-account contribution
-  tracking (clamp each decrement to that account's recorded contribution) or
-  a keeper recompute from live positions; deliberately deferred to keep the
-  hot path cheap. Documented in INVARIANTS §3.4; identified by the 2026-05-29
-  security audit.
+- The `IsolatedDebt(collateral)` counter tracks **borrow-time principal
+  basis in USD WAD**, not live marked-to-market debt:
+  - Interest accrual never increments the counter, so nominal outstanding
+    debt can exceed the configured ceiling while new borrows remain blocked.
+  - The borrow price is frozen into basis; debt-asset price moves after
+    borrow are not reflected until positions turn over.
+  - Partial-repay decrements floor the proportional basis share, so the
+    counter can stay slightly above the ideal principal share until a full
+    close (conservative for ceiling enforcement).
+- The ceiling is therefore a **monitored soft bound**, not a hard cap on
+  aggregate exposure. Accepted because every isolated position stays
+  LTV-collateralized and independently liquidatable, and operators monitor
+  `get_isolated_debt` and can pause or re-cap a market. Hard-cap options
+  (deferred to keep the hot path cheap): enforce borrow against a
+  keeper-recomputed sum of live scaled debt valued at current prices (see
+  INVARIANTS §3.4), or add an on-chain index of isolated accounts. Per-account
+  basis keys already exist and keep increment/decrement symmetric; they do not
+  by themselves cap interest-inflated nominal debt.
 - Category-asset membership has two storage faces (category-side map
   and per-market reverse list); both must stay consistent. The controller
   updates both faces in `config::add_asset_to_e_mode_category` and
@@ -149,8 +161,9 @@ Negative / accepted costs:
   `remove_asset_from_e_mode`)
 - `contracts/controller/src/positions/borrow.rs` (siloed/isolated/e-mode checks)
 - `contracts/controller/src/positions/isolated_debt.rs` (isolated-debt helpers:
-  `add_isolated_debt`, `adjust_isolated_debt_usd`,
-  `adjust_isolated_debt_for_repay`, `clear_position_isolated_debt`)
+  `add_isolated_debt`, `adjust_isolated_debt_for_repay`,
+  `clear_position_isolated_debt`)
+- `contracts/controller/src/storage/debt.rs` (`IsolatedDebt`, `IsolatedBasis`)
 - `contracts/controller/src/cache/mod.rs::{cached_emode_asset, flush_isolated_debts}`
 - `common/src/types/` (`AccountMeta`, `EModeCategory`,
   `EModeAssetConfig`)

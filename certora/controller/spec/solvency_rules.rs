@@ -142,14 +142,17 @@ fn supply_position_limit_enforced(
     cvlr_assume!(current_list.len() == limits.max_supply_positions as u32);
     cvlr_assume!(limits.max_supply_positions as u32 <= 10);
 
-    let mut already_exists = false;
-    for i in 0..current_list.len() {
-        let existing = current_list.get(i).unwrap();
-        if existing == new_asset {
-            already_exists = true;
-        }
-    }
-    cvlr_assume!(!already_exists);
+    // `new_asset` is genuinely new, so the supply adds a position above the limit.
+    // Expressed via `get_position` (not a scan of `current_list`): an
+    // `optimistic_loop` would silently drop accounts holding more positions than
+    // `loop_iter`, narrowing coverage without saying so.
+    cvlr_assume!(crate::storage::get_position(
+        &e,
+        account_id,
+        crate::types::AccountPositionType::Deposit,
+        &new_asset
+    )
+    .is_none());
 
     let mut assets = Vec::new(&e);
     assets.push_back((new_asset, amount));
@@ -174,14 +177,16 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     cvlr_assume!(current_list.len() == limits.max_borrow_positions as u32);
     cvlr_assume!(limits.max_borrow_positions as u32 <= 10);
 
-    let mut already_exists = false;
-    for i in 0..current_list.len() {
-        let existing = current_list.get(i).unwrap();
-        if existing == new_asset {
-            already_exists = true;
-        }
-    }
-    cvlr_assume!(!already_exists);
+    // `new_asset` is genuinely new, so the borrow adds a position above the limit.
+    // Expressed via `get_position` (not a scan): an `optimistic_loop` over the
+    // list would silently drop accounts with more positions than `loop_iter`.
+    cvlr_assume!(crate::storage::get_position(
+        &e,
+        account_id,
+        crate::types::AccountPositionType::Borrow,
+        &new_asset
+    )
+    .is_none());
 
     let mut borrows = Vec::new(&e);
     borrows.push_back((new_asset, amount));

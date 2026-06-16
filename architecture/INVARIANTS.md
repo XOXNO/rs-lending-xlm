@@ -269,48 +269,96 @@ flowchart TD
 
 ### 3.4 Isolation Debt
 
-For isolated collateral:
+For isolated collateral asset `C`:
 
 ```text
-0 <= isolated_debt_usd_wad <= isolation_debt_ceiling_usd_wad
+0 <= IsolatedDebt(C) <= isolation_debt_ceiling_usd_wad(C)
 ```
 
-The tracker is denominated in USD WAD. Borrow increments it. Repay and
-liquidation decrement it. Residual debt below `1 WAD` is rounded down to zero
-on decrement to avoid persistent dust.
+Two persistent keys cooperate:
+
+| Key | Scope | Role |
+|-----|-------|------|
+| `IsolatedDebt(C)` | Protocol-wide | Global ceiling counter (USD WAD) |
+| `IsolatedBasis(account_id, debt_asset)` | Per debt leg | Principal basis booked at borrow (USD WAD) |
+
+**Borrow** (`add_isolated_debt`, pre-pool, `OraclePolicy::RiskIncreasing`):
+
+1. `amount_usd = price(debt_asset) × borrow_amount` at borrow time.
+2. Require `IsolatedDebt(C) + amount_usd <= ceiling(C)`.
+3. Increment `IsolatedDebt(C)` via the tx cache (flushed at end of borrow/repay/liquidation).
+4. Add `amount_usd` to `IsolatedBasis(account_id, debt_asset)`.
+
+**Repay / liquidation** (`adjust_isolated_debt_for_repay` via `finish_repayment`):
+
+- No oracle reads on repay (`OraclePolicy::Repay`).
+- Capture `scaled_before`, apply pool result → `scaled_after`.
+- Partial: `decrement = floor(basis × (scaled_before − scaled_after) / scaled_before)`.
+- Full close (`scaled_after == 0`): decrement entire remaining basis; remove the basis key.
+- Subtract `decrement` from both `IsolatedDebt(C)` and `IsolatedBasis`.
+
+**Bad-debt cleanup** (`clear_position_isolated_debt`): remove the full remaining
+basis for each seized debt leg and decrement `IsolatedDebt(C)` by the same amount.
 
 | Runtime | Verification |
 |---|---|
-| `contracts/controller/src/positions/isolated_debt.rs` (`adjust_isolated_debt_usd`, `adjust_isolated_debt_for_repay`), `contracts/controller/src/cache/mod.rs` | `isolation_rules`, `fuzz_multi_asset_solvency` |
+| `contracts/controller/src/positions/isolated_debt.rs`, `contracts/controller/src/storage/debt.rs`, `contracts/controller/src/cache/mod.rs` | `isolation_rules`, `tests/test-harness/tests/controller/isolation.rs` (`test_isolated_debt_basis_excludes_accrued_interest`, ceiling boundary/repay/liquidation tests) |
 
-Note: dust removal is applied on decrement. This is conservative for ceiling
-enforcement. Any reuse of the isolated-debt tracker for settlement accounting
-requires a separate review.
+**Accounting invariants (hot path):**
 
-Note (accepted limitation — soft bound, not a hard guarantee): the tracker is
-*asymmetric* across the interest dimension. Borrow increments by the borrowed
-**principal** valued at borrow-time price; repay and liquidation decrement by
-the repaid amount **including accrued interest** valued at current price
-(`scaled_amount * borrow_index -> to_asset`). Because interest accrues outside
-transactions and is never added on the increment side but is subtracted on the
-decrement side, the counter drifts monotonically *below* true aggregate
-outstanding isolated debt over time. As the counter is global per collateral
-asset (shared by every account isolated on it), one account's
-interest-inflated decrement can consume another account's still-outstanding
-principal contribution, freeing ceiling headroom below the configured cap.
+- Every borrow/repay/liquidation/bad-debt path that mutates debt on an
+  isolated account updates `IsolatedDebt` and the matching `IsolatedBasis` by
+  the same WAD amount on that path.
+- Partial decrements use `mul_div_floor`; the global counter therefore
+  **over-counts** remaining principal basis slightly until a full close
+  (conservative — blocks new borrows earlier, never grants extra headroom).
+- `IsolatedBasis` keys are removed at zero; `IsolatedDebt(C)` is removed from
+  storage when it reaches zero.
 
-Consequence: `isolation_debt_ceiling_usd_wad` is a **monitored soft bound**,
-not a hard cap on marked-to-market aggregate exposure. The drift is always in
-the permissive direction (under-count), so aggregate exposure to a risky
-isolated asset can exceed the configured ceiling over long-lived, multi-account
-positions. This is accepted because (a) every individual isolated position
-remains LTV-collateralized and independently liquidatable, and (b) operators
-monitor `IsolatedDebt(asset)` and can pause or re-cap a market. It is **not**
-direct insolvency or theft. If the ceiling must become a hard guarantee, track
-each account's recorded contribution and clamp its decrement to that
-contribution (per-account isolated-debt key), or add a keeper recompute of the
-counter from live positions. See ADR 0008 (accepted-costs) and the 2026-05-29
-security audit.
+**Soft bound (accepted — not a hard exposure cap):**
+
+The counter tracks **principal basis at borrow**, not live debt:
+
+- Accrued interest increases pool nominal debt but does **not** increment
+  `IsolatedDebt`. Existing positions can therefore carry more than the
+  configured ceiling in token/USD terms while the counter stays at the borrow-time
+  total.
+- Basis is priced at **borrow time**; subsequent debt-asset price moves are not
+  reflected until positions turn over.
+- Per-account LTV/HF and liquidation still bound individual positions; the gap is
+  only on the **global monitoring / new-borrow gate**.
+
+`isolation_debt_ceiling_usd_wad` is a **monitored soft bound**. It is not direct
+insolvency or theft. Operators should not treat `get_isolated_debt` as
+marked-to-market aggregate exposure.
+
+**Hard-cap mitigations (not implemented on the hot path):**
+
+1. **Per-account basis (implemented).** `IsolatedBasis` already records each
+   leg's borrow-time contribution and clamps decrements to that leg. This keeps
+   the global counter aligned with the sum of outstanding basis keys and prevents
+   repay/liquidation asymmetry; it does **not** add interest or repricing to the
+   counter.
+
+2. **Keeper recompute from live scaled debt (deferred).** Before approving a
+   borrow, recompute exposure as the sum over every account with
+   `is_isolated && isolated_asset == C` and every debt position:
+
+   ```text
+   actual_tokens = scaled_amount_ray × borrow_index_ray   (per pool market)
+   leg_usd_wad   = price(debt_asset) × actual_tokens
+   live_total    = Σ leg_usd_wad
+   require live_total + new_borrow_usd <= ceiling(C)
+   ```
+
+   This uses the same scaled-balance machinery as HF/LTV, so interest and
+   current prices are included. Cost is O(isolated accounts × debt legs) per
+   check — practical as an off-chain keeper guard, periodic on-chain resync, or
+   a governance-gated borrow gate if a hard cap becomes a product requirement.
+   The keeper already discovers `AccountMeta`, `BorrowPositions`, and
+   `IsolatedBasis` keys for TTL extension (`services/keeper`).
+
+See ADR 0008 (accepted-costs).
 
 ---
 
