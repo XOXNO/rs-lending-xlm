@@ -1,17 +1,13 @@
 #![no_std]
-//! DeFindex strategy over the XOXNO lending controller.
+//! DeFindex strategy adapter for the XOXNO lending controller.
 //!
-//! One WASM per underlying asset. Each vault (`from`) gets its own controller
-//! `account_id`; positions are not shared across vaults.
+//! One WASM per underlying asset. Each vault (`from`) maps to its own controller
+//! `account_id`; positions are never shared across vaults.
 //!
-//! - `balance` / `deposit` / `withdraw` use `collateral_amount_for_token` (no internal shares);
-//! - `withdraw` pays `to` via the controller; full exit uses `amount == balance()`
-//!   (controller withdraw-all sentinel). Integrators query `max_withdraw` off-chain
-//!   to pick a feasible amount; invalid requests revert in the controller.
-//! - vault→account mapping is cleared only after withdraw when the account is gone
-//!   or collateral is zero;
-//! - `harvest` emits Blend-compatible `price_per_share` from the market supply index;
-//! - stale `account_id` entries self-heal when `account_exists` is false.
+//! - Balances use `collateral_amount_for_token` (no internal shares).
+//! - Full withdraw: pass `amount == balance()` (controller withdraw-all sentinel).
+//! - Vault→account mapping is cleared on supply when the stored id no longer exists.
+//! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
 
 use common::constants::RAY;
 use controller_interface::ControllerClient;
@@ -21,7 +17,7 @@ use soroban_sdk::{
     Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
-/// Sampled by DeFindex off-chain APY tooling (12-decimal convention).
+/// DeFindex APY sampling event (12-decimal `price_per_share`).
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug)]
 pub struct HarvestEvent {
@@ -33,7 +29,7 @@ pub struct HarvestEvent {
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
 
-/// Persistent vault→account mappings: ~30-day threshold, ~180-day extension.
+/// Vault→account TTL: extend when below ~30 days, up to ~180 days.
 const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
 const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
 
@@ -57,7 +53,7 @@ pub struct Config {
 #[contracttype]
 pub enum DataKey {
     Config,
-    /// Per-vault controller account; `0` = none open / cleared after full close.
+    /// Per-vault controller account id (`0` = none stored).
     VaultAccount(Address),
 }
 
@@ -111,7 +107,11 @@ impl<'a> Ctx<'a> {
     }
 
     fn vault_balance(&self, vault: &Address) -> i128 {
-        self.collateral(self.reconcile(vault))
+        let account_id = self.reconcile(vault);
+        if account_id == 0 {
+            return 0;
+        }
+        self.collateral(account_id)
     }
 
     fn harvest_price_per_share(&self) -> Result<i128, DeFindexStrategyError> {
@@ -145,7 +145,7 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller: Address]`. The market for `asset` must be listed.
+    /// `init_args = [controller]`. `asset` must be a listed market.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args.get(0).unwrap_or_else(|| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
@@ -166,12 +166,12 @@ impl Strategy {
         );
     }
 
-    /// Stored controller account for `vault` after reconciliation (`0` = none).
+    /// Live controller account id for `vault` (`0` if none or gone).
     pub fn lending_account_id(env: Env, vault: Address) -> u64 {
         Ctx::load(&env).reconcile(&vault)
     }
 
-    /// Whether the vault still has a live lending account on the controller.
+    /// Whether `vault` has a live controller account.
     pub fn has_lending_account(env: Env, vault: Address) -> bool {
         Ctx::load(&env).reconcile(&vault) != 0
     }
@@ -190,22 +190,17 @@ impl DeFindexStrategyTrait for Strategy {
         from.require_auth();
 
         let ctx = Ctx::try_load(&env)?;
-        let balance_before = ctx.vault_balance(&from);
 
         token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
         ctx.authorize_supply_to_pool(amount);
 
-        let account_id = ctx.reconcile(&from);
-        let new_account_id =
+        let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
+        let new_or_existing_id =
             ctx.controller
-                .supply(&ctx.strategy, &account_id, &0u32, &ctx.to_payment(amount));
-        set_vault_account(ctx.env, &from, new_account_id);
+                .supply(&ctx.strategy, &stored_id, &0u32, &ctx.to_payment(amount));
+        set_vault_account(ctx.env, &from, new_or_existing_id);
 
-        let balance_after = ctx.collateral(new_account_id);
-        if balance_after <= balance_before {
-            return Err(DeFindexStrategyError::ArithmeticError);
-        }
-        Ok(balance_after)
+        Ok(ctx.collateral(new_or_existing_id))
     }
 
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
@@ -245,7 +240,7 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // `0` = controller withdraw-all sentinel when exiting the full balance.
+        // Full exit: `0` is the controller withdraw-all sentinel.
         let withdraw_amount = if amount == balance { 0 } else { amount };
         ctx.controller.withdraw(
             &ctx.strategy,
@@ -254,17 +249,8 @@ impl DeFindexStrategyTrait for Strategy {
             &Some(to),
         );
 
-        if !ctx.controller.account_exists(&account_id) {
-            clear_vault_account(ctx.env, &from);
-            return Ok(0);
-        }
-
-        let remaining = ctx.collateral(account_id);
-        if remaining == 0 {
-            clear_vault_account(ctx.env, &from);
-            return Ok(0);
-        }
-        Ok(remaining)
+        // Removed accounts report 0 collateral.
+        Ok(ctx.collateral(account_id))
     }
 }
 
@@ -304,18 +290,39 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
-/// Clears a stale stored id when the controller no longer has that account.
-fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
-    let key = DataKey::VaultAccount(vault.clone());
-    let stored: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+/// Resolves the stored vault account id. When `clear_if_gone`, removes stale storage.
+fn resolve_vault_account(
+    env: &Env,
+    controller: &ControllerClient,
+    vault: &Address,
+    clear_if_gone: bool,
+) -> u64 {
+    let stored: u64 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::VaultAccount(vault.clone()))
+        .unwrap_or(0);
     if stored == 0 {
         return 0;
     }
     if controller.account_exists(&stored) {
         extend_vault_account_ttl(env, vault);
-        stored
-    } else {
-        env.storage().persistent().remove(&key);
-        0
+        return stored;
     }
+    if clear_if_gone {
+        clear_vault_account(env, vault);
+    }
+    0
+}
+
+fn prepare_vault_account_for_supply(
+    env: &Env,
+    controller: &ControllerClient,
+    vault: &Address,
+) -> u64 {
+    resolve_vault_account(env, controller, vault, true)
+}
+
+fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
+    resolve_vault_account(env, controller, vault, false)
 }

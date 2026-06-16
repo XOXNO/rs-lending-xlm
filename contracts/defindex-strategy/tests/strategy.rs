@@ -4,9 +4,10 @@
 
 extern crate std;
 
-use defindex_strategy::{Strategy, StrategyClient};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{vec, Address, IntoVal, Val, Vec};
+use defindex_strategy::{DeFindexStrategyError, Strategy, StrategyClient};
+use soroban_sdk::testutils::{Address as _, Events};
+use soroban_sdk::xdr::{ContractEventBody, ScVal};
+use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
 use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
@@ -15,6 +16,79 @@ const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
 
 fn pps_from_supply_index(supply_index_ray: i128) -> i128 {
     supply_index_ray / (RAY / PPS_SCALAR)
+}
+
+fn flatten_strategy_result<T>(
+    result: Result<
+        Result<T, soroban_sdk::Error>,
+        Result<DeFindexStrategyError, soroban_sdk::InvokeError>,
+    >,
+) -> Result<T, soroban_sdk::Error> {
+    match result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(err)) => Err(err),
+        Err(Ok(err)) => Err(soroban_sdk::Error::from(&err)),
+        Err(Err(invoke)) => {
+            panic!("expected contract error, got host-level InvokeError: {invoke:?}")
+        }
+    }
+}
+
+fn assert_strategy_error<T: core::fmt::Debug>(result: Result<T, soroban_sdk::Error>, code: u32) {
+    match result {
+        Ok(value) => panic!("expected contract error {code}, got Ok({value:?})"),
+        Err(err) => assert_eq!(
+            err,
+            soroban_sdk::Error::from_contract_error(code),
+            "unexpected contract error"
+        ),
+    }
+}
+
+fn topic_is(body: &soroban_sdk::xdr::ContractEventV0, first: &str, second: &str) -> bool {
+    match (body.topics.first(), body.topics.get(1)) {
+        (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
+            a.0.to_string() == first && b.0.to_string() == second
+        }
+        _ => false,
+    }
+}
+
+fn map_i128_field(data: &ScVal, key: &str) -> i128 {
+    match data {
+        ScVal::Map(Some(m)) => {
+            let val = m
+                .iter()
+                .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.0.to_string() == key))
+                .map(|e| &e.val)
+                .unwrap_or_else(|| panic!("missing {key} in harvest event"));
+            match val {
+                ScVal::I128(parts) => i128::from(parts),
+                other => panic!("expected I128 for {key}, got {other:?}"),
+            }
+        }
+        other => panic!("expected map, got {other:?}"),
+    }
+}
+
+fn harvest_pps_values(env: &Env) -> std::vec::Vec<i128> {
+    env.events()
+        .all()
+        .events()
+        .iter()
+        .filter_map(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            topic_is(body, "strategy", "harvest")
+                .then(|| map_i128_field(&body.data, "price_per_share"))
+        })
+        .collect()
+}
+
+fn last_harvest_pps(env: &Env) -> i128 {
+    harvest_pps_values(env)
+        .last()
+        .copied()
+        .expect("expected a harvest event")
 }
 
 struct StrategyTest {
@@ -28,6 +102,7 @@ impl StrategyTest {
     fn new() -> Self {
         let mut t = LendingTest::new()
             .with_market(usdc_preset())
+            // ETH market lets Bob post borrow collateral for the USDC borrow below.
             .with_market(eth_preset())
             .build();
 
@@ -56,9 +131,35 @@ impl StrategyTest {
         StrategyClient::new(&self.t.env, &self.client_address)
     }
 
+    fn market_pps(&self) -> i128 {
+        let index = self
+            .t
+            .ctrl_client()
+            .get_market_index(&self.asset)
+            .supply_index_ray;
+        pps_from_supply_index(index)
+    }
+
+    fn mint_vault(&self, units: i128) -> Address {
+        let vault = Address::generate(&self.t.env);
+        self.t
+            .resolve_market("USDC")
+            .token_admin
+            .mint(&vault, &(units * UNIT));
+        vault
+    }
+
     fn usdc_balance(&self, of: &Address) -> i128 {
         soroban_sdk::token::Client::new(&self.t.env, &self.asset).balance(of)
     }
+}
+
+// --- deposit ---
+
+#[test]
+fn test_asset_returns_configured_underlying() {
+    let s = StrategyTest::new();
+    assert_eq!(s.client().asset(), s.asset);
 }
 
 #[test]
@@ -79,6 +180,25 @@ fn test_deposit_reports_underlying_and_accrues_interest() {
         "balance must grow with interest, {reported} -> {grown}"
     );
 }
+
+#[test]
+fn test_deposit_at_instance_min_borrow_collateral_floor_succeeds() {
+    let s = StrategyTest::new();
+    let reported = s.client().deposit(&(5 * UNIT), &s.vault);
+    assert_eq!(reported, 5 * UNIT);
+}
+
+#[test]
+fn test_second_deposit_can_be_small_after_account_opened() {
+    let s = StrategyTest::new();
+    let client = s.client();
+
+    client.deposit(&(10 * UNIT), &s.vault);
+    let after_small = client.deposit(&UNIT, &s.vault);
+    assert_eq!(after_small, 11 * UNIT);
+}
+
+// --- withdraw ---
 
 #[test]
 fn test_withdraw_pays_recipient_directly_and_terminal_exit_closes_account() {
@@ -112,11 +232,7 @@ fn test_withdraw_pays_recipient_directly_and_terminal_exit_closes_account() {
 #[test]
 fn test_two_vaults_have_isolated_lending_accounts() {
     let mut s = StrategyTest::new();
-
-    let vault_b = Address::generate(&s.t.env);
-    s.t.resolve_market("USDC")
-        .token_admin
-        .mint(&vault_b, &(10_000 * UNIT));
+    let vault_b = s.mint_vault(10_000);
 
     s.client().deposit(&(1_000 * UNIT), &s.vault);
     s.client().deposit(&(1_000 * UNIT), &vault_b);
@@ -152,84 +268,74 @@ fn test_two_vaults_have_isolated_lending_accounts() {
     assert!(s.client().balance(&vault_b) > 1_000 * UNIT);
 }
 
-#[test]
-fn test_deposit_at_instance_min_borrow_collateral_floor_succeeds() {
-    let s = StrategyTest::new();
-    let client = s.client();
+// --- vault account lifecycle ---
 
-    let reported = client.deposit(&(5 * UNIT), &s.vault);
-    assert_eq!(reported, 5 * UNIT);
+#[test]
+fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
+    let mut s = StrategyTest::new();
+
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+    let account_before = s.client().lending_account_id(&s.vault);
+
+    s.t.advance_time(60 * 60 * 24 * 30);
+    let balance = s.client().balance(&s.vault);
+    let sink = Address::generate(&s.t.env);
+    s.client().withdraw(&balance, &s.vault, &sink);
+
+    // Reads reconcile to 0 while the controller account is gone.
+    assert_eq!(s.client().balance(&s.vault), 0);
+    assert_eq!(s.client().lending_account_id(&s.vault), 0);
+    assert!(!s.client().has_lending_account(&s.vault));
+
+    // Supply clears the stale mapping and opens a fresh controller account.
+    s.client().deposit(&(500 * UNIT), &s.vault);
+    let account_after = s.client().lending_account_id(&s.vault);
+    assert!(account_after > account_before);
+    assert!(s.client().balance(&s.vault) > 499 * UNIT);
+    assert!(s.client().has_lending_account(&s.vault));
 }
 
-#[test]
-fn test_second_deposit_can_be_small_after_account_opened() {
-    let s = StrategyTest::new();
-    let client = s.client();
-
-    client.deposit(&(10 * UNIT), &s.vault);
-    let after_small = client.deposit(&UNIT, &s.vault);
-    assert_eq!(after_small, 11 * UNIT);
-}
+// --- harvest ---
 
 #[test]
-fn test_harvest_price_per_share_tracks_supply_index() {
+fn test_harvest_emits_price_per_share_from_supply_index() {
     let s = StrategyTest::new();
     s.client().deposit(&(1_000 * UNIT), &s.vault);
 
-    let asset = s.t.resolve_asset("USDC");
-    let index_before = s.t.ctrl_client().get_market_index(&asset).supply_index_ray;
-    let pps_before = pps_from_supply_index(index_before);
-
-    // Blend-compatible baseline: ~10^12 at par, not scaled by vault TVL.
+    let expected = s.market_pps();
     assert!(
-        pps_before >= PPS_SCALAR,
-        "pps at par should be at least PPS_SCALAR, got {pps_before}"
-    );
-    assert!(
-        pps_before <= PPS_SCALAR * 11 / 10,
-        "pps should stay near par before long accrual, got {pps_before}"
+        expected >= PPS_SCALAR,
+        "pps at par should be at least PPS_SCALAR, got {expected}"
     );
 
     s.client().harvest(&s.vault, &None);
+    let emitted = last_harvest_pps(&s.t.env);
+    assert_eq!(emitted, expected);
 
     s.t.advance_time_no_refresh(60 * 60 * 24 * 180);
-    let index_after = s.t.ctrl_client().get_market_index(&asset).supply_index_ray;
+    let expected_after = s.market_pps();
     assert!(
-        index_after > index_before,
-        "supply index should accrue, {index_before} -> {index_after}"
-    );
-
-    let pps_after = pps_from_supply_index(index_after);
-    assert!(
-        pps_after > pps_before,
-        "harvest metric should rise with the supply index, {pps_before} -> {pps_after}"
+        expected_after > expected,
+        "supply index should accrue, {expected} -> {expected_after}"
     );
 
     s.client().harvest(&s.vault, &None);
+    assert_eq!(last_harvest_pps(&s.t.env), expected_after);
 }
 
 #[test]
 fn test_harvest_price_per_share_independent_of_vault_balance() {
     let mut s = StrategyTest::new();
-
-    let vault_b = Address::generate(&s.t.env);
-    s.t.resolve_market("USDC")
-        .token_admin
-        .mint(&vault_b, &(100_000 * UNIT));
+    let vault_b = s.mint_vault(100_000);
 
     s.client().deposit(&(100 * UNIT), &s.vault);
     s.client().deposit(&(10_000 * UNIT), &vault_b);
-
     s.t.advance_time(60 * 60 * 24 * 90);
 
-    let asset = s.t.resolve_asset("USDC");
-    let market_pps =
-        pps_from_supply_index(s.t.ctrl_client().get_market_index(&asset).supply_index_ray);
-
-    // 100 USDC vs 10_000 USDC vaults would diverge under the old balance-based formula.
+    let expected = s.market_pps();
     assert!(
-        market_pps > PPS_SCALAR,
-        "accrual should lift pps above par, got {market_pps}"
+        expected > PPS_SCALAR,
+        "accrual should lift pps above par, got {expected}"
     );
     assert!(
         s.client().balance(&s.vault) < s.client().balance(&vault_b) / 50,
@@ -237,20 +343,51 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
     );
 
     s.client().harvest(&s.vault, &None);
+    let pps_small = last_harvest_pps(&s.t.env);
+
     s.client().harvest(&vault_b, &None);
+    let pps_large = last_harvest_pps(&s.t.env);
+
+    assert_eq!(pps_small, expected);
+    assert_eq!(pps_large, expected);
+}
+
+// --- errors ---
+
+#[test]
+fn test_deposit_zero_amount_returns_amount_not_positive() {
+    let s = StrategyTest::new();
+    let result = flatten_strategy_result(s.client().try_deposit(&0, &s.vault));
+    assert_strategy_error(result, DeFindexStrategyError::AmountNotPositive as u32);
 }
 
 #[test]
-fn test_balance_heals_stale_account_id_after_terminal_close() {
-    let mut s = StrategyTest::new();
+fn test_withdraw_zero_amount_returns_amount_not_positive() {
+    let s = StrategyTest::new();
     s.client().deposit(&(1_000 * UNIT), &s.vault);
 
-    s.t.advance_time(60 * 60 * 24 * 30);
-    let balance = s.client().balance(&s.vault);
     let sink = Address::generate(&s.t.env);
-    s.client().withdraw(&balance, &s.vault, &sink);
+    let result = flatten_strategy_result(s.client().try_withdraw(&0, &s.vault, &sink));
+    assert_strategy_error(result, DeFindexStrategyError::AmountNotPositive as u32);
+}
 
-    assert_eq!(s.client().lending_account_id(&s.vault), 0);
-    assert_eq!(s.client().balance(&s.vault), 0);
-    assert!(!s.client().has_lending_account(&s.vault));
+#[test]
+fn test_withdraw_without_position_returns_insufficient_balance() {
+    let s = StrategyTest::new();
+    let sink = Address::generate(&s.t.env);
+    let result = flatten_strategy_result(s.client().try_withdraw(&UNIT, &s.vault, &sink));
+    assert_strategy_error(result, DeFindexStrategyError::InsufficientBalance as u32);
+}
+
+#[test]
+fn test_withdraw_over_balance_returns_insufficient_balance() {
+    let s = StrategyTest::new();
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+
+    let sink = Address::generate(&s.t.env);
+    let result = flatten_strategy_result(
+        s.client()
+            .try_withdraw(&(1_001 * UNIT), &s.vault, &sink),
+    );
+    assert_strategy_error(result, DeFindexStrategyError::InsufficientBalance as u32);
 }
