@@ -76,8 +76,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     validation::require_positive_amount(env, new_debt_amount);
 
-    let existing_pos =
-        load_existing_debt_position(env, &account, existing_debt_token);
+    let existing_pos = load_existing_debt_position(env, &account, existing_debt_token);
 
     let extra_assets = soroban_sdk::vec![env, existing_debt_token.clone(), new_debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
@@ -120,9 +119,9 @@ fn load_existing_debt_position(
     account: &Account,
     existing_debt_token: &Address,
 ) -> DebtPosition {
-    account
+    let raw = account
         .borrow_positions
         .get(existing_debt_token.clone())
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound))
-        .into()
+        .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
+    DebtPosition::from(&raw)
 }

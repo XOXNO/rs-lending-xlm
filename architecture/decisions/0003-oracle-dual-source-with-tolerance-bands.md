@@ -138,9 +138,10 @@ market-level `max_price_stale_seconds`; a RedStone source carries its own
 `[MIN_PRICE_STALE_SECONDS, MAX_PRICE_STALE_SECONDS]` (60s..86_400s) at listing
 time.
 
-**Listing-time bounds.** `config::configure_market_oracle` builds and persists
-the config through `oracle::validation::validate_market_oracle_sources`, which
-validates:
+**Listing-time bounds.** Governance `propose_configure_market_oracle` resolves
+and validates the config before scheduling controller `set_market_oracle_config`.
+The controller re-checks quote-market invariants at execution before it
+persists the config. The validation path covers:
 strategy/anchor coherence (`PrimaryWithAnchor` ⇔ an anchor is configured);
 primary/anchor diversity — different feeds always, and in production different
 providers (`GenericError::InvalidExchangeSrc`); the production
@@ -155,8 +156,8 @@ most `MAX_TWAP_RECORDS` (12) records with sufficient non-empty history
 (`TwapInsufficientObservations`, `ReflectorHistoryEmpty`). For a RedStone
 source: a per-source staleness bound, fixed `REDSTONE_DECIMALS`, and a live
 `read_price_data` validated on both its package and write timestamps.
-`config::edit_oracle_tolerance` only re-validates the first/last tolerance
-inputs (`validate_and_calculate_tolerances`) and rewrites the persisted band
+`propose_edit_oracle_tolerance` only re-validates the first/last tolerance
+inputs (`validate_and_calculate_tolerances`) and schedules the rewritten band
 fields; it does not re-probe the configured sources.
 
 ## Alternatives Considered
@@ -275,6 +276,7 @@ to the current shape:
 - `contracts/controller/src/oracle/observation.rs::{check_not_future_at, is_stale, validate_timestamp}`
 - `contracts/controller/src/oracle/providers/{mod.rs::read_source, reflector/, redstone/}`
 - `contracts/controller/src/oracle/validation/{config.rs, oracle.rs::validate_market_oracle_sources}`
-- `contracts/controller/src/config.rs::{configure_market_oracle, edit_oracle_tolerance}`
+- `contracts/governance/src/forward.rs::{propose_configure_market_oracle, propose_edit_oracle_tolerance}`
+- `contracts/controller/src/governance/config.rs::{set_market_oracle_config, set_oracle_tolerance}`
 - `common/src/types/oracle.rs` (`OracleStrategy`, `OracleSourceConfig`, `MarketOracleConfig`, `OraclePriceFluctuation`, `OracleReadMode`, `OracleAssetRef`)
 - `common/src/constants/oracle.rs` (`MIN_FIRST_TOLERANCE`, `MAX_FIRST_TOLERANCE`, `MIN_LAST_TOLERANCE`, `MAX_LAST_TOLERANCE`)

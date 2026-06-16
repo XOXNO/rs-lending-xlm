@@ -80,6 +80,10 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     }
 }
 
+fn owner_or_panic(env: &Env) -> Address {
+    ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
+}
+
 #[contractimpl]
 impl Controller {
     pub fn __constructor(env: Env, admin: Address) {
@@ -156,14 +160,14 @@ impl Controller {
     pub fn grant_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
         // `#[only_owner]` already enforced owner auth; owner must exist here.
-        let owner = ownable::get_owner(&env).unwrap();
+        let owner = owner_or_panic(&env);
         access_control::grant_role_no_auth(&env, &account, &role, &owner);
     }
 
     #[only_owner]
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
-        let owner = ownable::get_owner(&env).unwrap();
+        let owner = owner_or_panic(&env);
         // Fail loud if the target does not hold the role, rather than silently
         // no-op'ing (an operator could otherwise believe a privilege was removed).
         assert_with_error!(
@@ -177,7 +181,7 @@ impl Controller {
     #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         storage::renew_controller_instance(&env);
-        let current_owner = ownable::get_owner(&env).unwrap();
+        let current_owner = owner_or_panic(&env);
 
         stellar_access::role_transfer::transfer_role(
             &env,
@@ -191,9 +195,9 @@ impl Controller {
 
     pub fn accept_ownership(env: Env) {
         storage::renew_controller_instance(&env);
-        let previous_owner = ownable::get_owner(&env).unwrap();
+        let previous_owner = owner_or_panic(&env);
         ownable::accept_ownership(&env);
-        let new_owner = ownable::get_owner(&env).unwrap();
+        let new_owner = owner_or_panic(&env);
         sync_owner_access_control(&env, &previous_owner, &new_owner);
     }
 }

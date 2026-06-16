@@ -48,16 +48,18 @@ Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
 7. Invoke `execute_flash_loan(initiator, asset, amount, fee, pool, data)` on
    the receiver. `data` is opaque to the controller and pool.
 8. Assert the balance *again* equals `expected_after_payout`
-   (`InvalidFlashloanRepay`); the callback must not retain funds or otherwise
-   move the pool balance.
-9. `authorize_token_transfer_from` (the pool self-authorizes its own
+   (`InvalidFlashloanRepay`); the callback must not change the pool's balance
+   before settlement.
+9. Verify the receiver authorized at least `amount + fee` allowance for the
+   pool, then `authorize_token_transfer_from` (the pool self-authorizes its own
    `transfer_from` spender leg via `env.authorize_as_current_contract`; the
    receiver authorizes the debit of its own balance during the callback), then
    `transfer_from(spender=pool, from=receiver, to=pool, amount + fee)`.
 10. Assert `balance_after == expected_after_repay`; any mismatch reverts with
     `InvalidFlashloanRepay`.
-11. Convert the fee to RAY (`Ray::from_asset(fee, asset_decimals)`) and record
-    it as protocol revenue (`interest::add_protocol_revenue_ray`).
+11. Convert the fee to RAY (`Ray::from_asset(fee, asset_decimals)`), record it
+    as protocol revenue (`interest::add_protocol_revenue_ray`), add the fee to
+    the market's internal `cash`, and persist the asset state.
 
 **Controller-side guards** (`contracts/controller/src/strategies/flash_loan.rs::process_flash_loan`;
 the entrypoint signature is `flash_loan(caller, asset, amount, receiver, data)`):

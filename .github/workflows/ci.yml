@@ -122,3 +122,47 @@ jobs:
             echo "::error::Security scan found CRITICAL or HIGH severity issues"
             exit 1
           fi
+
+  scout-audit:
+    name: Scout Audit (advisory)
+    runs-on: self-hosted
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+
+      - name: Install Scout detector toolchain
+        run: rustup toolchain install nightly-2025-08-07 --component rustc-dev --target wasm32v1-none
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-scout-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-scout-
+
+      - name: Install Scout
+        run: |
+          cargo install \
+            --git https://github.com/mihaieremia/scout-audit.git \
+            --rev 57ce8762c4bea3fdecd37bdc3ee5729be66472da \
+            cargo-scout-audit \
+            --locked
+
+      - name: Run Scout
+        run: make scout
+
+      - name: Upload Scout reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scout-audit-reports
+          path: target/scout-audit/

@@ -69,9 +69,9 @@ outer flash-loan flow keeps the guard live. Every position, strategy, and
 router flow calls `require_not_flash_loaning`
 (`contracts/controller/src/validation.rs`) on entry, so any such controller
 mutation entered from the router callback path reverts with
-`FlashLoanError::FlashLoanOngoing`. (Owner-/role-gated admin entrypoints —
-config, access control, upgrades — and the owner-authenticated `renew_account`
-TTL entrypoint are not on this guard.)
+`FlashLoanError::FlashLoanOngoing`. Governance/controller admin entrypoints
+and the owner-authenticated `renew_account` TTL entrypoint are not on this
+guard.
 
 ## Alternatives Considered
 

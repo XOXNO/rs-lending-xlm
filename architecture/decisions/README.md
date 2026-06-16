@@ -10,7 +10,7 @@ link each decision to the relevant implementation paths.
 
 | ADR  | Title                                                                                          | Status   |
 | ---- | ---------------------------------------------------------------------------------------------- | -------- |
-| 0001 | [Controller / Pool Ownership Boundary](./0001-controller-pool-ownership-boundary.md)           | Accepted |
+| 0001 | [Governance, Controller, and Central Pool Boundary](./0001-controller-pool-ownership-boundary.md) | Accepted |
 | 0002 | [Per-Side Scaled-Balance Storage](./0002-per-side-scaled-balance-storage.md)                   | Accepted |
 | 0003 | [Oracle Dual-Source Pricing With Tolerance Bands](./0003-oracle-dual-source-with-tolerance-bands.md) | Accepted |
 | 0004 | [Cache Permissiveness Policy for Oracle Failures](./0004-cache-permissiveness-policy.md)       | Accepted |
@@ -18,7 +18,7 @@ link each decision to the relevant implementation paths.
 | 0006 | [Flash-Loan Settlement by Pool Balance Snapshot](./0006-flash-loan-balance-snapshot.md)        | Accepted |
 | 0007 | [Bad-Debt Socialization With Supply-Index Floor](./0007-bad-debt-socialization-with-index-floor.md) | Accepted |
 | 0009 | [Mainnet Launch Hardening and Operational Control](./0009-mainnet-launch-hardening-and-operational-control.md) | Accepted |
-| 0010 | [Governance Timelock for Controller Admin](./0010-governance-timelock-for-controller-admin.md) | Accepted |
+| 0010 | [Governance Timelock for Protocol Admin](./0010-governance-timelock-for-controller-admin.md) | Accepted |
 
 ## Related Documents
 

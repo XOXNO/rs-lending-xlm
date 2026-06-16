@@ -9,13 +9,14 @@
 //!
 //! Aggregates are harnessed under certora.
 
-use crate::constants::WAD;
+use crate::constants::{MAX_VIEW_INPUTS, WAD};
+use common::errors::GenericError;
 use controller_interface::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
     EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, Payment,
     PaymentTuple,
 };
-use soroban_sdk::{contractimpl, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Map, Vec};
 
 #[cfg(not(feature = "certora"))]
 mod aggregates;
@@ -32,6 +33,14 @@ use crate::cache::Cache;
 use crate::oracle::{price_components, token_price};
 use crate::positions::liquidation::execute_liquidation;
 use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
+
+fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
+    assert_with_error!(
+        env,
+        values.len() <= MAX_VIEW_INPUTS,
+        GenericError::InvalidPayments
+    );
+}
 
 #[contractimpl]
 impl Controller {
@@ -243,6 +252,7 @@ pub fn get_pool_address(env: &Env) -> Address {
 }
 
 pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetExtendedConfigView> {
+    require_view_inputs_bound(env, assets);
     let mut cache = Cache::new_view(env);
     let mut result = Vec::new(env);
 
@@ -264,6 +274,7 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 }
 
 pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<MarketIndexView> {
+    require_view_inputs_bound(env, assets);
     let mut cache = Cache::new_view(env);
     cache.prefetch_market_indexes(assets);
     let mut result = Vec::new(env);
@@ -294,6 +305,7 @@ pub fn liquidation_estimations_detailed(
     account_id: u64,
     debt_payments: &Vec<Payment>,
 ) -> LiquidationEstimate {
+    require_view_inputs_bound(env, debt_payments);
     let mut cache = Cache::new_view(env);
     let account = storage::get_account(env, account_id);
     let result = execute_liquidation(env, &account, debt_payments, &mut cache);
@@ -323,5 +335,25 @@ pub fn liquidation_estimations_detailed(
         refunds: refunds_view,
         max_payment_wad: result.max_debt_usd,
         bonus_rate_bps: result.bonus_bps,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    #[should_panic]
+    fn view_input_bound_rejects_oversized_asset_vectors() {
+        let env = Env::default();
+        let mut assets = Vec::new(&env);
+        for _ in 0..=MAX_VIEW_INPUTS {
+            assets.push_back(Address::generate(&env));
+        }
+
+        require_view_inputs_bound(&env, &assets);
     }
 }

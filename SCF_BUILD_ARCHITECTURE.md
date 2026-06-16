@@ -8,33 +8,38 @@ architecture claim.
 
 ## 1. Summary
 
-**The big picture.** Users talk to one **controller** contract — the brain of
-the system. It tracks every account, fetches and checks prices, enforces the
-risk limits, and runs liquidations. Behind it sit the **pools**: one contract
-per listed asset, each a vault that holds that asset's tokens and counts how
-much is supplied and borrowed. Users never call a pool directly — only the
-controller may, and the rest of this document explains how and why.
+**The big picture.** Users talk to one **controller** contract. It tracks every
+account, fetches and checks prices, enforces risk limits, and runs
+liquidations. The controller owns one **central pool** contract. That pool holds
+the listed token balances and stores one asset-keyed accounting row per market.
+Users never call the pool directly. Governance owns the controller, validates
+admin inputs, and schedules protocol changes through a timelock.
 
 The protocol is a multi-asset lending and borrowing system for Stellar
-Soroban, implemented in Rust across five `no_std` crates:
+Soroban, implemented in Rust across the core `no_std` crates:
 
+- `governance`: protocol-admin contract. Owns the controller, validates admin
+  inputs, schedules controller and governance-self changes through a
+  ledger-based timelock, and keeps emergency pause/unpause immediate.
 - `controller`: single user-facing contract. Owns account state, market
   configuration, oracle resolution, access control, risk checks, liquidation,
   flash loans, and account-bound strategy flows.
-- `pool`: one liquidity-pool contract per listed asset. Holds custody and
-  asset-local accounting (supply, debt, indexes, reserves, protocol revenue,
-  flash-loan settlement, rate-model updates).
+- `pool`: one central liquidity-pool contract. Holds custody and asset-scoped
+  accounting rows (supply, debt, indexes, reserves, protocol revenue,
+  flash-loan settlement, rate-model updates) for every listed market.
 - `pool-interface`: typed Soroban contract trait the controller uses to call
-  pools.
+  the pool.
 - `controller-interface`: typed Soroban ABI trait describing the controller's
   external entrypoints for clients and tests.
+- `governance-interface`: typed Soroban ABI trait for timelock lifecycle,
+  controller deployment, and typed admin proposers.
 - `common`: shared fixed-point math (`math::fp`, `math::fp_core`), rate model
   (`rates`), constants, errors, events, and contract types.
 
-Pools are owner-gated. Every owner-gated pool entrypoint — mutating accounting,
-maintenance, and WASM upgrade — is gated by the `#[only_owner]` macro; the owner
-is the controller, set at construction via `ownable::set_owner`. Pools do not
-call oracles, routers, or other pools.
+The pool is owner-gated. Every mutating accounting, maintenance, and WASM
+upgrade entrypoint is gated by the `#[only_owner]` macro; the owner is the
+controller, set at construction via `ownable::set_owner`. The pool does not call
+oracles, routers, or other pools.
 
 ## 2. Design Constraints
 
@@ -44,7 +49,7 @@ The implementation enforces these properties:
   health-factor, and liquidity checks before final state persistence
   (`contracts/controller/src/positions/*.rs`, `contracts/controller/src/strategies/`,
   `contracts/controller/src/validation.rs`).
-- Users interact only with the controller. The controller calls pools through
+- Users interact only with the controller. The controller calls the pool through
   `pool_interface::LiquidityPoolClient`.
 - Pool mutating accounting, maintenance, and WASM-upgrade endpoints reject any
   caller other than the controller through the `#[only_owner]` macro
@@ -56,7 +61,7 @@ The implementation enforces these properties:
   `repay_debt_with_collateral`) route through the same controller risk model
   as `supply`, `borrow`, `repay`, `withdraw`.
 - Storage records are split per concern (account meta, per-side position
-  maps, market config, e-mode category, pools list). Numeric
+  maps, market config, e-mode category, listed-asset registry). Numeric
   domains are explicit per field (BPS, WAD, RAY, asset-native).
 
 ## 3. System Topology
@@ -64,48 +69,55 @@ The implementation enforces these properties:
 ```mermaid
 flowchart TB
     User["User / integrator"]
-    Owner["Owner"]
+    GovOwner["Governance owner"]
+    Proposer["PROPOSER role"]
+    Executor["EXECUTOR role"]
+    Canceller["CANCELLER role"]
     Keeper["KEEPER role"]
     OracleRole["ORACLE role"]
     RevenueRole["REVENUE role"]
 
     subgraph Protocol["Protocol contracts"]
+        Governance["Governance"]
         Controller["Controller"]
-        PoolA["Pool: asset A"]
-        PoolB["Pool: asset B"]
-        PoolN["Pool: ..."]
+        Pool["Central pool<br/>asset-keyed markets"]
     end
 
     subgraph External["External contracts"]
         Token["SAC / SEP-41 token contracts"]
         Reflector["Reflector oracle contracts"]
+        RedStone["RedStone price-feed contracts"]
         Router["Aggregator router"]
         Accumulator["Revenue accumulator"]
     end
 
     User -->|"supply, borrow, repay, withdraw, liquidate, flash_loan, strategies"| Controller
-    Owner -->|"config, pause, upgrade, market listing"| Controller
+    GovOwner -->|"deploy, pause, ownership"| Governance
+    Proposer -->|"schedule admin ops"| Governance
+    Executor -->|"execute ready ops"| Governance
+    Canceller -->|"cancel pending ops"| Governance
+    Governance ==>|"timelocked owner calls"| Controller
     Keeper -->|"index sync, threshold updates, bad-debt cleanup"| Controller
-    OracleRole -->|"oracle configuration"| Controller
+    OracleRole -->|"emergency oracle disable"| Controller
     RevenueRole -->|"revenue claim, reward injection"| Controller
 
-    Controller ==>|"owner-gated calls"| PoolA
-    Controller ==>|"owner-gated calls"| PoolB
-    Controller ==>|"owner-gated calls"| PoolN
+    Controller ==>|"owner-gated calls"| Pool
 
     Controller --> Reflector
+    Controller --> RedStone
     Controller --> Router
     Controller --> Token
-    PoolA --> Token
-    PoolB --> Token
-    PoolN --> Token
+    Pool --> Token
     Controller --> Accumulator
 ```
 
 Boundaries enforced in code:
 
 - The controller is the only user-facing protocol contract.
-- Each pool is deployed by the controller and owned by it. Mutating accounting,
+- Governance deploys and owns the controller. Protocol-affecting admin changes
+  are queued through typed `propose_*` entrypoints and executed after the
+  timelock delay.
+- The controller deploys one central pool and owns it. Mutating accounting,
   maintenance, and WASM-upgrade endpoints are owner-gated through `#[only_owner]`.
 - Aggregator-router output is validated by balance-delta checks: the
   controller snapshots its token balances, authorizes a single pull of the
@@ -116,8 +128,8 @@ Boundaries enforced in code:
   bounds, and deviation tolerance (`contracts/controller/src/oracle/price.rs`).
 - Token contracts must be owner-approved before market listing (single-use
   allow-list at `ApprovedToken(asset)` in `contracts/controller/src/storage/instance.rs`),
-  and runtime token credits are measured via balance-delta accounting where
-  user funds enter the protocol.
+  and the pool tracks available reserves through internal `cash` per market so
+  direct token donations cannot inflate borrowable liquidity.
 
 ## 4. Contract Responsibilities
 
@@ -132,10 +144,11 @@ Implemented entrypoints (`contracts/controller/src/*`):
 - `flash_loan`.
 - Market listing: `approve_token`, `revoke_token`,
   `set_liquidity_pool_template`, `create_liquidity_pool`,
-  `configure_market_oracle`, `edit_oracle_tolerance`, `disable_token_oracle`.
+  `set_market_oracle_config`, `set_oracle_tolerance`,
+  `disable_token_oracle`.
 - Asset, e-mode, caps, position-limit, aggregator, accumulator configuration.
-- Pool parameter and pool WASM upgrades (`upgrade_liquidity_pool_params`,
-  `upgrade_liquidity_pool`).
+- Central-pool deployment, pool parameter updates, and pool WASM upgrades
+  (`deploy_pool`, `upgrade_liquidity_pool_params`, `upgrade_pool`).
 - `claim_revenue`, `add_rewards`.
 - TTL keepalive: per-account on-chain refresh via `renew_account`
   (caller-auth, account-owner gated), complemented by permissionless off-chain
@@ -148,18 +161,47 @@ Implemented entrypoints (`contracts/controller/src/*`):
   market and e-mode configs, batch market and index views, liquidation
   estimation.
 
-### 4.2 Pool
+Production admin callers normally reach these thin setters through governance
+typed proposers. The controller keeps state-dependent checks, storage writes,
+and events; governance performs proposal-time input validation and timelock
+scheduling.
+
+### 4.2 Governance
+
+Implemented in `contracts/governance/src/*`. Governance:
+
+- Deploys the controller once with governance as the controller constructor
+  admin (`deploy_controller`).
+- Stores the controller address in governance instance storage.
+- Validates protocol-admin inputs before scheduling them.
+- Schedules controller-targeted operations through typed `propose_*` functions
+  and executes ready operations through the generic `execute`.
+- Schedules governance-self operations through typed `propose_*` functions and
+  executes them inline through `self_timelock.rs`, because Soroban rejects
+  generic self-reentry.
+- Lets a CANCELLER cancel pending operations.
+- Keeps `pause` and `unpause` immediate owner-gated emergency brakes.
+
+The minimum mainnet delay constant is `TIMELOCK_MIN_DELAY_LEDGERS = 34_560`.
+Delay updates are monotonic in production: `validate_delay_update` rejects a
+new delay below the current delay.
+
+### 4.3 Pool
 
 Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `contracts/pool/src/interest.rs`,
-`contracts/pool/src/views.rs`. Each pool manages exactly one listed asset and:
+`contracts/pool/src/views.rs`. The central pool manages every listed asset and:
 
-- Holds the token balance for its asset.
+- Holds token balances for all listed assets.
+- Stores one `PoolKey::Params(asset)` and one `PoolKey::State(asset)`
+  persistent record per market.
 - Tracks `supplied_ray`, `borrowed_ray`, `revenue_ray`, `supply_index_ray`,
-  `borrow_index_ray`, `last_timestamp` in a single Instance record
-  (`PoolKey::State`).
+  `borrow_index_ray`, `last_timestamp`, and `cash` per asset.
 - Calls `interest::global_sync` before every mutation.
 - Verifies reserve availability before outgoing transfers
   (`cache::has_reserves`).
+- Uses internally tracked `cash` as available reserves. Live token balances are
+  used for flash-loan settlement checks, not for normal borrowable-liquidity
+  accounting.
 - Records protocol revenue as a scaled supply claim and updates the supply
   index accordingly.
 - Executes pool-owned `flash_loan`, snapshots the balance locally, calls the
@@ -172,9 +214,9 @@ Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `cont
 - Upgrades pool WASM through `upgrade` when called by its owner
   (`#[only_owner]`).
 
-Pools store no account ownership, oracle configuration, or e-mode state.
+The pool stores no account ownership, oracle configuration, or e-mode state.
 
-### 4.3 Pool Interface
+### 4.4 Pool Interface
 
 `interfaces/pool/src/lib.rs` defines the controller-to-pool ABI as the
 `LiquidityPoolInterface` trait. Mutating: `supply`, `borrow`, `withdraw`,
@@ -182,7 +224,8 @@ Pools store no account ownership, oracle configuration, or e-mode state.
 `seize_position`, `claim_revenue`,
 `update_params`, `upgrade`. Read-only: `capital_utilisation`,
 `reserves`, `deposit_rate`, `borrow_rate`, `protocol_revenue`,
-`supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`.
+`supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`,
+`bulk_get_sync_data`.
 
 ## 5. Account and Storage Model
 
@@ -254,37 +297,42 @@ classDiagram
 
 ## 6. Market Lifecycle
 
-Before users can supply or borrow an asset, the owner must *list* it: deploy a
-pool for that asset and wire up its price oracle. A market then moves through
-three states — `PendingOracle` (the pool exists but has no price feed yet),
-`Active` (fully usable), and `Disabled` (paused for that asset). The diagram and
-steps below trace that path.
+Before users can supply or borrow an asset, governance must list it in the
+controller and central pool, then wire up its price oracle. The central pool is
+deployed once; each listed asset becomes a market row inside that pool. A market
+then moves through three states: `PendingOracle` (the asset row exists but has
+no active price feed), `Active` (fully usable), and `Disabled` (repay/read
+paths only).
 
 ```mermaid
 stateDiagram-v2
     [*] --> PendingOracle: create_liquidity_pool
-    PendingOracle --> Active: configure_market_oracle
+    PendingOracle --> Active: set_market_oracle_config
     Active --> Disabled: disable_token_oracle
-    Disabled --> Active: configure_market_oracle
+    Disabled --> Active: set_market_oracle_config
 ```
 
-Listing path (`contracts/controller/src/router.rs::create_liquidity_pool`):
+Deployment and listing path:
 
-1. Owner sets the pool WASM template (`set_liquidity_pool_template`).
-2. Owner approves the token contract address (`approve_token`).
-3. Owner calls `create_liquidity_pool(asset, params, config)`.
-4. The controller probes the token contract for `decimals` and `symbol`,
-   rejects double-listing, and requires the token to be on the
-   `ApprovedToken` allow-list. `validate_market_creation` runs
-   `validate_asset_config` and `MarketParamsRaw::verify_rate_model`.
-5. The controller deploys a deterministic pool (salt derived from the asset
-   address) with itself as owner and the asset `MarketParamsRaw` as
-   constructor input.
-6. The market is stored as `PendingOracle`. `e_mode_categories` is force-
-   cleared at creation.
-7. The `ApprovedToken` flag is consumed (single-use).
-8. An `ORACLE` role calls `configure_market_oracle` to set the oracle sources
-   and transition the market to `Active`.
+1. Governance deploys the controller once (`deploy_controller`).
+2. Governance schedules `set_liquidity_pool_template` with the pool WASM hash.
+3. Governance schedules `deploy_pool`; the controller deploys one deterministic
+   central pool with salt `POOL_DEPLOY_SALT` and stores it in
+   `ControllerKey::Pool`.
+4. Governance schedules `approve_token(asset)`.
+5. Governance schedules `create_liquidity_pool(asset, params, config)`. Despite
+   the legacy name, this creates an asset market inside the central pool. It
+   does not deploy another pool contract.
+6. Proposal-time validation probes token `decimals` / `symbol`, rejects
+   double-listing, checks `params.asset_id == asset`, verifies token decimals,
+   validates asset config, and validates the rate model.
+7. At execution, the controller requires the single-use `ApprovedToken(asset)`,
+   calls `pool.create_market(params)`, stores `Market(asset)` as
+   `PendingOracle`, adds the asset to `PoolsList`, and consumes the token
+   approval.
+8. Governance schedules `set_market_oracle_config` through
+   `propose_configure_market_oracle`; execution activates the market after the
+   controller re-checks quote-market invariants.
 
 Constraints enforced at listing or oracle configuration:
 
@@ -295,8 +343,8 @@ Constraints enforced at listing or oracle configuration:
 - `e_mode_categories` is controller-managed; membership is changed only
   through `add_asset_to_e_mode_category` /
   `edit_asset_in_e_mode_category` / `remove_asset_from_e_mode`.
-- A `Single` strategy paired with a Reflector `Spot` source is rejected in
-  non-`testing` builds at `configure_market_oracle`
+- A `Single` strategy paired with a naked spot source is rejected in
+  non-`testing` builds during oracle proposal validation
   (`SpotOnlyNotProductionSafe`).
 - Disabled markets reject normal risk operations. The `Repay` and `View`
   oracle policies keep the intended repay/read paths reachable.
@@ -307,20 +355,19 @@ Constraints enforced at listing or oracle configuration:
 
 - `status` (`MarketStatus`)
 - `asset_config: AssetConfigRaw`
-- `pool_address`
 - `oracle_config: MarketOracleConfig`
 
 All oracle wiring — strategy, primary and anchor sources, sanity bounds, and
-tolerance — is nested inside `oracle_config` (see Section 9). The pool's
-rate-model parameters live in the pool contract (`MarketParamsRaw`), not in
+tolerance — is nested inside `oracle_config` (see Section 9). Pool address is
+not per market; the single address lives in `ControllerKey::Pool`. Rate-model
+parameters live in the central pool's `PoolKey::Params(asset)`, not in
 `MarketConfig`.
 
 `AssetConfigRaw` fields: `loan_to_value_bps`, `liquidation_threshold_bps`,
 `liquidation_bonus_bps`, `liquidation_fees_bps`, `is_collateralizable`,
 `is_borrowable`, `is_flashloanable`,
 `flashloan_fee_bps`, `borrow_cap`,
-`supply_cap`, `min_collat_floor_usd_wad`, `min_debt_floor_usd_wad`,
-`e_mode_categories`.
+`supply_cap`, `e_mode_categories`.
 
 `validate_asset_config` (`contracts/controller/src/validation.rs`) rejects:
 
@@ -334,9 +381,10 @@ rate-model parameters live in the pool contract (`MarketParamsRaw`), not in
 - Negative `supply_cap` or `borrow_cap` (zero is treated as uncapped per the
   cap-sentinel comment).
 - `flashloan_fee_bps > MAX_FLASHLOAN_FEE_BPS` (500 bps).
-- A dust floor below `MIN_DUST_FLOOR_WAD` (10 USD WAD): unless both
-  `min_collat_floor_usd_wad` and `min_debt_floor_usd_wad` are zero (dust guard
-  disabled), each must be ≥ `MIN_DUST_FLOOR_WAD`.
+- The protocol-wide minimum LTV-weighted collateral while debt exists is stored
+  separately as `ControllerKey::MinBorrowCollateralUsd`. It defaults to
+  `DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD = 5 * WAD` and is changed through
+  `set_min_borrow_collateral_usd`.
 
 `MarketParamsRaw::verify_rate_model` (delegating to `InterestRateModel::verify`)
 rejects:
@@ -359,7 +407,6 @@ classDiagram
     class MarketConfig {
         +MarketStatus status
         +AssetConfigRaw asset_config
-        +Address pool_address
         +MarketOracleConfig oracle_config
     }
 
@@ -374,8 +421,6 @@ classDiagram
         +u32 flashloan_fee_bps
         +i128 borrow_cap
         +i128 supply_cap
-        +i128 min_collat_floor_usd_wad
-        +i128 min_debt_floor_usd_wad
         +Vec~u32~ e_mode_categories
     }
 
@@ -421,7 +466,7 @@ classDiagram
     MarketConfig --> MarketOracleConfig
     MarketOracleConfig --> OraclePriceFluctuation
     MarketOracleConfig --> OracleSourceConfig : primary + anchor
-    MarketConfig ..> MarketParamsRaw : pool stores rate params
+    MarketConfig ..> MarketParamsRaw : PoolKey::Params(asset)
 ```
 
 ## 8. Fixed-Point Domains
@@ -474,7 +519,9 @@ Sources and strategies:
   returns no price, or is stale-and-unusable, the result falls back to the
   primary only where the active policy allows it.
 
-`configure_market_oracle` validates:
+`propose_configure_market_oracle` resolves and validates oracle config before
+scheduling `set_market_oracle_config`. At execution the controller re-checks
+the quote-market invariants before activating the market. Validation covers:
 
 - strategy/anchor consistency (`PrimaryWithAnchor` ⇔ an anchor is configured)
   and `primary ≠ anchor`,
@@ -492,24 +539,24 @@ Sources and strategies:
 - `first_tolerance < last_tolerance`.
 
 Oracle policies (`OraclePolicy`, `contracts/controller/src/oracle/policy.rs`)
-gate four allowances — disabled-market pricing, stale source, unsafe deviation,
-and missing-TWAP fallback:
+gate five allowances: disabled-market pricing, stale source, unsafe deviation,
+degraded dual-source resolution, and sanity-band violation:
 
-- **RiskIncreasing**: all four denied. Used by `borrow`, risky strategy paths,
+- **RiskIncreasing**: all five denied. Used by `borrow`, risky strategy paths,
   and debt-backed `withdraw` / `swap_collateral` / `update_account_threshold`.
-- **Liquidation**: all four denied (identical allowances to RiskIncreasing, kept
+- **Liquidation**: all five denied (identical allowances to RiskIncreasing, kept
   as a distinct variant for intent and auditing). Used by `liquidate`.
 - **RiskDecreasing**: allows stale source, unsafe deviation, and missing-TWAP
-  fallback; disabled markets stay blocked. Used by `supply`, `flash_loan`,
-  `update_indexes`, `claim_revenue`, pool upgrades, `add_rewards`, and debt-free
-  `withdraw` / `swap_collateral`.
-- **Repay**: all four allowed (permissive, and reachable for
+  fallback, and sanity-band violation; disabled markets stay blocked. Used by
+  `supply`, `flash_loan`, `update_indexes`, `claim_revenue`, `add_rewards`,
+  and debt-free `withdraw` / `swap_collateral`.
+- **Repay**: all five allowed (permissive, and reachable for
   `MarketStatus::Disabled` markets). Used by `repay`.
-- **View**: all four allowed; read-only entrypoints can also read disabled
+- **View**: all five allowed; read-only entrypoints can also read disabled
   markets.
 
 The future-timestamp guard (`check_not_future_at`, `MAX_FUTURE_SKEW_SECONDS`,
-±60 seconds clock skew) is unconditional and applies in every mode.
+a one-sided 60 second future bound) is unconditional and applies in every mode.
 
 `token_price` (`oracle/price.rs`) gates the resolved price: it rejects the
 unconfigured `pending_for` sentinel, requires `price_wad > 0`, and enforces the
@@ -587,9 +634,9 @@ from this skeleton.
 - `account_id == 0` creates a new account owned by `caller`. Existing-account
   deposits from third parties are accepted because they only add collateral.
 - Duplicate payments are aggregated before token movement.
-- Cache is permissive (`new(env, true)`).
-- Token credit is measured by the pool's balance delta (fee-on-transfer
-  tokens supported; over-crediting rejected).
+- Cache uses `OraclePolicy::RiskDecreasing`.
+- The controller transfers the requested SAC amounts into the central pool,
+  then makes one bulk `pool.supply(entries)` call.
 - Validates active markets, supply caps, e-mode, and bulk position limits
   before transferring.
 - Writes only the supply side.
@@ -624,11 +671,12 @@ from this skeleton.
 (`contracts/controller/src/positions/withdraw.rs`):
 
 - Caller authorization and account-owner match.
-- `amount == 0` is the withdraw-all sentinel; pools clamp full withdrawals
-  to the post-accrual balance and apply a dust-lock guard.
+- `amount == 0` is the withdraw-all sentinel; the pool clamps full withdrawals
+  to the post-accrual balance and applies a dust-lock guard.
 - Borrow side is loaded only if the account has debt.
-- Cache permissiveness mirrors debt presence:
-  `new(env, account.borrow_positions.is_empty())`.
+- Cache policy mirrors debt presence: debt-free withdrawals use
+  `OraclePolicy::RiskDecreasing`; accounts with debt use
+  `OraclePolicy::RiskIncreasing`.
 - `require_healthy_account` is invoked in both branches and short-circuits
   for debt-free accounts.
 - Account storage is removed when both sides are empty after the batch.
@@ -647,10 +695,10 @@ which the pool spreads across its own suppliers by nudging the supply index down
 
 - Liquidator `require_auth`. Permissionless beyond authorization for the
   liquidator's debt spend.
-- Cache is strict (`new(env, false)`).
+- Cache uses `OraclePolicy::Liquidation`.
 - `execute_liquidation` derives target repayment, bonus, and protocol fee
   for an account with health factor `< 1.0 WAD`.
-- Repaid debt is pulled from the liquidator into the affected pools;
+- Repaid debt is transferred from the liquidator into the central pool;
   collateral is seized to the liquidator with bonus and protocol fee
   applied.
 - After execution, `check_bad_debt_after_liquidation` may invoke
@@ -829,28 +877,41 @@ flowchart LR
 
 ## 13. Access Control and Operations
 
-The protocol is run by an owner plus three narrow roles, so no single key can do
-everything. The owner handles upgrades and configuration; each role owns one job
-— `KEEPER` runs routine maintenance, `ORACLE` manages price feeds, and `REVENUE`
-collects protocol fees. Splitting duties this way limits the damage any one
-compromised key could cause.
+Production authority is split across governance and controller roles.
+Governance owns the controller and is the normal path for protocol-admin
+changes. The controller keeps narrow operational roles for recurring work.
 
-Owner plus three roles (`contracts/controller/src/access.rs`):
+Governance roles (`contracts/governance/src/access.rs`,
+`contracts/governance/src/forward.rs`, `contracts/governance/src/timelock.rs`,
+`contracts/governance/src/self_timelock.rs`):
 
-- Owner (`#[only_owner]`): upgrades, pause/unpause, market listing,
-  asset/e-mode/limits/aggregator/accumulator/template configuration, pool
-  parameter and pool WASM upgrades, token-listing approval,
-  `grant_role`/`revoke_role`.
+- Owner: deploys the controller, can pause/unpause the controller immediately,
+  accepts governance ownership transfer, and is the admin behind role
+  synchronization.
+- `PROPOSER`: schedules typed controller-admin operations and governance-self
+  operations. Proposal functions validate inputs before queuing the operation.
+- `EXECUTOR`: may execute ready operations when `execute` receives an explicit
+  executor. Passing `None` leaves execution open after the delay.
+- `CANCELLER`: cancels pending operations.
+- `ORACLE`: retained for governance's testing-only immediate oracle forwarders
+  and as a known governance role. Production oracle config changes use typed
+  proposers.
+
+Controller owner and roles (`contracts/controller/src/governance/access.rs`):
+
+- Owner (`#[only_owner]`): governance in production. Thin setters cover
+  upgrades, market listing, asset/e-mode/limits/aggregator/accumulator/template
+  configuration, pool parameter and pool WASM upgrades, token-listing approval,
+  and controller role grants/revokes.
 - `KEEPER` (`#[only_role(caller, "KEEPER")]`): `update_indexes`,
   `update_account_threshold`, `clean_bad_debt`. The on-chain `renew_account`
   TTL keepalive is caller-auth gated (account owner), not a role; the keeper
-  service additionally runs the off-chain `ExtendFootprintTtl` flow — see
-  Section 5.
-- `ORACLE`: `configure_market_oracle`, `edit_oracle_tolerance`,
-  `disable_token_oracle`.
+  service additionally runs the off-chain `ExtendFootprintTtl` flow. See
+  Section 14.
+- `ORACLE`: `disable_token_oracle` for emergency oracle shutdown.
 - `REVENUE`: `claim_revenue`, `add_rewards`.
 
-Constructor (`Controller::__constructor`):
+Controller constructor (`Controller::__constructor`):
 
 - Sets the owner.
 - Sets the access-control admin to the owner.
@@ -865,10 +926,11 @@ Constructor (`Controller::__constructor`):
 (`stellar_access::role_transfer`); `accept_ownership` synchronizes the
 access-control admin with the accepted owner.
 
-Mainnet launch requires a multi-party owner, no residual deployer authority,
-separated keeper/oracle/revenue roles, off-chain notice for non-emergency
-privileged changes, and immediate emergency pause authority. ADR 0009 defines
-the full launch-control policy.
+Mainnet launch requires governance to own the controller, separated
+maintenance/revenue/emergency-oracle roles, separated timelock executor and
+canceller delegates where delegated, no residual deployer authority, and
+immediate emergency pause authority. ADR 0009 defines the launch-control policy;
+ADR 0010 defines the timelock.
 
 ```mermaid
 flowchart TB
@@ -876,8 +938,15 @@ flowchart TB
         Users["Users, liquidators, flash-loan receivers"]
     end
 
-    subgraph OperatorBoundary["Role-gated operator boundary"]
-        Owner["Owner"]
+    subgraph GovernanceBoundary["Governance boundary"]
+        GovOwner["Governance owner"]
+        Proposer["PROPOSER"]
+        Executor["EXECUTOR"]
+        Canceller["CANCELLER"]
+        Governance["Governance"]
+    end
+
+    subgraph OperatorBoundary["Controller role boundary"]
         Keeper["KEEPER"]
         Oracle["ORACLE"]
         Revenue["REVENUE"]
@@ -885,7 +954,7 @@ flowchart TB
 
     subgraph ProtocolCore["Protocol core"]
         Controller["Controller"]
-        Pools["Controller-owned pools"]
+        Pool["Controller-owned central pool"]
     end
 
     subgraph ExternalBoundary["External contracts"]
@@ -896,15 +965,19 @@ flowchart TB
     end
 
     Users -->|"require_auth where needed"| Controller
-    Owner -->|"only_owner"| Controller
+    GovOwner -->|"deploy / immediate pause"| Governance
+    Proposer -->|"propose_*"| Governance
+    Executor -->|"execute ready ops"| Governance
+    Canceller -->|"cancel"| Governance
+    Governance ==>|"controller owner"| Controller
     Keeper -->|"only_role(KEEPER)"| Controller
     Oracle -->|"only_role(ORACLE)"| Controller
     Revenue -->|"only_role(REVENUE)"| Controller
-    Controller ==>|"#[only_owner]"| Pools
+    Controller ==>|"#[only_owner]"| Pool
     Controller -->|"validated prices"| Reflector
     Controller -->|"validated batch"| Router
-    Controller -->|"balance-delta transfers"| Tokens
-    Pools -->|"asset custody"| Tokens
+    Controller -->|"SAC transfers + router deltas"| Tokens
+    Pool -->|"asset custody"| Tokens
     Controller -->|"claim forwarding"| Accumulator
 ```
 
@@ -918,16 +991,20 @@ section maps that out.
 Soroban storage is partitioned by entry kind:
 
 - **Instance** (`contracts/controller/src/storage/instance.rs`): the
-  `ControllerKey::*` instance variants `PoolTemplate`, `Aggregator`,
+  `ControllerKey::*` instance variants `PoolTemplate`, `Pool`, `Aggregator`,
   `Accumulator`, `AccountNonce`, `PositionLimits`, `LastEModeCategoryId`,
-  `AppVersion`, plus the `ApprovedToken(asset)` allow-list (a `LocalKey`
-  variant).
+  `MinBorrowCollateralUsd`, `AppVersion`, plus the `ApprovedToken(asset)`
+  allow-list (a `LocalKey` variant).
 - **Temporary**: the `FlashLoanOngoing` single-flight flag (a `SessionKey`
   variant).
 - **Persistent shared**: `Market(asset)`, `PoolsList`, `EModeCategory(id)`.
+  `PoolsList` is the listed-asset registry, not a list of pool contract
+  addresses.
 - **Persistent user**: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`.
-- **Pool Instance** (`PoolKey::Params`, `PoolKey::State`).
+- **Pool instance**: owner and WASM instance metadata.
+- **Pool persistent per-asset**: `PoolKey::Params(asset)` and
+  `PoolKey::State(asset)`.
 
 TTL is bumped two ways:
 
@@ -947,19 +1024,21 @@ it mutates.
 ```mermaid
 flowchart LR
     subgraph ControllerStorage["Controller storage"]
-        I["Instance<br/>PoolTemplate, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastEModeCategoryId, AppVersion<br/>ApprovedToken(asset)"]
+        I["Instance<br/>PoolTemplate, Pool, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastEModeCategoryId<br/>MinBorrowCollateralUsd, AppVersion<br/>ApprovedToken(asset)"]
         T["Temporary<br/>FlashLoanOngoing"]
         M["Persistent shared<br/>Market(asset), PoolsList<br/>EModeCategory(id)"]
         U["Persistent user<br/>AccountMeta(id)<br/>SupplyPositions(id)<br/>BorrowPositions(id)"]
     end
 
     subgraph PoolStorage["Pool storage"]
-        PS["Instance Params<br/>MarketParams"]
-        ST["Instance State<br/>supplied_ray, borrowed_ray<br/>supply_index, borrow_index<br/>revenue_ray, last_timestamp"]
+        PI["Instance<br/>owner + wasm state"]
+        PS["Persistent Params(asset)<br/>MarketParamsRaw"]
+        ST["Persistent State(asset)<br/>supplied_ray, borrowed_ray<br/>supply_index, borrow_index<br/>revenue_ray, last_timestamp, cash"]
     end
 
-    I -->|"deploys via PoolTemplate"| PoolStorage
-    M -->|"Market.pool_address"| PoolStorage
+    I -->|"Pool address"| PoolStorage
+    M -->|"asset registry"| PS
+    M -->|"asset registry"| ST
 ```
 
 ## 15. Implemented Safety Checks and Access Controls
@@ -972,17 +1051,20 @@ A non-exhaustive list of checks present in the code:
   owner-gated with the `#[only_owner]` macro.
 - Token-listing allow-list (`ApprovedToken(asset)`) is consumed at market
   creation.
-- One deterministic pool per listed asset (salt = keccak256 of asset
-  address).
+- One deterministic central pool per controller (`POOL_DEPLOY_SALT`), with
+  asset-keyed `Params` and `State` rows for listed markets.
 - Cap on per-account positions: 10 per side at `set_position_limits`
   (`POSITION_LIMIT_MAX`).
+- Protocol-wide minimum LTV-weighted collateral while debt exists:
+  `MinBorrowCollateralUsd`, default `5 * WAD`.
 - Numeric domains separated into BPS, WAD, RAY with type wrappers in
   `common::math::fp`.
 - Reserve availability is checked before pool transfers out
   (`contracts/pool/src/cache.rs::has_reserves`).
-- Balance-delta accounting on user deposits, repayments, reward transfers,
-  and strategy router output.
-- Aggregator route-shape validation and post-route output verification.
+- Direct SAC transfers for deposits, repayments, and rewards, followed by
+  central-pool accounting on the requested amount.
+- Aggregator route output is checked by controller balance deltas. The
+  controller treats route bytes as opaque.
 - Single-flight `FlashLoanOngoing` guard during flash loans and router
   execution.
 - Oracle deviation tolerance, staleness, and unconditional future-timestamp
@@ -1040,23 +1122,24 @@ TTL behavior.
 
 ## 17. Deployment and Operations
 
-Deployment is template-driven: the pool WASM is uploaded once, the
-controller stores its hash, and each listed asset gets a deterministic pool
-deployed by the controller.
+Deployment is template-driven: governance deploys the controller, the
+controller stores the pool WASM hash, and the controller deploys one
+deterministic central pool. Listed assets become market rows inside that pool.
 
 ```mermaid
 flowchart LR
     A["Build + optimize<br/>hash-pinned WASM"] --> B["Upload pool WASM"]
-    B --> C["Deploy controller<br/>constructor pauses"]
-    C --> D["Configure template<br/>aggregator + accumulator"]
-    D --> E["Assign multisig owner<br/>and separated roles"]
-    E --> F["Create markets + oracles<br/>caps + e-mode while paused"]
-    F --> G["Verification matrix<br/>release evidence"]
-    G --> H["14-day testnet soak"]
-    H --> I["Monitoring live<br/>pause drill complete"]
-    I --> J["Capped mainnet unpause"]
-    J --> K["7-day capped operation"]
-    K --> L["Staged cap increases"]
+    B --> C["Deploy governance<br/>set timelock delay"]
+    C --> D["Governance deploys controller<br/>controller constructor pauses"]
+    D --> E["Set template + deploy central pool<br/>aggregator + accumulator"]
+    E --> F["Assign roles<br/>separate proposer/executor/canceller"]
+    F --> G["Create markets + oracles<br/>caps + e-mode while paused"]
+    G --> H["Verification matrix<br/>release evidence"]
+    H --> I["14-day testnet soak"]
+    I --> J["Monitoring live<br/>pause drill complete"]
+    J --> K["Capped mainnet unpause"]
+    K --> L["7-day capped operation"]
+    L --> M["Staged cap increases"]
 ```
 
 Mainnet launch gates are defined by ADR 0009. Initial launch exposure is
@@ -1078,20 +1161,27 @@ flowchart TD
     A -->|TTL window| K2["Keeper service: ExtendFootprintTtl (no role)"]
     A -->|threshold migration| K3["KEEPER: update_account_threshold"]
     A -->|bad debt| K4["KEEPER: clean_bad_debt"]
-    A -->|oracle outage| O1["ORACLE: disable_token_oracle / reconfigure"]
+    A -->|oracle outage| O1["ORACLE: disable_token_oracle<br/>governance: schedule reconfigure"]
     A -->|revenue| R1["REVENUE: claim_revenue"]
-    A -->|incident| P1["Owner: pause"]
-    P1 --> Fix["Patch config or upgrade"]
-    Fix --> U["Owner: unpause"]
+    A -->|incident| P1["Governance owner: pause"]
+    P1 --> Fix["Schedule config or upgrade if needed"]
+    Fix --> U["Governance owner: unpause"]
 ```
 
 ## 18. Source Map
 
-- `contracts/controller/src/access.rs`: ownership, roles, pause, upgrade, ownership
-  transfer.
-- `contracts/controller/src/router.rs`: market listing, pool deployment, pool
+- `contracts/governance/src/access.rs`: governance ownership, timelock roles,
+  role separation, and governance-self apply helpers.
+- `contracts/governance/src/deploy.rs`: one-time controller deployment.
+- `contracts/governance/src/forward.rs`: typed controller-admin proposers and
+  immediate pause/unpause.
+- `contracts/governance/src/timelock.rs`: generic execute/cancel/query surface.
+- `contracts/governance/src/self_timelock.rs`: scheduled governance-self admin.
+- `contracts/controller/src/governance/access.rs`: controller ownership, roles, pause,
+  upgrade, ownership transfer.
+- `contracts/controller/src/router.rs`: market listing, central-pool deployment, pool
   parameter and WASM upgrades, revenue claim, reward injection, keepalive.
-- `contracts/controller/src/config.rs`: asset config, e-mode, oracle config,
+- `contracts/controller/src/governance/config.rs`: asset config, e-mode, oracle config,
   aggregator, accumulator, token approval, position limits.
 - `contracts/controller/src/positions/*.rs`: supply, borrow, repay, withdraw,
   liquidation, account lifecycle, e-mode application, threshold updates.
@@ -1111,6 +1201,7 @@ flowchart TD
 - `contracts/pool/src/views.rs`: pool read surface.
 - `interfaces/pool/src/lib.rs`: controller-to-pool ABI trait.
 - `interfaces/controller/src/lib.rs`: controller external ABI trait and client.
+- `interfaces/governance/src/lib.rs`: governance external ABI trait and client.
 - `common/src/types/`: shared ABI types (storage keys, configs,
   positions, oracle, swap).
 - `common/src/constants/`: fixed-point constants and protocol bounds.
@@ -1124,4 +1215,5 @@ flowchart TD
 The repository is pre-audit. Production deployment is gated on
 external audit completion, formal verification review against the target
 branch, deployment runbook validation, ADR 0009 launch-gate completion,
-oracle and asset-listing procedures, and incident-response procedures.
+governance/timelock setup, oracle and asset-listing procedures, and
+incident-response procedures.

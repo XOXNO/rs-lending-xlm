@@ -3,9 +3,11 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/ci.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/ci.yml) ![Rust](https://img.shields.io/badge/Rust-1.93-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
 
 XOXNO Lending is a multi-asset lending protocol for Stellar Soroban. It uses a
-controller-and-pool architecture: the controller owns account state, oracle
-validation, risk checks, liquidations, flash loans, and strategy entrypoints;
-each pool owns custody and accounting for exactly one listed asset.
+governance, controller, and central-pool architecture: governance owns the
+controller and timelocks protocol-admin changes; the controller owns account
+state, oracle validation, risk checks, liquidations, flash loans, and strategy
+entrypoints; one central pool contract holds liquidity and asset-scoped
+accounting for every listed market.
 
 This repository holds the contracts, deployment tooling, architecture records,
 and verification assets.
@@ -37,19 +39,20 @@ and verification assets.
 ```mermaid
 flowchart LR
     Users["Users / liquidators / integrators"] --> Controller["Controller"]
-    Owner["Owner + roles"] --> Controller
-    Controller ==>|"owner-gated calls"| PoolA["Pool: asset A"]
-    Controller ==>|"owner-gated calls"| PoolB["Pool: asset B"]
+    Governance["Governance<br/>timelock"] --> Controller
+    Operators["KEEPER / REVENUE / ORACLE"] --> Controller
+    Controller ==>|"owner-gated calls"| Pool["Central pool<br/>asset-keyed markets"]
     Controller --> Oracle["Reflector oracles"]
     Controller --> Router["Aggregator router"]
-    PoolA --> TokenA["Token A"]
-    PoolB --> TokenB["Token B"]
+    Pool --> Tokens["SAC / SEP-41 tokens"]
 ```
 
 - **Controller**: the single user-facing contract; coordinates accounts, market
   setup, risk, liquidation, flash loans, and strategies.
-- **Pool**: one contract per listed asset; custody, indexes, reserves,
-  protocol revenue, rate updates, and flash-loan settlement.
+- **Governance**: owns the controller, validates admin inputs, schedules
+  changes through a ledger-based timelock, and keeps emergency pause immediate.
+- **Pool**: one central controller-owned contract; asset-keyed custody, indexes,
+  reserves, protocol revenue, rate updates, and flash-loan settlement.
 - **Common**: fixed-point math, constants, events, errors, and shared ABI types.
 - **Pool interface**: typed Soroban trait for controller-to-pool calls.
 - **Verification harnesses**: integration tests, property tests, fuzz targets,
@@ -57,7 +60,7 @@ flowchart LR
 
 ## Design Model
 
-- **Scaled balances**: positions are stored in RAY against per-pool indexes;
+- **Scaled balances**: positions are stored in RAY against per-market indexes;
   interest accrues by moving one shared index, not by sweeping accounts.
 - **Numeric domains**: token-native at the token boundary, WAD for USD values
   and health factor, RAY for rates and indexes.
@@ -76,11 +79,13 @@ rs-lending-xlm/
 ├── common/             # Shared math, types, events, constants, and errors
 ├── contracts/
 │   ├── controller/     # Accounts, risk, oracle, liquidation, strategy logic
-│   ├── pool/           # Asset pool accounting, indexes, revenue, flash loans
+│   ├── governance/     # Timelocked protocol administration
+│   ├── pool/           # Central pool accounting, indexes, revenue, flash loans
 │   ├── defindex-strategy/    # Reference DeFindex vault strategy (integration example)
 │   └── flash-loan-receiver/  # Reference flash-loan receiver (tests/examples)
 ├── interfaces/
 │   ├── controller/     # Controller external ABI trait and client
+│   ├── governance/     # Governance external ABI trait and client
 │   └── pool/           # Cross-contract pool ABI used by the controller
 ├── services/           # Off-chain keeper service (separate workspace)
 ├── certora/            # Certora formal verification specs and harness

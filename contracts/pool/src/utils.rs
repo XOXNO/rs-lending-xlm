@@ -134,7 +134,9 @@ pub(crate) fn apply_liquidation_fee(
     );
     let fee_ray = Ray::from_asset(protocol_fee, cache.params.asset_decimals);
     interest::add_protocol_revenue_ray(cache, fee_ray);
-    gross_amount - protocol_fee
+    gross_amount
+        .checked_sub(protocol_fee)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 pub(crate) fn authorize_token_transfer_from(

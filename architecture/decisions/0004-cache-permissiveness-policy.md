@@ -35,7 +35,7 @@ Centralize the policy in `OraclePolicy`
   repay.
 - `OraclePolicy::Liquidation` — strict stale/deviation/TWAP gates for
   liquidation and standalone bad-debt cleanup. Its allowance table is
-  byte-identical to `RiskIncreasing` (all four loosenings denied), kept a
+  byte-identical to `RiskIncreasing` (all five loosenings denied), kept a
   distinct variant for intent/auditing and guarded by
   `test_liquidation_matches_risk_increasing_allowances`. Inside the tolerance
   bands the standard selection applies (first band → safe/primary price, last
@@ -90,10 +90,13 @@ Per-flow assignment (`contracts/controller/src/positions/*.rs`,
 - **Disabled markets** (`oracle::token_price`,
   `contracts/controller/src/oracle/price.rs`): normal policies reject;
   `Repay` and `View` allow pricing.
+- **Sanity bounds** (`oracle::token_price`): risk-increasing and liquidation
+  reads reject prices outside `[min_sanity_price_wad, max_sanity_price_wad]`;
+  risk-decreasing, repay, and view policies may tolerate the violation because
+  those paths cannot extract value without a later strict read.
 
 `token_price` additionally enforces policy-independent gates on every read:
-positive price (`InvalidPrice`), the configured sanity band
-(`SanityBoundViolated`), the `pending_for` self-pointer sentinel
+positive price (`InvalidPrice`), the `pending_for` self-pointer sentinel
 (`OracleNotConfigured`), and `PendingOracle` markets (`PairNotActive`).
 
 The clock-skew gate (`check_not_future_at`,
@@ -121,7 +124,7 @@ one-sided 60s future bound) ahead of the ledger clock with
 Positive:
 
 - Risk-increasing flows fail closed under degraded pricing. `RiskIncreasing`
-  and `Liquidation` deny all four allowances, so a missing, stale, or
+  and `Liquidation` deny all loosening allowances, so a missing, stale, or
   out-of-band source **reverts** rather than falling back to a single provider
   — **no single-source price can ever drive a borrow or a liquidation**, even if
   one provider is failed or removed while the other is manipulated. This is a
@@ -142,9 +145,9 @@ Positive:
 - The allowance table is defined in one file
   (`oracle/policy.rs`, `Allowances::for_policy`) and threaded through `Cache`;
   the gates that read it are enforced across `oracle/price.rs`
-  (disabled-market, in `token_price`), `oracle/compose.rs` (staleness, anchor
-  fallback), and `oracle/tolerance.rs` (deviation) — a small, enumerable set of
-  decision sites for formal verification.
+  (disabled-market and sanity bounds, in `token_price`), `oracle/compose.rs`
+  (staleness, anchor fallback), and `oracle/tolerance.rs` (deviation) — a small,
+  enumerable set of decision sites for formal verification.
 
 Negative / accepted costs:
 

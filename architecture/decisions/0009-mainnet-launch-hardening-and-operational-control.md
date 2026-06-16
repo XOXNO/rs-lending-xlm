@@ -2,39 +2,40 @@
 
 - Status: Accepted
 - Date: 2026-05-06
+- Revised: 2026-06-16
 - Deciders: XOXNO Lending contract team
-- Supersedes: none
+- Supersedes: original launch policy that used off-chain notice instead of an
+  enforced governance timelock
 
 ## Context
 
-Moving a lending protocol from testnet to mainnet changes the dominant risk
-profile. On testnet, failures are primarily engineering feedback. On mainnet,
-misconfiguration, oracle outages, liquidation edge cases, privileged-key
-mistakes, or delayed incident response can convert into real user losses
-quickly as TVL accumulates.
+Moving a lending protocol from testnet to mainnet changes the risk profile.
+Misconfiguration, oracle outages, liquidation edge cases, privileged-key
+mistakes, stale TTL windows, or delayed incident response can create real user
+losses once liquidity arrives.
 
-The protocol already has runtime safety controls: the controller starts
-paused, the controller self-upgrade (`upgrade`) auto-pauses, pools are owned by
-the controller, oracle pricing has per-entrypoint strict and permissive
-policies, and keepers can update indexes, update thresholds, and clean bad
-debt. Account-owner auth keeps user TTLs alive (`renew_account`) and the keeper
-service runs the off-chain footprint-TTL flow. The launch policy defines when
-those controls are sufficient for mainnet users and how exposure grows after
-launch.
+The current protocol has runtime controls:
 
-The policy covers four operational questions:
+- the controller starts paused,
+- controller upgrade auto-pauses,
+- governance owns the controller,
+- governance timelocks protocol-affecting admin changes,
+- pause and unpause remain immediate emergency actions,
+- the controller owns one central pool,
+- oracle reads use per-flow strict and permissive policies,
+- keepers can update indexes, propagate thresholds, and clean bad debt,
+- account owners can renew their own account TTL,
+- the keeper service can extend ledger-entry TTL permissionlessly off-chain.
 
-1. What evidence gates the launch candidate before unpause?
-2. Who controls owner and role-gated actions on mainnet?
-3. How much TVL and borrow exposure is allowed at launch?
-4. What sustained-operation window completes the mainnet launch milestone?
+The launch policy defines when those controls are sufficient for mainnet users
+and how exposure grows after launch.
 
 ## Decision
 
-Launch mainnet through a hardening gate and capped rollout. The protocol is
-not unpaused for public access until audit closure, verification evidence,
-testnet soak, role-holder setup, monitoring, and pause-drill checks have all
-passed for the target deployment commit and deployed contract addresses.
+Launch mainnet through a hardening gate and capped rollout. The protocol is not
+unpaused for public access until audit closure, verification evidence, testnet
+soak, governance setup, monitoring, and pause-drill checks have all passed for
+the target deployment commit and deployed contract addresses.
 
 ### Launch Gates
 
@@ -47,15 +48,20 @@ The launch candidate must satisfy all gates before mainnet unpause:
 - The configured testnet deployment runs for 14 consecutive days with no
   unresolved P0/P1 incidents, no unexplained accounting drift, no stale TTL
   windows, and no oracle configuration drift.
-- Owner, `KEEPER`, `ORACLE`, and `REVENUE` authorities are assigned according
-  to the role policy below before public unpause.
-- Monitoring and alerting are live for market caps, pool reserves, oracle
-  freshness/deviation, health-factor distribution, liquidatable accounts,
-  bad-debt events, index freshness, TTL windows, revenue claims, and privileged
-  calls.
-- A pause drill is completed on testnet: pause, verify user mutations reject,
-  keep required operator views/checks reachable, apply a benign config or
-  runbook step, and unpause.
+- Governance is deployed, owns the controller, and has the mainnet delay set to
+  `TIMELOCK_MIN_DELAY_LEDGERS = 34_560`.
+- Governance `PROPOSER`, `EXECUTOR`, and `CANCELLER` duties are assigned before
+  public unpause. Delegated `EXECUTOR` and `CANCELLER` roles must not be held by
+  the same address; the contract enforces this for delegated grants.
+- Controller `KEEPER`, `REVENUE`, and emergency `ORACLE` roles are assigned to
+  the intended operational addresses.
+- Monitoring and alerting are live for market caps, central-pool reserves,
+  oracle freshness/deviation, health-factor distribution, liquidatable
+  accounts, bad-debt events, index freshness, TTL windows, revenue claims,
+  timelock operations, and privileged calls.
+- A pause drill is completed on testnet: pause through governance, verify user
+  mutations reject, keep required operator views/checks reachable, apply a
+  benign config or runbook step if needed, and unpause.
 
 ### Initial Mainnet Caps
 
@@ -65,44 +71,41 @@ Initial exposure is intentionally small:
 - Total protocol borrow cap: USD 100,000.
 - Per-market supply cap: USD 100,000.
 - Per-market borrow cap: USD 50,000.
-- Flash-loan exposure is bounded by each pool's available liquidity and the
-  per-market launch caps.
+- Flash-loan exposure is bounded by the central pool's available `cash` for
+  that asset and by per-market launch caps.
 
-These USD figures are off-chain launch policy. On-chain, each pool enforces
-per-asset `supply_cap` / `borrow_cap` denominated in **asset units** via
-`enforce_supply_cap` / `enforce_borrow_cap` (`contracts/pool/src/lib.rs`);
-operators set those unit caps to realize the per-market USD policy. There is no
+These USD figures are off-chain launch policy. On-chain, each market enforces
+per-asset `supply_cap` and `borrow_cap` denominated in asset units via
+`enforce_supply_cap` and `enforce_borrow_cap` (`contracts/pool/src/utils.rs`).
+Operators set those unit caps to realize the per-market USD policy. There is no
 protocol-wide TVL or borrow USD cap in contract code.
 
 Caps may be raised only after each stage runs for at least 7 consecutive days
 without unresolved P0/P1 incidents, unexplained accounting drift, oracle
 misconfiguration, or missed keeper/TTL maintenance. Each increase requires an
 operator review of liquidity, utilization, liquidatable accounts, oracle
-quality, and incident history. A later governance or launch-control decision
-can replace these default caps when production data justifies a different
-policy.
+quality, timelock queue state, and incident history.
 
 ### Role and Authority Policy
 
 Mainnet authority is separated by responsibility:
 
-- The controller owner must be a multisig or equivalent multi-party custody
-  setup. The deployer key must not retain launch authority after ownership and
-  roles are assigned.
-- `KEEPER`, `ORACLE`, and `REVENUE` roles must be held by separate operational
-  addresses or automation identities. A single hot key must not hold owner and
-  all operational roles. Note that `accept_ownership` (`sync_owner_access_control`)
-  grants all three operational roles to the incoming owner and revokes them from
-  the previous owner, so immediately after an ownership transfer the new owner
-  transiently holds every role; operators must then `revoke_role` from the owner
-  and `grant_role` to the separated operational addresses to restore separation.
-- Non-emergency owner actions that change code, templates, or material risk
-  configuration receive 48 hours of off-chain notice before execution.
-- Emergency pause remains immediate. The owner may pause without notice for
-  oracle incidents, accounting anomalies, suspected exploit activity,
+- Governance owner must be a multisig or equivalent multi-party custody setup.
+  The deployer key must not retain launch authority after ownership and roles
+  are assigned.
+- Governance owns the controller in production. Direct controller owner
+  authority is therefore exercised by governance, not by a hot operator key.
+- Controller `KEEPER`, `REVENUE`, and emergency `ORACLE` roles must be held by
+  separate operational addresses or automation identities where practical. A
+  single hot key must not hold every controller role.
+- Governance `PROPOSER`, `EXECUTOR`, and `CANCELLER` roles should be separated
+  operationally. The owner may retain full recovery authority, but delegated
+  executor and canceller accounts must be distinct.
+- Non-emergency protocol changes are scheduled through governance typed
+  proposers and wait the on-chain timelock delay before execution.
+- Emergency pause remains immediate. Governance owner may pause without delay
+  for oracle incidents, accounting anomalies, suspected exploit activity,
   privileged-key compromise, or severe market stress.
-- No on-chain timelock is required at launch. Adding one is a future governance
-  decision because it trades user-warning time against emergency response time.
 
 ### Mainnet Launch Completion
 
@@ -110,11 +113,12 @@ Mainnet launch completion is not defined by smoke tests alone. It is complete
 when:
 
 - the target mainnet deployment passed all launch gates,
+- governance owns the controller and the central pool is deployed,
 - the capped mainnet deployment is unpaused,
 - monitoring and operational runbooks are live,
 - initial caps are enforced on all listed markets, and
-- the protocol completes 7 consecutive days of capped mainnet operation with
-  no unresolved P0/P1 incident, no unexplained accounting drift, and no missed
+- the protocol completes 7 consecutive days of capped mainnet operation with no
+  unresolved P0/P1 incident, no unexplained accounting drift, and no missed
   keeper or TTL maintenance window.
 
 ## Alternatives Considered
@@ -125,12 +129,13 @@ when:
 - **Launch uncapped after audit.** Rejected: even a clean audit does not remove
   configuration, oracle, integration, and operational risks. Capped exposure
   creates an observation window before allowing TVL growth.
-- **Require on-chain timelock at launch.** Rejected for launch: a timelock
-  improves predictability for non-emergency changes but slows response during
-  early incidents. The launch policy uses multisig control and off-chain notice
-  for non-emergency changes, with immediate pause retained for incidents.
-- **Single operator key for all roles.** Rejected: it simplifies launch
-  execution but concentrates upgrade, oracle, keeper, and revenue authority in
+- **Off-chain notice for non-emergency admin changes.** Superseded: notice is
+  useful, but it is not an enforcement mechanism. Governance timelock is now
+  the load-bearing delay.
+- **Timelock emergency pause.** Rejected: delaying a halt of a compromised
+  market converts a containable incident into a loss.
+- **Single operator key for all roles.** Rejected: it concentrates upgrade,
+  oracle, keeper, revenue, proposal, execution, and cancellation authority in
   one compromise domain.
 
 ## Consequences
@@ -140,27 +145,29 @@ Positive:
 - Mainnet launch uses measurable criteria instead of relying on deployment
   smoke tests alone.
 - Initial user exposure is bounded while mainnet network, oracle, keeper,
-  liquidation, and monitoring behavior are observed.
+  liquidation, central-pool, and monitoring behavior are observed.
+- Governance timelock gives users and integrators an enforced observation
+  period for protocol-affecting changes.
+- Immediate pause remains available for incidents.
 - Role separation reduces the blast radius of a single operational-key
   compromise.
-- The launch-completion condition becomes observable over a sustained capped
-  operation window.
 
 Negative / accepted costs:
 
 - Launch takes at least the 14-day testnet soak plus the 7-day capped mainnet
   observation window before exposure can grow materially.
 - Low initial caps may limit early user demand and protocol revenue.
-- Off-chain notice for non-emergency changes is weaker than an on-chain
-  timelock and relies on operational discipline.
+- Timelocked admin changes slow routine non-emergency operations.
 - More operational identities must be maintained, monitored, and rotated.
 
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §13 (Access Control and Operations), §16
   (Verification Surface), §17 (Deployment and Operations), §19 (Status).
-- `contracts/controller/src/access.rs`
+- `contracts/governance/src/{access.rs,forward.rs,timelock.rs,self_timelock.rs}`
+- `contracts/controller/src/governance/access.rs`
 - `contracts/controller/src/router.rs`
 - `contracts/controller/src/storage/ttl.rs`
 - `architecture/INVARIANTS.md`
+- ADR 0010 (Governance Timelock for Protocol Admin)
 - `certora/README.md`

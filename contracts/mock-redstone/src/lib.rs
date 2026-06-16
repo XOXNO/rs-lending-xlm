@@ -8,13 +8,17 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Env, String, Vec, U256};
+use soroban_sdk::{
+    assert_with_error, contract, contracterror, contractimpl, contracttype, Env, String, Vec, U256,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum MockRedStoneError {
     FeedNotSet = 1,
+    InvalidPrice = 2,
+    TimestampOverflow = 3,
 }
 
 #[contracttype]
@@ -40,7 +44,13 @@ pub struct MockRedStonePriceFeed;
 impl MockRedStonePriceFeed {
     /// Sets `feed_id` to `price_wad` (USD WAD) stamped at the current ledger time.
     pub fn set_price(env: Env, feed_id: String, price_wad: i128) {
-        let now_ms = env.ledger().timestamp() * SECONDS_TO_MS;
+        let now_ms = env
+            .ledger()
+            .timestamp()
+            .checked_mul(SECONDS_TO_MS)
+            .unwrap_or_else(|| {
+                soroban_sdk::panic_with_error!(&env, MockRedStoneError::TimestampOverflow)
+            });
         Self::set_price_data(env, feed_id, price_wad, now_ms, now_ms);
     }
 
@@ -53,6 +63,7 @@ impl MockRedStonePriceFeed {
         package_timestamp: u64,
         write_timestamp: u64,
     ) {
+        assert_with_error!(&env, price_wad >= 0, MockRedStoneError::InvalidPrice);
         let price_8 = (price_wad / WAD_TO_8_DECIMALS) as u128;
         let data = RedStonePriceData {
             price: U256::from_u128(&env, price_8),

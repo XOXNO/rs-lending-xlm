@@ -20,7 +20,7 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
     while remaining > 0 {
         let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
         global_sync_step(env, cache, chunk);
-        remaining -= chunk;
+        remaining = remaining.saturating_sub(chunk);
     }
 
     cache.last_timestamp = cache.current_timestamp;
@@ -65,8 +65,8 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
         return;
     }
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
-    cache.revenue += fee_scaled;
-    cache.supplied += fee_scaled;
+    cache.revenue.checked_add_assign(&cache.env, fee_scaled);
+    cache.supplied.checked_add_assign(&cache.env, fee_scaled);
 }
 
 /// Socializes uncollectable debt by reducing the supply index.

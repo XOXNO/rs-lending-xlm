@@ -70,10 +70,13 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> PoolPositionMutation {
 
     enforce_supply_cap(env, &cache, scaled_amount, entry.supply_cap);
 
-    scaled += scaled_amount;
-    cache.supplied += scaled_amount;
+    scaled.checked_add_assign(env, scaled_amount);
+    cache.supplied.checked_add_assign(env, scaled_amount);
     // Controller already transferred `amount` into the pool before this call.
-    cache.cash += amount;
+    cache.cash = cache
+        .cash
+        .checked_add(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
     cache.save();
     cache.position_mutation(scaled, amount)
@@ -95,11 +98,14 @@ fn borrow_one(env: &Env, receiver: &Address, entry: &PoolBorrowEntry) -> PoolPos
 
     enforce_borrow_cap(env, &cache, scaled_debt, entry.borrow_cap);
 
-    scaled += scaled_debt;
-    cache.borrowed += scaled_debt;
+    scaled.checked_add_assign(env, scaled_debt);
+    cache.borrowed.checked_add_assign(env, scaled_debt);
     // Borrow cannot leave the pool above its max-utilization cap.
     utils::require_utilization_below_max(env, &cache);
-    cache.cash -= amount;
+    cache.cash = cache
+        .cash
+        .checked_sub(amount)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
     // CEI: snapshot + commit before external call.
     cache.save();
@@ -144,7 +150,10 @@ fn withdraw_one(
         utils::require_utilization_below_max(env, &cache);
     }
     utils::require_solvent_withdraw_state(env, &cache);
-    cache.cash -= net_transfer;
+    cache.cash = cache
+        .cash
+        .checked_sub(net_transfer)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
     // CEI: snapshot + commit before external call.
     cache.save();
@@ -167,12 +176,18 @@ fn repay_one(env: &Env, payer: &Address, action: &PoolAction) -> PoolPositionMut
     scaled = scaled.checked_sub(env, scaled_repay);
     cache.borrowed.checked_sub_assign(env, scaled_repay);
     // Controller moved `amount` in; the `overpayment` is refunded below.
-    cache.cash += amount - overpayment;
+    let net_repay = amount
+        .checked_sub(overpayment)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    cache.cash = cache
+        .cash
+        .checked_add(net_repay)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
     // CEI: snapshot + commit before external call.
     cache.save();
     cache.transfer_out(payer, overpayment);
-    cache.position_mutation(scaled, amount - overpayment)
+    cache.position_mutation(scaled, net_repay)
 }
 
 #[contract]
@@ -213,7 +228,11 @@ impl LiquidityPoolInterface for LiquidityPool {
             revenue_ray: 0,
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
-            last_timestamp: env.ledger().timestamp() * MS_PER_SECOND,
+            last_timestamp: env
+                .ledger()
+                .timestamp()
+                .checked_mul(MS_PER_SECOND)
+                .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow)),
             cash: 0,
         };
         env.storage()
@@ -296,7 +315,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.supply_index =
             update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
         // Controller transferred `amount` of reward tokens into the pool.
-        cache.cash += amount;
+        cache.cash = cache
+            .cash
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
         cache.save();
         cache.market_snapshot()
@@ -328,9 +350,15 @@ impl LiquidityPoolInterface for LiquidityPool {
         let pool_addr = env.current_contract_address();
         let tok = token::Client::new(&env, &cache.params.asset_id);
         let pre_balance = tok.balance(&pool_addr);
-        let expected_after_payout = pre_balance - amount;
-        let total = amount + fee;
-        let expected_after_repay = pre_balance + fee;
+        let expected_after_payout = pre_balance
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let total = amount
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let expected_after_repay = pre_balance
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
         tok.transfer(&pool_addr, &receiver, &amount);
 
@@ -382,7 +410,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
         // Net token effect: out `amount`, back `amount + fee` → +fee. The loan
         // uses direct token transfers (with balance assertions), not transfer_out.
-        cache.cash += fee;
+        cache.cash = cache
+            .cash
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
         cache.save();
         cache.market_snapshot()
@@ -417,16 +448,21 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
 
-        scaled += scaled_debt;
-        cache.borrowed += scaled_debt;
+        scaled.checked_add_assign(&env, scaled_debt);
+        cache.borrowed.checked_add_assign(&env, scaled_debt);
         // Strategy debt cannot leave the pool above max utilization.
         utils::require_utilization_below_max(&env, &cache);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
 
-        let amount_to_send = amount - fee;
-        cache.cash -= amount_to_send;
+        let amount_to_send = amount
+            .checked_sub(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.cash = cache
+            .cash
+            .checked_sub(amount_to_send)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
         // CEI: snapshot + commit before external call.
         cache.save();
@@ -453,7 +489,7 @@ impl LiquidityPoolInterface for LiquidityPool {
                 cache.borrowed.checked_sub_assign(&env, scaled);
             }
             AccountPositionType::Deposit => {
-                cache.revenue += scaled;
+                cache.revenue.checked_add_assign(&env, scaled);
             }
         }
 
@@ -473,7 +509,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         let amount_to_transfer = cache.burn_claimable_revenue();
 
         utils::require_solvent_withdraw_state(&env, &cache);
-        cache.cash -= amount_to_transfer;
+        cache.cash = cache
+            .cash
+            .checked_sub(amount_to_transfer)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
         // CEI: commit state before external call.
         cache.save();
@@ -543,7 +582,11 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     fn bulk_get_sync_data(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
-        let now_ms = env.ledger().timestamp() * MS_PER_SECOND;
+        let now_ms = env
+            .ledger()
+            .timestamp()
+            .checked_mul(MS_PER_SECOND)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
         for asset in assets.iter() {
             let sync = PoolSyncData {

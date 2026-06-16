@@ -83,6 +83,10 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
     }
 }
 
+fn owner_or_panic(env: &Env) -> Address {
+    ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
+}
+
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     crate::storage::renew_governance_instance(env);
     stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
@@ -90,7 +94,7 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
 
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     crate::storage::renew_governance_instance(env);
-    let current_owner = ownable::get_owner(env).unwrap();
+    let current_owner = owner_or_panic(env);
 
     stellar_access::role_transfer::transfer_role(
         env,
@@ -128,7 +132,7 @@ fn require_executor_canceller_separation(env: &Env, account: &Address, role: &Sy
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     crate::storage::renew_governance_instance(env);
     require_executor_canceller_separation(env, account, role);
-    let owner = ownable::get_owner(env).unwrap();
+    let owner = owner_or_panic(env);
     access_control::grant_role_no_auth(env, account, role, &owner);
 }
 
@@ -141,7 +145,7 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
         access_control::has_role(env, account, role).is_some(),
         GenericError::InvalidRole
     );
-    let owner = ownable::get_owner(env).unwrap();
+    let owner = owner_or_panic(env);
     access_control::revoke_role_no_auth(env, account, role, &owner);
 }
 
@@ -161,9 +165,9 @@ impl Governance {
 
     pub fn accept_ownership(env: Env) {
         crate::storage::renew_governance_instance(&env);
-        let previous_owner = ownable::get_owner(&env).unwrap();
+        let previous_owner = owner_or_panic(&env);
         ownable::accept_ownership(&env);
-        let new_owner = ownable::get_owner(&env).unwrap();
+        let new_owner = owner_or_panic(&env);
         sync_owner_access_control(&env, &previous_owner, &new_owner);
     }
 

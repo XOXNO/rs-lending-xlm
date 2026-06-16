@@ -42,12 +42,13 @@ After a liquidation, the account is socializable when
 (`contracts/controller/src/positions/liquidation_math.rs`). The controller
 then runs `execute_bad_debt_cleanup`, which seizes **both** sides of the
 account: each supply (`Deposit`) position and each debt (`Borrow`) position is
-passed to the asset's pool via `pool.seize_position(side, position)`. On
-completion it publishes `CleanBadDebtEvent { account_id,
-total_borrow_usd_wad, total_collateral_usd_wad }`
+passed to the central pool with its asset key via
+`pool.seize_position(asset, side, position)`. On completion it publishes
+`CleanBadDebtEvent { account_id, total_borrow_usd_wad,
+total_collateral_usd_wad }`
 (`common/src/events.rs`) and removes the account.
 
-**Reduction** — only the `Borrow`-side seizure moves the index. On the pool's
+**Reduction** — only the `Borrow`-side seizure moves the asset's index. On the pool's
 `seize_position` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
 scaled amount to pool revenue (no index motion); a `Borrow` seizure unscales
 the debt and calls
@@ -111,8 +112,8 @@ Negative / accepted costs:
   socialization is a tunable; audit and launch review cover threshold
   sensitivity.
 - A severe single-step index drop has no dedicated on-chain signal and the
-  pool does not self-pause; operators detect it from the emitted market-state
-  snapshot.
+  central pool does not self-pause; operators detect it from the emitted
+  market-state snapshot.
 
 ## References
 

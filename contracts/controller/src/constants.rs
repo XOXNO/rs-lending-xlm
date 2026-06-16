@@ -10,3 +10,8 @@ pub const MAX_EMODE_ASSETS_PER_CATEGORY: u32 = 64;
 // Cap on the controller's `PoolsList`. Single-entry serialization + per-tx
 // footprint cost both scale linearly with the list length.
 pub const MAX_POOLS_LIST_ENTRIES: u32 = 256;
+
+// Public view helpers accept caller-provided vectors. Bound them to the same
+// order of magnitude as the market registry so malformed RPC reads cannot force
+// unbounded local work.
+pub const MAX_VIEW_INPUTS: u32 = MAX_POOLS_LIST_ENTRIES;

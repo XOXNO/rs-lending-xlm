@@ -31,7 +31,7 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
         coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
-        fmt fmt-check clippy clippy-contracts clippy-fuzz \
+        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-strict \
         wasm-size-check act-ci act-ci-dryrun mutants clean install-stellar-cli \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
@@ -371,6 +371,14 @@ clippy-contracts:
 ## Lint the fuzz crate (excluded from the workspace).
 clippy-fuzz:
 	cargo clippy --manifest-path $(FUZZ_DIR)/Cargo.toml --all-targets -- -D warnings
+
+## Run Scout static analysis on contract crates.
+scout:
+	.github/scripts/run_scout.sh
+
+## Run Scout and fail if any report is incomplete.
+scout-strict:
+	SCOUT_STRICT=1 .github/scripts/run_scout.sh
 
 # ---------------------------------------------------------------------------
 # WASM size budget

@@ -22,15 +22,15 @@ operation does not touch.
 ## Decision
 
 **Scaled-balance accounting.** Positions store balances scaled against the
-pool's supply or borrow index (RAY precision). Actual amounts are
+market's supply or borrow index (RAY precision). Actual amounts are
 reconstructed at read time:
 
 - `supply_actual = scaled_supply * supply_index / RAY`
 - `borrow_actual = scaled_debt * borrow_index / RAY`
 
-Indexes are advanced by `interest::global_sync` before each pool mutation
-(`contracts/pool/src/interest.rs`). Interest accrues to all holders by index motion,
-not by per-account writes.
+Indexes are advanced by `interest::global_sync` before each asset-scoped pool
+mutation (`contracts/pool/src/interest.rs`). Interest accrues to all holders of
+that market by index motion, not by per-account writes.
 
 **Per-side storage split.** Account state is partitioned into three keys:
 
@@ -72,7 +72,8 @@ requires a health-factor buffer for risk-increasing changes.
 
 Positive:
 
-- Interest accrual is `O(1)` per pool: index motion replaces account sweeps.
+- Interest accrual is `O(1)` per market row in the central pool: index motion
+  replaces account sweeps.
 - Supply-only and repay-only flows mutate only the relevant side; a debt-free
   withdraw still loads the full account record but takes the permissive
   `RiskDecreasing` oracle path instead of the risk-increasing health-factor
@@ -81,11 +82,11 @@ Positive:
 - Health-factor checks load both sides only where actually required.
 - Storage TTL is partitioned: account-side entries are renewed by the account
   owner via the on-chain `renew_account` entrypoint (owner-authenticated,
-  `contracts/controller/src/router.rs`), and any party can extend their
-  footprint TTL permissionlessly through off-chain `ExtendFootprintTtl` ops run
-  by the keeper (`services/keeper`); the controller instance is bumped by
-  `renew_controller_instance` and pool instance TTL on every pool mutation
-  (`contracts/controller/src/storage/ttl.rs`).
+  `contracts/controller/src/router.rs`), and any party can extend footprint TTL
+  permissionlessly through off-chain `ExtendFootprintTtl` ops run by the keeper
+  (`services/keeper`). The controller instance is bumped by
+  `renew_controller_instance`; the central pool instance and asset-keyed
+  `Params` / `State` rows are renewed by pool load/mutation paths.
 
 Negative / accepted costs:
 

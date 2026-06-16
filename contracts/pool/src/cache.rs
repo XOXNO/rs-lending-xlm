@@ -44,7 +44,11 @@ impl Cache {
         crate::utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
-        let timestamp = env.ledger().timestamp() * MS_PER_SECOND;
+        let timestamp = env
+            .ledger()
+            .timestamp()
+            .checked_mul(MS_PER_SECOND)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
         Cache {
             env: env.clone(),
@@ -209,7 +213,12 @@ impl Cache {
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
-            (pos_scaled, amount - current_debt_ceil)
+            (
+                pos_scaled,
+                amount
+                    .checked_sub(current_debt_ceil)
+                    .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow)),
+            )
         } else {
             (self.calculate_scaled_borrow(amount), 0)
         }

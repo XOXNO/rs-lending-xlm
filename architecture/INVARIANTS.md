@@ -282,15 +282,16 @@ Market configuration must preserve:
 - `liquidation_fees_bps <= BPS`
 - `flashloan_fee_bps <= MAX_FLASHLOAN_FEE_BPS`
 - non-negative supply cap and borrow cap
-- dust floors are zero (disabled) or `>= MIN_DUST_FLOOR_WAD`
 - `reserve_factor_bps < BPS`
 - `0 < mid_utilization_ray < optimal_utilization_ray < RAY` and
   `optimal_utilization_ray <= max_utilization_ray <= RAY`
 - monotonic rate slopes bounded by `MAX_BORROW_RATE_RAY`
+- `MinBorrowCollateralUsd` is non-negative and gates debt-bearing accounts
+  through the post-pool LTV collateral check
 
 | Runtime | Verification |
 |---|---|
-| `contracts/controller/src/validation.rs`, `contracts/controller/src/config.rs`, `contracts/pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
+| `common::validation`, `contracts/controller/src/validation.rs`, `contracts/controller/src/governance/config.rs`, `contracts/governance/src/validate/asset.rs`, `contracts/pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
 
 ### 4.2 Oracle Configuration
 
@@ -311,7 +312,7 @@ Required decimals are discovered on-chain, not supplied by operators.
 
 | Runtime | Verification |
 |---|---|
-| `contracts/controller/src/config.rs`, `contracts/controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
+| `contracts/controller/src/governance/config.rs`, `contracts/controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
 
 ### 4.3 Price Resolution
 
@@ -366,16 +367,17 @@ flowchart TD
 
 ## 5. Storage and Boundaries
 
-### 5.1 Controller and Pool Boundary
+### 5.1 Governance, Controller, and Pool Boundary
 
-The controller depends on the pool ABI, not pool internals. Pools are
-owner-gated: accounting and maintenance mutations enforce controller
-ownership, pool WASM upgrade is owner-gated, and pools do not make
-protocol-level risk decisions.
+Governance owns the controller in production and routes protocol-admin changes
+through typed timelock proposers. The controller depends on the pool ABI, not
+pool internals. The central pool is owner-gated: accounting and maintenance
+mutations enforce controller ownership, pool WASM upgrade is owner-gated, and
+the pool does not make protocol-level risk decisions.
 
 | Runtime | Verification |
 |---|---|
-| `interfaces/pool/src/lib.rs`, `contracts/controller/Cargo.toml`, `contracts/pool/src/lib.rs` (`#[only_owner]`) | build graph, controller-to-pool tests |
+| `contracts/governance/src/*`, `interfaces/pool/src/lib.rs`, `contracts/controller/Cargo.toml`, `contracts/pool/src/lib.rs` (`#[only_owner]`) | build graph, governance/controller/pool tests |
 
 ### 5.2 Account Storage
 
@@ -401,7 +403,8 @@ exists. Account removal removes metadata and both side maps.
 
 Persistent account and shared protocol state require explicit TTL extension.
 Keeper keepalive paths cover shared market/e-mode state, account metadata and
-position maps, and pool instance state.
+position maps, governance/controller/pool instance state, and the central
+pool's asset-keyed `Params` / `State` rows.
 
 | Runtime | Verification |
 |---|---|
@@ -427,11 +430,11 @@ These are intentional design choices. Changes to them require protocol review:
 Re-run the relevant tests, fuzz targets, and Certora rules after changes to:
 
 - fixed-point arithmetic, rate curves, or index updates
-- pool reserve accounting or protocol revenue accounting
+- pool reserve accounting, `cash`, or protocol revenue accounting
 - liquidation, health-factor, or LTV admission logic
 - oracle configuration or price resolution
 - account storage layout or TTL keepalive paths
-- controller-to-pool ABI signatures
+- governance/controller/pool ABI signatures
 
 Minimum properties to re-check:
 
