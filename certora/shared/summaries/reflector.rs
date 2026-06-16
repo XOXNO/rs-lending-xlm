@@ -1,38 +1,19 @@
-//! SEP-40 Reflector oracle summaries for Certora.
-//!
-//! Summaries model valid Reflector domains: positive prices, bounded
-//! timestamps, and descending historical timestamps.
+//! Reflector oracle summaries: positive prices and bounded timestamps.
 
 use cvlr::cvlr_assume;
 use cvlr::nondet::{nondet, nondet_option};
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
-// Bounds applied by the production staleness / sanity checks
 
-/// Maximum future timestamp skew accepted by production checks.
 const MAX_CLOCK_SKEW_SECS: u64 = 60;
-
-/// Maximum historical price count modeled by prover rules.
 const MAX_PRICES_LEN: u32 = 20;
-// `base`
 
 pub fn base_summary(env: &Env, _oracle: &Address) -> ReflectorAsset {
     ReflectorAsset::Other(Symbol::new(env, "USD"))
 }
-// `lastprice`
 
-/// Summary for `ReflectorClient::lastprice`.
-///
-/// Production guarantees (SEP-40 + controller-side post-conditions):
-///   * Returns `None` when the asset is not configured in the oracle.
-///   * Returns `Some(ReflectorPriceData { price, timestamp })` with
-///     `price > 0` (production code panics with `InvalidPrice` on a
-///     non-positive feed; modelling this ahead of the call removes a sink
-///     branch for the prover).
-///   * `timestamp <= ledger().timestamp() + 60` -- the clock-skew gate at
-///     `controller/src/oracle/mod.rs::check_not_future` rejects further-out
-///     timestamps.
+/// Last price: `price > 0`, timestamp within ledger + skew.
 pub fn lastprice_summary(
     env: &Env,
     _oracle: &Address,
@@ -46,22 +27,8 @@ pub fn lastprice_summary(
         ReflectorPriceData { price, timestamp }
     })
 }
-// `prices`
 
-/// Summary for `ReflectorClient::prices`.
-///
-/// Production guarantees:
-///   * Returns `None` when the asset is not configured.
-///   * On `Some`, returns up to `records` entries -- each entry is one
-///     historical snapshot. Entries are ordered most-recent-first
-///     (`prices[0].timestamp >= prices[1].timestamp >= ...`).
-///   * Each `price > 0`; each `timestamp` bounded above by current ledger
-///     time + 60s clock-skew tolerance.
-///
-/// Bounded length: `records.min(MAX_PRICES_LEN)`. The cap is a verification
-/// hygiene constraint -- without it the prover would unroll an unbounded
-/// Vec construction loop. Production has no formal cap; rules that need a
-/// specific length should constrain `records` themselves.
+/// Historical prices: positive entries, descending timestamps, length capped at `records`.
 pub fn prices_summary(
     env: &Env,
     _oracle: &Address,
@@ -81,8 +48,6 @@ pub fn prices_summary(
             let price: i128 = nondet();
             let timestamp: u64 = nondet();
             cvlr_assume!(price > 0);
-            // Monotone non-increasing timestamp chain. Each sample is bounded
-            // by the preceding newer entry's timestamp.
             cvlr_assume!(timestamp <= prev_ts);
             out.push_back(ReflectorPriceData { price, timestamp });
             prev_ts = timestamp;

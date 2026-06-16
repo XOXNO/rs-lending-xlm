@@ -215,6 +215,9 @@
             },
             {
                 "conf": "certora/controller/confs/health-gated.conf"
+            },
+            {
+                "conf": "certora/controller/confs/flash_loan.conf"
             }
         ],
         "critical": [

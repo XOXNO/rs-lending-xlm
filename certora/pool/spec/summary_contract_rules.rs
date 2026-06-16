@@ -60,8 +60,7 @@ fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolActi
     }
 }
 
-// Bulk-of-one wrappers mirroring integrity_rules: rules verify per-entry
-// semantics; bulk endpoints are input-ordered loops of that body.
+// Bulk-of-one wrappers: one entry through the bulk endpoint.
 fn supply_first(e: &Env, act: PoolAction, cap: i128) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolSupplyEntry {
@@ -314,23 +313,7 @@ fn flash_loan_satisfies_fee_domain(
     cvlr_satisfy!(true);
 }
 
-// View-summary soundness
-//
-// The pool view summaries in `certora/shared/summaries/pool.rs`
-// (`reserves_summary`, `supplied_amount_summary`, `borrowed_amount_summary`,
-// `protocol_revenue_summary`, `capital_utilisation_summary`) assume bounds on
-// the real views. Unlike the mutating-op summaries above, those view summaries
-// had no soundness proof. These rules run the REAL `LiquidityPool` views on a
-// seeded state satisfying the documented state invariants and assert the
-// claimed bounds.
-//
-// Bounds mirror `integrity_rules::revenue_le_supplied_after_add_rewards`
-// (amounts <= 1_000_000 * RAY) so the unscale math stays inside the same
-// widening domain the existing pool proofs use.
-//
-// NOTE: `capital_utilisation <= RAY` is deliberately NOT asserted. The real
-// view returns `borrowed/supplied` in RAY, which a bad-debt write-down can push
-// above RAY (see the `capital_utilisation_summary` doc). Only `>= 0` is sound.
+// View bounds on real LiquidityPool views over seeded valid state.
 
 #[allow(clippy::too_many_arguments)]
 fn view_state(
@@ -353,8 +336,7 @@ fn view_state(
     }
 }
 
-/// `reserves` returns the accounted `cash` field unchanged; with the state
-/// invariant `cash >= 0` it is non-negative.
+/// `reserves` is non-negative when `cash >= 0`.
 #[rule]
 fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
     cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
@@ -367,8 +349,7 @@ fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
     cvlr_assert!(crate::LiquidityPool::reserves(e, asset) >= 0);
 }
 
-/// `supplied_amount = unscale_supply(supplied_ray)`; non-negative inputs and a
-/// floored supply index keep the rescaled asset amount non-negative.
+/// `supplied_amount` is non-negative under valid state.
 #[rule]
 fn supplied_amount_view_nonneg(
     e: Env,
@@ -396,8 +377,7 @@ fn supplied_amount_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::supplied_amount(e, asset) >= 0);
 }
 
-/// `borrowed_amount = unscale_borrow(borrowed_ray)`; non-negative inputs and a
-/// `>= RAY` borrow index keep the rescaled asset amount non-negative.
+/// `borrowed_amount` is non-negative under valid state.
 #[rule]
 fn borrowed_amount_view_nonneg(
     e: Env,
@@ -425,8 +405,7 @@ fn borrowed_amount_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::borrowed_amount(e, asset) >= 0);
 }
 
-/// `protocol_revenue = unscale_supply(revenue_ray)`; non-negative revenue and a
-/// floored supply index keep it non-negative.
+/// `protocol_revenue` is non-negative under valid state.
 #[rule]
 fn protocol_revenue_view_nonneg(
     e: Env,
@@ -456,10 +435,7 @@ fn protocol_revenue_view_nonneg(
     cvlr_assert!(crate::LiquidityPool::protocol_revenue(e, asset) >= 0);
 }
 
-/// The cross-view identity `revenue <= supplied`. Both views unscale by the
-/// SAME supply index (a monotone non-decreasing map), so the ray-level
-/// invariant `revenue_ray <= supplied_ray` (proven preserved in
-/// `integrity_rules`) carries to asset units.
+/// `protocol_revenue <= supplied_amount` when `revenue_ray <= supplied_ray`.
 #[rule]
 fn protocol_revenue_le_supplied_view(
     e: Env,
@@ -491,9 +467,7 @@ fn protocol_revenue_le_supplied_view(
     cvlr_assert!(revenue_units <= supplied_units);
 }
 
-/// `capital_utilisation` returns `borrowed/supplied` in RAY (0 when supply is
-/// empty); it is always non-negative. The `<= RAY` upper bound is intentionally
-/// unproven — a bad-debt write-down can transiently exceed it.
+/// `capital_utilisation` is non-negative (upper bound not asserted).
 #[rule]
 fn capital_utilisation_view_nonneg(
     e: Env,

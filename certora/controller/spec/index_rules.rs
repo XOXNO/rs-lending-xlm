@@ -1,40 +1,26 @@
-/// Index Safety & Monotonicity Rules
-///
-/// Rules cover supply-index floors, borrow-index floors, monotonic index
-/// growth, and the controlled supply-index reduction used for bad-debt
-/// socialization.
+//! Supply and borrow index floor and monotonicity rules.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
-// Rule 1: Supply index never drops below the bad-debt floor
 
-/// The supply index must always be >= `SUPPLY_INDEX_FLOOR_RAW`. The pool
-/// initialises the index at `RAY` and only ever decreases it via bad-debt
-/// socialisation (`pool/src/interest::apply_bad_debt_to_supply_index`),
-/// which clamps at `SUPPLY_INDEX_FLOOR_RAW`. The earlier `>= RAY` form was
-/// too strict: any pool that had absorbed bad debt would falsify the rule
-/// even though the production guard is intact.
+/// Supply index stays at or above the bad-debt socialization floor.
 #[rule]
 fn supply_index_above_floor(e: Env, asset: Address) {
-    // Assume the asset is initialized (has a config with non-zero threshold)
     let config = crate::storage::asset_config::get_asset_config(&e, &asset);
     cvlr_assume!(config.liquidation_threshold_bps > 0);
 
-    // Load the current market index for the asset
     let cache_entry = crate::storage::market_index::get_market_index(&e, &asset);
 
     cvlr_assert!(cache_entry.supply_index.raw() >= SUPPLY_INDEX_FLOOR_RAW);
 }
-// Rule 2: Borrow index never drops below RAY (1.0)
 
-/// The borrow index must always be >= RAY (10^27).
-/// A borrow index below 1.0 would mean debt shrinks over time without repayment.
+/// Borrow index stays at or above `RAY` (1.0).
 #[rule]
 fn borrow_index_gte_ray(e: Env, asset: Address) {
-    // Assume the asset is initialized (has a config with non-zero threshold)
     let config = crate::storage::asset_config::get_asset_config(&e, &asset);
     cvlr_assume!(config.liquidation_threshold_bps > 0);
 
@@ -42,31 +28,24 @@ fn borrow_index_gte_ray(e: Env, asset: Address) {
 
     cvlr_assert!(cache_entry.borrow_index.raw() >= RAY);
 }
-// Rule 3: Borrow index monotonically increases after accrual
 
-/// After interest accrual, the borrow index must not decrease.
-/// Violation would mean debt is being erased without repayment.
+/// Borrow index does not decrease after accrual-triggering operations.
 #[rule]
 fn borrow_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
-    // Capture index before
     let index_before = crate::storage::market_index::get_market_index(&e, &asset);
     let borrow_before = index_before.borrow_index.raw();
 
-    // Trigger index update via any operation (supply triggers accrual)
     let amount: i128 = cvlr::nondet::nondet();
     cvlr_assume!(amount > 0);
     crate::spec::compat::supply_single(e.clone(), caller, account_id, asset.clone(), amount);
 
-    // Capture index after
     let index_after = crate::storage::market_index::get_market_index(&e, &asset);
     let borrow_after = index_after.borrow_index.raw();
 
     cvlr_assert!(borrow_after >= borrow_before);
 }
-// Rule 4: Supply index monotonically increases after accrual
-//         (except during bad debt socialization)
 
-/// After interest accrual (non-bad-debt path), supply index must not decrease.
+/// Supply index does not decrease after accrual-triggering operations.
 #[rule]
 fn supply_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address, account_id: u64) {
     let index_before = crate::storage::market_index::get_market_index(&e, &asset);
@@ -81,10 +60,8 @@ fn supply_index_monotonic_after_accrual(e: Env, asset: Address, caller: Address,
 
     cvlr_assert!(supply_after >= supply_before);
 }
-// Rule 5: Indexes unchanged when no time has elapsed
 
-/// When delta_time == 0, compound_interest returns RAY (1.0), so both the
-/// borrow index and supply index must remain unchanged after an update.
+/// Zero elapsed time leaves both indexes unchanged.
 #[rule]
 fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     let old_borrow_index: i128 = cvlr::nondet::nondet();
@@ -97,15 +74,12 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     cvlr_assume!(supplied >= 0);
     cvlr_assume!(rate >= 0);
 
-    // delta_time = 0 => compound interest factor = RAY (exactly 1.0)
     let factor = common::rates::compound_interest(&e, Ray::from(rate), 0);
     cvlr_assert!(factor == Ray::ONE);
 
-    // Borrow index identity under a unit compound factor.
     let new_borrow = common::rates::update_borrow_index(&e, Ray::from(old_borrow_index), factor);
     cvlr_assert!(new_borrow.raw() == old_borrow_index);
 
-    // Supply index: rewards_increase = 0 when no interest accrued => unchanged
     let new_supply = common::rates::update_supply_index(
         &e,
         Ray::from(supplied),
@@ -114,7 +88,6 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
     );
     cvlr_assert!(new_supply.raw() == old_supply_index);
 }
-// Sanity
 
 #[rule]
 fn index_sanity(e: Env, asset: Address) {

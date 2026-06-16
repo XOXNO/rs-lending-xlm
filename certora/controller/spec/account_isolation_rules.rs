@@ -1,9 +1,5 @@
-/// Account isolation rules.
-///
-/// Prove that a controller action on one account never mutates another
-/// account's positions: supply and borrow leave other accounts untouched, and
-/// repay only changes the target account's debt. These are cross-account
-/// non-interference invariants expected of any multi-account lending market.
+//! Cross-account non-interference: one account's action does not mutate another's positions.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -11,6 +7,7 @@ use soroban_sdk::{Address, Env};
 use crate::constants::WAD;
 use crate::types::AccountPositionType;
 
+/// Supply on one account leaves other accounts' positions unchanged.
 #[rule]
 fn supply_does_not_change_other_account_positions(
     e: Env,
@@ -54,6 +51,7 @@ fn supply_does_not_change_other_account_positions(
     cvlr_assert!(other_borrow_after == other_borrow_before);
 }
 
+/// Borrow on one account leaves other accounts' positions unchanged.
 #[rule]
 fn borrow_does_not_change_other_account_positions(
     e: Env,
@@ -97,6 +95,7 @@ fn borrow_does_not_change_other_account_positions(
     cvlr_assert!(other_borrow_after == other_borrow_before);
 }
 
+/// Repay on one account does not change another account's debt.
 #[rule]
 fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Address, amount: i128) {
     let target_account: u64 = 1;

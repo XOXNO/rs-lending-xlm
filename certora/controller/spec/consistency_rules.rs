@@ -1,9 +1,5 @@
-/// Controller/pool consistency rules.
-///
-/// Prove that the controller persists the position the pool returns: after a
-/// supply or borrow, the account's scaled deposit/debt does not decrease. These
-/// back `confs/controller-pool-consistency.conf` (heavy, sanity off) and its
-/// paired `confs/controller-pool-consistency-light.conf` (basic sanity).
+//! Controller persists pool-returned position updates after supply and borrow.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
@@ -11,6 +7,7 @@ use soroban_sdk::{Address, Env};
 use crate::constants::WAD;
 use crate::types::AccountPositionType;
 
+/// Supply does not decrease the account's stored deposit scaled amount.
 #[rule]
 fn controller_supply_persists_pool_returned_position(
     e: Env,
@@ -39,6 +36,7 @@ fn controller_supply_persists_pool_returned_position(
     cvlr_assert!(after >= before);
 }
 
+/// Borrow does not decrease the account's stored debt scaled amount.
 #[rule]
 fn controller_borrow_persists_pool_returned_position(
     e: Env,

@@ -1,8 +1,5 @@
-/// Oracle compose and dual-source degradation rules.
-///
-/// Verifies `compose.rs` policy gates for `allows_degraded_dual_source`,
-/// `fallback_to_primary`, and stale-anchor handling under pinned
-/// `OraclePolicy` variants.
+//! Oracle compose rules: dual-source degradation and stale-anchor policy gates.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
@@ -35,8 +32,7 @@ fn permissive_policies_allow_degraded_dual_source() {
     cvlr_satisfy!(true);
 }
 
-/// `fallback_to_primary` under a permissive policy returns the primary feed
-/// unchanged and clears the anchor leg.
+/// `fallback_to_primary` under Repay returns primary price and clears the anchor leg.
 #[rule]
 fn fallback_to_primary_succeeds_under_repay_policy(e: Env, primary_price: i128, timestamp: u64) {
     cvlr_assume!(primary_price > 0 && primary_price <= 1_000_000 * WAD);
@@ -52,7 +48,7 @@ fn fallback_to_primary_succeeds_under_repay_policy(e: Env, primary_price: i128, 
     cvlr_assert!(!resolved.within_second_tolerance);
 }
 
-/// Strict flows must revert when dual-source resolution degrades to primary-only.
+/// `fallback_to_primary` reverts under Liquidation policy.
 #[rule]
 fn fallback_to_primary_panics_under_liquidation_policy(
     e: Env,
@@ -69,7 +65,7 @@ fn fallback_to_primary_panics_under_liquidation_policy(
     cvlr_satisfy!(false);
 }
 
-/// Stale anchors are treated as unusable under permissive policies without panic.
+/// Stale anchor observations are unusable under Repay without panic.
 #[rule]
 fn anchor_stale_unusable_under_repay_policy(e: Env, max_stale: u64) {
     cvlr_assume!((60..=86_400).contains(&max_stale));
@@ -84,7 +80,7 @@ fn anchor_stale_unusable_under_repay_policy(e: Env, max_stale: u64) {
     cvlr_assert!(!usable);
 }
 
-/// Strict policies panic on stale anchor feeds instead of degrading silently.
+/// Stale anchor observations revert under Liquidation policy.
 #[rule]
 fn anchor_stale_panics_under_liquidation_policy(e: Env, max_stale: u64) {
     cvlr_assume!((60..=86_400).contains(&max_stale));

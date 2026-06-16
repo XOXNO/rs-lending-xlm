@@ -1,9 +1,5 @@
-/// Market entry-guard rules.
-///
-/// Prove that the controller rejects new exposure when a precondition fails:
-/// an account with no collateral cannot borrow, a disabled market accepts no
-/// new supply, and a market with a pending oracle accepts no new borrow. Each
-/// rule asserts the guarded path is unreachable (`cvlr_satisfy!(false)`).
+//! Market entry guards reject new exposure when preconditions fail.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
@@ -11,6 +7,7 @@ use soroban_sdk::{Address, Env};
 use crate::constants::WAD;
 use crate::types::{AccountPositionType, MarketStatus};
 
+/// Account with no collateral cannot borrow.
 #[rule]
 fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -25,6 +22,7 @@ fn no_collateral_account_cannot_borrow(e: Env, caller: Address, asset: Address, 
     cvlr_satisfy!(false);
 }
 
+/// Disabled market rejects new supply.
 #[rule]
 fn disabled_market_blocks_new_supply(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
@@ -38,6 +36,7 @@ fn disabled_market_blocks_new_supply(e: Env, caller: Address, asset: Address, am
     cvlr_satisfy!(false);
 }
 
+/// Pending-oracle market rejects new borrow.
 #[rule]
 fn pending_oracle_market_blocks_new_borrow(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;

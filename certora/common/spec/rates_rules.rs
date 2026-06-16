@@ -179,11 +179,7 @@ fn simulate_indexes_no_time_noop(
     cvlr_assert!(index.supply_index.raw() == supply_index);
 }
 
-/// Soundness of `summaries::simulate_update_indexes_summary`: over a single
-/// accrual chunk the real read-path indexes never shrink, and the borrow index
-/// stays under `MAX_BORROW_INDEX_RAY`. The summary over-approximates this as
-/// monotone-from-input. `last_timestamp = 0` with `delta_ms <=
-/// MAX_COMPOUND_DELTA_MS` keeps the accrual loop to one iteration.
+/// One accrual chunk: indexes non-decreasing, borrow index <= MAX_BORROW_INDEX_RAY.
 #[rule]
 fn simulate_indexes_monotone_one_chunk(
     e: Env,

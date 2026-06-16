@@ -68,8 +68,7 @@ fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolActi
     }
 }
 
-// Bulk-of-one wrappers: rules verify per-entry semantics; the bulk endpoints
-// are input-ordered loops of exactly that body.
+// Bulk-of-one wrappers: one entry through the bulk endpoint.
 fn supply_first(e: &Env, act: PoolAction, cap: i128) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
     entries.push_back(common::types::PoolSupplyEntry {

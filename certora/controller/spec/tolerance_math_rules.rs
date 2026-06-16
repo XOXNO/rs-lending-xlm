@@ -1,8 +1,5 @@
-/// Production tolerance-band ratio math (unsummarised).
-///
-/// These rules exercise the real `primary/anchor` ratio computation from
-/// `oracle/tolerance.rs` via `fp_core`, not the Certora harness nondet
-/// replacement used in `oracle.conf` policy-branch rules.
+//! Production tolerance-band ratio math via unsummarised `oracle/tolerance.rs` paths.
+
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
@@ -16,7 +13,6 @@ use soroban_sdk::panic_with_error;
 
 use crate::cache::Cache;
 
-/// Mirrors production `is_within_anchor` (`oracle/tolerance.rs`).
 fn production_is_within_anchor(
     env: &Env,
     anchor: i128,
@@ -34,7 +30,6 @@ fn production_is_within_anchor(
     ratio_bps <= upper && ratio_bps >= lower
 }
 
-/// Mirrors production `calculate_final_price` with real band math.
 fn production_calculate_final_price(
     cache: &Cache,
     anchor: Option<i128>,
@@ -75,6 +70,7 @@ fn production_calculate_final_price(
     }
 }
 
+/// Zero anchor is always outside the tolerance band.
 #[rule]
 fn zero_anchor_returns_false(e: Env, primary: i128) {
     cvlr_assume!(primary > 0 && primary <= 1_000_000 * WAD);
@@ -82,6 +78,7 @@ fn zero_anchor_returns_false(e: Env, primary: i128) {
     cvlr_assert!(!within);
 }
 
+/// Equal prices fall within a symmetric first band.
 #[rule]
 fn equal_prices_within_symmetric_first_band(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= 1_000_000 * WAD);
@@ -90,6 +87,7 @@ fn equal_prices_within_symmetric_first_band(e: Env, price: i128) {
     cvlr_assert!(within);
 }
 
+/// Equal primary and anchor yield ratio 10_000 bps (100%).
 #[rule]
 fn par_ratio_is_bps(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= 1_000_000 * WAD);
@@ -99,6 +97,7 @@ fn par_ratio_is_bps(e: Env, price: i128) {
     cvlr_assert!(ratio_bps == BPS);
 }
 
+/// 2x price divergence falls outside a tight first band.
 #[rule]
 fn divergent_prices_outside_tight_first_band(e: Env, anchor: i128, primary: i128) {
     cvlr_assume!(anchor > 0 && anchor <= 1_000_000 * WAD);
@@ -108,7 +107,7 @@ fn divergent_prices_outside_tight_first_band(e: Env, anchor: i128, primary: i128
     cvlr_assert!(!within);
 }
 
-/// Permissive-mode return when both prices diverge beyond the last band.
+/// Permissive policy returns primary when both prices diverge beyond the last band.
 #[rule]
 fn beyond_tolerance_permissive_returns_primary(e: Env, anchor_price: i128, primary_price: i128) {
     cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
@@ -133,7 +132,7 @@ fn beyond_tolerance_permissive_returns_primary(e: Env, anchor_price: i128, prima
     cvlr_assert!(final_price == primary_price);
 }
 
-/// Strict liquidation policy reverts on dual-source divergence beyond the last band.
+/// Liquidation policy reverts when dual-source prices diverge beyond the last band.
 #[rule]
 fn liquidation_rejects_unsafe_dual_source_prices(e: Env, anchor_price: i128, primary_price: i128) {
     cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
