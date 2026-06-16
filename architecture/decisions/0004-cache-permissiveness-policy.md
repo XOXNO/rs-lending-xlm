@@ -32,9 +32,7 @@ Centralize the policy in `OraclePolicy`
 - `OraclePolicy::RiskDecreasing` — permissive pricing for paths that reduce
   risk or only move supply-side state.
 - `OraclePolicy::Repay` — permissive pricing plus disabled-market pricing for
-  normal repay.
-- `OraclePolicy::IsolatedRepay` — disabled-market pricing with strict
-  stale/deviation/TWAP gates for isolated repay.
+  repay.
 - `OraclePolicy::Liquidation` — strict stale/deviation/TWAP gates for
   liquidation and standalone bad-debt cleanup. Its allowance table is
   byte-identical to `RiskIncreasing` (all four loosenings denied), kept a
@@ -63,8 +61,7 @@ Per-flow assignment (`contracts/controller/src/positions/*.rs`,
 | `claim_revenue`, `add_rewards`    | `RiskDecreasing`                   |
 | `withdraw` (debt-free)            | `RiskDecreasing`                   |
 | `withdraw` (with debt)            | `RiskIncreasing`                   |
-| `repay` (non-isolated)            | `Repay`                            |
-| `repay` (isolated)                | `IsolatedRepay`                    |
+| `repay`                           | `Repay`                            |
 | views                             | `View`                             |
 
 `OraclePolicy` controls the gates inside the oracle module:
@@ -92,7 +89,7 @@ Per-flow assignment (`contracts/controller/src/positions/*.rs`,
   the anchor in tolerance selection.
 - **Disabled markets** (`oracle::token_price`,
   `contracts/controller/src/oracle/price.rs`): normal policies reject;
-  `Repay`, `IsolatedRepay`, and `View` allow pricing.
+  `Repay` and `View` allow pricing.
 
 `token_price` additionally enforces policy-independent gates on every read:
 positive price (`InvalidPrice`), the configured sanity band
@@ -104,11 +101,6 @@ The clock-skew gate (`check_not_future_at`,
 mode: it rejects feed timestamps more than `MAX_FUTURE_SKEW_SECONDS` (a
 one-sided 60s future bound) ahead of the ledger clock with
 `OracleError::PriceFeedStale`.
-
-For `repay`, isolation accounts use the strict deviation/staleness gates
-because the global `IsolatedDebt(asset)` counter is updated in USD WAD
-and would drift if priced under a degraded feed
-(`contracts/controller/src/positions/repay.rs`).
 
 ## Alternatives Considered
 
@@ -160,7 +152,7 @@ Negative / accepted costs:
   risk semantics are explicit instead of encoded as boolean combinations.
 - Permissive caches accept the safe price even when both sources have
   drifted in the same direction. The two-source design (ADR 0003)
-  bounds this risk, and isolated debt opts out of the relaxation.
+  bounds this risk.
 
 ## Revisions
 

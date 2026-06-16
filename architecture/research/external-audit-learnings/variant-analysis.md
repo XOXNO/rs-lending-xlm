@@ -50,11 +50,10 @@ For each concrete finding pattern from the corpus, the 7 subsystem agents greppe
 | plain subtraction in bad-debt/liquidation totals | **guarded** | `interest.rs:85` `total - capped` guarded by `capped=min(bad_debt,total)`; all `liquidation_math.rs` subtractions inside `if a>b` guards; pool seize uses `checked_sub_assign`. |
 | repaid value reused for both pay and seize (Morpho over-seize) | **correct-by-design** | Seize denominated in settled `repay_usd`; `NormalizedRepaymentPlan::validate` asserts `sum_repaid_usd == repay_usd`; partial seize floors, full seize half-up. |
 | missing `liquidator != owner` check | **present** | `liquidation.rs:125-129` asserts `account.owner != liquidator`; harness `test_self_liquidation_rejects`. |
-| position flag not cleared on full close (Aave R1) | **clean** | Position existence *is* the flag (Map entry); `update_or_remove_debt_position` removes the key when `scaled==0`; isolated-debt counter cleared on repay + cleanup. |
+| position flag not cleared on full close (Aave R1) | **clean** | Position existence *is* the flag (Map entry); `update_or_remove_debt_position` removes the key when `scaled==0`. |
 | socialization gated on `collateral==0` (leave-1-wei) | **fixed** | Uses `≤$5` band, not `==0`. *(Introduces the inverse residual: the ($5,debt) gap band — backlog #2.)* |
 | util/cap check on borrow but absent on withdraw | **clean** | `require_utilization_below_max` on borrow + withdraw + strategy; withdraw skips only when `is_liquidation` (exits never blocked). |
-| isolation/cap counter decremented on repay but not liquidation | **clean** | Liquidation routes through the same `finish_repayment`→`adjust_isolated_debt_for_repay`; all reductions converge on `decrement_counter`. |
-| cap comparison `<` vs `<=` / per-call vs cumulative / round-down increment | **clean** | Balance caps inclusive `<=`; `PoolsList` `<` before push; caps compare aggregate `(total+delta)` not per-call; isolation increment & basis share one `amount_in_usd_wad`, decrement floors (can only over-count, never shave). |
+| cap comparison `<` vs `<=` / per-call vs cumulative / round-down increment | **clean** | Balance caps inclusive `<=`; `PoolsList` `<` before push; caps compare aggregate `(total+delta)` not per-call. |
 | reserve-list slot loop missing `break` / `>=` vs `>` (Aave/Kamino) | **absent** | No fixed-slot array; append-only Vec with dedup early-return + `<MAX` bound; removal `position()+remove(idx)` single-shot. |
 | ledger-sequence / block-delta subtraction in liquidation (Blend BLRC-018) | **absent** | Synchronous liquidation, no auction; only timestamp delta uses `saturating_sub`. |
 

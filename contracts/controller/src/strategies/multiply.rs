@@ -4,7 +4,7 @@
 
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use controller_interface::types::{Account, AssetConfig, PositionMode, StrategySwap};
+use controller_interface::types::{Account, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -116,15 +116,8 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         CollateralError::NotCollateral
     );
 
-    let (account_id, mut account) = load_or_create_multiply_account(
-        env,
-        caller,
-        account_id,
-        e_mode_category,
-        collateral_token,
-        &collateral_config,
-        mode,
-    );
+    let (account_id, mut account) =
+        load_or_create_multiply_account(env, caller, account_id, e_mode_category, mode);
 
     let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
@@ -226,27 +219,12 @@ fn load_or_create_multiply_account(
     caller: &Address,
     account_id: u64,
     e_mode_category: u32,
-    collateral_token: &Address,
-    collateral_config: &AssetConfig,
     mode: PositionMode,
 ) -> (u64, Account) {
     if account_id == 0 {
-        let is_isolated = collateral_config.is_isolated_asset;
-        let isolated_asset = if is_isolated {
-            Some(collateral_token.clone())
-        } else {
-            None
-        };
         // `create_account` returns the in-memory snapshot it just wrote, so
         // there's no need to re-read all 3 keys from storage.
-        return crate::helpers::create_account(
-            env,
-            caller,
-            e_mode_category,
-            mode,
-            is_isolated,
-            isolated_asset,
-        );
+        return crate::helpers::create_account(env, caller, e_mode_category, mode);
     }
 
     let account = storage::get_account(env, account_id);

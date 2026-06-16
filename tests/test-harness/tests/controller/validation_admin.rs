@@ -1,45 +1,8 @@
-use controller::constants::{MAX_FLASHLOAN_FEE_BPS, WAD};
+use controller::constants::MAX_FLASHLOAN_FEE_BPS;
 use soroban_sdk::{vec, Address};
 use test_harness::{
-    eth_preset, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
+    usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
 };
-// validate_bulk_isolation -- BulkSupplyNoIso (validation.rs:109)
-//
-// `validate_bulk_isolation` panics with #405 when a batch of distinct assets
-// has length > 1 and the first asset is isolated, or when the account is
-// isolated. Duplicate-asset batches are deduped before validation, so the
-// scenario uses two distinct asset addresses.
-
-#[test]
-#[should_panic(expected = "Error(Contract, #405)")]
-fn test_validate_bulk_isolation_rejects_isolated_first_asset_bulk() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .build();
-
-    // Mint both tokens to ALICE then call supply with a bulk batch where the
-    // first entry is the isolated asset.
-    let alice = t.get_or_create_user(ALICE);
-    let usdc = t.resolve_market("USDC");
-    let usdc_addr = usdc.asset.clone();
-    // 10_000 USDC at 7 decimals, 1 ETH at 7 decimals (Stellar-native).
-    usdc.token_admin.mint(&alice, &100_000_000_000_i128);
-    let eth = t.resolve_market("ETH");
-    let eth_addr = eth.asset.clone();
-    eth.token_admin.mint(&alice, &10_000_000_i128);
-
-    let assets = vec![
-        &t.env,
-        (usdc_addr, 100_000_000_000_i128),
-        (eth_addr, 10_000_000_i128),
-    ];
-    t.ctrl_client().supply(&alice, &0u64, &0u32, &assets);
-}
 // edit_asset_config is a thin setter: it persists the config as given
 // (input validation lives in governance).
 

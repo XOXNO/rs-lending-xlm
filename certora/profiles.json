@@ -86,13 +86,6 @@
                 ]
             },
             {
-                "conf": "certora/controller/confs/account-isolation.conf",
-                "args": [
-                    "--rule",
-                    "account_isolation_reachability"
-                ]
-            },
-            {
                 "conf": "certora/controller/confs/market-guard.conf",
                 "args": [
                     "--rule",
@@ -187,9 +180,6 @@
                 "conf": "certora/controller/confs/tolerance-math.conf"
             },
             {
-                "conf": "certora/controller/confs/isolation.conf"
-            },
-            {
                 "conf": "certora/controller/confs/strategy.conf"
             },
             {
@@ -200,9 +190,6 @@
             },
             {
                 "conf": "certora/controller/confs/boundary-oracle.conf"
-            },
-            {
-                "conf": "certora/controller/confs/account-isolation.conf"
             },
             {
                 "conf": "certora/controller/confs/market-guard.conf"

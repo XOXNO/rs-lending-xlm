@@ -101,15 +101,14 @@ pub async fn snapshot(
     let mut persistent_entries = client.get_ledger_entries(&[pool_list_key]).await?;
     let assets = extract_pools_list(&persistent_entries).unwrap_or_default();
 
-    // -- Per-asset persistent state: controller Market + IsolatedDebt, plus the
-    //    central pool's asset-keyed Params + State entries --
+    // -- Per-asset persistent state: controller Market plus the central pool's
+    //    asset-keyed Params + State entries --
     let mut pool_rows_present = 0usize;
     let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
-        let mut keys = Vec::with_capacity(chunk.len() * 4);
+        let mut keys = Vec::with_capacity(chunk.len() * 3);
         for asset in chunk {
             keys.push(ControllerPersistentKey::Market(*asset).to_ledger_key(&controller_id)?);
-            keys.push(ControllerPersistentKey::IsolatedDebt(*asset).to_ledger_key(&controller_id)?);
         }
         if let Some(pool) = &pool_id {
             for asset in chunk {
@@ -378,10 +377,8 @@ async fn discover_governance(
 
 /// Discover the per-user controller keys for accounts `1..=account_nonce`.
 ///
-/// Builds the three always-present per-account keys (`AccountMeta`,
-/// `SupplyPositions`, `BorrowPositions`) for every id, and an `IsolatedBasis`
-/// key only for accounts whose decoded `AccountMeta` is isolated — at most one
-/// per account, avoiding an O(accounts×assets) blowup.
+/// Builds the three per-account keys (`AccountMeta`, `SupplyPositions`,
+/// `BorrowPositions`) for every id.
 async fn discover_user_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
@@ -408,8 +405,6 @@ async fn discover_user_keys(
     let chunk = chunk_size.max(1);
     let ids: Vec<u64> = (1..=scan_ceiling).collect();
 
-    // The three per-account keys are bundled per chunk; the AccountMeta rows are
-    // decoded to learn which accounts are isolated.
     for id_chunk in ids.chunks(chunk) {
         let mut keys = Vec::with_capacity(id_chunk.len() * 3);
         for &id in id_chunk {
@@ -417,24 +412,7 @@ async fn discover_user_keys(
             keys.push(ControllerUserKey::SupplyPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::BorrowPositions(id).to_ledger_key(controller_id)?);
         }
-        let fetched = client.get_ledger_entries(&keys).await?;
-
-        // The fetch preserves request order, so each id maps to a stride of 3
-        // rows: [AccountMeta, SupplyPositions, BorrowPositions].
-        let mut isolated_basis_keys = Vec::new();
-        for (i, &id) in id_chunk.iter().enumerate() {
-            let meta_row = &fetched[i * 3];
-            if let Some(asset) = isolated_asset_from_account_meta(meta_row) {
-                isolated_basis_keys.push(
-                    ControllerUserKey::IsolatedBasis(id, asset).to_ledger_key(controller_id)?,
-                );
-            }
-        }
-        rows.extend(fetched);
-
-        for basis_chunk in isolated_basis_keys.chunks(chunk) {
-            rows.extend(client.get_ledger_entries(basis_chunk).await?);
-        }
+        rows.extend(client.get_ledger_entries(&keys).await?);
     }
 
     debug!(
@@ -444,49 +422,6 @@ async fn discover_user_keys(
         "per-user account keys discovered"
     );
     Ok(rows)
-}
-
-/// Decode an `AccountMeta` row's isolated collateral asset, if isolated.
-///
-/// `#[contracttype] struct AccountMeta` serializes as an `ScVal::Map` with
-/// fields sorted by symbol name: `e_mode_category_id`, `is_isolated`,
-/// `isolated_asset`, `mode`, `owner`. `isolated_asset: Option<Address>` encodes
-/// as `ScVal::Vec(Some([Address]))` for `Some` and `ScVal::Void` for `None`.
-/// Returns the asset only when `is_isolated` is true AND the asset is present.
-fn isolated_asset_from_account_meta(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
-    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
-        return None;
-    };
-    let ScVal::Map(Some(map)) = &cd.val else {
-        return None;
-    };
-
-    let mut is_isolated = false;
-    let mut asset: Option<[u8; 32]> = None;
-    for ScMapEntry { key, val } in map.0.iter() {
-        let ScVal::Symbol(ScSymbol(field)) = key else {
-            continue;
-        };
-        match field.to_utf8_string_lossy().as_str() {
-            "is_isolated" => {
-                if let ScVal::Bool(b) = val {
-                    is_isolated = *b;
-                }
-            }
-            "isolated_asset" => {
-                if let ScVal::Vec(Some(inner)) = val {
-                    if let Some(ScVal::Address(ScAddress::Contract(ContractId(Hash(b))))) =
-                        inner.0.first()
-                    {
-                        asset = Some(*b);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    is_isolated.then_some(asset).flatten()
 }
 
 /// Decode `ExistingRoles` (`Vec<Symbol>`) into role-name strings.
@@ -713,92 +648,4 @@ mod tests {
         assert!(ids.governance.is_none());
     }
 
-    fn sym(text: &str) -> ScVal {
-        ScVal::Symbol(ScSymbol(StringM::<32>::try_from(text).unwrap()))
-    }
-
-    /// Build an `AccountMeta` contract-data row with the given isolation state.
-    /// Fields are emitted sorted by symbol name, mirroring soroban's encoding.
-    fn account_meta_row(is_isolated: bool, isolated_asset: Option<[u8; 32]>) -> LedgerEntryQuery {
-        let asset_val = match isolated_asset {
-            Some(b) => ScVal::Vec(Some(ScVec(
-                vec![ScVal::Address(ScAddress::Contract(ContractId(Hash(b))))]
-                    .try_into()
-                    .unwrap(),
-            ))),
-            None => ScVal::Void,
-        };
-        let entries = vec![
-            ScMapEntry {
-                key: sym("e_mode_category_id"),
-                val: ScVal::U32(0),
-            },
-            ScMapEntry {
-                key: sym("is_isolated"),
-                val: ScVal::Bool(is_isolated),
-            },
-            ScMapEntry {
-                key: sym("isolated_asset"),
-                val: asset_val,
-            },
-            ScMapEntry {
-                key: sym("mode"),
-                val: ScVal::U32(0),
-            },
-            ScMapEntry {
-                key: sym("owner"),
-                val: ScVal::Address(ScAddress::Contract(ContractId(Hash([1u8; 32])))),
-            },
-        ];
-        let map = ScVal::Map(Some(ScMap(entries.try_into().unwrap())));
-        let key = LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
-            key: ScVal::LedgerKeyContractInstance,
-            durability: ContractDataDurability::Persistent,
-        });
-        LedgerEntryQuery {
-            key: key.clone(),
-            value: Some(LedgerEntryData::ContractData(ContractDataEntry {
-                ext: ExtensionPoint::V0,
-                contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
-                key: ScVal::LedgerKeyContractInstance,
-                durability: ContractDataDurability::Persistent,
-                val: map,
-            })),
-            live_until_ledger: Some(1),
-        }
-    }
-
-    #[test]
-    fn isolated_account_meta_yields_its_asset() {
-        let row = account_meta_row(true, Some([9u8; 32]));
-        assert_eq!(isolated_asset_from_account_meta(&row), Some([9u8; 32]));
-    }
-
-    #[test]
-    fn non_isolated_account_meta_yields_none() {
-        let row = account_meta_row(false, None);
-        assert_eq!(isolated_asset_from_account_meta(&row), None);
-    }
-
-    #[test]
-    fn isolated_flag_without_asset_yields_none() {
-        // Defensive: isolated flag set but asset absent → no IsolatedBasis key.
-        let row = account_meta_row(true, None);
-        assert_eq!(isolated_asset_from_account_meta(&row), None);
-    }
-
-    #[test]
-    fn absent_account_meta_yields_none() {
-        let row = LedgerEntryQuery {
-            key: LedgerKey::ContractData(LedgerKeyContractData {
-                contract: ScAddress::Contract(ContractId(Hash([2u8; 32]))),
-                key: ScVal::LedgerKeyContractInstance,
-                durability: ContractDataDurability::Persistent,
-            }),
-            value: None,
-            live_until_ledger: None,
-        };
-        assert_eq!(isolated_asset_from_account_meta(&row), None);
-    }
 }

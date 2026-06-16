@@ -112,17 +112,6 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     t.gov_client().edit_asset_config(&asset, &cfg);
 }
 
-// isolation_debt_ceiling_usd_wad < 0 rejects InvalidBorrowParams (#116).
-#[test]
-#[should_panic(expected = "Error(Contract, #116)")]
-fn test_validate_asset_config_rejects_negative_isolation_ceiling() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
-    cfg.isolation_debt_ceiling_usd_wad = -1;
-    t.gov_client().edit_asset_config(&asset, &cfg);
-}
-
 // `configure_market_oracle` error paths against the live mock reflector.
 
 fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {

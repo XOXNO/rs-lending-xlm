@@ -52,12 +52,6 @@ pub(crate) fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
 
     assert_with_error!(
         env,
-        config.isolation_debt_ceiling_usd_wad >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-
-    assert_with_error!(
-        env,
         i128::from(config.flashloan_fee_bps) <= MAX_FLASHLOAN_FEE_BPS,
         FlashLoanError::StrategyFeeExceeds
     );
@@ -113,11 +107,8 @@ mod tests {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
-            isolation_borrow_enabled: true,
-            isolation_debt_ceiling_usd_wad: 1_000 * WAD,
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,
             supply_cap: 5_000_000,

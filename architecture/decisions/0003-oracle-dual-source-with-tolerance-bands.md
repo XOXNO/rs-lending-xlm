@@ -23,8 +23,8 @@
 ## Context
 
 A lending protocol depends on price honesty for every solvency-relevant
-operation: borrow, withdraw with debt, liquidation, isolated-debt
-accounting, and account-threshold migration. A single price source that
+operation: borrow, withdraw with debt, liquidation, and account-threshold
+migration. A single price source that
 goes stale, mispublishes, or is manipulated translates directly into bad
 debt or wrongful liquidations.
 

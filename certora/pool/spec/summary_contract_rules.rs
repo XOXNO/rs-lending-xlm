@@ -175,8 +175,11 @@ fn withdraw_satisfies_controller_summary_contract(
     let before = position(scaled);
     let result = withdraw_first(&e, caller, action(before.clone(), amount, asset), false, 0);
 
+    // `resolve_withdrawal` returns `current_supply_floor <= current_supply_actual
+    // <= amount` on a full close and `amount` on a partial, so `actual <= amount`
+    // holds unconditionally — matching the summary's bound.
     cvlr_assert!(result.actual_amount >= 0);
-    cvlr_assert!(result.actual_amount <= amount || result.position.scaled_amount_ray == 0);
+    cvlr_assert!(result.actual_amount <= amount);
     cvlr_assert!(result.position.scaled_amount_ray <= before.scaled_amount_ray);
     cvlr_assert!(result.position.scaled_amount_ray >= 0);
 }

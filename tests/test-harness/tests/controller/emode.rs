@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use test_harness::{
     assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
@@ -132,31 +130,7 @@ fn test_emode_rejects_non_category_borrow() {
     let result = t.try_borrow(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
 }
-// 7. test_emode_rejects_with_isolation
-
-#[test]
-fn test_emode_rejects_with_isolation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * WAD;
-        })
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "ETH", true, true)
-        .build();
-
-    // Drive the contract path: an e-mode account that supplies an isolated
-    // asset must be rejected by `ensure_e_mode_compatible_with_asset` with
-    // `EModeWithIsolated` (302). This exercises the controller, not the
-    // harness's local assert in `create_account_direct`.
-    t.create_emode_account(ALICE, 1);
-    let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::EMODE_WITH_ISOLATED);
-}
-// 8. test_emode_deprecated_blocks_new_accounts
+// 7. test_emode_deprecated_blocks_new_accounts
 
 #[test]
 fn test_emode_deprecated_blocks_new_accounts() {

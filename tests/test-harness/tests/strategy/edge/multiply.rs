@@ -168,7 +168,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .build();
 
     let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -233,7 +233,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
         .build();
 
     let account_id =
-        t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply, false);
+        t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let usdt = t.resolve_asset("USDT");
@@ -427,80 +427,6 @@ fn test_multiply_emode_wrong_category_collateral() {
     // with EMODE_CATEGORY_NOT_FOUND (300).
     assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
 }
-// New isolated collateral via multiply must still enforce the debt asset's
-// isolation_borrow_enabled flag.
-
-#[test]
-fn test_multiply_isolated_debt_not_enabled() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_config("USDC", |c| {
-            c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = usd(1_000_000);
-        })
-        // ETH has isolation_borrow_enabled = false (default)
-        .build();
-
-    t.fund_router("USDC", 3000.0); // Pre-fund the router with output tokens.
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
-    assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
-}
-// An existing non-isolated account must not add an isolated collateral leg.
-
-#[test]
-fn test_multiply_rejects_isolated_collateral_on_existing_non_isolated_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_config("USDC", |c| {
-            c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = usd(1_000_000);
-        })
-        .with_market_config("ETH", |c| {
-            c.isolation_borrow_enabled = true;
-        })
-        .build();
-
-    let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
-    t.supply_to(ALICE, account_id, "WBTC", 0.1);
-
-    t.fund_router("USDC", 3000.0);
-    // 1 ETH (raw 10_000_000) flash-borrowed minus 9bps fee.
-    let steps = build_aggregator_swap(&t, "ETH", "USDC", apply_flash_fee(10_000_000), 3000_0000000);
-
-    let caller = t.get_or_create_user(ALICE);
-    let ctrl = t.ctrl_client();
-    let usdc = t.resolve_asset("USDC");
-    let eth = t.resolve_asset("ETH");
-
-    let result = ctrl.try_multiply(
-        &caller,
-        &account_id,
-        &0u32,
-        &usdc,
-        &1_0000000i128,
-        &eth,
-        &controller::types::PositionMode::Multiply,
-        &steps,
-        &None,
-        &None,
-    );
-
-    // The account's `is_isolated` flag is false but the requested collateral
-    // would force isolation: reject with MIX_ISOLATED_COLLATERAL (303).
-    assert_contract_error(flatten(result), errors::MIX_ISOLATED_COLLATERAL);
-}
 // The debt asset is siloed, but `multiply` creates a fresh account with no
 // existing borrows. The siloed-borrow restriction therefore lives in the
 // `swap_debt` tests instead.
@@ -538,7 +464,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .build();
 
     let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -575,7 +501,7 @@ fn test_multiply_existing_account_wrong_owner() {
         .build();
 
     let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");

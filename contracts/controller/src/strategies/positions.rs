@@ -39,11 +39,11 @@ pub(crate) fn open_strategy_borrow(
     env: &Env,
     cache: &mut Cache,
     account: &mut Account,
-    account_id: u64,
+    _account_id: u64,
     asset: &Address,
     amount: i128,
 ) -> i128 {
-    borrow::borrow_for_strategy(env, account, account_id, asset, amount, cache)
+    borrow::borrow_for_strategy(env, account, asset, amount, cache)
 }
 
 pub(crate) fn repay_debt_from_controller(

@@ -63,8 +63,7 @@ flowchart LR
   and health factor, RAY for rates and indexes.
 - **Oracle policy**: risk-increasing actions require strict, fully validated
   prices; risk-reducing actions may accept looser prices.
-- **Risk modes**: the controller enforces normal, isolation, e-mode, and siloed
-  borrowing.
+- **Risk modes**: the controller enforces normal, e-mode, and siloed borrowing.
 - **Flash loans**: pools settle by balance snapshot and post-repayment check,
   matching Soroban's invocation-scoped authorization.
 - **Bad debt**: unrecoverable residual debt is socialized through the pool's
@@ -140,8 +139,8 @@ Verification is layered:
 - Soroban integration tests in `tests/test-harness`.
 - Property tests and fuzz targets in `tests/fuzz`.
 - Certora profiles for common math, pool accounting, controller risk logic,
-  oracle rules, flash loans, liquidation, isolation, strategies, and
-  controller-pool consistency.
+  oracle rules, flash loans, liquidation, strategies, and controller-pool
+  consistency.
 
 Baseline local checks:
 

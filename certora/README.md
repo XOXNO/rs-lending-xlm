@@ -85,7 +85,7 @@ secret.
 | --- | --- |
 | `sanity` | Reachability / non-vacuity smoke (CI) |
 | `fast` | Stable subset: math, rates, integrity, light controller safety |
-| `core` | Audit: summaries, solvency, liquidation, isolation, strategy |
+| `core` | Audit: summaries, solvency, liquidation, strategy |
 | `critical` | Highest-signal accounting and safety proofs |
 | `heavy` | Expensive targeted configs (parallel-friendly) |
 
@@ -121,7 +121,7 @@ Not all 30 confs are equally reliable in Certora cloud. Config syntax is valid
 | Tier | Confs | Expectation |
 | --- | --- | --- |
 | **A — reliable** | `common/math`, `flash_loan`, `health`, `indexes`, `positions`, `oracle`, `oracle-compose`, `tolerance-math`, `liquidation-light` | Usually complete within 30–60 min |
-| **B — may timeout** | `common/rates`, `math`, `interest`, `emode`, `liquidation`, `isolation`, `strategy`, `account-isolation`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
+| **B — may timeout** | `common/rates`, `math`, `interest`, `emode`, `liquidation`, `strategy`, `market-guard`, `controller-pool-consistency-light`, `pool/integrity`, `summary-contract`, `additivity` | Run individually; 1–2 h jobs |
 | **C — heavy / often stuck** | `solvency-*` (split bundles), `boundary-*` (split bundles), all 6 `*-heavy.conf` + `no-collateral-no-debt` | Use `--rule <one>` per invocation; expect multi-hour runs |
 
 **Build requirement:** run `make certora-wasm` locally (or in CI) before
@@ -172,7 +172,7 @@ policy across all confs:
   heavy tier) — parallel splitting is pure upside.
 - **Eager splitting** (`-smt_initialSplitDepth 5 -depth 15`) is reserved for the
   confs observed to hard-stop or run long (`health`, `market-guard`, `strategy`,
-  `solvency-roundtrip`, `account-isolation`, `emode`, `interest`, `liquidation`,
+  `solvency-roundtrip`, `emode`, `interest`, `liquidation`,
   `liquidation-light`, `health-gated`).
 
 The escape hatch — the same lever the Certora/Blend pool confs use on their

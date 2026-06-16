@@ -4,8 +4,7 @@ Controller safety — Certora proof domain
 Core invariant
 --------------
 Accounts remain solvent under configured risk parameters: health factor gates
-borrow and liquidation, isolation debt stays within ceiling (soft bound per
-INVARIANTS.md), oracle prices respect staleness/tolerance policy, and
+borrow and liquidation, oracle prices respect staleness/tolerance policy, and
 controller-pool interactions preserve scaled-amount conservation and reserve
 availability.
 
@@ -21,7 +20,7 @@ Conf → spec map (by theme)
 --------------------------
 Solvency / caps (split from monolithic solvency.conf)
   solvency-reserves.conf — supply caps, revenue, utilization
-  solvency-borrow.conf — borrow limits, LTV, isolation debt
+  solvency-borrow.conf — borrow limits, LTV
   solvency-index.conf — index monotonicity, compound, scaled reconstruction
   solvency-roundtrip.conf — roundtrips, cache, sanity rules
   global-solvency-heavy.conf, no-collateral-no-debt.conf
@@ -31,10 +30,9 @@ Liquidation
   liquidation.conf, liquidation-light.conf, liquidation-integrity-heavy.conf
   spec/liquidation_rules.rs
 
-Health / positions / isolation
-  health.conf, positions.conf, isolation.conf, account-isolation.conf
-  spec/health_rules.rs, position_rules.rs, isolation_rules.rs,
-  account_isolation_rules.rs
+Health / positions
+  health.conf, positions.conf
+  spec/health_rules.rs, position_rules.rs
 
 Oracle
   oracle.conf, oracle-compose.conf, tolerance-math.conf

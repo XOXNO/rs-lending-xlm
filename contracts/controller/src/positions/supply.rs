@@ -5,7 +5,7 @@
 //! `OraclePolicy::RiskDecreasing` — deposits cannot worsen account health, so
 //! no LTV, health, or min-collateral gates run at the entrypoint.
 
-use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
 use controller_interface::types::{
     Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode,
@@ -70,7 +70,6 @@ pub fn process_supply(
         &mut cache,
         PositionSides::SUPPLY,
         false,
-        false,
     );
 
     acct_id
@@ -126,7 +125,6 @@ fn validate_deposit(
         AccountPositionType::Deposit,
         aggregated,
     );
-    validate_bulk_isolation(env, account, aggregated, cache);
 
     for (asset, _) in aggregated {
         validation::require_market_active(env, cache, &asset);
@@ -134,15 +132,12 @@ fn validate_deposit(
         let asset_config = configs.get(env, &asset);
 
         emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
-        emode::ensure_e_mode_compatible_with_asset(env, &asset_config, account.e_mode_category_id);
 
         assert_with_error!(
             env,
             asset_config.can_supply(),
             CollateralError::NotCollateral
         );
-
-        emode::validate_isolated_collateral(env, account, &asset, &asset_config);
     }
 }
 
@@ -202,43 +197,12 @@ fn settle_deposit(
     }
 }
 
-fn validate_bulk_isolation(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) {
-    if aggregated.len() <= 1 {
-        return;
-    }
-    let (first_asset, _) = validation::expect_invariant(env, aggregated.get(0));
-    let first_config = cache.cached_asset_config(&first_asset);
-    if account.is_isolated || first_config.is_isolated_asset {
-        panic_with_error!(env, FlashLoanError::BulkSupplyNoIso);
-    }
-}
-
 fn create_account_for_first_asset(
     env: &Env,
     caller: &Address,
     e_mode_category: u32,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
+    _aggregated: &AggregatedPayments,
+    _cache: &mut Cache,
 ) -> (u64, Account) {
-    let (first_asset, _) = validation::expect_invariant(env, aggregated.get(0));
-    let first_config = cache.cached_asset_config(&first_asset);
-    let is_isolated = first_config.is_isolated_asset;
-    let isolated_asset = if is_isolated {
-        Some(first_asset.clone())
-    } else {
-        None
-    };
-    crate::helpers::create_account(
-        env,
-        caller,
-        e_mode_category,
-        PositionMode::Normal,
-        is_isolated,
-        isolated_asset,
-    )
+    crate::helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
 }

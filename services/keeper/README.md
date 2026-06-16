@@ -12,14 +12,10 @@ Per TTL tick the service:
 1. **Discovers** the entries that keep the protocol functional:
    - the controller instance entry (which covers every instance-tier key,
      including the oracle `Aggregator`, pool template, and accumulators);
-   - the controller's persistent keys — `PoolsList`, and per-asset `Market`
-     (which embeds each asset's oracle config) and `IsolatedDebt`, plus each
-     `EModeCategory`;
+   - the controller's persistent keys — `PoolsList`, per-asset `Market`
+     (which embeds each asset's oracle config), and each `EModeCategory`;
    - the controller's per-user account keys — `AccountMeta`, `SupplyPositions`,
-     `BorrowPositions` for every account `1..=AccountNonce`, and
-     `IsolatedBasis(id, asset)` for accounts flagged isolated (the keeper
-     decodes each `AccountMeta` to learn the isolated asset, so it builds at
-     most one basis key per account);
+     and `BorrowPositions` for every account `1..=AccountNonce`;
    - the controller's access-control role keys (`ExistingRoles`, and per-role
      `RoleAccountsCount` / `RoleAccounts` / `HasRole` for `KEEPER` / `REVENUE` /
      `ORACLE`), which the contract self-extends only when a role-gated call
@@ -43,7 +39,7 @@ Per TTL tick the service:
 ### Per-user account keys
 
 The keeper renews the per-user account keys (`AccountMeta`, `SupplyPositions`,
-`BorrowPositions`, and `IsolatedBasis` for isolated accounts) for every account
+and `BorrowPositions`) for every account
 `1..=AccountNonce`. A user auto-bumps their own keys when they interact, but an
 inactive position would otherwise archive — losing it would block liquidation
 and freeze the user's collateral, so the keeper keeps the whole account surface
@@ -80,12 +76,11 @@ tracking (future work).
 | Class | Tier | Source | Renewed |
 |-------|------|--------|---------|
 | Controller instance (`Aggregator`, `Pool`, `Accumulator`, …) | instance | instance read | yes |
-| `PoolsList`, per-asset `Market` / `IsolatedDebt` | persistent | `PoolsList` | yes |
+| `PoolsList`, per-asset `Market` | persistent | `PoolsList` | yes |
 | Pool `Params` / `State` per asset | persistent | `PoolsList` | yes |
 | `EModeCategory(1..=LastEModeCategoryId)` | persistent | instance | yes |
 | Controller role keys | persistent | `ExistingRoles` | yes |
 | Per-user `AccountMeta` / `SupplyPositions` / `BorrowPositions` | persistent | `AccountNonce` | yes (`scan_users`) |
-| Per-user `IsolatedBasis(id, asset)` | persistent | decoded `AccountMeta` | yes (isolated only) |
 | Governance instance (`Controller`, `Owner`, `Admin`, `RoleAdmin`, `MinDelay`) | instance | instance read | yes (when configured) |
 | Governance role keys (`PROPOSER` / `EXECUTOR` / `CANCELLER` / `ORACLE`) | persistent | `ExistingRoles` | yes (when configured) |
 | Pool / flash-receiver instances + all wasm code | instance / code | instance read | yes |

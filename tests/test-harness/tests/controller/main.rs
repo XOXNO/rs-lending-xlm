@@ -13,7 +13,6 @@ mod emode;
 mod emode_liquidation_combo;
 mod events;
 mod flash_loan;
-mod isolation;
 mod keeper;
 mod limits;
 mod liquidation;

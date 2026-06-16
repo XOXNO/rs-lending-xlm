@@ -5,7 +5,7 @@ Every taxonomy class from the external corpus, cross-referenced against our actu
 ## Bottom line
 
 - **0 `exposed` findings** across the mapped surface (controller, pool, governance, common, plus the `defindex-strategy` contract and `services/keeper` mapped in round 2) — no external bug class has an unmitigated antipattern in the code we read. The off-chain keeper is in scope but lower direct on-chain risk.
-- The headline external failures (Blend $10.8M oracle poison, Aave CRV toxic spiral, Morpho $2.85M stale-index, bad-debt socialization gaming, auth-tree phishing, isolation-counter ratchet, util-on-withdraw, timelock bypass, role migration) are all **mitigated**, most with a test or Certora rule proving it.
+- The headline external failures (Blend $10.8M oracle poison, Aave CRV toxic spiral, Morpho $2.85M stale-index, bad-debt socialization gaming, auth-tree phishing, util-on-withdraw, timelock bypass, role migration) are all **mitigated**, most with a test or Certora rule proving it.
 - **2 known project-memory findings are resolved in current code** — see "Memory updates" below.
 - The open items are all **`needs-review` / verification-coverage gaps**, not code bugs. (The originally-HIGH position-limit item was recalibrated to LOW after testnet evidence showed a 10+10 account is built and liquidated on-chain — see #1.) No remaining item is a fund-loss code path; the highest are the ($5,debt) bad-debt band and the controller risk-setter defense-in-depth.
 
@@ -36,7 +36,6 @@ Verdict tally across ~70 finding-mappings: **0 exposed · ~50 mitigated · ~12 n
 - **Stale-index + flash-loan donation (Morpho $2.85M)** — structurally inverted: gates run post-pool against freshly-recorded indexes; utilization uses internal `cash`, not `token.balance` (the v3.1 fix). `cache.rs:84-114`.
 - **Bad-debt socialization gaming (Morpho OZ-H01/3.5.6)** — triggers on collateral ≤$5 (not ==0, defeats leave-1-wei); decrement uses *capped* subtraction (`interest.rs:80-85`) so it can't underflow-revert.
 - **Auth-tree phishing / $2.6M Morpho-class** — single governance-set aggregator, invoker-auth scoped to exactly one transfer with empty sub-tree, balance-delta validation; adversarial fuzz `adversarial_aggregator.rs` proves a zero-output aggregator is rejected with flash guard cleared + zero residual allowance.
-- **Isolation-counter ratchet (Aave OZ-H01)** — liquidation reuses the same `adjust_isolated_debt_for_repay` as ordinary repay; harness `test_isolated_debt_decremented_on_liquidation`.
 - **Util-on-withdraw (Blend H-03)** — `require_utilization_below_max` on borrow + withdraw + strategy; `max_utilization.rs:88`.
 - **Role migration (Kamino ADV-02) + timelock bypass (Aquarius H-01) + timelock snapshot (Morpho L-06)** — full role-set migration on `accept_ownership` (`3c374e3`); both upgrade surfaces timelocked + auto-pause; per-op absolute `ready_ledger` + monotonic-non-decreasing delay.
 - **Soroban hygiene** — `overflow-checks=true` + `checked_*` at money sites; no unbounded instance-storage collections (all growing registries keyed-Persistent and capped: approvals 16, pools 256, e-mode assets 64); atomic `__constructor` deploy with deployer-bound salts; no `unsafe`/`mem::forget`/blanket-`#[allow]`; soroban-sdk pinned `=26.1.0`.

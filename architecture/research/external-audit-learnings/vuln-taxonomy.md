@@ -41,7 +41,7 @@ Bad-debt accrual, self-liquidation, incentive miscalibration, dust/griefing, par
 - **Stale flags / write-off attribution** — Aave: borrowing flag not cleared on full-close; bad-debt write-off attributed to liquidator not treasury; bounded grace period after unpause.
 
 ## 4. Health-factor / collateral math
-LTV vs liquidation-threshold gap, e-mode misconfig, isolation bypass, decimals, on-behalf state keying.
+LTV vs liquidation-threshold gap, e-mode misconfig, decimals, on-behalf state keying.
 
 - **On-behalf uses caller's state, not owner's** — Aave's most-repeated multi-auditor class (OZ C01/C02, TOB-007/015, PeckShield PVE-007): borrow/repay/eMode keyed off `msg.sender` not `onBehalfOf` → escape stricter tier, skip HF, evade same-block interest. Key everything off the debtor.
 - **HF not revalidated on risk change** — Aave: switching between two non-zero eMode categories / `repayWithATokens` skipped the HF check; eMode LTV ignored when base LTV=0. Re-run HF after ANY tier change.
@@ -60,9 +60,9 @@ Token transfer hooks, flash-loan/strategy callbacks, cross-function reentrancy, 
 - **FV scopes reentrancy out** — Aave & Blend Certora both excluded reentrancy from proofs. Proofs don't cover it; use guards + CEI.
 
 ## 6. Caps & limits
-Borrow/supply cap bypass, isolation ceiling, position-limit/resource DoS, dust griefing.
+Borrow/supply cap bypass, position-limit/resource DoS, dust griefing.
 
-- **Counter desync** — Aave OZ-H01/TOB-011: `isolationModeTotalDebt` decremented on repay but not on liquidation → ceiling ratchets shut → self-DoS. Update the counter on EVERY debt-reduction path via one shared helper.
+- **Counter desync** — Aave OZ-H01/TOB-011: a protocol-wide debt counter decremented on repay but not on liquidation → ceiling ratchets shut → self-DoS. Update the counter on EVERY debt-reduction path via one shared helper.
 - **Asymmetric check** — Blend H-03: utilization checked on borrow but not withdraw → util >100%. Withdraw (denominator-shrinking) needs the same gate.
 - **Per-call vs cumulative** — Aave CVF-16: per-call cap bypassable by splitting borrows. Enforce against aggregate state.
 - **Cap not a hard ceiling** — Morpho: accrued interest pushes exposure past cap; donation/supply-on-behalf bypasses cap=0. cap=0 must truly disable; disabling needs full de-listing.

@@ -2,16 +2,15 @@
 //!
 //! Pipeline: auth → aggregate → cache → configs → validate → settle →
 //! post-pool gates → persist → emit. Borrows use `OraclePolicy::RiskIncreasing`,
-//! update scaled debt shares, and increment isolated-debt counters when the
-//! account is isolated. LTV and health gates run post-pool against the market
-//! indexes the pool borrow writes into the cache.
+//! update scaled debt shares. LTV and health gates run post-pool against the
+//! market indexes the pool borrow writes into the cache.
 
-use common::errors::{CollateralError, EModeError};
+use common::errors::CollateralError;
 use controller_interface::types::{
     Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolBorrowEntry,
     PoolPositionMutation,
 };
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
@@ -20,7 +19,6 @@ use crate::emode;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::update_or_remove_debt_position;
 use crate::oracle::policy::OraclePolicy;
-use crate::positions::isolated_debt::add_isolated_debt;
 use crate::positions::make_pool_action;
 use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -45,7 +43,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
     let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);
-    validate_borrow(env, &account, account_id, &aggregated, &configs, &mut cache);
+    validate_borrow(env, &account, &aggregated, &configs, &mut cache);
     settle_borrow(env, caller, &mut account, &aggregated, &configs, &mut cache);
 
     // A failure in any gate panics and reverts the atomic tx.
@@ -58,17 +56,15 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
         &mut cache,
         PositionSides::DEBT,
         false,
-        true,
     );
 }
 
 // Pre-pool gates only: emptiness, position limits, siloed set, then per-asset
-// market-active, borrowability, and isolated-debt ceilings. LTV valuation runs
-// post-pool in `require_post_pool_risk_gates` to reuse the borrow's cached market index.
+// market-active and borrowability. LTV valuation runs post-pool in
+// `require_post_pool_risk_gates` to reuse the borrow's cached market index.
 fn validate_borrow(
     env: &Env,
     account: &Account,
-    account_id: u64,
     aggregated: &AggregatedPayments,
     configs: &AggregatedConfigs,
     cache: &mut Cache,
@@ -82,11 +78,10 @@ fn validate_borrow(
     );
     validate_siloed_borrow_set(env, account, aggregated, cache);
 
-    for (asset, amount) in aggregated {
+    for (asset, _) in aggregated {
         validation::require_market_active(env, cache, &asset);
         let asset_config = configs.get(env, &asset);
         validate_asset_borrowable(env, account, &asset, &asset_config, cache);
-        add_isolated_debt(env, cache, account, account_id, &asset, amount);
     }
 }
 
@@ -144,7 +139,7 @@ fn merge_borrow_result(
     update_or_remove_debt_position(account, asset, &position);
 }
 
-/// Account-level borrowability for one asset: isolation, e-mode, borrow flag.
+/// Account-level borrowability for one asset: e-mode and borrow flag.
 fn validate_asset_borrowable(
     env: &Env,
     account: &Account,
@@ -152,12 +147,7 @@ fn validate_asset_borrowable(
     asset_config: &AssetConfig,
     cache: &mut Cache,
 ) {
-    if account.is_isolated && !asset_config.can_borrow_in_isolation() {
-        panic_with_error!(env, EModeError::NotBorrowableIsolation);
-    }
-
     emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, asset);
-    emode::ensure_e_mode_compatible_with_asset(env, asset_config, account.e_mode_category_id);
 
     assert_with_error!(
         env,
@@ -201,7 +191,6 @@ fn validate_siloed_borrow_set(
 pub fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     debt_token: &Address,
     amount: i128,
     cache: &mut Cache,
@@ -210,7 +199,7 @@ pub fn borrow_for_strategy(
     payments.push_back((debt_token.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
     let configs = AggregatedConfigs::resolve(env, account, &aggregated, cache);
-    validate_borrow(env, account, account_id, &aggregated, &configs, cache);
+    validate_borrow(env, account, &aggregated, &configs, cache);
 
     let debt_config = configs.get(env, debt_token);
     let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);

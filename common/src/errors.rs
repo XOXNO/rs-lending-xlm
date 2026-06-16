@@ -102,7 +102,7 @@ pub enum CollateralError {
     CannotCleanBadDebt = 114,
     /// Liquidation withdrawal fee exceeds gross seized collateral.
     WithdrawLessThanFee = 115,
-    /// Borrow, cap, or isolation config is invalid.
+    /// Borrow or cap config is invalid.
     InvalidBorrowParams = 116,
     /// Interest model utilization breakpoints are invalid.
     InvalidUtilRange = 117,
@@ -186,14 +186,6 @@ pub enum EModeError {
     EModeCategoryNotFound = 300,
     /// E-mode category has been deprecated.
     EModeCategoryDeprecated = 301,
-    /// E-mode and isolation mode cannot be combined on the same account.
-    EModeWithIsolated = 302,
-    /// Isolated collateral cannot be mixed with other collateral.
-    MixIsolatedCollateral = 303,
-    /// Isolated debt ceiling would be exceeded.
-    DebtCeilingReached = 304,
-    /// Asset cannot be borrowed while account is isolated.
-    NotBorrowableIsolation = 305,
     /// Asset is not present in the requested e-mode category.
     AssetNotInEmode = 307,
     /// Asset is already in the requested e-mode category.
@@ -214,10 +206,6 @@ pub enum FlashLoanError {
     FlashloanNotEnabled = 401,
     /// Flash-loan callback did not restore the expected pool balance.
     InvalidFlashloanRepay = 402,
-    /// Swap-collateral strategy is not allowed for isolated accounts.
-    SwapCollateralNoIso = 404,
-    /// Bulk supply cannot include isolated collateral.
-    BulkSupplyNoIso = 405,
     /// Strategy fee exceeds the borrowed amount.
     StrategyFeeExceeds = 409,
     // 411 reserved for off-chain monitors.

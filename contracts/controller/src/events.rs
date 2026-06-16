@@ -61,53 +61,25 @@ impl From<OracleStrategy> for EventPricingMethod {
 /// Account attributes, vec-encoded inside the batch position event.
 ///
 /// Field order is wire ABI — never reorder:
-/// `[owner, e_mode_category_id, is_isolated_position, mode, isolated_token]`.
-pub struct EventAccountAttributes(
-    pub Address,
-    pub u32,
-    pub bool,
-    pub EventPositionMode,
-    pub Option<Address>,
-);
-
-impl EventAccountAttributes {
-    fn build(
-        owner: &Address,
-        is_isolated: bool,
-        e_mode_category_id: u32,
-        mode: PositionMode,
-        isolated_asset: &Option<Address>,
-    ) -> Self {
-        Self(
-            owner.clone(),
-            e_mode_category_id,
-            is_isolated,
-            mode.into(),
-            isolated_asset.clone(),
-        )
-    }
-}
+/// `[owner, e_mode_category_id, mode]`.
+pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
 impl From<&Account> for EventAccountAttributes {
     fn from(value: &Account) -> Self {
-        Self::build(
-            &value.owner,
-            value.is_isolated,
+        Self(
+            value.owner.clone(),
             value.e_mode_category_id,
-            value.mode,
-            &value.isolated_asset,
+            value.mode.into(),
         )
     }
 }
 
 impl From<&AccountMeta> for EventAccountAttributes {
     fn from(value: &AccountMeta) -> Self {
-        Self::build(
-            &value.owner,
-            value.is_isolated,
+        Self(
+            value.owner.clone(),
             value.e_mode_category_id,
-            value.mode,
-            &value.isolated_asset,
+            value.mode.into(),
         )
     }
 }
@@ -527,18 +499,6 @@ pub struct RemoveEModeAssetEvent {
     pub category_id: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug)]
-/// Field order is wire ABI: `[asset, total_debt_usd_wad]`.
-pub struct EventDebtCeilingEntry(pub Address, pub i128);
-
-#[contractevent(topics = ["debt", "ceiling_batch_update"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpdateDebtCeilingBatchEvent {
-    /// Final isolated-debt totals for assets touched in the transaction.
-    pub updates: Vec<EventDebtCeilingEntry>,
-}
-
 #[contractevent(topics = ["debt", "bad_debt"])]
 #[derive(Clone, Debug)]
 pub struct CleanBadDebtEvent {
@@ -643,11 +603,8 @@ mod tests {
             is_collateralizable: true,
             is_borrowable: true,
             e_mode_categories: soroban_sdk::Vec::new(env),
-            is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
-            isolation_borrow_enabled: false,
-            isolation_debt_ceiling_usd_wad: 0,
             flashloan_fee_bps: 9,
             borrow_cap: 0,
             supply_cap: 0,
@@ -741,43 +698,18 @@ mod tests {
     // ---------- AccountMeta conversion ----------
 
     #[test]
-    fn event_account_attributes_from_account_meta_isolated() {
-        let env = Env::default();
-        let owner = dummy_address(&env);
-        let iso = dummy_address(&env);
-        let meta = AccountMeta {
-            owner: owner.clone(),
-            is_isolated: true,
-            e_mode_category_id: 0,
-            mode: PositionMode::Normal,
-            isolated_asset: Some(iso.clone()),
-        };
-        // Tuple order is wire ABI: [owner, e_mode, isolated, mode, isolated_token].
-        let attrs = EventAccountAttributes::from(&meta);
-        assert_eq!(attrs.0, owner);
-        assert_eq!(attrs.1, 0);
-        assert!(attrs.2);
-        assert_eq!(attrs.3, EventPositionMode::None);
-        assert_eq!(attrs.4, Some(iso));
-    }
-
-    #[test]
     fn event_account_attributes_from_account_meta_emode() {
         let env = Env::default();
         let owner = dummy_address(&env);
         let meta = AccountMeta {
             owner: owner.clone(),
-            is_isolated: false,
             e_mode_category_id: 3,
             mode: PositionMode::Long,
-            isolated_asset: None,
         };
         let attrs = EventAccountAttributes::from(&meta);
         assert_eq!(attrs.0, owner);
         assert_eq!(attrs.1, 3);
-        assert!(!attrs.2);
-        assert_eq!(attrs.3, EventPositionMode::Long);
-        assert_eq!(attrs.4, None);
+        assert_eq!(attrs.2, EventPositionMode::Long);
     }
 
     // ---------- EventOracleProvider::from_market ----------
@@ -948,9 +880,7 @@ mod tests {
                 account_attributes: EventAccountAttributes(
                     caller.clone(),
                     0,
-                    false,
                     EventPositionMode::None,
-                    None,
                 ),
                 deposits,
                 borrows: Vec::new(&env),
@@ -1002,11 +932,6 @@ mod tests {
             RemoveEModeAssetEvent {
                 asset: asset.clone(),
                 category_id: 1,
-            }
-            .publish(&env);
-
-            UpdateDebtCeilingBatchEvent {
-                updates: Vec::new(&env),
             }
             .publish(&env);
 

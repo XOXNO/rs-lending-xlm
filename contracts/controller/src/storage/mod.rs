@@ -2,14 +2,13 @@
 //!
 //! Account metadata, supply maps, and debt maps are separate persistent keys
 //! so supply-only and repay-only flows avoid touching unrelated position state.
-//! Market, e-mode, isolated-debt, pool-list, and instance/session keys are kept
-//! behind typed helpers to preserve storage-key stability.
+//! Market, e-mode, pool-list, and instance/session keys are kept behind typed
+//! helpers to preserve storage-key stability.
 //!
-//! Mutating business logic should read through `Cache` unless it is
-//! updating a final position map, TTL, isolated-debt counter, or guard flag.
+//! Mutating business logic should read through `Cache` unless it is updating a
+//! final position map, TTL, or guard flag.
 
 mod account;
-mod debt;
 mod emode;
 mod instance;
 mod market;
@@ -22,7 +21,6 @@ mod verification_storage;
 // with verifier-friendly values.
 
 pub(crate) use account::*;
-pub(crate) use debt::*;
 pub(crate) use emode::*;
 pub(crate) use instance::*;
 pub(crate) use market::*;

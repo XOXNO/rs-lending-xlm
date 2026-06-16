@@ -1,49 +1,36 @@
 use controller::types::{AccountMeta, ControllerKey, EModeCategoryRaw, PositionMode};
-use soroban_sdk::Address;
 
 use crate::core::{AccountEntry, LendingTest};
 
 impl LendingTest {
     // Account creation
 
-    /// Create a normal account (e_mode=0, mode=Normal, not isolated).
+    /// Create a normal account (e_mode=0, mode=Normal).
     pub fn create_account(&mut self, user: &str) -> u64 {
         let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, 0, PositionMode::Normal, false, None);
-        self.register_account(user, account_id, 0, PositionMode::Normal, false);
+        let account_id = self.create_account_direct(user, 0, PositionMode::Normal);
+        self.register_account(user, account_id, 0, PositionMode::Normal);
         account_id
     }
 
     /// Create an e-mode account.
     pub fn create_emode_account(&mut self, user: &str, category_id: u32) -> u64 {
         let _ = self.get_or_create_user(user);
-        let account_id =
-            self.create_account_direct(user, category_id, PositionMode::Normal, false, None);
-        self.register_account(user, account_id, category_id, PositionMode::Normal, false);
+        let account_id = self.create_account_direct(user, category_id, PositionMode::Normal);
+        self.register_account(user, account_id, category_id, PositionMode::Normal);
         account_id
     }
 
-    /// Create an isolated account.
-    pub fn create_isolated_account(&mut self, user: &str, asset_name: &str) -> u64 {
-        let _ = self.get_or_create_user(user);
-        let asset_addr = self.resolve_asset(asset_name);
-        let account_id =
-            self.create_account_direct(user, 0, PositionMode::Normal, true, Some(asset_addr));
-        self.register_account(user, account_id, 0, PositionMode::Normal, true);
-        account_id
-    }
-
-    /// Create an account with full control over all parameters.
+    /// Create an account with full control over e-mode category and position mode.
     pub fn create_account_full(
         &mut self,
         user: &str,
         e_mode_category: u32,
         mode: PositionMode,
-        is_isolated: bool,
     ) -> u64 {
         let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, e_mode_category, mode, is_isolated, None);
-        self.register_account(user, account_id, e_mode_category, mode, is_isolated);
+        let account_id = self.create_account_direct(user, e_mode_category, mode);
+        self.register_account(user, account_id, e_mode_category, mode);
         account_id
     }
 
@@ -52,8 +39,6 @@ impl LendingTest {
         user: &str,
         e_mode_category: u32,
         mode: PositionMode,
-        is_isolated: bool,
-        isolated_asset: Option<Address>,
     ) -> u64 {
         let owner = self
             .users
@@ -62,11 +47,6 @@ impl LendingTest {
             .unwrap_or_else(|| panic!("user '{}' not found", user));
 
         self.env.as_contract(&self.controller, || {
-            assert!(
-                !(e_mode_category > 0 && is_isolated),
-                "e-mode and isolation are mutually exclusive"
-            );
-
             if e_mode_category > 0 {
                 let category = self
                     .env
@@ -93,10 +73,8 @@ impl LendingTest {
                 &ControllerKey::AccountMeta(next),
                 &AccountMeta {
                     owner,
-                    is_isolated,
                     e_mode_category_id: e_mode_category,
                     mode,
-                    isolated_asset,
                 },
             );
             next
@@ -109,7 +87,6 @@ impl LendingTest {
         account_id: u64,
         e_mode_category: u32,
         mode: PositionMode,
-        is_isolated: bool,
     ) {
         let default_is_missing = self
             .users
@@ -122,7 +99,6 @@ impl LendingTest {
             account_id,
             e_mode_category,
             mode,
-            is_isolated,
         });
         if default_is_missing {
             user_state.default_account_id = Some(account_id);

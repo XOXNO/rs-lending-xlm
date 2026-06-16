@@ -16,7 +16,6 @@ pub struct AccountEntry {
     pub account_id: u64,
     pub e_mode_category: u32,
     pub mode: PositionMode,
-    pub is_isolated: bool,
 }
 
 pub struct MarketState {

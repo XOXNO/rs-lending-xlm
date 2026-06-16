@@ -110,7 +110,7 @@ pub fn process_liquidation(
         will_socialize,
     );
 
-    emit_account_updates(&mut cache, account_id, &account, true);
+    emit_account_updates(&mut cache, account_id, &account);
 }
 
 fn validate_liquidation_inputs(
@@ -318,7 +318,6 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         total_debt_usd.raw(),
         total_collateral_usd.raw(),
     );
-    cache.flush_isolated_debts();
     cache.emit_market_batch();
 }
 
@@ -341,9 +340,6 @@ fn execute_bad_debt_cleanup(
     }
 
     for (asset, position) in iter_debt_positions(&account.borrow_positions) {
-        crate::positions::isolated_debt::clear_position_isolated_debt(
-            env, account, account_id, &asset, cache,
-        );
         seize_pool_position(
             env,
             cache,

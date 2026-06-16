@@ -366,36 +366,6 @@ fn swap_collateral_rejects_same_token(
     cvlr_satisfy!(false);
 }
 
-/// swap_collateral on an isolated account reverts.
-#[rule]
-fn swap_collateral_rejects_isolated(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    current_collateral: Address,
-    from_amount: i128,
-    new_collateral: Address,
-    steps: StrategySwap,
-) {
-    cvlr_assume!(from_amount > 0);
-    cvlr_assume!(current_collateral != new_collateral);
-
-    let attrs = crate::storage::get_account_attrs(&e, account_id);
-    cvlr_assume!(attrs.is_isolated);
-
-    crate::Controller::swap_collateral(
-        e.clone(),
-        caller,
-        account_id,
-        current_collateral,
-        from_amount,
-        new_collateral,
-        steps,
-    );
-
-    cvlr_satisfy!(false);
-}
-
 /// repay_debt_with_collateral with close_position=false reduces collateral and debt.
 #[rule]
 fn repay_with_collateral_reduces_both_no_close(

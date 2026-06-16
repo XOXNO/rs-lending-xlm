@@ -88,7 +88,6 @@ pub fn process_withdraw(
         &mut cache,
         PositionSides::SUPPLY,
         true,
-        false,
     );
 
     paid

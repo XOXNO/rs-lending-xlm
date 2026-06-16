@@ -86,10 +86,6 @@ impl Controller {
         storage::get_emode_category(&env, category_id)
     }
 
-    pub fn get_isolated_debt(env: Env, asset: Address) -> i128 {
-        storage::get_isolated_debt(&env, &asset)
-    }
-
     /// Central liquidity pool for all markets; reads instance storage only.
     pub fn get_pool_address(env: Env) -> Address {
         get_pool_address(&env)

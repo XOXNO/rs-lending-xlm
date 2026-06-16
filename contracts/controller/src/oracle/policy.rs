@@ -10,9 +10,6 @@ pub enum OraclePolicy {
     RiskIncreasing,
     RiskDecreasing,
     Repay,
-    /// Spec/Certora only; repay is oracle-free since basis-based ceiling decrement.
-    #[allow(dead_code)]
-    IsolatedRepay,
     Liquidation,
     View,
 }
@@ -56,13 +53,6 @@ impl Allowances {
                 unsafe_deviation: true,
                 degraded_dual_source: true,
                 sanity_violation: true,
-            },
-            IsolatedRepay => Allowances {
-                disabled_market: true,
-                stale_source: false,
-                unsafe_deviation: false,
-                degraded_dual_source: false,
-                sanity_violation: false,
             },
             // Rejects every loosening like RiskIncreasing so seizure accounting
             // can never read a degraded price; kept distinct for intent/auditing.
@@ -147,16 +137,6 @@ mod tests {
         assert!(p.allows_unsafe_deviation());
         assert!(p.allows_degraded_dual_source());
         assert!(p.allows_sanity_violation());
-    }
-
-    #[test]
-    fn test_isolated_repay_permits_only_disabled_market() {
-        let p = OraclePolicy::IsolatedRepay;
-        assert!(p.allows_disabled_market());
-        assert!(!p.allows_stale_source());
-        assert!(!p.allows_unsafe_deviation());
-        assert!(!p.allows_degraded_dual_source());
-        assert!(!p.allows_sanity_violation());
     }
 
     #[test]

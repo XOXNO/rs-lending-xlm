@@ -192,43 +192,7 @@ fn test_position_limits_enforced() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 8. test_isolation_and_emode_mutually_exclusive
-
-#[test]
-fn test_isolation_and_emode_mutually_exclusive() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_market_config("USDC", |c| {
-            c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .with_emode(1, STABLECOIN_EMODE)
-        .with_emode_asset(1, "USDC", true, true)
-        .with_emode_asset(1, "USDT", true, true)
-        .build();
-
-    // Drive account creation through the real controller endpoint by calling
-    // `supply` with e_mode_category=1 while the first-supplied asset (USDC)
-    // is isolated. This forces the contract's
-    // `emode::validate_e_mode_isolation_exclusion` gate to run, which must
-    // panic with EModeError::EModeWithIsolated (302).
-    //
-    // Drive the on-chain exclusion gate directly; harness-side prechecks are
-    // not sufficient for this invariant.
-    let alice = t.get_or_create_user(ALICE);
-    let usdc_addr = t.resolve_asset("USDC");
-    let assets = soroban_sdk::vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
-    let ctrl = t.ctrl_client();
-    let result = ctrl.try_supply(&alice, &0u64, &1u32, &assets);
-    let flat: Result<u64, soroban_sdk::Error> = match result {
-        Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err),
-        Err(invoke) => Err(invoke.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(flat, errors::EMODE_WITH_ISOLATED);
-}
-// 9. test_total_supply_matches_pool_balance
+// 8. test_total_supply_matches_pool_balance
 
 #[test]
 fn test_total_supply_matches_pool_balance() {

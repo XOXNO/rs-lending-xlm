@@ -1,5 +1,5 @@
 # Liquidation suite on mock-priced markets: partial / full / multi-debt bulk
-# liquidations, e-mode liquidation, isolation gates, clean_bad_debt, and the
+# liquidations, e-mode liquidation, clean_bad_debt, and the
 # healthy-account guard reverts. Mock prices make HF crashes deterministic.
 #
 # Scenario ordering matters: price crashes are market-global, so accounts
@@ -26,15 +26,14 @@ flow_liq_setup() {
         mint_to "$sac" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT))
         set_mock_price "$sac" "$WAD" "px_init_$code"
     done
-    # Markets: LIQE/LIQF get e-mode-friendly base config; LIQG is isolated.
+    # Markets: LIQE/LIQF get e-mode-friendly base config.
     create_market LIQA "$SAC_LIQA" 7 "$(oracle_cfg_mock_single "$SAC_LIQA")" "$(asset_config_json 7000 7500 800)"
     create_market LIQB "$SAC_LIQB" 7 "$(oracle_cfg_mock_single "$SAC_LIQB")" "$(asset_config_json 7000 7500 800)"
     create_market LIQC "$SAC_LIQC" 7 "$(oracle_cfg_mock_single "$SAC_LIQC")" "$(asset_config_json 7000 7500 800)"
     create_market LIQD "$SAC_LIQD" 7 "$(oracle_cfg_mock_single "$SAC_LIQD")" "$(asset_config_json 7000 7500 800)"
     create_market LIQE "$SAC_LIQE" 7 "$(oracle_cfg_mock_single "$SAC_LIQE")" "$(asset_config_json 7000 7500 200)"
     create_market LIQF "$SAC_LIQF" 7 "$(oracle_cfg_mock_single "$SAC_LIQF")" "$(asset_config_json 7000 7500 200)"
-    create_market LIQG "$SAC_LIQG" 7 "$(oracle_cfg_mock_single "$SAC_LIQG")" \
-        "$(asset_config_json 7000 7500 800 '.is_isolated_asset=true | .isolation_debt_ceiling_usd_wad="1000000000000000000000"')"
+    create_market LIQG "$SAC_LIQG" 7 "$(oracle_cfg_mock_single "$SAC_LIQG")" "$(asset_config_json 7000 7500 800)"
     # Carol seeds liquidity on every borrow-side market in one bulk supply
     # (the issuer cannot hold a trustline to its own asset, so the admin
     # never holds LIQ tokens itself).
@@ -159,31 +158,6 @@ flow_liq_emode() {
         --debt_payments "$(pay_vec "$SAC_LIQF" $((400 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq3_debt_post "$acct" "$SAC_LIQF" "$liq3_debt_pre"
     save_state LIQ3_ACCT "$acct"
-}
-
-# Isolation-mode gates: isolated collateral only borrows isolation-enabled
-# assets; isolated debt is tracked against the ceiling.
-flow_liq_isolation() {
-    phase isolation
-    local acct
-    acct=$(inv iso_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
-        --assets "$(pay_vec "$SAC_LIQG" $((500 * LIQ_UNIT)))" | tr -d '"')
-    xfail iso_borrow_blocked 'Error\(Contract, #305\)' "$BOB" "$CONTROLLER" -- borrow \
-        --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQB" $((50 * LIQ_UNIT)))"
-    inv iso_enable_borrow "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$SAC_LIQB" --cfg "$(asset_config_json 7000 7500 800 '.isolation_borrow_enabled=true')" >/dev/null
-    inv iso_borrow_ok "$BOB" "$CONTROLLER" -- borrow \
-        --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQB" $((50 * LIQ_UNIT)))" >/dev/null
-    local iso_debt
-    iso_debt=$(_view_int iso_debt_view get_isolated_debt --asset "$SAC_LIQG")
-    if [ -z "$iso_debt" ] || [ "$iso_debt" -lt $((50 * LIQ_UNIT)) ]; then
-        log "ASSERT FAIL [iso_debt_view]: isolated_debt=$iso_debt want >= $((50 * LIQ_UNIT))"
-        return 1
-    fi
-    save_state ISO_ACCT "$acct"
 }
 
 # Direct bad-debt socialization without a liquidation: tiny position, crash

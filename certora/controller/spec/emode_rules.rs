@@ -1,4 +1,4 @@
-//! E-Mode constraint rules: whitelist, deprecation, parameter overrides, and isolation exclusion.
+//! E-Mode constraint rules: whitelist, deprecation, and parameter overrides.
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -334,73 +334,6 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     crate::governance::config::add_asset_to_e_mode_category(&e, asset, category_id, true, true);
 
     cvlr_satisfy!(false);
-}
-
-/// E-mode and isolation are mutually exclusive at the compatibility gate.
-#[rule]
-fn emode_account_cannot_enter_isolation(e: Env, asset: Address, e_mode_category: u32) {
-    cvlr_assume!(e_mode_category > 0);
-
-    let config = crate::types::AssetConfig::from(
-        &crate::storage::get_market_config(&e, &asset).asset_config,
-    );
-    cvlr_assume!(config.is_isolated_asset);
-
-    crate::emode::ensure_e_mode_compatible_with_asset(&e, &config, e_mode_category);
-
-    cvlr_satisfy!(false);
-}
-
-/// New-account supply establishes e-mode XOR isolation in account metadata.
-#[rule]
-fn emode_isolation_mutual_exclusion_after_supply(
-    e: Env,
-    caller: Address,
-    account_id: u64,
-    e_mode_category: u32,
-    asset: Address,
-    amount: i128,
-) {
-    cvlr_assume!(amount > 0);
-    cvlr_assume!(account_id == 0);
-
-    let mut assets: Vec<(Address, i128)> = Vec::new(&e);
-    assets.push_back((asset, amount));
-    let acct_id =
-        crate::positions::supply::process_supply(&e, &caller, account_id, e_mode_category, &assets);
-
-    let attrs = crate::storage::get_account_attrs(&e, acct_id);
-    cvlr_assert!(!(attrs.is_isolated && attrs.e_mode_category_id > 0));
-}
-
-/// New-account multiply establishes e-mode XOR isolation in account metadata.
-#[rule]
-fn emode_isolation_mutual_exclusion_after_multiply(
-    e: Env,
-    caller: Address,
-    e_mode_category: u32,
-    collateral_token: Address,
-    debt_to_flash_loan: i128,
-    debt_token: Address,
-    mode: u32,
-    steps: crate::types::StrategySwap,
-) {
-    cvlr_assume!(debt_to_flash_loan > 0);
-    cvlr_assume!(mode <= 3);
-
-    let acct_id = crate::spec::compat::multiply(
-        e.clone(),
-        caller,
-        e_mode_category,
-        collateral_token,
-        debt_to_flash_loan,
-        debt_token,
-        mode,
-        steps,
-    );
-
-    let attrs = crate::storage::get_account_attrs(&e, acct_id);
-    cvlr_assert!(!(attrs.is_isolated && attrs.e_mode_category_id > 0));
 }
 
 #[rule]

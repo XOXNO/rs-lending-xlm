@@ -74,7 +74,7 @@ Each run writes `runs/<RUN_TS>/`:
 |---|---|
 | `lifecycle.sh` | real markets (XLM/USDC/EURC on Reflector), aggregator funding, supply/borrow/repay/withdraw single + bulk, cross-account repay, views, guard reverts (#14 zero, #100 over-LTV) |
 | `strategies.sh` | flash loan success + all 5 failure modes, multiply long/short, swap_debt, swap_collateral, repay_debt_with_collateral (all via aggregator routes) |
-| `liquidation.sh` | partial / full / bulk multi-debt liquidation, e-mode liquidation, isolation gates (#305), clean_bad_debt socialization, healthy-account guards (#101) |
+| `liquidation.sh` | partial / full / bulk multi-debt liquidation, e-mode liquidation, clean_bad_debt socialization, healthy-account guards (#101) |
 | `admin.sh` | pause gates (#1000/#1001), position limits (#36), param/config edits, oracle admin, keeper ops, revenue, e-mode admin lifecycle (#301), upgrade (pauses by design) + migrate + 2-step ownership round-trip |
 | `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
 

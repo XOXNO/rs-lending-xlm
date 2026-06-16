@@ -69,7 +69,7 @@ pub struct ScheduleConfig {
     #[serde(default)]
     pub enable_index_refresh: bool,
     /// Scans + bumps per-user account keys (`AccountMeta` / `SupplyPositions` /
-    /// `BorrowPositions` / `IsolatedBasis`) for `1..=AccountNonce`. On by
+    /// `BorrowPositions`) for `1..=AccountNonce`. On by
     /// default: keeping inactive positions alive is the keeper's job.
     #[serde(default = "default_scan_users")]
     pub scan_users: bool,

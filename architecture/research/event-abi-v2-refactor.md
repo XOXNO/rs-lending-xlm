@@ -2,8 +2,8 @@
 
 Goal: redesign the hot-path contract events for minimum on-chain size, rewrite
 the decode pipeline against the new ABI, and reconstruct **byte-identical DB
-documents** to today's (account-profile, market-profile, activity rows,
-debt-ceiling patches). Breaking changes are free: no mainnet deployment
+documents** to today's (account-profile, market-profile, activity rows).
+Breaking changes are free: no mainnet deployment
 exists, and the indexer is routinely repointed at fresh testnet controllers
 with a reset start ledger, so no dual-decode or migration path is required.
 
@@ -37,7 +37,7 @@ Symbol(n) = 8 + pad4(n), Vec/Map header = 12.
 // for three zeroed u32s. action becomes a #[repr(u32)] enum.
 pub struct PositionBatchV2(
     pub u64,                    // account_id
-    pub AccountAttributesV2,    // tuple: owner, e_mode, isolated, mode, isolated_token
+    pub AccountAttributesV2,    // tuple: owner, e_mode, mode
     pub Vec<DepositDeltaV2>,
     pub Vec<BorrowDeltaV2>,
 );
@@ -90,10 +90,6 @@ pub struct MarketStateEntryV2(
 
 Size: 204 B per entry (was 392).
 
-### `["debt", "ceiling_batch_update"]`
-
-`DebtCeilingEntryV2(pub Address, pub i128)` — 72 B per entry.
-
 ### Out of scope
 
 Admin/config events (`market:create`, `config:*`, `market:params_update`,
@@ -121,7 +117,7 @@ serialization cost, putting width 10 on the boundary and width 9 safely in.
 
 - `common/src/events.rs`: add the v2 tuple structs above; delete
   `EventPositionDelta`, `UpdatePositionBatchEvent`'s old payload,
-  `MarketStateSnapshot`-in-event usage, old debt-ceiling batch payload.
+  `MarketStateSnapshot`-in-event usage.
   Add `PositionAction` `#[repr(u32)]` enum (one discriminant per current
   action symbol — authoritative table in the docstring).
 - `contracts/controller/src/cache/mod.rs`: `record_position_update` /
@@ -175,12 +171,11 @@ serialization cost, putting width 10 on the boundary and width 9 safely in.
 | account: supply/borrowAmountScaled, supply/borrowIndex | delta.scaled/index + position_type | same values; side from vec membership |
 | account: entry{Threshold,Bonus,Ltv} | delta risk params (deposit side) | DepositDeltaV2 fields 5–7 |
 | account: entryLiquidationFee | always `undefined` (no on-chain source) | unchanged |
-| account: address/isolated/eMode/mode/isolatedToken | account_attributes | AccountAttributesV2 |
+| account: address/eMode/mode | account_attributes | AccountAttributesV2 |
 | market: all fields incl. usdPrice | snapshot 9 fields | MarketStateEntryV2 9 fields |
 | activity: activityType | action symbol | enum → same strings in decoder |
 | activity: transactionAmount | delta.amount | field 4 |
 | activity: usdPrice | delta.asset_price_wad ∥ price map | price map (identical value) |
-| debt-ceiling patch | entry.asset/total | DebtCeilingEntryV2 |
 
 ## Verification
 

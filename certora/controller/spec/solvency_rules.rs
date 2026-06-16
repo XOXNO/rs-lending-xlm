@@ -20,23 +20,6 @@ use common::math::fp::{Ray, Wad};
 //     real ops in pool/spec/summary_contract_rules.rs (supply_respects_supply_cap,
 //     borrow_respects_borrow_cap, claim_revenue_satisfies_*, borrow_within_reserves).
 
-/// Isolated debt stays non-negative after repay.
-#[rule]
-fn isolation_debt_never_negative_after_repay(
-    e: Env,
-    caller: Address,
-    asset: Address,
-    amount: i128,
-) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-    cvlr_assume!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
-
-    crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
-
-    cvlr_assert!(crate::storage::get_isolated_debt(&e, &asset) >= 0);
-}
-
 /// Post-borrow total debt does not exceed LTV-weighted collateral.
 #[rule]
 fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i128) {
@@ -295,39 +278,6 @@ fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
 
     let cached_repopulated = cache.prices_cache.get(asset.clone());
     cvlr_assert!(cached_repopulated.is_some());
-}
-
-/// Supplying isolated asset into e-mode account with borrows reverts.
-#[rule]
-fn mode_transition_blocked_with_positions(e: Env, caller: Address, asset: Address, amount: i128) {
-    let account_id: u64 = 1;
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-
-    let attrs = crate::storage::get_account_attrs(&e, account_id);
-    cvlr_assume!(attrs.e_mode_category_id > 0);
-    cvlr_assume!(!attrs.is_isolated);
-
-    let borrow_list = crate::storage::get_position_list(
-        &e,
-        account_id,
-        crate::types::AccountPositionType::Borrow,
-    );
-    cvlr_assume!(borrow_list.len() == 1);
-
-    let config = crate::storage::get_asset_config(&e, &asset);
-    cvlr_assume!(config.is_isolated_asset);
-
-    let mut assets = Vec::new(&e);
-    assets.push_back((asset, amount));
-    crate::Controller::supply(
-        e.clone(),
-        caller,
-        account_id,
-        attrs.e_mode_category_id,
-        assets,
-    );
-
-    cvlr_satisfy!(false);
 }
 
 /// compound_interest output stays below 100000*RAY for bounded inputs.

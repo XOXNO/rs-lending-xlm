@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
     BOB, STABLECOIN_EMODE,
@@ -14,7 +12,6 @@ fn test_create_normal_account() {
     assert!(account_id > 0, "account_id should be non-zero");
 
     let attrs = t.get_account_attributes(ALICE);
-    assert!(!attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
     assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
@@ -35,29 +32,8 @@ fn test_create_emode_account() {
 
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.e_mode_category_id, 1);
-    assert!(!attrs.is_isolated);
 }
-// 3. test_create_isolated_account
-
-#[test]
-fn test_create_isolated_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-            // $1M WAD
-        })
-        .build();
-
-    let account_id = t.create_isolated_account(ALICE, "USDC");
-    assert!(account_id > 0);
-
-    let attrs = t.get_account_attributes(ALICE);
-    assert!(attrs.is_isolated);
-    assert_eq!(attrs.e_mode_category_id, 0);
-}
-// 4. test_create_account_full_custom
+// 3. test_create_account_full_custom
 
 #[test]
 fn test_create_account_full_custom() {
@@ -65,15 +41,14 @@ fn test_create_account_full_custom() {
 
     // mode=1 for Multiply.
     let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply, false);
+        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.mode, controller::types::PositionMode::Multiply);
-    assert!(!attrs.is_isolated);
     assert_eq!(attrs.e_mode_category_id, 0);
 }
-// 5. test_remove_empty_account
+// 4. test_remove_empty_account
 
 #[test]
 fn test_remove_empty_account() {
@@ -115,7 +90,7 @@ fn test_multiple_accounts_per_user() {
         .build();
 
     let id1 = t.create_account(ALICE);
-    let id2 = t.create_account_full(ALICE, 0, controller::types::PositionMode::Normal, false);
+    let id2 = t.create_account_full(ALICE, 0, controller::types::PositionMode::Normal);
     assert_ne!(id1, id2, "accounts should have different IDs");
 
     // Supply to each account.

@@ -40,8 +40,8 @@ call oracles, routers, or other pools.
 
 The implementation enforces these properties:
 
-- Risk-increasing operations perform market, oracle, cap, e-mode, isolation,
-  LTV, health-factor, and liquidity checks before final state persistence
+- Risk-increasing operations perform market, oracle, cap, e-mode, LTV,
+  health-factor, and liquidity checks before final state persistence
   (`contracts/controller/src/positions/*.rs`, `contracts/controller/src/strategies/`,
   `contracts/controller/src/validation.rs`).
 - Users interact only with the controller. The controller calls pools through
@@ -50,13 +50,13 @@ The implementation enforces these properties:
   caller other than the controller through the `#[only_owner]` macro
   (`contracts/pool/src/lib.rs`).
 - An account can hold supply and borrow positions in multiple assets within
-  per-account limits stored in `ControllerKey::PositionLimits`. Isolated and
-  e-mode accounts apply additional asset and category constraints.
+  per-account limits stored in `ControllerKey::PositionLimits`. E-mode accounts
+  apply additional asset and category constraints.
 - Strategy flows (`multiply`, `swap_collateral`, `swap_debt`,
   `repay_debt_with_collateral`) route through the same controller risk model
   as `supply`, `borrow`, `repay`, `withdraw`.
 - Storage records are split per concern (account meta, per-side position
-  maps, market config, isolated debt, e-mode category, pools list). Numeric
+  maps, market config, e-mode category, pools list). Numeric
   domains are explicit per field (BPS, WAD, RAY, asset-native).
 
 ## 3. System Topology
@@ -133,8 +133,7 @@ Implemented entrypoints (`contracts/controller/src/*`):
 - Market listing: `approve_token`, `revoke_token`,
   `set_liquidity_pool_template`, `create_liquidity_pool`,
   `configure_market_oracle`, `edit_oracle_tolerance`, `disable_token_oracle`.
-- Asset, e-mode, isolation, caps, position-limit, aggregator, accumulator
-  configuration.
+- Asset, e-mode, caps, position-limit, aggregator, accumulator configuration.
 - Pool parameter and pool WASM upgrades (`upgrade_liquidity_pool_params`,
   `upgrade_liquidity_pool`).
 - `claim_revenue`, `add_rewards`.
@@ -146,8 +145,8 @@ Implemented entrypoints (`contracts/controller/src/*`):
 - `pause`, `unpause`, `transfer_ownership`, `accept_ownership`,
   `grant_role`, `revoke_role`, `upgrade`.
 - View surface: health, collateral, debt, positions, account attributes,
-  market and e-mode configs, isolated-debt counter, batch market and index
-  views, liquidation estimation.
+  market and e-mode configs, batch market and index views, liquidation
+  estimation.
 
 ### 4.2 Pool
 
@@ -173,8 +172,7 @@ Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `cont
 - Upgrades pool WASM through `upgrade` when called by its owner
   (`#[only_owner]`).
 
-Pools store no account ownership, oracle configuration, e-mode state, or
-isolation rules.
+Pools store no account ownership, oracle configuration, or e-mode state.
 
 ### 4.3 Pool Interface
 
@@ -196,8 +194,8 @@ transaction cheap.
 
 Account state is split into metadata plus two position maps:
 
-- `ControllerKey::AccountMeta(u64)` → `AccountMeta { owner, is_isolated,
-  e_mode_category_id, mode, isolated_asset }`.
+- `ControllerKey::AccountMeta(u64)` → `AccountMeta { owner,
+  e_mode_category_id, mode }`.
 - `ControllerKey::SupplyPositions(u64)` → `Map<Address, AccountPositionRaw>`.
 - `ControllerKey::BorrowPositions(u64)` → `Map<Address, DebtPositionRaw>`.
 
@@ -225,10 +223,8 @@ classDiagram
 
     class AccountMeta {
         +Address owner
-        +bool is_isolated
         +u32 e_mode_category_id
         +PositionMode mode
-        +Option~Address~ isolated_asset
     }
 
     class SupplyPositions {
@@ -302,9 +298,8 @@ Constraints enforced at listing or oracle configuration:
 - A `Single` strategy paired with a Reflector `Spot` source is rejected in
   non-`testing` builds at `configure_market_oracle`
   (`SpotOnlyNotProductionSafe`).
-- Disabled markets reject normal risk operations. The `Repay`,
-  `IsolatedRepay`, and `View` oracle policies keep the intended repay/read
-  paths reachable.
+- Disabled markets reject normal risk operations. The `Repay` and `View`
+  oracle policies keep the intended repay/read paths reachable.
 
 ## 7. Market Configuration and Risk Parameters
 
@@ -322,9 +317,8 @@ rate-model parameters live in the pool contract (`MarketParamsRaw`), not in
 
 `AssetConfigRaw` fields: `loan_to_value_bps`, `liquidation_threshold_bps`,
 `liquidation_bonus_bps`, `liquidation_fees_bps`, `is_collateralizable`,
-`is_borrowable`, `is_isolated_asset`, `is_siloed_borrowing`,
-`is_flashloanable`, `isolation_borrow_enabled`,
-`isolation_debt_ceiling_usd_wad`, `flashloan_fee_bps`, `borrow_cap`,
+`is_borrowable`, `is_siloed_borrowing`, `is_flashloanable`,
+`flashloan_fee_bps`, `borrow_cap`,
 `supply_cap`, `min_collat_floor_usd_wad`, `min_debt_floor_usd_wad`,
 `e_mode_categories`.
 
@@ -339,7 +333,6 @@ rate-model parameters live in the pool contract (`MarketParamsRaw`), not in
 - `liquidation_fees > BPS` (10000 bps).
 - Negative `supply_cap` or `borrow_cap` (zero is treated as uncapped per the
   cap-sentinel comment).
-- Negative `isolation_debt_ceiling_usd_wad`.
 - `flashloan_fee_bps > MAX_FLASHLOAN_FEE_BPS` (500 bps).
 - A dust floor below `MIN_DUST_FLOOR_WAD` (10 USD WAD): unless both
   `min_collat_floor_usd_wad` and `min_debt_floor_usd_wad` are zero (dust guard
@@ -377,11 +370,8 @@ classDiagram
         +u32 liquidation_fees_bps
         +bool is_collateralizable
         +bool is_borrowable
-        +bool is_isolated_asset
         +bool is_siloed_borrowing
         +bool is_flashloanable
-        +bool isolation_borrow_enabled
-        +i128 isolation_debt_ceiling_usd_wad
         +u32 flashloan_fee_bps
         +i128 borrow_cap
         +i128 supply_cap
@@ -515,10 +505,7 @@ and missing-TWAP fallback:
   `update_indexes`, `claim_revenue`, pool upgrades, `add_rewards`, and debt-free
   `withdraw` / `swap_collateral`.
 - **Repay**: all four allowed (permissive, and reachable for
-  `MarketStatus::Disabled` markets). Used by non-isolated `repay`.
-- **IsolatedRepay**: disabled-market pricing allowed, but stale/deviation/TWAP
-  gates stay strict because the global isolated-debt counter is updated in USD
-  WAD. Used by isolated `repay`.
+  `MarketStatus::Disabled` markets). Used by `repay`.
 - **View**: all four allowed; read-only entrypoints can also read disabled
   markets.
 
@@ -587,7 +574,7 @@ flowchart LR
     PostRisk -->|yes| HF["require_healthy_account"]
     PostRisk -->|no| Persist["Persist touched account side"]
     HF --> Persist
-    Persist --> Events["Emit events + flush isolated-debt cache"]
+    Persist --> Events["Emit events"]
 ```
 
 The remaining subsections list only the per-flow specifics that diverge
@@ -604,8 +591,8 @@ from this skeleton.
 - Cache is permissive (`new(env, true)`).
 - Token credit is measured by the pool's balance delta (fee-on-transfer
   tokens supported; over-crediting rejected).
-- Validates active markets, supply caps, e-mode, isolation, and bulk
-  position limits before transferring.
+- Validates active markets, supply caps, e-mode, and bulk position limits
+  before transferring.
 - Writes only the supply side.
 
 ### 10.2 Borrow
@@ -616,10 +603,8 @@ from this skeleton.
 - Caller authorization and account-owner match.
 - Cache uses `OraclePolicy::RiskIncreasing`.
 - Validates borrowability, LTV, borrow caps, position limits, siloed
-  borrowing, e-mode, and isolation debt ceilings.
+  borrowing, and e-mode.
 - Pool checks reserve availability before transferring tokens.
-- Isolated debt is tracked in `IsolatedDebt(asset)` USD WAD and flushed once
-  per batch via `cache.flush_isolated_debts()`.
 - Post-batch `require_healthy_account` gates the entire borrow batch.
 
 ### 10.3 Repay
@@ -628,11 +613,8 @@ from this skeleton.
 (`contracts/controller/src/positions/repay.rs`):
 
 - Any authenticated caller may repay any account.
-- Cache uses `OraclePolicy::IsolatedRepay` for isolated accounts and
-  `OraclePolicy::Repay` otherwise. Isolated accounts use strict pricing
-  because `IsolatedDebt(asset)` is decremented in USD WAD; non-isolated
-  accounts use permissive pricing and remain reachable for `Disabled`
-  markets.
+- Cache uses `OraclePolicy::Repay` (permissive pricing, reachable for
+  `Disabled` markets).
 - Tokens are pulled into the pool with balance-delta accounting; the pool
   burns scaled debt and refunds overpayment.
 - Full repay does not delete the account; account deletion is reserved for
@@ -712,7 +694,7 @@ flowchart TD
   collateral_amount, debt_token, swap, close_position)`
 
 All four require account-owner authorization and run market, oracle, e-mode,
-isolation, cap, and health checks shared with the underlying flows.
+cap, and health checks shared with the underlying flows.
 
 `StrategySwap` shape (see `common/src/types/aggregator.rs`):
 
@@ -813,15 +795,13 @@ sequenceDiagram
     C->>C: clear FlashLoanOngoing, emit FlashLoanEvent
 ```
 
-## 12. E-Mode, Isolation, and Siloed Borrowing
+## 12. E-Mode and Siloed Borrowing
 
-These three modes tune risk for specific asset groups:
+These modes tune risk for specific asset groups:
 
 - **E-mode** groups assets that move together (for example, two stablecoins) and
   gives them a higher LTV and liquidation threshold, so users can borrow more
   against closely correlated collateral.
-- **Isolation mode** confines an account to a single risky collateral asset and
-  caps the total debt borrowed against that asset across the whole protocol.
 - **Siloed borrowing** marks an asset that cannot share an account's debt side
   with any other borrowed asset.
 
@@ -849,15 +829,6 @@ flowchart LR
     AssetB -->|"reverse membership id"| Cat
     Acct -->|"selected at account creation"| Cat
 ```
-
-Isolation mode is account-level (`AccountMeta.is_isolated`,
-`isolated_asset`):
-
-- An isolated account uses one isolated collateral asset.
-- Borrows are limited to assets with `isolation_borrow_enabled = true`.
-- Total isolated debt is tracked in `ControllerKey::IsolatedDebt(asset)`
-  in USD WAD.
-- Borrowing increments the counter; repay and liquidation decrement it.
 
 Siloed borrowing (`AssetConfig.is_siloed_borrowing`) is asset-level: if any
 final debt asset is siloed, the account cannot hold multiple debt assets.
@@ -959,8 +930,7 @@ Soroban storage is partitioned by entry kind:
   variant).
 - **Temporary**: the `FlashLoanOngoing` single-flight flag (a `SessionKey`
   variant).
-- **Persistent shared**: `Market(asset)`, `PoolsList`, `EModeCategory(id)`,
-  `IsolatedDebt(asset)`.
+- **Persistent shared**: `Market(asset)`, `PoolsList`, `EModeCategory(id)`.
 - **Persistent user**: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`.
 - **Pool Instance** (`PoolKey::Params`, `PoolKey::State`).
@@ -985,7 +955,7 @@ flowchart LR
     subgraph ControllerStorage["Controller storage"]
         I["Instance<br/>PoolTemplate, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastEModeCategoryId, AppVersion<br/>ApprovedToken(asset)"]
         T["Temporary<br/>FlashLoanOngoing"]
-        M["Persistent shared<br/>Market(asset), PoolsList<br/>EModeCategory(id)<br/>IsolatedDebt(asset)"]
+        M["Persistent shared<br/>Market(asset), PoolsList<br/>EModeCategory(id)"]
         U["Persistent user<br/>AccountMeta(id)<br/>SupplyPositions(id)<br/>BorrowPositions(id)"]
     end
 
@@ -1070,7 +1040,7 @@ architecture.
 Areas with high implementation complexity remain the focus for extending
 tests, fuzzing targets, and rules: liquidation and bad-debt socialization,
 oracle fallback selection and disabled-market repayment, strategy router
-validation, isolation debt accounting, e-mode category deprecation,
+validation, e-mode category deprecation,
 low-liquidity revenue claims, flash-loan callback authorization, and storage
 TTL behavior.
 
@@ -1136,8 +1106,7 @@ flowchart TD
 - `contracts/controller/src/oracle/`: oracle resolution (`price.rs`),
   strategy/tolerance gating, and providers (`providers/reflector/`,
   `providers/redstone/`).
-- `contracts/controller/src/cache/mod.rs`: transaction-local cache, isolated-debt
-  flush.
+- `contracts/controller/src/cache/mod.rs`: transaction-local cache.
 - `contracts/controller/src/storage/*.rs`: controller storage layout, TTL helpers.
 - `contracts/controller/src/validation.rs`: input and config validation.
 - `contracts/controller/src/views/`: controller read surface.

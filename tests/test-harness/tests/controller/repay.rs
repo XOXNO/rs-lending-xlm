@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, wbtc_preset, LendingTest, PositionType,
     ALICE, BOB,
@@ -352,41 +350,7 @@ fn test_repay_rejects_during_flash_loan() {
     let result = t.try_repay(ALICE, "ETH", 1.0);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-// 9. test_repay_isolated_debt_decremented
-
-#[test]
-fn test_repay_isolated_debt_decremented() {
-    let ceiling = 100_000 * WAD; // $100k WAD
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = ceiling;
-        })
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.isolation_borrow_enabled = true;
-        })
-        .build();
-
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 0.5);
-
-    let debt_before = t.get_isolated_debt("USDC");
-    assert!(debt_before > 0, "isolated debt should be > 0 after borrow");
-
-    t.repay(ALICE, "ETH", 0.5);
-
-    let debt_after = t.get_isolated_debt("USDC");
-    // Full repay of the only borrow must zero the isolated counter.
-    assert_eq!(
-        debt_after, 0,
-        "isolated debt should be zero after full repay: before={}, after={}",
-        debt_before, debt_after
-    );
-}
-// 10. test_repay_cleans_up_empty_account
+// 9. test_repay_cleans_up_empty_account
 
 #[test]
 fn test_repay_cleans_up_empty_account() {

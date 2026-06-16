@@ -70,7 +70,6 @@ impl LendingTest {
             account_id,
             e_mode_category: attrs.e_mode_category_id,
             mode: attrs.mode,
-            is_isolated: attrs.is_isolated,
         });
         if user_state.default_account_id.is_none() {
             user_state.default_account_id = Some(account_id);
@@ -116,7 +115,6 @@ impl LendingTest {
                     account_id: id,
                     e_mode_category: attrs.e_mode_category_id,
                     mode: attrs.mode,
-                    is_isolated: attrs.is_isolated,
                 });
                 if user_state.default_account_id.is_none() {
                     user_state.default_account_id = Some(id);

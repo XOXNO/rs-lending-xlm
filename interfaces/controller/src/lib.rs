@@ -146,7 +146,7 @@ pub trait ControllerInterface {
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     fn get_min_borrow_collateral_usd(env: Env) -> i128;
 
-    /// Returns account mode, e-mode, and isolation attributes.
+    /// Returns account mode and e-mode attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
     /// Returns market config for `asset`.
@@ -154,9 +154,6 @@ pub trait ControllerInterface {
 
     /// Returns e-mode category config by id.
     fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw;
-
-    /// Returns total isolated debt for an isolated collateral asset, in USD WAD.
-    fn get_isolated_debt(env: Env, asset: Address) -> i128;
 
     /// Returns the central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;
@@ -190,8 +187,8 @@ pub trait ControllerInterface {
     fn max_supply(env: Env, asset: Address) -> i128;
 
     /// Returns the largest `borrow` amount of `asset` currently executable for
-    /// `account_id` (pool liquidity, max-utilization, borrow cap, isolation
-    /// ceiling, LTV/HF gates); `0` while paused, on an inactive/non-borrowable
+    /// `account_id` (pool liquidity, max-utilization, borrow cap, LTV/HF
+    /// gates); `0` while paused, on an inactive/non-borrowable
     /// market, or when the asset is structurally not borrowable for the account.
     fn max_borrow(env: Env, account_id: u64, asset: Address) -> i128;
 

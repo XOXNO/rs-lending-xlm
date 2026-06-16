@@ -78,8 +78,8 @@ address); the endpoint is `entries.iter().map(supply_one).collect()`. Per-entry
 - `positions/supply.rs` / `borrow.rs` / `withdraw.rs` / `repay.rs`: the
   per-asset loops invert — build the entry vec first, ONE pool call, then
   iterate returned mutations (input-ordered) doing exactly today's per-asset
-  bookkeeping: `record_market_update`, position upsert, event delta record,
-  isolated-debt adjustment. Event ORDER is preserved because results are
+  bookkeeping: `record_market_update`, position upsert, and event delta record.
+  Event ORDER is preserved because results are
   input-ordered — the indexer sees identical event content.
 - `positions/liquidation.rs`: repay leg = one bulk `repay`; seizure leg = one
   bulk `withdraw(receiver=liquidator, is_liquidation=true)`. 20 frames → 2.

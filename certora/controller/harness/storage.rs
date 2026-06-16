@@ -49,7 +49,6 @@ pub fn get_account_attrs(env: &Env, account_id: u64) -> AccountAttributes {
     try_get_account_meta(env, account_id)
         .map(|meta| AccountAttributes::from(&meta))
         .unwrap_or(AccountAttributes {
-            is_isolated: false,
             e_mode_category_id: 0,
             mode: PositionMode::Normal,
         })
@@ -96,11 +95,8 @@ pub mod asset_config {
         pub is_collateralizable: bool,
         pub is_borrowable: bool,
         pub has_emode: bool,
-        pub is_isolated_asset: bool,
         pub is_siloed_borrowing: bool,
         pub is_flashloanable: bool,
-        pub isolation_borrow_enabled: bool,
-        pub isolation_debt_ceiling_usd_wad: i128,
         pub flashloan_fee_bps: i128,
         pub borrow_cap: i128,
         pub supply_cap: i128,
@@ -120,11 +116,8 @@ pub mod asset_config {
             is_collateralizable: cfg.is_collateralizable,
             is_borrowable: cfg.is_borrowable,
             has_emode: !cfg.e_mode_categories.is_empty(),
-            is_isolated_asset: cfg.is_isolated_asset,
             is_siloed_borrowing: cfg.is_siloed_borrowing,
             is_flashloanable: cfg.is_flashloanable,
-            isolation_borrow_enabled: cfg.isolation_borrow_enabled,
-            isolation_debt_ceiling_usd_wad: cfg.isolation_debt_ceiling_usd_wad,
             flashloan_fee_bps: cfg.flashloan_fee_bps as i128,
             borrow_cap: cfg.borrow_cap,
             supply_cap: cfg.supply_cap,
@@ -160,32 +153,18 @@ pub mod market_params {
     }
 }
 
-pub mod isolation {
-    use super::*;
-
-    #[allow(dead_code)]
-    pub fn get_isolated_debt(env: &Env, asset: &Address) -> i128 {
-        super::get_isolated_debt(env, asset)
-    }
-}
-
 pub mod accounts {
     use super::*;
 
     #[derive(Clone, Debug)]
     pub struct AccountData {
-        pub is_isolated: bool,
         pub e_mode_category: u32,
-        pub isolated_asset: Address,
     }
 
     pub fn get_account_data(env: &Env, account_id: u64) -> AccountData {
         let meta = get_account_meta(env, account_id);
-        let isolated_asset = meta.isolated_asset.unwrap_or_else(|| meta.owner.clone());
         AccountData {
-            is_isolated: meta.is_isolated,
             e_mode_category: meta.e_mode_category_id,
-            isolated_asset,
         }
     }
 }

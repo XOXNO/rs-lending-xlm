@@ -3,8 +3,7 @@
 //! Pipeline: auth → aggregate → cache → validate → settle → persist → emit.
 //! Repay is permissionless w.r.t. the account owner and can only reduce risk;
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
-//! No oracle reads: isolated ceiling decrements use borrow-time basis, not live
-//! prices.
+//! No oracle reads: repay only reduces debt and never needs live prices.
 
 use common::errors::GenericError;
 use controller_interface::types::{
@@ -18,7 +17,6 @@ use crate::external::pool::pool_repay_call;
 use crate::helpers::update_or_remove_debt_position;
 use crate::helpers::utils::{self, EventContext};
 use crate::oracle::policy::OraclePolicy;
-use crate::positions::isolated_debt::adjust_isolated_debt_for_repay;
 use crate::positions::{get_debt_position_or_panic, make_pool_action};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -69,7 +67,6 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         &mut cache,
         PositionSides::DEBT,
         false,
-        true,
     );
 }
 
@@ -119,7 +116,7 @@ fn settle_repay(
 pub(crate) fn settle_repay_actions(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
+    _account_id: u64,
     payer: &Address,
     action: crate::events::PositionAction,
     actions: &Vec<PoolAction>,
@@ -129,24 +126,14 @@ pub(crate) fn settle_repay_actions(
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repayment(
-            env,
-            account,
-            account_id,
-            action,
-            &entry.asset,
-            &result,
-            cache,
-        );
+        finish_repayment(account, action, &entry.asset, &result, cache);
     }
     results
 }
 
 /// Merges one pool repay result back into the account and event buffers.
 pub(crate) fn finish_repayment(
-    env: &Env,
     account: &mut Account,
-    account_id: u64,
     action: crate::events::PositionAction,
     asset: &Address,
     result: &PoolPositionMutation,
@@ -154,28 +141,8 @@ pub(crate) fn finish_repayment(
 ) {
     cache.record_market_update(&result.market_state);
 
-    // Capture the pre-repay scaled debt before the position is overwritten;
-    // the isolated-debt decrement is proportional to the share repaid.
-    let scaled_before = account
-        .borrow_positions
-        .get(asset.clone())
-        .map(|raw| common::math::fp::Ray::from(raw.scaled_amount_ray))
-        .unwrap_or(common::math::fp::Ray::ZERO);
-
     let position = DebtPosition::from(&result.position);
     update_or_remove_debt_position(account, asset, &position);
-
-    if account.is_isolated {
-        adjust_isolated_debt_for_repay(
-            env,
-            account,
-            account_id,
-            cache,
-            asset,
-            scaled_before,
-            position.scaled_amount,
-        );
-    }
 
     cache.record_debt_position_update(
         action,

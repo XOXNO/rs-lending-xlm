@@ -1,10 +1,10 @@
 //! E-mode risk-parameter overrides for correlated asset categories.
 //!
-//! Applies active category overrides and rejects isolation conflicts.
+//! Applies active category overrides to market asset configs.
 
 use common::errors::EModeError;
 use controller_interface::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::cache::Cache;
 use crate::storage;
@@ -40,17 +40,6 @@ pub fn effective_asset_config(
     let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, asset);
     apply_e_mode_to_asset_config(env, &mut asset_config, category, asset_emode_config);
     asset_config
-}
-
-/// Rejects isolated collateral when an account has an e-mode category.
-pub fn ensure_e_mode_compatible_with_asset(
-    env: &Env,
-    asset_config: &AssetConfig,
-    e_mode_category_id: u32,
-) {
-    if asset_config.is_isolated_asset && e_mode_category_id > 0 {
-        panic_with_error!(env, EModeError::EModeWithIsolated);
-    }
 }
 
 /// Returns the e-mode category unless `e_mode_category_id` is zero.
@@ -106,40 +95,4 @@ pub fn validate_e_mode_asset(
             .is_some(),
         EModeError::EModeCategoryNotFound
     );
-}
-
-/// Enforces the single-collateral-asset invariant for isolated accounts.
-pub fn validate_isolated_collateral(
-    env: &Env,
-    account: &Account,
-    asset: &Address,
-    asset_config: &AssetConfig,
-) {
-    if !account.is_isolated && !asset_config.is_isolated_asset {
-        return;
-    }
-
-    if !account.is_isolated && asset_config.is_isolated_asset {
-        panic_with_error!(env, EModeError::MixIsolatedCollateral);
-    }
-
-    // The first deposit on an isolated account always passes.
-    if account.supply_positions.is_empty() {
-        return;
-    }
-
-    for existing_asset in account.supply_positions.keys() {
-        assert_with_error!(
-            env,
-            existing_asset == *asset,
-            EModeError::MixIsolatedCollateral
-        );
-    }
-}
-
-/// Rejects accounts that try to combine e-mode with isolation.
-pub fn validate_e_mode_isolation_exclusion(env: &Env, e_mode_category_id: u32, is_isolated: bool) {
-    if e_mode_category_id > 0 && is_isolated {
-        panic_with_error!(env, EModeError::EModeWithIsolated);
-    }
 }

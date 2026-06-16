@@ -251,45 +251,7 @@ fn test_get_emode_category_view() {
         "emode bonus should be 200"
     );
 }
-// 11. test_get_isolated_debt_tracks_borrows
-
-#[test]
-fn test_get_isolated_debt_tracks_borrows() {
-    let isolation_ceiling = 1_000_000i128 * WAD;
-
-    let mut t = LendingTest::new()
-        .with_market(eth_preset())
-        .with_market(usdc_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = isolation_ceiling;
-        })
-        .with_market_config("USDC", |cfg| {
-            cfg.isolation_borrow_enabled = true;
-        })
-        .build();
-
-    // Create an isolated account and supply ETH.
-    t.create_isolated_account(ALICE, "ETH");
-    t.supply(ALICE, "ETH", 10.0);
-
-    // Before borrow: isolated debt must be 0.
-    let debt_before = t.get_isolated_debt("ETH");
-    assert_eq!(debt_before, 0, "isolated debt should be 0 before borrow");
-
-    // Borrow 1000 USDC ($1000).
-    t.borrow(ALICE, "USDC", 1_000.0);
-
-    // After borrow: isolated debt must be ~$1000 WAD.
-    let debt_after = t.get_isolated_debt("ETH");
-    let wad = WAD;
-    assert!(
-        debt_after > 999 * wad && debt_after < 1001 * wad,
-        "isolated debt should be ~$1000, got {}",
-        debt_after as f64 / wad as f64
-    );
-}
-// 12. test_get_position_limits_default
+// 11. test_get_position_limits_default
 
 #[test]
 fn test_get_position_limits_default() {

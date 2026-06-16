@@ -1,7 +1,5 @@
-use controller::constants::WAD;
-
 use test_harness::{
-    assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd, usd_cents, usdc_preset,
+    assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd_cents, usdc_preset,
     LendingTest, ALICE, BOB, LIQUIDATOR,
 };
 // 1. test_liquidation_basic_proportional
@@ -437,46 +435,7 @@ fn test_liquidation_bad_debt_socializes_loss() {
     // Alice's account is removed during cleanup.
     t.assert_no_positions(ALICE);
 }
-// 16. test_liquidation_isolated_debt_adjustment
-
-#[test]
-fn test_liquidation_isolated_debt_adjustment() {
-    let mut t = LendingTest::new()
-        .with_market(eth_preset())
-        .with_market(usdc_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000 * WAD;
-            // $1M WAD
-        })
-        .with_market_config("USDC", |cfg| {
-            cfg.isolation_borrow_enabled = true;
-        })
-        .build();
-
-    // Create an isolated account for Alice.
-    t.create_isolated_account(ALICE, "ETH");
-    t.supply(ALICE, "ETH", 5.0); // ~$10,000
-    t.borrow(ALICE, "USDC", 5_000.0);
-
-    let debt_before = t.get_isolated_debt("ETH");
-    assert!(debt_before > 0, "isolated debt should be tracked");
-
-    // Make Alice liquidatable.
-    t.set_price("ETH", usd(500)); // ETH drops to $500.
-    t.assert_liquidatable(ALICE);
-
-    t.liquidate(LIQUIDATOR, ALICE, "USDC", 2_000.0);
-
-    let debt_after = t.get_isolated_debt("ETH");
-    assert!(
-        debt_after < debt_before,
-        "isolated debt should decrease after liquidation: before={}, after={}",
-        debt_before,
-        debt_after
-    );
-}
-// 17. test_liquidation_rejects_during_flash_loan
+// 16. test_liquidation_rejects_during_flash_loan
 
 #[test]
 fn test_liquidation_rejects_during_flash_loan() {

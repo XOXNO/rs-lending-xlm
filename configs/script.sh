@@ -326,10 +326,7 @@ scval_asset_config() {
             b("is_borrowable"),
             b("is_collateralizable"),
             b("is_flashloanable"),
-            b("is_isolated_asset"),
             b("is_siloed_borrowing"),
-            b("isolation_borrow_enabled"),
-            i("isolation_debt_ceiling_usd_wad"),
             u("liquidation_bonus_bps"),
             u("liquidation_fees_bps"),
             u("liquidation_threshold_bps"),
@@ -1139,7 +1136,6 @@ create_market() {
          .is_collateralizable = false | \
          .is_borrowable = false | \
          .is_flashloanable = false | \
-         .isolation_borrow_enabled = false | \
          .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
@@ -1912,14 +1908,6 @@ get_index_cmd() {
     invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
 
-get_isolated_debt_cmd() {
-    local market_name=$1
-    local asset_address
-    asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
-    invoke_view "$ctrl" get_isolated_debt --asset "$asset_address"
-}
-
 get_emode_cmd() {
     local cat_id=$1
     local ctrl=$(get_controller)
@@ -2423,10 +2411,6 @@ case "$1" in
         if [ -z "$2" ]; then echo "Usage: $0 getIndex <market>" >&2; list_markets >&2; exit 1; fi
         get_index_cmd "$2"
         ;;
-    "getIsolatedDebt")
-        if [ -z "$2" ]; then echo "Usage: $0 getIsolatedDebt <market>" >&2; list_markets >&2; exit 1; fi
-        get_isolated_debt_cmd "$2"
-        ;;
     "getAllMarkets")
         get_all_markets_cmd
         ;;
@@ -2560,7 +2544,6 @@ case "$1" in
         echo "  getPrice <market>               Oracle price (spot / safe / aggregator + tolerance)"
         echo "  getMarket <market>              Market config (LTV, liq, caps, flags)"
         echo "  getIndex <market>               Supply/borrow index (RAY)"
-        echo "  getIsolatedDebt <market>        Isolated-mode borrow usage"
         echo "  getAllMarkets                   All markets detailed"
         echo "  getAllIndexes                   All market indexes"
         echo "  getEMode <id>                   E-Mode category params"

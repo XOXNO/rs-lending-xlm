@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use soroban_sdk::{
     testutils::{ContractEvents, Events},
     xdr::{ContractEventBody, ScVal},
@@ -163,17 +161,13 @@ fn test_position_and_market_batch_v2_wire_shape() {
     assert_eq!(data.len(), 4, "position batch arity is wire ABI");
     assert!(matches!(data[0], ScVal::U64(_)), "account_id");
     let attrs = as_vec(&data[1]);
-    assert_eq!(attrs.len(), 5, "attrs arity is wire ABI");
+    assert_eq!(attrs.len(), 3, "attrs arity is wire ABI");
     assert!(matches!(attrs[0], ScVal::Address(_)), "attrs.owner");
     assert!(
         matches!(attrs[1], ScVal::U32(_)),
         "attrs.e_mode_category_id"
     );
-    assert!(
-        matches!(attrs[2], ScVal::Bool(_)),
-        "attrs.is_isolated_position"
-    );
-    assert!(matches!(attrs[3], ScVal::U32(_)), "attrs.mode");
+    assert!(matches!(attrs[2], ScVal::U32(_)), "attrs.mode");
     let deposits = as_vec(&data[2]);
     let borrows = as_vec(&data[3]);
     assert!(!deposits.is_empty(), "liquidation seizes collateral");
@@ -291,29 +285,4 @@ fn test_index_sync_emits_events() {
     assert!(count > 0, "sync should emit events, got {}", count);
 }
 
-#[test]
-fn test_isolated_borrow_emits_debt_ceiling_event() {
-    let ceiling = 1_000_000i128 * WAD;
-    let mut t = LendingTest::new()
-        .with_market(eth_preset())
-        .with_market(usdc_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = ceiling;
-        })
-        .with_market_config("USDC", |cfg| {
-            cfg.isolation_borrow_enabled = true;
-        })
-        .build();
 
-    t.create_isolated_account(ALICE, "ETH");
-    t.supply(ALICE, "ETH", 10.0);
-    t.borrow(ALICE, "USDC", 1_000.0);
-    // Isolated borrow emits position-update and debt-ceiling events.
-    let count = t.env.events().all().events().len();
-    assert!(
-        count >= 2,
-        "isolated borrow should emit >= 2 events, got {}",
-        count
-    );
-}

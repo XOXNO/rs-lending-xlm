@@ -47,8 +47,8 @@ pub(crate) fn prefetch_strategy_oracles(
     crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
-/// Re-check solvency, persist both sides (or remove empty accounts), flush
-/// isolated debts, and emit batched position/market events.
+/// Re-check solvency, persist both sides (or remove empty accounts), and emit
+/// batched position/market events.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -65,7 +65,6 @@ pub(crate) fn strategy_finalize(
         account,
         cache,
         PositionSides::BOTH,
-        true,
         true,
     );
 }

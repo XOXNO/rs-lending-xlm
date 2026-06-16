@@ -96,7 +96,7 @@ market_params_json() {
     }'
 }
 
-# Asset risk config. Extra jq filter (e.g. '.is_isolated_asset=true') applied last.
+# Asset risk config. Extra jq filter applied last.
 #   asset_config_json <ltv-bps> <threshold-bps> <bonus-bps> [jq-overrides]
 asset_config_json() {
     local ltv="$1" thr="$2" bonus="$3" overrides="${4:-.}"
@@ -107,11 +107,8 @@ asset_config_json() {
         liquidation_fees_bps: 100,
         is_collateralizable: true,
         is_borrowable: true,
-        is_isolated_asset: false,
         is_siloed_borrowing: false,
         is_flashloanable: true,
-        isolation_borrow_enabled: false,
-        isolation_debt_ceiling_usd_wad: "0",
         flashloan_fee_bps: 5,
         borrow_cap: "0",
         supply_cap: "0",
@@ -177,7 +174,7 @@ create_market() {
     local params pending
     params=$(market_params_json "$sac" "$decimals")
     pending=$(jq -c '.is_collateralizable=false | .is_borrowable=false |
-                     .is_flashloanable=false | .isolation_borrow_enabled=false' <<<"$active_cfg")
+                     .is_flashloanable=false' <<<"$active_cfg")
     inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
     inv "create_market_$name" "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
         --asset "$sac" --params "$params" --config "$pending" >/dev/null || return 1

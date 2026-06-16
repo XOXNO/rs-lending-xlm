@@ -308,37 +308,6 @@ fn test_swap_debt_existing_siloed_borrow_blocks_new() {
     // debt.
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
 }
-// An isolated account swaps to a debt asset without
-// isolation_borrow_enabled.
-
-#[test]
-fn test_swap_debt_isolated_not_borrowable() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_config("USDC", |c| {
-            c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = usd(1_000_000);
-        })
-        .with_market_config("ETH", |c| {
-            c.isolation_borrow_enabled = true;
-        })
-        // WBTC does NOT have isolation_borrow_enabled (default false)
-        .build();
-
-    // Create an isolated account, supply isolated collateral, and borrow ETH
-    // (which is enabled).
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    // Try to swap ETH debt to WBTC debt: WBTC is not borrowable in
-    // isolation.
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_00000000);
-    let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
-    assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
-}
 // The new debt asset has a borrow cap that would be exceeded. The cap check
 // runs after pool.borrow(), which runs before the swap.
 
@@ -441,28 +410,6 @@ fn test_swap_collateral_non_collateralizable() {
     let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);
-}
-// The new collateral is an isolated asset: swap_collateral blocks this.
-
-#[test]
-fn test_swap_collateral_to_isolated_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_config("WBTC", |c| {
-            c.is_isolated_asset = true;
-            c.isolation_debt_ceiling_usd_wad = usd(1_000_000);
-        })
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    // Try swapping to an isolated asset: must be blocked.
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
-    let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
-    assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
 }
 // Fund the router so the flow reaches the post-deposit cap check.
 

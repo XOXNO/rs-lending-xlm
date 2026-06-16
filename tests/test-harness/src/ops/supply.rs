@@ -28,7 +28,7 @@ impl LendingTest {
         let returned_id = ctrl.supply(&addr, &account_id, &0u32, &assets);
 
         if account_id == 0 {
-            self.register_account(user, returned_id, 0, PositionMode::Normal, false);
+            self.register_account(user, returned_id, 0, PositionMode::Normal);
         }
     }
 
@@ -126,7 +126,7 @@ impl LendingTest {
         let returned_id = ctrl.supply(&addr, &account_id, &0u32, &soroban_assets);
 
         if account_id == 0 {
-            self.register_account(user, returned_id, 0, PositionMode::Normal, false);
+            self.register_account(user, returned_id, 0, PositionMode::Normal);
         }
     }
 }

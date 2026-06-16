@@ -18,19 +18,14 @@ pub fn create_account(
     owner: &Address,
     e_mode_category: u32,
     mode: PositionMode,
-    is_isolated: bool,
-    isolated_asset: Option<Address>,
 ) -> (u64, Account) {
-    emode::validate_e_mode_isolation_exclusion(env, e_mode_category, is_isolated);
     emode::active_e_mode_category(env, e_mode_category);
 
     let account_id = storage::increment_account_nonce(env);
     let account = Account {
         owner: owner.clone(),
-        is_isolated,
         e_mode_category_id: e_mode_category,
         mode,
-        isolated_asset,
         supply_positions: Map::new(env),
         borrow_positions: Map::new(env),
     };
@@ -39,10 +34,8 @@ pub fn create_account(
         account_id,
         &AccountMeta {
             owner: owner.clone(),
-            is_isolated,
             e_mode_category_id: e_mode_category,
             mode,
-            isolated_asset: account.isolated_asset.clone(),
         },
     );
 

@@ -17,7 +17,6 @@ link each decision to the relevant implementation paths.
 | 0005 | [Validate Strategy Aggregator Output by Balance Delta](./0005-strategy-aggregator-output-validated-by-balance-delta.md) | Accepted |
 | 0006 | [Flash-Loan Settlement by Pool Balance Snapshot](./0006-flash-loan-balance-snapshot.md)        | Accepted |
 | 0007 | [Bad-Debt Socialization With Supply-Index Floor](./0007-bad-debt-socialization-with-index-floor.md) | Accepted |
-| 0008 | [Isolation and E-Mode Coexistence Model](./0008-isolation-and-emode-coexistence.md)            | Accepted |
 | 0009 | [Mainnet Launch Hardening and Operational Control](./0009-mainnet-launch-hardening-and-operational-control.md) | Accepted |
 | 0010 | [Governance Timelock for Controller Admin](./0010-governance-timelock-for-controller-admin.md) | Accepted |
 

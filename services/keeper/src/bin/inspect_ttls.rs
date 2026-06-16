@@ -178,12 +178,10 @@ fn classify_persistent(
                 KeyClass::Roles
             }
         }
-        Some("AccountMeta" | "SupplyPositions" | "BorrowPositions" | "IsolatedBasis")
-            if on_controller =>
-        {
+        Some("AccountMeta" | "SupplyPositions" | "BorrowPositions") if on_controller => {
             KeyClass::PerUser
         }
-        Some("Market" | "IsolatedDebt" | "Params" | "State" | "PoolsList") => KeyClass::PerAsset,
+        Some("Market" | "Params" | "State" | "PoolsList") => KeyClass::PerAsset,
         Some("EModeCategory") => KeyClass::EMode,
         _ if on_governance => KeyClass::Governance,
         _ => KeyClass::Other,

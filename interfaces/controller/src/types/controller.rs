@@ -1,5 +1,5 @@
 use crate::types::oracle::MarketOracleConfig;
-use common::math::fp::{Bps, Ray, Wad};
+use common::math::fp::{Bps, Ray};
 use common::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
 use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
@@ -17,11 +17,8 @@ pub struct AssetConfigRaw {
     pub liquidation_fees_bps: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub is_isolated_asset: bool,
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
-    pub isolation_borrow_enabled: bool,
-    pub isolation_debt_ceiling_usd_wad: i128,
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
@@ -37,11 +34,8 @@ pub struct AssetConfig {
     pub liquidation_fees: Bps,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub is_isolated_asset: bool,
     pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
-    pub isolation_borrow_enabled: bool,
-    pub isolation_debt_ceiling_usd: Wad,
     pub flashloan_fee: Bps,
     pub borrow_cap: i128,
     pub supply_cap: i128,
@@ -57,16 +51,8 @@ impl AssetConfig {
         self.is_borrowable
     }
 
-    pub fn is_isolated(&self) -> bool {
-        self.is_isolated_asset
-    }
-
     pub fn is_siloed_borrowing(&self) -> bool {
         self.is_siloed_borrowing
-    }
-
-    pub fn can_borrow_in_isolation(&self) -> bool {
-        self.isolation_borrow_enabled
     }
 
     pub fn has_emode(&self) -> bool {
@@ -83,11 +69,8 @@ impl From<&AssetConfigRaw> for AssetConfig {
             liquidation_fees: Bps::from(i128::from(r.liquidation_fees_bps)),
             is_collateralizable: r.is_collateralizable,
             is_borrowable: r.is_borrowable,
-            is_isolated_asset: r.is_isolated_asset,
             is_siloed_borrowing: r.is_siloed_borrowing,
             is_flashloanable: r.is_flashloanable,
-            isolation_borrow_enabled: r.isolation_borrow_enabled,
-            isolation_debt_ceiling_usd: Wad::from(r.isolation_debt_ceiling_usd_wad),
             flashloan_fee: Bps::from(i128::from(r.flashloan_fee_bps)),
             borrow_cap: r.borrow_cap,
             supply_cap: r.supply_cap,
@@ -105,11 +88,8 @@ impl From<&AssetConfig> for AssetConfigRaw {
             liquidation_fees_bps: t.liquidation_fees.raw() as u32,
             is_collateralizable: t.is_collateralizable,
             is_borrowable: t.is_borrowable,
-            is_isolated_asset: t.is_isolated_asset,
             is_siloed_borrowing: t.is_siloed_borrowing,
             is_flashloanable: t.is_flashloanable,
-            isolation_borrow_enabled: t.isolation_borrow_enabled,
-            isolation_debt_ceiling_usd_wad: t.isolation_debt_ceiling_usd.raw(),
             flashloan_fee_bps: t.flashloan_fee.raw() as u32,
             borrow_cap: t.borrow_cap,
             supply_cap: t.supply_cap,
@@ -121,7 +101,6 @@ impl From<&AssetConfig> for AssetConfigRaw {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
-    pub is_isolated: bool,
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
 }
@@ -137,13 +116,9 @@ impl AccountAttributes {
 pub struct AccountMeta {
     /// Account owner authorized for supply, borrow, withdraw, and strategies.
     pub owner: Address,
-    /// True when the account is constrained to one isolated collateral asset.
-    pub is_isolated: bool,
     /// Active e-mode category; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
-    /// Isolated collateral asset when `is_isolated` is true.
-    pub isolated_asset: Option<Address>,
 }
 
 /// Persistent e-mode category definition.
@@ -301,13 +276,9 @@ pub struct MarketConfig {
 pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
-    /// True when the account is constrained to one isolated collateral asset.
-    pub is_isolated: bool,
     /// Active e-mode category; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
-    /// Isolated collateral asset when `is_isolated` is true.
-    pub isolated_asset: Option<Address>,
     /// Collateral positions keyed by asset.
     pub supply_positions: Map<Address, AccountPositionRaw>,
     /// Debt positions keyed by asset.
@@ -321,10 +292,6 @@ impl Account {
 
     pub fn has_emode(&self) -> bool {
         self.e_mode_category_id > 0
-    }
-
-    pub fn try_isolated_token(&self) -> Option<Address> {
-        self.isolated_asset.clone()
     }
 
     /// Existing collateral position for `asset` (decoded to typed form) or a
@@ -365,7 +332,6 @@ impl Account {
 impl From<&Account> for AccountAttributes {
     fn from(account: &Account) -> Self {
         AccountAttributes {
-            is_isolated: account.is_isolated,
             e_mode_category_id: account.e_mode_category_id,
             mode: account.mode,
         }
@@ -375,7 +341,6 @@ impl From<&Account> for AccountAttributes {
 impl From<&AccountMeta> for AccountAttributes {
     fn from(account: &AccountMeta) -> Self {
         AccountAttributes {
-            is_isolated: account.is_isolated,
             e_mode_category_id: account.e_mode_category_id,
             mode: account.mode,
         }
@@ -399,27 +364,13 @@ mod tests {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            is_isolated_asset: false,
             is_siloed_borrowing: false,
             is_flashloanable: true,
-            isolation_borrow_enabled: true,
-            isolation_debt_ceiling_usd_wad: 1_000 * WAD,
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,
             supply_cap: 5_000_000,
             e_mode_categories: categories,
         }
-    }
-
-    fn isolated_asset_config_raw(env: &Env) -> AssetConfigRaw {
-        let mut raw = sample_asset_config_raw(env);
-        raw.is_collateralizable = false;
-        raw.is_borrowable = false;
-        raw.is_isolated_asset = true;
-        raw.is_siloed_borrowing = true;
-        raw.isolation_borrow_enabled = false;
-        raw.e_mode_categories = Vec::new(env);
-        raw
     }
 
     #[test]
@@ -437,14 +388,8 @@ mod tests {
         assert_eq!(back.liquidation_fees_bps, raw.liquidation_fees_bps);
         assert_eq!(back.is_collateralizable, raw.is_collateralizable);
         assert_eq!(back.is_borrowable, raw.is_borrowable);
-        assert_eq!(back.is_isolated_asset, raw.is_isolated_asset);
         assert_eq!(back.is_siloed_borrowing, raw.is_siloed_borrowing);
         assert_eq!(back.is_flashloanable, raw.is_flashloanable);
-        assert_eq!(back.isolation_borrow_enabled, raw.isolation_borrow_enabled);
-        assert_eq!(
-            back.isolation_debt_ceiling_usd_wad,
-            raw.isolation_debt_ceiling_usd_wad
-        );
         assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
         assert_eq!(back.borrow_cap, raw.borrow_cap);
         assert_eq!(back.supply_cap, raw.supply_cap);
@@ -457,22 +402,8 @@ mod tests {
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
         assert!(cfg.can_supply());
         assert!(cfg.can_borrow());
-        assert!(!cfg.is_isolated());
         assert!(!cfg.is_siloed_borrowing());
-        assert!(cfg.can_borrow_in_isolation());
         assert!(cfg.has_emode());
-    }
-
-    #[test]
-    fn test_asset_config_accessors_isolated_silent() {
-        let env = Env::default();
-        let cfg = AssetConfig::from(&isolated_asset_config_raw(&env));
-        assert!(!cfg.can_supply());
-        assert!(!cfg.can_borrow());
-        assert!(cfg.is_isolated());
-        assert!(cfg.is_siloed_borrowing());
-        assert!(!cfg.can_borrow_in_isolation());
-        assert!(!cfg.has_emode());
     }
 
     fn emode_category_raw(env: &Env) -> EModeCategoryRaw {
@@ -509,27 +440,19 @@ mod tests {
         assert_eq!(back.assets.len(), raw.assets.len());
     }
 
-    fn account_meta(env: &Env, category: u32, isolated: bool) -> AccountMeta {
+    fn account_meta(env: &Env, category: u32) -> AccountMeta {
         AccountMeta {
             owner: Address::generate(env),
-            is_isolated: isolated,
             e_mode_category_id: category,
             mode: PositionMode::Normal,
-            isolated_asset: if isolated {
-                Some(Address::generate(env))
-            } else {
-                None
-            },
         }
     }
 
     fn empty_account(env: &Env, meta: AccountMeta) -> Account {
         Account {
             owner: meta.owner,
-            is_isolated: meta.is_isolated,
             e_mode_category_id: meta.e_mode_category_id,
             mode: meta.mode,
-            isolated_asset: meta.isolated_asset,
             supply_positions: Map::new(env),
             borrow_positions: Map::new(env),
         }
@@ -538,40 +461,37 @@ mod tests {
     #[test]
     fn test_account_attributes_from_account_and_meta_match() {
         let env = Env::default();
-        let meta = account_meta(&env, 4, true);
+        let meta = account_meta(&env, 4);
         let from_meta = AccountAttributes::from(&meta);
         let account = empty_account(&env, meta);
         let from_account = AccountAttributes::from(&account);
         assert_eq!(from_meta, from_account);
         assert!(from_account.has_emode());
-        assert!(from_account.is_isolated);
         assert_eq!(from_account.e_mode_category_id, 4);
     }
 
     #[test]
     fn test_account_attributes_no_emode_without_category() {
         let env = Env::default();
-        let attrs = AccountAttributes::from(&account_meta(&env, 0, false));
+        let attrs = AccountAttributes::from(&account_meta(&env, 0));
         assert!(!attrs.has_emode());
     }
 
     #[test]
-    fn test_account_has_emode_and_try_isolated_token_and_attributes() {
+    fn test_account_has_emode_and_attributes() {
         let env = Env::default();
-        let normal = empty_account(&env, account_meta(&env, 0, false));
+        let normal = empty_account(&env, account_meta(&env, 0));
         assert!(!normal.has_emode());
-        assert!(normal.try_isolated_token().is_none());
         assert_eq!(normal.attributes().e_mode_category_id, 0);
 
-        let isolated = empty_account(&env, account_meta(&env, 1, true));
-        assert!(isolated.has_emode());
-        assert!(isolated.try_isolated_token().is_some());
+        let emode = empty_account(&env, account_meta(&env, 1));
+        assert!(emode.has_emode());
     }
 
     #[test]
     fn test_account_is_empty_only_when_both_sides_empty() {
         let env = Env::default();
-        let mut account = empty_account(&env, account_meta(&env, 0, false));
+        let mut account = empty_account(&env, account_meta(&env, 0));
         assert!(account.is_empty());
 
         let position = AccountPositionRaw {
@@ -589,7 +509,7 @@ mod tests {
     #[test]
     fn test_get_or_create_position_returns_existing() {
         let env = Env::default();
-        let mut account = empty_account(&env, account_meta(&env, 0, false));
+        let mut account = empty_account(&env, account_meta(&env, 0));
         let asset = Address::generate(&env);
         let stored = AccountPositionRaw {
             scaled_amount_ray: 42 * common::constants::RAY,
@@ -607,7 +527,7 @@ mod tests {
     #[test]
     fn test_get_or_create_supply_position_seeds_risk_from_config() {
         let env = Env::default();
-        let account = empty_account(&env, account_meta(&env, 0, false));
+        let account = empty_account(&env, account_meta(&env, 0));
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
         let asset = Address::generate(&env);
 
@@ -621,7 +541,7 @@ mod tests {
     #[test]
     fn test_get_or_create_debt_position_is_scaled_only() {
         let env = Env::default();
-        let account = empty_account(&env, account_meta(&env, 0, false));
+        let account = empty_account(&env, account_meta(&env, 0));
         let asset = Address::generate(&env);
 
         // Debt positions carry only the scaled share — no risk params.
@@ -649,12 +569,6 @@ pub enum ControllerKey {
     SupplyPositions(u64),
     BorrowPositions(u64),
     EModeCategory(u32),
-    IsolatedDebt(Address),
-    /// Per-debt-position USD WAD principal attributed to the isolated-debt
-    /// ceiling at borrow time, keyed by `(account_id, debt_asset)`. Lets repay
-    /// and liquidation decrement the exact principal basis they added, so the
-    /// `IsolatedDebt` counter has no interest- or price-drift asymmetry.
-    IsolatedBasis(u64, Address),
     PoolsList,
     AppVersion,
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.

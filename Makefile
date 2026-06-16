@@ -1057,7 +1057,7 @@ SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   claimRevenueAll deployPool
 POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams \
                              configureMarketOracle \
-                             getPrice getMarket getIndex getIsolatedDebt \
+                             getPrice getMarket getIndex \
                              getReflector
 POSITIONAL_ID_ACTIONS := addEModeCategory getEMode \
                          executeOp cancelOp opState awaitOp
@@ -1258,7 +1258,6 @@ help:
 	@echo "    make testnet getPrice USDC             Spot / safe / aggregator prices"
 	@echo "    make testnet getMarket USDC            Full MarketConfig"
 	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
-	@echo "    make testnet getIsolatedDebt USDC"
 	@echo "    make testnet getAllMarkets"
 	@echo "    make testnet getAllIndexes"
 	@echo "    make testnet getEMode 1"

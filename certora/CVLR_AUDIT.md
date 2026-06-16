@@ -115,8 +115,6 @@ invariants must move to the **pool** spec where the real math runs.
   (asserts seeded literals; no op runs).
 - `solvency_rules.rs:424-457`, `interest_rules.rs` compound_* monotonicity rules — real
   degree-8 Taylor with symbolic operands → timeout-prone (the rates.conf wall).
-- `isolation_rules.rs:9-43` `utilization_params_ordered` asserts ordering on fully-nondet
-  `get_sync_data_summary` params (no ordering assume) → will not hold as written.
 - `emode_rules.rs:296-323` `emode_remove_category` loop bounded by `len()<=5` assume;
   confirm `loop_iter` ≥ 5 in emode.conf.
 - 5 controller-side summaries in `shared/summaries/mod.rs` (`token_price`,
@@ -129,7 +127,7 @@ invariants must move to the **pool** spec where the real math runs.
 - `pool/spec/summary_contract_rules.rs` + `integrity_rules.rs` — the pool summaries ARE
   backed by executable lemmas running the real `LiquidityPool` (the gold-standard pattern).
 - `emode_rules` (negative/governance), `position_rules`, `consistency_rules`,
-  `market_guard_rules`, `flash_loan_rules`, `account_isolation_rules`, `oracle_compose_rules`
+  `market_guard_rules`, `flash_loan_rules`, `oracle_compose_rules`
   — must-revert `satisfy!(false)` idiom correctly encoded; happy-path asserts run on real ops.
 - view-soundness rules (added this session) — VERIFIED on the cloud prover.
 

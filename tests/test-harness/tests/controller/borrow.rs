@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     xlm_preset, LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
@@ -261,55 +259,7 @@ fn test_borrow_bulk_rejects_siloed_asset_mixed_in_same_batch() {
     assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
     t.assert_borrow_count(ALICE, 0);
 }
-// 11. test_borrow_isolated_requires_enabled
-
-#[test]
-fn test_borrow_isolated_requires_enabled() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.isolation_borrow_enabled = false;
-        })
-        .build();
-
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    // ETH lacks isolation_borrow_enabled, so this must fail.
-    let result = t.try_borrow(ALICE, "ETH", 0.1);
-    assert_contract_error(result, errors::NOT_BORROWABLE_ISOLATION);
-}
-// 12. test_borrow_isolated_debt_ceiling
-
-#[test]
-fn test_borrow_isolated_debt_ceiling() {
-    // Set a very low ceiling: $100 WAD.
-    let ceiling = 100 * WAD;
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = ceiling;
-        })
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.isolation_borrow_enabled = true;
-        })
-        .build();
-
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 10_000.0);
-
-    // Borrowing 1 ETH = $2000 must exceed the $100 ceiling.
-    let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::DEBT_CEILING_REACHED);
-}
-// 13. test_borrow_emode_enhanced_ltv
+// 11. test_borrow_emode_enhanced_ltv
 
 #[test]
 fn test_borrow_emode_enhanced_ltv() {

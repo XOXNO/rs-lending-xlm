@@ -3,7 +3,7 @@
 //! Pipeline: auth → flash guard → account → cache(policy) → preflight →
 //! prefetch → withdraw → swap → deposit → `strategy_finalize`.
 
-use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
+use common::errors::{CollateralError, GenericError};
 use controller_interface::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
@@ -74,12 +74,6 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    assert_with_error!(
-        env,
-        !account.is_isolated,
-        FlashLoanError::SwapCollateralNoIso
-    );
-
     let policy = if account.borrow_positions.is_empty() {
         OraclePolicy::RiskDecreasing
     } else {
@@ -142,10 +136,6 @@ pub(crate) fn validate_swap_new_collateral_preflight(
 ) {
     let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
     let config = emode::effective_asset_config(env, account, new_collateral, cache, &e_mode);
-    if config.is_isolated_asset {
-        panic_with_error!(env, EModeError::MixIsolatedCollateral);
-    }
-    emode::ensure_e_mode_compatible_with_asset(env, &config, account.e_mode_category_id);
     emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, new_collateral);
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);

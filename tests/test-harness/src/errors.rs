@@ -73,10 +73,6 @@ pub mod codes {
     // EModeError
     pub const EMODE_CATEGORY_NOT_FOUND: u32 = EModeError::EModeCategoryNotFound as u32;
     pub const EMODE_CATEGORY_DEPRECATED: u32 = EModeError::EModeCategoryDeprecated as u32;
-    pub const EMODE_WITH_ISOLATED: u32 = EModeError::EModeWithIsolated as u32;
-    pub const MIX_ISOLATED_COLLATERAL: u32 = EModeError::MixIsolatedCollateral as u32;
-    pub const DEBT_CEILING_REACHED: u32 = EModeError::DebtCeilingReached as u32;
-    pub const NOT_BORROWABLE_ISOLATION: u32 = EModeError::NotBorrowableIsolation as u32;
     pub const ASSET_NOT_IN_EMODE: u32 = EModeError::AssetNotInEmode as u32;
     pub const EMODE_MISMATCH: u32 = EModeError::EModeMismatch as u32;
 
@@ -85,7 +81,6 @@ pub mod codes {
     pub const FLASHLOAN_NOT_ENABLED: u32 = FlashLoanError::FlashloanNotEnabled as u32;
     pub const INVALID_FLASHLOAN_REPAY: u32 = FlashLoanError::InvalidFlashloanRepay as u32;
     pub const INVALID_FLASHLOAN_RECEIVER: u32 = FlashLoanError::InvalidFlashloanReceiver as u32;
-    pub const SWAP_COLLATERAL_NO_ISO: u32 = FlashLoanError::SwapCollateralNoIso as u32;
 
     // StrategyError
     pub const CONVERT_STEPS_REQUIRED: u32 = StrategyError::ConvertStepsRequired as u32;

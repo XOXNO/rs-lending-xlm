@@ -191,12 +191,6 @@ impl LendingTest {
     pub fn can_be_liquidated_by_id(&self, account_id: u64) -> bool {
         self.ctrl_client().health_factor(&account_id) < WAD
     }
-    // Isolated debt
-
-    pub fn get_isolated_debt(&self, asset_name: &str) -> i128 {
-        let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().get_isolated_debt(&asset)
-    }
     // Account info
 
     pub fn get_account_attributes(&self, user: &str) -> controller::types::AccountAttributes {

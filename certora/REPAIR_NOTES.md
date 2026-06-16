@@ -189,13 +189,11 @@ All in `certora/controller/`. Same edit everywhere.
 | `harness/oracle_price.rs` | 8 | `controller::types::{MarketIndex,PriceFeedRaw}` | `crate::types::…` |
 | `harness/oracle_tolerance.rs` | 8,13 | `controller::constants::{BPS,MAX_FIRST_TOLERANCE,…}`, `controller::types::OraclePriceFluctuation` | `crate::constants::…`, `crate::types::…` |
 | `harness/storage.rs` | 7 | `controller::types::{AccountAttributes,…,PositionMode}` | `crate::types::…` |
-| `spec/account_isolation_rules.rs` | 11,12 | `controller::constants::WAD`, `controller::types::AccountPositionType` | `crate::…` |
 | `spec/boundary_rules.rs` | 17,21 | `controller::constants::{…}`, `controller::types::MarketParams` | `crate::…` |
 | `spec/consistency_rules.rs` | 11,12 | constants::WAD, types::AccountPositionType | `crate::…` |
 | `spec/health_rules.rs` | 16 | constants::WAD | `crate::…` |
 | `spec/index_rules.rs` | 10 | constants::{RAY,SUPPLY_INDEX_FLOOR_RAW} | `crate::…` |
 | `spec/interest_rules.rs` | 17,24 | constants::{…}, types::MarketParams | `crate::…` |
-| `spec/isolation_rules.rs` | 10,66,75,158 | constants::{BPS,RAY}, types::AccountPositionType (×3 inline) | `crate::…` |
 | `spec/liquidation_rules.rs` | 15,18 | constants::{BPS,WAD}, types::AccountPositionType | `crate::…` |
 | `spec/market_guard_rules.rs` | 11,12 | constants::WAD, types::{AccountPositionType,MarketStatus} | `crate::…` |
 | `spec/math_rules.rs` | 10 | constants::{RAY,WAD} | `crate::…` |
@@ -307,9 +305,7 @@ postcondition ("supply index MAY drop on the bad-debt branch, floored at
 `SUPPLY_INDEX_FLOOR_RAW`; all other paths monotone") must be carried over
 verbatim. This is a soundness property, not a signature — do not drop it during
 the mechanical sig rewrite. No decision needed now; flagged so CR-2 doesn't lose
-it. (Memory: `isolated-debt-counter-asymmetric-drift` FIXED 2026-06-12 — confirm
-the summary's monotonicity assumptions still match the new exact-basis model
-when the prover runs in Phase 4.)
+it when the prover runs in Phase 4.)
 
 ### SEM-3 — `withdraw`/`process_withdraw` gained `to: Option<Address>` (RECOMMEND: pass None now, add a branch rule in Phase 5)
 

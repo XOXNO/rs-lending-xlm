@@ -15,7 +15,6 @@ use stellar_xdr::curr::{
 pub enum ControllerPersistentKey {
     PoolsList,
     Market([u8; 32]),
-    IsolatedDebt([u8; 32]),
     EModeCategory(u32),
 }
 
@@ -24,7 +23,6 @@ impl ControllerPersistentKey {
         Ok(match self {
             Self::PoolsList => sc_enum("PoolsList", &[])?,
             Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)])?,
-            Self::IsolatedDebt(addr) => sc_enum("IsolatedDebt", &[sc_address_contract(addr)])?,
             Self::EModeCategory(id) => sc_enum("EModeCategory", &[ScVal::U32(*id)])?,
         })
     }
@@ -40,16 +38,13 @@ impl ControllerPersistentKey {
 
 /// Controller per-user persistent keys, keyed by the `u64` account id.
 ///
-/// The contract splits each account across three persistent entries plus an
-/// optional isolated-debt basis: `AccountMeta(id)`, `SupplyPositions(id)`,
-/// `BorrowPositions(id)`, and `IsolatedBasis(id, asset)` for isolated accounts.
+/// The contract splits each account across three persistent entries:
+/// `AccountMeta(id)`, `SupplyPositions(id)`, and `BorrowPositions(id)`.
 #[derive(Debug, Clone)]
 pub enum ControllerUserKey {
     AccountMeta(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
-    /// `(account_id, debt_asset)` isolated-debt principal basis.
-    IsolatedBasis(u64, [u8; 32]),
 }
 
 impl ControllerUserKey {
@@ -58,10 +53,6 @@ impl ControllerUserKey {
             Self::AccountMeta(id) => sc_enum("AccountMeta", &[ScVal::U64(*id)])?,
             Self::SupplyPositions(id) => sc_enum("SupplyPositions", &[ScVal::U64(*id)])?,
             Self::BorrowPositions(id) => sc_enum("BorrowPositions", &[ScVal::U64(*id)])?,
-            Self::IsolatedBasis(id, asset) => sc_enum(
-                "IsolatedBasis",
-                &[ScVal::U64(*id), sc_address_contract(asset)],
-            )?,
         })
     }
 
@@ -451,24 +442,6 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(sym_text(&items[0]), "BorrowPositions");
         assert!(matches!(items[1], ScVal::U64(1)));
-    }
-
-    #[test]
-    fn isolated_basis_user_key_carries_id_then_asset() {
-        let sv = ControllerUserKey::IsolatedBasis(9, [5u8; 32])
-            .to_sc_val()
-            .unwrap();
-        let ScVal::Vec(Some(ScVec(items))) = sv else {
-            panic!("expected Vec");
-        };
-        // `IsolatedBasis(u64, Address)` → [Symbol, U64(id), Address(asset)].
-        assert_eq!(items.len(), 3);
-        assert_eq!(sym_text(&items[0]), "IsolatedBasis");
-        assert!(matches!(items[1], ScVal::U64(9)));
-        assert!(matches!(
-            &items[2],
-            ScVal::Address(ScAddress::Contract(ContractId(Hash(b)))) if *b == [5u8; 32]
-        ));
     }
 
     #[test]

@@ -1,5 +1,3 @@
-use controller::constants::WAD;
-
 use soroban_sdk::vec;
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
@@ -101,14 +99,8 @@ fn test_supply_duplicate_asset_bulk_accumulates_single_position() {
 }
 
 #[test]
-fn test_supply_duplicate_isolated_asset_bulk_is_allowed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .build();
+fn test_supply_duplicate_asset_bulk_is_allowed() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     t.supply_bulk(ALICE, &[("USDC", 2_000.0), ("USDC", 3_000.0)]);
 
@@ -296,50 +288,7 @@ fn test_supply_position_limit_exceeded() {
     let result = t.try_supply(ALICE, "WBTC", 0.01);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 12. test_supply_isolated_account_single_asset
-
-#[test]
-fn test_supply_isolated_account_single_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .with_market(eth_preset())
-        .build();
-
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 5_000.0);
-
-    t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
-    t.assert_supply_near(ALICE, "USDC", 5_000.0, 1.0);
-    assert!(
-        t.token_balance(ALICE, "USDC") < 0.01,
-        "wallet should be ~0 after supply"
-    );
-}
-// 13. test_supply_isolated_rejects_second_asset
-
-#[test]
-fn test_supply_isolated_rejects_second_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.is_isolated_asset = true;
-            cfg.isolation_debt_ceiling_usd_wad = 1_000_000i128 * WAD;
-        })
-        .with_market(eth_preset())
-        .build();
-
-    t.create_isolated_account(ALICE, "USDC");
-    t.supply(ALICE, "USDC", 5_000.0);
-
-    // Supplying ETH to an isolated account must fail.
-    let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::MIX_ISOLATED_COLLATERAL);
-}
-// 14. test_supply_emode_rejects_non_category_asset
+// 12. test_supply_emode_rejects_non_category_asset
 
 #[test]
 fn test_supply_emode_rejects_non_category_asset() {

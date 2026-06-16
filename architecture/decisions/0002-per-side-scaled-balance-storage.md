@@ -34,8 +34,8 @@ not by per-account writes.
 
 **Per-side storage split.** Account state is partitioned into three keys:
 
-- `ControllerKey::AccountMeta(u64)` — owner, isolation/e-mode flags, position
-  mode, and isolated asset.
+- `ControllerKey::AccountMeta(u64)` — owner, e-mode category id, and position
+  mode.
 - `ControllerKey::SupplyPositions(u64)` — `Map<Address, AccountPositionRaw>`.
 - `ControllerKey::BorrowPositions(u64)` — `Map<Address, DebtPositionRaw>`.
 

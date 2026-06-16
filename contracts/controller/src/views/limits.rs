@@ -191,10 +191,10 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
 /// Largest currently executable `borrow` amount of `asset` for `account_id`.
 ///
 /// Returns `0` while paused, on an inactive or non-borrowable market, or when
-/// the asset is structurally not borrowable for this account (isolation,
-/// e-mode category, siloed set, or borrow-position limit). Otherwise mirrors
-/// the mutating path's amount-dependent gates — pool liquidity, max
-/// utilization, borrow cap, isolation debt ceiling, then the account LTV and
+/// the asset is structurally not borrowable for this account (e-mode category,
+/// siloed set, or borrow-position limit). Otherwise mirrors the mutating path's
+/// amount-dependent gates — pool liquidity, max utilization, borrow cap, then
+/// the account LTV and
 /// health-factor gates — and binary-searches the largest passing amount.
 /// Feasibility is monotone in the amount, so the result never overstates what
 /// the next transaction allows; indexes keep accruing after the read, so
@@ -266,9 +266,6 @@ fn account_can_borrow_asset(
     if !config.can_borrow() {
         return false;
     }
-    if account.is_isolated && !config.can_borrow_in_isolation() {
-        return false;
-    }
     if account.e_mode_category_id > 0 {
         let market = cache.cached_market_config(asset);
         if !market
@@ -322,8 +319,8 @@ fn borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, config: &AssetConfig)
 }
 
 /// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
-/// post-borrow utilization, borrow cap, isolation ceiling, then the account
-/// LTV and health-factor gates with the new debt applied.
+/// post-borrow utilization, borrow cap, then the account LTV and health-factor
+/// gates with the new debt applied.
 #[allow(clippy::too_many_arguments)]
 fn borrow_ok(
     env: &Env,
@@ -362,23 +359,6 @@ fn borrow_ok(
             scaled_to_original(env, post_borrowed, market.borrow_index).to_asset(market.decimals);
         if post_actual > config.borrow_cap {
             return false;
-        }
-    }
-
-    // Isolation debt ceiling lives on the isolated collateral's config and is
-    // tracked in USD WAD at the borrow price.
-    if account.is_isolated {
-        if let Some(isolated) = account.try_isolated_token() {
-            let feed = cache.cached_price(asset);
-            let added = feed.usd_value_wad(env, amount).raw();
-            let current = storage::get_isolated_debt(env, &isolated);
-            let ceiling = cache
-                .cached_asset_config(&isolated)
-                .isolation_debt_ceiling_usd
-                .raw();
-            if current.saturating_add(added) > ceiling {
-                return false;
-            }
         }
     }
 

@@ -3,7 +3,7 @@
 //! Exact-arithmetic liquidation reference for tests.
 //!
 //! Covers pre-liquidation HF, dynamic bonus, repayment, seizure, and protocol
-//! fee split. Excludes rate accrual, isolation debt writes, and bad-debt
+//! fee split. Excludes rate accrual and bad-debt
 //! socialization.
 
 extern crate std;

@@ -173,8 +173,6 @@ mod tests {
             borrow_positions: Map::new(&env),
             e_mode_category_id: 0,
             mode: controller_interface::types::PositionMode::Normal,
-            is_isolated: false,
-            isolated_asset: None,
         };
         let assets: Vec<(Address, i128)> =
             Vec::from_array(&env, [(asset.clone(), 100), (asset.clone(), 200)]);

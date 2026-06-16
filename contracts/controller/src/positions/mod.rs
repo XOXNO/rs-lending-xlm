@@ -19,7 +19,6 @@ use crate::storage;
 use crate::validation;
 
 pub mod borrow;
-pub mod isolated_debt;
 pub mod liquidation;
 pub mod liquidation_math;
 pub mod repay;
@@ -72,17 +71,8 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-/// Flushes isolated-debt counters (when applicable) and emits batched position
-/// and market events recorded during the flow.
-pub(crate) fn emit_account_updates(
-    cache: &mut Cache,
-    account_id: u64,
-    account: &Account,
-    flush_isolated_debts: bool,
-) {
-    if flush_isolated_debts {
-        cache.flush_isolated_debts();
-    }
+/// Emits batched position and market events recorded during the flow.
+pub(crate) fn emit_account_updates(cache: &mut Cache, account_id: u64, account: &Account) {
     cache.emit_position_batch(account_id, account);
     cache.emit_market_batch();
 }
@@ -95,10 +85,9 @@ pub(crate) fn finalize_position_flow(
     cache: &mut Cache,
     sides: PositionSides,
     remove_if_empty: bool,
-    flush_isolated_debts: bool,
 ) {
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
-    emit_account_updates(cache, account_id, account, flush_isolated_debts);
+    emit_account_updates(cache, account_id, account);
 }
 
 /// E-mode-adjusted configs resolved once per aggregated asset, shared by

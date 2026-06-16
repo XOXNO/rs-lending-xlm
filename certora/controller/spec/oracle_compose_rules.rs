@@ -10,11 +10,7 @@ use crate::oracle::ResolvedOracleComponents;
 
 #[rule]
 fn strict_policies_forbid_degraded_dual_source() {
-    for policy in [
-        OraclePolicy::RiskIncreasing,
-        OraclePolicy::Liquidation,
-        OraclePolicy::IsolatedRepay,
-    ] {
+    for policy in [OraclePolicy::RiskIncreasing, OraclePolicy::Liquidation] {
         cvlr_assert!(!policy.allows_degraded_dual_source());
     }
     cvlr_satisfy!(true);

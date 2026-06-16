@@ -77,29 +77,25 @@ fn print_storage_sizes() {
     println!("\n================ ACCOUNT STORAGE ENTRY SIZES (XDR bytes) ================");
 
     // --- AccountMeta ---
-    let meta_no_iso = AccountMeta {
+    let meta = AccountMeta {
         owner: Address::generate(&env),
-        is_isolated: false,
         e_mode_category_id: 0,
         mode: PositionMode::Normal,
-        isolated_asset: None,
     };
-    let meta_iso = AccountMeta {
+    let meta_emode = AccountMeta {
         owner: Address::generate(&env),
-        is_isolated: true,
         e_mode_category_id: 3,
         mode: PositionMode::Long,
-        isolated_asset: Some(Address::generate(&env)),
     };
     sizes(
-        "AccountMeta (no isolated_asset)",
+        "AccountMeta (normal)",
         scval_of(&env, ControllerKey::AccountMeta(id)),
-        scval_of(&env, meta_no_iso),
+        scval_of(&env, meta),
     );
     sizes(
-        "AccountMeta (with isolated_asset)",
+        "AccountMeta (e-mode)",
         scval_of(&env, ControllerKey::AccountMeta(id)),
-        scval_of(&env, meta_iso),
+        scval_of(&env, meta_emode),
     );
 
     println!("---- SupplyPositions: Map<Address, AccountPositionRaw> ----");
