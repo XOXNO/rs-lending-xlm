@@ -2,23 +2,20 @@
 //!
 //! One `read_price_data` call per adapter replaces N single-feed calls
 //! (~1.27MB metered memory each). Only raw provider payloads are cached,
-//! so every policy, staleness, and sanity check still runs per flow.
+//! so each policy, staleness, and sanity check still runs per flow.
 //! Any bulk failure leaves the cache empty and the per-feed lazy path
-//! takes over unchanged. The real adapter returns results index-aligned
-//! with the request and fails whole-call on a missing feed (verified
-//! on-chain); the index-aligned `get_unchecked` copy into the cache relies on that.
+//! takes over unchanged. The adapter returns results index-aligned with the
+//! request and fails the call on a missing feed; `get_unchecked` depends on that.
 
 use soroban_sdk::{Address, Vec};
 
 use crate::cache::Cache;
 
-/// Below this many distinct feeds per adapter, bulk saves nothing — and a
-/// bulk-of-one could fetch a feed the flow never prices (e.g. a full-close
-/// withdrawal asset that never gets priced), which would cost a call where the lazy
-/// path makes none.
+/// Minimum distinct feeds per adapter for bulk prefetch.
+/// A single-feed bulk call can price an asset the flow does not read.
 const MIN_BULK_FEEDS: u32 = 2;
 
-/// No-op under Certora: pure performance optimization, identical semantics.
+/// Certora stub: lazy per-feed reads preserve semantics.
 #[cfg(feature = "certora")]
 pub(crate) fn prefetch_redstone_feeds(_cache: &mut Cache, _assets: &Vec<Address>) {}
 
@@ -34,12 +31,11 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
     let mut by_adapter: Map<Address, Vec<String>> = Map::new(&env);
 
     for asset in assets.iter() {
-        // Already fully resolved this tx: nothing left to fetch for it.
+        // Feed resolved this tx: nothing left to fetch for it.
         if cache.prices_cache.contains_key(asset.clone()) {
             continue;
         }
-        // Unlisted assets are the flow's problem to reject — the prefetch
-        // must never introduce its own panic site.
+        // Flows reject unlisted assets; prefetch must not add a panic site.
         let Some(market) = cache.try_cached_market_config(&asset) else {
             continue;
         };

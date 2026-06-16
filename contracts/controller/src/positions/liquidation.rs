@@ -65,11 +65,9 @@ pub fn process_liquidation(
 
     let aggregated = utils::aggregate_positive_payments(env, debt_payments);
 
-    // Liquidation policy: seizure needs a defensible price, so it denies every
-    // loosening (stale/deviation/TWAP). Beyond the last tolerance band it
-    // reverts (`UnsafePriceNotAllowed`) rather than seize at a price only one
-    // source corroborates; inside the bands the standard primary/midpoint
-    // selection applies.
+    // Liquidation denies stale, deviation, and TWAP loosening. Outside the last
+    // tolerance band, `UnsafePriceNotAllowed` prevents seizure at a single-source
+    // price; inside the bands the standard primary/midpoint selection applies.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated, &mut cache);
@@ -277,10 +275,8 @@ fn check_bad_debt_after_liquidation(
 
 /// Socializes small residual bad debt by seizing all collateral and debt shares.
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
-    // Success removes the account; failure reverts atomically, so no upfront keep-alive.
-    // Cleanup is risk-reducing, so it uses the same `Liquidation` policy as the inline
-    // path — blocking on oracle deviation would trade recoverable uncertainty for
-    // permanent bad debt in exactly the conditions these accounts need clearing.
+    // Success removes the account; failure reverts atomically, so no keep-alive is needed.
+    // Cleanup uses the same `Liquidation` policy as inline post-liquidation cleanup.
     let mut cache = Cache::new(env, OraclePolicy::Liquidation);
     let account = storage::get_account(env, account_id);
 

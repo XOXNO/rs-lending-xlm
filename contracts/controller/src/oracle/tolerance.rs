@@ -40,9 +40,9 @@ pub(crate) fn calculate_final_price(
             ) {
                 midpoint_price(env, anchor_price, primary_price)
             } else {
-                // Beyond the last band: only single-source fallback policies tolerate
-                // this divergence (all others, incl. liquidation, revert); keep the
-                // primary price.
+                // Beyond the last band, only single-source fallback policies
+                // tolerate this divergence. Other policies, including liquidation,
+                // revert; fallback policies keep the primary price.
                 if !cache.oracle_policy.allows_unsafe_deviation() {
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }

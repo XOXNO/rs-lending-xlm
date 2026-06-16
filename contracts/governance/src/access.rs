@@ -106,12 +106,9 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
-/// Separation of powers: a single delegated address must not hold BOTH the
-/// EXECUTOR and CANCELLER timelock roles — whoever executes a scheduled
-/// operation must not also be able to veto one. The owner is exempt: it holds
-/// the full role set via the constructor / ownership sync, which call
-/// `grant_role_no_auth` directly and bypass this path, so governance can never
-/// deadlock (the owner can always both execute and cancel).
+/// Enforces EXECUTOR/CANCELLER separation for delegated accounts.
+/// The owner is exempt because constructor and ownership sync grant roles
+/// through `grant_role_no_auth`, preserving recovery authority.
 fn require_executor_canceller_separation(env: &Env, account: &Address, role: &Symbol) {
     let executor = Symbol::new(env, EXECUTOR_ROLE);
     let canceller = Symbol::new(env, CANCELLER_ROLE);
@@ -138,8 +135,8 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
 
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     crate::storage::renew_governance_instance(env);
-    // Fail loud if the target does not hold the role: a silent no-op could let
-    // an operator believe a privilege was removed when it never was.
+    // Revoke unheld roles as errors so operators cannot mistake a no-op for
+    // a revocation.
     assert_with_error!(
         env,
         access_control::has_role(env, account, role).is_some(),
@@ -209,7 +206,7 @@ mod tests {
         )
     }
 
-    // #7: a single delegate cannot hold both EXECUTOR and CANCELLER.
+    // Delegates cannot hold both EXECUTOR and CANCELLER.
     #[test]
     #[should_panic]
     fn grant_role_enforces_executor_canceller_separation() {
@@ -218,12 +215,11 @@ mod tests {
         let delegate = Address::generate(&env);
         env.as_contract(&id, || {
             apply_grant_role(&env, &delegate, &Symbol::new(&env, CANCELLER_ROLE));
-            // Granting EXECUTOR to the same delegate must revert.
             apply_grant_role(&env, &delegate, &Symbol::new(&env, EXECUTOR_ROLE));
         });
     }
 
-    // #7: separated EXECUTOR and CANCELLER delegates are allowed.
+    // Separate EXECUTOR and CANCELLER delegates are allowed.
     #[test]
     fn grant_role_allows_separated_executor_and_canceller() {
         let env = Env::default();
@@ -244,7 +240,7 @@ mod tests {
         });
     }
 
-    // #8: revoking a role the account does not hold reverts (no silent no-op).
+    // Revoke requires the account to hold the role.
     #[test]
     #[should_panic]
     fn revoke_role_rejects_unheld() {

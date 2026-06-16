@@ -1,8 +1,6 @@
 //! Public price & index entry points (`token_price`, `update_asset_index`).
 //!
-//! These are the two functions re-exported from the oracle module and
-//! called by the cache. They are the integration point between the
-//! full oracle resolution pipeline and the rest of the lending logic.
+//! Cache-facing integration points for oracle resolution and index accrual.
 
 use common::errors::{GenericError, OracleError};
 use common::rates::simulate_update_indexes;

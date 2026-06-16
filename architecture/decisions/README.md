@@ -1,10 +1,8 @@
 # Architecture Decision Records
 
-This directory contains Architecture Decision Records (ADRs) for the
-load-bearing decisions in the XOXNO Lending protocol on Soroban. Each ADR
-captures the context, the decision itself, alternatives considered, and
-the consequences. ADRs explain why the protocol uses a particular design and
-link each decision to the relevant implementation paths.
+This directory contains Architecture Decision Records (ADRs) for load-bearing
+decisions in the XOXNO Lending protocol on Soroban. Each ADR records context,
+decision, alternatives, consequences, and implementation paths.
 
 ## Index
 

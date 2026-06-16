@@ -695,9 +695,9 @@ mod tests {
         let b = Bps::from(2500);
         assert_eq!((a - b).raw(), 5000);
     }
-    // Adversarial / edge-case coverage for the typed wrappers.
+    // Typed wrapper edge cases.
 
-    // Ray::mul on exact products (0.5*1, 0.5*0.5) — no half-up tie-breaker engaged.
+    // Ray::mul on exact products (0.5*1, 0.5*0.5); no half-up tie-breaker.
     #[test]
     fn test_ray_mul_rounds_half_up() {
         let env = Env::default();
@@ -710,7 +710,7 @@ mod tests {
         assert_eq!(half.mul(&env, half).raw(), RAY / 4);
     }
 
-    // Ray::div by zero — propagates host I256 divide-by-zero panic.
+    // Ray::div by zero propagates the host I256 divide-by-zero panic.
     #[test]
     #[should_panic]
     fn test_ray_div_by_zero_panics() {
@@ -719,7 +719,7 @@ mod tests {
     }
 
     // Ray::mul overflow: i128::MAX in both operands; the I256 intermediate holds
-    // the product but the post-`/RAY` result overflows i128 → `MathOverflow`.
+    // the product, but the post-`/RAY` result overflows i128 and raises `MathOverflow`.
     #[test]
     #[should_panic]
     fn test_ray_mul_overflow_panics() {
@@ -727,7 +727,7 @@ mod tests {
         let _ = Ray::from(i128::MAX).mul(&env, Ray::from(i128::MAX));
     }
 
-    // Ray::checked_sub between equal values returns Zero, not panic.
+    // Ray::checked_sub between equal values returns zero, not panic.
     #[test]
     fn test_ray_checked_sub_equal_returns_zero() {
         let env = Env::default();
@@ -750,7 +750,7 @@ mod tests {
         let _ = a - b;
     }
 
-    // Wad::div by zero — same propagation path as Ray.
+    // Wad::div by zero uses the same propagation path as Ray.
     #[test]
     #[should_panic]
     fn test_wad_div_by_zero_panics() {
@@ -774,19 +774,18 @@ mod tests {
         let _ = a - b;
     }
 
-    // Wad::min / max with equal operands: the `else` branch fires, so
-    // `min` and `max` both return `other` (the rhs).
+    // Wad::min / max with equal operands return `other` (the rhs).
     #[test]
     fn test_wad_min_max_equal_operands() {
         let a = Wad::from(42);
         let b = Wad::from(42);
-        // Per impl, equal → returns `other` (the rhs) for both.
+        // Equal operands return the rhs for both.
         assert_eq!(a.min(b), b);
         assert_eq!(a.max(b), b);
     }
 
-    // Wad::max strictly-greater branch (`self > other` returns `self`) —
-    // the symmetric case to `test_wad_min_max`'s self < other.
+    // Wad::max strict-greater branch returns `self`; symmetric case to
+    // `test_wad_min_max`'s self < other.
     #[test]
     fn test_wad_max_returns_self_when_strictly_greater() {
         let a = Wad::from(100);
@@ -911,8 +910,7 @@ mod tests {
         assert_eq!(Bps::ONE.apply_to_ray(&env, r).raw(), r.raw());
     }
 
-    // bps > BPS produces a ratio > 1 (misuse) but doesn't panic — just a larger
-    // Wad. Pin that behaviour.
+    // bps > BPS produces a ratio > 1 without panicking.
     #[test]
     fn test_bps_to_wad_above_one_does_not_panic() {
         let env = Env::default();
@@ -928,8 +926,8 @@ mod tests {
         assert_eq!(x.div_by_int(2).raw(), -4);
     }
 
-    // Ray::div_floor truncates toward zero; this pins the floor-vs-half-up
-    // divergence explicitly (vs the single ratio in `test_ray_div_floor`).
+    // Ray::div_floor truncates toward zero; this case differs from half-up by
+    // one ulp.
     #[test]
     fn test_ray_div_floor_vs_div_diverges_on_half_remainder() {
         let env = Env::default();
@@ -945,7 +943,7 @@ mod tests {
         );
     }
 
-    // ---- Zero-boundary tests for checked_sub on Ray/Wad/Bps ---------------
+    // checked_sub zero-boundary tests for Ray/Wad/Bps.
     // Differentiates `< 0` from `<= 0`/`== 0` on both self and rhs guards.
 
     #[test]
@@ -967,11 +965,9 @@ mod tests {
         assert_eq!(zero.checked_sub(&env, zero), zero);
     }
 
-    // ---- First `||` disjunct in checked_sub (`self.0 < 0`) ----------------
-    // Guard is `self.0 < 0 || rhs.0 < 0 || rhs.0 > self.0`. With self=0, rhs=-1
-    // the operands are (F, T, F): only the second is true, so flipping the first
-    // `||` to `&&` would drop the panic. Expecting it kills that mutant — which
-    // the `rejects_negative_self` tests (self=-1, rhs=0) leave alive.
+    // First `||` disjunct in checked_sub (`self.0 < 0`).
+    // Guard operands with self=0, rhs=-1 are (F, T, F). If the first `||`
+    // changes to `&&`, the panic is lost; negative-self tests do not cover it.
 
     #[test]
     #[should_panic]
@@ -994,7 +990,7 @@ mod tests {
         let _ = Bps::from(0i128).checked_sub(&env, Bps::from(-1i128));
     }
 
-    // ---- Sub trait at equality returns zero (Wad / Bps) -------------------
+    // Sub trait at equality returns zero (Wad / Bps).
     // Differentiates `result < 0` from `result <= 0` / `== 0` in Sub impls.
 
     #[test]
@@ -1007,8 +1003,8 @@ mod tests {
         assert_eq!(Bps::ONE - Bps::ONE, Bps::from(0i128));
     }
 
-    // ---- Assign-op body validation ----------------------------------------
-    // Replacing the body with `()` must change observable state.
+    // Assign-op body validation.
+    // Assignment updates observable state.
 
     #[test]
     fn test_ray_checked_add_assign_mutates() {
@@ -1034,7 +1030,7 @@ mod tests {
         assert_eq!(x.raw(), 3 * crate::constants::WAD);
     }
 
-    // ---- Ray::to_asset_floor / to_asset_ceil pin concrete output ----------
+    // Ray::to_asset_floor / to_asset_ceil concrete outputs.
     // Differentiates the function body from constant returns (0, 1, -1).
 
     #[test]
@@ -1056,7 +1052,7 @@ mod tests {
         assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
     }
 
-    // ---- Directional gate-valuation primitives ----------------------------
+    // Directional gate-valuation primitives.
     // floor < half_up < ceil on any non-exact remainder; equal when exact.
 
     #[test]
@@ -1122,9 +1118,11 @@ mod tests {
         // use a value with a .5 boundary: 5 wei at 5000 bps = 2.5.
         let v = Wad::from(5);
         let half = Bps::from(5_000);
-        assert_eq!(half.apply_to_wad(&env, v).raw(), 3); // half-up
-        assert_eq!(half.apply_to_wad_floor(&env, v).raw(), 2); // floor
-                                                               // Exact application unchanged.
+        // Half-up rounds to 3; floor rounds to 2.
+        assert_eq!(half.apply_to_wad(&env, v).raw(), 3);
+        assert_eq!(half.apply_to_wad_floor(&env, v).raw(), 2);
+
+        // Exact input has no remainder.
         let exact = Wad::from(100 * WAD);
         assert_eq!(
             Bps::from(8_000).apply_to_wad_floor(&env, exact).raw(),

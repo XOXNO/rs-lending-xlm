@@ -47,7 +47,7 @@ pub(crate) fn set_emode_asset(
 ) {
     let mut cat = try_get_emode_category(env, category_id)
         .unwrap_or_else(|| panic_with_error!(env, EModeError::EModeCategoryNotFound));
-    // Cap applies to inserts only — updates leave cardinality unchanged.
+    // Cap applies to inserts only; updates leave cardinality unchanged.
     let is_new = !cat.assets.contains_key(asset.clone());
     if is_new && cat.assets.len() >= MAX_EMODE_ASSETS_PER_CATEGORY {
         panic_with_error!(env, EModeError::EModeAssetsLimitReached);

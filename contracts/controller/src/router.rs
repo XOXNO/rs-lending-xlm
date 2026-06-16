@@ -76,7 +76,7 @@ impl Controller {
         params: MarketParamsRaw,
         config: AssetConfigRaw,
     ) -> Address {
-        // Inner `create_liquidity_pool` already bumps the controller instance.
+        // Inner `create_liquidity_pool` bumps the controller instance.
         create_liquidity_pool(&env, &asset, &params, &config)
     }
 
@@ -119,7 +119,7 @@ impl Controller {
     ) {
         validation::require_not_flash_loaning(&env);
 
-        // Propagates risk-param updates for every supplied asset on each account.
+        // Propagates risk-param updates for each supplied asset on each account.
         let risk = match has_risks {
             true => OraclePolicy::RiskIncreasing,
             false => OraclePolicy::RiskDecreasing,
@@ -301,7 +301,7 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     storage::renew_user_account(env, account_id);
 }
 
-/// Syncs risk params on every supply position for one account, then runs a
+/// Syncs risk params on each supply position for one account, then runs a
 /// single HF gate when `has_risks` propagates liquidation thresholds.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).

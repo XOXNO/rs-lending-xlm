@@ -9,7 +9,7 @@
 
 A flash loan must guarantee that, by the end of the transaction, the pool
 holds at least the principal plus the fee it had before the loan
-started. EVM designs typically maintain bookkeeping (decrement an
+started. EVM designs maintain bookkeeping (decrement an
 internal balance, then check it back at the end). On Soroban the model
 is different in ways that affect the safest implementation:
 
@@ -38,13 +38,13 @@ Implementation in `contracts/pool/src/lib.rs::flash_loan`, orchestrated by
 3. `load_synced_cache` (runs `renew_pool_instance` then
    `interest::global_sync`), then `cache.require_reserves(amount)` (rejects
    with `CollateralError::InsufficientLiquidity`).
-4. `require_wasm_receiver(receiver)` — the pool re-checks the receiver is a
+4. `require_wasm_receiver(receiver)`: the pool re-checks the receiver is a
    deployed Wasm contract.
 5. Snapshot `pre_balance = token.balance(pool)`; derive
    `expected_after_payout = pre_balance - amount` and
    `expected_after_repay = pre_balance + fee`.
 6. Transfer `amount` to the receiver, then assert the balance equals
-   `expected_after_payout` (`InvalidFlashloanRepay`) — *before* the callback.
+   `expected_after_payout` (`InvalidFlashloanRepay`) before the callback.
 7. Invoke `execute_flash_loan(initiator, asset, amount, fee, pool, data)` on
    the receiver. `data` is opaque to the controller and pool.
 8. Assert the balance *again* equals `expected_after_payout`
@@ -82,7 +82,7 @@ the entrypoint signature is `flash_loan(caller, asset, amount, receiver, data)`)
 
 - **Internal-balance bookkeeping (EVM-style).** Rejected: requires
   trusting the token contract's reported amounts in `transfer`.
-  Fee-on-transfer or rebasing tokens would silently break the invariant.
+  Fee-on-transfer or rebasing tokens would break the invariant.
 - **Controller-owned callback with pool begin/end.** Rejected: it routes
   repayment through the controller and forces temporary pool storage even
   though the pool owns both funds and fee accounting.
@@ -112,7 +112,7 @@ Negative / accepted costs:
 
 - A few extra `token.balance` reads per flash loan.
 - Receivers must implement `execute_flash_loan(initiator, asset, amount,
-  fee, pool, data)` exactly as specified and pre-authorize the pool's pull.
+  fee, pool, data)` with the expected ABI and pre-authorize the pool's pull.
 - The pool emits no fine-grained event from the local snapshot; observers must
   rely on `FlashLoanEvent` from the controller.
 

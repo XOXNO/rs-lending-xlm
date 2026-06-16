@@ -92,7 +92,7 @@ fn settle_borrow(
     cache: &mut Cache,
 ) {
     // Build the whole batch's entries, make ONE pool call, then merge results
-    // input-ordered — one cross-contract frame instead of one per asset.
+    // input-ordered in one cross-contract frame.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (asset, amount) in aggregated {
         let asset_config = configs.get(env, &asset);

@@ -3,7 +3,7 @@
 //! Pipeline: auth → aggregate → cache → validate → settle → persist → emit.
 //! Repay is permissionless w.r.t. the account owner and can only reduce risk;
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
-//! No oracle reads: repay only reduces debt and never needs live prices.
+//! No oracle reads: repay only reduces debt and needs no live prices.
 
 use common::errors::GenericError;
 use controller_interface::types::{
@@ -29,9 +29,9 @@ pub(crate) struct RepaymentRequest<'a> {
 
 #[contractimpl]
 impl Controller {
-    // Permissionless w.r.t. the owner: any caller (authorizing itself) can
-    // settle another account's debt — needed by liquidators and debt-swap
-    // strategies — and repay can't harm the owner.
+    // Permissionless w.r.t. the owner: any caller authorizing itself can settle
+    // another account's debt for liquidators and debt-swap strategies. Repay
+    // cannot harm the owner.
     pub fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>) {
         process_repay(&env, &caller, account_id, &payments);
     }
@@ -144,7 +144,7 @@ pub(crate) fn finish_repayment(
 }
 
 /// Calls the pool repay path and merges the returned scaled debt share.
-/// Single-asset wrapper over the bulk pool repay — used by strategy flows.
+/// Single-asset wrapper over bulk pool repay for strategy flows.
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,

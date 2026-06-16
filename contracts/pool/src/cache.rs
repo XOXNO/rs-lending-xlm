@@ -19,8 +19,7 @@ pub struct Cache {
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
-    /// Liquid token units held by the pool (available reserves), tracked
-    /// internally instead of reading the on-chain token balance.
+    /// Pool-accounted liquid token units available as reserves.
     pub cash: i128,
 }
 
@@ -40,7 +39,7 @@ impl Cache {
             .persistent()
             .get(&PoolKey::State(asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
-        // After the gets: extend_ttl panics on missing keys (soroban-sdk 26.x).
+        // Renew after loads because `extend_ttl` panics on missing keys (soroban-sdk 26.x).
         crate::utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
@@ -110,9 +109,8 @@ impl Cache {
         )
     }
 
-    /// Available reserves = internally-tracked `cash` (liquid token units the
-    /// pool holds). Not a live `token.balance()` read: donations cannot inflate
-    /// borrowable liquidity and flows avoid a cross-contract call.
+    /// Available reserves are tracked `cash`; direct token donations do not
+    /// increase borrowable liquidity, and no token balance call is needed.
     pub fn live_reserves(&self) -> i128 {
         self.cash
     }
@@ -171,8 +169,8 @@ impl Cache {
 
     /// Resolves a withdrawal into scaled shares and gross asset amount.
     ///
-    /// Full-close uses floor rounding so the pool never over-credits the user
-    /// when burning the final scaled supply share.
+    /// Full-close floor rounding prevents over-crediting on the final scaled
+    /// supply share.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
@@ -482,8 +480,8 @@ mod tests {
         });
     }
 
-    // `amount_mutation` / `burn_claimable_revenue` are covered by ABI tests in
-    // tests.rs (`test_claim_revenue*`). Direct tests here give faster feedback.
+    // ABI tests cover `amount_mutation` / `burn_claimable_revenue`; direct
+    // cache tests keep failure scope local.
 
     #[test]
     fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
@@ -504,7 +502,7 @@ mod tests {
             cache.revenue = Ray::from(50 * RAY);
             let before = cache.revenue;
             let _amt = cache.burn_claimable_revenue();
-            // Exercises the reserve-cap path and the scaled burn + supplied reduction.
+            // Reserve-cap path reduces scaled revenue and supplied totals.
             assert!(cache.revenue <= before);
         });
     }
@@ -516,8 +514,7 @@ mod tests {
             let mut cache = cache_with(&t.env, &t.params, 100 * RAY, 0, 100_000_000, RAY, RAY);
             cache.revenue = Ray::from(5 * RAY);
             let _amt = cache.burn_claimable_revenue();
-            // Exercises the burn path (capped or full) and the corresponding revenue/supplied reduction.
-            // Exact final revenue depends on unscale/reserves math; coverage is the goal.
+            // Burn path reduces revenue and supplied totals.
         });
     }
 
@@ -528,9 +525,8 @@ mod tests {
             let supplied = 10i128.pow(20);
             let cache = cache_with(&t.env, &t.params, supplied, 0, 0, RAY, RAY);
             let pos = Ray::from(supplied);
-            // Request almost all but math makes remaining_actual == 0
+            // Request leaves `remaining_actual == 0`, so the full-position path applies.
             let (scaled, gross) = cache.resolve_withdrawal(1, pos);
-            // Should have taken the full position via floor path
             assert_eq!(scaled, pos);
             assert_eq!(gross, 1);
         });
@@ -560,8 +556,8 @@ mod tests {
         });
     }
 
-    // `Ray::checked_sub_assign` is covered by withdraw/seize panic tests at the ABI
-    // layer; this direct unit test gives a faster signal when the helper is touched.
+    // ABI withdraw/seize tests cover `Ray::checked_sub_assign` panics; direct
+    // cache test covers the helper boundary.
     #[test]
     #[should_panic(expected = "Error(Contract, #33)")]
     fn test_ray_checked_sub_assign_panics_on_underflow() {

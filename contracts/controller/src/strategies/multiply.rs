@@ -221,8 +221,8 @@ fn load_or_create_multiply_account(
     mode: PositionMode,
 ) -> (u64, Account) {
     if account_id == 0 {
-        // `create_account` returns the in-memory snapshot it just wrote, so
-        // there's no need to re-read all 3 keys from storage.
+        // `create_account` returns the in-memory snapshot it wrote; no storage
+        // re-read is needed.
         return crate::helpers::create_account(env, caller, e_mode_category, mode);
     }
 

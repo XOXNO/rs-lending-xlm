@@ -1,19 +1,15 @@
-//! Timelocked controller-admin proposers and the immediate pause forwarders.
+//! Timelocked controller-admin proposers and immediate pause forwarders.
 //!
-//! Every protocol-affecting controller-admin op is reachable only by scheduling
-//! it through a typed `propose_*` proposer: the proposer holds PROPOSER, runs
-//! the FULL input validation now, builds an `Operation` targeting the
-//! controller's thin owner-gated setter, and schedules it at the minimum delay.
-//! Execution happens later through `execute` (see `timelock.rs`), which invokes
-//! the controller as a governance->controller cross-call authorized by
-//! governance's ownership. The generic OZ `schedule` is NOT exposed, so nothing
-//! unvalidated can ever be queued.
+//! Controller-admin operations are queued through typed `propose_*` entrypoints.
+//! The proposer must hold PROPOSER, inputs are validated before scheduling, and
+//! the queued `Operation` targets a controller owner-gated setter.
 //!
-//! `pause`/`unpause` stay immediate emergency brakes (owner-gated), since a 48h
-//! delay on halting a compromised market is unacceptable.
+//! Later `execute` calls invoke the controller as a governance-owned
+//! cross-contract call. The generic OZ `schedule` entrypoint is not exposed.
 //!
-//! The testing block mirrors the old immediate forwarders so the harness builder
-//! can configure markets in one frame; it is excluded from the production wasm.
+//! `pause` and `unpause` are owner-gated immediate calls for emergency response.
+//!
+//! Testing builds include immediate forwarders for single-frame harness setup.
 
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::types::{InterestRateModel, MarketParamsRaw};
@@ -35,8 +31,8 @@ fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
     ControllerAdminClient::new(env, &storage::get_controller(env))
 }
 
-/// Authorizes a proposer and renews the instance TTL. Every `propose_*` shares
-/// this preamble before running its op-specific validation.
+/// Shared proposal preamble: renew instance TTL, authorize the proposer, and
+/// require PROPOSER.
 fn begin_proposal(env: &Env, proposer: &Address) {
     storage::renew_governance_instance(env);
     proposer.require_auth();
@@ -75,10 +71,8 @@ fn require_known_controller_role(env: &Env, role: &Symbol) {
     );
 }
 
-/// Validates and probes a market oracle input into the resolved
-/// `MarketOracleConfig` that `set_market_oracle_config` persists. Shared by the
-/// `propose_configure_market_oracle` proposer and the `resolve_market_oracle_config`
-/// view so the view returns byte-identical output to what the proposer schedules.
+/// Resolves the `MarketOracleConfig` persisted by `set_market_oracle_config`.
+/// Shared by the proposer and view so simulation can replay the scheduled args.
 pub(crate) fn resolve_market_oracle(
     env: &Env,
     asset: &Address,
@@ -118,8 +112,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        // Revenue treasury may be a G-account wallet or a contract; not validated
-        // as WASM (unlike the swap aggregator).
+        // Revenue treasury accepts a wallet or contract address.
         schedule_controller_op(
             &env,
             "set_accumulator",
@@ -377,7 +370,7 @@ impl Governance {
         salt: BytesN<32>,
     ) -> BytesN<32> {
         begin_proposal(&env, &proposer);
-        // The pool re-validates; validating here reverts early with precise errors.
+        // Duplicate pool validation rejects invalid params before scheduling.
         params.verify(&env);
         schedule_controller_op(
             &env,
@@ -534,16 +527,14 @@ impl Governance {
 
 #[contractimpl]
 impl Governance {
-    /// Emergency brake: halt the controller immediately, owner-gated. A timelock
-    /// delay on pausing a compromised market is unacceptable, so this is not
-    /// scheduled.
+    /// Halt the controller immediately; owner-gated and not timelocked.
     #[only_owner]
     pub fn pause(env: Env) {
         storage::renew_governance_instance(&env);
         controller_client(&env).pause();
     }
 
-    /// Resume the controller, owner-gated and immediate (the inverse brake).
+    /// Resume the controller immediately; owner-gated.
     #[only_owner]
     pub fn unpause(env: Env) {
         storage::renew_governance_instance(&env);
@@ -551,11 +542,9 @@ impl Governance {
     }
 }
 
-/// Immediate owner-gated forwarders used only by the test harness builder so it
-/// can configure markets in a single frame. Excluded from the production wasm,
-/// where the same operations are reachable only through the timelocked
-/// `propose_*` proposers above. Same precedent as the testing-only
-/// `set_controller`.
+/// Forwarders compiled for tests and the `testing` feature. Excluded from
+/// production wasm; production configuration uses timelocked `propose_*`
+/// entrypoints.
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {
@@ -646,7 +635,7 @@ impl Governance {
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
         storage::renew_governance_instance(&env);
-        // The pool re-validates; validating here reverts early with precise errors.
+        // Duplicate pool validation rejects invalid params before forwarding.
         params.verify(&env);
         controller_client(&env).upgrade_liquidity_pool_params(&asset, &params);
     }

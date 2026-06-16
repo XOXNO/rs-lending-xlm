@@ -38,7 +38,7 @@ Adopt a three-contract production topology:
   liquidation, strategy orchestration, flash-loan orchestration, controller
   roles, and pause state (`contracts/controller/src/*`).
 - One **central pool** contract is owned by the controller. It holds custody for
-  every listed asset and stores per-asset accounting rows:
+  each listed asset and stores per-asset accounting rows:
   `PoolKey::Params(asset)` and `PoolKey::State(asset)`
   (`contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`).
 
@@ -48,9 +48,9 @@ The controller-to-pool ABI is the typed `LiquidityPoolInterface`
 asset-scoped entries.
 
 Pool mutating endpoints, maintenance endpoints, and WASM upgrade are
-`#[only_owner]`; the owner is the controller. The pool never calls oracles,
-routers, governance, or another pool. It only performs asset-scoped accounting
-and token transfers for requests authorized by the controller.
+`#[only_owner]`; the owner is the controller. The pool does not call oracles,
+routers, governance, or another pool. It performs asset-scoped accounting and
+token transfers for requests authorized by the controller.
 
 Market listing is split:
 
@@ -67,14 +67,14 @@ Market listing is split:
 
 - **Monolithic lending contract.** Rejected: it mixes administration, account
   risk, and custody in one upgrade surface. It also makes accounting and
-  verification harder because every concern shares one state machine.
+  verification harder because unrelated concerns share one state machine.
 - **Separate pool contracts.** Superseded: they separate custody by contract,
-  but every multi-asset operation crosses one pool boundary per asset. The
+  but each multi-asset operation crosses one pool boundary per asset. The
   current central pool keeps asset-scoped accounting rows in storage while
   allowing batched pool calls.
 - **Pool-only architecture.** Rejected: cross-asset health checks still require
-  a central risk authority. Letting pools coordinate directly would recreate a
-  controller through ad hoc trust.
+  a central risk authority. Letting pools coordinate through ad hoc calls would
+  recreate a controller through ad hoc trust.
 - **External shared vault plus separate accounting contracts.** Rejected:
   custody and accounting would split across more upgrade surfaces without
   improving the user-facing risk model.
@@ -86,7 +86,7 @@ Positive:
 - User flows cross one pool contract boundary, even when a batch touches
   multiple assets.
 - Account risk and oracle policy live in one place, the controller.
-- Liquidity accounting remains per asset because every pool row is keyed by the
+- Liquidity accounting remains per asset because each pool row is keyed by the
   token address.
 - Pool reserve accounting uses internal `cash`, so direct token donations cannot
   inflate borrowable liquidity.
@@ -102,8 +102,8 @@ Negative / accepted costs:
 - `PoolsList` is a legacy name. In current code it is the listed-asset registry,
   not a list of pool contract addresses.
 - The controller is still the single user-facing risk authority. Governance
-  timelock and immediate pause reduce admin risk, but do not remove the need to
-  audit controller logic carefully.
+  timelock and immediate pause reduce admin risk, but controller logic still
+  needs audit coverage.
 
 ## References
 

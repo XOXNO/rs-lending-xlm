@@ -159,7 +159,7 @@ impl Controller {
     #[only_owner]
     pub fn grant_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
-        // `#[only_owner]` already enforced owner auth; owner must exist here.
+        // `#[only_owner]` enforced owner auth; owner must exist here.
         let owner = owner_or_panic(&env);
         access_control::grant_role_no_auth(&env, &account, &role, &owner);
     }
@@ -168,8 +168,8 @@ impl Controller {
     pub fn revoke_role(env: Env, account: Address, role: Symbol) {
         storage::renew_controller_instance(&env);
         let owner = owner_or_panic(&env);
-        // Fail loud if the target does not hold the role, rather than silently
-        // no-op'ing (an operator could otherwise believe a privilege was removed).
+        // Missing role revocation is an error; otherwise an operator could
+        // believe a privilege was removed.
         assert_with_error!(
             &env,
             access_control::has_role(&env, &account, &role).is_some(),

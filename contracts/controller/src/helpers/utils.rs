@@ -1,7 +1,6 @@
 //! Small shared utilities: payment aggregation and event context helpers.
 //!
-//! These are called from many flows; they are pure or near-pure and have
-//! no policy or storage side effects of their own.
+//! Pure helpers with no policy or storage side effects.
 
 use common::errors::GenericError;
 use controller_interface::types::Payment;
@@ -15,7 +14,7 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Pa
     aggregate_payments(env, payments, false)
 }
 
-/// Appends `addr` to `out` only if not already present (order-preserving dedup).
+/// Appends `addr` to `out` if absent (order-preserving dedup).
 pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     if !out.contains(addr.clone()) {
         out.push_back(addr);

@@ -1,19 +1,13 @@
-//! Production timelock surface over the OpenZeppelin `stellar-governance`
-//! storage helpers.
+//! Timelock execution and query surface backed by `stellar-governance` storage.
 //!
-//! Governance owns its entrypoint surface rather than exposing the OZ generic
-//! `Timelock::schedule`. The only way to queue an operation is through a typed
-//! `propose_*` proposer in `forward.rs`, each of which validates its inputs and
-//! builds an `Operation` targeting the controller. This module supplies the
-//! generic `execute`/`cancel` lifecycle, and the read-only query views — all
-//! thin wrappers over the OZ storage free functions, which carry the operation
-//! state machine, hashing, and events.
+//! Operations are queued through typed `propose_*` entrypoints in `forward.rs`;
+//! generic `Timelock::schedule` is not exposed. This module provides `execute`,
+//! `cancel`, and query views over the OZ operation state machine.
 //!
-//! Auth model: EXECUTOR gates an explicit-executor `execute` (open execution is
-//! allowed with `executor: None`); CANCELLER gates `cancel`. Controller-targeted
-//! ops use `execute_operation` (cross-call). Governance-self ops use the typed
-//! `execute_*` entrypoints in `self_timelock.rs` (inline dispatch). The generic
-//! `execute` rejects self-target calls because Soroban prohibits self-reentry.
+//! `execute` requires EXECUTOR auth when `executor` is `Some`; `None` keeps
+//! execution open. `cancel` requires CANCELLER. Controller-targeted operations
+//! call `execute_operation`; governance-self operations use typed inline
+//! dispatch in `self_timelock.rs` because Soroban prohibits self-reentry.
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
 use crate::storage::renew_governance_instance;
@@ -75,9 +69,8 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
 
 #[contractimpl]
 impl Governance {
-    /// Executes a ready operation, invoking the controller. When `executor` is
-    /// `Some`, that address must hold EXECUTOR and authorize; `None` leaves
-    /// execution open so anyone may push a ready op through after the delay.
+    /// Executes a ready controller operation. When `executor` is `Some`, that
+    /// address must hold EXECUTOR and authorize; `None` allows open execution.
     pub fn execute(
         env: Env,
         executor: Option<Address>,
@@ -147,11 +140,9 @@ impl Governance {
         hash_operation(&env, &operation)
     }
 
-    /// Resolves a market oracle input to the `MarketOracleConfig` that
-    /// `propose_configure_market_oracle` schedules for `set_market_oracle_config`.
-    /// Runs the same validation and live oracle probes as the proposer, so the
-    /// output equals the scheduled args exactly — the CLI replays it verbatim at
-    /// `execute` time under simulation. Read-only.
+    /// Resolves a market oracle input to the `MarketOracleConfig` scheduled by
+    /// `propose_configure_market_oracle`. Uses the proposer's validation and
+    /// live oracle probes so simulation can replay the returned args at execute.
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
@@ -160,10 +151,8 @@ impl Governance {
         crate::forward::resolve_market_oracle(&env, &asset, &cfg)
     }
 
-    /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` that
-    /// `propose_edit_oracle_tolerance` schedules for `set_oracle_tolerance`. Same
-    /// computation as the proposer, so the CLI replays the output verbatim at
-    /// `execute` time. Read-only.
+    /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` scheduled
+    /// by `propose_edit_oracle_tolerance`. Uses the proposer's computation.
     pub fn resolve_oracle_tolerance(
         env: Env,
         first_tolerance: u32,
@@ -197,7 +186,6 @@ mod tests {
         (admin, GovernanceClient::new(env, &gov_id))
     }
 
-    // Registers governance owning a native controller, with a short test delay.
     fn register_with_controller(
         env: &Env,
         min_delay: u32,
@@ -244,8 +232,6 @@ mod tests {
         assert_eq!(gov.get_operation_state(&unknown), OperationState::Unset);
     }
 
-    // (a) A proposer schedules a controller-targeted op; with a non-zero delay
-    // it sits in Waiting.
     #[test]
     fn propose_schedules_waiting_operation() {
         let env = Env::default();
@@ -263,8 +249,6 @@ mod tests {
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
     }
 
-    // (b) Execution before the delay elapses reverts (operation not Ready, OZ
-    // InvalidOperationState #4002).
     #[test]
     #[should_panic(expected = "Error(Contract, #4002)")]
     fn execute_before_delay_reverts() {
@@ -290,8 +274,6 @@ mod tests {
         );
     }
 
-    // (c) After the delay, an EXECUTOR executes and the controller reflects the
-    // change. Proves the real ledger-delay path end to end.
     #[test]
     fn execute_after_delay_applies_to_controller() {
         let env = Env::default();
@@ -353,8 +335,6 @@ mod tests {
         );
     }
 
-    // (d) Validation runs at PROPOSE time: a zero position limit reverts when
-    // scheduling, before anything is queued (InvalidPositionLimits #36).
     #[test]
     #[should_panic(expected = "Error(Contract, #36)")]
     fn propose_rejects_bad_input_at_schedule_time() {
@@ -381,7 +361,6 @@ mod tests {
         gov.propose_grant_controller_role(&admin, &admin, &Symbol::new(&env, "BAD_ROLE"), &salt);
     }
 
-    // (e) A CANCELLER cancels a pending op; its state returns to Unset.
     #[test]
     fn cancel_returns_operation_to_unset() {
         let env = Env::default();
@@ -400,7 +379,6 @@ mod tests {
         assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
     }
 
-    // (f.1) A non-PROPOSER cannot schedule (missing-role revert).
     #[test]
     #[should_panic]
     fn non_proposer_cannot_propose() {
@@ -417,7 +395,6 @@ mod tests {
         gov.propose_set_position_limits(&stranger, &limits, &salt);
     }
 
-    // (f.2) A non-EXECUTOR cannot execute even after the op is Ready.
     #[test]
     #[should_panic]
     fn non_executor_cannot_execute() {
@@ -445,7 +422,6 @@ mod tests {
         );
     }
 
-    // (f.3) A non-CANCELLER cannot cancel a pending op.
     #[test]
     #[should_panic]
     fn non_canceller_cannot_cancel() {
@@ -464,7 +440,6 @@ mod tests {
         gov.cancel(&stranger, &id);
     }
 
-    // (g) The constructor rejects a zero min delay at deploy time.
     #[test]
     #[should_panic(expected = "Error(Contract, #39)")]
     fn constructor_rejects_zero_delay() {

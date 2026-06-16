@@ -20,8 +20,8 @@ pub(crate) fn renew_pool_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
 }
 
-/// Renews rent on a market's persistent params/state entries. Both keys must
-/// exist: extend_ttl panics on missing keys (soroban-sdk 26.x).
+/// Renews TTLs for market params/state entries. Both keys must exist because
+/// `extend_ttl` panics on missing keys (soroban-sdk 26.x).
 pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
     let storage = env.storage().persistent();
     storage.extend_ttl(
@@ -92,15 +92,13 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.supplied == Ray::ZERO {
         return;
     }
-    // Cap at RAY (100%) is the "disabled" sentinel; utilization only exceeds RAY
-    // when the pool is insolvent (`borrowed > supplied`), a failure mode this
-    // ceiling can't fix. Prod must keep this < RAY (admin-validated by `InterestRateModel::verify`).
+    // RAY is the disabled sentinel. Utilization exceeds RAY when
+    // `borrowed > supplied`; enabled params are validated below RAY.
     if cache.params.max_utilization >= Ray::ONE {
         return;
     }
-    // Index-aware utilization (`borrowed * borrow_index / (supplied * supply_index)`):
-    // comparing scaled values alone misses index drift, so accrued interest could
-    // push real utilization past the cap while the scaled ratio still looks compliant.
+    // Use index-aware utilization; index drift can push the real ratio above
+    // the cap while scaled totals remain below it.
     let utilization = cache.calculate_utilization();
     assert_with_error!(
         env,
@@ -116,7 +114,7 @@ pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
 }
 
 /// Adds liquidation protocol fee to revenue and returns net collateral transfer.
-/// Only affects liquidation flows; fee is minted as scaled revenue (diluting suppliers).
+/// Liquidation fees are minted as scaled revenue, diluting suppliers.
 pub(crate) fn apply_liquidation_fee(
     env: &Env,
     cache: &mut Cache,

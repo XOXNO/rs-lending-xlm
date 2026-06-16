@@ -34,14 +34,11 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     );
 }
 
-/// Validates a (loan-to-value, liquidation-threshold, liquidation-bonus) triple
-/// in bps. Enforced identically by the governance contract and the controller's
-/// own e-mode / asset-config setters, so an invalid risk config can never be
-/// persisted regardless of which owner calls the setter:
-///   - `liquidation_threshold` must sit strictly above `loan_to_value` and at or
-///     below 100% (`BPS`) — the load-bearing LTV<threshold borrow buffer.
-///   - `threshold * (1 + bonus) <= 100%` — liquidation seizure can never exceed
-///     the collateral backing a position, so the bonus can never mint bad debt.
+/// Validates loan-to-value, liquidation-threshold, and liquidation-bonus in bps.
+///
+/// Governance and controller setters enforce the same bounds:
+///   - `liquidation_threshold` > `loan_to_value` and <= 100% (`BPS`).
+///   - `threshold * (1 + bonus) <= 100%`; seizure stays within collateral backing.
 pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     let ltv = i128::from(ltv);
     let threshold = i128::from(threshold);
@@ -58,12 +55,11 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     );
 }
 
-/// Validates a market's final-price sanity band (USD WAD). Enforced identically
-/// by the governance oracle-config validator and the controller's
-/// `set_market_oracle_config` activation path, so a market can never go Active
-/// with an unset/invalid band — which would otherwise surface only as a runtime
-/// revert on the first risk-increasing / liquidation read. Requires
-/// `0 < min < max <= MAX_REASONABLE_PRICE_WAD`.
+/// Validates a market's final-price bounds (USD WAD).
+///
+/// Governance oracle-config validation and controller activation both require
+/// `0 < min < max <= MAX_REASONABLE_PRICE_WAD`. This prevents activation with
+/// bounds that would revert on the first risk-increasing or liquidation read.
 pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,
@@ -102,7 +98,7 @@ mod tests {
     #[should_panic]
     fn risk_bounds_rejects_bonus_breaching_seizure_ceiling() {
         let env = Env::default();
-        // 9500 * (10000 + 600) = 1.007e8 > 1e8: bonus would seize more than backing.
+        // 9500 * (10000 + 600) = 1.007e8 > 1e8: bonus exceeds collateral backing.
         validate_risk_bounds(&env, 5_000, 9_500, 600);
     }
 

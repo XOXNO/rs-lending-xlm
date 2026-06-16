@@ -1,9 +1,9 @@
-//! Shared test fixtures. Gated `#[cfg(test)]` at the module level in `lib.rs`.
+//! Shared test fixtures; module gated by `#[cfg(test)]` in `lib.rs`.
 
 use soroban_sdk::testutils::{Ledger, LedgerInfo};
 use soroban_sdk::Env;
 
-// Sets canonical ledger snapshot for tests.
+// Sets the canonical test ledger snapshot.
 pub(crate) fn init_ledger(env: &Env) {
     env.ledger().set(LedgerInfo {
         timestamp: 1_000,

@@ -35,7 +35,7 @@ pub(crate) struct BonusBounds {
     pub max: Bps,
 }
 
-/// Repayment legs after every close-amount, excess-refund, and dust-residue cap.
+/// Repayment legs after each close-amount, excess-refund, and dust-residue cap.
 ///
 /// Seizure math must use `repay_usd`, not the liquidator's original payment
 /// amount or the pre-dust-cap close amount.
@@ -118,10 +118,9 @@ pub(crate) fn calculate_repayment_amounts(
 
     let merged = utils::aggregate_positive_payments(env, raw_payments);
 
-    // Full coverage is decided in token terms — the only quantization the
-    // pool settles in: the aggregated payments reach every debt position
-    // (assets must exist as positions, so length equality is set equality)
-    // and every payment settles its position's full token debt.
+    // Full coverage is decided in token terms, the pool's settlement unit.
+    // The aggregated payments reach each debt position, and each payment
+    // settles its position's full token debt.
     let mut covers_full_debt = merged.len() == account.borrow_positions.len();
 
     for i in 0..merged.len() {
@@ -286,7 +285,7 @@ pub(crate) fn calculate_seized_collateral(
         // full-closes only when `amount >= unscale_supply(pos_scaled)`
         // (half-up), and a floored amount one unit short would leave a
         // sub-unit residue that trips the dust gate. Partial seizures floor
-        // so they never exceed the computed RAY amount; fee <= amount holds
+        // so they cannot exceed the computed RAY amount; fee <= amount holds
         // in both branches.
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
@@ -331,7 +330,7 @@ pub(crate) fn process_excess_payment(
         }
 
         if usd > remaining_excess_usd {
-            // Floor every step: the refund returned to the payer never exceeds
+            // Floor each step: the refund returned to the payer cannot exceed
             // the exact pro-rata share; sub-ulp remainder stays as repayment.
             let ratio = remaining_excess_usd.div_floor(env, usd);
             let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)

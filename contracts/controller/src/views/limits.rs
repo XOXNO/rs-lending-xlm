@@ -193,10 +193,9 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
 /// Returns `0` while paused, on an inactive or non-borrowable market, or when
 /// the asset is structurally not borrowable for this account (e-mode category or
 /// borrow-position limit). Otherwise mirrors the mutating path's
-/// amount-dependent gates — pool liquidity, max utilization, borrow cap, then
-/// the account LTV and
-/// health-factor gates — and binary-searches the largest passing amount.
-/// Feasibility is monotone in the amount, so the result never overstates what
+/// amount-dependent gates: pool liquidity, max utilization, borrow cap, account
+/// LTV, and health factor. Binary search returns the largest passing amount.
+/// Feasibility is monotone in the amount, so the result does not overstate what
 /// the next transaction allows; indexes keep accruing after the read, so
 /// callers acting later should leave a margin.
 pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
@@ -216,8 +215,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     }
 
     let market = MarketLimitCtx::load(&mut cache, asset);
-    // No supplied liquidity means no borrowable cash and an undefined
-    // utilization; nothing can be borrowed.
+    // No supplied liquidity means no borrowable cash and undefined utilization.
     if market.supplied == Ray::ZERO {
         return 0;
     }
@@ -232,7 +230,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     }
 
     // Feasibility only tightens as the amount grows; binary-search the largest
-    // amount that clears every gate.
+    // amount that clears each gate.
     let mut lo: i128 = 0;
     while lo < hi {
         let mid = hi - (hi - lo) / 2;
@@ -280,7 +278,7 @@ fn account_can_borrow_asset(
         }
     }
 
-    // Borrow-position limit: an asset not already borrowed needs a free slot.
+    // Borrow-position limit: a new borrowed asset needs a free slot.
     if !account.borrow_positions.contains_key(asset.clone())
         && account.borrow_positions.len() >= storage::get_position_limits(env).max_borrow_positions
     {
@@ -407,7 +405,7 @@ fn analytical_partial_cap(
     ))
 }
 
-/// Max partial before LTV / HF gates bind on the withdrawn asset.
+/// Max partial before LTV or HF gates bind on the withdrawn asset.
 fn risk_partial_cap(
     env: &Env,
     cache: &mut Cache,

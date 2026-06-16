@@ -95,10 +95,8 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
 }
 
 /// Re-checks position-limit bounds at the controller boundary. Governance owns
-/// the authoritative validation, but the thin setter mirrors it so a
-/// misconfigured owner can never persist limits outside the budget-proven
-/// `1..=POSITION_LIMIT_MAX` envelope — the same defense-in-depth as the
-/// oracle-config execute-time re-check.
+/// the authoritative validation; this setter mirrors it so persisted limits
+/// stay inside the budget-proven `1..=POSITION_LIMIT_MAX` envelope.
 pub fn validate_position_limits(env: &Env, limits: &PositionLimits) {
     if limits.max_supply_positions == 0
         || limits.max_borrow_positions == 0

@@ -12,21 +12,20 @@
 > assumed Reflector as the only provider and encoded source diversity as a
 > fixed strategy. The implementation has since generalized to the
 > `OracleStrategy` model (`Single` / `PrimaryWithAnchor`) with two
-> interchangeable providers — **Reflector** (SEP-40) and **RedStone**
-> (price-feed) — composed as a `primary` source and an optional `anchor`
+> interchangeable providers: **Reflector** (SEP-40) and **RedStone**
+> (price-feed), composed as a `primary` source and an optional `anchor`
 > source that are deviation-checked against each other. The load-bearing
-> decision — dual-source pricing validated by tolerance bands — is unchanged;
+> decision, dual-source pricing validated by tolerance bands, is unchanged;
 > the body below has been updated to the current model. See the Revisions
 > section for the change record, and `SCF_BUILD_ARCHITECTURE.md` §9 for the
 > matching reference description.
 
 ## Context
 
-A lending protocol depends on price honesty for every solvency-relevant
+A lending protocol depends on price honesty for each solvency-relevant
 operation: borrow, withdraw with debt, liquidation, and account-threshold
-migration. A single price source that
-goes stale, mispublishes, or is manipulated translates directly into bad
-debt or wrongful liquidations.
+migration. A stale, wrong, or manipulated single price source can create bad debt
+or wrongful liquidations.
 
 On Soroban the protocol can price an asset through two independent providers:
 
@@ -39,12 +38,12 @@ Two practical risks dominate:
 
 1. Spot manipulation: a transient spike or dump that lasts long enough to
    trigger a borrow or liquidate.
-2. Source outage: a stale or missing feed that would block all activity if
-   handled naively.
+2. Source outage: a stale or missing feed that would block all activity without
+   policy gates.
 
 ## Decision
 
-Resolve every price through `oracle::token_price`
+Resolve prices through `oracle::token_price`
 (`contracts/controller/src/oracle/price.rs`, re-exported from
 `contracts/controller/src/oracle/mod.rs`), normalized to USD WAD. Each market
 declares a `MarketOracleConfig` (`common/src/types/oracle.rs`) with a
@@ -53,42 +52,42 @@ declares a `MarketOracleConfig` (`common/src/types/oracle.rs`) with a
 **Two sources across two providers.** A source is an
 `OracleSourceConfig::Reflector(..)` or `OracleSourceConfig::RedStone(..)`
 (`OracleProviderKind::{ReflectorSep40, RedStonePriceFeed}`). A Reflector source
-reads `Spot` or `Twap(records)` (`OracleReadMode`); RedStone always reads spot.
+reads `Spot` or `Twap(records)` (`OracleReadMode`); RedStone reads spot.
 `validate_oracle_config_shape` enforces two diversity rules on a
 `PrimaryWithAnchor` pair:
 
 1. **Different feeds.** Primary and anchor must not read the same feed (else
-   `GenericError::InvalidExchangeSrc`), compared by feed identity — for
+   `GenericError::InvalidExchangeSrc`), compared by feed identity: for
    Reflector the contract, asset, and read mode; for RedStone the contract and
-   feed id — ignoring policy-only fields such as RedStone `max_stale_seconds`.
-   So two RedStone configs on the same contract and feed are rejected even when
-   only their staleness bounds differ.
+   feed id, ignoring policy-only fields such as RedStone `max_stale_seconds`.
+   The validator rejects two RedStone configs on the same contract and feed even
+   when only their staleness bounds differ.
 2. **Different providers (production).** In non-`testing` builds the primary and
-   anchor must come from *different* providers — one Reflector, one RedStone
+   anchor must come from *different* providers: one Reflector, one RedStone
    (else `GenericError::InvalidExchangeSrc`). This places the two sources behind
    independent trust boundaries: a single provider's failure (bad feed,
    signer/contract compromise, feed-mapping error) moves only one side, so the
    deviation check trips instead of both prices sliding together. A same-provider
    pair (e.g. Reflector spot vs Reflector TWAP) shares one trust boundary and is
-   therefore not a valid production `PrimaryWithAnchor`; temporal-only diversity
+   invalid as a production `PrimaryWithAnchor`; temporal-only diversity
    is available instead through `Single` + Reflector TWAP (which carries no
    cross-check).
 
 Markets still choose the specific Reflector and RedStone feeds and which one is
-primary; ensuring those two feeds are also *economically* independent (not just
-distinct providers) stays an operator listing-time responsibility.
+primary; operators must also choose economically independent feeds, not distinct
+providers alone.
 
 **Two validation strategies.** Configured per market by
 `OracleStrategy` (`common/src/types/oracle.rs`):
 
 - `PrimaryWithAnchor`: read both sources and cross-check them against the
   market's tolerance bands. An anchor is required, and in production the
-  primary/anchor pair must cross providers (one Reflector, one RedStone) — see
+  primary/anchor pair must cross providers (one Reflector, one RedStone); see
   the two diversity rules above.
-- `Single`: use only the primary source, with no cross-check. In
+- `Single`: use the primary source without a cross-check. In
   non-`testing` builds a `Single` market's primary must carry temporal
   diversity, so only a Reflector `Twap` primary is accepted; a Reflector
-  `Spot` primary or any RedStone primary (RedStone always reads spot) is
+  `Spot` primary or any RedStone primary (RedStone reads spot) is
   rejected at listing time (`GenericError::SpotOnlyNotProductionSafe`). A
   RedStone source must therefore be used under `PrimaryWithAnchor` (paired with
   an anchor) in production.
@@ -117,10 +116,10 @@ price is the **safe** price; the `anchor` is the **aggregator**. Under
 `is_within_anchor` computes the ratio `safe * RAY / aggregator`, rescales it to
 BPS, and checks it against the band bounds.
 
-**Graceful degradation.** If the anchor source is unconfigured, missing, or
+**Anchor degradation.** If the anchor source is unconfigured, missing, or
 stale-but-policy-permits, `resolve_components` degrades to the primary price
 via `fallback_to_primary`, gated by `OraclePolicy::allows_degraded_dual_source`
-(otherwise `OracleError::NoLastPrice`). A missing primary always reverts.
+(otherwise `OracleError::NoLastPrice`). A missing primary reverts.
 
 **Sanity bounds.** After composition, `token_price` rejects any final price
 outside the market's inclusive `[min_sanity_price_wad, max_sanity_price_wad]`
@@ -143,15 +142,15 @@ and validates the config before scheduling controller `set_market_oracle_config`
 The controller re-checks quote-market invariants at execution before it
 persists the config. The validation path covers:
 strategy/anchor coherence (`PrimaryWithAnchor` ⇔ an anchor is configured);
-primary/anchor diversity — different feeds always, and in production different
+primary/anchor diversity: different feeds, and in production different
 providers (`GenericError::InvalidExchangeSrc`); the production
-naked-spot-`Single` rejection (a `Single` primary that reads spot — Reflector
+naked-spot-`Single` rejection (a `Single` primary that reads spot: Reflector
 `Spot` or any RedStone); token decimals fetched from the token contract;
 staleness and sanity bounds; and, per source, a live feed read plus
 provider-specific checks. For a Reflector source: `base() == USD`
 (`InvalidOracleBase`), oracle decimals in `[1, 18]` (`InvalidOracleDecimals`),
 resolution in `[MIN_ORACLE_RESOLUTION_SECONDS, max_stale]`
-(`InvalidOracleResolution`), a live `lastprice`, and — for a TWAP read — at
+(`InvalidOracleResolution`), a live `lastprice`, and, for a TWAP read, at
 most `MAX_TWAP_RECORDS` (12) records with sufficient non-empty history
 (`TwapInsufficientObservations`, `ReflectorHistoryEmpty`). For a RedStone
 source: a per-source staleness bound, fixed `REDSTONE_DECIMALS`, and a live
@@ -163,9 +162,9 @@ fields; it does not re-probe the configured sources.
 ## Alternatives Considered
 
 - **Single CEX spot price.** Rejected: no manipulation defense; a single
-  manipulated tick maps directly into a liquidation or under-collateralized
+  manipulated tick can trigger a liquidation or under-collateralized
   borrow. Production markets cannot run a naked-spot `Single` source: a
-  `Single` primary must be a Reflector TWAP, and RedStone (always spot) must be
+  `Single` primary must be a Reflector TWAP, and RedStone (spot) must be
   paired with an anchor.
 - **TWAP-only.** Rejected: TWAP lags real moves and exposes the protocol
   to predictable arbitrage during fast price drops; users cannot react to
@@ -174,16 +173,16 @@ fields; it does not re-probe the configured sources.
 - **A fixed, named provider topology (the old `SpotVsTwap` / `DualOracle`
   strategies).** Rejected: baking specific source roles into named strategy
   enums removed per-market feed choice and assumed a single provider. The
-  generic `primary`/`anchor` model is kept instead — each market picks its own
-  Reflector and RedStone feeds and which one is primary — with one production
+  generic `primary`/`anchor` model is kept instead: each market picks its own
+  Reflector and RedStone feeds and which one is primary, with one production
   constraint layered on top: the pair must cross providers (above), so the
-  cross-check always spans two independent trust boundaries rather than one.
+  cross-check spans two independent trust boundaries rather than one.
 - **Manual circuit breaker (off-chain pause on deviation).** Rejected as
   the only line of defense; off-chain monitors are still useful but cannot
   be a load-bearing oracle gate.
 - **Custom oracle aggregator contract.** Rejected for launch: adds
   another upgradeable surface and another trust assumption. The chosen
-  design reads Reflector and RedStone directly and validates tolerance,
+  design reads Reflector and RedStone in the controller and validates tolerance,
   staleness, and sanity bounds in-contract, and rejects a primary/anchor pair
   that reads the same feed; ensuring the two distinct feeds are also
   economically independent remains an operator listing-time responsibility.
@@ -197,10 +196,9 @@ Positive:
   moves only one side and trips the band rather than passing unnoticed.
 - The midpoint band absorbs small honest deviations without halting the
   protocol; the first band prefers the safe (primary) price.
-- Anchor unavailability degrades gracefully to the primary under permissive
-  policies, and never silently accepts an out-of-band divergence under strict
-  policies.
-- The clock-skew gate rejects future-dated feeds in every mode, and sanity
+- Anchor unavailability degrades to the primary under permissive policies.
+  Strict policies reject out-of-band divergence.
+- The clock-skew gate rejects future-dated feeds in all modes, and sanity
   bounds reject absurd prices even when a single source is corroborated.
 
 Negative / accepted costs:
@@ -214,14 +212,14 @@ Negative / accepted costs:
   flows degrade).
 - The cross-provider check defends against *one* provider failing. It does not
   catch a correlated failure that moves both providers the same way (e.g. a
-  shared upstream exchange both ultimately read from), nor a manipulation small
+  shared upstream exchange both read from), nor a manipulation small
   enough to stay inside the tolerance bands. Those residual risks are bounded by
-  the band widths and the sanity bounds, not eliminated; selecting genuinely
+  the band widths and the sanity bounds, not eliminated; selecting
   independent feeds and conservative bands remains an operator responsibility.
 
 ## Revisions
 
-### 2026-06-02 — Generalized from the `ExchangeSource` model to the `OracleStrategy` model with Reflector + RedStone
+### 2026-06-02: Generalized from the `ExchangeSource` model to the `OracleStrategy` model with Reflector + RedStone
 
 The original 2026-05-05 decision used `ExchangeSource`
 (`SpotOnly` / `SpotVsTwap` / `DualOracle`) and `OracleProviderConfig`, assuming
@@ -237,7 +235,7 @@ to the current shape:
   Primary and anchor can be any two distinct sources, so RedStone and Reflector
   deviation-check each other when configured as a pair.
 - Final-price selection (`tolerance::calculate_final_price`) and the deviation
-  gate are unchanged in spirit (first band → safe, last band → midpoint, beyond
+  gate keep the same shape (first band → safe, last band → midpoint, beyond
   → policy-gated), but the out-of-band behavior is now driven by
   `OraclePolicy::allows_unsafe_deviation` (see ADR 0004, which also reverses
   liquidation's deviation tolerance).
@@ -246,17 +244,16 @@ to the current shape:
   gate (renamed/relocated to `observation`); and the primary/anchor diversity
   guard.
 - The production `Single`-strategy gate (`SpotOnlyNotProductionSafe`) now
-  rejects every naked-spot primary — Reflector `Spot` and RedStone — not only
-  Reflector `Spot`. The original check predated RedStone and covered only
-  Reflector; a `Single` market must use a Reflector TWAP, and RedStone requires
-  an anchor.
+  rejects each naked-spot primary: Reflector `Spot` and RedStone. The original
+  check predated RedStone and covered Reflector; a `Single` market must use a
+  Reflector TWAP, and RedStone requires an anchor.
 - The primary/anchor diversity guard now compares feed *identity* (provider +
   contract + feed key, ignoring policy-only fields like RedStone
   `max_stale_seconds`) rather than whole-struct equality, so two RedStone
   sources on the same contract and feed can no longer be paired by varying only
   their staleness bound. Same pre-RedStone-era origin as the `Single` gate
   above.
-- Production `PrimaryWithAnchor` now additionally requires the primary and
+- Production `PrimaryWithAnchor` now requires the primary and
   anchor to cross providers (one Reflector, one RedStone), enforced in
   `validate_oracle_config_shape` (`#[cfg(not(feature = "testing"))]`). The
   feed-identity guard alone still allowed same-provider pairs (e.g. Reflector
@@ -269,7 +266,7 @@ to the current shape:
 ## References
 
 - `SCF_BUILD_ARCHITECTURE.md` §9 (Oracle Pricing), `architecture/INVARIANTS.md`
-  §4.2–§4.3 (Oracle Configuration, Price Resolution).
+  §4.2 to §4.3 (Oracle Configuration, Price Resolution).
 - `contracts/controller/src/oracle/price.rs::token_price`
 - `contracts/controller/src/oracle/compose.rs::resolve_components`
 - `contracts/controller/src/oracle/tolerance.rs::{calculate_final_price, is_within_anchor, validate_and_calculate_tolerances}`

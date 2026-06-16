@@ -70,8 +70,8 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
-// Min observations for trusted TWAP. Floor of 2 rules out single-sample
-// "TWAPs"; larger windows accept partial history above ceil(records/2).
+// Minimum observations for trusted TWAP. Floor of 2 rejects single-sample
+// "TWAPs"; larger windows require at least ceil(records/2).
 pub fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(2, records.div_ceil(2))
 }
@@ -80,9 +80,7 @@ pub fn min_twap_observations(records: u32) -> u32 {
 mod tests {
     use super::*;
 
-    // Covers the `OracleAssetRef::Symbol` mapping in `to_reflector_asset`.
-    // The production harness only registers `Stellar(addr)` markets so this
-    // variant has no organic exercise — direct unit test fills the gap.
+    // Direct coverage for `OracleAssetRef::Symbol` mapping in `to_reflector_asset`.
     #[test]
     fn test_to_reflector_asset_symbol_maps_to_other() {
         let env = Env::default();
@@ -95,8 +93,8 @@ mod tests {
         }
     }
 
-    // `OracleAssetRef::String` is unsupported on Reflector — must panic
-    // with `InvalidOracleTokenType`.
+    // `OracleAssetRef::String` is unsupported on Reflector and panics with
+    // `InvalidOracleTokenType`.
     #[test]
     #[should_panic]
     fn test_to_reflector_asset_string_panics() {

@@ -108,7 +108,7 @@ fn health_factor_for_threshold_downgrade(
     let prior_policy = cache.oracle_policy;
     cache.oracle_policy = OraclePolicy::RiskIncreasing;
     // Only supply runs under RiskDecreasing before this gate; strict flows
-    // already resolved prices under an equally strict policy.
+    // resolved prices under an equally strict policy.
     if prior_policy == OraclePolicy::RiskDecreasing {
         cache.clear_resolved_prices();
     }

@@ -1,8 +1,7 @@
 #![no_std]
 
-//! Governance contract. Owns the lending controller, validates every admin
-//! input, and forwards accepted configuration to the controller's thin
-//! owner-gated setters.
+//! Governance contract. Owns the lending controller, validates admin inputs,
+//! and forwards accepted configuration to controller owner-gated setters.
 
 mod access;
 mod constants;

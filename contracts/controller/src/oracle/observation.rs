@@ -1,14 +1,13 @@
 //! Oracle observation construction.
 //!
-//! Single place that turns raw Reflector/RedStone responses into the internal
-//! `OracleObservation` shape. Normalization, staleness, and clock-skew guards
-//! live in `common::oracle::observation`.
+//! Converts raw Reflector/RedStone responses into `OracleObservation`.
+//! Normalization, staleness, and clock-skew guards live in
+//! `common::oracle::observation`.
 
 use common::oracle::observation::normalize_positive_price;
 use soroban_sdk::Env;
 
-/// Internal representation of a single oracle price observation, used by the
-/// provider consumption logic and compose layer.
+/// Provider price observation consumed by the compose layer.
 #[cfg_attr(feature = "certora", allow(dead_code))] // Dead when certora stubs price paths.
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
@@ -27,9 +26,7 @@ impl OracleObservation {
     }
 }
 
-/// Shared constructor used by both oracle providers after their provider-specific
-/// validation (future-skew, positive price, staleness): final WAD normalization
-/// + struct assembly.
+/// Constructor after provider validation: final WAD normalization and assembly.
 pub(crate) fn build_observation(
     env: &Env,
     raw_price: i128,

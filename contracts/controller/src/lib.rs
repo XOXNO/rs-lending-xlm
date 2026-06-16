@@ -30,7 +30,7 @@ pub mod spec;
 pub mod test_support {
     //! White-box hooks for the verification harness. Routes through the real
     //! storage helpers so tests drive the same flash-loan guard production
-    //! uses. Compiled only under `testing`; never in production contracts.
+    //! uses. Compiled under `testing`; excluded from production contracts.
     use soroban_sdk::Env;
 
     pub fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {

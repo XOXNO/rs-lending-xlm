@@ -7,7 +7,7 @@ governance, controller, and central-pool architecture: governance owns the
 controller and timelocks protocol-admin changes; the controller owns account
 state, oracle validation, risk checks, liquidations, flash loans, and strategy
 entrypoints; one central pool contract holds liquidity and asset-scoped
-accounting for every listed market.
+accounting for each listed market.
 
 This repository holds the contracts, deployment tooling, architecture records,
 and verification assets.
@@ -20,19 +20,19 @@ and verification assets.
 
 ## Quick Links
 
-- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md) — system topology,
+- [Architecture reference](./SCF_BUILD_ARCHITECTURE.md): system topology,
   contract boundaries, launch gates, and verification acceptance criteria.
-- [Protocol invariants](./architecture/INVARIANTS.md) — fixed-point domains,
+- [Protocol invariants](./architecture/INVARIANTS.md): fixed-point domains,
   solvency rules, oracle constraints, and accounting invariants.
-- [Architecture decisions](./architecture/decisions/README.md) — ADRs for the
+- [Architecture decisions](./architecture/decisions/README.md): ADRs for the
   load-bearing design choices.
-- [Certora verification](./certora/README.md) — proof domains,
+- [Certora verification](./certora/README.md): proof domains,
   profiles, and local prover commands.
-- [Security policy](./SECURITY.md) — private vulnerability reporting and safe
+- [Security policy](./SECURITY.md): private vulnerability reporting and safe
   harbor.
-- [Contributing guide](./CONTRIBUTING.md) — local checks, change expectations,
+- [Contributing guide](./CONTRIBUTING.md): local checks, change expectations,
   and pull request requirements.
-- [Code of conduct](./CODE_OF_CONDUCT.md) — expected conduct and reporting.
+- [Code of conduct](./CODE_OF_CONDUCT.md): expected conduct and reporting.
 
 ## Architecture at a Glance
 
@@ -64,7 +64,7 @@ flowchart LR
   interest accrues by moving one shared index, not by sweeping accounts.
 - **Numeric domains**: token-native at the token boundary, WAD for USD values
   and health factor, RAY for rates and indexes.
-- **Oracle policy**: risk-increasing actions require strict, fully validated
+- **Oracle policy**: risk-increasing actions require strict, validated
   prices; risk-reducing actions may accept looser prices.
 - **Risk modes**: the controller enforces normal and e-mode borrowing.
 - **Flash loans**: pools settle by balance snapshot and post-repayment check,
@@ -130,7 +130,7 @@ Use `make help` to see the full command surface.
 | `make build` | Build controller and pool WASM artifacts. |
 | `make optimize` | Build and optimize deployment WASM binaries. |
 | `cargo test --workspace` | Run the full Rust workspace test suite. |
-| `make test` | Run the Soroban integration harness serially. |
+| `make test` | Run the Soroban integration harness with serialized tests. |
 | `make test-pool` | Run pool unit tests. |
 | `make fmt` | Format the workspace. |
 | `make clippy` | Run clippy with warnings denied. |
@@ -138,7 +138,7 @@ Use `make help` to see the full command surface.
 
 ## Verification and Audit
 
-Verification is layered:
+Verification layers:
 
 - Rust unit tests in production crates.
 - Soroban integration tests in `tests/test-harness`.
@@ -188,7 +188,7 @@ and summarized in the architecture reference.
 ## Security
 
 Do not open public issues or pull requests for vulnerabilities. Report security
-issues privately to `security@xoxno.com`; scope and safe-harbor terms are in
+issues to `security@xoxno.com`; scope and safe-harbor terms are in
 [SECURITY.md](./SECURITY.md).
 
 ## License
@@ -199,7 +199,7 @@ agreement with XOXNO.
 
 ## Contributing
 
-Every protocol change must preserve the accounting, authorization, oracle, and
+Protocol changes must preserve the accounting, authorization, oracle, and
 solvency invariants in [INVARIANTS.md](./architecture/INVARIANTS.md), and include
 the relevant verification output and launch-risk notes. Read
 [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or pull request.

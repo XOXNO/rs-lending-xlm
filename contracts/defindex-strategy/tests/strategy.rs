@@ -1,6 +1,6 @@
-//! End-to-end DeFindex-strategy flows against the full protocol stack.
+//! DeFindex strategy tests using controller, pool, and token test contracts.
 //!
-//! Plain addresses stand in for DeFindex vaults; trait auth shapes are identical.
+//! Generated addresses stand in for DeFindex vaults in authorization checks.
 
 extern crate std;
 
@@ -154,8 +154,6 @@ impl StrategyTest {
     }
 }
 
-// --- deposit ---
-
 #[test]
 fn test_asset_returns_configured_underlying() {
     let s = StrategyTest::new();
@@ -197,8 +195,6 @@ fn test_second_deposit_can_be_small_after_account_opened() {
     let after_small = client.deposit(&UNIT, &s.vault);
     assert_eq!(after_small, 11 * UNIT);
 }
-
-// --- withdraw ---
 
 #[test]
 fn test_withdraw_pays_recipient_directly_and_terminal_exit_closes_account() {
@@ -268,8 +264,6 @@ fn test_two_vaults_have_isolated_lending_accounts() {
     assert!(s.client().balance(&vault_b) > 1_000 * UNIT);
 }
 
-// --- vault account lifecycle ---
-
 #[test]
 fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     let mut s = StrategyTest::new();
@@ -282,20 +276,18 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     let sink = Address::generate(&s.t.env);
     s.client().withdraw(&balance, &s.vault, &sink);
 
-    // Reads reconcile to 0 while the controller account is gone.
+    // Read paths return 0 after controller account closure.
     assert_eq!(s.client().balance(&s.vault), 0);
     assert_eq!(s.client().lending_account_id(&s.vault), 0);
     assert!(!s.client().has_lending_account(&s.vault));
 
-    // Supply clears the stale mapping and opens a fresh controller account.
+    // Supply clears the stale mapping and opens a new controller account.
     s.client().deposit(&(500 * UNIT), &s.vault);
     let account_after = s.client().lending_account_id(&s.vault);
     assert!(account_after > account_before);
     assert!(s.client().balance(&s.vault) > 499 * UNIT);
     assert!(s.client().has_lending_account(&s.vault));
 }
-
-// --- harvest ---
 
 #[test]
 fn test_harvest_emits_price_per_share_from_supply_index() {
@@ -351,8 +343,6 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
     assert_eq!(pps_small, expected);
     assert_eq!(pps_large, expected);
 }
-
-// --- errors ---
 
 #[test]
 fn test_deposit_zero_amount_returns_amount_not_positive() {

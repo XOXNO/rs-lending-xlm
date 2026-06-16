@@ -52,8 +52,7 @@ pub fn mul_div_half_up_signed(env: &Env, x: i128, y: i128, d: i128) -> i128 {
 }
 
 /// Upscales `a` by `10^diff`, mapping both overflow points to caller-supplied
-/// messages. `checked_pow`, not raw `pow`: raw wraps silently in release, so an
-/// over-bound decimal differential must panic explicitly instead.
+/// messages. Uses `checked_pow` because raw `pow` wraps in release.
 fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i128 {
     let factor = 10i128.checked_pow(diff).expect(factor_msg);
     a.checked_mul(factor).expect(value_msg)
@@ -274,32 +273,31 @@ mod tests {
         assert_eq!(div_by_int_half_up(-5, 4), -1); // -1.25 -> -1 (remainder < 0.5).
     }
 
-    // Exactly 0.5 must round up for positive results (half-up): 1*1+1=2, 2/2=1.
-    // Half-even or half-down would return 0.
+    // Positive half-up boundary: 1*1+1=2, 2/2=1.
+    // Half-even or half-down returns 0.
     #[test]
     fn test_mul_div_half_up_exact_half_rounds_up() {
         let env = Env::default();
         assert_eq!(mul_div_half_up(&env, 1, 1, 2), 1);
-        // 3/2 = 1.5 → 2; 5/2 = 2.5 → 3; 7/2 = 3.5 → 4.
+        // 3/2 = 1.5 -> 2; 5/2 = 2.5 -> 3; 7/2 = 3.5 -> 4.
         assert_eq!(mul_div_half_up(&env, 3, 1, 2), 2);
         assert_eq!(mul_div_half_up(&env, 5, 1, 2), 3);
         assert_eq!(mul_div_half_up(&env, 7, 1, 2), 4);
     }
 
-    // mul_div_half_up on negatives: the `+ d/2` step pulls toward zero, so -1.5
-    // rounds to -1 (not -2). The trap — consumers needing symmetric rounding must
-    // use `mul_div_half_up_signed`.
+    // `mul_div_half_up` on negatives uses `+ d/2`, which pulls toward zero.
+    // Consumers needing symmetric rounding use `mul_div_half_up_signed`.
     #[test]
     fn test_mul_div_half_up_negative_rounds_toward_zero() {
         let env = Env::default();
-        // -1 * 1 + 1 = 0; 0 / 2 = 0. So -0.5 → 0 (toward zero).
+        // -1 * 1 + 1 = 0; 0 / 2 = 0, so -0.5 rounds to 0 (toward zero).
         assert_eq!(mul_div_half_up(&env, -1, 1, 2), 0);
-        // -3 * 1 + 1 = -2; -2 / 2 = -1. So -1.5 → -1 (toward zero).
+        // -3 * 1 + 1 = -2; -2 / 2 = -1, so -1.5 rounds to -1 (toward zero).
         assert_eq!(mul_div_half_up(&env, -3, 1, 2), -1);
     }
 
     // I256 holds any i128*i128, but the result fits i128 only if |x*y|/d <= i128::MAX.
-    // Here x=y=i128::MAX, d=1 → i128::MAX² overflows → `to_i128` panics (`MathOverflow`).
+    // With x=y=i128::MAX and d=1, `to_i128` panics with `MathOverflow`.
     #[test]
     #[should_panic]
     fn test_mul_div_half_up_overflow_panics() {
@@ -307,17 +305,16 @@ mod tests {
         let _ = mul_div_half_up(&env, i128::MAX, i128::MAX, 1);
     }
 
-    // `mul_div_floor` truncates toward zero (Rust `/`), not true floor: for -7/3,
-    // floor is -3 but truncation is -2. Pin this so a rename to "trunc" can't
-    // silently flip semantics.
+    // `mul_div_floor` uses Rust `/`, which truncates toward zero. For -7/3,
+    // mathematical floor is -3 but truncation is -2.
     #[test]
     fn test_mul_div_floor_negative_truncates_toward_zero() {
         let env = Env::default();
-        // -7 / 3 → -2 (Rust truncation), NOT -3 (mathematical floor).
+        // -7 / 3 = -2 (Rust truncation), not -3 (mathematical floor).
         assert_eq!(mul_div_floor(&env, -7, 1, 3), -2);
-        // -6 / 3 → -2 exact, no remainder.
+        // -6 / 3 = -2 exactly, no remainder.
         assert_eq!(mul_div_floor(&env, -6, 1, 3), -2);
-        // 7 / 3 → 2 (positive — same direction as truncation).
+        // 7 / 3 = 2, same direction as truncation.
         assert_eq!(mul_div_floor(&env, 7, 1, 3), 2);
     }
 
@@ -333,7 +330,7 @@ mod tests {
     #[test]
     fn test_mul_div_ceil_rounds_up_on_remainder() {
         let env = Env::default();
-        // 1/3 → ceil 1; 1/2 → ceil 1; exact 6/3 → 2.
+        // 1/3 -> ceil 1; 1/2 -> ceil 1; exact 6/3 -> 2.
         assert_eq!(mul_div_ceil(&env, 1, 1, 3), 1);
         assert_eq!(mul_div_ceil(&env, 1, 1, 2), 1);
         assert_eq!(mul_div_ceil(&env, 6, 1, 3), 2);
@@ -352,15 +349,15 @@ mod tests {
         let _ = mul_div_ceil(&env, i128::MAX, i128::MAX, 1);
     }
 
-    // Signed variant — exactly ±0.5 should round AWAY from zero.
+    // Signed variant: exact +/-0.5 rounds away from zero.
     #[test]
     fn test_mul_div_half_up_signed_exact_half() {
         let env = Env::default();
-        // +0.5 → 1 (away from zero, upward).
+        // +0.5 -> 1 (away from zero, upward).
         assert_eq!(mul_div_half_up_signed(&env, 1, 1, 2), 1);
-        // -0.5 → -1 (away from zero, downward).
+        // -0.5 -> -1 (away from zero, downward).
         assert_eq!(mul_div_half_up_signed(&env, -1, 1, 2), -1);
-        // +2.5 → 3, -2.5 → -3.
+        // +2.5 -> 3, -2.5 -> -3.
         assert_eq!(mul_div_half_up_signed(&env, 5, 1, 2), 3);
         assert_eq!(mul_div_half_up_signed(&env, -5, 1, 2), -3);
     }
@@ -381,8 +378,8 @@ mod tests {
         let _ = mul_div_half_up_signed(&env, i128::MAX, i128::MAX, 1);
     }
 
-    // Rescale downscale at exactly half — the rounding tie-breaker.
-    // 5 at 1 decimal → 0 decimals: exact = 0.5 → should round to 1.
+    // Rescale downscale at exact half, the rounding tie-breaker.
+    // 5 at 1 decimal -> 0 decimals: exact = 0.5 -> rounds to 1.
     #[test]
     fn test_rescale_downscale_exact_half_rounds_up() {
         // (5 + 5) / 10 = 1.
@@ -391,15 +388,15 @@ mod tests {
         assert_eq!(rescale_half_up(50, 2, 0), 1);
     }
 
-    // Negative half boundary — `(a - half) / factor` rounds away from
-    // zero. -5 at 1 dec → 0 dec: (-5 - 5) / 10 = -1.
+    // Negative half boundary: `(a - half) / factor` rounds away from zero.
+    // -5 at 1 dec -> 0 dec: (-5 - 5) / 10 = -1.
     #[test]
     fn test_rescale_downscale_negative_exact_half() {
         assert_eq!(rescale_half_up(-5, 1, 0), -1);
         assert_eq!(rescale_half_up(-50, 2, 0), -1);
     }
 
-    // Identity branch — same decimals returns the input as-is.
+    // Identity branch: same decimals returns the input as-is.
     #[test]
     fn test_rescale_same_decimals_returns_input() {
         assert_eq!(rescale_half_up(i128::MAX, 18, 18), i128::MAX);
@@ -434,14 +431,14 @@ mod tests {
     }
 
     // Negative half boundary for `div_by_int_half_up`: `-1 - 1 = -2`,
-    // `-2 / 2 = -1`. So -0.5 rounds to -1 (away from zero).
+    // `-2 / 2 = -1`; -0.5 rounds to -1 (away from zero).
     #[test]
     fn test_div_by_int_half_up_negative_exact_half() {
         assert_eq!(div_by_int_half_up(-1, 2), -1);
         assert_eq!(div_by_int_half_up(-3, 2), -2);
     }
 
-    // --- rescale_floor branches ---
+    // rescale_floor branches.
 
     #[test]
     fn test_rescale_floor_identity_returns_input() {
@@ -480,7 +477,7 @@ mod tests {
         let _ = rescale_floor(i128::MAX, 0, 1);
     }
 
-    // --- rescale_ceil branches ---
+    // rescale_ceil branches.
 
     #[test]
     fn test_rescale_ceil_identity_returns_input() {
@@ -506,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_rescale_ceil_downscale_negative_truncates_toward_zero() {
-        // Negative inputs use the truncated quotient — no rounding adjustment.
+        // Negative inputs use the truncated quotient without rounding adjustment.
         // -11 at 1 dec -> 0 dec: -11 / 10 = -1 (toward zero).
         assert_eq!(rescale_ceil(-11, 1, 0), -1);
     }
@@ -523,9 +520,8 @@ mod tests {
         let _ = rescale_ceil(i128::MAX, 0, 1);
     }
 
-    // Downscale with `to_decimals > 0`: pins the `from - to` subtraction direction
-    // explicitly (older tests used to == 0). A `+` mutation would overflow
-    // `10^(from + to)` and panic instead of returning the floor/ceil result.
+    // Downscale with `to_decimals > 0` checks `from - to` subtraction.
+    // A `+` mutation overflows `10^(from + to)` instead of returning floor/ceil.
 
     #[test]
     fn test_rescale_floor_downscale_to_nonzero_decimals() {

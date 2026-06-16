@@ -96,7 +96,7 @@ pub(crate) fn finalize_position_flow(
 pub(crate) struct AggregatedConfigs(Map<Address, AssetConfigRaw>);
 
 impl AggregatedConfigs {
-    /// Resolves the active e-mode category once and adjusts every aggregated asset.
+    /// Resolves the active e-mode category once and adjusts each aggregated asset.
     pub fn resolve(
         env: &Env,
         account: &Account,
@@ -112,13 +112,13 @@ impl AggregatedConfigs {
         Self(configs)
     }
 
-    /// Config for an aggregated asset; `resolve` populated every key.
+    /// Config for an aggregated asset; `resolve` populated each key.
     pub fn get(&self, env: &Env, asset: &Address) -> AssetConfig {
         (&validation::expect_invariant(env, self.0.get(asset.clone()))).into()
     }
 }
 
-/// Pure construction helper for the repeated `PoolAction` literal used in every
+/// Pure construction helper for the repeated `PoolAction` literal used in each
 /// bulk pool entry path. Preserves exact semantics and Into behavior.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
@@ -132,9 +132,9 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Exact lookup used by user-facing repay/withdraw paths (deliberately distinct
-/// from the `expect_invariant` style used in liquidation apply paths to preserve
-/// precise error codes on missing positions).
+/// Exact lookup for user-facing repay/withdraw paths. Kept separate from
+/// `expect_invariant` liquidation apply paths to preserve missing-position
+/// error codes.
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,

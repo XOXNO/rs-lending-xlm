@@ -5,7 +5,7 @@ use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::cache::Cache;
 
-// Raw keyed reads; unlike `Cache::load` they do not renew TTLs.
+// Raw keyed reads without TTL renewal.
 pub fn load_state(env: &Env, asset: &Address) -> PoolStateRaw {
     env.storage()
         .persistent()
@@ -20,18 +20,16 @@ pub fn load_params(env: &Env, asset: &Address) -> MarketParamsRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-// Capital utilization ratio in RAY. Does not trigger interest accrual; computed
-// from the last persisted checkpoint.
+// Capital utilization ratio in RAY from the last persisted checkpoint.
+// No interest accrual.
 pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
     Cache::load(env, asset).calculate_utilization().raw()
 }
 
-// Pool's available reserves in asset decimals: the internally-tracked `cash`
-// (liquid token units backing borrows, withdrawals, and revenue claims) — the
-// same source of truth used by every liquidity decision and cap. Reads the
-// persisted checkpoint directly (no TTL renewal, no interest accrual). A direct
-// token donation is NOT counted here, so this view cannot be inflated by an
-// unsolicited transfer; it stays consistent with `require_reserves`/`claim_revenue`.
+// Available reserves in asset decimals. Uses persisted `cash`, the liquidity
+// source for borrows, withdrawals, and revenue claims.
+// Direct token donations are excluded, matching `require_reserves` and
+// `claim_revenue`. No TTL renewal or interest accrual.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
     load_state(env, asset).cash
 }
@@ -161,10 +159,9 @@ mod tests {
         t.as_contract(|| {
             assert_eq!(load_params(&t.env, &t.asset).asset_id, t.asset);
             assert_eq!(load_state(&t.env, &t.asset).supplied_ray, 10 * RAY);
-            // reserves() returns accounted `cash` (50_000_000), independent of the
-            // 12_345 tokens minted directly to the contract.
+            // reserves() returns accounted `cash`; directly minted tokens are excluded.
             assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
-            // View amounts are returned in asset decimals (7).
+            // View amounts use asset decimals (7).
             // supplied: 10 scaled * 2.0 index = 20.0 -> 200_000_000 (7 dec).
             assert_eq!(supplied_amount(&t.env, &t.asset), 200_000_000);
             // borrowed: 5 scaled * 3.0 index = 15.0 -> 150_000_000 (7 dec).
@@ -252,7 +249,7 @@ mod tests {
     fn test_protocol_revenue_unscales_with_current_index() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            // revenue 3 scaled * supply_index 2.0 = 6.0 asset units (7 decimals)
+            // revenue: 3 scaled * supply_index 2.0 = 6.0 asset units (7 decimals).
             assert_eq!(protocol_revenue(&t.env, &t.asset), 60_000_000);
         });
     }
@@ -261,8 +258,7 @@ mod tests {
     fn test_delta_time_matches_state_difference() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            // The TestSetup stores a state with last_timestamp 50k before "current".
-            // delta_time must return the positive difference from the loaded state.
+            // Fixture state sets last_timestamp 50k before current time.
             assert!(delta_time(&t.env, &t.asset) > 0);
         });
     }
@@ -270,14 +266,14 @@ mod tests {
     #[test]
     fn test_reserves_returns_accounted_cash_not_token_balance() {
         let t = TestSetup::new();
-        // Fixture diverges accounted `cash` (50_000_000) from the directly-minted
-        // token balance (12_345) — the latter models an unsolicited donation.
+        // Fixture sets accounted `cash` (50_000_000) and token balance (12_345)
+        // to different values; the token balance models an unsolicited donation.
         t.as_contract(|| {
             assert_eq!(reserves(&t.env, &t.asset), 50_000_000);
             assert_ne!(reserves(&t.env, &t.asset), 12_345);
         });
 
-        // A further direct donation must NOT change the reported reserves.
+        // Another direct donation leaves reported reserves unchanged.
         token::StellarAssetClient::new(&t.env, &t.asset).mint(&t.contract, &1_000_000);
         t.as_contract(|| {
             assert_eq!(reserves(&t.env, &t.asset), 50_000_000);

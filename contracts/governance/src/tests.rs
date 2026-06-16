@@ -1,8 +1,7 @@
-//! Integration tests for controller deployment and validated forwarding.
+//! Integration tests for governance-owned controller deployment and forwarding.
 //!
-//! The controller is exercised two ways: natively registered (governance as
-//! constructor admin) for forwarding round-trips, and deployed from the
-//! release WASM fixture for the one-time deployment flow.
+//! Tests use native controller registration for forwarding and the release WASM
+//! fixture for one-time deployment.
 
 extern crate std;
 
@@ -126,8 +125,8 @@ fn controller_view_panics_when_unset() {
     gov.controller();
 }
 
-// No controller is set: panicking with InvalidPositionLimits (not
-// PoolNotInitialized) proves validation precedes the cross-call.
+// With no controller set, InvalidPositionLimits confirms validation runs before
+// controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #36)")]
 fn set_position_limits_rejects_zero_before_any_cross_call() {
@@ -158,9 +157,8 @@ fn set_position_limits_forwards_to_native_controller() {
     assert_eq!(stored.max_borrow_positions, 2);
 }
 
-// Only the governance owner's auth is mocked; the controller's
-// `owner.require_auth()` (owner == governance) must pass through invoker
-// auth, proving the production ownership chain.
+// Mock governance-owner auth; controller owner auth must pass through the
+// invoker path.
 #[test]
 fn forwarding_passes_controller_owner_auth_via_invoker() {
     let env = Env::default();
@@ -202,8 +200,8 @@ fn configure_market_oracle_requires_governance_oracle_role() {
     gov.configure_market_oracle(&stranger, &asset, &sample_oracle_input(&env));
 }
 
-// Tolerance bounds are validated before the controller lookup: with no
-// controller set, an out-of-range first tolerance panics BadFirstTolerance.
+// With no controller set, BadFirstTolerance confirms tolerance validation runs
+// before controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #207)")]
 fn edit_oracle_tolerance_validates_before_any_cross_call() {
@@ -281,8 +279,7 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
     gov.edit_asset_config(&asset, &cfg);
 }
 
-// Admin entrypoints must renew the governance instance TTL so the ownable,
-// role, and controller keys cannot expire between admin operations.
+// Admin entrypoints renew instance TTL for ownable, role, and controller keys.
 #[test]
 fn entrypoint_renews_governance_instance_ttl() {
     let env = Env::default();

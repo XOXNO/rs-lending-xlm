@@ -151,7 +151,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::BorrowPositions(account_id));
 }
 
-// Extends TTL on every existing account key. The `has()` guard is required:
+// Extends TTL on each existing account key. The `has()` guard is required:
 // soroban-sdk 26.x panics on `extend_ttl` against a missing key.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();

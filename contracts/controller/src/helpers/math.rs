@@ -13,7 +13,7 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// USD WAD value of a scaled position at the supplied index and price.
 ///
-/// Half-up at every step: the neutral valuation for displays, dust floors,
+/// Half-up at each step: the neutral valuation for displays, dust floors,
 /// and liquidation share proportions. Solvency gates use the directional
 /// variants below instead.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
@@ -22,16 +22,16 @@ pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     actual_wad.mul(env, price)
 }
 
-/// `position_value` rounded down at every step — collateral-side gate
-/// valuation, so rounding slack can never loosen LTV.
+/// `position_value` rounded down at each step for collateral-side gate
+/// valuation. Rounding slack cannot loosen LTV.
 pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_floor(env, index);
     let actual_wad = actual.to_wad_floor();
     actual_wad.mul_floor(env, price)
 }
 
-/// `position_value` rounded up at every step — debt-side gate valuation, so
-/// rounding slack can never understate what is owed.
+/// `position_value` rounded up at each step for debt-side gate valuation.
+/// Rounding slack cannot understate what is owed.
 pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_ceil(env, index);
     let actual_wad = actual.to_wad_ceil();
@@ -39,7 +39,7 @@ pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wa
 }
 
 /// Collateral value weighted by liquidation threshold in BPS, rounded down:
-/// the health-factor numerator never gains from weighting rounding.
+/// the health-factor numerator cannot gain from weighting rounding.
 pub fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
     threshold.apply_to_wad_floor(env, value)
 }
@@ -56,7 +56,7 @@ pub fn calculate_ltv_collateral_wad(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        // Floor the whole chain: borrowing capacity never rounds upward.
+        // Floor the whole chain: borrowing capacity cannot round upward.
         let value = position_value_floor(
             env,
             position.scaled_amount,
@@ -70,7 +70,7 @@ pub fn calculate_ltv_collateral_wad(
 }
 
 /// LTV collateral, total debt, and HF-weighted collateral from one prefetch and
-/// one pass per side — shared by post-pool solvency gates.
+/// one pass per side for post-pool solvency gates.
 pub(crate) struct PostPoolRiskTotals {
     pub ltv_collateral: Wad,
     pub total_debt: Wad,
@@ -187,8 +187,8 @@ fn calculate_account_totals_body(
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
 ) -> (Wad, Wad, Wad) {
-    // Prime the RedStone prefetch with every position's feeds and the pool
-    // index prefetch with every position's markets before the per-asset
+    // Prime the RedStone prefetch with each position's feeds and the pool
+    // index prefetch with each position's markets before the per-asset
     // reads below.
     let mut priced_assets = supply_positions.keys();
     priced_assets.append(&borrow_positions.keys());
@@ -203,7 +203,7 @@ fn calculate_account_totals_body(
         let market_index = cache.cached_market_index(&asset);
 
         // Neutral valuation for proportions and socialization checks; the
-        // health-factor numerator gets the fully floored chain so no rounding
+        // health-factor numerator gets the floored chain so no rounding
         // step can loosen the gate.
         let value = position_value(
             env,
@@ -239,7 +239,7 @@ pub fn calculate_total_debt_wad(
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        // Ceil the whole chain: owed value never rounds downward.
+        // Ceil the whole chain: owed value cannot round downward.
         let value = position_value_ceil(
             env,
             position.scaled_amount,

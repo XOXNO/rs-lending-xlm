@@ -9,7 +9,7 @@ use controller_interface::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Cap on outstanding (approved but not yet consumed) token approvals.
-/// Every instance key loads with every invocation, so unconsumed approvals
+/// Each instance key loads with each invocation, so unconsumed approvals
 /// must not accumulate without bound.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
@@ -206,7 +206,7 @@ mod tests {
     use soroban_sdk::Env;
 
     // Approve/revoke/consume keeps the outstanding counter exact: re-approval
-    // of the same token never double-counts and revocation frees a slot.
+    // of the same token cannot double-count, and revocation frees a slot.
     #[test]
     fn test_token_approval_counter_tracks_outstanding_set() {
         let env = Env::default();
@@ -223,7 +223,7 @@ mod tests {
             assert_eq!(approved_token_count(&env), 0);
             assert!(!is_token_approved(&env, &token));
 
-            // Revoking an unapproved token never underflows the counter.
+            // Revoking an unapproved token cannot underflow the counter.
             set_token_approved(&env, &token, false);
             assert_eq!(approved_token_count(&env), 0);
         });

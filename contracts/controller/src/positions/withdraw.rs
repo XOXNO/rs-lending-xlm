@@ -242,8 +242,8 @@ pub(crate) fn finish_withdrawal(
     );
 }
 
-/// Single-asset wrapper over the bulk pool withdraw — used by strategies and
-/// account-close paths where one asset moves per call.
+/// Single-asset wrapper over bulk pool withdraw for strategies and account-close
+/// paths where one asset moves per call.
 pub fn execute_withdrawal(
     env: &Env,
     account: &mut Account,

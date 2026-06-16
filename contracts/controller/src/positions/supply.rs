@@ -2,7 +2,7 @@
 //!
 //! Pipeline: auth → aggregate → cache → [account resolution] → configs →
 //! validate → settle → persist → emit. Supply uses
-//! `OraclePolicy::RiskDecreasing` — deposits cannot worsen account health, so
+//! `OraclePolicy::RiskDecreasing`; deposits cannot worsen account health, so
 //! no LTV, health, or min-collateral gates run at the entrypoint.
 
 use common::errors::{CollateralError, GenericError};
@@ -179,7 +179,7 @@ fn settle_deposit(
         let mut position = account.get_or_create_supply_position(asset, &asset_config);
         refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);
         // Merge ONLY the scaled share back; the pool does not echo collateral
-        // risk params, so preserve the ones the controller already holds.
+        // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
         cache.record_market_update(&result.market_state);
 

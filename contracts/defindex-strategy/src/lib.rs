@@ -1,12 +1,12 @@
 #![no_std]
 //! DeFindex strategy adapter for the XOXNO lending controller.
 //!
-//! One WASM per underlying asset. Each vault (`from`) maps to its own controller
-//! `account_id`; positions are never shared across vaults.
+//! One WASM is deployed per underlying asset. Each vault (`from`) maps to one
+//! controller `account_id`; vaults do not share positions.
 //!
-//! - Balances use `collateral_amount_for_token` (no internal shares).
-//! - Full withdraw: pass `amount == balance()` (controller withdraw-all sentinel).
-//! - Vault→account mapping is cleared on supply when the stored id no longer exists.
+//! - Balances come from `collateral_amount_for_token`.
+//! - Full withdraw maps `amount == balance()` to controller amount `0`.
+//! - Supply clears stale vault-account mappings.
 //! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
 
 use common::constants::RAY;
@@ -17,7 +17,7 @@ use soroban_sdk::{
     Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
-/// DeFindex APY sampling event (12-decimal `price_per_share`).
+/// Harvest event with 12-decimal `price_per_share`.
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug)]
 pub struct HarvestEvent {
@@ -29,7 +29,7 @@ pub struct HarvestEvent {
 const PPS_SCALAR: i128 = 1_000_000_000_000;
 const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
 
-/// Vault→account TTL: extend when below ~30 days, up to ~180 days.
+/// Vault-account TTL: extend when below ~30 days, up to ~180 days.
 const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
 const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
 
@@ -166,7 +166,7 @@ impl Strategy {
         );
     }
 
-    /// Live controller account id for `vault` (`0` if none or gone).
+    /// Live controller account id for `vault` (`0` if missing or removed).
     pub fn lending_account_id(env: Env, vault: Address) -> u64 {
         Ctx::load(&env).reconcile(&vault)
     }
@@ -240,7 +240,7 @@ impl DeFindexStrategyTrait for Strategy {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
 
-        // Full exit: `0` is the controller withdraw-all sentinel.
+        // Full exit uses controller withdraw-all sentinel `0`.
         let withdraw_amount = if amount == balance { 0 } else { amount };
         ctx.controller.withdraw(
             &ctx.strategy,
@@ -290,7 +290,7 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
-/// Resolves the stored vault account id. When `clear_if_gone`, removes stale storage.
+/// Returns the live stored account id; optionally clears stale storage.
 fn resolve_vault_account(
     env: &Env,
     controller: &ControllerClient,

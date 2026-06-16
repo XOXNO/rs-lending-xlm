@@ -8,11 +8,11 @@ use soroban_sdk::contracterror;
 pub enum GenericError {
     /// Asset has no configured market.
     AssetNotSupported = 1,
-    /// Asset already has a configured market.
+    /// Asset has a configured market.
     AssetAlreadySupported = 2,
     /// Token ticker or symbol failed validation.
     InvalidTicker = 3,
-    /// The central liquidity pool has already been deployed.
+    /// The central liquidity pool has been deployed.
     PoolAlreadyDeployed = 5,
     /// Token contract failed required asset checks.
     InvalidAsset = 6,
@@ -44,7 +44,7 @@ pub enum GenericError {
     AggregatorNotSet = 27,
     /// Position limits have not been configured.
     PositionLimitsNotSet = 29,
-    /// Pool storage record missing or never initialized for the asset.
+    /// Pool storage record missing for the asset.
     PoolNotInitialized = 30,
     /// Ownable storage has no owner.
     OwnerNotSet = 32,
@@ -170,9 +170,9 @@ pub enum OracleError {
     InvalidOracleDecimals = 221,
     /// Oracle resolution seconds are invalid.
     InvalidOracleResolution = 222,
-    /// Final price is outside sanity bounds.
+    /// Final price is outside configured price bounds.
     SanityBoundViolated = 223,
-    /// Sanity bound min/max configuration is invalid.
+    /// Price-bound min/max configuration is invalid.
     InvalidSanityBounds = 224,
 }
 
@@ -186,7 +186,7 @@ pub enum EModeError {
     EModeCategoryDeprecated = 301,
     /// Asset is not present in the requested e-mode category.
     AssetNotInEmode = 307,
-    /// Asset is already in the requested e-mode category.
+    /// Asset is in the requested e-mode category.
     AssetAlreadyInEmode = 308,
     /// E-mode category asset count would exceed the cap.
     EModeAssetsLimitReached = 309,
@@ -198,7 +198,7 @@ pub enum EModeError {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum FlashLoanError {
-    /// Re-entrancy guard: a flash loan or strategy is already executing in this tx.
+    /// Re-entrancy guard: a flash loan or strategy is executing in this tx.
     FlashLoanOngoing = 400,
     /// Asset is not configured for flash loans.
     FlashloanNotEnabled = 401,

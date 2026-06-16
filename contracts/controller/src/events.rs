@@ -55,12 +55,11 @@ impl From<OracleStrategy> for EventPricingMethod {
     }
 }
 
-/// Account attributes attached to position batch events.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Account attributes, vec-encoded inside the batch position event.
 ///
-/// Field order is wire ABI — never reorder:
+/// Field order is wire ABI; do not reorder:
 /// `[owner, e_mode_category_id, mode]`.
 pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
@@ -285,7 +284,7 @@ pub struct UpdateMarketParamsEvent {
 
 /// Per-market accrual snapshot, vec-encoded for the batch market event.
 ///
-/// Field order is wire ABI — never reorder:
+/// Field order is wire ABI; do not reorder:
 /// `[asset, timestamp, supply_index_ray, borrow_index_ray, reserves_ray,
 ///   supplied_ray, borrowed_ray, revenue_ray, asset_price_wad]`.
 #[contracttype]
@@ -327,7 +326,7 @@ pub struct UpdateMarketStateBatchEvent {
 
 /// Action that produced a position delta. The `u32` discriminants are wire
 /// ABI: the off-chain decoder maps them back to the legacy action strings,
-/// so variants must never be renumbered or removed.
+/// so variants must not be renumbered or removed.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -349,7 +348,7 @@ pub enum PositionAction {
 
 /// Collateral-side position delta, vec-encoded for the batch position event.
 ///
-/// Field order is wire ABI — never reorder:
+/// Field order is wire ABI; do not reorder:
 /// `[action, asset, scaled_amount_ray, index_ray, amount,
 ///   liquidation_threshold_bps, liquidation_bonus_bps, loan_to_value_bps]`.
 /// The risk params are the position's entry values (e-mode adjusted).
@@ -387,9 +386,9 @@ impl EventDepositDelta {
     }
 }
 
-/// Debt-side position delta — no collateral risk params on this side.
+/// Debt-side position delta; no collateral risk params on this side.
 ///
-/// Field order is wire ABI — never reorder:
+/// Field order is wire ABI; do not reorder:
 /// `[action, asset, scaled_amount_ray, index_ray, amount]`.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -650,8 +649,6 @@ mod tests {
         }
     }
 
-    // ---------- enum derive exercisers ----------
-
     #[test]
     fn event_position_mode_eq_and_from() {
         assert_eq!(EventPositionMode::None, EventPositionMode::None);
@@ -694,8 +691,6 @@ mod tests {
         );
     }
 
-    // ---------- AccountMeta conversion ----------
-
     #[test]
     fn event_account_attributes_from_account_meta_emode() {
         let env = Env::default();
@@ -710,8 +705,6 @@ mod tests {
         assert_eq!(attrs.1, 3);
         assert_eq!(attrs.2, EventPositionMode::Long);
     }
-
-    // ---------- EventOracleProvider::from_market ----------
 
     #[test]
     fn event_oracle_provider_from_market_builds_struct() {
@@ -781,8 +774,8 @@ mod tests {
         let ContractEventBody::V0(body) = &last.body;
         let data = &body.data;
 
-        // The event data exposes only the two struct fields at the top level;
-        // sanity bounds and quote tokens are NOT top-level.
+        // Event data exposes only `asset` and `oracle` at the top level.
+        // Sanity bounds and quote tokens are nested under `oracle`.
         let top = map_keys(data);
         assert!(top.iter().any(|k| k == "oracle"), "top keys: {:?}", top);
         assert!(top.iter().any(|k| k == "asset"));
@@ -803,8 +796,6 @@ mod tests {
             );
         }
     }
-
-    // ---------- emit_* helpers ----------
 
     #[test]
     fn emit_helpers_publish_without_panicking() {

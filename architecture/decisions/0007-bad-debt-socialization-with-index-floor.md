@@ -7,11 +7,10 @@
 
 ## Context
 
-Liquidations cap repayment at actual debt and apply a bonus to the
-liquidator. When a stressed account ends up with collateral so small
-that the liquidation bonus alone exceeds the residual collateral value,
-no rational liquidator will close out the rest of the debt. The
-remaining debt is uncollectable.
+Liquidations cap repayment at actual debt and apply a bonus to the liquidator.
+A stressed account can retain collateral so small that the liquidation bonus
+alone exceeds the residual collateral value. No rational liquidator will close
+out the rest of the debt. The remaining debt is uncollectable.
 
 The protocol has to decide what to do with these stranded debts:
 
@@ -23,7 +22,7 @@ The protocol has to decide what to do with these stranded debts:
 Doing nothing leaves a divergence between scaled debt and recoverable
 liquidity that grows over time and propagates into health-factor math.
 Pausing penalizes all market activity for losses that have already
-crystallized. Socialization explicitly distributes the loss across the
+crystallized. Socialization distributes the loss across the
 suppliers who underwrote the lending.
 
 A second concern is numerical safety: dropping the supply index toward
@@ -37,7 +36,7 @@ floored at `SUPPLY_INDEX_FLOOR_RAW`.
 
 **Trigger** (`contracts/controller/src/positions/liquidation.rs::check_bad_debt_after_liquidation`):
 After a liquidation, the account is socializable when
-`is_socializable_bad_debt` holds — `debt > collateral` and
+`is_socializable_bad_debt` holds: `debt > collateral` and
 `collateral_usd_wad <= BAD_DEBT_USD_THRESHOLD` (5 USD WAD)
 (`contracts/controller/src/positions/liquidation_math.rs`). The controller
 then runs `execute_bad_debt_cleanup`, which seizes **both** sides of the
@@ -48,7 +47,7 @@ passed to the central pool with its asset key via
 total_collateral_usd_wad }`
 (`common/src/events.rs`) and removes the account.
 
-**Reduction** — only the `Borrow`-side seizure moves the asset's index. On the pool's
+**Reduction**: only the `Borrow`-side seizure moves the asset's index. On the pool's
 `seize_position` (`contracts/pool/src/lib.rs`), a `Deposit` seizure adds the
 scaled amount to pool revenue (no index motion); a `Borrow` seizure unscales
 the debt and calls
@@ -59,7 +58,7 @@ the debt and calls
 - `reduction_factor = (total_supplied_value - capped) / total_supplied_value`.
 - `new_supply_index = supply_index * reduction_factor`.
 - Final write floors at `SUPPLY_INDEX_FLOOR_RAW` (defined `= WAD`; 10^18 raw
-  Ray = 10^-9 decimal). Revenue accrual paths additionally short-circuit when
+  Ray = 10^-9 decimal). Revenue accrual paths short-circuit when
   `index <= floor` so a near-zero index cannot divide-by-zero.
 
 A severe single-step reduction is not emitted as a dedicated event; it is
@@ -80,16 +79,16 @@ socializable.
   if warranted.
 - **Insurance fund instead of socialization.** Rejected for launch:
   requires a separate accounting surface and capital provisioning model.
-  The current design uses the supply-side claim to express loss
-  directly. Future revenue diverted from `claim_revenue` could fund a
+  The current design uses the supply-side claim to express loss.
+  Future revenue diverted from `claim_revenue` could fund a
   reserve in a later ADR.
 - **No floor on the supply index.** Rejected: a very large bad-debt
   event could drive the index to or near zero, breaking
   `scaled * index / RAY` reconstructions and the revenue-accrual
   divisor.
 - **Pro-rata socialization via per-account writes.** Rejected: would
-  sweep every supply position at the moment of socialization, which is
-  exactly the work the scaled-balance design (ADR 0002) avoids.
+  sweep supply positions at the moment of socialization, which is
+  the work the scaled-balance design (ADR 0002) avoids.
 
 ## Consequences
 
@@ -101,13 +100,12 @@ Positive:
   high-signal trigger for out-of-band action (pause, communication,
   root-cause).
 - Floor preserves the numerical health of all downstream math.
-- Per-account work stays at zero — index motion captures the
+- Per-account work stays at zero; index motion captures the
   socialization.
 
 Negative / accepted costs:
 
-- Suppliers carry the loss directly; this needs to be communicated as
-  part of the protocol's user-facing risk disclosure.
+- User-facing risk disclosure must state that suppliers carry socialized losses.
 - The `BAD_DEBT_USD_THRESHOLD = $5` heuristic for triggering
   socialization is a tunable; audit and launch review cover threshold
   sensitivity.

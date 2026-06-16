@@ -1,6 +1,6 @@
 //! Transaction-local cache for oracle policy, market reads, and batch events.
 //!
-//! Each mutating entrypoint creates the cache with its `OraclePolicy`; every
+//! Each mutating entrypoint creates the cache with its `OraclePolicy`; each
 //! price and index read then follows that policy for the rest of the call.
 //! Position deltas and market snapshots are buffered until the flow has written
 //! storage and emits the final batch events.
@@ -29,7 +29,7 @@ pub struct Cache {
 
     pub prices_cache: Map<Address, PriceFeedRaw>,
     /// Raw RedStone payloads bulk-fetched once per tx, keyed by (adapter, feed_id).
-    /// Stores provider data, never resolved prices, so per-flow policy checks
+    /// Stores provider data, not resolved prices, so per-flow policy checks
     /// (staleness, sanity, tolerance) are unaffected.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
     pub market_configs: Map<Address, MarketConfig>,
@@ -145,18 +145,17 @@ impl Cache {
         addr
     }
 
-    /// No-op under Certora: pure performance optimization, identical semantics.
+    /// Certora stub: lazy per-asset reads preserve semantics.
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _assets: &Vec<Address>) {}
 
-    /// Seeds `market_indexes` for every listed asset in `assets` with one
+    /// Seeds `market_indexes` for each listed asset in `assets` with one
     /// `bulk_get_sync_data` pool call instead of N lazy `get_sync_data` reads.
     ///
-    /// The pool runs the same `simulate_update_indexes` math the lazy
-    /// per-asset path runs locally, so seeded values are identical. Assets
-    /// already indexed this tx and unlisted assets are skipped — the prefetch
-    /// never introduces its own panic site — and an empty remainder makes no
-    /// pool call, so flows that never read an index stay call-free.
+    /// The pool runs the same `simulate_update_indexes` math as the lazy
+    /// per-asset path, so seeded values are identical. Assets indexed
+    /// this tx and unlisted assets are skipped; the prefetch does not add a
+    /// panic site or issue empty pool calls.
     #[cfg(not(feature = "certora"))]
     pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
         let mut missing: Vec<Address> = Vec::new(&self.env);
@@ -202,10 +201,9 @@ impl Cache {
         self.market_updates.push_back(update.clone());
     }
 
-    /// Price already fetched this transaction, if any. Event enrichment reads
-    /// only this memo and never triggers an oracle call of its own, so flows
-    /// whose risk checks need no price (e.g. a debt-free full exit) stay
-    /// oracle-free end to end.
+    /// Price fetched this transaction, if any. Event enrichment reads
+    /// this memo without issuing oracle calls, so debt-free exits stay
+    /// oracle-free.
     fn already_fetched_price(&self, asset: &Address) -> Option<i128> {
         self.prices_cache.get(asset.clone()).map(|f| f.price_wad)
     }

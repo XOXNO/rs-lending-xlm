@@ -2,7 +2,6 @@ use soroban_sdk::Bytes;
 
 /// Opaque aggregator swap payload.
 ///
-/// The controller does not decode or validate this payload. It only forwards
-/// the bytes to the configured aggregator, while enforcing its own concrete
+/// The controller forwards bytes to the configured aggregator and enforces
 /// token balance deltas around the call.
 pub type StrategySwap = Bytes;

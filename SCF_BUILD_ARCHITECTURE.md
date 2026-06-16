@@ -1,4 +1,4 @@
-# XOXNO Lending — Architecture Reference
+# XOXNO Lending: Architecture Reference
 
 This document describes the architecture implemented in this repository:
 contract responsibilities, storage layout, risk checks, oracle validation,
@@ -8,11 +8,10 @@ architecture claim.
 
 ## 1. Summary
 
-**The big picture.** Users talk to one **controller** contract. It tracks every
-account, fetches and checks prices, enforces risk limits, and runs
-liquidations. The controller owns one **central pool** contract. That pool holds
-the listed token balances and stores one asset-keyed accounting row per market.
-Users never call the pool directly. Governance owns the controller, validates
+Users call one **controller** contract. It tracks accounts, fetches and checks
+prices, enforces risk limits, and runs liquidations. The controller owns one
+**central pool** contract. The pool holds listed token balances and stores one
+asset-keyed accounting row per market. Governance owns the controller, validates
 admin inputs, and schedules protocol changes through a timelock.
 
 The protocol is a multi-asset lending and borrowing system for Stellar
@@ -26,7 +25,7 @@ Soroban, implemented in Rust across the core `no_std` crates:
   flash loans, and account-bound strategy flows.
 - `pool`: one central liquidity-pool contract. Holds custody and asset-scoped
   accounting rows (supply, debt, indexes, reserves, protocol revenue,
-  flash-loan settlement, rate-model updates) for every listed market.
+  flash-loan settlement, rate-model updates) for each listed market.
 - `pool-interface`: typed Soroban contract trait the controller uses to call
   the pool.
 - `controller-interface`: typed Soroban ABI trait describing the controller's
@@ -36,7 +35,7 @@ Soroban, implemented in Rust across the core `no_std` crates:
 - `common`: shared fixed-point math (`math::fp`, `math::fp_core`), rate model
   (`rates`), constants, errors, events, and contract types.
 
-The pool is owner-gated. Every mutating accounting, maintenance, and WASM
+The pool is owner-gated. Each mutating accounting, maintenance, and WASM
 upgrade entrypoint is gated by the `#[only_owner]` macro; the owner is the
 controller, set at construction via `ownable::set_owner`. The pool does not call
 oracles, routers, or other pools.
@@ -49,7 +48,7 @@ The implementation enforces these properties:
   health-factor, and liquidity checks before final state persistence
   (`contracts/controller/src/positions/*.rs`, `contracts/controller/src/strategies/`,
   `contracts/controller/src/validation.rs`).
-- Users interact only with the controller. The controller calls the pool through
+- Users interact with the controller. The controller calls the pool through
   `pool_interface::LiquidityPoolClient`.
 - Pool mutating accounting, maintenance, and WASM-upgrade endpoints reject any
   caller other than the controller through the `#[only_owner]` macro
@@ -113,7 +112,7 @@ flowchart TB
 
 Boundaries enforced in code:
 
-- The controller is the only user-facing protocol contract.
+- The controller is the user-facing protocol contract.
 - Governance deploys and owns the controller. Protocol-affecting admin changes
   are queued through typed `propose_*` entrypoints and executed after the
   timelock delay.
@@ -189,14 +188,14 @@ new delay below the current delay.
 ### 4.3 Pool
 
 Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `contracts/pool/src/interest.rs`,
-`contracts/pool/src/views.rs`. The central pool manages every listed asset and:
+`contracts/pool/src/views.rs`. The central pool manages listed assets and:
 
 - Holds token balances for all listed assets.
 - Stores one `PoolKey::Params(asset)` and one `PoolKey::State(asset)`
   persistent record per market.
 - Tracks `supplied_ray`, `borrowed_ray`, `revenue_ray`, `supply_index_ray`,
   `borrow_index_ray`, `last_timestamp`, and `cash` per asset.
-- Calls `interest::global_sync` before every mutation.
+- Calls `interest::global_sync` before each mutation.
 - Verifies reserve availability before outgoing transfers
   (`cache::has_reserves`).
 - Uses internally tracked `cash` as available reserves. Live token balances are
@@ -204,7 +203,7 @@ Implemented in `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `cont
   accounting.
 - Records protocol revenue as a scaled supply claim and updates the supply
   index accordingly.
-- Executes pool-owned `flash_loan`, snapshots the balance locally, calls the
+- Executes pool-owned `flash_loan`, takes a local balance snapshot, calls the
   receiver callback, pulls repayment, and verifies post-repay balance equals
   pre-balance + fee.
 - Reduces the supply index on bad-debt socialization, floored at
@@ -229,11 +228,9 @@ The pool stores no account ownership, oracle configuration, or e-mode state.
 
 ## 5. Account and Storage Model
 
-Each account is stored as three small records, not one big object: its metadata
-(who owns it and which risk mode it uses) plus two maps — one for what it has
-supplied, one for what it has borrowed. Splitting them lets a supply-only action
-read and write just the supply map and skip the rest, which keeps each
-transaction cheap.
+Each account uses three records: metadata (owner and risk mode), supply
+positions, and borrow positions. Supply-only actions read and write the supply
+map without loading borrow positions, which keeps storage work bounded.
 
 Account state is split into metadata plus two position maps:
 
@@ -247,7 +244,7 @@ enclosing map key, side is the enclosing storage key, and account id is the
 discriminant inside that key. The collateral side (`AccountPositionRaw`) carries
 `scaled_amount_ray`, `liquidation_threshold_bps`, `liquidation_bonus_bps`, and
 `loan_to_value_bps`; the three risk-parameter fields are an open-time snapshot.
-The debt side (`DebtPositionRaw`) carries only `scaled_amount_ray` — debt risk
+The debt side (`DebtPositionRaw`) carries only `scaled_amount_ray`; debt risk
 parameters are sourced from the live market config, not snapshotted.
 Liquidation-threshold updates are keeper-gated by `update_account_threshold` and
 require a 5% health-factor buffer for risk-increasing changes.
@@ -301,7 +298,7 @@ Before users can supply or borrow an asset, governance must list it in the
 controller and central pool, then wire up its price oracle. The central pool is
 deployed once; each listed asset becomes a market row inside that pool. A market
 then moves through three states: `PendingOracle` (the asset row exists but has
-no active price feed), `Active` (fully usable), and `Disabled` (repay/read
+no active price feed), `Active` (usable), and `Disabled` (repay/read
 paths only).
 
 ```mermaid
@@ -357,9 +354,9 @@ Constraints enforced at listing or oracle configuration:
 - `asset_config: AssetConfigRaw`
 - `oracle_config: MarketOracleConfig`
 
-All oracle wiring — strategy, primary and anchor sources, sanity bounds, and
-tolerance — is nested inside `oracle_config` (see Section 9). Pool address is
-not per market; the single address lives in `ControllerKey::Pool`. Rate-model
+All oracle wiring lives inside `oracle_config`: strategy, primary and anchor
+sources, sanity bounds, and tolerance (see Section 9). Pool address is not per
+market; the single address lives in `ControllerKey::Pool`. Rate-model
 parameters live in the central pool's `PoolKey::Params(asset)`, not in
 `MarketConfig`.
 
@@ -374,9 +371,9 @@ parameters live in the central pool's `PoolKey::Params(asset)`, not in
 - `liquidation_threshold ≤ LTV` or `liquidation_threshold > BPS`
   (via `validate_risk_bounds`).
 - `threshold * (BPS + liquidation_bonus) > BPS * BPS`: the seizure ceiling
-  `threshold * (1 + bonus)` must stay ≤ 100%, so a liquidation can never seize
-  more than the collateral backing a position. There is no flat bonus cap —
-  the ceiling is derived per asset from the threshold.
+  `threshold * (1 + bonus)` must stay ≤ 100%, so a liquidation cannot seize more
+  than the collateral backing a position. There is no flat bonus cap; the
+  ceiling is derived per asset from the threshold.
 - `liquidation_fees > BPS` (10000 bps).
 - Negative `supply_cap` or `borrow_cap` (zero is treated as uncapped per the
   cap-sentinel comment).
@@ -471,7 +468,7 @@ classDiagram
 
 ## 8. Fixed-Point Domains
 
-Soroban has no floating-point or decimal type, so the protocol stores every
+Soroban has no floating-point or decimal type, so the protocol stores each
 fraction as a large integer scaled by a fixed factor. It uses three such scales,
 each sized for the precision its job needs (`common/src/constants/`,
 `common/src/math/fp.rs`):
@@ -496,12 +493,10 @@ controller), which forwards them to the configured accumulator.
 
 ## 9. Oracle Pricing
 
-Lending is only as safe as its prices: every risk decision — whether you can
-borrow, whether you can be liquidated — depends on what each asset is worth. So
-the controller never trusts a single number blindly. It reads a **primary** price
-source and, in most markets, a second **anchor** source, then checks that the two
-agree within a tolerance band before acting. The rest of this section defines how
-those sources are configured and how a final price is chosen.
+Price integrity controls borrow capacity, liquidation, and bad-debt risk. The
+controller reads a **primary** price source and, in most markets, a second
+**anchor** source, then checks the two against tolerance bands before acting.
+Source configuration and final-price selection follow.
 
 The controller resolves prices through `token_price`
 (`contracts/controller/src/oracle/price.rs`), normalized to WAD. Each market's
@@ -512,12 +507,12 @@ Sources and strategies:
 
 - A source is `OracleSourceConfig::Reflector(ReflectorSourceConfig)` or
   `OracleSourceConfig::RedStone(RedStoneSourceConfig)`. A Reflector source has a
-  `read_mode` of `Spot` or `Twap(records)`; RedStone always reads spot.
-- `OracleStrategy::Single` uses only the primary source.
+  `read_mode` of `Spot` or `Twap(records)`; RedStone reads spot.
+- `OracleStrategy::Single` uses the primary source without an anchor.
 - `OracleStrategy::PrimaryWithAnchor` reads the primary plus an anchor source
-  and applies tolerance-band checks between them. When the anchor is absent,
-  returns no price, or is stale-and-unusable, the result falls back to the
-  primary only where the active policy allows it.
+  and applies tolerance-band checks between them. If the anchor is absent,
+  unreadable, or stale-and-unusable, the result falls back to the primary only
+  where the active policy allows it.
 
 `propose_configure_market_oracle` resolves and validates oracle config before
 scheduling `set_market_oracle_config`. At execution the controller re-checks
@@ -531,7 +526,7 @@ the quote-market invariants before activating the market. Validation covers:
 - sanity bounds `0 < min_sanity_price_wad < max_sanity_price_wad ≤
   MAX_REASONABLE_PRICE_WAD`,
 - per Reflector source: USD base (`base() == USD`), decimals in `[1, 18]`,
-  resolution `≥ 60`, a live `lastprice`, and — for `Twap(records)` — `records`
+  resolution `≥ 60`, a live `lastprice`, and, for `Twap(records)`, `records`
   in `[1, 12]` with sufficient TWAP history,
 - per RedStone source: staleness bound, a live feed read, and feed validation,
 - first tolerance in `[MIN_FIRST_TOLERANCE, MAX_FIRST_TOLERANCE]`,
@@ -556,7 +551,7 @@ degraded dual-source resolution, and sanity-band violation:
   markets.
 
 The future-timestamp guard (`check_not_future_at`, `MAX_FUTURE_SKEW_SECONDS`,
-a one-sided 60 second future bound) is unconditional and applies in every mode.
+a one-sided 60 second future bound) is unconditional and applies in all modes.
 
 `token_price` (`oracle/price.rs`) gates the resolved price: it rejects the
 unconfigured `pending_for` sentinel, requires `price_wad > 0`, and enforces the
@@ -570,7 +565,7 @@ comparison price:
 3. Outside the last band → revert `UnsafePriceNotAllowed` unless the policy
    allows unsafe deviation, in which case return the primary price.
 
-`Single` returns the primary price directly and bypasses band selection.
+`Single` returns the primary price without band selection.
 
 ```mermaid
 flowchart TD
@@ -601,7 +596,7 @@ flowchart TD
 
 ## 10. Common Controller Flow
 
-Every user operation enters through the controller and proceeds through the
+User operations enter through the controller and follow the
 same skeleton (`contracts/controller/src/positions/*.rs`,
 `contracts/controller/src/strategies/`, `contracts/controller/src/strategies/flash_loan.rs`):
 
@@ -623,7 +618,7 @@ flowchart LR
     Persist --> Events["Emit events"]
 ```
 
-The remaining subsections list only the per-flow specifics that diverge
+The remaining subsections list the per-flow specifics that diverge
 from this skeleton.
 
 ### 10.1 Supply
@@ -673,7 +668,7 @@ from this skeleton.
 - Caller authorization and account-owner match.
 - `amount == 0` is the withdraw-all sentinel; the pool clamps full withdrawals
   to the post-accrual balance and applies a dust-lock guard.
-- Borrow side is loaded only if the account has debt.
+- The controller loads the borrow side when the account has debt.
 - Cache policy mirrors debt presence: debt-free withdrawals use
   `OraclePolicy::RiskDecreasing`; accounts with debt use
   `OraclePolicy::RiskIncreasing`.
@@ -683,12 +678,10 @@ from this skeleton.
 
 ### 10.5 Liquidation and Bad Debt
 
-When an account's debt outgrows its collateral — its health factor drops below
-`1.0` — anyone may act as a *liquidator*: they repay part of the debt and, in
-return, seize some of the borrower's collateral at a discount (the bonus). This
-pulls the account back toward safety and rewards the liquidator for the work. If
-even seizing all collateral cannot cover the debt, the leftover is *bad debt*,
-which the pool spreads across its own suppliers by nudging the supply index down.
+Any liquidator may repay part of an account's debt and seize borrower collateral
+with the configured bonus after the account's health factor drops below `1.0`.
+If the remaining collateral cannot cover the debt, the pool treats the residual
+as *bad debt* and reduces the supply index for that market.
 
 `liquidate(liquidator, account_id, debt_payments)`
 (`contracts/controller/src/positions/liquidation.rs`):
@@ -744,7 +737,7 @@ cap, and health checks shared with the underlying flows.
 
 `StrategySwap` shape (see `common/src/types/aggregator.rs`):
 
-- opaque `Bytes` decoded only by the aggregator/router.
+- opaque `Bytes` decoded by the aggregator/router.
 
 `validate_strategy_swap` (`contracts/controller/src/strategies/helpers.rs`) rejects
 `amount_in <= 0` or empty swap bytes. Lending does not inspect route paths,
@@ -792,12 +785,10 @@ sequenceDiagram
 
 ### 11.2 Flash Loans
 
-A flash loan lets a contract borrow any available amount with no collateral, on
-one condition: it must repay the loan plus a fee within the same transaction. If
-the repayment does not arrive, the entire transaction reverts as though it never
-happened, so the pool cannot lose funds. The receiver contract does its work —
-an arbitrage, a swap, a position migration — in a callback between the borrow and
-the repayment.
+A flash loan lets a contract borrow available liquidity with no collateral when
+it repays principal plus fee in the same transaction. Missing repayment reverts
+the transaction, so the pool keeps custody intact. The receiver contract performs
+arbitrage, swap, or migration logic in a callback between borrow and repayment.
 
 `flash_loan(caller, asset, amount, receiver, data)`
 (`contracts/controller/src/strategies/flash_loan.rs`):
@@ -813,7 +804,7 @@ the repayment.
 - The receiver authorizes the pool to pull `amount + fee`.
 - Pool pulls repayment from `receiver` and verifies post-repay balance equals
   pre-balance + fee.
-- The fee is recorded as protocol revenue.
+- The pool records the fee as protocol revenue.
 - Controller clears `FlashLoanOngoing` and emits `FlashLoanEvent`.
 
 The receiver contract must pre-authorize the pool's repayment pull during
@@ -906,7 +897,7 @@ Controller owner and roles (`contracts/controller/src/governance/access.rs`):
 - `KEEPER` (`#[only_role(caller, "KEEPER")]`): `update_indexes`,
   `update_account_threshold`, `clean_bad_debt`. The on-chain `renew_account`
   TTL keepalive is caller-auth gated (account owner), not a role; the keeper
-  service additionally runs the off-chain `ExtendFootprintTtl` flow. See
+  service also runs the off-chain `ExtendFootprintTtl` flow. See
   Section 14.
 - `ORACLE`: `disable_token_oracle` for emergency oracle shutdown.
 - `REVENUE`: `claim_revenue`, `add_rewards`.
@@ -915,7 +906,7 @@ Controller constructor (`Controller::__constructor`):
 
 - Sets the owner.
 - Sets the access-control admin to the owner.
-- Grants only `KEEPER` to the deployer (`REVENUE` and `ORACLE` require an
+- Grants `KEEPER` to the deployer (`REVENUE` and `ORACLE` require an
   explicit `grant_role` after deploy).
 - Sets default position limits to 10 supply and 10 borrow positions; the
   validated cap on `set_position_limits` is 10 per side (`POSITION_LIMIT_MAX`).
@@ -983,10 +974,9 @@ flowchart TB
 
 ## 14. Storage and TTL Strategy
 
-Soroban charges rent for stored data and archives any entry whose time-to-live
-(TTL) lapses. The protocol therefore sorts its data by how long it must live and
-who keeps it alive, and it bumps an entry's TTL whenever it is touched. This
-section maps that out.
+Soroban charges rent for stored data and archives entries whose time-to-live
+(TTL) lapses. The protocol groups data by lifetime and maintainer, then bumps an
+entry's TTL when a contract path touches it.
 
 Soroban storage is partitioned by entry kind:
 
@@ -1008,17 +998,17 @@ Soroban storage is partitioned by entry kind:
 
 TTL is bumped two ways:
 
-- **In-band**: every mutating contract entrypoint refreshes the
+- **In-band**: each mutating contract entrypoint refreshes the
   controller's own instance entry, the per-account user keys it touches,
   and the per-asset shared keys it reads via its internal `renew_*`
   helpers. Activity on the protocol keeps the entries it touches alive.
 - **Out-of-band**: the off-chain keeper service
   (`services/keeper`) issues permissionless `ExtendFootprintTtl`
-  operations against every storage entry, contract instance, and wasm
+  operations against each storage entry, contract instance, and wasm
   code entry whose `live_until` is inside the configured safety margin.
-  The signer needs no on-chain role — only XLM for fees.
+  The signer needs no on-chain role, only XLM for fees.
 
-The split of account state per side lets each flow read/write only the side
+The split of account state per side lets each flow read/write the side
 it mutates.
 
 ```mermaid
@@ -1059,7 +1049,7 @@ A non-exhaustive list of checks present in the code:
   `MinBorrowCollateralUsd`, default `5 * WAD`.
 - Numeric domains separated into BPS, WAD, RAY with type wrappers in
   `common::math::fp`.
-- Reserve availability is checked before pool transfers out
+- The pool checks reserve availability before transfers out
   (`contracts/pool/src/cache.rs::has_reserves`).
 - Direct SAC transfers for deposits, repayments, and rewards, followed by
   central-pool accounting on the requested amount.
@@ -1070,7 +1060,7 @@ A non-exhaustive list of checks present in the code:
 - Oracle deviation tolerance, staleness, and unconditional future-timestamp
   guard.
 - Bad-debt socialization floor at `SUPPLY_INDEX_FLOOR_RAW`.
-- Pool revenue routes only through pool ownership (no caller-supplied
+- Pool revenue routes through pool ownership (no caller-supplied
   destination in `claim_revenue`).
 
 ## 16. Verification Surface
@@ -1094,20 +1084,20 @@ result status before public unpause.
 | `make build` | Build controller and pool WASM artifacts. | WASM artifacts build for the target commit. | Required before deploy. | Artifact hashes. |
 | `make optimize` | Optimize deployment WASM artifacts. | Optimized WASM artifacts are produced and hash-pinned. | Required before deploy. | Optimized hashes. |
 | `make proptest PROPTEST_CASES=10000` | Contract-level property tests for auth, TTL, budget, strategy/flash-loan, liquidation, conservation, and multi-asset solvency. | All configured property tests pass at 10,000 cases. | Required before public unpause. | Target-commit log. |
-| `make fuzz FUZZ_TIME=300` | Function-level fuzz targets (`fp_math`, `fp_ops`, `pool_native`, `rates_and_index`, and related targets). | Every target completes 300 seconds without crash or new corpus failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
-| `make fuzz-contract FUZZ_TIME=300` | Contract-flow fuzz targets (`flow_e2e`, `flow_strategy`, and related targets). | Every target completes 300 seconds without crash or invariant failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
+| `make fuzz FUZZ_TIME=300` | Function-level fuzz targets (`fp_math`, `fp_ops`, `pool_native`, `rates_and_index`, and related targets). | Each target completes 300 seconds without crash or new corpus failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
+| `make fuzz-contract FUZZ_TIME=300` | Contract-flow fuzz targets (`flow_e2e`, `flow_strategy`, and related targets). | Each target completes 300 seconds without crash or invariant failure. | Required before public unpause. | Fuzz summary and artifacts if any. |
 | Per-crate `cargo check --features certora` (common, pool, controller) | Compile all Certora feature paths. | Common, pool, and controller `certora` feature builds pass. | Required before proof submission. | Compile log. |
 | `./certora/run_profile.py sanity` | Non-vacuity and reachability smoke proofs. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
 | `./certora/run_profile.py fast` | Stable CI proof profile for common math/rates, pool integrity, and controller light safety. | Profile completes without failed rules. | Required before public unpause. | Certora run links. |
 | `./certora/run_profile.py critical` | Highest-signal accounting and safety proofs. | Profile completes without failed rules or documented launch-blocking counterexamples. | Required before public unpause. | Certora run links. |
 | `./certora/run_profile.py manual` | Core plus heavy audit proof profile. | Profile completes, or any timeout/deferred rule is documented with risk acceptance and launch impact. | Required before cap increase beyond launch caps. | Certora run links and residual-risk notes. |
-| External audit closure | Independent review of the target branch. | Findings are fixed, accepted with rationale, or explicitly deferred from launch scope. | Required before public unpause. | Audit closure record. |
+| External audit closure | Independent review of the target branch. | Findings are fixed, accepted with rationale, or deferred from launch scope with a written decision. | Required before public unpause. | Audit closure record. |
 | Testnet soak | Real deployment rehearsal. | 14 consecutive days with no unresolved P0/P1 incidents, no unexplained accounting drift, no stale TTL windows, and no oracle configuration drift. | Required before public unpause. | Monitoring summary. |
 | Pause drill | Operational response rehearsal. | Testnet pause rejects user mutations, required views/checks remain usable, and unpause restores operation. | Required before public unpause. | Runbook transcript. |
 
 Any failed command, unresolved P0/P1 incident, unexplained accounting drift,
 or launch-blocking audit finding prevents public unpause until the issue is
-resolved or explicitly deferred with documented risk acceptance and launch-impact
+resolved or deferred with documented risk acceptance and launch-impact
 analysis.
 
 The ADR index lists the accepted decision records that support this
@@ -1142,15 +1132,15 @@ flowchart LR
     L --> M["Staged cap increases"]
 ```
 
-Mainnet launch gates are defined by ADR 0009. Initial launch exposure is
+ADR 0009 defines mainnet launch gates. Initial launch exposure is
 capped at USD 250,000 total TVL, USD 100,000 total borrow, USD 100,000
 per-market supply, and USD 50,000 per-market borrow. Caps may increase only
 after a stage satisfies ADR 0009's 7-day incident-free review gate.
 
-Mainnet launch completion is verified beyond deployment checks: the target
+Mainnet launch completion requires more than deployment checks: the target
 mainnet deployment must pass the verification matrix, satisfy ADR 0009 launch
-gates, unpause with initial caps enforced, and complete the 7-day capped
-mainnet operation window without unresolved launch-blocking incidents.
+gates, unpause with initial caps enforced, and complete the 7-day capped mainnet
+operation window without unresolved launch-blocking incidents.
 
 Operational maintenance:
 

@@ -47,8 +47,8 @@ fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
     cache.borrow_index = new_borrow_index;
     cache.supply_index = new_supply_index;
 
-    // Protocol fee is added to revenue *and* increases scaled supplied so subsequent
-    // chunks in the same accrual see the correct (diluted) utilization.
+    // Protocol fee is added to revenue and scaled supplied; later chunks in the
+    // same accrual use diluted utilization.
     add_protocol_revenue_ray(cache, protocol_fee);
 }
 
@@ -60,7 +60,7 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if cache.supply_index.raw() <= SUPPLY_INDEX_FLOOR_RAW {
         return;
     }
-    // Drop fees against an empty pool — there's no supplier to dilute.
+    // Fees on an empty pool are dropped; there are no suppliers to dilute.
     if cache.supplied == Ray::ZERO {
         return;
     }
@@ -178,13 +178,13 @@ mod tests {
         });
     }
 
-    // Skips RAY-fee accrual when supply_index is at or below the safety floor;
-    // dividing by a near-zero index produces astronomical scaled amounts.
+    // Skip RAY-fee accrual at or below the supply-index floor; division by a
+    // near-zero index creates oversized scaled amounts.
     #[test]
     fn test_add_protocol_revenue_ray_skips_when_supply_index_below_floor() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            // supply_index set to (floor - 1) to trigger the safety branch.
+            // Set supply_index to floor - 1 for the safety branch.
             let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 100 * RAY,
                 borrowed_ray: 0,
@@ -203,7 +203,7 @@ mod tests {
         });
     }
 
-    // Zero total supply short-circuits; nothing to socialize against.
+    // Zero total supply short-circuits; no suppliers absorb bad debt.
     #[test]
     fn test_apply_bad_debt_noop_when_total_supply_is_zero() {
         let t = TestSetup::new();
@@ -223,8 +223,7 @@ mod tests {
         });
     }
 
-    // When bad_debt > total_supplied, the cap clamps the debt and triggers
-    // the floor clamp.
+    // bad_debt above total supply is capped, then the floor clamp applies.
     #[test]
     fn test_apply_bad_debt_caps_at_total_supply_and_clamps_floor() {
         let t = TestSetup::new();
@@ -239,8 +238,8 @@ mod tests {
                 cash: 0,
             });
 
-            // bad_debt > total_supplied -> capped path + >90% reduction
-            // clamps the new index (~0) to the floor.
+            // bad_debt > total_supplied: capped path plus >90% reduction.
+            // The new index clamps to the floor.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from(100 * RAY));
 
             assert_eq!(
@@ -251,13 +250,12 @@ mod tests {
         });
     }
 
-    // A >90% reduction still applies in full to the supply index.
+    // A >90% reduction can apply without the floor clamp.
     #[test]
     fn test_apply_bad_debt_applies_severe_reduction() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            // supply_index high enough that a 91% drop still leaves the new
-            // index above the floor, exercising the non-clamping branch.
+            // High supply_index keeps a 91% reduction above the floor.
             let mut cache = t.fresh_cache(PoolStateRaw {
                 supplied_ray: 1_000 * RAY,
                 borrowed_ray: 0,
@@ -270,7 +268,7 @@ mod tests {
             });
             let old_index = cache.supply_index.raw();
 
-            // 91% of 1000*RAY = 910*RAY bad debt; index collapses >10x.
+            // 91% of 1000*RAY = 910*RAY; index drops below 10% of its prior value.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from(910 * RAY));
 
             assert!(
@@ -280,10 +278,8 @@ mod tests {
         });
     }
 
-    // The read path (`simulate_update_indexes`) must produce exactly the
-    // indexes the mutating path (`global_sync`) persists, including over
-    // multi-year deltas where both must chunk at one year. Divergence here
-    // means valuations and pool state disagree.
+    // Read-path simulation must match mutating accrual across multi-year deltas;
+    // both paths chunk at one year. Mismatch desyncs valuations from persisted state.
     #[test]
     fn test_simulate_matches_global_sync_over_multi_year_delta() {
         use common::rates::simulate_update_indexes;
@@ -312,7 +308,7 @@ mod tests {
             };
 
             let mut cache = t.fresh_cache(state);
-            // 2.5 years elapsed: forces three chunks (1y + 1y + 0.5y).
+            // 2.5 years elapsed: three chunks (1y + 1y + 0.5y).
             let delta_ms = 2 * MAX_COMPOUND_DELTA_MS + MAX_COMPOUND_DELTA_MS / 2;
             cache.current_timestamp = cache.last_timestamp + delta_ms;
             let simulated = simulate_update_indexes(&t.env, cache.current_timestamp, &sync);
@@ -348,7 +344,7 @@ mod tests {
             });
             let old_index = cache.supply_index.raw();
 
-            // 10% of total supply: index drops ~10% and stays well above floor.
+            // 10% bad debt reduces the index and stays above floor.
             apply_bad_debt_to_supply_index(&mut cache, Ray::from(100 * RAY));
 
             let new_index = cache.supply_index.raw();
@@ -372,7 +368,7 @@ mod tests {
                 cash: 40_000_000,
             };
             let mut cache = t.fresh_cache(state);
-            // Exactly one chunk
+            // One full chunk.
             cache.current_timestamp = MAX_COMPOUND_DELTA_MS;
             global_sync(&t.env, &mut cache);
             assert!(cache.borrow_index.raw() > RAY);
@@ -411,9 +407,8 @@ mod tests {
                 cash: 0,
             });
             let before = cache.supply_index;
-            // delta > 0 but no borrows -> no interest
+            // Positive delta without borrows leaves supply index unchanged.
             cache.current_timestamp = 1_000;
-            // call step directly via sync
             global_sync(&t.env, &mut cache);
             assert_eq!(cache.supply_index, before);
         });

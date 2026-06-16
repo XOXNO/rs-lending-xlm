@@ -1,6 +1,6 @@
 //! Aggregator swap execution with balance-delta verification.
 //!
-//! Strategies never trust router-reported amounts. Route bytes are opaque;
+//! Strategies do not trust router-reported amounts. Route bytes are opaque;
 //! the controller snapshots SAC balances before the router call and verifies
 //! input spend and output receipt from observed deltas.
 

@@ -10,9 +10,9 @@ pub const WAD_DECIMALS: u32 = 18;
 
 pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
-// Oracle-config sanity bounds.
+// Oracle-config price bounds.
 
-// Protocol-wide upper bound for operator-supplied per-asset sanity caps.
+// Protocol-wide upper bound for operator-supplied per-asset price caps.
 pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;
 
 /// Default instance-level minimum LTV-weighted collateral (USD WAD) required

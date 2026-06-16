@@ -1,11 +1,9 @@
 //! Governance constants.
 
-/// Minimum timelock delay in LEDGERS. 48h at the Stellar ~5s/ledger close
-/// time (= 2 x OZ DAY_IN_LEDGERS of 17280). The deploy constructor takes the
-/// delay as a parameter so non-mainnet networks can arm a shorter value for
-/// live end-to-end exercise; this is the mainnet invariant we commit to.
+/// Mainnet minimum timelock delay in ledgers: 48h at ~5s per ledger.
+/// Constructor parameters may use shorter delays on non-mainnet deployments.
 pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 
-/// Maximum time a Ready operation remains executable. Prevents abandoned
-/// proposals from being executed long after the social context has changed.
+/// Expiration window for Ready operations, in ledgers.
+/// Prevents stale Ready operations from remaining executable indefinitely.
 pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;

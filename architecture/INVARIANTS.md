@@ -1,129 +1,125 @@
 # Protocol Invariants
 
-This document summarizes the safety properties the lending protocol is expected
-to preserve at runtime. An **invariant** is a rule that must stay true at every
-moment — before and after every operation. If one ever breaks, the protocol has
-a bug. This document is the catalog of those rules, written for auditors,
-researchers, integrators, and operators who need a concise map of how the
-protocol protects solvency, accounting, and oracle-dependent state.
+This reference records the lending protocol's runtime safety properties. Use it
+when reviewing changes to accounting, solvency, oracle pricing, storage, or
+governance boundaries.
 
-Runtime behavior is defined by the Rust contracts. References use module paths
-rather than line numbers so the document remains stable as the code evolves.
+An invariant is a condition preserved by every successful operation. A break
+points to an implementation bug, an invalid configuration, or a missing
+validation step.
 
-## Notation
+Runtime behavior comes from the Rust contracts. Module paths identify the code
+and verification assets that enforce each property.
 
-| Domain | Scale | Used for |
+## Scales
+
+| Domain | Scale | Purpose |
 |---|---:|---|
 | Asset-native | token decimals | Token transfers and user-entered amounts |
 | BPS | `10^4` | LTV, liquidation thresholds, fees, reserve factor, tolerances |
 | WAD | `10^18` | USD values, health factor, normalized prices |
 | RAY | `10^27` | Rates, indexes, scaled balances |
 
-Evidence references:
+## Evidence
 
-- Runtime code: `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*`
-- Certora rules: `certora/{common,pool,controller}/spec/*_rules.rs`
-- Fuzz/property tests: `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*`
+| Evidence | Location |
+|---|---|
+| Runtime code | `common/src/*`, `contracts/pool/src/*`, `contracts/controller/src/*` |
+| Certora rules | `certora/{common,pool,controller}/spec/*_rules.rs` |
+| Fuzz and property tests | `tests/fuzz/fuzz_targets/*`, `tests/test-harness/tests/*` |
 
----
+## Review Method
+
+For each protocol change:
+
+1. Identify the section touched by the change.
+2. Check the invariant statements against the modified code path.
+3. Use the verification matrix near the end of this file to select tests,
+   fuzz targets, or Certora rules.
+4. Re-check storage and oracle assumptions when a change crosses contract
+   boundaries.
 
 ## 1. Numeric Model
 
-### 1.1 Fixed-Point Boundaries
+### 1.1 Scale Boundaries
 
-Values must be rescaled into the target domain before comparison, persistence,
-or transfer. Asset-native values cross into protocol math through token
-decimals. Prices and solvency are WAD. Rates and indexes are RAY.
+Convert values into the target scale before comparison, storage, or transfer.
+Token amounts enter protocol math in asset-native decimals. Solvency and prices
+use WAD. Rates, indexes, and scaled balances use RAY.
 
-| Runtime | Verification |
-|---|---|
-| `common::math::fp`, `common::math::fp_core`, `common::rates` | `math_rules`, `fp_math`, `fp_ops` |
+Scale bugs usually come from comparing asset-native values with WAD values,
+mixing WAD prices with RAY indexes, or truncating before conversion.
 
-### 1.2 Rounding
+### 1.2 Fixed-Point Rounding
 
-Fixed-point multiply/divide uses half-up rounding unless a call site explicitly
-requires floor or truncation.
+Fixed-point multiplication and division use half-up rounding unless the call
+site explicitly chooses floor or truncation.
 
 ```text
 mul(a, b, precision) = (a * b + precision / 2) / precision
 div(a, b, precision) = (a * precision + b / 2) / b
 ```
 
-Expected tolerance is at most half of one target-precision unit per operation.
+Each operation may differ from the exact value by at most half of one unit in
+the target precision. Review call sites that change operation order, because
+moving a division earlier can change the rounded result.
 
-| Runtime | Verification |
-|---|---|
-| `common::math::fp_core::mul_div_half_up`, `Bps`, `Wad`, `Ray` | `math_rules`, `fp_math` |
+### 1.3 Scaled Balances
 
-### 1.3 Scaled Balance Reconstruction
-
-Positions store scaled balances. Actual balances are reconstructed from the
-current market indexes.
+Positions store scaled balances. Current balances are reconstructed from the
+latest market indexes.
 
 ```text
 supply_actual = scaled_supply * supply_index / RAY
 borrow_actual = scaled_debt   * borrow_index / RAY
 ```
 
-With a fixed scaled amount, increasing indexes imply increasing actual balances.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/pool/src/lib.rs`, `contracts/pool/src/cache.rs`, `contracts/pool/src/views.rs`, `common::rates::scaled_to_original` | `index_rules`, `position_rules`, `rates_and_index` |
+For a fixed scaled amount, higher indexes produce higher reconstructed
+balances. Storage writes update scaled shares; views and solvency checks derive
+actual amounts from the current indexes.
 
 ### 1.4 Borrow Index
 
-If elapsed time, utilization, and borrow rate are non-negative:
+When elapsed time, utilization, and borrow rate are non-negative, borrow
+interest cannot reduce the borrow index.
 
 ```text
 interest_factor >= RAY
 new_borrow_index >= old_borrow_index
 ```
 
-The borrow-rate model is bounded by `MAX_BORROW_RATE_RAY`. Pool accrual splits
-long idle periods into bounded chunks before applying compound interest.
-
-| Runtime | Verification |
-|---|---|
-| `common::rates`, `contracts/pool/src/interest.rs` | `index_rules`, `interest_rules`, `rates_and_index` |
+The rate model is capped by `MAX_BORROW_RATE_RAY`. Pool accrual splits long
+idle intervals into bounded chunks before applying compound interest.
 
 ### 1.5 Supply Index
 
-Outside bad-debt socialization, the supply index must not decrease.
+The supply index cannot decrease during normal interest accrual.
 
 ```text
 new_supply_index >= old_supply_index
 ```
 
-The only permitted decrease is `apply_bad_debt_to_supply_index`. The result is
-floored at `SUPPLY_INDEX_FLOOR_RAW = 10^18` raw RAY. Revenue-accrual paths
-short-circuit at or below that floor.
-
-| Runtime | Verification |
-|---|---|
-| `common::rates::update_supply_index`, `contracts/pool/src/interest.rs`, `common/src/constants/` | `index_rules`, `interest_rules` |
+`apply_bad_debt_to_supply_index` is the only path allowed to reduce it. That
+path floors the result at `SUPPLY_INDEX_FLOOR_RAW = 10^18` raw RAY. Revenue
+accrual stops at or below the floor.
 
 ### 1.6 Empty-Market Utilization
 
-Utilization is:
+Utilization is borrowed value divided by supplied value.
 
 ```text
 U = borrowed_actual / supplied_actual
 ```
 
-When supplied value is zero, utilization is defined as zero.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/pool/src/cache.rs`, `contracts/pool/src/views.rs`, `common::rates::utilization` | `interest_rules` |
-
----
+If supplied value is zero, utilization is zero. This avoids undefined rates for
+new or fully emptied markets.
 
 ## 2. Pool Accounting
 
 ### 2.1 Interest Split
 
-Borrow-index accrual must preserve:
+Borrow-index accrual creates interest. The reserve factor divides that interest
+between protocol revenue and supplier rewards.
 
 ```text
 accrued_interest = new_total_debt - old_total_debt
@@ -133,9 +129,8 @@ supplier_rewards = accrued_interest - protocol_fee
 accrued_interest = supplier_rewards + protocol_fee
 ```
 
-| Runtime | Verification |
-|---|---|
-| `common::rates::calculate_supplier_rewards`, `contracts/pool/src/interest.rs` | `interest_rules`, `rates_and_index` |
+Fee and supplier paths share the same source amount. Any new accrual branch
+needs to preserve the split identity above.
 
 ```mermaid
 flowchart LR
@@ -152,103 +147,85 @@ flowchart LR
 
 ### 2.2 Revenue Bound
 
-Protocol revenue is represented as a scaled supply claim:
+Protocol revenue is stored as a scaled supply claim.
 
 ```text
 0 <= revenue_ray <= supplied_ray
 ```
 
-Fees increase `revenue_ray` and `supplied_ray` together. Revenue appreciates
-with the supply index until claimed.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/pool/src/interest.rs`, `contracts/pool/src/lib.rs::claim_revenue`, `contracts/pool/src/lib.rs::seize_position` | `solvency_rules`, `flow_e2e` |
+Fee accrual increases `revenue_ray` and `supplied_ray` together. Revenue then
+appreciates with the supply index until it is claimed.
 
 ### 2.3 Reserve Availability
 
-Outgoing liquidity must be bounded by current reserves. This applies to
-borrow, withdraw, strategy borrow legs, and flash-loan starts. Revenue claim is
-capped to the currently available reserves.
+No operation may transfer more liquidity than the pool currently holds. This
+cap applies to borrow, withdraw, strategy borrow legs, flash-loan starts, and
+revenue claims.
 
-| Runtime | Verification |
-|---|---|
-| `contracts/pool/src/cache.rs::has_reserves`, `contracts/pool/src/lib.rs`, controller borrow/withdraw/flash-loan paths | `boundary_rules`, `flash_loan_rules`, `flow_e2e` |
+Reserve checks belong before token transfers. A path that mutates accounting
+first and checks liquidity later can leave state inconsistent after a failed
+transfer.
 
-### 2.4 Revenue Claim
+### 2.4 Revenue Claims
 
-Revenue claim cannot transfer more than current reserves. If reserves are below
-the realized treasury claim, the pool transfers the available amount and burns
-the proportional scaled revenue. The burn preserves `revenue_ray <= supplied_ray`.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/pool/src/lib.rs::claim_revenue`, `contracts/controller/src/router.rs::claim_revenue` | `solvency_rules`, `boundary_rules` |
+A revenue claim cannot exceed current reserves. If reserves are lower than the
+realized treasury claim, the pool transfers the available amount and burns the
+matching share of scaled revenue. The burn keeps `revenue_ray <= supplied_ray`.
 
 ### 2.5 Flash-Loan Repayment
 
-A pool flash loan must end with:
+Every pool flash loan exits with the original pool balance plus the fee.
 
 ```text
 pool_balance_after >= pool_balance_before + fee
 ```
 
-`pool.flash_loan` snapshots the pool balance before funds leave, calls the
-receiver callback, pulls `amount + fee` from the receiver, and verifies the
-post-repayment balance.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/strategies/flash_loan.rs`, `contracts/pool/src/lib.rs::flash_loan` | `flash_loan_rules`, `flow_strategy`, `fuzz_strategy_flashloan` |
-
----
+`pool.flash_loan` snapshots the pool balance, sends funds to the receiver,
+executes the receiver callback, pulls `amount + fee`, and checks the final
+balance.
 
 ## 3. Account Solvency
 
 ### 3.1 Health Factor
 
-Health factor is computed in USD WAD.
+Health factor is calculated in USD WAD.
 
 ```text
-weighted_collateral = Σ(collateral_value * liquidation_threshold_bps / BPS)
-total_borrow        = Σ(borrow_value)
+weighted_collateral = sum(collateral_value * liquidation_threshold_bps / BPS)
+total_borrow        = sum(borrow_value)
 HF                  = weighted_collateral / total_borrow
 ```
 
 Rules:
 
-- With debt, `HF >= 1.0 WAD` is solvent.
-- With debt, `HF < 1.0 WAD` is liquidatable.
-- With no debt, `HF = i128::MAX`.
+- Debt plus `HF >= 1.0 WAD`: the account is solvent.
+- Debt plus `HF < 1.0 WAD`: liquidation is available.
+- No debt: `HF = i128::MAX`.
 
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/helpers/mod.rs`, borrow/withdraw/liquidation paths | `health_rules`, `solvency_rules`, `liquidation_rules`, `flow_e2e` |
+The health factor uses liquidation thresholds, not LTV. A borrow check that
+uses liquidation thresholds would admit too much debt.
 
 ### 3.2 Borrow Admission
 
-New debt is bounded by LTV-weighted collateral.
+LTV-weighted collateral caps new debt.
 
 ```text
-post_borrow_total_debt <= Σ(collateral_value * loan_to_value_bps / BPS)
+post_borrow_total_debt <= sum(collateral_value * loan_to_value_bps / BPS)
 ```
 
-LTV controls borrow admission. Liquidation threshold controls liquidation.
+LTV gates new borrowing. The liquidation threshold gates liquidation.
 Configuration requires `liquidation_threshold_bps > loan_to_value_bps`.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/positions/borrow.rs`, `contracts/controller/src/validation.rs` | `boundary_rules`, `position_rules` |
 
 ### 3.3 Liquidation Progress
 
-Liquidation is available only below `1.0 WAD` health factor. The controller
-tries a primary target, then a fallback target, then a maximum-collateral path
-for unrecoverable accounts. The fallback path must not worsen account health.
+Liquidation is allowed only when `HF < 1.0 WAD`. The controller first attempts
+the primary target, then the fallback target, then a maximum-collateral path for
+accounts that cannot be restored by the target paths. The fallback path cannot
+make account health worse.
 
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/helpers/mod.rs`, `contracts/controller/src/positions/liquidation.rs`, `contracts/pool/src/lib.rs::seize_position` | `liquidation_rules`, `solvency_rules`, `fuzz_liquidation_differential` |
+Liquidation review needs before-and-after account snapshots: debt repaid,
+collateral seized, protocol fee applied to the bonus, and any bad debt pushed
+through the supply-index floor path.
 
 ```mermaid
 flowchart TD
@@ -267,79 +244,70 @@ flowchart TD
     I --> J
 ```
 
----
-
 ## 4. Market and Oracle Configuration
 
 ### 4.1 Market Parameters
 
-Market configuration must preserve:
+Market configuration enforces these constraints:
 
 - `liquidation_threshold_bps > loan_to_value_bps`
 - `liquidation_threshold_bps <= BPS`
 - `liquidation_threshold_bps * (BPS + liquidation_bonus_bps) <= BPS * BPS`
-  (derived per-asset seizure ceiling; there is no flat `MAX_LIQUIDATION_BONUS`)
 - `liquidation_fees_bps <= BPS`
 - `flashloan_fee_bps <= MAX_FLASHLOAN_FEE_BPS`
-- non-negative supply cap and borrow cap
+- supply cap and borrow cap are non-negative
 - `reserve_factor_bps < BPS`
-- `0 < mid_utilization_ray < optimal_utilization_ray < RAY` and
-  `optimal_utilization_ray <= max_utilization_ray <= RAY`
-- monotonic rate slopes bounded by `MAX_BORROW_RATE_RAY`
-- `MinBorrowCollateralUsd` is non-negative and gates debt-bearing accounts
-  through the post-pool LTV collateral check
+- `0 < mid_utilization_ray < optimal_utilization_ray < RAY`
+- `optimal_utilization_ray <= max_utilization_ray <= RAY`
+- rate slopes are monotonic and bounded by `MAX_BORROW_RATE_RAY`
+- `MinBorrowCollateralUsd` is non-negative
 
-| Runtime | Verification |
-|---|---|
-| `common::validation`, `contracts/controller/src/validation.rs`, `contracts/controller/src/governance/config.rs`, `contracts/governance/src/validate/asset.rs`, `contracts/pool/src/lib.rs::update_params` | `boundary_rules`, `interest_rules`, config tests |
+The liquidation-bonus bound is a per-asset seizure ceiling. There is no flat
+`MAX_LIQUIDATION_BONUS`. `MinBorrowCollateralUsd` gates debt-bearing accounts
+through the post-pool LTV collateral check.
 
-### 4.2 Oracle Configuration
+### 4.2 Oracle Setup
 
 For each active market:
 
-- token decimals are read from the token contract
-- per-source oracle decimals are read from each configured source (Reflector
-  decimals in `[1, 18]`; RedStone fixed)
-- strategy and anchor are consistent (`PrimaryWithAnchor` ⇔ an anchor exists)
-  and `primary != anchor`
-- required feeds must resolve during configuration
-- `twap_records <= 12` for any Reflector `Twap` source
-- stale-price window is within `[60, 86_400]` seconds
-- sanity bounds satisfy `0 < min_sanity_price_wad < max_sanity_price_wad`
-- `first_tolerance_bps < last_tolerance_bps`
+- token decimals come from the token contract
+- per-source decimals come from the configured oracle source
+- Reflector decimals fall in `[1, 18]`
+- RedStone decimals are fixed
+- `PrimaryWithAnchor` requires an anchor source
+- `primary != anchor`
+- required feeds resolve during configuration
+- Reflector `Twap` sources require `twap_records <= 12`
+- stale-price windows stay in `[60, 86_400]` seconds
+- sanity bounds use `0 < min_sanity_price_wad < max_sanity_price_wad`
+- tolerance bounds use `first_tolerance_bps < last_tolerance_bps`
 
-Required decimals are discovered on-chain, not supplied by operators.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/governance/config.rs`, `contracts/controller/src/oracle/mod.rs` | `oracle_rules`, oracle tests |
+Operators do not supply token or oracle decimals directly; the contracts read
+them on-chain during configuration.
 
 ### 4.3 Price Resolution
 
-Supported strategies (`OracleStrategy`):
+Supported `OracleStrategy` values:
 
-- `Single`: primary source only. A `Single` + Reflector `Spot` configuration is
-  rejected in non-testing builds.
-- `PrimaryWithAnchor`: primary checked against an anchor source; a missing,
-  unreadable, or stale-and-unusable anchor degrades to the primary only where
-  the active policy allows it.
+- `Single`: use the primary source only. A `Single` strategy with Reflector
+  `Spot` is rejected in non-testing builds.
+- `PrimaryWithAnchor`: use primary and anchor sources, then apply tolerance and
+  policy checks.
 
-If both anchor and primary prices are available:
+When primary and anchor prices are both available:
 
-1. Inside the first tolerance band, return the primary price.
-2. Inside the last tolerance band, return the midpoint.
+1. Return the primary price inside the first tolerance band.
+2. Return the midpoint inside the last tolerance band.
 3. Outside the last tolerance band, strict paths revert and permissive paths
    return the primary price.
 
-`PrimaryWithAnchor` may degrade to primary-only when the anchor is missing,
-unreadable, or stale-and-unusable, but only if the active `OraclePolicy`
+`PrimaryWithAnchor` can degrade to primary-only only when the anchor is missing,
+unreadable, or stale and unusable, and only when the active `OraclePolicy`
 allows `allows_degraded_dual_source`.
 
-Future-dated oracle samples beyond the clock-skew window always revert.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/oracle/mod.rs`, `contracts/controller/src/oracle/compose.rs`, `contracts/controller/src/cache/mod.rs` | `oracle_rules` (policy branches, harness-summarised), `oracle_compose_rules` (dual-source degradation), `tolerance_math_rules` (production ratio-band math), oracle tests |
+Oracle samples dated beyond the clock-skew window always revert. Review new
+oracle code for timestamp handling, stale-cache behavior, degraded dual-source
+policy, and WAD normalization.
 
 ```mermaid
 flowchart TD
@@ -350,11 +318,11 @@ flowchart TD
     C -->|yes| D{"OracleStrategy"}
     D -->|Single| S["primary source"]
     D -->|PrimaryWithAnchor| T["primary + anchor"]
-    S --> E["staleness, sanity, and future checks"]
+    S --> E["staleness, sanity, future checks"]
     T --> E
-    E --> F{"within first band?"}
-    F -->|yes| G["safe price"]
-    F -->|no| H{"within last band?"}
+    E --> F{"inside first band?"}
+    F -->|yes| G["primary price"]
+    F -->|no| H{"inside last band?"}
     H -->|yes| I["midpoint"]
     H -->|no| J{"permissive cache?"}
     J -->|yes| G
@@ -363,69 +331,69 @@ flowchart TD
     I --> Z
 ```
 
----
-
 ## 5. Storage and Boundaries
 
 ### 5.1 Governance, Controller, and Pool Boundary
 
-Governance owns the controller in production and routes protocol-admin changes
+Governance owns the production controller and routes protocol-admin changes
 through typed timelock proposers. The controller depends on the pool ABI, not
-pool internals. The central pool is owner-gated: accounting and maintenance
-mutations enforce controller ownership, pool WASM upgrade is owner-gated, and
-the pool does not make protocol-level risk decisions.
+pool internals.
 
-| Runtime | Verification |
-|---|---|
-| `contracts/governance/src/*`, `interfaces/pool/src/lib.rs`, `contracts/controller/Cargo.toml`, `contracts/pool/src/lib.rs` (`#[only_owner]`) | build graph, governance/controller/pool tests |
+The central pool is owner-gated. Accounting and maintenance mutations require
+controller ownership, pool WASM upgrades require the owner, and the pool does
+not make protocol-level risk decisions.
 
 ### 5.2 Account Storage
 
-Account state is split into:
+Account state is split into three storage families:
 
 - `AccountMeta(account_id)`
 - `SupplyPositions(account_id): Map<Address, AccountPositionRaw>`
 - `BorrowPositions(account_id): Map<Address, DebtPositionRaw>`
 
-The asset is the map key. The position side is the storage family. Collateral
-positions (`AccountPositionRaw`) carry the open-time risk snapshot; debt
-positions (`DebtPositionRaw`) carry only the scaled share. Neither duplicates
-asset, account id, or side.
+The asset address is the map key. The storage family identifies the side.
+Collateral positions carry the open-time risk snapshot. Debt positions carry
+only the scaled share. Position rows do not duplicate asset, account id, or
+side.
 
-Side-map writes remove empty maps and bump account metadata TTL when metadata
-exists. Account removal removes metadata and both side maps.
-
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/storage/account.rs` | `position_rules`, storage tests |
+Side-map writes remove empty maps and extend account metadata TTL when metadata
+exists. Account removal deletes metadata and both side maps.
 
 ### 5.3 TTL Maintenance
 
-Persistent account and shared protocol state require explicit TTL extension.
-Keeper keepalive paths cover shared market/e-mode state, account metadata and
-position maps, governance/controller/pool instance state, and the central
-pool's asset-keyed `Params` / `State` rows.
+Persistent account state and shared protocol state require explicit TTL
+extension. Keeper keepalive covers:
 
-| Runtime | Verification |
-|---|---|
-| `contracts/controller/src/storage/ttl.rs`, on-chain `renew_account`, off-chain keeper `ExtendFootprintTtl` | `account_ttl_regression_tests` |
+- shared market and e-mode state
+- account metadata and position maps
+- governance, controller, and pool instance state
+- the central pool's asset-keyed `Params` and `State` rows
 
----
+Storage review should confirm that new persistent keys have a TTL path and that
+position updates do not force unrelated side maps into memory.
 
 ## 6. Design Commitments
 
-These are intentional design choices. Changes to them require protocol review:
+These choices are intentional. Changing any of them requires protocol review:
 
-- Half-up rounding is the default for fixed-point multiply/divide.
-- Protocol revenue is represented as scaled supply.
+- Half-up rounding is the default for fixed-point multiplication and division.
+- Protocol revenue is stored as scaled supply.
 - Token and oracle decimals are discovered on-chain during configuration.
 - Account storage is split by side to avoid loading unrelated positions.
-- Strategy routes are validated against controller commitments, not trusted
-  from an off-chain quote or router response alone.
+- Strategy routes are validated against controller commitments, not trusted from
+  an off-chain quote or router response alone.
 
----
+## 7. Verification Matrix
 
-## 7. Re-Verification Checklist
+| Area | Runtime | Verification |
+|---|---|---|
+| Numeric model | `common::math::fp`, `common::math::fp_core`, `common::rates`, pool cache and views | `math_rules`, `fp_math`, `fp_ops`, `index_rules`, `rates_and_index`, `interest_rules` |
+| Pool accounting | pool interest, reserve checks, revenue claims, flash-loan entrypoints | `solvency_rules`, `boundary_rules`, `flash_loan_rules`, `flow_e2e`, `flow_strategy`, `fuzz_strategy_flashloan` |
+| Account solvency | controller helpers, borrow and liquidation positions, pool seizure logic | `health_rules`, `position_rules`, `liquidation_rules`, `fuzz_liquidation_differential` |
+| Market and oracle configuration | validation modules, governance config, oracle composition, cache reads | `oracle_rules`, `oracle_compose_rules`, `tolerance_math_rules`, oracle tests, config tests |
+| Storage and boundaries | governance contracts, pool ABI, account storage, TTL renewal, keeper `ExtendFootprintTtl` | build graph, governance/controller/pool tests, storage tests, `account_ttl_regression_tests` |
+
+## 8. Re-Verification Checklist
 
 Re-run the relevant tests, fuzz targets, and Certora rules after changes to:
 
@@ -434,9 +402,9 @@ Re-run the relevant tests, fuzz targets, and Certora rules after changes to:
 - liquidation, health-factor, or LTV admission logic
 - oracle configuration or price resolution
 - account storage layout or TTL keepalive paths
-- governance/controller/pool ABI signatures
+- governance, controller, or pool ABI signatures
 
-Minimum properties to re-check:
+Minimum properties to check:
 
 - scaled-to-actual reconstruction
 - `revenue_ray <= supplied_ray`

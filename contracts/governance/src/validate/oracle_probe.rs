@@ -1,9 +1,8 @@
-//! Live probing and validation against external oracle contracts.
+//! Live validation against external oracle contracts.
 //!
-//! This module contains all logic that makes cross-contract calls to
-//! Reflector or RedStone oracles during market configuration and TWAP
-//! history validation. Quote-market eligibility reads back through the
-//! controller's `get_market_config` view.
+//! Market configuration probes Reflector or RedStone oracles and validates TWAP
+//! history. Quote-market eligibility reads through the controller's
+//! `get_market_config` view.
 
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
@@ -130,7 +129,7 @@ fn validate_source(
 
             // Redstone has no on-chain base() accessor; quote currency is
             // implicit in `feed_id`. See common::oracle::providers::redstone
-            // for the full identity-validation note.
+            // for identity-validation details.
             let decimals = REDSTONE_DECIMALS;
             validate_decimals(env, decimals);
 
@@ -163,9 +162,8 @@ fn validate_base(
             ReflectorBase::Usd
         }
         ReflectorAsset::Stellar(quote) => {
-            // A market may not be quoted in itself: the quote check below reads
-            // the asset's pre-update config, so a self-quote would slip past it
-            // and only revert at read time via the host recursion cap.
+            // The quote check reads the asset's pre-update config. Reject
+            // self-quotes here to avoid recursive price reads.
             assert_with_error!(env, &quote != asset, OracleError::InvalidOracleBase);
             validate_quote_is_usd_market(env, controller, &quote);
             ReflectorBase::Quoted(quote)
@@ -189,9 +187,8 @@ fn validate_quote_is_usd_market(env: &Env, controller: &Address, quote: &Address
     match &market.oracle_config.primary {
         // RedStone feeds are USD-denominated by construction.
         OracleSourceConfig::RedStone(_) => {}
-        // A Reflector quote source must itself be USD-based: this forbids a
-        // quote chain and keeps the conversion exactly one hop. Read the base
-        // cached when the quote market was configured (no live `base()` call).
+        // Reflector quote sources must be USD-based to keep conversion to one
+        // hop. Use the cached base from quote-market configuration.
         OracleSourceConfig::Reflector(r) => match &r.base {
             ReflectorBase::Usd => {}
             _ => panic_with_error!(env, OracleError::InvalidOracleBase),

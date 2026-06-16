@@ -29,8 +29,8 @@ pub(crate) fn try_get_market_config(env: &Env, asset: &Address) -> Option<Market
     let config: Option<MarketConfig> = env.storage().persistent().get(&key);
     // Shared keys otherwise renew only on governance writes; renewing on read
     // keeps actively-used markets from archiving between reconfigurations.
-    // While the remaining TTL sits above the threshold the extend changes
-    // nothing — only a key that has burned below it gets re-armed.
+    // While the remaining TTL sits above the threshold, extend is a no-op.
+    // Keys below threshold get re-armed.
     if config.is_some() {
         renew_protocol_shared_key(env, &key);
     }
@@ -79,7 +79,7 @@ mod tests {
             set_market_config(&env, &asset, &sample_market_config(&env, &asset));
             let key = ControllerKey::Market(asset.clone());
 
-            // Burn the TTL down to just below the renewal threshold.
+            // Burn the TTL below the renewal threshold.
             let ttl_after_set = env.storage().persistent().get_ttl(&key);
             let burn = ttl_after_set - TTL_THRESHOLD_SHARED + 1;
             env.ledger().with_mut(|li| li.sequence_number += burn);

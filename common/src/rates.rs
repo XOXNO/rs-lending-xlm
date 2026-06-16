@@ -4,10 +4,9 @@ use crate::constants::{BPS, MAX_BORROW_INDEX_RAY, MILLISECONDS_PER_YEAR, SUPPLY_
 use crate::math::fp::{Bps, Ray};
 use crate::types::{MarketParams, PoolState, PoolSyncData};
 
-/// Maximum chunk for compound-interest accrual: one year in ms. The Taylor
-/// expansion in `compound_interest` is only accurate within this horizon, so
-/// both the pool's mutating accrual and the read-path simulation must iterate
-/// in chunks of at most this size.
+/// Maximum compound-interest accrual chunk: one year in ms.
+///
+/// `compound_interest` is evaluated in chunks of at most this size.
 pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Returns the per-millisecond borrow rate from the kinked utilization curve.
@@ -49,8 +48,8 @@ pub fn calculate_deposit_rate(
         return Ray::ZERO;
     }
 
-    // Defense-in-depth: upstream rejects `reserve_factor >= BPS`; re-clamp so a mis-wired
-    // caller cannot drive `BPS - reserve_factor` negative and invert the supplier-reward sign.
+    // Upstream rejects `reserve_factor >= BPS`; re-clamp to prevent
+    // `BPS - reserve_factor` from going negative and inverting supplier rewards.
     if !(0..BPS).contains(&reserve_factor.raw()) {
         return Ray::ZERO;
     }
@@ -178,9 +177,8 @@ fn _simulate_update_indexes_impl(
 }
 
 // The read-path accrual loop runs an 8-term Taylor `compound_interest` per
-// chunk -- the dominant nonlinearity in every controller pricing path. Under
-// `certora` the prover replaces the whole loop with a monotone nondet index
-// model; the real body is proved sound in `rates_rules::simulate_indexes_*`.
+// chunk. Under `certora`, the prover uses a monotone nondet index model; the
+// production body is proved in `rates_rules::simulate_indexes_*`.
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::simulate_update_indexes_summary,
@@ -482,8 +480,8 @@ mod tests {
         );
     }
 
-    // `update_borrow_index` boundary: `new_index > MAX` must panic, `==` must
-    // not. Differentiates `>` from `==`/`>=` on line 99.
+    // `update_borrow_index` boundary: `new_index > MAX` clamps, `== MAX` returns
+    // MAX. Differentiates `>` from `==`/`>=` at the ceiling.
 
     #[test]
     fn test_update_borrow_index_at_max_does_not_panic() {
@@ -497,18 +495,16 @@ mod tests {
     fn test_update_borrow_index_above_max_clamps() {
         let env = Env::default();
         let old_index = Ray::from(MAX_BORROW_INDEX_RAY);
-        // factor = 1 + 1 ulp → product strictly exceeds MAX. The index clamps
-        // at the ceiling instead of panicking, so an extreme-but-reachable
-        // index can never brick the market on accrual.
+        // factor = 1 + 1 ulp; product exceeds MAX. Accrual clamps the index at
+        // the ceiling instead of panicking.
         let factor = Ray::from(RAY + 1);
         let new_index = update_borrow_index(&env, old_index, factor);
         assert_eq!(new_index.raw(), MAX_BORROW_INDEX_RAY);
     }
 
-    // `simulate_update_indexes` early-return guard `if delta_ms == 0`: with a
-    // nonzero delta and live borrows the original accrues (indexes grow).
-    // Mutating `==`→`!=` would return the input indexes unchanged; asserting the
-    // borrow index strictly increased kills that mutant.
+    // `simulate_update_indexes` early-return guard `if delta_ms == 0`: nonzero
+    // delta plus live borrows accrues interest. Mutating `==` to `!=` returns
+    // the input indexes unchanged; borrow index growth distinguishes the paths.
     #[test]
     fn test_simulate_update_indexes_nonzero_delta_accrues() {
         use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -541,7 +537,7 @@ mod tests {
         };
         let sync = PoolSyncData { params, state };
 
-        // delta_ms > 0 → original accrues interest.
+        // delta_ms > 0 accrues interest.
         let one_year = MILLISECONDS_PER_YEAR;
         let indexes = simulate_update_indexes(&env, one_year, &sync);
         assert!(
@@ -556,10 +552,9 @@ mod tests {
         );
     }
 
-    // Multi-year deltas must accrue through the 1-year chunk loop. A single
-    // 8-term Taylor shot at x = 2 years under-estimates e^x (every dropped
-    // term is positive), so the chunked result must be strictly greater —
-    // and the chunk product is exact for all retained cross terms.
+    // Multi-year deltas accrue through the 1-year chunk loop. A single
+    // 8-term Taylor evaluation at x = 2 years underestimates e^x because each
+    // omitted term is positive; the chunked result is greater.
     #[test]
     fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
         use crate::types::{MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -597,7 +592,7 @@ mod tests {
         let two_years = 2 * MILLISECONDS_PER_YEAR;
         let chunked = simulate_update_indexes(&env, two_years, &sync);
 
-        // The pre-fix behavior: one Taylor shot across the full delta.
+        // Single Taylor evaluation across the full delta.
         let util = utilization(
             &env,
             scaled_to_original(&env, s.borrowed, s.borrow_index),
@@ -616,14 +611,14 @@ mod tests {
             chunked.borrow_index.raw(),
             single_shot.raw()
         );
-        // Sanity: a 90%-utilization market over two years compounds well past
-        // the single-year index.
+        // A 90%-utilization market over two years compounds past the
+        // single-year index.
         let one_year = simulate_update_indexes(&env, MILLISECONDS_PER_YEAR, &sync);
         assert!(chunked.borrow_index.raw() > one_year.borrow_index.raw());
     }
 
-    // Pins compound_interest against e^0.5 with tolerance tight enough to
-    // detect a sign flip on any Taylor term (term2..term8). Truncation
+    // Compares compound_interest with e^0.5. Tolerance detects a sign flip on
+    // any Taylor term (term2..term8). Truncation
     // bound at x = 0.5 is x^9/9! ≈ 5.4e-9 → 5.4e18 in Ray units.
     #[test]
     fn test_compound_interest_high_x_pins_all_taylor_terms() {
@@ -635,8 +630,8 @@ mod tests {
         // e^0.5 = 1.6487212707001281468486507878...
         let expected = 1_648_721_270_700_128_146_848_650_787_i128;
 
-        // Tolerance must be >> Taylor truncation (5.4e18) but << any single
-        // term's magnitude. Smallest relevant term is term8 ≈ 1.9e20.
+        // Tolerance is greater than Taylor truncation (5.4e18) and smaller
+        // than any single term's magnitude. Smallest relevant term is term8 ≈ 1.9e20.
         let tolerance = 1e19 as i128;
         let diff = (result.raw() - expected).abs();
         assert!(

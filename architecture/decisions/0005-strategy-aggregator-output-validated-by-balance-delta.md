@@ -30,10 +30,10 @@ The controller measures what crossed the router boundary instead of trusting
 router-reported amounts.
 
 **Pre-call strategy-bound validation** (`contracts/controller/src/strategies/helpers.rs::validate_strategy_swap`).
-`StrategySwap` is just opaque `Bytes`; `amount_in` is the strategy's own
-measured leg delta — the withdrawn or borrowed amount — passed into
+`StrategySwap` is opaque `Bytes`; `amount_in` is the strategy's own
+measured leg delta, the withdrawn or borrowed amount, passed into
 `swap_tokens` and bound to `execute_strategy.total_in`. The controller
-validates only:
+validates:
 
 - `amount_in > 0` (else `AmountMustBePositive`).
 - swap bytes are non-empty (else `InvalidPayments`).
@@ -58,7 +58,7 @@ single input-token pull from itself.
 - `verify_router_output` rejects when the post-call output delta is not
   positive.
 
-Both delta checks currently surface their rejection as the generic
+Both delta checks surface their rejection as the generic
 `GenericError::InternalError`.
 
 **Reentrancy**: the router call runs inside the flash-loan single-flight
@@ -76,7 +76,7 @@ guard.
 ## Alternatives Considered
 
 - **Trust router-reported amounts.** Rejected: a router bug or future
-  ABI drift could silently misreport. Balance deltas are a check the
+  ABI drift could misreport. Balance deltas are a check the
   router cannot lie about.
 - **Per-hop on-chain validation.** Rejected: duplicates the router's job
   and fights the aggregator design. The controller does not need per-hop
@@ -94,20 +94,19 @@ Positive:
 - The router is a black box: any output-token discrepancy surfaces as a
   controller-side revert with a clean error site.
 - Strategy entrypoints share the same risk model as `supply` / `borrow` /
-  `repay` because the only thing they trust about the router is the
-  measured token delta.
+  `repay` because they trust the measured token delta, not router bookkeeping.
 - Reentry from a malicious router callback is blocked by the flash-loan
   single-flight flag.
 
 Negative / accepted costs:
 
 - Four `token.balance` reads per swap: both sides are snapshotted before the
-  router call (`snapshot_swap_balances`) and both re-read after — input via
+  router call (`snapshot_swap_balances`) and both re-read after: input via
   `verify_router_input_spend`, output via `verify_router_output`. A `multiply`
   with a cross-token initial payment runs two swaps, doubling this.
 - Off-chain integrators must build route bytes that the aggregator can decode.
   Lending will not reject malformed route internals before the router call; it
-  only enforces the strategy-owned input amount, selected assets, and positive
+  enforces the strategy-owned input amount, selected assets, and positive
   output delta.
 
 ## References

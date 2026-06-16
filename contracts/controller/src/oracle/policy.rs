@@ -54,8 +54,8 @@ impl Allowances {
                 degraded_dual_source: true,
                 sanity_violation: true,
             },
-            // Rejects every loosening like RiskIncreasing so seizure accounting
-            // can never read a degraded price; kept distinct for intent/auditing.
+            // Rejects each loosening like RiskIncreasing so seizure accounting
+            // cannot read a degraded price; kept distinct for intent/auditing.
             Liquidation => Allowances {
                 disabled_market: false,
                 stale_source: false,
@@ -162,7 +162,7 @@ mod tests {
         assert!(p.allows_sanity_violation());
     }
 
-    // In-crate (no external harness) so they run on every `cargo test -p
+    // In-crate (no external harness) so they run on each `cargo test -p
     // controller`, giving fast regression signal on the policy matrix.
 
     #[test]

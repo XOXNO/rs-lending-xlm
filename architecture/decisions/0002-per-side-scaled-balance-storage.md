@@ -10,13 +10,13 @@
 Each lending account holds positions in multiple assets, on each side
 (supply and borrow). Two questions need a decision:
 
-1. How are amounts represented over time as interest accrues?
-2. How is account state laid out in storage so that high-frequency flows
-   (supply, repay, withdraw) do not pay for unrelated state on every call?
+1. Amount representation over time as interest accrues.
+2. Account-state layout that keeps high-frequency flows (supply, repay,
+   withdraw) from paying for unrelated state on each call.
 
 Soroban storage charges for read and write of each persistent entry, and
 storage entries have TTLs that must be bumped to remain alive. Reading or
-writing a single large account record on every operation pays for state the
+writing a single large account record on each operation pays for state the
 operation does not touch.
 
 ## Decision
@@ -34,14 +34,14 @@ that market by index motion, not by per-account writes.
 
 **Per-side storage split.** Account state is partitioned into three keys:
 
-- `ControllerKey::AccountMeta(u64)` — owner, e-mode category id, and position
+- `ControllerKey::AccountMeta(u64)`: owner, e-mode category id, and position
   mode.
-- `ControllerKey::SupplyPositions(u64)` — `Map<Address, AccountPositionRaw>`.
-- `ControllerKey::BorrowPositions(u64)` — `Map<Address, DebtPositionRaw>`.
+- `ControllerKey::SupplyPositions(u64)`: `Map<Address, AccountPositionRaw>`.
+- `ControllerKey::BorrowPositions(u64)`: `Map<Address, DebtPositionRaw>`.
 
 The two sides store distinct persistent (`#[contracttype]`) shapes. The
-collateral side stores `AccountPositionRaw` — `scaled_amount_ray`,
-`liquidation_threshold_bps`, `liquidation_bonus_bps`, `loan_to_value_bps` — an
+collateral side stores `AccountPositionRaw`: `scaled_amount_ray`,
+`liquidation_threshold_bps`, `liquidation_bonus_bps`, `loan_to_value_bps`, an
 open-time snapshot of the collateral's risk parameters. The debt side stores
 `DebtPositionRaw`, which carries only `scaled_amount_ray`; debt-side risk
 parameters are read from live market config rather than snapshotted. The typed
@@ -55,11 +55,11 @@ requires a health-factor buffer for risk-increasing changes.
 ## Alternatives Considered
 
 - **Per-account amount + last-update timestamp**, accruing interest at read
-  time per position. Rejected: every read is a multiplication that depends
+  time per position. Rejected: each read is a multiplication that depends
   on a per-account timestamp, and a global rate change forces a sweep over
   all accounts to keep them consistent.
 - **Single combined `Positions(id)` map covering both sides.** Rejected:
-  every supply or repay would read and write a record containing the
+  each supply or repay would read and write a record containing the
   unrelated side's positions. The split keeps `process_supply` to the
   supply side and `process_repay` to the borrow side
   (`contracts/controller/src/positions/supply.rs`, `contracts/controller/src/positions/repay.rs`).
@@ -79,11 +79,11 @@ Positive:
   `RiskDecreasing` oracle path instead of the risk-increasing health-factor
   path (`process_withdraw` selects the policy by whether `borrow_positions` is
   empty, `contracts/controller/src/positions/withdraw.rs`).
-- Health-factor checks load both sides only where actually required.
+- Health-factor checks load both sides where required.
 - Storage TTL is partitioned: account-side entries are renewed by the account
   owner via the on-chain `renew_account` entrypoint (owner-authenticated,
   `contracts/controller/src/router.rs`), and any party can extend footprint TTL
-  permissionlessly through off-chain `ExtendFootprintTtl` ops run by the keeper
+  through permissionless off-chain `ExtendFootprintTtl` ops run by the keeper
   (`services/keeper`). The controller instance is bumped by
   `renew_controller_instance`; the central pool instance and asset-keyed
   `Params` / `State` rows are renewed by pool load/mutation paths.

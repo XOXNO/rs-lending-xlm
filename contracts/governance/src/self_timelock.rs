@@ -1,9 +1,9 @@
 //! Timelocked governance-self admin via inline dispatch.
 //!
-//! Soroban prohibits `invoke_contract` self-reentry, so scheduled self ops use
-//! OZ `set_execute_operation` for the state machine and apply the mutation
-//! inline in the same frame. Typed `propose_*` / `execute_*` entrypoints mirror
-//! the controller-targeted flow in `forward.rs` / `timelock.rs`.
+//! Soroban prohibits `invoke_contract` self-reentry. Scheduled self operations
+//! use OZ `set_execute_operation` for the timelock state machine, then apply the
+//! mutation inline in the same frame. Typed `propose_*` and `execute_*`
+//! entrypoints match the controller-targeted flow.
 
 use soroban_sdk::{contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
 use stellar_access::access_control;

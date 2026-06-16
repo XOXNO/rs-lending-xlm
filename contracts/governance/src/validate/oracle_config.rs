@@ -77,7 +77,7 @@ pub(crate) fn validate_max_stale(env: &Env, max_stale: u64) {
 }
 
 pub(crate) fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
-    // Single source of truth shared with the controller's set_market_oracle_config.
+    // Uses the shared controller sanity-bound validator.
     common::validation::validate_sanity_bounds(env, min_wad, max_wad);
 }
 

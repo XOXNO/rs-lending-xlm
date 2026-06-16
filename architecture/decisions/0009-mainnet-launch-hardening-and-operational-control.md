@@ -25,7 +25,8 @@ The current protocol has runtime controls:
 - oracle reads use per-flow strict and permissive policies,
 - keepers can update indexes, propagate thresholds, and clean bad debt,
 - account owners can renew their own account TTL,
-- the keeper service can extend ledger-entry TTL permissionlessly off-chain.
+- the keeper service can extend ledger-entry TTL through permissionless
+  off-chain operations.
 
 The launch policy defines when those controls are sufficient for mainnet users
 and how exposure grows after launch.
@@ -42,7 +43,7 @@ the target deployment commit and deployed contract addresses.
 The launch candidate must satisfy all gates before mainnet unpause:
 
 - External audit findings for the target branch are closed, accepted with
-  documented rationale, or explicitly deferred from launch scope.
+  documented rationale, or deferred from launch scope with a written decision.
 - The verification acceptance matrix in `SCF_BUILD_ARCHITECTURE.md` is run
   against the target commit, and results are recorded in launch evidence.
 - The configured testnet deployment runs for 14 consecutive days with no
@@ -65,7 +66,7 @@ The launch candidate must satisfy all gates before mainnet unpause:
 
 ### Initial Mainnet Caps
 
-Initial exposure is intentionally small:
+Initial exposure stays small:
 
 - Total protocol TVL cap: USD 250,000.
 - Total protocol borrow cap: USD 100,000.
@@ -88,7 +89,7 @@ quality, timelock queue state, and incident history.
 
 ### Role and Authority Policy
 
-Mainnet authority is separated by responsibility:
+Mainnet authority follows responsibility boundaries:
 
 - Governance owner must be a multisig or equivalent multi-party custody setup.
   The deployer key must not retain launch authority after ownership and roles
@@ -97,9 +98,9 @@ Mainnet authority is separated by responsibility:
   authority is therefore exercised by governance, not by a hot operator key.
 - Controller `KEEPER`, `REVENUE`, and emergency `ORACLE` roles must be held by
   separate operational addresses or automation identities where practical. A
-  single hot key must not hold every controller role.
+  single hot key must not hold all controller roles.
 - Governance `PROPOSER`, `EXECUTOR`, and `CANCELLER` roles should be separated
-  operationally. The owner may retain full recovery authority, but delegated
+  by function. The owner may retain full recovery authority, but delegated
   executor and canceller accounts must be distinct.
 - Non-emergency protocol changes are scheduled through governance typed
   proposers and wait the on-chain timelock delay before execution.
@@ -144,8 +145,8 @@ Positive:
 
 - Mainnet launch uses measurable criteria instead of relying on deployment
   smoke tests alone.
-- Initial user exposure is bounded while mainnet network, oracle, keeper,
-  liquidation, central-pool, and monitoring behavior are observed.
+- Initial user exposure remains capped while operators observe mainnet network,
+  oracle, keeper, liquidation, central-pool, and monitoring behavior.
 - Governance timelock gives users and integrators an enforced observation
   period for protocol-affecting changes.
 - Immediate pause remains available for incidents.
@@ -155,7 +156,7 @@ Positive:
 Negative / accepted costs:
 
 - Launch takes at least the 14-day testnet soak plus the 7-day capped mainnet
-  observation window before exposure can grow materially.
+  observation window before exposure can grow.
 - Low initial caps may limit early user demand and protocol revenue.
 - Timelocked admin changes slow routine non-emergency operations.
 - More operational identities must be maintained, monitored, and rotated.

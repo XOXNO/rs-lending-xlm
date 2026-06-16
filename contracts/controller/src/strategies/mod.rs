@@ -1,8 +1,8 @@
 //! Strategy and flash-loan flows.
 //!
 //! Orchestration entrypoints compose position primitives (`borrow`, `supply`,
-//! `withdraw`, `repay`) with aggregator swaps. Swap output is never trusted
-//! from router reports — see `swap.rs`.
+//! `withdraw`, `repay`) with aggregator swaps. Swap output is not trusted
+//! from router reports; see `swap.rs`.
 //!
 //! Standard levered pipeline:
 //! auth → flash guard → account → cache(policy) → [preflight] → prefetch →

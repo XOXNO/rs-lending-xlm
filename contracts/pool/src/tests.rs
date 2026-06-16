@@ -100,9 +100,8 @@ fn market_params(asset: &Address) -> MarketParamsRaw {
         slope3_ray: RAY * 80 / 100,
         mid_utilization_ray: RAY * 50 / 100,
         optimal_utilization_ray: RAY * 80 / 100,
-        // Disabled (RAY sentinel) for pool unit tests — these
-        // exercise accounting invariants, not the utilization
-        // ceiling. Harness integration tests cover the ceiling.
+        // RAY sentinel disables max-utilization checks for accounting tests;
+        // integration harness covers the ceiling.
         max_utilization_ray: RAY,
         reserve_factor_bps: 1000,
         asset_id: asset.clone(),
@@ -130,8 +129,8 @@ impl TestSetup {
 
         test_support::init_ledger(&env);
 
-        // Pool's owner (admin) receives revenue on claim_revenue; the
-        // controller forwards from there to the protocol accumulator.
+        // Pool owner receives claimed revenue; controller forwards it to the
+        // protocol accumulator.
         let pool_address = env.register(LiquidityPool, (admin.clone(),));
         LiquidityPoolClient::new(&env, &pool_address).create_market(&market_params(&asset_address));
 
@@ -139,8 +138,7 @@ impl TestSetup {
         let token_admin = token::StellarAssetClient::new(&env, &asset_address);
         token_admin.mint(&pool_address, &100_000_000_000_000i128);
 
-        // Seed internal `cash` to match the minted balance: the pool tracks
-        // reserves in `cash`, not the live token balance.
+        // Seed `cash` to the minted reserve balance; pool liquidity uses `cash`.
         env.as_contract(&pool_address, || {
             let key = PoolKey::State(asset_address.clone());
             let mut state: PoolStateRaw = env.storage().persistent().get(&key).unwrap();
@@ -235,8 +233,8 @@ impl TestSetup {
         vec![&self.env, self.action(scaled_amount_ray, amount)]
     }
 
-    /// Registers an additional funded market: fresh SAC token, minted pool
-    /// reserves, and seeded internal `cash` (mirrors `TestSetup::new`).
+    /// Registers a funded market with a fresh SAC token, minted reserves, and
+    /// seeded internal `cash`.
     fn add_funded_market(&self) -> Address {
         let asset = self
             .env
@@ -349,10 +347,8 @@ fn test_borrow() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // Supply first.
     client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
-    // Borrow.
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
 
@@ -505,9 +501,7 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     );
 }
 
-// Covers the post-state utilization gate. The `TestSetup` default cap is
-// RAY (disabled) so the rest of the unit suite doesn't trip; this test
-// sets a 50 % cap to exercise both branches.
+// Post-state utilization gate with a 50% cap.
 #[test]
 fn test_borrow_above_max_utilization_panics() {
     let t = TestSetup::new();
@@ -526,7 +520,7 @@ fn test_borrow_above_max_utilization_panics() {
 
     let client = t.client();
     let borrower = Address::generate(&t.env);
-    // Borrow > 50 % of supplied → revert with UtilizationAboveMax.
+    // Borrow above 50% of supplied reverts with UtilizationAboveMax.
     let result =
         flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128, i128::MAX)));
     assert_contract_error(
@@ -601,7 +595,7 @@ fn test_repay() {
 
     assert!(updated_borrow.position.scaled_amount_ray > 0);
 
-    // Repay the exact amount; no overpayment, since no time has passed.
+    // Exact repay; no overpayment because no time has passed.
     let repay_amount = 100_0000000i128;
     let final_pos = client
         .repay(
@@ -1016,8 +1010,8 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
         &oversized_supply.position,
     );
 
-    // Reserves (cash) below the revenue treasury → claim caps at reserves and
-    // leaves residual revenue.
+    // Reserves below revenue cap the claim at available `cash` and leave
+    // residual revenue.
     t.edit_state(|s| s.cash = 100_000_000_000_000i128);
 
     let claimed = client.claim_revenue(&t.asset).actual_amount;
@@ -1147,7 +1141,7 @@ fn test_update_params_rejects_max_rate_not_above_base_rate() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // Keep slopes flat at base so SlopeNonMonotonic doesn't pre-empt MaxRateBelowBase.
+    // Flat slopes keep SlopeNonMonotonic from pre-empting MaxRateBelowBase.
     let model = InterestRateModel {
         max_borrow_rate_ray: RAY / 100,
         base_borrow_rate_ray: RAY / 100,
@@ -1171,8 +1165,7 @@ fn test_update_params_rejects_max_borrow_rate_above_cap() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY (the compound-interest Taylor
-    // envelope); slopes stay below the cap so this is the only violation.
+    // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY; slopes are below the cap.
     let model = InterestRateModel {
         max_borrow_rate_ray: 2 * RAY + 1,
         base_borrow_rate_ray: RAY / 100,
@@ -1282,8 +1275,8 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
     assert_eq!(final_pos.actual_amount, gross);
 }
 
-// is_liquidation=true with protocol_fee=0 must skip the fee branch
-// entirely (no revenue accrual) and behave like a regular withdraw.
+// `is_liquidation=true` with `protocol_fee=0` skips fee accrual and follows
+// regular withdraw.
 #[test]
 fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let t = TestSetup::new();
@@ -1337,8 +1330,8 @@ fn test_repay_zero_amount_is_no_op() {
     assert_pool_state_eq(&t.state_snapshot(), &state_before);
 }
 
-// Add-rewards with zero amount is accepted (require_nonneg_amount, not
-// require_positive_amount) and is a pure index no-op.
+// Zero-amount add_rewards is accepted by `require_nonneg_amount` and leaves
+// the index unchanged.
 #[test]
 fn test_add_rewards_zero_amount_is_no_op() {
     let t = TestSetup::new();
@@ -1352,10 +1345,8 @@ fn test_add_rewards_zero_amount_is_no_op() {
     assert_eq!(result.supply_index_ray, snapshot_before.supply_index_ray);
 }
 
-// Direct unit test for the `Ray::checked_sub` underflow guard surfaced
-// at the public ABI through `cache.supplied` / `position.scaled_amount_ray`.
-// The integration tests exercise the panic path; this asserts the
-// happy-path subtraction returns the expected value.
+// Public ABI panic tests cover `Ray::checked_sub` underflow through
+// supplied/position accounting; this case checks normal subtraction.
 #[test]
 fn test_ray_checked_sub_happy_path() {
     let env = Env::default();
@@ -1402,7 +1393,6 @@ fn test_repay_partial_amount() {
     );
 }
 
-// Covers the full add_rewards body.
 #[test]
 fn test_add_rewards_increases_supply_index() {
     let t = TestSetup::new();
@@ -1421,7 +1411,7 @@ fn test_add_rewards_increases_supply_index() {
     );
 }
 
-// create_strategy records debt, transfers net amount, and accrues fee to protocol revenue.
+// create_strategy records debt, transfers net amount, and accrues fee as protocol revenue.
 #[test]
 fn test_create_strategy_emits_position_and_transfers_net() {
     let t = TestSetup::new();
@@ -1467,8 +1457,7 @@ fn test_claim_revenue_zero_revenue_early_returns() {
     assert_eq!(claimed, 0, "claim_revenue should return 0 when no revenue");
 }
 
-// Verifies every update_params field round-trips through get_sync_data()
-// so a silently dropped write surfaces as an assertion failure.
+// update_params fields round-trip through get_sync_data().
 #[test]
 fn test_update_params_happy_path() {
     let t = TestSetup::new();
@@ -1496,7 +1485,7 @@ fn test_update_params_happy_path() {
     };
     client.update_params(&t.asset, &model);
 
-    // Every field must round-trip exactly.
+    // Updated fields round-trip through get_sync_data().
     let sync = client.get_sync_data(&t.asset);
     assert_eq!(
         sync.params.max_borrow_rate_ray, new_max,
@@ -1522,20 +1511,19 @@ fn test_update_params_happy_path() {
         "reserve_factor_bps"
     );
 
-    // Downstream sanity: with the base rate still 1% but higher slopes,
-    // the borrow rate at 50% utilization must reflect the updated slope1.
+    // With base rate still 1% and higher slopes, 50% utilization uses updated slope1.
     client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
     let borrower = Address::generate(&t.env);
     let _ = client.borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX));
 }
 
-// slope3 < slope2 → SlopeNonMonotonic.
+// slope3 < slope2 maps to SlopeNonMonotonic.
 #[test]
 fn test_update_params_rejects_invalid_slope_ordering() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // slope3 < slope2: invalid.
+    // slope3 < slope2 is invalid.
     let model = InterestRateModel {
         max_borrow_rate_ray: 2 * RAY,
         base_borrow_rate_ray: RAY / 100,
@@ -1554,7 +1542,7 @@ fn test_update_params_rejects_invalid_slope_ordering() {
     );
 }
 
-// mid_utilization == 0 panics with InvalidUtilRange.
+// mid_utilization == 0 maps to InvalidUtilRange.
 #[test]
 fn test_update_params_rejects_mid_utilization_zero() {
     let t = TestSetup::new();
@@ -1578,7 +1566,7 @@ fn test_update_params_rejects_mid_utilization_zero() {
     );
 }
 
-// reserve_factor at the BPS ceiling panics with InvalidReserveFactor;
+// reserve_factor == BPS maps to InvalidReserveFactor;
 // the validator requires `< BPS`.
 #[test]
 fn test_update_params_rejects_reserve_factor_at_bps() {
@@ -1603,7 +1591,7 @@ fn test_update_params_rejects_reserve_factor_at_bps() {
     );
 }
 
-// base_borrow_rate < 0 → BaseRateNegative (#128) at create_market.
+// base_borrow_rate < 0 maps to BaseRateNegative (#128) at create_market.
 #[test]
 fn test_create_market_rejects_invalid_rate_model() {
     let env = Env::default();
@@ -1624,7 +1612,7 @@ fn test_create_market_rejects_invalid_rate_model() {
     );
 }
 
-// Registering the same asset twice must revert with AssetAlreadySupported (#2).
+// Registering the same asset twice reverts with AssetAlreadySupported (#2).
 #[test]
 fn test_create_market_rejects_duplicate_asset() {
     let t = TestSetup::new();
@@ -1637,7 +1625,7 @@ fn test_create_market_rejects_duplicate_asset() {
     );
 }
 
-// Any verb against an asset with no market must revert with PoolNotInitialized (#30).
+// Unknown market operations revert with PoolNotInitialized (#30).
 #[test]
 fn test_supply_rejects_unknown_market() {
     let t = TestSetup::new();
@@ -1656,8 +1644,8 @@ fn test_supply_rejects_unknown_market() {
     );
 }
 
-// create_market seeds a fresh state: indexes at RAY, zero totals/cash, and
-// last_timestamp pinned to the current ledger time in milliseconds.
+// create_market seeds RAY indexes, zero totals/cash, and last_timestamp from
+// ledger milliseconds.
 #[test]
 fn test_create_market_initializes_state() {
     let t = TestSetup::new();
@@ -1683,8 +1671,8 @@ fn test_create_market_initializes_state() {
     assert_eq!(sync.params.asset_id, asset_b);
 }
 
-// Two markets in the same pool instance stay isolated: supply and borrow
-// against market A must not touch market B's persistent state.
+// Two markets in one pool instance stay isolated; market A mutations leave
+// market B state unchanged.
 #[test]
 fn test_two_market_isolation() {
     let t = TestSetup::new();
@@ -1723,7 +1711,7 @@ fn test_two_market_isolation() {
     assert_eq!(b_after_borrow.cash, b_initial.cash);
 }
 
-// create_market is #[only_owner]; a call carrying no auth entries must fail.
+// create_market is #[only_owner]; calls without auth fail.
 #[test]
 fn test_create_market_rejects_non_owner() {
     let t = TestSetup::new();
@@ -1741,15 +1729,14 @@ fn test_create_market_rejects_non_owner() {
     );
 }
 
-// bulk_get_sync_data must return exactly the indexes the per-asset lazy path
-// derives (`get_sync_data` + `simulate_update_indexes`), index-aligned with
-// the request, after real time-based accrual on a utilized market.
+// bulk_get_sync_data returns per-asset simulated indexes in request order after
+// time-based accrual.
 #[test]
 fn test_bulk_get_sync_data_matches_per_asset_simulation() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // Create a borrow so the indexes actually accrue over time.
+    // Create a borrow so indexes accrue over time.
     client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 5_000_000_000i128, i128::MAX));
@@ -1772,8 +1759,8 @@ fn test_bulk_get_sync_data_matches_per_asset_simulation() {
     );
 }
 
-// Multi-asset request: results are index-aligned with the input, and markets
-// with divergent states (utilized vs idle) keep their own indexes.
+// Multi-asset results are input-aligned; utilized and idle markets keep
+// separate indexes.
 #[test]
 fn test_bulk_get_sync_data_multi_asset_alignment() {
     let t = TestSetup::new();
@@ -1809,9 +1796,8 @@ fn test_bulk_get_sync_data_multi_asset_alignment() {
     let b = bulk.get_unchecked(1);
     assert_eq!(a, expected_a, "entry 0 must match market A's simulation");
     assert_eq!(b, expected_b, "entry 1 must match market B's simulation");
-    // Divergent states prove alignment: the utilized market accrues faster
-    // than the idle one (base rate only) and rewards suppliers, the idle one
-    // does not.
+    // Utilized market accrues borrow/supply indexes; idle market accrues base
+    // borrow index only.
     assert!(a.borrow_index_ray > b.borrow_index_ray && b.borrow_index_ray > RAY);
     assert!(a.supply_index_ray > RAY);
     assert_eq!(b.supply_index_ray, RAY, "no borrows, no supplier rewards");
@@ -1827,8 +1813,7 @@ fn test_bulk_get_sync_data_empty_request() {
     assert_eq!(bulk.len(), 0);
 }
 
-// Unknown assets fail the whole call with PoolNotInitialized — the same error
-// the per-asset `get_sync_data` path produces.
+// Unknown assets fail bulk read with PoolNotInitialized, matching get_sync_data.
 #[test]
 fn test_bulk_get_sync_data_unknown_asset_panics() {
     let t = TestSetup::new();
@@ -1838,15 +1823,15 @@ fn test_bulk_get_sync_data_unknown_asset_panics() {
     assert!(result.is_err(), "unknown asset must fail the bulk read");
 }
 
-// One bulk `supply` spanning two markets returns input-ordered mutations
-// and leaves each market exactly as two sequential single-entry calls do.
+// Bulk supply across two markets returns input-ordered mutations and matches
+// sequential single-entry calls.
 #[test]
 fn test_bulk_supply_two_markets_matches_sequential_singles() {
     let t = TestSetup::new();
     let client = t.client();
 
-    // Bulk targets: default market A + funded market B. Sequential
-    // reference targets: funded markets C and D (B's starting state).
+    // Bulk targets: default market A and funded market B. Sequential
+    // references: funded markets C and D.
     let asset_b = t.add_funded_market();
     let asset_c = t.add_funded_market();
     let asset_d = t.add_funded_market();
@@ -1891,8 +1876,8 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
     );
     assert_eq!(second.actual_amount, seq_second.actual_amount);
 
-    // A vs C and B vs D started identical, so the bulk call must leave the
-    // same persistent state as the sequential singles, cash included.
+    // A/C and B/D start from matching state; bulk and sequential singles end
+    // with matching cash/state.
     let a_state = t.state_snapshot();
     let c_state = t.state_of(&asset_c);
     assert_pool_state_eq(&a_state, &c_state);
@@ -1904,8 +1889,7 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
     assert_eq!(b_state.cash, d_state.cash);
 }
 
-// Bulk `repay` with overpayment on the second entry: results are
-// input-ordered and the surplus is refunded to the per-call payer.
+// Bulk repay keeps input order and refunds second-entry overpayment to payer.
 #[test]
 fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     let t = TestSetup::new();
@@ -1958,8 +1942,8 @@ fn test_bulk_repay_overpayment_refunds_second_entry_surplus() {
     );
 }
 
-// Duplicate-asset entries in one bulk `supply` apply in order: entry 2 is
-// priced against the post-entry-1 market state and totals end at the sum.
+// Duplicate-asset bulk supply applies entries in order; entry 2 prices against
+// post-entry-1 state.
 #[test]
 fn test_bulk_supply_duplicate_asset_applies_sequentially() {
     let t = TestSetup::new();
@@ -2004,9 +1988,7 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
     );
 }
 
-// Per-entry cap enforcement is atomic across the batch: when entry 2
-// violates its supply cap the whole call reverts and entry 1's state
-// change does not persist.
+// Batch supply is atomic: entry 2 supply-cap failure rolls back entry 1 state.
 #[test]
 fn test_bulk_supply_cap_violation_reverts_whole_batch() {
     let t = TestSetup::new();
@@ -2028,8 +2010,7 @@ fn test_bulk_supply_cap_violation_reverts_whole_batch() {
         common::errors::CollateralError::SupplyCapReached as u32,
     );
 
-    // Entry 1 had already passed its own cap check, but the batch is one
-    // transaction: its state must roll back with the failing entry 2.
+    // Entry 1 passed its cap check; transaction rollback restores both markets.
     let a_after = t.state_snapshot();
     assert_pool_state_eq(&a_after, &a_before);
     assert_eq!(a_after.cash, a_before.cash);

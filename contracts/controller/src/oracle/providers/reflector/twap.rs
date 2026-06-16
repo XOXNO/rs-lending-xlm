@@ -114,7 +114,7 @@ pub(crate) fn read_twap(
         );
     }
 
-    // Average over the samples actually returned, not the requested count.
+    // Average over returned samples, not the requested count.
     let raw_price = sum / history.len() as i128;
     Some(OracleObservation {
         price_wad: normalize_positive_price(env, raw_price, config.decimals),

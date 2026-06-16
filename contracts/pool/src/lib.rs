@@ -48,8 +48,8 @@ fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
     synced_market_cache(env, asset)
 }
 
-/// Market cache accrued to now, WITHOUT the instance-TTL renewal — bulk
-/// endpoints renew once per call, not once per entry.
+/// Market cache accrued to now without instance-TTL renewal.
+/// Bulk endpoints renew instance TTL once per call.
 fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
     let mut cache = Cache::load(env, asset);
     interest::global_sync(env, &mut cache);
@@ -72,7 +72,7 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> PoolPositionMutation {
 
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
-    // Controller already transferred `amount` into the pool before this call.
+    // Controller transferred `amount` into the pool before this call.
     cache.cash = cache
         .cash
         .checked_add(amount)
@@ -244,7 +244,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
-        // Bulk: each entry syncs independently; controller pre-transfers tokens for every entry.
+        // Bulk entries sync independently; controller pre-transfers tokens for each entry.
         // First failure (cap, etc.) reverts the entire call.
         renew_pool_instance(&env);
         let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
@@ -325,9 +325,9 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    // Safety: strict balance + allowance assertions around the callback and transfer_from.
-    // CEI: full state commit (including revenue) before the external invoke; only the
-    // loaned asset can be used for repayment.
+    // Flash loan safety: balance and allowance checks bracket callback and transfer_from.
+    // CEI: state, including revenue, is committed before the external invoke.
+    // Repayment is checked against the loaned token balance.
     fn flash_loan(
         env: Env,
         asset: Address,
@@ -389,9 +389,8 @@ impl LiquidityPoolInterface for LiquidityPool {
             FlashLoanError::InvalidFlashloanRepay
         );
 
-        // Receiver must approve `amount + fee` during the callback. Check allowance
-        // before transfer_from so SAC failures surface as InvalidFlashloanRepay (#402)
-        // instead of bubbling token error codes.
+        // Receiver approves `amount + fee` during callback. Check allowance before
+        // transfer_from so SAC failures map to InvalidFlashloanRepay (#402).
         assert_with_error!(
             &env,
             tok.allowance(&receiver, &pool_addr) >= total,
@@ -408,8 +407,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
-        // Net token effect: out `amount`, back `amount + fee` → +fee. The loan
-        // uses direct token transfers (with balance assertions), not transfer_out.
+        // Net token effect: pool sends `amount` and receives `amount + fee`, so
+        // `cash` increases by `fee`. Direct transfers are balance-checked above.
         cache.cash = cache
             .cash
             .checked_add(fee)
@@ -420,8 +419,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    // Strategy borrow: fee is taken as protocol revenue up-front; only net amount is
-    // transferred. Utilization and borrow cap are enforced on the full amount.
+    // Strategy borrow records fee as protocol revenue before transfer; net amount
+    // is sent. Utilization and borrow cap use the full amount.
     fn create_strategy(
         env: Env,
         receiver: Address,
@@ -471,8 +470,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    // Seize: for borrow side, bad debt is socialized by reducing the supply index
-    // (subject to floor). For deposit side, revenue shares are simply moved to the pool.
+    // Seize: bad borrow debt reduces the supply index, subject to floor.
+    // Deposit dust is moved into revenue.
     fn seize_position(
         env: Env,
         asset: Address,
@@ -499,8 +498,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     #[only_owner]
-    // Claim: revenue is burned from both revenue and supplied scaled totals, capped by
-    // actual reserves. Solvency is re-checked after the burn before any transfer.
+    // Claim burns scaled revenue from revenue and supplied totals, capped by reserves.
+    // Solvency is checked before transfer.
     fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &asset);
 
@@ -643,7 +642,7 @@ mod lib_orchestration_tests {
             let contract = env.register(crate::LiquidityPool, (admin.clone(),));
             crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
-            // Seed some liquidity for repay/overpay scenarios
+            // Seed liquidity for repay/overpay scenarios.
             let tok_admin = token::StellarAssetClient::new(&env, &asset);
             tok_admin.mint(&contract, &1_000_000_000);
 
@@ -673,7 +672,7 @@ mod lib_orchestration_tests {
     fn test_bulk_supply_returns_input_ordered_mutations() {
         let t = TestSetup::new();
         let client = t.client();
-        // Call through the client (owner is admin in setup); verify ordering from the *_one path.
+        // Call through the client; output order follows the *_one path.
         let entry1 = PoolSupplyEntry {
             action: make_action(0, 100_000_000, &t.asset),
             supply_cap: 0,

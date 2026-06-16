@@ -11,7 +11,7 @@
 Protocol-admin actions can change market risk, oracle wiring, contract code,
 the central pool template, controller roles, and governance itself. A multisig
 alone does not give users an on-chain warning window. The protocol therefore
-needs a timelock that is enforced by contract state, not by operator process.
+needs a timelock enforced by contract state, not by operator process.
 
 The production ownership chain is:
 
@@ -86,7 +86,7 @@ and rejects any new delay below the current delay.
 
 ### Immediate surface
 
-The immediate owner-gated surface is intentionally small:
+The immediate owner-gated surface is small:
 
 - `deploy_controller(wasm_hash)`: one-time bootstrap before there is a
   controller to govern.
@@ -125,13 +125,13 @@ in one frame. They are not part of the production admin path.
 - **Timelock emergency pause.** Rejected: a delayed halt during an exploit or
   oracle incident is not an emergency brake.
 - **Allow delay reductions.** Rejected: shortening the delay is itself a
-  governance-risk action. Current code only permits equal or longer delays.
+  governance-risk action. Current code permits equal or longer delays.
 
 ## Consequences
 
 Positive:
 
-- Protocol-affecting controller changes are delayed by enforced on-chain state.
+- Enforced on-chain state delays protocol-affecting controller changes.
 - Governance-self changes are also delayed, despite Soroban's generic
   self-reentry restriction.
 - Bad proposals fail at schedule time when validation is pure input validation.

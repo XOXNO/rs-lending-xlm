@@ -1,11 +1,9 @@
 //! Read-only views and liquidation estimation.
 //!
-//! All views deliberately use `Cache::new_view` (no instance TTL
-//! bump, permissive `OraclePolicy::View`) so that front-ends and indexers
-//! are never blocked by stale oracles on disabled markets. Reads of
-//! `Market`/`EModeCategory` keys renew the shared-tier TTL when it has
-//! fallen below threshold (a liveness guarantee, see `storage::market`),
-//! so on-chain view invocations are not strictly rent-free.
+//! Views use `Cache::new_view` (no instance TTL bump, permissive
+//! `OraclePolicy::View`) so stale oracles on disabled markets do not block
+//! front-ends or indexers. Reads of `Market`/`EModeCategory` keys renew
+//! shared-tier TTL below threshold; view calls can extend rent.
 //!
 //! Aggregates are harnessed under certora.
 
@@ -178,7 +176,7 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
     // Decimals come from pool params, not the price feed, so balance reads
-    // never depend on oracle liveness.
+    // do not depend on oracle liveness.
     let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     position
@@ -196,7 +194,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
     // Decimals come from pool params, not the price feed, so debt reads
-    // never depend on oracle liveness.
+    // do not depend on oracle liveness.
     let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     position

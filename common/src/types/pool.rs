@@ -42,8 +42,8 @@ impl MarketParamsRaw {
         self.rate_model_view().verify(env);
     }
 
-    // Full boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
-    // (beyond which `Ray::from_asset` would overflow).
+    // Boundary validation: rate model plus `asset_decimals <= RAY_DECIMALS`
+    // to keep `Ray::from_asset` inside the supported decimal domain.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -217,7 +217,7 @@ impl From<&AccountPosition> for AccountPositionRaw {
 
 /// Pool ABI position shape containing only scaled shares.
 ///
-/// Collateral risk parameters stay on the controller and never cross the pool
+/// Collateral risk parameters stay on the controller and do not cross the pool
 /// boundary.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -388,11 +388,10 @@ pub enum PoolKey {
     State(Address),
 }
 
-/// Asset-scoped position payload for the central pool ABI.
+/// Asset-scoped mutation payload for the central pool ABI.
 ///
-/// Per-asset mutation payload for the pool position verbs. The funds
-/// counterparty (receiver/payer) is hoisted to the endpoint arguments —
-/// identical for every entry of a bulk call.
+/// The funds counterparty (receiver/payer) is carried by endpoint arguments,
+/// shared by each entry in a bulk call.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAction {
@@ -439,9 +438,9 @@ pub struct PoolStateRaw {
     pub borrow_index_ray: i128,
     pub supply_index_ray: i128,
     pub last_timestamp: u64,
-    /// Liquid token units the pool holds (available reserves), tracked
-    /// internally on each in/out flow instead of reading the token balance —
-    /// so direct donations cannot inflate borrowable liquidity.
+    /// Liquid token units the pool holds (available reserves), tracked internally
+    /// on each in/out flow instead of reading the token balance. Direct donations
+    /// cannot inflate borrowable liquidity.
     pub cash: i128,
 }
 
@@ -606,15 +605,13 @@ mod tests {
         assert_eq!(back.supply_index_ray, raw.supply_index_ray);
         assert_eq!(back.last_timestamp, raw.last_timestamp);
     }
-    // InterestRateModel::verify — boundary coverage.
+    // InterestRateModel::verify boundary coverage.
     //
-    // The slope-monotonicity and max-utilization guards are plain `if { panic }`
-    // blocks, so their comparison/`||` operators are visible to the mutation
-    // engine; each test below pins an exact boundary so the operator and its
-    // mutant diverge. The `assert_with_error!` checks (base >= 0, max > base,
-    // <= MAX_BORROW_RATE_RAY, mid > 0, optimal > mid, optimal < RAY, reserve <
-    // BPS) hide their condition in a macro arg — invisible to cargo-mutants, so
-    // not targeted here.
+    // Slope-monotonicity and max-utilization guards use plain `if { panic }`
+    // blocks, so comparison and `||` mutations are observable here. The
+    // `assert_with_error!` checks (base >= 0, max > base, <= MAX_BORROW_RATE_RAY,
+    // mid > 0, optimal > mid, optimal < RAY, reserve < BPS) hide their conditions
+    // in macro arguments and are not targeted here.
 
     fn valid_rate_model() -> InterestRateModel {
         InterestRateModel {
@@ -636,8 +633,7 @@ mod tests {
         valid_rate_model().verify(&env);
     }
 
-    // `replace verify with ()`: a no-op body would silently accept an invalid
-    // config; an invalid input that MUST panic catches the stubbed body.
+    // `replace verify with ()`: invalid input must panic, catching a stubbed body.
     #[test]
     #[should_panic(expected = "#129")]
     fn test_rate_model_verify_body_is_not_a_noop() {
@@ -647,10 +643,9 @@ mod tests {
         m.verify(&env);
     }
 
-    // ---- Monotonic chain: `||` short-circuit. ---------------------------
-    // Each test makes exactly one disjunct true, the rest false: `||` → panic,
-    // but flipping any `||` to `&&` → false → no panic. Expecting the panic
-    // kills the `||→&&` mutants.
+    // Monotonic chain: `||` short-circuit.
+    // Each test makes one disjunct true and the rest false: `||` panics,
+    // while `&&` does not.
 
     #[test]
     #[should_panic(expected = "#129")]
@@ -702,9 +697,8 @@ mod tests {
         m.verify(&env);
     }
 
-    // ---- Monotonic chain: `<` vs `<=`/`==` at exact equality. -----------
-    // At `a == b` the original `<` is false (no panic) but `<=`/`==` would
-    // panic. Asserting NO panic kills both `<→<=` and `<→==`.
+    // Monotonic chain: `<` vs `<=`/`==` at exact equality.
+    // At `a == b`, `<` is false. `<=` or `==` would panic.
 
     #[test]
     fn test_rate_model_monotonic_slope1_eq_base_does_not_panic() {
@@ -738,10 +732,9 @@ mod tests {
         m.verify(&env);
     }
 
-    // ---- Max-utilization guard: `max_util < optimal || max_util > RAY`. --
+    // Max-utilization guard: `max_util < optimal || max_util > RAY`.
 
-    // `||→&&`: only the left disjunct true (max_util < optimal, right false);
-    // `||` → panic, `&&` → no panic.
+    // `||` vs `&&`: only the left disjunct is true.
     #[test]
     #[should_panic(expected = "#117")]
     fn test_rate_model_max_util_below_optimal_panics() {
@@ -751,8 +744,7 @@ mod tests {
         m.verify(&env);
     }
 
-    // `||→&&` also distinguished by the right disjunct alone: only
-    // max_util > RAY true (max_util >= optimal so left is false).
+    // `||` vs `&&`: only the right disjunct is true.
     #[test]
     #[should_panic(expected = "#117")]
     fn test_rate_model_max_util_above_ray_panics() {
@@ -762,9 +754,8 @@ mod tests {
         m.verify(&env);
     }
 
-    // `max_util < optimal`, `<` vs `<=`/`==` at equality: at max_util == optimal
-    // the original `<` is false; `<=`/`==` would be true. Right disjunct also
-    // false (optimal < RAY). No panic expected.
+    // `max_util < optimal`, `<` vs `<=`/`==` at equality: at max_util == optimal,
+    // `<` is false. Right disjunct is also false (optimal < RAY).
     #[test]
     fn test_rate_model_max_util_eq_optimal_does_not_panic() {
         let env = Env::default();
@@ -773,8 +764,8 @@ mod tests {
         m.verify(&env);
     }
 
-    // `max_util > RAY`, `>` vs `>=`/`==` at equality: at max_util == RAY the
-    // original `>` is false; `>=`/`==` would be true. Left disjunct false. No panic.
+    // `max_util > RAY`, `>` vs `>=`/`==` at equality: at max_util == RAY,
+    // `>` is false and the left disjunct is false.
     #[test]
     fn test_rate_model_max_util_eq_ray_does_not_panic() {
         let env = Env::default();
@@ -783,9 +774,8 @@ mod tests {
         m.verify(&env);
     }
 
-    // `verify_rate_model with ()`: the wrapper must delegate to
-    // `rate_model_view().verify()`; a no-op would accept an invalid model.
-    // Pass non-monotonic slopes and assert it panics.
+    // `verify_rate_model with ()`: wrapper delegates to `rate_model_view().verify()`.
+    // Non-monotonic slopes must panic.
     #[test]
     #[should_panic(expected = "#129")]
     fn test_market_params_verify_rate_model_delegates() {

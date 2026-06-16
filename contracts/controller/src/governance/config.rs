@@ -353,10 +353,9 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         GenericError::PairNotActive
     );
 
-    // Re-validate the sanity band at the controller boundary (defense-in-depth):
-    // governance already enforces it, but this guarantees a market can never be
-    // activated with an unset/invalid band — which would otherwise surface only
-    // as a runtime revert on the first risk-increasing / liquidation read.
+    // Re-validate the sanity band at the controller boundary. Governance
+    // validates the proposal; execution rejects unset or invalid bands before
+    // activation.
     common::validation::validate_sanity_bounds(
         env,
         config.min_sanity_price_wad,
@@ -385,11 +384,11 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
     .publish(env);
 }
 
-/// Re-asserts that every quoted-base source in `config` still points at an
-/// Active, USD-based quote market. Pure storage reads: the resolved `base` lives
-/// in the stored config, so this never cross-calls the oracle. Mirrors the
-/// propose-time `validate_quote_is_usd_market` check, reading controller storage
-/// instead of the controller view. USD-direct and RedStone sources skip it.
+/// Re-asserts that each quoted-base source in `config` still points at an
+/// Active, USD-based quote market. Storage-only check: the resolved `base`
+/// lives in the stored config, so this does not cross-call the oracle. Mirrors
+/// the propose-time `validate_quote_is_usd_market` check, reading controller
+/// storage instead of the controller view. USD-direct and RedStone sources skip it.
 fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketOracleConfig) {
     require_source_quote_active_usd(env, asset, &config.primary);
     if let Some(anchor) = config.anchor.as_ref() {
