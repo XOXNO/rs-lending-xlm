@@ -69,23 +69,17 @@ make fuzz FUZZ_TIME=30
 make proptest PROPTEST_CASES=256
 ```
 
-To mirror CI locally you have two options:
-
-**Option A — shell script (runs on the host, fastest):**
-
-```bash
-bash .github/scripts/ci-local.sh
-# optional: --security (OpenZeppelin scan), --fuzz (fuzz.yml pr-smoke + miri)
-```
-
-**Option B — [nektos/act](https://github.com/nektos/act) (runs workflows in Docker, closest to GitHub):**
+To mirror CI locally, use [nektos/act](https://github.com/nektos/act) (runs
+workflows in Docker, same step order as GitHub):
 
 ```bash
 brew install act          # once; Docker must be running
 .github/scripts/act-local.sh list
-.github/scripts/act-local.sh -n ci    # dry-run
-.github/scripts/act-local.sh ci       # ci.yml build-and-test job
+.github/scripts/act-local.sh -n ci       # dry-run
+.github/scripts/act-local.sh ci          # ci.yml build-and-test job
 .github/scripts/act-local.sh ci --full   # + security-scan (slow)
+make act-ci-dryrun                       # Makefile shortcuts
+make act-ci
 ```
 
 Runner image mappings live in `.actrc` at the repo root (`self-hosted` →
