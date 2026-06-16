@@ -488,11 +488,8 @@ fn test_isolated_ceiling_releases_capacity_on_repay() {
 // --- audit_p0 isolation repay ---
 
 // The isolated-debt decrement reads the principal basis recorded at borrow
-// time, not a live price, so an isolated repay no longer prices the debt asset
-// for the decrement and is not blocked by a stale TWAP (dust disabled). This
-// removes the price-manipulation surface on the ceiling counter that the strict
-// IsolatedRepay policy previously had to guard. The dust gate still prices
-// residue under the strict policy when dust floors are enabled.
+// time, not a live price, so repay never touches the oracle and is not blocked
+// by a stale TWAP.
 #[test]
 fn test_isolated_repay_decrement_uses_basis_not_oracle() {
     let mut t = LendingTest::new()

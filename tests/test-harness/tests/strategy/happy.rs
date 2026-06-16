@@ -4,8 +4,6 @@ use test_harness::{
     wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
 };
 
-use crate::helpers::build_swap_steps;
-
 // Multiply happy paths
 //
 // Full multiply flow:

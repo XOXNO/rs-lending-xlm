@@ -10,6 +10,8 @@ pub enum OraclePolicy {
     RiskIncreasing,
     RiskDecreasing,
     Repay,
+    /// Spec/Certora only; repay is oracle-free since basis-based ceiling decrement.
+    #[allow(dead_code)]
     IsolatedRepay,
     Liquidation,
     View,

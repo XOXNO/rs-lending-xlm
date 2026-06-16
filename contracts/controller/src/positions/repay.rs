@@ -3,6 +3,8 @@
 //! Pipeline: auth → aggregate → cache → validate → settle → persist → emit.
 //! Repay is permissionless w.r.t. the account owner and can only reduce risk;
 //! the pool refunds any amount above the ceiling-rounded debt to the payer.
+//! No oracle reads: isolated ceiling decrements use borrow-time basis, not live
+//! prices.
 
 use common::errors::GenericError;
 use controller_interface::types::{
@@ -47,15 +49,10 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     validation::require_non_empty_payments(env, payments);
 
     let mut account = storage::get_account_borrow_only(env, account_id);
-    let policy = if account.is_isolated {
-        OraclePolicy::IsolatedRepay
-    } else {
-        OraclePolicy::Repay
-    };
-    let mut cache = Cache::new(env, policy);
+    let mut cache = Cache::new(env, OraclePolicy::Repay);
 
     let aggregated = utils::aggregate_positive_payments(env, payments);
-    validate_repay(env, &account, &aggregated, &mut cache);
+    validate_repay(env, &account, &aggregated);
     settle_repay(
         env,
         caller,
@@ -76,14 +73,8 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     );
 }
 
-fn validate_repay(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) {
+fn validate_repay(env: &Env, account: &Account, aggregated: &AggregatedPayments) {
     validation::require_non_empty_payments(env, aggregated);
-    prefetch_isolated_repay_oracles(env, cache, account, aggregated);
 
     for (asset, _) in aggregated.iter() {
         let _ = get_debt_position_or_panic(env, account, &asset);
@@ -121,24 +112,6 @@ fn settle_repay(
         &actions,
         cache,
     );
-}
-
-/// Isolated repay prices each repaid asset for the debt-ceiling adjustment.
-/// Non-isolated repay uses zero prices, so prefetch is skipped entirely.
-fn prefetch_isolated_repay_oracles(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-) {
-    if !account.is_isolated {
-        return;
-    }
-    let mut owed: Vec<Address> = Vec::new(env);
-    for (asset, _) in aggregated.iter() {
-        owed.push_back(asset);
-    }
-    crate::oracle::prefetch_redstone_feeds(cache, &owed);
 }
 
 /// Executes one bulk pool repay for `actions` (one cross-contract frame) and

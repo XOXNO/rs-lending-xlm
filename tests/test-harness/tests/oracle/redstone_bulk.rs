@@ -266,12 +266,10 @@ fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
 }
 
 #[test]
-fn test_isolated_multi_asset_repay_uses_one_bulk_redstone_call() {
-    // An isolated account with TWO isolation-borrowable debt assets repaying
-    // both in one tx.  The isolated path in `process_single_repay` prices each
-    // repaid asset before the dust gate runs, so the entrypoint prefetch over
-    // owed assets must bulk-fetch both feeds first; the per-asset
-    // `cached_price` calls then find them already resolved.
+fn test_isolated_multi_asset_repay_fires_zero_redstone_calls() {
+    // Isolated multi-asset repay decrements the ceiling counter from borrow-time
+    // basis, not live prices — enough feeds to cross MIN_BULK_FEEDS, but no
+    // oracle reads should run.
     let ceiling = 1_000_000 * WAD;
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -319,13 +317,13 @@ fn test_isolated_multi_asset_repay_uses_one_bulk_redstone_call() {
     let rs = redstone_counters(&t, &redstone);
     assert_eq!(
         rs.bulk_calls() - bulk_before,
-        1,
-        "isolated multi-asset repay must bulk-fetch RedStone feeds once"
+        0,
+        "isolated multi-asset repay must fire zero bulk RedStone calls"
     );
     assert_eq!(
         rs.single_calls() - single_before,
         0,
-        "no per-feed RedStone calls when the entrypoint prefetch covers the repay set"
+        "isolated multi-asset repay must fire zero single RedStone calls"
     );
 }
 
