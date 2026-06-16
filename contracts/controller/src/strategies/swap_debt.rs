@@ -1,7 +1,7 @@
 //! Debt swap strategy.
 //!
-//! Pipeline: auth → flash guard → account → cache → siloed check → prefetch →
-//! borrow → swap → repay → `strategy_finalize`.
+//! Pipeline: auth → flash guard → account → cache → prefetch → borrow → swap →
+//! repay → `strategy_finalize`.
 
 use common::errors::{CollateralError, GenericError};
 use controller_interface::types::{DebtPosition, StrategySwap};
@@ -76,12 +76,6 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     validation::require_positive_amount(env, new_debt_amount);
 
-    let existing_debt_config = cache.cached_asset_config(existing_debt_token);
-    let new_debt_config = cache.cached_asset_config(new_debt_token);
-    if existing_debt_config.is_siloed_borrowing || new_debt_config.is_siloed_borrowing {
-        panic_with_error!(env, CollateralError::NotBorrowableSiloed);
-    }
-
     let extra_assets = soroban_sdk::vec![env, existing_debt_token.clone(), new_debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
@@ -89,7 +83,6 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         env,
         &mut cache,
         &mut account,
-        account_id,
         new_debt_token,
         new_debt_amount,
     );
@@ -112,7 +105,6 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     repay_debt_from_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
         StrategyRepay {

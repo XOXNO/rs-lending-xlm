@@ -21,7 +21,7 @@ Contract-level scenarios for the lending protocol, executed in-process via the `
 
 ### `controller/`
 
-`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `min_borrow_collateral`, `ownership`, `repay`, `siloed_borrow`, `supply`, `validation_admin`, `views`, `withdraw`
+`account`, `admin`, `admin_config`, `bad_debt_index`, `borrow`, `decimal_diversity`, `emode`, `emode_liquidation_combo`, `events`, `flash_loan`, `keeper`, `liquidation`, `liquidation_boundary`, `liquidation_coverage`, `liquidation_math`, `liquidation_mixed_decimal`, `max_utilization`, `min_borrow_collateral`, `ownership`, `repay`, `supply`, `validation_admin`, `views`, `withdraw`
 
 #### Liquidation modules (roles)
 

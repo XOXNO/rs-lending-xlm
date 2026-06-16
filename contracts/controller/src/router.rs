@@ -7,8 +7,8 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
-    AccountPosition, AssetConfigRaw, InterestRateModel, MarketConfig,
-    MarketOracleConfig, MarketParamsRaw, MarketStatus,
+    AccountPosition, AssetConfigRaw, InterestRateModel, MarketConfig, MarketOracleConfig,
+    MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, only_role, when_not_paused};
@@ -303,12 +303,7 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
 
 /// Syncs risk params on every supply position for one account, then runs a
 /// single HF gate when `has_risks` propagates liquidation thresholds.
-fn sync_account_thresholds(
-    env: &Env,
-    account_id: u64,
-    has_risks: bool,
-    cache: &mut Cache,
-) {
+fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
@@ -344,7 +339,8 @@ fn sync_account_thresholds(
             asset_emode_config,
         );
 
-        let position = validation::expect_invariant(env, account.supply_positions.get(asset.clone()));
+        let position =
+            validation::expect_invariant(env, account.supply_positions.get(asset.clone()));
         let mut updated_pos = position;
 
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;

@@ -17,7 +17,6 @@ pub struct AssetConfigRaw {
     pub liquidation_fees_bps: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
@@ -34,7 +33,6 @@ pub struct AssetConfig {
     pub liquidation_fees: Bps,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub is_siloed_borrowing: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee: Bps,
     pub borrow_cap: i128,
@@ -51,10 +49,6 @@ impl AssetConfig {
         self.is_borrowable
     }
 
-    pub fn is_siloed_borrowing(&self) -> bool {
-        self.is_siloed_borrowing
-    }
-
     pub fn has_emode(&self) -> bool {
         !self.e_mode_categories.is_empty()
     }
@@ -69,7 +63,6 @@ impl From<&AssetConfigRaw> for AssetConfig {
             liquidation_fees: Bps::from(i128::from(r.liquidation_fees_bps)),
             is_collateralizable: r.is_collateralizable,
             is_borrowable: r.is_borrowable,
-            is_siloed_borrowing: r.is_siloed_borrowing,
             is_flashloanable: r.is_flashloanable,
             flashloan_fee: Bps::from(i128::from(r.flashloan_fee_bps)),
             borrow_cap: r.borrow_cap,
@@ -88,7 +81,6 @@ impl From<&AssetConfig> for AssetConfigRaw {
             liquidation_fees_bps: t.liquidation_fees.raw() as u32,
             is_collateralizable: t.is_collateralizable,
             is_borrowable: t.is_borrowable,
-            is_siloed_borrowing: t.is_siloed_borrowing,
             is_flashloanable: t.is_flashloanable,
             flashloan_fee_bps: t.flashloan_fee.raw() as u32,
             borrow_cap: t.borrow_cap,
@@ -350,7 +342,6 @@ impl From<&AccountMeta> for AccountAttributes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::WAD;
     use soroban_sdk::{testutils::Address as _, Env};
 
     fn sample_asset_config_raw(env: &Env) -> AssetConfigRaw {
@@ -364,7 +355,6 @@ mod tests {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            is_siloed_borrowing: false,
             is_flashloanable: true,
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,
@@ -388,7 +378,6 @@ mod tests {
         assert_eq!(back.liquidation_fees_bps, raw.liquidation_fees_bps);
         assert_eq!(back.is_collateralizable, raw.is_collateralizable);
         assert_eq!(back.is_borrowable, raw.is_borrowable);
-        assert_eq!(back.is_siloed_borrowing, raw.is_siloed_borrowing);
         assert_eq!(back.is_flashloanable, raw.is_flashloanable);
         assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
         assert_eq!(back.borrow_cap, raw.borrow_cap);
@@ -402,7 +391,6 @@ mod tests {
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
         assert!(cfg.can_supply());
         assert!(cfg.can_borrow());
-        assert!(!cfg.is_siloed_borrowing());
         assert!(cfg.has_emode());
     }
 

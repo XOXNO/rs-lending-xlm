@@ -86,8 +86,6 @@ pub enum CollateralError {
     BorrowCapReached = 106,
     /// Asset is not borrowable in the current market config.
     AssetNotBorrowable = 107,
-    /// Siloed borrowing asset cannot coexist with other debt assets.
-    NotBorrowableSiloed = 108,
     /// Account would exceed max supply or borrow position count.
     PositionLimitExceeded = 109,
     /// Requested position does not exist.

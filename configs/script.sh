@@ -309,7 +309,7 @@ scval_market_params() {
         ]}'
 }
 
-# AssetConfigRaw ScVal map (17 fields, sorted keys — matches the governance spec
+# AssetConfigRaw ScVal map (16 fields, sorted keys — matches the governance spec
 # exactly). i128 caps/ceilings/floors as decimal strings, u32 bps, bool flags,
 # e_mode_categories as vec<u32>. Missing or extra fields fail host decode, so the
 # full set is enumerated explicitly.
@@ -326,7 +326,6 @@ scval_asset_config() {
             b("is_borrowable"),
             b("is_collateralizable"),
             b("is_flashloanable"),
-            b("is_siloed_borrowing"),
             u("liquidation_bonus_bps"),
             u("liquidation_fees_bps"),
             u("liquidation_threshold_bps"),

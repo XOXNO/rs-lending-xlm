@@ -317,7 +317,7 @@ rate-model parameters live in the pool contract (`MarketParamsRaw`), not in
 
 `AssetConfigRaw` fields: `loan_to_value_bps`, `liquidation_threshold_bps`,
 `liquidation_bonus_bps`, `liquidation_fees_bps`, `is_collateralizable`,
-`is_borrowable`, `is_siloed_borrowing`, `is_flashloanable`,
+`is_borrowable`, `is_flashloanable`,
 `flashloan_fee_bps`, `borrow_cap`,
 `supply_cap`, `min_collat_floor_usd_wad`, `min_debt_floor_usd_wad`,
 `e_mode_categories`.
@@ -370,7 +370,6 @@ classDiagram
         +u32 liquidation_fees_bps
         +bool is_collateralizable
         +bool is_borrowable
-        +bool is_siloed_borrowing
         +bool is_flashloanable
         +u32 flashloan_fee_bps
         +i128 borrow_cap
@@ -602,8 +601,7 @@ from this skeleton.
 
 - Caller authorization and account-owner match.
 - Cache uses `OraclePolicy::RiskIncreasing`.
-- Validates borrowability, LTV, borrow caps, position limits, siloed
-  borrowing, and e-mode.
+- Validates borrowability, LTV, borrow caps, position limits, and e-mode.
 - Pool checks reserve availability before transferring tokens.
 - Post-batch `require_healthy_account` gates the entire borrow batch.
 
@@ -795,15 +793,14 @@ sequenceDiagram
     C->>C: clear FlashLoanOngoing, emit FlashLoanEvent
 ```
 
-## 12. E-Mode and Siloed Borrowing
+## 12. E-Mode
 
-These modes tune risk for specific asset groups:
+E-mode tunes risk for specific asset groups:
 
 - **E-mode** groups assets that move together (for example, two stablecoins) and
   gives them a higher LTV and liquidation threshold, so users can borrow more
-  against closely correlated collateral.
-- **Siloed borrowing** marks an asset that cannot share an account's debt side
-  with any other borrowed asset.
+  against closely correlated collateral. Per-asset `can_collateral` and
+  `can_borrow` flags in the category restrict which assets pair together.
 
 E-mode is category-based. `ControllerKey::EModeCategory(u32)` stores
 `EModeCategoryRaw { loan_to_value_bps, liquidation_threshold_bps,
@@ -829,9 +826,6 @@ flowchart LR
     AssetB -->|"reverse membership id"| Cat
     Acct -->|"selected at account creation"| Cat
 ```
-
-Siloed borrowing (`AssetConfig.is_siloed_borrowing`) is asset-level: if any
-final debt asset is siloed, the account cannot hold multiple debt assets.
 
 ## 13. Access Control and Operations
 

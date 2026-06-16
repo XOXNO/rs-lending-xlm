@@ -167,8 +167,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
         .with_market(eth_preset())
         .build();
 
-    let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
@@ -232,8 +231,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
         .with_emode_asset(1, "USDT", true, true)
         .build();
 
-    let account_id =
-        t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let usdt = t.resolve_asset("USDT");
@@ -427,10 +425,6 @@ fn test_multiply_emode_wrong_category_collateral() {
     // with EMODE_CATEGORY_NOT_FOUND (300).
     assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
 }
-// The debt asset is siloed, but `multiply` creates a fresh account with no
-// existing borrows. The siloed-borrow restriction therefore lives in the
-// `swap_debt` tests instead.
-
 #[test]
 fn test_multiply_rejects_normal_mode() {
     let mut t = LendingTest::new()
@@ -463,8 +457,7 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         .with_position_limits(1, 4)
         .build();
 
-    let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "WBTC", 0.1);
 
     t.fund_router("USDC", 3000.0);
@@ -500,8 +493,7 @@ fn test_multiply_existing_account_wrong_owner() {
         .with_market(eth_preset())
         .build();
 
-    let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");

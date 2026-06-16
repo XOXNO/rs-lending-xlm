@@ -24,7 +24,7 @@ mod max_utilization;
 mod min_borrow_collateral;
 mod ownership;
 mod repay;
-mod siloed_borrow;
+
 mod supply;
 mod validation_admin;
 mod views;

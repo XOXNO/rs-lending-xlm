@@ -284,5 +284,3 @@ fn test_index_sync_emits_events() {
     let count = t.env.events().all().events().len();
     assert!(count > 0, "sync should emit events, got {}", count);
 }
-
-

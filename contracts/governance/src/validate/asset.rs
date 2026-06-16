@@ -95,7 +95,7 @@ pub(crate) fn validate_market_creation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::constants::{RAY, WAD};
+    use common::constants::RAY;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Env, Vec};
 
@@ -107,7 +107,6 @@ mod tests {
             liquidation_fees_bps: 100,
             is_collateralizable: true,
             is_borrowable: true,
-            is_siloed_borrowing: false,
             is_flashloanable: true,
             flashloan_fee_bps: 9,
             borrow_cap: 1_000_000,

@@ -333,8 +333,7 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         .build();
 
     // Create an account explicitly in Multiply mode.
-    let account_id =
-        t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
+    let account_id = t.create_account_full(ALICE, 0, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);

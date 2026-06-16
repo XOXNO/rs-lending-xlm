@@ -34,7 +34,7 @@ pub mod codes {
     pub const SUPPLY_CAP_REACHED: u32 = CollateralError::SupplyCapReached as u32;
     pub const BORROW_CAP_REACHED: u32 = CollateralError::BorrowCapReached as u32;
     pub const ASSET_NOT_BORROWABLE: u32 = CollateralError::AssetNotBorrowable as u32;
-    pub const NOT_BORROWABLE_SILOED: u32 = CollateralError::NotBorrowableSiloed as u32;
+
     pub const POSITION_LIMIT_EXCEEDED: u32 = CollateralError::PositionLimitExceeded as u32;
     pub const POSITION_NOT_FOUND: u32 = CollateralError::PositionNotFound as u32;
     pub const INVALID_POSITION_MODE: u32 = CollateralError::InvalidPositionMode as u32;

@@ -191,8 +191,8 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
 /// Largest currently executable `borrow` amount of `asset` for `account_id`.
 ///
 /// Returns `0` while paused, on an inactive or non-borrowable market, or when
-/// the asset is structurally not borrowable for this account (e-mode category,
-/// siloed set, or borrow-position limit). Otherwise mirrors the mutating path's
+/// the asset is structurally not borrowable for this account (e-mode category or
+/// borrow-position limit). Otherwise mirrors the mutating path's
 /// amount-dependent gates — pool liquidity, max utilization, borrow cap, then
 /// the account LTV and
 /// health-factor gates — and binary-searches the largest passing amount.
@@ -287,25 +287,7 @@ fn account_can_borrow_asset(
         return false;
     }
 
-    siloed_borrow_ok(cache, account, asset)
-}
-
-/// Replica of `validate_siloed_borrow_set`: a siloed asset must be the
-/// account's only borrow across the union of existing debt and this asset.
-fn siloed_borrow_ok(cache: &mut Cache, account: &Account, asset: &Address) -> bool {
-    let mut distinct = account.borrow_positions.len();
-    if !account.borrow_positions.contains_key(asset.clone()) {
-        distinct += 1;
-    }
-    if distinct <= 1 {
-        return true;
-    }
-    for existing in account.borrow_positions.keys() {
-        if cache.cached_asset_config(&existing).is_siloed_borrowing {
-            return false;
-        }
-    }
-    !cache.cached_asset_config(asset).is_siloed_borrowing
+    true
 }
 
 /// Borrow-cap headroom in asset units; `i128::MAX` when the cap is disabled.

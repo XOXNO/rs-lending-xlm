@@ -72,4 +72,3 @@ fn test_multiply_rejects_during_flash_loan() {
     );
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
-

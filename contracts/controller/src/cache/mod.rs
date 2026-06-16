@@ -298,5 +298,4 @@ impl Cache {
         self.emode_assets.set(key, value.clone());
         value
     }
-
 }

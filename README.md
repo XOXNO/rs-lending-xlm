@@ -63,7 +63,7 @@ flowchart LR
   and health factor, RAY for rates and indexes.
 - **Oracle policy**: risk-increasing actions require strict, fully validated
   prices; risk-reducing actions may accept looser prices.
-- **Risk modes**: the controller enforces normal, e-mode, and siloed borrowing.
+- **Risk modes**: the controller enforces normal and e-mode borrowing.
 - **Flash loans**: pools settle by balance snapshot and post-repayment check,
   matching Soroban's invocation-scoped authorization.
 - **Bad debt**: unrecoverable residual debt is socialized through the pool's

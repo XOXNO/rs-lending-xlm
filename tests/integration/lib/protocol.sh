@@ -107,7 +107,7 @@ asset_config_json() {
         liquidation_fees_bps: 100,
         is_collateralizable: true,
         is_borrowable: true,
-        is_siloed_borrowing: false,
+
         is_flashloanable: true,
         flashloan_fee_bps: 5,
         borrow_cap: "0",

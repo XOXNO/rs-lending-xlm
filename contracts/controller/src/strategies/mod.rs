@@ -59,12 +59,5 @@ pub(crate) fn strategy_finalize(
     // swap_debt), mirroring `process_borrow`; debt-neutral strategies
     // (swap_collateral, repay_debt_with_collateral) skip it.
     validation::require_post_pool_risk_gates(env, cache, account);
-    finalize_position_flow(
-        env,
-        account_id,
-        account,
-        cache,
-        PositionSides::BOTH,
-        true,
-    );
+    finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }

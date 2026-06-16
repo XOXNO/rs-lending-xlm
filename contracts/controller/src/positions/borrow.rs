@@ -59,8 +59,8 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     );
 }
 
-// Pre-pool gates only: emptiness, position limits, siloed set, then per-asset
-// market-active and borrowability. LTV valuation runs post-pool in
+// Pre-pool gates only: emptiness, position limits, then per-asset market-active
+// and borrowability. LTV valuation runs post-pool in
 // `require_post_pool_risk_gates` to reuse the borrow's cached market index.
 fn validate_borrow(
     env: &Env,
@@ -76,8 +76,6 @@ fn validate_borrow(
         AccountPositionType::Borrow,
         aggregated,
     );
-    validate_siloed_borrow_set(env, account, aggregated, cache);
-
     for (asset, _) in aggregated {
         validation::require_market_active(env, cache, &asset);
         let asset_config = configs.get(env, &asset);
@@ -154,36 +152,6 @@ fn validate_asset_borrowable(
         asset_config.is_borrowable,
         CollateralError::AssetNotBorrowable
     );
-}
-
-/// Siloed assets must be an account's only borrow; checks the union of
-/// existing debt and the incoming aggregated payments.
-fn validate_siloed_borrow_set(
-    env: &Env,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-) {
-    let mut union: Vec<Address> = Vec::new(env);
-    for asset in account.borrow_positions.keys() {
-        utils::push_unique_address(&mut union, asset);
-    }
-    for (asset, _) in aggregated {
-        utils::push_unique_address(&mut union, asset);
-    }
-
-    if union.len() <= 1 {
-        return;
-    }
-
-    for asset in union {
-        let config = cache.cached_asset_config(&asset);
-        assert_with_error!(
-            env,
-            !config.is_siloed_borrowing,
-            CollateralError::NotBorrowableSiloed
-        );
-    }
 }
 
 /// Creates strategy debt in the pool through the shared borrow gates and

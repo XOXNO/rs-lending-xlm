@@ -95,7 +95,7 @@ pub mod asset_config {
         pub is_collateralizable: bool,
         pub is_borrowable: bool,
         pub has_emode: bool,
-        pub is_siloed_borrowing: bool,
+
         pub is_flashloanable: bool,
         pub flashloan_fee_bps: i128,
         pub borrow_cap: i128,
@@ -116,7 +116,7 @@ pub mod asset_config {
             is_collateralizable: cfg.is_collateralizable,
             is_borrowable: cfg.is_borrowable,
             has_emode: !cfg.e_mode_categories.is_empty(),
-            is_siloed_borrowing: cfg.is_siloed_borrowing,
+
             is_flashloanable: cfg.is_flashloanable,
             flashloan_fee_bps: cfg.flashloan_fee_bps as i128,
             borrow_cap: cfg.borrow_cap,

@@ -106,7 +106,6 @@ pub fn process_repay_debt_with_collateral(
     repay_debt_from_controller(
         env,
         &mut account,
-        account_id,
         &mut cache,
         caller,
         StrategyRepay {

@@ -1,7 +1,7 @@
 use controller::constants::WAD;
 use test_harness::{
     assert_contract_error, days, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
+    LendingTest, PositionType, ALICE, BOB, LIQUIDATOR,
 };
 // 1. test_hf_above_one_after_every_borrow
 

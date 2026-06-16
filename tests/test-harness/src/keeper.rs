@@ -66,11 +66,10 @@ impl LendingTest {
         for id in account_ids {
             ids.push_back(*id);
         }
-        match self.ctrl_client().try_update_account_threshold(
-            &self.keeper,
-            &has_risks,
-            &ids,
-        ) {
+        match self
+            .ctrl_client()
+            .try_update_account_threshold(&self.keeper, &has_risks, &ids)
+        {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

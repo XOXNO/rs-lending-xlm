@@ -39,7 +39,6 @@ pub(crate) fn open_strategy_borrow(
     env: &Env,
     cache: &mut Cache,
     account: &mut Account,
-    _account_id: u64,
     asset: &Address,
     amount: i128,
 ) -> i128 {
@@ -49,7 +48,6 @@ pub(crate) fn open_strategy_borrow(
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     cache: &mut Cache,
     caller: &Address,
     req: StrategyRepay<'_>,
@@ -71,7 +69,6 @@ pub(crate) fn repay_debt_from_controller(
     repay::execute_repayment(
         env,
         account,
-        account_id,
         controller_event_context(env, req.action),
         RepaymentRequest {
             asset: req.debt_token,

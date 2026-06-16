@@ -258,56 +258,6 @@ fn test_swap_debt_non_borrowable_new_debt() {
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
-// The new debt is siloed, but existing borrows include a different token.
-
-#[test]
-fn test_swap_debt_siloed_conflict() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_config("WBTC", |c| {
-            c.is_siloed_borrowing = true;
-        })
-        .build();
-
-    // Start with an ETH borrow.
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    // `swap_debt` borrows WBTC before repaying ETH, so the temporary state
-    // contains both a siloed borrow and an existing ETH borrow.
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
-    let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
-    assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
-}
-// The account has an existing siloed borrow; swapping another debt blocks.
-
-#[test]
-fn test_swap_debt_existing_siloed_borrow_blocks_new() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .with_market_config("ETH", |c| {
-            c.is_siloed_borrowing = true;
-        })
-        .build();
-
-    // Supply, then borrow siloed ETH.
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 1.0);
-
-    // `swap_debt` holds source and target debt positions at the same time. If
-    // either side is siloed, the "single borrow only" invariant is violated
-    // and the swap must fail.
-    t.fund_router("ETH", 1.0);
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
-    let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
-    // The existing ETH borrow is siloed, so the strategy must reject any new
-    // debt.
-    assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
-}
 // The new debt asset has a borrow cap that would be exceeded. The cap check
 // runs after pool.borrow(), which runs before the swap.
 

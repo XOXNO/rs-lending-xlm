@@ -31,7 +31,6 @@ pub struct AssetConfigPreset {
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
-    pub is_siloed_borrowing: bool,
     pub flashloan_fee_bps: u32,
     pub borrow_cap: i128,
     pub supply_cap: i128,
@@ -74,7 +73,6 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     is_collateralizable: true,
     is_borrowable: true,
     is_flashloanable: true,
-    is_siloed_borrowing: false,
     flashloan_fee_bps: 9,
     borrow_cap: 0, // 0 = no cap (tests that need caps override per-market)
     supply_cap: 0, // 0 = no cap
@@ -197,7 +195,6 @@ impl AssetConfigPreset {
             is_collateralizable: self.is_collateralizable,
             is_borrowable: self.is_borrowable,
             is_flashloanable: self.is_flashloanable,
-            is_siloed_borrowing: self.is_siloed_borrowing,
             flashloan_fee_bps: self.flashloan_fee_bps,
             borrow_cap: self.borrow_cap,
             supply_cap: self.supply_cap,

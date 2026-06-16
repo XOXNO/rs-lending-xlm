@@ -31,7 +31,7 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfig
         liquidation_fees_bps: 100,
         is_collateralizable: true,
         is_borrowable: true,
-        is_siloed_borrowing: false,
+
         is_flashloanable: true,
         flashloan_fee_bps: 9,
         e_mode_categories: soroban_sdk::Vec::new(env),

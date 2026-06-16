@@ -79,14 +79,7 @@ pub fn process_liquidation(
 
     validation::require_non_empty_payments(env, &result.repaid);
 
-    apply_liquidation_repayments(
-        env,
-        liquidator,
-        &mut account,
-        account_id,
-        &result.repaid,
-        &mut cache,
-    );
+    apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
     let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
@@ -198,7 +191,6 @@ fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
-    account_id: u64,
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
 ) {
@@ -221,7 +213,6 @@ fn apply_liquidation_repayments(
     repay::settle_repay_actions(
         env,
         account,
-        account_id,
         liquidator,
         crate::events::PositionAction::LiqRepay,
         &actions,

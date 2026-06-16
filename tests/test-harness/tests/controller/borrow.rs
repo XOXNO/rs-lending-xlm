@@ -221,45 +221,7 @@ fn test_borrow_position_limit_exceeded() {
     let result = t.try_borrow(ALICE, "WBTC", 0.001);
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }
-// 10. test_borrow_siloed_asset_blocks_mixed
-
-#[test]
-fn test_borrow_siloed_asset_blocks_mixed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_siloed_borrowing = true;
-        })
-        .with_market(wbtc_preset())
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 0.1);
-
-    // Borrowing WBTC must fail because ETH is siloed.
-    let result = t.try_borrow(ALICE, "WBTC", 0.001);
-    assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
-}
-
-#[test]
-fn test_borrow_bulk_rejects_siloed_asset_mixed_in_same_batch() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.is_siloed_borrowing = true;
-        })
-        .with_market(wbtc_preset())
-        .build();
-
-    t.supply(ALICE, "USDC", 100_000.0);
-
-    let result = t.try_borrow_bulk(ALICE, &[("ETH", 0.1), ("WBTC", 0.001)]);
-    assert_contract_error(result, errors::NOT_BORROWABLE_SILOED);
-    t.assert_borrow_count(ALICE, 0);
-}
-// 11. test_borrow_emode_enhanced_ltv
+// 10. test_borrow_emode_enhanced_ltv
 
 #[test]
 fn test_borrow_emode_enhanced_ltv() {

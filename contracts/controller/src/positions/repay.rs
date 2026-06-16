@@ -51,14 +51,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
 
     let aggregated = utils::aggregate_positive_payments(env, payments);
     validate_repay(env, &account, &aggregated);
-    settle_repay(
-        env,
-        caller,
-        &mut account,
-        account_id,
-        &aggregated,
-        &mut cache,
-    );
+    settle_repay(env, caller, &mut account, &aggregated, &mut cache);
 
     finalize_position_flow(
         env,
@@ -82,7 +75,6 @@ fn settle_repay(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    account_id: u64,
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
@@ -103,7 +95,6 @@ fn settle_repay(
     settle_repay_actions(
         env,
         account,
-        account_id,
         caller,
         crate::events::PositionAction::Repay,
         &actions,
@@ -116,7 +107,6 @@ fn settle_repay(
 pub(crate) fn settle_repay_actions(
     env: &Env,
     account: &mut Account,
-    _account_id: u64,
     payer: &Address,
     action: crate::events::PositionAction,
     actions: &Vec<PoolAction>,
@@ -158,7 +148,6 @@ pub(crate) fn finish_repayment(
 pub fn execute_repayment(
     env: &Env,
     account: &mut Account,
-    account_id: u64,
     ctx: EventContext,
     req: RepaymentRequest<'_>,
     cache: &mut Cache,
@@ -171,6 +160,6 @@ pub fn execute_repayment(
         req.amount,
         req.asset.clone(),
     ));
-    let results = settle_repay_actions(env, account, account_id, &caller, action, &actions, cache);
+    let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

@@ -603,7 +603,6 @@ mod tests {
             is_collateralizable: true,
             is_borrowable: true,
             e_mode_categories: soroban_sdk::Vec::new(env),
-            is_siloed_borrowing: false,
             is_flashloanable: true,
             flashloan_fee_bps: 9,
             borrow_cap: 0,

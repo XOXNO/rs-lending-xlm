@@ -1,8 +1,6 @@
 use controller::constants::MAX_FLASHLOAN_FEE_BPS;
 use soroban_sdk::{vec, Address};
-use test_harness::{
-    usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE,
-};
+use test_harness::{usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE};
 // edit_asset_config is a thin setter: it persists the config as given
 // (input validation lives in governance).
 
