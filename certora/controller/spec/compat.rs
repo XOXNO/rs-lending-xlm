@@ -25,14 +25,21 @@ pub fn borrow_single(env: Env, caller: Address, account_id: u64, asset: Address,
     crate::Controller::borrow(env.clone(), caller, account_id, vec![&env, (asset, amount)]);
 }
 
-/// Single-asset withdraw shim; `to = None` withdraws to the caller.
+/// Single-asset withdraw shim. Havocs the `to` recipient so rules cover both
+/// withdraw-to-self (`None`) and withdraw-to-recipient (`Some`) branches; the
+/// account's position and health math is identical either way.
 pub fn withdraw_single(env: Env, caller: Address, account_id: u64, asset: Address, amount: i128) {
+    let to: Option<Address> = if nondet() {
+        Some(nondet_address())
+    } else {
+        None
+    };
     crate::Controller::withdraw(
         env.clone(),
         caller,
         account_id,
         vec![&env, (asset, amount)],
-        None,
+        to,
     );
 }
 
