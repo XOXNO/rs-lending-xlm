@@ -548,3 +548,34 @@ fn borrow_respects_borrow_cap(
 
     cvlr_assert!(crate::LiquidityPool::borrowed_amount(e, asset) <= cap + 1);
 }
+
+/// A successful borrow never lends beyond reserves: post-borrow cash stays >= 0
+/// (`require_reserves` reverts an over-borrow). `cash` is seeded explicitly and
+/// small so the reserve gate — not utilization or caps — is the binding one.
+#[rule]
+fn borrow_within_reserves(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    caller: Address,
+    amount: i128,
+    cash: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
+    cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        view_state(100 * RAY, 0, 0, RAY, RAY, cash, e.ledger().timestamp()),
+    );
+
+    let _ = borrow_first(
+        &e,
+        caller,
+        action(position(0), amount, asset.clone()),
+        i128::MAX,
+    );
+
+    cvlr_assert!(crate::LiquidityPool::reserves(e, asset) >= 0);
+}
