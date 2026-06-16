@@ -7,7 +7,7 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
-    AccountPosition, AssetConfig, AssetConfigRaw, InterestRateModel, MarketConfig,
+    AccountPosition, AssetConfigRaw, InterestRateModel, MarketConfig,
     MarketOracleConfig, MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
@@ -114,35 +114,20 @@ impl Controller {
     pub fn update_account_threshold(
         env: Env,
         caller: Address,
-        asset: Address,
         has_risks: bool,
         account_ids: Vec<u64>,
     ) {
         validation::require_not_flash_loaning(&env);
 
-        // Propagates threshold updates with safety buffer.
+        // Propagates risk-param updates for every supplied asset on each account.
         let risk = match has_risks {
             true => OraclePolicy::RiskIncreasing,
             false => OraclePolicy::RiskDecreasing,
         };
         let mut cache = Cache::new(&env, risk);
-        validation::require_asset_supported(&env, &mut cache, &asset);
-
-        let base_config = cache.cached_asset_config(&asset);
 
         for account_id in account_ids {
-            let mut account_asset_config = base_config.clone();
-
-            update_position_threshold(
-                &env,
-                account_id,
-                ThresholdUpdate {
-                    asset: &asset,
-                    has_risks,
-                    asset_config: &mut account_asset_config,
-                },
-                &mut cache,
-            );
+            sync_account_thresholds(&env, account_id, has_risks, &mut cache);
         }
     }
 }
@@ -316,36 +301,23 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     storage::renew_user_account(env, account_id);
 }
 
-/// Per-account inputs for a keeper threshold propagation.
-struct ThresholdUpdate<'a> {
-    asset: &'a Address,
-    has_risks: bool,
-    asset_config: &'a mut AssetConfig,
-}
-
-fn update_position_threshold(
+/// Syncs risk params on every supply position for one account, then runs a
+/// single HF gate when `has_risks` propagates liquidation thresholds.
+fn sync_account_thresholds(
     env: &Env,
     account_id: u64,
-    update_req: ThresholdUpdate<'_>,
+    has_risks: bool,
     cache: &mut Cache,
 ) {
-    let ThresholdUpdate {
-        asset,
-        has_risks,
-        asset_config,
-    } = update_req;
-
     // No-op when the account is gone (bad-debt cleanup, full exit).
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
     };
 
     let supply_positions = storage::get_supply_positions(env, account_id);
-
-    // No-op when the account has no supply position for this asset.
-    let Some(position) = supply_positions.get(asset.clone()) else {
+    if supply_positions.is_empty() {
         return;
-    };
+    }
 
     // Load borrow positions only when the health-factor gate requires them.
     let borrow_positions = if has_risks {
@@ -357,37 +329,50 @@ fn update_position_threshold(
     storage::renew_user_account(env, account_id);
 
     let e_mode_category = crate::emode::e_mode_category(env, meta.e_mode_category_id);
-    let asset_emode_config = cache.cached_emode_asset(meta.e_mode_category_id, asset);
-    crate::emode::apply_e_mode_to_asset_config(
-        env,
-        asset_config,
-        &e_mode_category,
-        asset_emode_config,
-    );
+    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
+    let assets = account.supply_positions.keys();
 
-    let mut updated_pos = position;
+    for asset in assets.iter() {
+        validation::require_asset_supported(env, cache, &asset);
 
-    let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
-    let cfg_ltv = asset_config.loan_to_value.raw() as u32;
-    let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
-    if has_risks {
-        updated_pos.liquidation_threshold_bps = cfg_lt;
-    } else {
-        updated_pos.loan_to_value_bps = cfg_ltv;
-        updated_pos.liquidation_bonus_bps = cfg_bonus;
+        let mut asset_config = cache.cached_asset_config(&asset);
+        let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, &asset);
+        crate::emode::apply_e_mode_to_asset_config(
+            env,
+            &mut asset_config,
+            &e_mode_category,
+            asset_emode_config,
+        );
+
+        let position = validation::expect_invariant(env, account.supply_positions.get(asset.clone()));
+        let mut updated_pos = position;
+
+        let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
+        let cfg_ltv = asset_config.loan_to_value.raw() as u32;
+        let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
+        if has_risks {
+            updated_pos.liquidation_threshold_bps = cfg_lt;
+        } else {
+            updated_pos.loan_to_value_bps = cfg_ltv;
+            updated_pos.liquidation_bonus_bps = cfg_bonus;
+        }
+
+        let updated = AccountPosition::from(&updated_pos);
+        helpers::update_or_remove_supply_position(&mut account, &asset, &updated);
+
+        // amount = 0: parameter change only, no deposit or withdraw.
+        let market_index = cache.cached_market_index(&asset);
+        cache.record_position_update(
+            crate::events::PositionAction::ParamUpd,
+            &asset,
+            market_index.supply_index.raw(),
+            0,
+            &updated,
+        );
     }
 
-    let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
-    helpers::update_or_remove_supply_position(
-        &mut account,
-        asset,
-        &AccountPosition::from(&updated_pos),
-    );
-
-    // Persist only the supply side; borrow stays as-is.
     storage::set_supply_positions(env, account_id, &account.supply_positions);
 
-    // Enforce safety buffer on risky updates.
     if has_risks {
         let hf = helpers::calculate_health_factor(
             env,
@@ -402,14 +387,5 @@ fn update_position_threshold(
         );
     }
 
-    // amount = 0: parameter change only, no deposit or withdraw.
-    let market_index = cache.cached_market_index(asset);
-    cache.record_position_update(
-        crate::events::PositionAction::ParamUpd,
-        asset,
-        market_index.supply_index.raw(),
-        0,
-        &AccountPosition::from(&updated_pos),
-    );
     cache.emit_position_batch(account_id, &account);
 }

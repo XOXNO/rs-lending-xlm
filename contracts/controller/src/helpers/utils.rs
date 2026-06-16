@@ -15,16 +15,6 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Pa
     aggregate_payments(env, payments, false)
 }
 
-/// Asset addresses from aggregated payments. Aggregation guarantees uniqueness,
-/// so this is a tuple-to-address projection — no dedup.
-pub fn aggregated_assets(env: &Env, aggregated: &Vec<Payment>) -> Vec<Address> {
-    let mut out: Vec<Address> = Vec::new(env);
-    for (asset, _) in aggregated {
-        out.push_back(asset);
-    }
-    out
-}
-
 /// Appends `addr` to `out` only if not already present (order-preserving dedup).
 pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     if !out.contains(addr.clone()) {

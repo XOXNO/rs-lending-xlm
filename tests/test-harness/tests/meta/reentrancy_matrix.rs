@@ -44,7 +44,7 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     assert_contract_error(t.try_claim_revenue("USDC"), errors::FLASH_LOAN_ONGOING);
     assert_contract_error(t.try_add_rewards("USDC", 1.0), errors::FLASH_LOAN_ONGOING);
     assert_contract_error(
-        t.try_update_account_threshold("USDC", false, &[alice_id]),
+        t.try_update_account_threshold(false, &[alice_id]),
         errors::FLASH_LOAN_ONGOING,
     );
     assert_contract_error(

@@ -386,12 +386,13 @@ fn test_non_isolated_full_repay_fires_zero_redstone_calls() {
     );
 }
 
-// ── No-debt withdraw scopes prefetch to plan assets ───────────────────────────
+// ── No-debt withdraw skips oracle prefetch ────────────────────────────────────
 
 #[test]
 fn test_no_debt_withdraw_fires_zero_redstone_calls() {
-    // Debt-free withdrawals skip LTV/HF/min-collateral gates, so no oracle
-    // reads run even when the account holds multiple RedStone-anchored supplies.
+    // Debt-free withdrawals skip LTV/HF/min-collateral gates and the withdraw
+    // prefetch, so no oracle reads run even when the account holds multiple
+    // RedStone-anchored supplies.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -421,6 +422,42 @@ fn test_no_debt_withdraw_fires_zero_redstone_calls() {
         0,
         "no-debt withdraw must fire zero single RedStone calls"
     );
+}
+
+#[test]
+fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
+    // Multi-asset full close in one tx: enough feeds to cross MIN_BULK_FEEDS (2)
+    // on a single adapter, but debt-free exits must still avoid oracle reads.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
+    anchor_market_with_redstone(&t, &redstone, "USDC");
+    anchor_market_with_redstone(&t, &redstone, "ETH");
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "ETH", 1.0);
+
+    let rs = redstone_counters(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
+    t.withdraw_bulk(ALICE, &[("USDC", 0.0), ("ETH", 0.0)]);
+
+    let rs = redstone_counters(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        0,
+        "no-debt bulk full close must fire zero bulk RedStone calls"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        0,
+        "no-debt bulk full close must fire zero single RedStone calls"
+    );
+    assert_eq!(t.get_active_accounts(ALICE).len(), 0);
 }
 
 // ── Multi-adapter bulk grouping ───────────────────────────────────────────────

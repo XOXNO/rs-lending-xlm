@@ -283,7 +283,7 @@ fn test_update_account_threshold_safe() {
 
     // Update safe params (has_risks=false): LTV, bonus, fees.
     // Should succeed without an HF check.
-    t.update_account_threshold("USDC", false, &[account_id]);
+    t.update_account_threshold(false, &[account_id]);
 
     // Position should still exist and stay healthy.
     t.assert_healthy(ALICE);
@@ -315,7 +315,7 @@ fn test_update_account_threshold_risky() {
 
     // Update risky params (has_risks=true): liquidation threshold.
     // Should trigger the HF check but pass since HF is very high.
-    t.update_account_threshold("USDC", true, &[account_id]);
+    t.update_account_threshold(true, &[account_id]);
 
     t.assert_healthy(ALICE);
 
@@ -353,7 +353,7 @@ fn test_update_account_threshold_rejects_low_hf() {
         c.liquidation_threshold_bps = 6100;
     });
 
-    let result = t.try_update_account_threshold("USDC", true, &[account_id]);
+    let result = t.try_update_account_threshold(true, &[account_id]);
     assert_contract_error(result, errors::HEALTH_FACTOR_TOO_LOW);
 }
 // 8. test_update_account_threshold_deprecated_emode_uses_base_params
@@ -373,13 +373,47 @@ fn test_update_account_threshold_deprecated_emode_uses_base_params() {
     assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 9800);
 
     t.remove_e_mode_category(1);
-    t.update_account_threshold("USDC", true, &[account_id]);
+    t.update_account_threshold(true, &[account_id]);
 
     assert_eq!(
         supply_threshold_bps(&t, account_id, "USDC"),
         8000,
         "deprecated eMode categories should fall back to base asset thresholds during propagation"
     );
+}
+
+#[test]
+fn test_update_account_threshold_syncs_all_supply_assets() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 50_000.0);
+    t.supply(ALICE, "ETH", 10.0);
+    t.borrow(ALICE, "ETH", 0.5);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let (usdc_threshold_before, _, _) = supply_risk_fields(&t, account_id, "USDC");
+    let (eth_threshold_before, _, _) = supply_risk_fields(&t, account_id, "ETH");
+    assert_ne!(usdc_threshold_before, 6100);
+    assert_ne!(eth_threshold_before, 6100);
+
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value_bps = 5000;
+        c.liquidation_threshold_bps = 6100;
+    });
+    t.edit_asset_config("ETH", |c| {
+        c.loan_to_value_bps = 5000;
+        c.liquidation_threshold_bps = 6100;
+    });
+
+    t.update_account_threshold(true, &[account_id]);
+
+    assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 6100);
+    assert_eq!(supply_threshold_bps(&t, account_id, "ETH"), 6100);
+    t.assert_healthy(ALICE);
 }
 // 9. test_keeper_role_required
 

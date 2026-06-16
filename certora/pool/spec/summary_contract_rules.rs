@@ -498,3 +498,49 @@ fn capital_utilisation_view_nonneg(
     );
     cvlr_assert!(crate::LiquidityPool::capital_utilisation(e, asset) >= 0);
 }
+
+// Cap enforcement against the real `LiquidityPool` ops (mirrors
+// `utils::enforce_supply_cap`/`enforce_borrow_cap`): a successful, panic-free op
+// leaves the pool total within the cap; the over-cap path reverts and is skipped
+// by assert semantics. `+ 1` absorbs the half-up unscale rounding of the view.
+
+/// A successful supply keeps total supplied within a finite supply cap.
+#[rule]
+fn supply_respects_supply_cap(e: Env, admin: Address, asset: Address, amount: i128, cap: i128) {
+    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
+    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        state(0, 0, 0, e.ledger().timestamp()),
+    );
+
+    let _ = supply_first(&e, action(position(0), amount, asset.clone()), cap);
+
+    cvlr_assert!(crate::LiquidityPool::supplied_amount(e, asset) <= cap + 1);
+}
+
+/// A successful borrow keeps total borrowed within a finite borrow cap.
+#[rule]
+fn borrow_respects_borrow_cap(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    caller: Address,
+    amount: i128,
+    cap: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
+    cvlr_assume!(cap > 0 && cap <= 1_000_000_000_000i128);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        state(100 * RAY, 0, 0, e.ledger().timestamp()),
+    );
+
+    let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()), cap);
+
+    cvlr_assert!(crate::LiquidityPool::borrowed_amount(e, asset) <= cap + 1);
+}

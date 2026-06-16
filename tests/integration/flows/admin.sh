@@ -38,7 +38,7 @@ flow_admin() {
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
         --caller "$ADMIN_ADDR" --assets "[\"$XLM_SAC\",\"$USDC_SAC\",\"$SAC_LIQA\"]" >/dev/null
     inv update_account_threshold "$ADMIN" "$CONTROLLER" -- update_account_threshold \
-        --caller "$ADMIN_ADDR" --asset "$SAC_LIQA" --has_risks false \
+        --caller "$ADMIN_ADDR" --has_risks false \
         --account_ids "[${LIQ2_ACCT:-1}]" >/dev/null || true
 
     # Revenue: rewards in, revenue out (REVENUE role). Admin's USDC is spent

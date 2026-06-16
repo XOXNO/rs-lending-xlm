@@ -16,9 +16,10 @@ use common::math::fp::{Ray, Wad};
 //   * utilization==0 when supplied==0 — common/spec/rates_rules.rs.
 //   * supply-index floor / monotonicity — pool/spec/integrity_rules.rs and
 //     common/spec/rates_rules.rs.
-//   * claim<=reserves, borrow<=reserves, supply/borrow caps — TODO: prove pool-side
-//     by constraining the corresponding pool summary postcondition and adding a
-//     `*_satisfies_*` lemma in pool/spec/summary_contract_rules.rs.
+//   * supply/borrow caps — pool/spec/summary_contract_rules.rs
+//     (supply_respects_supply_cap, borrow_respects_borrow_cap, real ops).
+//   * claim<=reserves, borrow<=reserves — TODO: prove pool-side against the real
+//     reserve gate (the pool summary currently havocs reserves independently).
 
 /// Isolated debt stays non-negative after repay.
 #[rule]

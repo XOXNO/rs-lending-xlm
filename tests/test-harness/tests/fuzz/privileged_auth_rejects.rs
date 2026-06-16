@@ -230,7 +230,7 @@ proptest! {
         }).unwrap();
         expect_rejected("update_account_threshold (KEEPER)", || {
             ctrl.set_auths(&no_auths)
-                .try_update_account_threshold(&random_addr, &usdc, &false, &empty_ids)
+                .try_update_account_threshold(&random_addr, &false, &empty_ids)
         }).unwrap();
         expect_rejected("claim_revenue (REVENUE)", || {
             ctrl.set_auths(&no_auths).try_claim_revenue(&random_addr, &empty_assets)

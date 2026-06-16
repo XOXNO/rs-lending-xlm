@@ -46,32 +46,28 @@ impl LendingTest {
     }
     // Account threshold propagation
 
-    /// Update account thresholds for a set of accounts on a given asset.
-    pub fn update_account_threshold(&self, asset_name: &str, has_risks: bool, account_ids: &[u64]) {
-        let asset = self.resolve_asset(asset_name);
+    /// Sync risk params on every supply position for each account.
+    pub fn update_account_threshold(&self, has_risks: bool, account_ids: &[u64]) {
         let mut ids = Vec::new(&self.env);
         for id in account_ids {
             ids.push_back(*id);
         }
         self.ctrl_client()
-            .update_account_threshold(&self.keeper, &asset, &has_risks, &ids);
+            .update_account_threshold(&self.keeper, &has_risks, &ids);
     }
 
     /// Try update account threshold -- returns Result.
     pub fn try_update_account_threshold(
         &self,
-        asset_name: &str,
         has_risks: bool,
         account_ids: &[u64],
     ) -> Result<(), soroban_sdk::Error> {
-        let asset = self.resolve_asset(asset_name);
         let mut ids = Vec::new(&self.env);
         for id in account_ids {
             ids.push_back(*id);
         }
         match self.ctrl_client().try_update_account_threshold(
             &self.keeper,
-            &asset,
             &has_risks,
             &ids,
         ) {

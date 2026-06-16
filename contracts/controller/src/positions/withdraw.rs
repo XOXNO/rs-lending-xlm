@@ -102,7 +102,7 @@ fn settle_withdraw(
     cache: &mut Cache,
 ) -> Vec<Payment> {
     validation::require_non_empty_payments(env, aggregated);
-    prefetch_withdraw_oracles(env, cache, account, aggregated);
+    prefetch_withdraw_oracles(cache, account);
 
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (asset, amount) in aggregated.iter() {
@@ -136,22 +136,14 @@ fn settle_withdraw(
     paid
 }
 
-/// Bulk-prefetches RedStone feeds for the assets withdraw may price.
-/// Debt-free exits scope to the aggregated withdrawal set; indebted accounts
-/// prefetch the full supply+borrow union for post-pool LTV/HF gates.
-fn prefetch_withdraw_oracles(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-) {
-    let priced_assets = if account.borrow_positions.is_empty() {
-        utils::aggregated_assets(env, aggregated)
-    } else {
-        let mut all = account.supply_positions.keys();
-        all.append(&account.borrow_positions.keys());
-        all
-    };
+/// Bulk-prefetches RedStone feeds for post-pool LTV/HF gates on indebted accounts.
+/// Debt-free exits need no prices and return immediately.
+fn prefetch_withdraw_oracles(cache: &mut Cache, account: &Account) {
+    if account.borrow_positions.is_empty() {
+        return;
+    }
+    let mut priced_assets = account.supply_positions.keys();
+    priced_assets.append(&account.borrow_positions.keys());
     crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
