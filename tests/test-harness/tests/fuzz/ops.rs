@@ -127,13 +127,7 @@ pub fn execute_op(t: &mut LendingTest, op: &LendingOp) {
                 return;
             }
             let steps = t.mock_swap_steps("ETH", "USDC", controller::constants::WAD * 2_000);
-            let _ = t.try_swap_debt(
-                user,
-                "USDC",
-                *new_debt_amt as f64 * 0.1,
-                "ETH",
-                &steps,
-            );
+            let _ = t.try_swap_debt(user, "USDC", *new_debt_amt as f64 * 0.1, "ETH", &steps);
         }
     }
 }

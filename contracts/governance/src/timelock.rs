@@ -15,6 +15,9 @@
 //! `execute_*` entrypoints in `self_timelock.rs` (inline dispatch). The generic
 //! `execute` rejects self-target calls because Soroban prohibits self-reentry.
 
+use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
+use crate::storage::renew_governance_instance;
+use crate::{Governance, GovernanceArgs, GovernanceClient};
 use common::errors::GenericError;
 use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
@@ -25,9 +28,6 @@ use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
     hash_operation, Operation, OperationState,
 };
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
-use crate::storage::renew_governance_instance;
-use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 /// Rejects a zero minimum timelock delay, which would nullify the timelock.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
@@ -472,5 +472,4 @@ mod tests {
         let admin = Address::generate(&env);
         let _ = env.register(Governance, (admin, 0u32));
     }
-
 }

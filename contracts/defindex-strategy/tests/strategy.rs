@@ -385,9 +385,6 @@ fn test_withdraw_over_balance_returns_insufficient_balance() {
     s.client().deposit(&(1_000 * UNIT), &s.vault);
 
     let sink = Address::generate(&s.t.env);
-    let result = flatten_strategy_result(
-        s.client()
-            .try_withdraw(&(1_001 * UNIT), &s.vault, &sink),
-    );
+    let result = flatten_strategy_result(s.client().try_withdraw(&(1_001 * UNIT), &s.vault, &sink));
     assert_strategy_error(result, DeFindexStrategyError::InsufficientBalance as u32);
 }

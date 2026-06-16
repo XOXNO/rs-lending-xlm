@@ -6,7 +6,9 @@
 //! helpers, and the role allowlist.
 
 use common::errors::GenericError;
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol};
+use soroban_sdk::{
+    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
+};
 use stellar_access::{access_control, ownable};
 
 use crate::{Governance, GovernanceArgs, GovernanceClient};

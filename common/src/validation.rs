@@ -67,10 +67,7 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
 pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,
-        min_wad > 0
-            && max_wad > 0
-            && min_wad < max_wad
-            && max_wad <= MAX_REASONABLE_PRICE_WAD,
+        min_wad > 0 && max_wad > 0 && min_wad < max_wad && max_wad <= MAX_REASONABLE_PRICE_WAD,
         OracleError::InvalidSanityBounds
     );
 }

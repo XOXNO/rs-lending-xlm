@@ -29,9 +29,7 @@ fn mint_to(t: &LendingTest, asset_name: &str, target: &Address, raw_amount: i128
 
 fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
     match result {
-        Ok(account_id) => panic!(
-            "OverPull must be rejected, got Ok(account_id={account_id})"
-        ),
+        Ok(account_id) => panic!("OverPull must be rejected, got Ok(account_id={account_id})"),
         Err(err) => {
             let internal = soroban_sdk::Error::from_contract_error(errors::INTERNAL_ERROR);
             let err_str = format!("{err:?}");

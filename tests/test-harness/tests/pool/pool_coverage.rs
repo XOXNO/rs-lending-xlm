@@ -114,7 +114,10 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
 
     let claimed = t.claim_revenue("USDC");
 
-    assert!(claimed > 0, "proportional burn branch must claim positive revenue");
+    assert!(
+        claimed > 0,
+        "proportional burn branch must claim positive revenue"
+    );
     assert_eq!(claimed, res_raw, "claim must be capped at pool reserves");
 
     // Verify the token flow on the proportional-burn branch: pool released

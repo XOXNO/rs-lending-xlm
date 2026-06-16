@@ -27,7 +27,12 @@ fn begin_proposal(env: &Env, proposer: &Address) {
     access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
 }
 
-fn schedule_self_op(env: &Env, function: &str, args: soroban_sdk::Vec<Val>, salt: BytesN<32>) -> BytesN<32> {
+fn schedule_self_op(
+    env: &Env,
+    function: &str,
+    args: soroban_sdk::Vec<Val>,
+    salt: BytesN<32>,
+) -> BytesN<32> {
     let operation = Operation {
         target: env.current_contract_address(),
         function: Symbol::new(env, function),
@@ -137,11 +142,7 @@ impl Governance {
         schedule_self_op(
             &env,
             "grant_role",
-            vec![
-                &env,
-                account.into_val(&env),
-                role.into_val(&env),
-            ],
+            vec![&env, account.into_val(&env), role.into_val(&env)],
             salt,
         )
     }
@@ -179,11 +180,7 @@ impl Governance {
         schedule_self_op(
             &env,
             "revoke_role",
-            vec![
-                &env,
-                account.into_val(&env),
-                role.into_val(&env),
-            ],
+            vec![&env, account.into_val(&env), role.into_val(&env)],
             salt,
         )
     }
@@ -326,12 +323,7 @@ mod tests {
         env.mock_all_auths();
         let (admin, gov) = register(&env, 10);
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        gov.propose_grant_governance_role(
-            &admin,
-            &admin,
-            &Symbol::new(&env, "KEEPER"),
-            &salt,
-        );
+        gov.propose_grant_governance_role(&admin, &admin, &Symbol::new(&env, "KEEPER"), &salt);
     }
 
     #[test]

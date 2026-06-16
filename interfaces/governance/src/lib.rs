@@ -77,12 +77,7 @@ pub trait GovernanceInterface {
     ) -> BytesN<32>;
 
     /// Executes a scheduled minimum timelock delay update.
-    fn execute_update_delay(
-        env: Env,
-        executor: Option<Address>,
-        new_delay: u32,
-        salt: BytesN<32>,
-    );
+    fn execute_update_delay(env: Env, executor: Option<Address>, new_delay: u32, salt: BytesN<32>);
 
     /// Schedules a governance role grant.
     fn propose_grant_governance_role(

@@ -2,8 +2,7 @@ extern crate std;
 
 use test_harness::{
     apply_flash_fee, build_aggregator_swap, days, eth_preset, usd_cents, usdc_preset,
-    usdt_stable_preset,
-    LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
+    usdt_stable_preset, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_EMODE,
 };
 // 1. test_supply_creates_position
 

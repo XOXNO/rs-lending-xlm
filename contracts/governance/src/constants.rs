@@ -9,5 +9,3 @@ pub const TIMELOCK_MIN_DELAY_LEDGERS: u32 = 34_560;
 /// Maximum time a Ready operation remains executable. Prevents abandoned
 /// proposals from being executed long after the social context has changed.
 pub const TIMELOCK_OPERATION_GRACE_LEDGERS: u32 = 120_960;
-
-

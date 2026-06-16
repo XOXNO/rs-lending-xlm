@@ -10,9 +10,9 @@ use common::oracle::observation::{
 use controller_interface::types::{MarketOracleConfigInput, OracleStrategy};
 #[cfg(not(feature = "testing"))]
 use controller_interface::types::{OracleReadMode, OracleSourceConfigInput};
-use soroban_sdk::{assert_with_error, Env};
 #[cfg(not(feature = "testing"))]
 use soroban_sdk::panic_with_error;
+use soroban_sdk::{assert_with_error, Env};
 
 /// Validates oracle shape without live calls.
 pub(crate) fn validate_oracle_config_shape(env: &Env, config: &MarketOracleConfigInput) {

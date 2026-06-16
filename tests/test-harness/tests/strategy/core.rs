@@ -1,7 +1,5 @@
 use controller::constants::WAD;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE,
-};
+use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE};
 
 use crate::helpers::build_swap_steps;
 // 1. test_multiply_rejects_non_borrowable_debt -- asserts ASSET_NOT_BORROWABLE
