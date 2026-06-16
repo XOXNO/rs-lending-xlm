@@ -170,7 +170,7 @@ pub fn borrow_for_strategy(
     validate_borrow(env, account, &aggregated, &configs, cache);
 
     let debt_config = configs.get(env, debt_token);
-    let flash_fee = debt_config.flashloan_fee.apply_to(env, amount);
+    let flash_fee = debt_config.flashloan_fee.flash_loan_fee_on(env, amount);
     let borrow_position = account.get_or_create_debt_position(debt_token);
 
     let pool_addr = cache.cached_pool_address();

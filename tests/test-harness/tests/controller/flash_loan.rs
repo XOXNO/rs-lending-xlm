@@ -13,12 +13,7 @@ fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
 
 fn flash_fee(t: &LendingTest, asset_name: &str, amount: i128) -> i128 {
     let config = t.get_asset_config(asset_name);
-    let fee = Bps::from(config.flashloan_fee_bps).apply_to(&t.env, amount);
-    if config.flashloan_fee_bps > 0 && fee == 0 {
-        1
-    } else {
-        fee
-    }
+    Bps::from(config.flashloan_fee_bps).flash_loan_fee_on(&t.env, amount)
 }
 
 fn flash_guard_cleared(t: &LendingTest) -> bool {

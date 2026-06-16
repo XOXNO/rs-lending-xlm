@@ -5,7 +5,6 @@
 
 use crate::events::FlashLoanEvent;
 use common::errors::FlashLoanError;
-use common::math::fp::Bps;
 use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -53,7 +52,7 @@ pub fn process_flash_loan(
     );
     validation::require_wasm_receiver(env, receiver);
 
-    let fee = flash_loan_fee(env, asset_config.flashloan_fee, amount);
+    let fee = asset_config.flashloan_fee.flash_loan_fee_on(env, amount);
     let pool_addr = cache.cached_pool_address();
 
     // Reentrancy guard.
@@ -73,13 +72,4 @@ pub fn process_flash_loan(
         fee,
     }
     .publish(env);
-}
-
-fn flash_loan_fee(env: &Env, fee: Bps, amount: i128) -> i128 {
-    let fee_amount = fee.apply_to(env, amount);
-    if fee.raw() > 0 && fee_amount == 0 {
-        1
-    } else {
-        fee_amount
-    }
 }

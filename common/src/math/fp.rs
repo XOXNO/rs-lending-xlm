@@ -322,6 +322,19 @@ impl Bps {
         fp_core::mul_div_half_up(env, amount, self.0, BPS)
     }
 
+    /// Flash-loan and strategy-borrow fee from this BPS rate.
+    ///
+    /// When the rate is positive but half-up rounding yields zero, returns `1`
+    /// so dust amounts still pay a unit fee.
+    pub fn flash_loan_fee_on(self, env: &Env, amount: i128) -> i128 {
+        let fee_amount = self.apply_to(env, amount);
+        if self.raw() > 0 && fee_amount == 0 {
+            1
+        } else {
+            fee_amount
+        }
+    }
+
     /// Applies this BPS ratio to a WAD value.
     pub fn apply_to_wad(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
@@ -516,6 +529,20 @@ mod tests {
         let amount = 1_000_000_000;
         let fee = fee_bps.apply_to(&env, amount);
         assert_eq!(fee, 5_000_000);
+    }
+
+    #[test]
+    fn test_bps_flash_loan_fee_on_charges_min_unit_when_bps_positive() {
+        let env = Env::default();
+        let fee_bps = Bps::from(9);
+        assert_eq!(fee_bps.apply_to(&env, 1), 0);
+        assert_eq!(fee_bps.flash_loan_fee_on(&env, 1), 1);
+    }
+
+    #[test]
+    fn test_bps_flash_loan_fee_on_allows_zero_when_bps_zero() {
+        let env = Env::default();
+        assert_eq!(Bps::from(0).flash_loan_fee_on(&env, 1), 0);
     }
 
     #[test]
