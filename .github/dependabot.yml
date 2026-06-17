@@ -11,7 +11,9 @@ updates:
       actions:
         patterns:
           - "*"
-    # Open PRs with conventional commit style subject when possible.
-    commit-message-prefix: "ci(deps): "
+    # Conventional-commit subjects: prefix + dependency scope => "ci(deps): ...".
+    commit-message:
+      prefix: "ci"
+      include: "scope"
     # Limit to keep review load reasonable.
     open-pull-requests-limit: 5

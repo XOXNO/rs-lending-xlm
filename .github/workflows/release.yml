@@ -169,7 +169,13 @@ jobs:
   testnet-e2e:
     name: Testnet e2e
     needs: build
-    runs-on: ubuntu-latest
+    # Self-hosted: only this job hits the XOXNO aggregator API, which is behind
+    # a Cloudflare bot challenge. Our self-hosted runner's IP is allow-listed in
+    # Cloudflare, so the `agg` lane can fetch swap routes (GitHub-hosted runners
+    # get the "Just a moment..." JS challenge). The build job stays GitHub-hosted
+    # for stronger build-provenance attestation. Add labels (e.g.
+    # `[self-hosted, linux, x64]`) if you run multiple runner pools.
+    runs-on: self-hosted
     timeout-minutes: 120
     # Serialize whole workflow runs: only the `agg` lane touches the shared
     # XOXNO aggregator/DEX venue, so concurrent release runs would still race
@@ -202,7 +208,12 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install harness tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q jq xxd
+        # Skip apt when the self-hosted runner is already provisioned with jq/xxd.
+        run: |
+          if command -v jq >/dev/null 2>&1 && command -v xxd >/dev/null 2>&1; then
+            echo "jq + xxd already present"; exit 0
+          fi
+          sudo apt-get update -q && sudo apt-get install -y -q jq xxd
 
       # Deploy-sized controller/pool/flash receiver + optimized oracle mocks.
       - name: Build integration WASM
