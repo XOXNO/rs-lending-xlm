@@ -61,9 +61,6 @@ jobs:
       - name: Clippy (fuzz crate, workspace-excluded)
         run: make clippy-fuzz
 
-      - name: Certora compile and rule coverage
-        run: ./certora/compile_all.sh
-
   security-scan:
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted

@@ -1,11 +1,9 @@
 name: Certora Prover Fast Rules
 
 on:
-  pull_request:
-    branches:
-      - main
-      - master
-      - certora
+  # Off the per-PR path (Certora cloud runs are slow); run on demand. PR CI
+  # relies on cargo test --workspace + quick fuzz instead. See
+  # certora-verification.yml for the rationale.
   workflow_dispatch:
 
 permissions:

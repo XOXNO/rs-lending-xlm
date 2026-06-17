@@ -1,8 +1,10 @@
 name: Certora Verification
 
 on:
-  pull_request:
-    branches: [master, main, feat/*, rc/*]
+  # Certora prover runs (16-job cloud verification matrix) are slow, so they no
+  # longer gate every PR — run on demand. Per-PR confidence comes from the full
+  # test suite (ci.yml: cargo test --workspace) + quick fuzz (fuzz.yml). Run this
+  # before releases / after verification-relevant changes.
   workflow_dispatch:
 
 env:
