@@ -22,14 +22,24 @@ flow_flash_loans() {
         --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
 
+    # Each malicious mode must REVERT the flash loan; the exact code varies by
+    # mechanism (the precise per-mode codes are pinned by the unit / Certora
+    # flash_loan rules). #402 = InvalidFlashloanRepay, #400 = FlashLoanOngoing.
+    #  - reenter_pool: the receiver re-enters pool.flash_loan while the pool is
+    #    already on the call stack; Soroban 26.x forbids contract re-entry at the
+    #    HOST level -> Error(Context, InvalidAction), not a #40x contract code.
+    #  - panic: the receiver panics with ReceiverError::CallbackPanic (#3), which
+    #    propagates as a contract error (or a host trap).
+    #  - reenter_supply: the receiver re-enters controller.supply; the repay
+    #    shortfall (#402) / FlashLoanOngoing (#400) / host re-entry block aborts it.
     local mode name pattern
     for mode in 1 2 3 4 5; do
         case $mode in
             1) name=no_repay; pattern='Error\(Contract, #402\)' ;;
             2) name=under_repay; pattern='Error\(Contract, #402\)' ;;
-            3) name=reenter_pool; pattern='Error\(Contract, #40[0-9]\)' ;;
-            4) name=panic; pattern='Error\(Contract, #40[0-9]\)|Trapped' ;;
-            5) name=reenter_supply; pattern='Error\(Contract, #400\)' ;;
+            3) name=reenter_pool; pattern='InvalidAction|re-entry|Error\(Contract, #40[0-9]\)' ;;
+            4) name=panic; pattern='Error\(Contract, #3\)|Trapped|Error\(Contract, #40[0-9]\)' ;;
+            5) name=reenter_supply; pattern='Error\(Contract, #40[0-9]\)|InvalidAction|re-entry' ;;
         esac
         xfail "flash_loan_$name" "$pattern" "$ALICE" "$CONTROLLER" -- flash_loan \
             --caller "$ALICE_ADDR" --asset "$USDC_SAC" --amount 100000000 \

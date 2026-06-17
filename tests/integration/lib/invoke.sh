@@ -90,7 +90,7 @@ xfail() {
     for attempt in 1 2 3; do
         [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
         log "xfail [$label] $fn (expect: $pattern)"
-        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
+        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" ${XFAIL_SEND_NO:+--send=no} -- "$@" \
             >"$out_f" 2>"$err_f"; then
             record "$label" UNEXPECTED-OK "$fn" "" "" "" "" "" "expected revert '$pattern'"
             log "UNEXPECTED-OK [$label]"
@@ -111,6 +111,15 @@ xfail() {
     record "$label" "${INV_FAIL_STATUS:-FAIL}" "$fn" "" "" "" "" "" "wrong revert; wanted '$pattern' got: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
     log "WRONG-REVERT [$label]: $(tail -2 "$err_f")"
     return 1
+}
+
+# Simulate-only expect-revert: like xfail but never sends (--send=no), so an
+# unexpectedly-successful guard cannot land a real tx and corrupt downstream
+# state. Use for pure pre-condition guards (LTV / health gates) whose revert is
+# already reached at simulation.
+#   xfail_sim <label> <grep-pattern> <signer> <contract> -- <fn> [args...]
+xfail_sim() {
+    XFAIL_SEND_NO=1 xfail "$@"
 }
 
 # Read-only invoke (no signing; result on stdout). Recorded as a read.

@@ -128,14 +128,16 @@ flow_lifecycle() {
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$XLM_SAC" 25000000000)"
-    # Retried: live Reflector round rotation between sim and apply can surface
-    # as ResourceLimitExceeded instead of the contract revert under test.
-    leg_withdraw_locked() {
-        xfail withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
-            --caller "$ALICE_ADDR" --account_id "$acct" \
-            --withdrawals "$(pay_vec "$XLM_SAC" 15000000000)"
-    }
-    retry_leg leg_withdraw_locked
+    # Over-LTV withdraw guard (#100). Simulate-only (xfail_sim): a single XLM-only
+    # withdrawal is not over-LTV when ALICE also holds USDC collateral, and live
+    # oracle drift makes any fixed size unreliable — a real send that unexpectedly
+    # lands would strip collateral and break the withdraw flow below. Withdrawing
+    # ALL collateral (XLM+USDC, amount-0 sentinel) while debt is still open zeroes
+    # collateral against open debt, so the post-withdraw health gate
+    # (validation.rs InsufficientCollateral) reverts deterministically at any price.
+    xfail_sim withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
+        --caller "$ALICE_ADDR" --account_id "$acct" \
+        --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)"
 
     # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
     local usdc_debt_pre_partial

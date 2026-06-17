@@ -20,6 +20,26 @@ _assert_fail() {
   return 1
 }
 
+# Overflow-safe unsigned-integer comparison. View values (health factor, scaled
+# debt) are WAD/i128-scale and routinely exceed bash's signed 64-bit range — a
+# health factor above ~9.2 is already > 2^63, where `[ "$a" -ge "$b" ]` errors
+# and silently fails the assertion. These compare decimal-integer STRINGS
+# exactly: first by digit count, then lexicographically at equal length.
+_strip0() {
+  local s="$1"
+  while [ "${s:0:1}" = "0" ] && [ "${#s}" -gt 1 ]; do s="${s:1}"; done
+  printf '%s' "$s"
+}
+_is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
+_uint_ge() {  # A >= B
+  _is_uint "$1" && _is_uint "$2" || return 1
+  local a b; a="$(_strip0 "$1")"; b="$(_strip0 "$2")"
+  if [ "${#a}" -ne "${#b}" ]; then [ "${#a}" -gt "${#b}" ]; return; fi
+  [[ "$a" > "$b" || "$a" == "$b" ]]
+}
+_uint_lt() { ! _uint_ge "$1" "$2"; }   # A < B
+_uint_le() { _uint_ge "$2" "$1"; }     # A <= B
+
 assert_bool_view() {
   local label="$1" expected="$2"
   shift 2
@@ -41,35 +61,35 @@ assert_hf_at_least() {
   local label="$1" acct="$2" min_wad="$3"
   local hf
   hf=$(_view_int "$label" health_factor --account_id "$acct")
-  { [ -n "$hf" ] && [ "$hf" -ge "$min_wad" ]; } || _assert_fail "$label" "hf=$hf want >= $min_wad"
+  _uint_ge "$hf" "$min_wad" || _assert_fail "$label" "hf=$hf want >= $min_wad"
 }
 
 assert_hf_below_wad() {
   local label="$1" acct="$2"
   local hf
   hf=$(_view_int "$label" health_factor --account_id "$acct")
-  { [ -n "$hf" ] && [ "$hf" -lt "$WAD" ]; } || _assert_fail "$label" "hf=$hf want < $WAD (liquidatable)"
+  _uint_lt "$hf" "$WAD" || _assert_fail "$label" "hf=$hf want < $WAD (liquidatable)"
 }
 
 assert_borrow_at_most() {
   local label="$1" acct="$2" asset="$3" max_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  { [ -n "$debt" ] && [ "$debt" -le "$max_raw" ]; } || _assert_fail "$label" "borrow=$debt want <= $max_raw"
+  _uint_le "$debt" "$max_raw" || _assert_fail "$label" "borrow=$debt want <= $max_raw"
 }
 
 assert_borrow_at_least() {
   local label="$1" acct="$2" asset="$3" min_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  { [ -n "$debt" ] && [ "$debt" -ge "$min_raw" ]; } || _assert_fail "$label" "borrow=$debt want >= $min_raw"
+  _uint_ge "$debt" "$min_raw" || _assert_fail "$label" "borrow=$debt want >= $min_raw"
 }
 
 assert_borrow_decreased() {
   local label="$1" acct="$2" asset="$3" before_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  { [ -n "$debt" ] && [ "$debt" -lt "$before_raw" ]; } || _assert_fail "$label" "borrow=$debt want < $before_raw"
+  _uint_lt "$debt" "$before_raw" || _assert_fail "$label" "borrow=$debt want < $before_raw"
 }
 
 assert_can_liquidated() {
