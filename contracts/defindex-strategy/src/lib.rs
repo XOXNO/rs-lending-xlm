@@ -192,9 +192,15 @@ impl DeFindexStrategyTrait for Strategy {
         let ctx = Ctx::try_load(&env)?;
 
         token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
-        ctx.authorize_supply_to_pool(amount);
 
+        // Resolve (and clear any stale) vault account BEFORE authorizing the pool
+        // transfer. `prepare_vault_account_for_supply` may cross-call
+        // `controller.account_exists`, and `authorize_as_current_contract` only
+        // covers the next sub-invocation — an intervening call would consume it,
+        // leaving `supply`'s strategy->pool transfer unauthorized
+        // (Error(Auth, InvalidAction)) on re-deposit after a full-withdraw close.
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
+        ctx.authorize_supply_to_pool(amount);
         let new_or_existing_id =
             ctx.controller
                 .supply(&ctx.strategy, &stored_id, &0u32, &ctx.to_payment(amount));
