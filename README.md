@@ -1,6 +1,6 @@
 # XOXNO Lending
 
-[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/ci.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/ci.yml) ![Rust](https://img.shields.io/badge/Rust-1.93-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
+[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/ci.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/ci.yml) ![Rust](https://img.shields.io/badge/Rust-1.95-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square) ![Status](https://img.shields.io/badge/status-pre--audit-yellow?style=flat-square)
 
 XOXNO Lending is a multi-asset lending protocol for Stellar Soroban. It uses a
 governance, controller, and central-pool architecture: governance owns the
