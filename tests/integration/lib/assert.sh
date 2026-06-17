@@ -103,12 +103,20 @@ assert_market_field() {
   [ "$got" = "$expected" ] || _assert_fail "$label" "asset_config.$field=$got want $expected"
 }
 
-# Asserts the market status enum (Active | Disabled | PendingOracle).
+# Asserts the market status. MarketStatus is a discriminant enum, so the CLI
+# renders `.status` as the integer code (PendingOracle=0, Active=1, Disabled=2);
+# the name is mapped here so callers stay readable.
 assert_market_status() {
-  local label="$1" asset="$2" expected="$3"
+  local label="$1" asset="$2" want="$3" want_code
+  case "$want" in
+    PendingOracle) want_code=0 ;;
+    Active)        want_code=1 ;;
+    Disabled)      want_code=2 ;;
+    *)             want_code="$want" ;;
+  esac
   local got
   got=$(view "$label" "$CONTROLLER" -- get_market_config --asset "$asset" | jq -r '.status')
-  [ "$got" = "$expected" ] || _assert_fail "$label" "status=$got want $expected"
+  [ "$got" = "$want_code" ] || _assert_fail "$label" "status=$got want $want ($want_code)"
 }
 
 assert_pool_revenue_decreased() {

@@ -47,8 +47,9 @@ flow_admin() {
         --first_tolerance 300 --last_tolerance 600)
     inv set_oracle_tolerance "$ADMIN" "$CONTROLLER" -- set_oracle_tolerance \
         --asset "$EURC_SAC" --tolerance "$tol_bands" >/dev/null
-    # Owner-gated: a non-owner caller fails the owner.require_auth() (host Auth error).
-    xfail oracle_tol_owner_guard 'Error\(Auth' "$ALICE" "$CONTROLLER" -- set_oracle_tolerance \
+    # Owner-gated: a non-owner caller can't satisfy the owner's require_auth(), so
+    # the CLI reports a missing signing key for the owner account.
+    xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$CONTROLLER" -- set_oracle_tolerance \
         --asset "$EURC_SAC" --tolerance "$tol_bands"
 
     # Keeper ops (KEEPER role; granted to admin at construct).
