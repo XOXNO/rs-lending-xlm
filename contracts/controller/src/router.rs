@@ -14,6 +14,8 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::{only_owner, only_role, when_not_paused};
 
 use crate::cache::Cache;
+use crate::emode;
+use crate::events;
 use crate::external::pool::{
     pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
     pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
@@ -285,7 +287,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
     cache.record_market_update(&state);
 }
 
-pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: soroban_sdk::Vec<(Address, i128)>) {
+pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i128)>) {
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
     for (asset, amount) in rewards.iter() {
         add_reward(env, caller, &asset, amount, &mut cache);
@@ -323,7 +325,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     storage::renew_user_account(env, account_id);
 
-    let e_mode_category = crate::emode::e_mode_category(env, meta.e_mode_category_id);
+    let e_mode_category = emode::e_mode_category(env, meta.e_mode_category_id);
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 
@@ -332,7 +334,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
         let mut asset_config = cache.cached_asset_config(&asset);
         let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, &asset);
-        crate::emode::apply_e_mode_to_asset_config(
+        emode::apply_e_mode_to_asset_config(
             env,
             &mut asset_config,
             &e_mode_category,
@@ -359,7 +361,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         // amount = 0: parameter change only, no deposit or withdraw.
         let market_index = cache.cached_market_index(&asset);
         cache.record_position_update(
-            crate::events::PositionAction::ParamUpd,
+            events::PositionAction::ParamUpd,
             &asset,
             market_index.supply_index.raw(),
             0,

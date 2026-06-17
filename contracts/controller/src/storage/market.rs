@@ -41,6 +41,7 @@ pub(crate) fn try_get_market_config(env: &Env, asset: &Address) -> Option<Market
 mod tests {
     use super::*;
     use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use crate::Controller;
     use controller_interface::types::{AssetConfigRaw, MarketOracleConfig, MarketStatus};
     use soroban_sdk::testutils::storage::Persistent as _;
     use soroban_sdk::testutils::{Address as _, Ledger};
@@ -72,7 +73,7 @@ mod tests {
     fn test_try_get_market_config_renews_shared_ttl_on_read() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(crate::Controller, (admin,));
+        let contract_id = env.register(Controller, (admin,));
         let asset = Address::generate(&env);
 
         env.as_contract(&contract_id, || {

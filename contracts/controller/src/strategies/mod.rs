@@ -30,6 +30,7 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::cache::Cache;
 use crate::helpers::utils;
+use crate::oracle;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::validation;
 
@@ -44,7 +45,7 @@ pub(crate) fn prefetch_strategy_oracles(
     for asset in extra_assets.iter() {
         utils::push_unique_address(&mut priced_assets, asset.clone());
     }
-    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
 /// Re-check solvency, persist both sides (or remove empty accounts), and emit

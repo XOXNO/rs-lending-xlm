@@ -9,6 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
+use crate::events;
 use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     execute_withdraw_all, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
@@ -91,7 +92,7 @@ pub fn process_repay_debt_with_collateral(
             asset: collateral_token,
             amount: collateral_amount,
             position: &collateral_pos,
-            action: crate::events::PositionAction::RpColWd,
+            action: events::PositionAction::RpColWd,
         },
     );
 
@@ -112,7 +113,7 @@ pub fn process_repay_debt_with_collateral(
             debt_token,
             debt_available,
             debt_pos: &debt_pos,
-            action: crate::events::PositionAction::RpColR,
+            action: events::PositionAction::RpColR,
         },
     );
 

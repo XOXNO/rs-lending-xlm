@@ -16,13 +16,13 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
 use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
-use crate::{Governance, GovernanceClient};
+use crate::{constants, storage, Governance, GovernanceClient};
 
 fn register_governance(env: &Env) -> (Address, Address, GovernanceClient<'_>) {
     let admin = Address::generate(env);
     let gov_id = env.register(
         Governance,
-        (admin.clone(), crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
+        (admin.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
     );
     let gov = GovernanceClient::new(env, &gov_id);
     (admin, gov_id, gov)
@@ -165,7 +165,7 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
     let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = env.register(controller::Controller, (gov_id.clone(),));
     env.as_contract(&gov_id, || {
-        crate::storage::set_controller(&env, &controller_id);
+        storage::set_controller(&env, &controller_id);
     });
 
     let limits = PositionLimits {
@@ -293,7 +293,7 @@ fn entrypoint_renews_governance_instance_ttl() {
     let grantee = Address::generate(&env);
     gov.propose_grant_governance_role(&admin, &grantee, &role, &salt);
     env.ledger().with_mut(|l| {
-        l.sequence_number += crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
+        l.sequence_number += constants::TIMELOCK_MIN_DELAY_LEDGERS;
     });
     gov.execute_grant_governance_role(&Some(admin.clone()), &grantee, &role, &salt);
 

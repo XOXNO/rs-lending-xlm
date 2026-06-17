@@ -13,6 +13,7 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 use super::{finalize_position_flow, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
+use crate::events;
 use crate::external::pool::pool_repay_call;
 use crate::helpers::update_or_remove_debt_position;
 use crate::helpers::utils::{self, EventContext};
@@ -96,7 +97,7 @@ fn settle_repay(
         env,
         account,
         caller,
-        crate::events::PositionAction::Repay,
+        events::PositionAction::Repay,
         &actions,
         cache,
     );
@@ -108,7 +109,7 @@ pub(crate) fn settle_repay_actions(
     env: &Env,
     account: &mut Account,
     payer: &Address,
-    action: crate::events::PositionAction,
+    action: events::PositionAction,
     actions: &Vec<PoolAction>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
@@ -124,7 +125,7 @@ pub(crate) fn settle_repay_actions(
 /// Merges one pool repay result back into the account and event buffers.
 pub(crate) fn finish_repayment(
     account: &mut Account,
-    action: crate::events::PositionAction,
+    action: events::PositionAction,
     asset: &Address,
     result: &PoolPositionMutation,
     cache: &mut Cache,

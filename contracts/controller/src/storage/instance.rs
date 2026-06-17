@@ -4,6 +4,7 @@
 //! `FlashLoanOngoing` is a temporary transaction guard that blocks re-entrant
 //! controller mutations during flash-loan and strategy callbacks.
 
+use crate::constants;
 use common::errors::GenericError;
 use controller_interface::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
@@ -160,7 +161,7 @@ pub(crate) fn get_min_borrow_collateral_usd_wad(env: &Env) -> i128 {
     env.storage()
         .instance()
         .get(&ControllerKey::MinBorrowCollateralUsd)
-        .unwrap_or(crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD)
+        .unwrap_or(constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD)
 }
 
 pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
@@ -202,6 +203,7 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Controller;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;
 
@@ -211,7 +213,7 @@ mod tests {
     fn test_token_approval_counter_tracks_outstanding_set() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(crate::Controller, (admin,));
+        let contract_id = env.register(Controller, (admin,));
         env.as_contract(&contract_id, || {
             let token = Address::generate(&env);
             set_token_approved(&env, &token, true);
@@ -234,7 +236,7 @@ mod tests {
     fn test_token_approval_cap_rejects_overflowing_approval() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(crate::Controller, (admin,));
+        let contract_id = env.register(Controller, (admin,));
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_OUTSTANDING_TOKEN_APPROVALS {
                 set_token_approved(&env, &Address::generate(&env), true);

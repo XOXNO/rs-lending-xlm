@@ -11,7 +11,7 @@ use soroban_sdk::{
 };
 use stellar_access::{access_control, ownable};
 
-use crate::{Governance, GovernanceArgs, GovernanceClient};
+use crate::{storage, timelock, Governance, GovernanceArgs, GovernanceClient};
 
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
@@ -88,12 +88,12 @@ fn owner_or_panic(env: &Env) -> Address {
 }
 
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
-    crate::storage::renew_governance_instance(env);
+    storage::renew_governance_instance(env);
     stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
 }
 
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    crate::storage::renew_governance_instance(env);
+    storage::renew_governance_instance(env);
     let current_owner = owner_or_panic(env);
 
     stellar_access::role_transfer::transfer_role(
@@ -127,14 +127,14 @@ fn require_executor_canceller_separation(env: &Env, account: &Address, role: &Sy
 }
 
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
-    crate::storage::renew_governance_instance(env);
+    storage::renew_governance_instance(env);
     require_executor_canceller_separation(env, account, role);
     let owner = owner_or_panic(env);
     access_control::grant_role_no_auth(env, account, role, &owner);
 }
 
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
-    crate::storage::renew_governance_instance(env);
+    storage::renew_governance_instance(env);
     // Revoke unheld roles as errors so operators cannot mistake a no-op for
     // a revocation.
     assert_with_error!(
@@ -156,12 +156,12 @@ impl Governance {
             access_control::grant_role_no_auth(&env, &admin, &role, &admin);
         }
 
-        crate::timelock::require_nonzero_delay(&env, min_delay);
+        timelock::require_nonzero_delay(&env, min_delay);
         stellar_governance::timelock::set_min_delay(&env, min_delay);
     }
 
     pub fn accept_ownership(env: Env) {
-        crate::storage::renew_governance_instance(&env);
+        storage::renew_governance_instance(&env);
         let previous_owner = owner_or_panic(&env);
         ownable::accept_ownership(&env);
         let new_owner = owner_or_panic(&env);
@@ -179,7 +179,7 @@ mod tests {
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;
 
-    use crate::GovernanceClient;
+    use crate::{constants, GovernanceClient};
 
     #[test]
     fn constructor_grants_oracle_role_to_admin() {
@@ -187,7 +187,7 @@ mod tests {
         let admin = Address::generate(&env);
         let contract_id = env.register(
             Governance,
-            (admin.clone(), crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
+            (admin.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
         );
         let client = GovernanceClient::new(&env, &contract_id);
 
@@ -200,10 +200,7 @@ mod tests {
 
     fn fresh_governance(env: &Env) -> Address {
         let admin = Address::generate(env);
-        env.register(
-            Governance,
-            (admin, crate::constants::TIMELOCK_MIN_DELAY_LEDGERS),
-        )
+        env.register(Governance, (admin, constants::TIMELOCK_MIN_DELAY_LEDGERS))
     }
 
     // Delegates cannot hold both EXECUTOR and CANCELLER.

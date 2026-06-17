@@ -16,6 +16,7 @@ use stellar_macros::when_not_paused;
 use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
 use crate::emode;
+use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::update_or_remove_debt_position;
 use crate::oracle::policy::OraclePolicy;
@@ -110,7 +111,7 @@ fn settle_borrow(
         merge_borrow_result(
             account,
             &entry.action.asset,
-            crate::events::PositionAction::Borrow,
+            events::PositionAction::Borrow,
             &result,
             cache,
         );
@@ -121,7 +122,7 @@ fn settle_borrow(
 fn merge_borrow_result(
     account: &mut Account,
     asset: &Address,
-    action: crate::events::PositionAction,
+    action: events::PositionAction,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -187,7 +188,7 @@ pub fn borrow_for_strategy(
     merge_borrow_result(
         account,
         debt_token,
-        crate::events::PositionAction::Multiply,
+        events::PositionAction::Multiply,
         &mutation,
         cache,
     );

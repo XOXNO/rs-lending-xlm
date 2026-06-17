@@ -11,7 +11,7 @@
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
 use crate::storage::renew_governance_instance;
-use crate::{Governance, GovernanceArgs, GovernanceClient};
+use crate::{constants, forward, validate, Governance, GovernanceArgs, GovernanceClient};
 use common::errors::GenericError;
 use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
@@ -58,8 +58,7 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
         return;
     }
 
-    let expires_at =
-        ready_ledger.saturating_add(crate::constants::TIMELOCK_OPERATION_GRACE_LEDGERS);
+    let expires_at = ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS);
     assert_with_error!(
         env,
         env.ledger().sequence() <= expires_at,
@@ -148,7 +147,7 @@ impl Governance {
         asset: Address,
         cfg: MarketOracleConfigInput,
     ) -> MarketOracleConfig {
-        crate::forward::resolve_market_oracle(&env, &asset, &cfg)
+        forward::resolve_market_oracle(&env, &asset, &cfg)
     }
 
     /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` scheduled
@@ -158,7 +157,7 @@ impl Governance {
         first_tolerance: u32,
         last_tolerance: u32,
     ) -> OraclePriceFluctuation {
-        crate::validate::tolerance::validate_and_calculate_tolerances(
+        validate::tolerance::validate_and_calculate_tolerances(
             &env,
             first_tolerance,
             last_tolerance,

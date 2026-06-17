@@ -13,9 +13,11 @@ use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 use crate::cache::Cache;
 use crate::emode;
+use crate::events;
 use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
+use crate::oracle;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::{
     finalize_position_flow, get_supply_position_or_panic, make_pool_action, AggregatedPayments,
@@ -122,7 +124,7 @@ fn settle_withdraw(
         account,
         recipient,
         false,
-        crate::events::PositionAction::Withdraw,
+        events::PositionAction::Withdraw,
         &entries,
         cache,
     );
@@ -143,7 +145,7 @@ fn prefetch_withdraw_oracles(cache: &mut Cache, account: &Account) {
     }
     let mut priced_assets = account.supply_positions.keys();
     priced_assets.append(&account.borrow_positions.keys());
-    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
 /// Executes one bulk pool withdraw for `entries` (one cross-contract frame)
@@ -153,7 +155,7 @@ pub(crate) fn settle_withdraw_entries(
     account: &mut Account,
     recipient: &Address,
     is_liquidation: bool,
-    action: crate::events::PositionAction,
+    action: events::PositionAction,
     entries: &Vec<PoolWithdrawEntry>,
     cache: &mut Cache,
 ) -> Vec<PoolPositionMutation> {
@@ -218,7 +220,7 @@ fn withdraw_refresh_e_mode_for_asset(
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,
-    action: crate::events::PositionAction,
+    action: events::PositionAction,
     asset: &Address,
     refresh_e_mode: Option<&Option<EModeCategory>>,
     result: &PoolPositionMutation,

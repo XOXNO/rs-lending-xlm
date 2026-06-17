@@ -31,15 +31,16 @@ pub mod test_support {
     //! White-box hooks for the verification harness. Routes through the real
     //! storage helpers so tests drive the same flash-loan guard production
     //! uses. Compiled under `testing`; excluded from production contracts.
+    use crate::storage;
     use soroban_sdk::Env;
 
     pub fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
-        crate::storage::set_flash_loan_ongoing(env, ongoing);
+        storage::set_flash_loan_ongoing(env, ongoing);
     }
 
     #[must_use]
     pub fn is_flash_loan_ongoing(env: &Env) -> bool {
-        crate::storage::is_flash_loan_ongoing(env)
+        storage::is_flash_loan_ongoing(env)
     }
 }
 

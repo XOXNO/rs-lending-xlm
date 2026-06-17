@@ -88,6 +88,7 @@ pub(crate) fn is_within_anchor(
 mod tests {
     use super::*;
     use crate::cache::Cache;
+    use crate::constants;
     use crate::oracle::policy::OraclePolicy;
 
     fn sample_tolerance() -> OraclePriceFluctuation {
@@ -102,13 +103,7 @@ mod tests {
     #[test]
     fn test_is_within_anchor_zero_anchor_returns_false() {
         let env = Env::default();
-        assert!(!is_within_anchor(
-            &env,
-            0,
-            100 * crate::constants::WAD,
-            200,
-            200
-        ));
+        assert!(!is_within_anchor(&env, 0, 100 * constants::WAD, 200, 200));
     }
 
     #[test]
@@ -123,8 +118,8 @@ mod tests {
     fn test_calculate_final_price_first_band_risk_increasing_uses_midpoint() {
         let env = Env::default();
         let cache = Cache::build(&env, OraclePolicy::RiskIncreasing);
-        let anchor = 100 * crate::constants::WAD;
-        let primary = 101 * crate::constants::WAD;
+        let anchor = 100 * constants::WAD;
+        let primary = 101 * constants::WAD;
         let price = calculate_final_price(&cache, Some(anchor), Some(primary), &sample_tolerance());
         assert_eq!(price, (anchor + primary) / 2);
     }
@@ -133,10 +128,10 @@ mod tests {
     fn test_calculate_final_price_first_band_risk_decreasing_keeps_primary() {
         let env = Env::default();
         let cache = Cache::build(&env, OraclePolicy::RiskDecreasing);
-        let primary = 101 * crate::constants::WAD;
+        let primary = 101 * constants::WAD;
         let price = calculate_final_price(
             &cache,
-            Some(100 * crate::constants::WAD),
+            Some(100 * constants::WAD),
             Some(primary),
             &sample_tolerance(),
         );
@@ -164,8 +159,8 @@ mod tests {
         };
         let _ = calculate_final_price(
             &cache,
-            Some(100 * crate::constants::WAD),
-            Some(200 * crate::constants::WAD),
+            Some(100 * constants::WAD),
+            Some(200 * constants::WAD),
             &tight,
         );
     }
@@ -180,13 +175,9 @@ mod tests {
             last_upper_ratio_bps: 10_020,
             last_lower_ratio_bps: 9_980,
         };
-        let primary = 200 * crate::constants::WAD;
-        let price = calculate_final_price(
-            &cache,
-            Some(100 * crate::constants::WAD),
-            Some(primary),
-            &tight,
-        );
+        let primary = 200 * constants::WAD;
+        let price =
+            calculate_final_price(&cache, Some(100 * constants::WAD), Some(primary), &tight);
         assert_eq!(price, primary);
     }
 }

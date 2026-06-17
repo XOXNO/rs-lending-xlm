@@ -9,6 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
+use crate::events;
 use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
@@ -102,7 +103,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
             asset: current_collateral,
             amount: from_amount,
             position: &current_pos,
-            action: crate::events::PositionAction::SwColWd,
+            action: events::PositionAction::SwColWd,
         },
     );
 

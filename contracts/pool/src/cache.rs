@@ -9,6 +9,8 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
+use crate::utils;
+
 pub struct Cache {
     pub env: Env,
     pub supplied: Ray,
@@ -40,7 +42,7 @@ impl Cache {
             .get(&PoolKey::State(asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
         // Renew after loads because `extend_ttl` panics on missing keys (soroban-sdk 26.x).
-        crate::utils::renew_market_keys(env, asset);
+        utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
         let timestamp = env
@@ -290,6 +292,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::init_ledger;
+    use crate::{LiquidityPool, LiquidityPoolClient};
     use common::constants::RAY;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Address;
@@ -322,8 +325,8 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
-            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
+            let contract = env.register(LiquidityPool, (admin.clone(),));
+            LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             Self {
                 env,

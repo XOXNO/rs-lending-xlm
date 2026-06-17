@@ -605,6 +605,7 @@ mod lib_orchestration_tests {
     extern crate std;
 
     use crate::test_support::init_ledger;
+    use crate::{LiquidityPool, LiquidityPoolClient};
     use common::constants::RAY;
     use common::types::{MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
     use soroban_sdk::testutils::Address as _;
@@ -639,8 +640,8 @@ mod lib_orchestration_tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
-            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
+            let contract = env.register(LiquidityPool, (admin.clone(),));
+            LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             // Seed liquidity for repay/overpay scenarios.
             let tok_admin = token::StellarAssetClient::new(&env, &asset);
@@ -653,8 +654,8 @@ mod lib_orchestration_tests {
             }
         }
 
-        fn client(&self) -> crate::LiquidityPoolClient<'_> {
-            crate::LiquidityPoolClient::new(&self.env, &self.contract)
+        fn client(&self) -> LiquidityPoolClient<'_> {
+            LiquidityPoolClient::new(&self.env, &self.contract)
         }
     }
 

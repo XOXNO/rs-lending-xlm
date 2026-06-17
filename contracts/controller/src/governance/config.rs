@@ -22,6 +22,7 @@ use soroban_sdk::{
 };
 use stellar_macros::{only_owner, only_role};
 
+use crate::validation;
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -189,7 +190,7 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
 }
 
 pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    crate::validation::validate_position_limits(env, &limits);
+    validation::validate_position_limits(env, &limits);
     storage::set_position_limits(env, &limits);
     UpdatePositionLimitsEvent {
         max_supply_positions: limits.max_supply_positions,

@@ -16,7 +16,9 @@ use stellar_macros::when_not_paused;
 use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
 use crate::emode;
+use crate::events;
 use crate::external::pool::pool_supply_call;
+use crate::helpers;
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
@@ -185,7 +187,7 @@ fn settle_deposit(
 
         // Emit with the exact supply index the pool used, not a re-read.
         cache.record_position_update(
-            crate::events::PositionAction::Supply,
+            events::PositionAction::Supply,
             asset,
             result.market_index.supply_index_ray,
             entry.action.amount,
@@ -204,5 +206,5 @@ fn create_account_for_first_asset(
     _aggregated: &AggregatedPayments,
     _cache: &mut Cache,
 ) -> (u64, Account) {
-    crate::helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
+    helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
 }

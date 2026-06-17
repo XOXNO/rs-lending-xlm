@@ -154,6 +154,7 @@ pub fn validate_bulk_position_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Controller;
     use controller_interface::types::{Account, AccountPositionType};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Vec};
@@ -162,7 +163,7 @@ mod tests {
     fn test_validate_bulk_position_limits_dedupes_duplicate_assets() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(crate::Controller, (admin,));
+        let contract_id = env.register(Controller, (admin,));
         let asset = Address::generate(&env);
         let owner = Address::generate(&env);
         let account = Account {

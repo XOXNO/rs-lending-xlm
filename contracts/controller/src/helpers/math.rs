@@ -9,6 +9,7 @@ use controller_interface::types::{AccountPositionRaw, DebtPositionRaw};
 use soroban_sdk::{Address, Env, Map};
 
 use crate::cache::Cache;
+use crate::oracle;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// USD WAD value of a scaled position at the supplied index and price.
@@ -85,7 +86,7 @@ pub fn calculate_post_pool_risk_totals(
 ) -> PostPoolRiskTotals {
     let mut priced_assets = supply_positions.keys();
     priced_assets.append(&borrow_positions.keys());
-    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    oracle::prefetch_redstone_feeds(cache, &priced_assets);
     cache.prefetch_market_indexes(&priced_assets);
 
     let mut ltv_collateral = Wad::ZERO;
@@ -192,7 +193,7 @@ fn calculate_account_totals_body(
     // reads below.
     let mut priced_assets = supply_positions.keys();
     priced_assets.append(&borrow_positions.keys());
-    crate::oracle::prefetch_redstone_feeds(cache, &priced_assets);
+    oracle::prefetch_redstone_feeds(cache, &priced_assets);
     cache.prefetch_market_indexes(&priced_assets);
 
     let mut total_collateral = Wad::ZERO;

@@ -15,6 +15,7 @@ use soroban_sdk::{panic_with_error, Address, Env};
 
 use super::super::observation::{build_observation, OracleObservation};
 use crate::cache::Cache;
+use crate::oracle;
 
 pub(crate) fn read_reflector_source(
     cache: &mut Cache,
@@ -74,7 +75,7 @@ fn resolve_usd_quote(cache: &mut Cache, quote: &Address) -> PriceFeedRaw {
             _ => panic_with_error!(&env, OracleError::InvalidOracleBase),
         },
     }
-    crate::oracle::token_price(cache, quote)
+    oracle::token_price(cache, quote)
 }
 
 pub(crate) fn observation_from_price_data(

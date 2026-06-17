@@ -9,6 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
+use crate::events;
 use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
@@ -107,7 +108,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
             debt_token: existing_debt_token,
             debt_available: swapped_amount,
             debt_pos: &existing_pos,
-            action: crate::events::PositionAction::SwDebtR,
+            action: events::PositionAction::SwDebtR,
         },
     );
 

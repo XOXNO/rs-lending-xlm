@@ -75,7 +75,7 @@ pub fn validate_e_mode_asset(
     let market = match cache.market_configs.get(asset.clone()) {
         Some(m) => m,
         None => {
-            let m = crate::storage::get_market_config(env, asset);
+            let m = storage::get_market_config(env, asset);
             cache.market_configs.set(asset.clone(), m.clone());
             m
         }

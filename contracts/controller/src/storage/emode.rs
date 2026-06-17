@@ -67,6 +67,7 @@ pub(crate) fn remove_emode_asset(env: &Env, category_id: u32, asset: &Address) {
 mod tests {
     use super::*;
     use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use crate::Controller;
     use soroban_sdk::testutils::storage::Persistent as _;
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{Address, Env, Map};
@@ -77,7 +78,7 @@ mod tests {
     fn test_try_get_emode_category_renews_shared_ttl_on_read() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id = env.register(crate::Controller, (admin,));
+        let contract_id = env.register(Controller, (admin,));
 
         env.as_contract(&contract_id, || {
             let cat = EModeCategoryRaw {

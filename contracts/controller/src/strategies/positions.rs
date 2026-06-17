@@ -8,6 +8,7 @@ use controller_interface::types::{Account, AccountPosition, DebtPosition};
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::cache::Cache;
+use crate::events;
 use crate::helpers::utils::{self, EventContext};
 use crate::positions::borrow;
 use crate::positions::repay::{self, RepaymentRequest};
@@ -18,17 +19,17 @@ pub(crate) struct StrategyRepay<'a> {
     pub debt_token: &'a Address,
     pub debt_available: i128,
     pub debt_pos: &'a DebtPosition,
-    pub action: crate::events::PositionAction,
+    pub action: events::PositionAction,
 }
 
 pub(crate) struct StrategyWithdraw<'a> {
     pub asset: &'a Address,
     pub amount: i128,
     pub position: &'a AccountPosition,
-    pub action: crate::events::PositionAction,
+    pub action: events::PositionAction,
 }
 
-fn controller_event_context(env: &Env, action: crate::events::PositionAction) -> EventContext {
+fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
         caller: env.current_contract_address(),
         action,
@@ -120,7 +121,7 @@ pub(crate) fn execute_withdraw_all(
                 account,
                 EventContext {
                     caller: destination.clone(),
-                    action: crate::events::PositionAction::CloseWd,
+                    action: events::PositionAction::CloseWd,
                 },
                 WithdrawalRequest {
                     asset: &asset,

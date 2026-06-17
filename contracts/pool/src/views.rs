@@ -79,6 +79,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::init_ledger;
+    use crate::{LiquidityPool, LiquidityPoolClient};
     use common::constants::RAY;
     use common::math::fp::Ray;
     use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
@@ -126,8 +127,8 @@ mod tests {
                 last_timestamp: 950_000,
                 cash: 50_000_000,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
-            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
+            let contract = env.register(LiquidityPool, (admin.clone(),));
+            LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             env.as_contract(&contract, || {
                 env.storage()

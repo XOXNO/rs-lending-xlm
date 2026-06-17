@@ -22,6 +22,7 @@ use super::{
     PositionSides,
 };
 use crate::cache::Cache;
+use crate::events;
 use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
@@ -212,7 +213,7 @@ fn apply_liquidation_repayments(
         env,
         account,
         liquidator,
-        crate::events::PositionAction::LiqRepay,
+        events::PositionAction::LiqRepay,
         &actions,
         cache,
     );
@@ -241,7 +242,7 @@ fn apply_liquidation_seizures(
         account,
         liquidator,
         true,
-        crate::events::PositionAction::LiqSeize,
+        events::PositionAction::LiqSeize,
         &entries,
         cache,
     );

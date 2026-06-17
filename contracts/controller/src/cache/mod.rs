@@ -48,7 +48,7 @@ pub struct Cache {
 impl Cache {
     /// Creates a cache for mutating flows and renews controller instance TTL.
     pub fn new(env: &Env, oracle_policy: OraclePolicy) -> Self {
-        crate::storage::renew_controller_instance(env);
+        storage::renew_controller_instance(env);
         Self::build(env, oracle_policy)
     }
 

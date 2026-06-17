@@ -9,6 +9,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, By
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
+use crate::helpers;
 use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
@@ -223,7 +224,7 @@ fn load_or_create_multiply_account(
     if account_id == 0 {
         // `create_account` returns the in-memory snapshot it wrote; no storage
         // re-read is needed.
-        return crate::helpers::create_account(env, caller, e_mode_category, mode);
+        return helpers::create_account(env, caller, e_mode_category, mode);
     }
 
     let account = storage::get_account(env, account_id);

@@ -102,6 +102,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::init_ledger;
+    use crate::{LiquidityPool, LiquidityPoolClient};
     use common::constants::RAY;
     use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
     use soroban_sdk::testutils::Address as _;
@@ -134,8 +135,8 @@ mod tests {
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
-            let contract = env.register(crate::LiquidityPool, (admin.clone(),));
-            crate::LiquidityPoolClient::new(&env, &contract).create_market(&params);
+            let contract = env.register(LiquidityPool, (admin.clone(),));
+            LiquidityPoolClient::new(&env, &contract).create_market(&params);
 
             Self {
                 env,
