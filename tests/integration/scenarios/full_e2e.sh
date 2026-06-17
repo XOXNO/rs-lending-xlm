@@ -14,7 +14,7 @@ source "$HERE/../env.sh"
 for f in core invoke assert wallet assets aggregator oracle protocol report; do
     source "$INTEG_DIR/lib/$f.sh"
 done
-for f in lifecycle strategies liquidation admin stress; do
+for f in lifecycle strategies liquidation admin governance stress; do
     source "$INTEG_DIR/flows/$f.sh"
 done
 
@@ -22,7 +22,7 @@ init_run
 cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
 trap 'write_report; run_summary' EXIT
 
-PHASES="${PHASES:-deploy lifecycle strategies liquidation admin stress}"
+PHASES="${PHASES:-deploy lifecycle strategies liquidation admin governance stress}"
 
 want() { grep -qw "$1" <<<"$PHASES"; }
 
@@ -56,10 +56,17 @@ if want liquidation; then
     flow_liq_bulk
     flow_liq_emode
     flow_clean_bad_debt
+    flow_caps
 fi
 
 if want admin; then
     flow_admin
+fi
+
+# Governance timelock e2e on the governance-owned controller (independent of the
+# EOA controller state); runs before admin_upgrade pauses the EOA controller.
+if want governance; then
+    flow_governance
 fi
 
 if want stress; then

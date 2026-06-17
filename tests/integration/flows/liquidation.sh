@@ -182,3 +182,56 @@ flow_clean_bad_debt() {
         --caller "$ADMIN_ADDR" --account_id "$acct" >/dev/null
     assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0
 }
+
+# Supply-cap / borrow-cap revert coverage on a dedicated, stable ($1) mock market.
+# borrow_cap/supply_cap default to 0 (disabled) protocol-wide, so these reverts
+# are otherwise never exercised. Each cap is tightened via edit_asset_config,
+# breached (#105 / #106), then reset to disabled so nothing leaks to later flows.
+flow_caps() {
+    phase caps
+    if [ -z "${CAP_SETUP_DONE:-}" ]; then
+        # CAP: the capped market (borrow target). CAPC: a stable mock collateral
+        # so the borrow-cap test needs no real market — keeps this flow pure-mock.
+        issue_sac SAC_CAP CAP
+        issue_sac SAC_CAPC CAPC
+        for code in CAP CAPC; do
+            trustline "$BOB" "$code" "$ADMIN_ADDR"
+            trustline "$CAROL" "$code" "$ADMIN_ADDR"
+        done
+        mint_to "$SAC_CAP"  CAP  "$BOB_ADDR"   $((100000 * LIQ_UNIT))
+        mint_to "$SAC_CAP"  CAP  "$CAROL_ADDR" $((100000 * LIQ_UNIT))
+        mint_to "$SAC_CAPC" CAPC "$BOB_ADDR"   $((100000 * LIQ_UNIT))
+        set_mock_price "$SAC_CAP"  "$WAD" px_init_CAP
+        set_mock_price "$SAC_CAPC" "$WAD" px_init_CAPC
+        create_market CAP  "$SAC_CAP"  7 "$(oracle_cfg_mock_single "$SAC_CAP")"  "$(asset_config_json 7000 7500 800)"
+        create_market CAPC "$SAC_CAPC" 7 "$(oracle_cfg_mock_single "$SAC_CAPC")" "$(asset_config_json 7000 7500 800)"
+        # Carol seeds CAP liquidity so the borrow-cap test has cash to draw.
+        inv cap_seed "$CAROL" "$CONTROLLER" -- supply \
+            --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+            --assets "$(pay_vec "$SAC_CAP" $((20000 * LIQ_UNIT)))" >/dev/null || return 1
+        save_state CAP_SETUP_DONE 1
+    fi
+
+    # Supply cap: tighten below current supply, breach, reset to disabled.
+    inv cap_supply_tighten "$ADMIN" "$CONTROLLER" -- edit_asset_config \
+        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800 '.supply_cap="1"')" >/dev/null
+    xfail cap_supply_breach 'Error\(Contract, #105\)' "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --assets "$(pay_vec "$SAC_CAP" $((1000 * LIQ_UNIT)))"
+    inv cap_supply_reset "$ADMIN" "$CONTROLLER" -- edit_asset_config \
+        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800)" >/dev/null
+
+    # Borrow cap: BOB supplies stable CAPC collateral, then a CAP borrow above the
+    # cap reverts (#106). The tiny borrow stays well within LTV so #106, not #100.
+    local cap_acct
+    cap_acct=$(inv cap_coll_supply "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --assets "$(pay_vec "$SAC_CAPC" $((3000 * LIQ_UNIT)))" | tr -d '"') || return 1
+    inv cap_borrow_tighten "$ADMIN" "$CONTROLLER" -- edit_asset_config \
+        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800 '.borrow_cap="1"')" >/dev/null
+    xfail cap_borrow_breach 'Error\(Contract, #106\)' "$BOB" "$CONTROLLER" -- borrow \
+        --caller "$BOB_ADDR" --account_id "$cap_acct" \
+        --borrows "$(pay_vec "$SAC_CAP" $((10 * LIQ_UNIT)))"
+    inv cap_borrow_reset "$ADMIN" "$CONTROLLER" -- edit_asset_config \
+        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800)" >/dev/null
+}

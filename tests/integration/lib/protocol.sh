@@ -8,10 +8,10 @@
 #
 # Market creation follows the production sequence: approve_token →
 # create_liquidity_pool (pending: not collateralizable/borrowable) →
-# configure_market_oracle → edit_asset_config (activate). Oracle configs for
-# mock markets must use Twap (Spot-only primaries reject with
-# SpotOnlyNotProductionSafe #38) and market params must include
-# max_utilization_ray.
+# resolve_market_oracle_config (governance view) → set_market_oracle_config →
+# edit_asset_config (activate). Oracle configs for mock markets must use Twap
+# (Spot-only primaries reject with SpotOnlyNotProductionSafe #38) and market
+# params must include max_utilization_ray.
 
 # Uploads pool wasm, deploys controller + central pool + flash receiver,
 # wires aggregator/accumulator/roles, unpauses. Persists:
@@ -74,6 +74,46 @@ deploy_protocol() {
     if [ -z "${UNPAUSED:-}" ]; then
         inv unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
         save_state UNPAUSED 1
+    fi
+    # Governance contract: drives the timelock e2e (flows/governance.sh) and
+    # resolves oracle configs (input -> resolved MarketOracleConfig) for the
+    # EOA controller's markets via its read-only resolver views. Owner is the
+    # EOA admin so propose/execute/cancel/pause run without a separate signer.
+    if [ -z "${GOVERNANCE:-}" ]; then
+        local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
+        stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
+            --source "$ADMIN" --network "$NETWORK" \
+            -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY" >"$out_f" 2>"$err_f"
+        local gov txh
+        gov=$(tr -d '"\n' < "$out_f")
+        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+        [ -z "$gov" ] && { log "governance deploy failed: $(tail -3 "$err_f")"; return 1; }
+        save_state GOVERNANCE "$gov"
+        record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
+        log "governance = $gov"
+    fi
+    # Controller WASM hash for the governance-owned controller below. Uploading
+    # the same bytes the EOA controller runs keeps the resolver probe faithful.
+    if [ -z "${CTRL_HASH:-}" ]; then
+        local out_f="$LOG_DIR/upload_controller.out" err_f="$LOG_DIR/upload_controller.err"
+        stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
+            --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+        local chash txh
+        chash=$(tr -d '"\n' < "$out_f")
+        txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
+        [ -z "$chash" ] && { log "controller upload failed: $(tail -3 "$err_f")"; return 1; }
+        save_state CTRL_HASH "$chash"
+        record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
+    fi
+    # Governance-owned controller: required so resolve_market_oracle_config has a
+    # controller to read (get_controller); also the target of the timelock e2e.
+    if [ -z "${GOV_CONTROLLER:-}" ]; then
+        local gc
+        gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
+            --wasm_hash "$CTRL_HASH" | tr -d '"\n')
+        [ -z "$gc" ] && return 1
+        save_state GOV_CONTROLLER "$gc"
+        log "governance-owned controller = $gc"
     fi
 }
 
@@ -178,8 +218,15 @@ create_market() {
     inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
     inv "create_market_$name" "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
         --asset "$sac" --params "$params" --config "$pending" >/dev/null || return 1
-    inv "oracle_cfg_$name" "$ADMIN" "$CONTROLLER" -- configure_market_oracle \
-        --caller "$ADMIN_ADDR" --asset "$sac" --cfg "$oracle_json" >/dev/null || return 1
+    # Production split: governance resolves the input oracle config (probes the
+    # live oracle for decimals/resolution/base + computes the tolerance bands)
+    # into a fully-resolved MarketOracleConfig; the controller's owner-only
+    # setter stores it verbatim. resolve_* is a read-only view (no timelock).
+    local resolved_oracle
+    resolved_oracle=$(view "oracle_resolve_$name" "$GOVERNANCE" -- resolve_market_oracle_config \
+        --asset "$sac" --cfg "$oracle_json") || return 1
+    inv "oracle_cfg_$name" "$ADMIN" "$CONTROLLER" -- set_market_oracle_config \
+        --asset "$sac" --config "$resolved_oracle" >/dev/null || return 1
     inv "activate_$name" "$ADMIN" "$CONTROLLER" -- edit_asset_config \
         --asset "$sac" --cfg "$active_cfg" >/dev/null || return 1
     save_state "$done_var" 1

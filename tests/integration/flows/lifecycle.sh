@@ -109,6 +109,15 @@ flow_lifecycle() {
     assert_hf_at_least hf_alice_post_borrow "$acct" "$WAD"
     assert_borrow_at_least debt_usdc_post_borrow "$acct" "$USDC_SAC" 200000000
 
+    # Vault-integrator surfaces (read-only): account existence, pool address, and
+    # the max_* sizing views integrators depend on. ALICE holds XLM+USDC
+    # collateral with USDC+XLM debt here, so each is exercised with live state.
+    assert_bool_view account_exists_alice true account_exists --account_id "$acct"
+    assert_int_view_eq pool_addr_view "$POOL" get_pool_address
+    assert_int_view_positive max_supply_usdc max_supply --asset "$USDC_SAC"
+    assert_int_view_positive max_withdraw_xlm max_withdraw --account_id "$acct" --asset "$XLM_SAC"
+    assert_int_view_nonneg max_borrow_usdc max_borrow --account_id "$acct" --asset "$USDC_SAC"
+
     # Guard reverts: zero amount, over-LTV borrow, paused-state behavior is in admin flow.
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$acct" --e_mode_category 0 \

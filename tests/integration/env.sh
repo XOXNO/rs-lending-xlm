@@ -27,6 +27,11 @@ STATE_ENV="$RUN_DIR/state.env"
 ACTIONS_TSV="$RUN_DIR/actions.tsv"
 LOG_DIR="$RUN_DIR/logs"
 
+# Governance timelock min delay, in ledgers (~5s/ledger on testnet). 1 keeps the
+# propose -> await -> execute lifecycle a real but fast delay; min_delay==0 is
+# rejected at the governance constructor (#39). Override for slower/faster runs.
+INTEG_MIN_DELAY="${INTEG_MIN_DELAY:-1}"
+
 # Amounts (7-decimal token units unless noted).
 XLM_FUND_STROOPS=100000000000        # 10,000 XLM friendbot grant
 WAD=1000000000000000000              # 1e18

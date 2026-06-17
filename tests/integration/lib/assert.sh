@@ -1,7 +1,23 @@
 # On-chain assertion helpers (parse view output; require WAD, view(), CONTROLLER, log()).
+#
+# A failed assertion records a FAIL action row so assert_green.sh gates on it —
+# a value mismatch is a suite failure, not just a log line. The view() the
+# helper runs also records its own `read` row; the FAIL row carries the verdict.
 
 _view_int() {
-  view "$1" "$CONTROLLER" -- "${@:3}" | tr -d '"' | tr -d '[:space:]'
+  view "$1" "$CONTROLLER" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
+}
+
+_view_pool_int() {
+  view "$1" "$POOL" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
+}
+
+# Records a gate-visible FAIL row for a broken assertion and returns non-zero.
+_assert_fail() {
+  local label="$1" msg="$2"
+  log "ASSERT FAIL [$label]: $msg"
+  record "$label" FAIL assert "" "" "" "" "" "$msg"
+  return 1
 }
 
 assert_bool_view() {
@@ -9,60 +25,51 @@ assert_bool_view() {
   shift 2
   local actual
   actual=$(_view_int "$label" "$@")
-  if [ "$actual" != "$expected" ]; then
-    log "ASSERT FAIL [$label]: got '$actual', want '$expected'"
-    return 1
-  fi
+  [ "$actual" = "$expected" ] || _assert_fail "$label" "got '$actual', want '$expected'"
+}
+
+# Exact-equality assertion on a controller int view: assert_int_view_eq <label> <expected> <fn> [args...]
+assert_int_view_eq() {
+  local label="$1" expected="$2"
+  shift 2
+  local actual
+  actual=$(_view_int "$label" "$@")
+  [ "$actual" = "$expected" ] || _assert_fail "$label" "got '$actual', want '$expected'"
 }
 
 assert_hf_at_least() {
   local label="$1" acct="$2" min_wad="$3"
   local hf
   hf=$(_view_int "$label" health_factor --account_id "$acct")
-  if [ -z "$hf" ] || [ "$hf" -lt "$min_wad" ]; then
-    log "ASSERT FAIL [$label]: hf=$hf want >= $min_wad"
-    return 1
-  fi
+  { [ -n "$hf" ] && [ "$hf" -ge "$min_wad" ]; } || _assert_fail "$label" "hf=$hf want >= $min_wad"
 }
 
 assert_hf_below_wad() {
   local label="$1" acct="$2"
   local hf
   hf=$(_view_int "$label" health_factor --account_id "$acct")
-  if [ -z "$hf" ] || [ "$hf" -ge "$WAD" ]; then
-    log "ASSERT FAIL [$label]: hf=$hf want < $WAD (liquidatable)"
-    return 1
-  fi
+  { [ -n "$hf" ] && [ "$hf" -lt "$WAD" ]; } || _assert_fail "$label" "hf=$hf want < $WAD (liquidatable)"
 }
 
 assert_borrow_at_most() {
   local label="$1" acct="$2" asset="$3" max_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  if [ -z "$debt" ] || [ "$debt" -gt "$max_raw" ]; then
-    log "ASSERT FAIL [$label]: borrow=$debt want <= $max_raw"
-    return 1
-  fi
+  { [ -n "$debt" ] && [ "$debt" -le "$max_raw" ]; } || _assert_fail "$label" "borrow=$debt want <= $max_raw"
 }
 
 assert_borrow_at_least() {
   local label="$1" acct="$2" asset="$3" min_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  if [ -z "$debt" ] || [ "$debt" -lt "$min_raw" ]; then
-    log "ASSERT FAIL [$label]: borrow=$debt want >= $min_raw"
-    return 1
-  fi
+  { [ -n "$debt" ] && [ "$debt" -ge "$min_raw" ]; } || _assert_fail "$label" "borrow=$debt want >= $min_raw"
 }
 
 assert_borrow_decreased() {
   local label="$1" acct="$2" asset="$3" before_raw="$4"
   local debt
   debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
-  if [ -z "$debt" ] || [ "$debt" -ge "$before_raw" ]; then
-    log "ASSERT FAIL [$label]: borrow=$debt want < $before_raw"
-    return 1
-  fi
+  { [ -n "$debt" ] && [ "$debt" -lt "$before_raw" ]; } || _assert_fail "$label" "borrow=$debt want < $before_raw"
 }
 
 assert_can_liquidated() {
@@ -70,16 +77,43 @@ assert_can_liquidated() {
   assert_bool_view "$label" "$expected" can_be_liquidated --account_id "$acct"
 }
 
-_view_pool_int() {
-  view "$1" "$POOL" -- "${@:3}" | tr -d '"' | tr -d '[:space:]'
+# Regex checks (not arithmetic) so i128::MAX-scale view values don't overflow
+# bash's 64-bit integer comparison. assert_int_view_positive <label> <fn> [args...]
+assert_int_view_positive() {
+  local label="$1"; shift
+  local v
+  v=$(_view_int "$label" "$@")
+  [[ "$v" =~ ^[1-9][0-9]*$ ]] || _assert_fail "$label" "got '$v' want positive int"
+}
+
+assert_int_view_nonneg() {
+  local label="$1"; shift
+  local v
+  v=$(_view_int "$label" "$@")
+  [[ "$v" =~ ^[0-9]+$ ]] || _assert_fail "$label" "got '$v' want non-negative int"
+}
+
+# Parses get_market_config and asserts a single asset_config BPS field.
+#   assert_market_field <label> <asset> <jq-field> <expected>
+assert_market_field() {
+  local label="$1" asset="$2" field="$3" expected="$4"
+  local got
+  got=$(view "$label" "$CONTROLLER" -- get_market_config --asset "$asset" \
+    | jq -r ".asset_config.${field}")
+  [ "$got" = "$expected" ] || _assert_fail "$label" "asset_config.$field=$got want $expected"
+}
+
+# Asserts the market status enum (Active | Disabled | PendingOracle).
+assert_market_status() {
+  local label="$1" asset="$2" expected="$3"
+  local got
+  got=$(view "$label" "$CONTROLLER" -- get_market_config --asset "$asset" | jq -r '.status')
+  [ "$got" = "$expected" ] || _assert_fail "$label" "status=$got want $expected"
 }
 
 assert_pool_revenue_decreased() {
   local label="$1" asset="$2" before_raw="$3"
   local after
   after=$(_view_pool_int "$label" protocol_revenue --asset "$asset")
-  if [ -z "$after" ] || [ "$after" -ge "$before_raw" ]; then
-    log "ASSERT FAIL [$label]: pool_revenue=$after want < $before_raw after claim"
-    return 1
-  fi
+  { [ -n "$after" ] && [ "$after" -lt "$before_raw" ]; } || _assert_fail "$label" "pool_revenue=$after want < $before_raw after claim"
 }

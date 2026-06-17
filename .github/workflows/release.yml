@@ -10,6 +10,15 @@ name: Release Build
 # This workflow installs the same stellar-cli used by ci.yml and
 # fuzz.yml, which sets the env var correctly. Release WASM is packaged from
 # `make wasm-size-check` / artifacts/wasm/deploy/ (same bytes CI gates).
+#
+# All four deployable contracts are packaged: controller, pool, governance,
+# and defindex-strategy. These are the exact stripped deploy artifacts that
+# `make deploy-artifacts` produces and that `stellar contract upload --wasm
+# artifacts/wasm/deploy/<c>.wasm` puts on chain (controller/pool/governance via
+# the `make upgrade-*` flow; defindex-strategy via DeFindex integrators). A
+# Soroban contract's on-chain WASM hash is the sha256 of the uploaded module,
+# so each published `*.wasm.sha256` is directly verifiable against the deployed
+# contract's hash.
 
 on:
   release:
@@ -68,19 +77,23 @@ jobs:
       - name: Build deploy artifacts and WASM size budget
         run: make wasm-size-check
 
+      # The on-chain WASM hash equals the sha256 of these exact deploy bytes,
+      # so each published checksum is verifiable against the deployed contract.
       - name: Package release WASM
         run: |
           mkdir -p dist
-          cp artifacts/wasm/deploy/controller.wasm dist/controller.wasm
-          cp artifacts/wasm/deploy/pool.wasm dist/pool.wasm
+          for c in controller pool governance defindex_strategy; do
+            cp "artifacts/wasm/deploy/${c}.wasm" "dist/${c}.wasm"
+          done
           ls -lh dist/*.wasm
 
       - name: SHA256 checksums
         run: |
           cd dist
-          sha256sum controller.wasm > controller.wasm.sha256
-          sha256sum pool.wasm > pool.wasm.sha256
-          cat controller.wasm.sha256 pool.wasm.sha256
+          for c in controller pool governance defindex_strategy; do
+            sha256sum "${c}.wasm" > "${c}.wasm.sha256"
+          done
+          cat ./*.wasm.sha256
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
@@ -88,6 +101,8 @@ jobs:
           subject-path: |
             dist/controller.wasm
             dist/pool.wasm
+            dist/governance.wasm
+            dist/defindex_strategy.wasm
 
       # Untrusted inputs (release tag_name, workflow_dispatch tag input) are
       # moved into env to avoid shell-injection via ${{ }} interpolation in
@@ -104,6 +119,10 @@ jobs:
             dist/controller.wasm.sha256 \
             dist/pool.wasm \
             dist/pool.wasm.sha256 \
+            dist/governance.wasm \
+            dist/governance.wasm.sha256 \
+            dist/defindex_strategy.wasm \
+            dist/defindex_strategy.wasm.sha256 \
             --clobber
 
       - name: Upload to release (workflow_dispatch)
@@ -117,6 +136,10 @@ jobs:
             dist/controller.wasm.sha256 \
             dist/pool.wasm \
             dist/pool.wasm.sha256 \
+            dist/governance.wasm \
+            dist/governance.wasm.sha256 \
+            dist/defindex_strategy.wasm \
+            dist/defindex_strategy.wasm.sha256 \
             --clobber
 
       - name: Upload artifact
@@ -128,22 +151,29 @@ jobs:
             dist/controller.wasm.sha256
             dist/pool.wasm
             dist/pool.wasm.sha256
+            dist/governance.wasm
+            dist/governance.wasm.sha256
+            dist/defindex_strategy.wasm
+            dist/defindex_strategy.wasm.sha256
           if-no-files-found: error
 
   # Live testnet end-to-end: fresh wallets via friendbot, fresh deploy,
-  # every endpoint (lifecycle, strategies, flash loans, liquidations,
-  # e-mode, isolation, admin, budget-frontier stress) driven by
+  # every endpoint (lifecycle, strategies, flash loans, liquidations, e-mode,
+  # caps, admin, governance timelock, budget-frontier stress) driven by
   # tests/integration. No secrets required — the run funds itself.
-  # The job fails unless the run ends with zero unresolved failures; the
-  # markdown report (tx hash + resource usage per action) is uploaded as an
-  # artifact and attached to the release.
+  # parallel_e2e.sh runs three independent lanes concurrently (agg / liq /
+  # stress, each its own deployed world) and gates each one; the job fails
+  # unless every lane ends with zero unresolved failures. The per-lane +
+  # combined markdown reports (tx hash + resource usage per action) are uploaded
+  # as an artifact and the combined report is attached to the release.
   testnet-e2e:
     name: Testnet e2e
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    # Serialize runs: parallel e2e runs against the shared testnet
-    # aggregator/venues race each other's swaps.
+    # Serialize whole workflow runs: only the `agg` lane touches the shared
+    # XOXNO aggregator/DEX venue, so concurrent release runs would still race
+    # each other's swaps (within a run, the mock lanes are venue-free).
     concurrency:
       group: testnet-e2e
       cancel-in-progress: false
@@ -178,25 +208,24 @@ jobs:
       - name: Build integration WASM
         run: make integration-wasm
 
-      - name: Run live testnet e2e
+      # parallel_e2e.sh runs the three lanes concurrently and gates each one,
+      # exiting non-zero unless every lane is green — so this single step is the
+      # run AND the gate.
+      - name: Run parallel testnet e2e
         env:
           RUN_TS: release-${{ github.run_id }}
-        run: bash tests/integration/scenarios/full_e2e.sh
+        run: bash tests/integration/scenarios/parallel_e2e.sh
 
-      - name: Assert run is green
-        if: always()
-        env:
-          RUN_TS: release-${{ github.run_id }}
-        run: bash tests/integration/scenarios/assert_green.sh
-
-      - name: Upload e2e report
+      - name: Upload e2e reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: testnet-e2e-report
           path: |
-            tests/integration/runs/release-${{ github.run_id }}/report.md
-            tests/integration/runs/release-${{ github.run_id }}/actions.tsv
+            tests/integration/runs/release-${{ github.run_id }}-combined.md
+            tests/integration/runs/release-${{ github.run_id }}-*/report.md
+            tests/integration/runs/release-${{ github.run_id }}-*/actions.tsv
+            tests/integration/runs/release-${{ github.run_id }}-*.log
           if-no-files-found: error
 
       - name: Attach report to release
@@ -206,7 +235,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RUN_TS: release-${{ github.run_id }}
         run: |
-          cp "tests/integration/runs/${RUN_TS}/report.md" "testnet-e2e-report-${RELEASE_TAG}.md"
+          cp "tests/integration/runs/${RUN_TS}-combined.md" "testnet-e2e-report-${RELEASE_TAG}.md"
           gh release upload "$RELEASE_TAG" \
             "testnet-e2e-report-${RELEASE_TAG}.md" \
             --clobber

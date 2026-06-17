@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Gate for CI: succeeds only when a run has zero unresolved failures.
-# A FAIL or UNEXPECTED-OK row whose action later passed (same label, status
-# ok/xfail) does not count — retried steps settle themselves.
-# Rows with status=research (20-feed width probes) are intentional frontier
-# misses and never fail this gate.
+# A FAIL, UNEXPECTED-OK, or sim-error row whose action later passed (same label,
+# status ok/xfail) does not count — retried steps settle themselves.
+# sim-error is a probe that failed for a non-budget reason (malformed arg, wrong
+# account): a real defect, distinct from the intentional sim-exceeded frontier
+# misses. Rows with status=research (20-feed width probes) never fail this gate.
 #
 #   RUN_TS=<run> bash tests/integration/scenarios/assert_green.sh
 set -uo pipefail
@@ -18,7 +19,7 @@ unresolved=$(awk -F'\t' '
     END {
         bad = 0
         for (i = 2; i <= last; i++) {
-            if (status[i] != "FAIL" && status[i] != "UNEXPECTED-OK") continue
+            if (status[i] != "FAIL" && status[i] != "UNEXPECTED-OK" && status[i] != "sim-error") continue
             settled = 0
             for (j = i + 1; j <= last; j++) {
                 if (label[j] == label[i] && (status[j] == "ok" || status[j] == "xfail")) {

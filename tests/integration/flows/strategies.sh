@@ -67,6 +67,8 @@ flow_strategies() {
         --caller "$ALICE_ADDR" --account_id "$macct" \
         --existing_debt_token "$USDC_SAC" --amount "$new_xlm_debt" \
         --new_debt_token "$XLM_SAC" --swap "$swap_hex" >/dev/null
+    # The migration created XLM debt (the new debt token) on the account.
+    assert_borrow_at_least xlm_debt_post_swap "$macct" "$XLM_SAC" 500000000
 
     # swap_collateral: move 200 XLM of collateral into USDC.
     leg_swap_collateral() {
@@ -102,6 +104,30 @@ flow_strategies() {
     retry_leg leg_repay_debt_with_coll
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
+
+    # repay_debt_with_collateral close_position=true (full-close branch). A
+    # dedicated CAROL account (full XLM balance at this phase) takes a small,
+    # single USDC debt, then sells XLM collateral that over-covers it. The branch
+    # asserts borrow_positions is empty (#... CannotCloseWithRemainingDebt) then
+    # withdraws ALL remaining collateral, so the account is fully closed.
+    local rdwc_acct
+    rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
+        --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+        --assets "$(pay_vec "$XLM_SAC" 3000000000)" | tr -d '"') || return 1
+    inv rdwc_close_borrow "$CAROL" "$CONTROLLER" -- borrow \
+        --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
+        --borrows "$(pay_vec "$USDC_SAC" 300000000)" >/dev/null
+    leg_rdwc_close() {
+        local hex
+        hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" 2500000000) || return 1
+        inv rdwc_close "$CAROL" "$CONTROLLER" -- repay_debt_with_collateral \
+            --caller "$CAROL_ADDR" --account_id "$rdwc_acct" \
+            --collateral_token "$XLM_SAC" --collateral_amount 2500000000 \
+            --debt_token "$USDC_SAC" --swap "$hex" --close_position true >/dev/null
+    }
+    retry_leg leg_rdwc_close
+    # Full close empties + deregisters the account.
+    assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
     # multiply SHORT: flash 300 XLM debt ($57 oracle), swap into USDC
     # collateral (~$40 at DEX rate) + 45 USDC initial payment — covers the

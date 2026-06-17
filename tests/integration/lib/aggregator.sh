@@ -26,25 +26,3 @@ agg_route_hex() {
     [ -z "$xdr" ] && { log "no route: $(head -c 200 "$quote_f")"; return 1; }
     echo "$xdr" | base64 -d | xxd -p | tr -d '\n'
 }
-
-# Reverse quote: receive at least amount_out of <to>. Sets AGG_AMOUNT_IN.
-#   agg_route_hex_out <from-sac> <to-sac> <amount_out> [slippage-fraction, e.g. 0.05 = 5%]
-agg_route_hex_out() {
-    local from="$1" to="$2" amount_out="$3" slippage="${4:-0.05}"
-    local quote_f="$LOG_DIR/quote_$(date +%s%N).json"
-    curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_out=$amount_out&slippage=$slippage&max_splits=1" \
-        >"$quote_f" || return 1
-    local xdr
-    xdr=$(jq -r '.routeXdr // empty' "$quote_f")
-    [ -z "$xdr" ] && { log "no route: $(head -c 200 "$quote_f")"; return 1; }
-    AGG_AMOUNT_IN=$(jq -r '.amountIn' "$quote_f")
-    echo "$xdr" | base64 -d | xxd -p | tr -d '\n'
-}
-
-# Expected output of a forward quote (for sizing follow-up calls).
-#   agg_quote_out <from-sac> <to-sac> <amount_in>  → prints amountOut
-agg_quote_out() {
-    local from="$1" to="$2" amount_in="$3"
-    curl -s -m 30 "$AGGREGATOR_API/quote?from=$from&to=$to&amount_in=$amount_in&slippage=0.05&max_splits=1" \
-        | jq -r '.amountOut // empty'
-}

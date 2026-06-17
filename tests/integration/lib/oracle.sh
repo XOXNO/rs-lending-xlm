@@ -43,14 +43,6 @@ set_mock_price() {
         --asset "{\"Stellar\":\"$sac\"}" --price_wad "$price" >/dev/null
 }
 
-# Backdates the Reflector-mock timestamp for a SAC (staleness tests).
-#   set_mock_ts <sac-id> <unix-ts> [label]
-set_mock_ts() {
-    local sac="$1" ts="$2" label="${3:-set_ts_${sac:0:6}}"
-    inv "$label" "$ADMIN" "$MOCK" -- set_ts \
-        --asset "{\"Stellar\":\"$sac\"}" --timestamp "$ts" >/dev/null
-}
-
 # Sets the RedStone-mock price for a feed id, in USD WAD.
 #   set_rs_price <feed-id> <price-wad> [label]
 set_rs_price() {
