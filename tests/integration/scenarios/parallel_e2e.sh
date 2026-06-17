@@ -9,7 +9,7 @@
 # / wallets / markets, keyed by RUN_TS=<base>-<lane>, so no shared state):
 #   agg     lifecycle + strategies + admin + governance  (uses the XOXNO
 #           aggregator/DEX venue → serial WITHIN this one lane to avoid swap races)
-#   liq     liquidation + caps                            (mock oracles, venue-free)
+#   liq     liquidation + caps + defindex strategy        (mock oracles, venue-free)
 #   stress  stress                                        (mock oracles, venue-free)
 # The two mock lanes are fully independent of agg and of each other, so all three
 # run in parallel. Gating is per-lane; the run is green only if every lane is.
@@ -25,7 +25,7 @@ LANES=(agg liq stress)
 phases_for() {
     case "$1" in
         agg)    echo "deploy lifecycle strategies admin governance" ;;
-        liq)    echo "deploy liquidation" ;;
+        liq)    echo "deploy liquidation defindex" ;;
         stress) echo "deploy stress" ;;
     esac
 }

@@ -14,7 +14,7 @@ source "$HERE/../env.sh"
 for f in core invoke assert wallet assets aggregator oracle protocol report; do
     source "$INTEG_DIR/lib/$f.sh"
 done
-for f in lifecycle strategies liquidation admin governance stress; do
+for f in lifecycle strategies liquidation defindex admin governance stress; do
     source "$INTEG_DIR/flows/$f.sh"
 done
 
@@ -57,6 +57,12 @@ if want liquidation; then
     flow_liq_emode
     flow_clean_bad_debt
     flow_caps
+fi
+
+# DeFindex strategy adapter on its own dedicated mock market; venue-free, so it
+# rides the mock liquidation lane.
+if want defindex; then
+    flow_defindex_strategy
 fi
 
 if want admin; then

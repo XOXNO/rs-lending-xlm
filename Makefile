@@ -180,7 +180,7 @@ certora-wasm:
 ## WASM for live testnet harness: deploy-sized main contracts + optimized mocks.
 integration-wasm: deploy-artifacts
 	@mkdir -p $(OPTIMIZED_DIR)
-	@for wasm in controller pool governance flash_loan_receiver; do \
+	@for wasm in controller pool governance flash_loan_receiver defindex_strategy; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
 	@for pkg in mock_oracle mock_redstone; do \
@@ -196,7 +196,7 @@ integration-wasm: deploy-artifacts
 	done
 	@echo ""
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
-	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,mock_oracle,mock_redstone}.wasm 2>/dev/null
+	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
 ## Production deploy WASM + certora prover WASM (local build once, cloud proves).
 wasm-artifacts: deploy-artifacts certora-wasm
