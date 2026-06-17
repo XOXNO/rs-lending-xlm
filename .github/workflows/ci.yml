@@ -26,6 +26,17 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Persistent self-hosted runners keep $HOME (cargo registry, git, and
+          # installed tool binaries) and the workspace between runs. Skip the
+          # default git clean so the Cargo build cache in target/ survives; the
+          # next step restores a clean source tree while preserving target/.
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -33,16 +44,6 @@ jobs:
           toolchain: '1.95'
           targets: wasm32v1-none
           components: clippy, rustfmt
-
-      - name: Cache cargo registry & build
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install stellar-cli
         # Reuses the platform-aware idempotent helper. Version comes from
@@ -126,6 +127,14 @@ jobs:
     needs: build-and-test
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Persistent runner: preserve target/ across runs (see build-and-test).
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -135,16 +144,6 @@ jobs:
 
       - name: Install Scout detector toolchain
         run: rustup toolchain install nightly-2025-08-07 --component rustc-dev --target wasm32v1-none
-
-      - name: Cache cargo registry & build
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-scout-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-scout-
 
       - name: Install Scout
         run: |
