@@ -139,10 +139,14 @@ flow_strategies() {
     # Full close empties + deregisters the account.
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
 
-    # multiply SHORT: flash 300 XLM debt ($57 oracle), swap into USDC
-    # collateral (~$40 at DEX rate) + 45 USDC initial payment — covers the
-    # oracle/DEX gap so post-state LTV holds even at 5% slippage.
-    local flash_xlm=3000000000 sacct=""
+    # multiply SHORT: flash 200 XLM debt, swap into USDC collateral + 60 USDC
+    # initial payment. The swap is healthy (1-hop, sub-1% impact); the chronic
+    # failure here was Error(Contract,#100): HF is computed on the ORACLE XLM
+    # price (Reflector ~$0.19, volatile) while the position is collateralized by
+    # the DEX-rate USDC fill, so at 300 XLM / 45 USDC the post-state LTV sat right
+    # on the edge and rose above it whenever the XLM oracle ticked up. Smaller
+    # debt + a larger USDC buffer keep post-state LTV ~1.3x even at XLM ~$0.25.
+    local flash_xlm=2000000000 sacct=""
     leg_multiply_short() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$flash_xlm") || return 1
@@ -150,7 +154,7 @@ flow_strategies() {
             --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
             --collateral_token "$USDC_SAC" --debt_to_flash_loan "$flash_xlm" \
             --debt_token "$XLM_SAC" --mode 3 --swap "$hex" \
-            --initial_payment "[\"$USDC_SAC\",\"450000000\"]" | tr -d '"')
+            --initial_payment "[\"$USDC_SAC\",\"600000000\"]" | tr -d '"')
         [ -n "$sacct" ]
     }
     retry_leg leg_multiply_short || return 1
