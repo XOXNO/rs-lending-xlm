@@ -43,6 +43,14 @@ impl ContractIds {
 }
 
 /// Entries discovered during one keeper tick.
+fn configured_market_assets(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>> {
+    contracts
+        .market_assets
+        .iter()
+        .map(|asset| contract_id_from_strkey(asset))
+        .collect()
+}
+
 #[derive(Debug, Default)]
 pub struct DiscoverySnapshot {
     pub current_ledger: u32,
@@ -62,6 +70,7 @@ pub struct DiscoverySnapshot {
 pub async fn snapshot(
     client: &RpcClient,
     ids: &ContractIds,
+    contracts: &ContractsConfig,
     schedule: &ScheduleConfig,
 ) -> Result<DiscoverySnapshot> {
     let chunk_size = schedule.asset_chunk.max(1);
@@ -97,9 +106,8 @@ pub async fn snapshot(
     );
 
     // -- Pool list (persistent) --
-    let pool_list_key = ControllerPersistentKey::PoolsList.to_ledger_key(&controller_id)?;
-    let mut persistent_entries = client.get_ledger_entries(&[pool_list_key]).await?;
-    let assets = extract_pools_list(&persistent_entries).unwrap_or_default();
+    let assets = configured_market_assets(contracts)?;
+    let mut persistent_entries = Vec::new();
 
     // -- Per-asset persistent state: controller Market plus the central pool's
     //    asset-keyed Params + State entries --
@@ -543,41 +551,10 @@ fn needle_for(key: ControllerInstanceKey) -> Result<ScVal> {
     ))))
 }
 
-fn extract_pools_list(rows: &[LedgerEntryQuery]) -> Option<Vec<[u8; 32]>> {
-    let row = rows.first()?;
-    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
-        return None;
-    };
-    let ScVal::Vec(Some(vec)) = &cd.val else {
-        return None;
-    };
-    let mut out = Vec::with_capacity(vec.0.len());
-    for v in vec.0.iter() {
-        if let ScVal::Address(ScAddress::Contract(ContractId(Hash(bytes)))) = v {
-            out.push(*bytes);
-        }
-    }
-    Some(out)
-}
 
-/// Verifies controller key encoding by reading `PoolsList`.
-pub async fn self_check(client: &RpcClient, controller_strkey: &str) -> Result<Vec<[u8; 32]>> {
-    let controller_id = contract_id_from_strkey(controller_strkey)?;
-    let key = ControllerPersistentKey::PoolsList.to_ledger_key(&controller_id)?;
-    let rows = client
-        .get_ledger_entries(std::slice::from_ref(&key))
-        .await?;
-    let row = rows
-        .first()
-        .ok_or_else(|| anyhow!("get_ledger_entries returned no row for PoolsList"))?;
-    if row.value.is_none() {
-        // A missing entry means either a fresh controller (empty list) or a
-        // broken encoding. soroban-sdk still stores an empty `Vec`, so absence
-        // is suspicious but not definitive.
-        warn!(target: "keeper.discovery", "PoolsList missing from ledger — controller may be fresh");
-        return Ok(Vec::new());
-    }
-    Ok(extract_pools_list(&rows).unwrap_or_default())
+
+pub fn self_check(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>> {
+    configured_market_assets(contracts)
 }
 
 /// Verifies the signer can simulate `update_indexes`.
@@ -614,11 +591,6 @@ const SIM_FEE_STROOPS: u32 = 100;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stellar::client::LedgerEntryQuery;
-    use stellar_xdr::curr::{
-        ContractDataDurability, ContractDataEntry, ExtensionPoint, LedgerKeyContractData, ScMap,
-        ScVec, StringM,
-    };
 
     /// The deployed testnet governance address must resolve through the same
     /// strkey decoder the keeper uses for the controller.
@@ -629,6 +601,7 @@ mod tests {
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
             flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
@@ -642,6 +615,7 @@ mod tests {
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
             flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            market_assets: Vec::new(),
             governance: None,
         };
         let ids = ContractIds::resolve(&contracts).unwrap();

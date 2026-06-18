@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     let cancel = CancellationToken::new();
 
     // Pre-flight: encoding self-check + KEEPER role gate.
-    let pools = self_check(client.as_ref(), &cfg.contracts.controller).await?;
+    let pools = self_check(&cfg.contracts)?;
     info!(target: "keeper.boot", n_assets = pools.len(), "self-check passed");
 
     let signer_pk = signer.public_key_strkey();

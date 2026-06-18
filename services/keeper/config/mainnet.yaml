@@ -10,6 +10,7 @@ contracts:
   # Populate before deploying to mainnet.
   controller: ""
   pool_wasm_hash: ""
+  market_assets: []
   flash_loan_receiver: ""
   # Optional: governance contract that owns the controller. When set, its
   # instance + MinDelay (instance-tier) + role keys are bumped too. Populate

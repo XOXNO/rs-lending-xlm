@@ -12,7 +12,7 @@ Per TTL tick the service:
 1. **Discovers** the entries that keep the protocol functional:
    - the controller instance entry (which covers every instance-tier key,
      including the oracle `Aggregator`, pool template, and accumulators);
-   - the controller's persistent keys — `PoolsList`, per-asset `Market`
+   - the controller's persistent keys — configured per-asset `Market`
      (which embeds each asset's oracle config), and each `EModeCategory`;
    - the controller's per-user account keys — `AccountMeta`, `SupplyPositions`,
      and `BorrowPositions` for every account `1..=AccountNonce`;
@@ -76,8 +76,8 @@ tracking (future work).
 | Class | Tier | Source | Renewed |
 |-------|------|--------|---------|
 | Controller instance (`Aggregator`, `Pool`, `Accumulator`, …) | instance | instance read | yes |
-| `PoolsList`, per-asset `Market` | persistent | `PoolsList` | yes |
-| Pool `Params` / `State` per asset | persistent | `PoolsList` | yes |
+| Per-asset `Market` | persistent | configured market assets | yes |
+| Pool `Params` / `State` per asset | persistent | configured market assets | yes |
 | `EModeCategory(1..=LastEModeCategoryId)` | persistent | instance | yes |
 | Controller role keys | persistent | `ExistingRoles` | yes |
 | Per-user `AccountMeta` / `SupplyPositions` / `BorrowPositions` | persistent | `AccountNonce` | yes (`scan_users`) |
@@ -168,6 +168,9 @@ discovered surface grouped by coverage class (per-asset, e-mode, per-user,
 roles, governance, instances, wasm) with per-class counts, so coverage is
 auditable read-only against a live network without submitting anything.
 
+Set `contracts.market_assets` to the asset contract IDs whose controller
+`Market` entries and pool `Params` / `State` entries the keeper should renew.
+
 ## Docker build
 
 `mx-keyvault` is a private dep. Pass `~/.git-credentials` (or an SSH agent
@@ -206,8 +209,8 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
   `sim REJECTED`). Submits nothing, and needs no funded signer (simulation uses
   sequence `0`). Use it to confirm restores of currently-archived keys before
   trusting them.
-- **Boot safety**: an encoding self-check reads `PoolsList` from the live
-  controller and refuses to start if the `ControllerKey` encoding has drifted.
+- **Boot safety**: an encoding self-check parses the configured market assets
+  and refuses to start if a configured contract ID is invalid.
   When `enable_index_refresh` is on, the keeper additionally simulates
   `update_indexes(empty)` and refuses to start unless the signer holds the
   `KEEPER` role.

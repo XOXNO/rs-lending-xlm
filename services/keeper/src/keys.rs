@@ -13,7 +13,6 @@ use stellar_xdr::curr::{
 /// Protocol-wide controller persistent keys kept alive by the keeper.
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
-    PoolsList,
     Market([u8; 32]),
     EModeCategory(u32),
 }
@@ -21,7 +20,6 @@ pub enum ControllerPersistentKey {
 impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::PoolsList => sc_enum("PoolsList", &[])?,
             Self::Market(addr) => sc_enum("Market", &[sc_address_contract(addr)])?,
             Self::EModeCategory(id) => sc_enum("EModeCategory", &[ScVal::U32(*id)])?,
         })
@@ -245,21 +243,6 @@ fn sc_address_contract(contract: &[u8; 32]) -> ScVal {
 mod tests {
     use super::*;
     use stellar_xdr::curr::{AccountId, PublicKey, Uint256};
-
-    #[test]
-    fn unit_variant_serializes_as_symbol_vec() {
-        let sv = ControllerPersistentKey::PoolsList.to_sc_val().unwrap();
-        match sv {
-            ScVal::Vec(Some(ScVec(items))) => {
-                assert_eq!(items.len(), 1);
-                match &items[0] {
-                    ScVal::Symbol(ScSymbol(s)) => assert_eq!(s.to_utf8_string_lossy(), "PoolsList"),
-                    other => panic!("expected Symbol, got {other:?}"),
-                }
-            }
-            other => panic!("expected ScVal::Vec, got {other:?}"),
-        }
-    }
 
     #[test]
     fn tuple_variant_carries_args_in_order() {

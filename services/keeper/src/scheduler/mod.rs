@@ -132,7 +132,7 @@ async fn run_ttl_tick(
     dry_run: bool,
     ids: &ContractIds,
 ) -> Result<()> {
-    let snap = snapshot(client, ids, &cfg.schedule).await?;
+    let snap = snapshot(client, ids, &cfg.contracts, &cfg.schedule).await?;
     record_snapshot_metrics(metrics, &snap);
 
     let safety = cfg.safety_margin_ledgers();
@@ -179,7 +179,7 @@ async fn run_index_tick(
     dry_run: bool,
     ids: &ContractIds,
 ) -> Result<()> {
-    let snap = snapshot(client, ids, &cfg.schedule).await?;
+    let snap = snapshot(client, ids, &cfg.contracts, &cfg.schedule).await?;
     record_snapshot_metrics(metrics, &snap);
 
     if snap.assets.is_empty() {
@@ -214,7 +214,6 @@ fn tx_context<'a>(
 
 fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::DiscoverySnapshot) {
     metrics.account_nonce.set(snap.account_nonce as i64);
-    metrics.pools_listed.set(snap.assets.len() as i64);
 }
 
 async fn drive_jobs(

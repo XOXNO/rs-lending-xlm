@@ -32,6 +32,9 @@ pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
     pub flash_loan_receiver: String,
+    /// Market asset contract IDs monitored by the keeper.
+    #[serde(default)]
+    pub market_assets: Vec<String>,
     /// Governance contract that owns the controller. When set, its instance,
     /// `MinDelay` (instance-tier), and access-control role keys are bumped too.
     #[serde(default)]
@@ -161,6 +164,13 @@ impl KeeperConfig {
             return Err(anyhow!(
                 "config.contracts.pool_wasm_hash must be a 32-byte hex string"
             ));
+        }
+        for asset in &self.contracts.market_assets {
+            if !asset.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.market_assets entries must be contract IDs"
+                ));
+            }
         }
         if self.schedule.asset_chunk == 0 || self.schedule.max_txs_per_tick == 0 {
             return Err(anyhow!(

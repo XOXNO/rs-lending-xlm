@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use keeper_bot::{
-    keys::{contract_instance_key, ControllerPersistentKey},
+    keys::contract_instance_key,
     signer::signer_from_mnemonic,
     stellar::{
         client::{contract_id_from_strkey, RpcClient},
@@ -46,13 +46,11 @@ async fn main() -> Result<()> {
     let controller_id = contract_id_from_strkey(&args.controller)?;
 
     let instance_key = contract_instance_key(&controller_id);
-    let pools_list_key = ControllerPersistentKey::PoolsList.to_ledger_key(&controller_id)?;
 
     println!("attempting external ExtendFootprintTtl over:");
     println!("  - controller instance (ContractData / Persistent)");
-    println!("  - controller PoolsList persistent entry");
 
-    let job = extend_footprint_ttl(&[instance_key, pools_list_key], MAX_LEDGERS_TO_EXTEND)?;
+    let job = extend_footprint_ttl(&[instance_key], MAX_LEDGERS_TO_EXTEND)?;
 
     let ctx = TxContext {
         client: &client,

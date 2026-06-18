@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     let client = RpcClient::new(&cfg.rpc)?;
     let ids = ContractIds::resolve(&cfg.contracts)?;
 
-    let snap = snapshot(&client, &ids, &cfg.schedule).await?;
+    let snap = snapshot(&client, &ids, &cfg.contracts, &cfg.schedule).await?;
     let current = snap.current_ledger;
     let safety = cfg.safety_margin_ledgers();
     let controller_id = ids.controller;
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
         "safety margin      : {} days ({safety} ledgers)",
         cfg.schedule.ttl_safety_margin_days
     );
-    println!("assets in PoolsList: {}", snap.assets.len());
+    println!("configured market assets: {}", snap.assets.len());
     println!("account nonce      : {}", snap.account_nonce);
     println!("scan users         : {}", cfg.schedule.scan_users);
     println!();
@@ -181,7 +181,7 @@ fn classify_persistent(
         Some("AccountMeta" | "SupplyPositions" | "BorrowPositions") if on_controller => {
             KeyClass::PerUser
         }
-        Some("Market" | "Params" | "State" | "PoolsList") => KeyClass::PerAsset,
+        Some("Market" | "Params" | "State") => KeyClass::PerAsset,
         Some("EModeCategory") => KeyClass::EMode,
         _ if on_governance => KeyClass::Governance,
         _ => KeyClass::Other,

@@ -16,7 +16,6 @@ pub struct Metrics {
     pub jobs_planned: IntCounterVec,
     pub tick_failed: IntCounterVec,
     pub account_nonce: IntGauge,
-    pub pools_listed: IntGauge,
     pub entries_archived: IntGauge,
 }
 
@@ -50,10 +49,6 @@ impl Metrics {
             "keeper_account_nonce",
             "Last observed AccountNonce on the controller",
         ))?;
-        let pools_listed = IntGauge::with_opts(prometheus::Opts::new(
-            "keeper_pools_listed",
-            "Number of assets in the controller's PoolsList",
-        ))?;
         let entries_archived = IntGauge::with_opts(prometheus::Opts::new(
             "keeper_entries_archived",
             "Discovered keep-alive entries currently archived (awaiting restore)",
@@ -64,7 +59,6 @@ impl Metrics {
         registry.register(Box::new(jobs_planned.clone()))?;
         registry.register(Box::new(tick_failed.clone()))?;
         registry.register(Box::new(account_nonce.clone()))?;
-        registry.register(Box::new(pools_listed.clone()))?;
         registry.register(Box::new(entries_archived.clone()))?;
 
         Ok(Self {
@@ -74,7 +68,6 @@ impl Metrics {
             jobs_planned,
             tick_failed,
             account_nonce,
-            pools_listed,
             entries_archived,
         })
     }
