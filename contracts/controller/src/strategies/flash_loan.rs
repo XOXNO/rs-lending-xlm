@@ -58,11 +58,9 @@ pub fn process_flash_loan(
     // Reentrancy guard.
     storage::set_flash_loan_ongoing(env, true);
 
-    let state = pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
+    pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
 
     storage::set_flash_loan_ongoing(env, false);
-    cache.record_market_update(&state);
-    cache.emit_market_batch();
 
     FlashLoanEvent {
         asset: asset.clone(),

@@ -40,7 +40,6 @@ impl Controller {
 
         let mut cache = Cache::new(&env, OraclePolicy::RiskDecreasing);
         sync_market_indexes(&env, &mut cache, &assets);
-        cache.emit_market_batch();
     }
 
     pub fn renew_account(env: Env, caller: Address, account_id: u64) {
@@ -141,8 +140,7 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
         // Unlisted assets must still fail with AssetNotSupported; the shared
         // pool address carries no per-asset existence check.
         validation::require_asset_supported(env, cache, &asset);
-        let state = pool_update_indexes_call(env, &pool_addr, &asset);
-        cache.record_market_update(&state);
+        pool_update_indexes_call(env, &pool_addr, &asset);
     }
 }
 
@@ -178,7 +176,6 @@ pub fn create_liquidity_pool(
     };
     storage::set_market_config(env, asset, &market);
 
-    storage::add_to_pools_list(env, asset);
     storage::renew_controller_instance(env);
 
     CreateMarketEvent {
@@ -209,9 +206,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     let pool_addr = cache.cached_pool_address();
 
-    let state = pool_update_indexes_call(env, &pool_addr, asset);
-    cache.record_market_update(&state);
-    cache.emit_market_batch();
+    pool_update_indexes_call(env, &pool_addr, asset);
 
     pool_update_params_call(env, &pool_addr, asset, params);
 
@@ -239,7 +234,6 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
     let pool_addr = cache.cached_pool_address();
 
     let result = pool_claim_revenue_call(env, &pool_addr, asset);
-    cache.record_market_update(&result.market_state);
     let amount = result.actual_amount;
 
     if amount > 0 {
@@ -263,7 +257,6 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
         let amount = claim_revenue_for_asset_with_cache(env, &asset, &mut cache);
         results.push_back(amount);
     }
-    cache.emit_market_batch();
     results
 }
 
@@ -283,8 +276,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
         GenericError::AmountMustBePositive,
     );
 
-    let state = pool_add_rewards_call(env, &pool_addr, asset, amount);
-    cache.record_market_update(&state);
+    pool_add_rewards_call(env, &pool_addr, asset, amount);
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i128)>) {
@@ -292,7 +284,6 @@ pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i12
     for (asset, amount) in rewards.iter() {
         add_reward(env, caller, &asset, amount, &mut cache);
     }
-    cache.emit_market_batch();
 }
 
 pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
@@ -372,12 +363,13 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     storage::set_supply_positions(env, account_id, &account.supply_positions);
 
     if has_risks {
-        let hf = helpers::calculate_health_factor(
+        let hf = helpers::calculate_account_risk_totals(
             env,
             cache,
             &account.supply_positions,
             &account.borrow_positions,
-        );
+        )
+        .health_factor;
         assert_with_error!(
             env,
             hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),

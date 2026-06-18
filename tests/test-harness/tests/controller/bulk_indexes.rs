@@ -1,9 +1,9 @@
 //! Bulk market-index prefetch invariants.
 //!
 //! Controller flows seed the tx-local index cache through the pool's
-//! `bulk_get_sync_data` endpoint. These tests pin that the bulk path returns
-//! exactly the indexes the lazy per-asset path (`get_sync_data` +
-//! `simulate_update_indexes`) derives, and that unlisted assets keep their
+//! `bulk_get_indexes` endpoint (the pool simulates accrual). These tests pin
+//! that the bulk path returns exactly the indexes a per-asset `get_sync_data` +
+//! `simulate_update_indexes` derives, and that unlisted assets keep their
 //! pre-prefetch panic semantics.
 
 use common::rates::simulate_update_indexes;
@@ -15,7 +15,7 @@ use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
     // Two utilized markets accrue for a day; the controller view (which seeds
-    // its cache via one bulk_get_sync_data call) must report exactly the
+    // its cache via one bulk_get_indexes call) must report exactly the
     // indexes a native simulation over the raw pool state produces.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

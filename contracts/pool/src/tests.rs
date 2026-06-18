@@ -644,12 +644,14 @@ fn test_interest_accrual() {
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 10_000_000_000i128, i128::MAX));
 
-    let initial_indexes = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let initial_indexes = client.get_sync_data(&t.asset).state;
 
     // Advance time by ~1 year.
     t.advance_time(31_556_926);
 
-    let new_indexes = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let new_indexes = client.get_sync_data(&t.asset).state;
 
     assert!(
         new_indexes.borrow_index_ray > initial_indexes.borrow_index_ray,
@@ -898,7 +900,8 @@ fn test_seize_position_bad_debt() {
         .borrow(&borrower, &t.bor(0, 100_0000000i128, i128::MAX))
         .get_unchecked(0);
 
-    let idx_before = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let idx_before = client.get_sync_data(&t.asset).state;
 
     let seized = client.seize_position(
         &t.asset,
@@ -911,7 +914,8 @@ fn test_seize_position_bad_debt() {
         "position should be zeroed"
     );
 
-    let idx_after = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let idx_after = client.get_sync_data(&t.asset).state;
     assert!(
         idx_after.supply_index_ray <= idx_before.supply_index_ray,
         "supply index should decrease or stay same after bad debt"
@@ -1340,7 +1344,8 @@ fn test_add_rewards_zero_amount_is_no_op() {
     client.supply(&t.sup(0, 10_000_000_000i128, i128::MAX));
 
     let snapshot_before = t.state_snapshot();
-    let result = client.add_rewards(&t.asset, &0i128);
+    client.add_rewards(&t.asset, &0i128);
+    let result = client.get_sync_data(&t.asset).state;
 
     assert_eq!(result.supply_index_ray, snapshot_before.supply_index_ray);
 }
@@ -1400,11 +1405,13 @@ fn test_add_rewards_increases_supply_index() {
 
     client.supply(&t.sup(0, 50_000_000_000i128, i128::MAX));
 
-    let idx_before = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let idx_before = client.get_sync_data(&t.asset).state;
 
     client.add_rewards(&t.asset, &1_000_000_000i128);
 
-    let idx_after = client.update_indexes(&t.asset);
+    client.update_indexes(&t.asset);
+    let idx_after = client.get_sync_data(&t.asset).state;
     assert!(
         idx_after.supply_index_ray > idx_before.supply_index_ray,
         "supply index should increase after add_rewards"
@@ -1729,10 +1736,10 @@ fn test_create_market_rejects_non_owner() {
     );
 }
 
-// bulk_get_sync_data returns per-asset simulated indexes in request order after
-// time-based accrual.
+// bulk_get_indexes returns per-asset simulated indexes in request order — the
+// same value as simulating the per-asset get_sync_data read.
 #[test]
-fn test_bulk_get_sync_data_matches_per_asset_simulation() {
+fn test_bulk_get_indexes_matches_per_asset() {
     let t = TestSetup::new();
     let client = t.client();
 
@@ -1743,18 +1750,23 @@ fn test_bulk_get_sync_data_matches_per_asset_simulation() {
 
     t.advance_time(86_400);
 
-    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
-    let sync = client.get_sync_data(&t.asset);
-    let expected =
-        common::types::MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &sync));
-
     let assets = soroban_sdk::vec![&t.env, t.asset.clone()];
-    let bulk = client.bulk_get_sync_data(&assets);
-
+    let bulk = client.bulk_get_indexes(&assets);
     assert_eq!(bulk.len(), 1, "one entry per requested asset");
-    assert_eq!(bulk.get_unchecked(0), expected);
+
+    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
+    let reference = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+        &t.env,
+        now_ms,
+        &client.get_sync_data(&t.asset),
+    ));
+    assert_eq!(
+        bulk.get_unchecked(0),
+        reference,
+        "bulk entry equals the simulated per-asset read"
+    );
     assert!(
-        expected.borrow_index_ray > RAY,
+        bulk.get_unchecked(0).borrow_index_ray > RAY,
         "borrow index must have accrued past RAY for the equality to be meaningful"
     );
 }
@@ -1762,7 +1774,7 @@ fn test_bulk_get_sync_data_matches_per_asset_simulation() {
 // Multi-asset results are input-aligned; utilized and idle markets keep
 // separate indexes.
 #[test]
-fn test_bulk_get_sync_data_multi_asset_alignment() {
+fn test_bulk_get_indexes_multi_asset_alignment() {
     let t = TestSetup::new();
     let client = t.client();
 
@@ -1776,50 +1788,49 @@ fn test_bulk_get_sync_data_multi_asset_alignment() {
 
     t.advance_time(86_400);
 
-    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
-    let expected_a = common::types::MarketIndexRaw::from(&simulate_update_indexes(
-        &t.env,
-        now_ms,
-        &client.get_sync_data(&t.asset),
-    ));
-    let expected_b = common::types::MarketIndexRaw::from(&simulate_update_indexes(
-        &t.env,
-        now_ms,
-        &client.get_sync_data(&asset_b),
-    ));
-
     let assets = soroban_sdk::vec![&t.env, t.asset.clone(), asset_b.clone()];
-    let bulk = client.bulk_get_sync_data(&assets);
+    let bulk = client.bulk_get_indexes(&assets);
     assert_eq!(bulk.len(), 2);
 
     let a = bulk.get_unchecked(0);
     let b = bulk.get_unchecked(1);
-    assert_eq!(a, expected_a, "entry 0 must match market A's simulation");
-    assert_eq!(b, expected_b, "entry 1 must match market B's simulation");
-    // Utilized market accrues borrow/supply indexes; idle market accrues base
-    // borrow index only.
+    // Utilized market A accrues borrow/supply indexes; idle market B accrues
+    // only the base borrow index and keeps its supply index flat.
     assert!(a.borrow_index_ray > b.borrow_index_ray && b.borrow_index_ray > RAY);
     assert!(a.supply_index_ray > RAY);
     assert_eq!(b.supply_index_ray, RAY, "no borrows, no supplier rewards");
+
+    // Input alignment: each entry matches its own per-asset simulation.
+    let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
+    let ref_a = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+        &t.env,
+        now_ms,
+        &client.get_sync_data(&t.asset),
+    ));
+    let ref_b = common::types::MarketIndexRaw::from(&common::rates::simulate_update_indexes(
+        &t.env,
+        now_ms,
+        &client.get_sync_data(&asset_b),
+    ));
+    assert_eq!(a, ref_a, "entry 0 matches market A");
+    assert_eq!(b, ref_b, "entry 1 matches market B");
 }
 
 // An empty request returns an empty result without panicking.
 #[test]
-fn test_bulk_get_sync_data_empty_request() {
+fn test_bulk_get_indexes_empty_request() {
     let t = TestSetup::new();
-    let bulk = t
-        .client()
-        .bulk_get_sync_data(&soroban_sdk::Vec::new(&t.env));
+    let bulk = t.client().bulk_get_indexes(&soroban_sdk::Vec::new(&t.env));
     assert_eq!(bulk.len(), 0);
 }
 
 // Unknown assets fail bulk read with PoolNotInitialized, matching get_sync_data.
 #[test]
-fn test_bulk_get_sync_data_unknown_asset_panics() {
+fn test_bulk_get_indexes_unknown_asset_panics() {
     let t = TestSetup::new();
     let unknown = Address::generate(&t.env);
     let assets = soroban_sdk::vec![&t.env, unknown];
-    let result = t.client().try_bulk_get_sync_data(&assets);
+    let result = t.client().try_bulk_get_indexes(&assets);
     assert!(result.is_err(), "unknown asset must fail the bulk read");
 }
 
@@ -1849,13 +1860,15 @@ fn test_bulk_supply_two_markets_matches_sequential_singles() {
 
     let first = bulk.get_unchecked(0);
     let second = bulk.get_unchecked(1);
+    // PoolPositionMutation carries no asset; input alignment shows in the
+    // per-entry applied amounts (A=amount_one, B=amount_two).
     assert_eq!(
-        first.market_state.asset, t.asset,
-        "entry 0 result must be market A"
+        first.actual_amount, amount_one,
+        "entry 0 result must be market A's input"
     );
     assert_eq!(
-        second.market_state.asset, asset_b,
-        "entry 1 result must be market B"
+        second.actual_amount, amount_two,
+        "entry 1 result must be market B's input"
     );
 
     let seq_first = client
@@ -1963,15 +1976,15 @@ fn test_bulk_supply_duplicate_asset_applies_sequentially() {
 
     let first = results.get_unchecked(0);
     let second = results.get_unchecked(1);
+    // PoolPositionMutation carries no market snapshot (the pool emits market
+    // state as a batch event); input order shows in the per-entry amounts.
     assert_eq!(
-        first.market_state.supplied_ray,
-        state_before.supplied_ray + first.position.scaled_amount_ray,
-        "entry 1 snapshot reflects only its own supply"
+        first.actual_amount, amount_one,
+        "entry 1 applied the first input"
     );
     assert_eq!(
-        second.market_state.supplied_ray,
-        first.market_state.supplied_ray + second.position.scaled_amount_ray,
-        "entry 2 snapshot must build on entry 1's already-applied state"
+        second.actual_amount, amount_two,
+        "entry 2 applied the second input"
     );
 
     let state_after = t.state_snapshot();

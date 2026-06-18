@@ -17,8 +17,8 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
     // The borrow tx contains three internal prefetch call sites:
     //   1. contracts/controller/src/positions/borrow.rs entrypoint: explicit
     //      prefetch with [supply_assets + borrow_assets] before the HF check.
-    //   2. helpers/math.rs HF body (calculate_account_totals_body): a second
-    //      prefetch_redstone_feeds call for the same feed set.
+    //   2. helpers/math.rs risk-totals body (calculate_account_risk_totals_body):
+    //      a second prefetch_redstone_feeds call for the same feed set.
     //   3. helpers/math.rs min-borrow-collateral body: a third prefetch site.
     // All three deduplicate to exactly one bulk adapter call because the
     // tx-local Cache is populated by site 1 and the subsequent sites find all
@@ -564,8 +564,8 @@ fn test_shared_feed_two_assets_single_redstone_call() {
 fn test_liquidation_fires_one_bulk_redstone_call() {
     // Two RedStone-anchored markets on one adapter; ALICE is made liquidatable
     // by raising ETH price so her debt value exceeds her collateral weight.
-    // Liquidation has no entrypoint prefetch: the HF check inside
-    // calculate_account_totals_body is its only bulk site, and this test
+    // Liquidation has no entrypoint prefetch: the risk-totals pass inside
+    // calculate_account_risk_totals_body is its only bulk site, and this test
     // pins it.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

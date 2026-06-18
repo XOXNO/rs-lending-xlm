@@ -385,8 +385,7 @@ fuzz_target!(|i: In| {
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_add_rewards(&asset, &amount));
                 match result {
-                    Ok(idx) => {
-                        assert!(idx.supply_index_ray >= before.supply_index_ray);
+                    Ok(()) => {
                         let after = pool_state(&pool, &asset);
                         assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
                         assert!(after.revenue_ray >= before.revenue_ray);

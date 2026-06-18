@@ -11,7 +11,7 @@ use crate::cache::Cache;
 use crate::emode;
 use crate::oracle::policy::OraclePolicy;
 
-use super::calculate_health_factor;
+use super::calculate_account_risk_totals;
 
 /// Minimum HF (1.05 WAD) required before lowering a position's liquidation threshold.
 pub const THRESHOLD_UPDATE_MIN_HF_RAW: i128 = 1_050_000_000_000_000_000;
@@ -112,7 +112,8 @@ fn health_factor_for_threshold_downgrade(
     if prior_policy == OraclePolicy::RiskDecreasing {
         cache.clear_resolved_prices();
     }
-    let hf = calculate_health_factor(env, cache, supply_positions, borrow_positions);
+    let hf =
+        calculate_account_risk_totals(env, cache, supply_positions, borrow_positions).health_factor;
     cache.oracle_policy = prior_policy;
     hf
 }

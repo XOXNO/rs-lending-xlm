@@ -468,7 +468,7 @@ fn test_borrow_amount_for_token_happy() {
 
 #[test]
 fn test_liquidation_collateral_available_happy() {
-    // `calculate_account_totals` returns a non-zero weighted collateral total.
+    // `calculate_account_risk_totals` returns a non-zero weighted collateral total.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())

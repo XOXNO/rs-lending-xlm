@@ -1,26 +1,23 @@
-//! Transaction-local cache for oracle policy, market reads, and batch events.
+//! Transaction-local cache for oracle policy and market reads.
 //!
 //! Each mutating entrypoint creates the cache with its `OraclePolicy`; each
 //! price and index read then follows that policy for the rest of the call.
-//! Position deltas and market snapshots are buffered until the flow has written
-//! storage and emits the final batch events.
+//! Position deltas are buffered until the flow has written storage, then
+//! emitted as a single batch event.
 
 use crate::constants::MS_PER_SECOND;
 use crate::events::{
-    EventBorrowDelta, EventDepositDelta, EventMarketState, PositionAction,
-    UpdateMarketStateBatchEvent, UpdatePositionBatchEvent,
+    EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
 use controller_interface::types::{
     Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, MarketConfig,
-    MarketIndex, MarketIndexRaw, MarketStateSnapshot, PoolSyncData, PriceFeed, PriceFeedRaw,
+    MarketIndex, MarketIndexRaw, PoolSyncData, PriceFeed, PriceFeedRaw,
 };
 use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 
-#[cfg(not(feature = "certora"))]
-use crate::external::pool::fetch_pool_bulk_indexes;
-use crate::external::pool::fetch_pool_sync_data;
+use crate::external::pool::{fetch_pool_bulk_indexes, fetch_pool_sync_data};
 use crate::oracle::policy::OraclePolicy;
-use crate::oracle::{token_price, update_asset_index};
+use crate::oracle::token_price;
 use crate::storage;
 use common::oracle::providers::redstone::RedStonePriceData;
 
@@ -33,13 +30,15 @@ pub struct Cache {
     /// (staleness, sanity, tolerance) are unaffected.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
     pub market_configs: Map<Address, MarketConfig>,
-    pub market_indexes: Map<Address, MarketIndexRaw>,
+    /// Borrow/supply indexes, populated only from the pool: either returned by a
+    /// pool mutation (`put_market_index`) or bulk-read via `bulk_get_indexes`.
+    /// The controller never simulates indexes itself.
+    market_indexes: Map<Address, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<Address, PoolSyncData>,
     emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
     deposit_updates: Vec<EventDepositDelta>,
     borrow_updates: Vec<EventBorrowDelta>,
-    market_updates: Vec<MarketStateSnapshot>,
 
     pub current_timestamp_ms: u64,
     pub oracle_policy: OraclePolicy,
@@ -71,7 +70,6 @@ impl Cache {
             emode_assets: Map::new(env),
             deposit_updates: Vec::new(env),
             borrow_updates: Vec::new(env),
-            market_updates: Vec::new(env),
             current_timestamp_ms,
             oracle_policy,
         }
@@ -145,17 +143,21 @@ impl Cache {
         addr
     }
 
+    /// Caches an index the pool returned from a mutation (`PoolPositionMutation.
+    /// market_index`). Lets the post-action valuation skip a redundant pool read
+    /// for the touched asset.
+    pub fn put_market_index(&mut self, asset: &Address, index: &MarketIndexRaw) {
+        self.market_indexes.set(asset.clone(), index.clone());
+    }
+
     /// Certora stub: lazy per-asset reads preserve semantics.
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _assets: &Vec<Address>) {}
 
-    /// Seeds `market_indexes` for each listed asset in `assets` with one
-    /// `bulk_get_sync_data` pool call instead of N lazy `get_sync_data` reads.
-    ///
-    /// The pool runs the same `simulate_update_indexes` math as the lazy
-    /// per-asset path, so seeded values are identical. Assets indexed
-    /// this tx and unlisted assets are skipped; the prefetch does not add a
-    /// panic site or issue empty pool calls.
+    /// Seeds `market_indexes` for `assets` with one `bulk_get_indexes` pool call
+    /// (the pool simulates accrual). Assets already cached this tx — including
+    /// those a pool mutation already returned — duplicates, and unlisted assets
+    /// are skipped, so the call is never empty and never panics.
     #[cfg(not(feature = "certora"))]
     pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
         let mut missing: Vec<Address> = Vec::new(&self.env);
@@ -173,52 +175,25 @@ impl Cache {
         }
         let pool_addr = self.cached_pool_address();
         let indexes = fetch_pool_bulk_indexes(&self.env, &pool_addr, &missing);
-        // Index-aligned with the request: the pool returns one entry per asset.
         for (i, asset) in missing.iter().enumerate() {
             self.market_indexes
                 .set(asset, indexes.get_unchecked(i as u32));
         }
     }
 
+    /// Returns the pool-sourced index for `asset`. On a cache miss the pool is
+    /// asked for it (single-asset `bulk_get_indexes`); the controller never
+    /// simulates accrual itself.
     pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {
         if let Some(index) = self.market_indexes.get(asset.clone()) {
             return (&index).into();
         }
-        let index = update_asset_index(self, asset);
-        self.market_indexes
-            .set(asset.clone(), MarketIndexRaw::from(&index));
-        index
-    }
-
-    pub fn record_market_update(&mut self, update: &MarketStateSnapshot) {
-        self.market_indexes.set(
-            update.asset.clone(),
-            MarketIndexRaw {
-                borrow_index_ray: update.borrow_index_ray,
-                supply_index_ray: update.supply_index_ray,
-            },
-        );
-        self.market_updates.push_back(update.clone());
-    }
-
-    /// Price fetched this transaction, if any. Event enrichment reads
-    /// this memo without issuing oracle calls, so debt-free exits stay
-    /// oracle-free.
-    fn already_fetched_price(&self, asset: &Address) -> Option<i128> {
-        self.prices_cache.get(asset.clone()).map(|f| f.price_wad)
-    }
-
-    pub fn emit_market_batch(&mut self) {
-        if self.market_updates.is_empty() {
-            return;
-        }
-        let mut updates: Vec<EventMarketState> = Vec::new(&self.env);
-        for mut snapshot in self.market_updates.iter() {
-            snapshot.asset_price_wad = self.already_fetched_price(&snapshot.asset);
-            updates.push_back(EventMarketState::from(&snapshot));
-        }
-        UpdateMarketStateBatchEvent { updates }.publish(&self.env);
-        self.market_updates = Vec::new(&self.env);
+        let pool_addr = self.cached_pool_address();
+        let mut request = Vec::new(&self.env);
+        request.push_back(asset.clone());
+        let index = fetch_pool_bulk_indexes(&self.env, &pool_addr, &request).get_unchecked(0);
+        self.market_indexes.set(asset.clone(), index.clone());
+        (&index).into()
     }
 
     pub fn record_position_update(

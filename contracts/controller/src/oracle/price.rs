@@ -1,10 +1,9 @@
-//! Public price & index entry points (`token_price`, `update_asset_index`).
+//! Public price entry point (`token_price`).
 //!
-//! Cache-facing integration points for oracle resolution and index accrual.
+//! Cache-facing integration point for oracle price resolution.
 
 use common::errors::{GenericError, OracleError};
-use common::rates::simulate_update_indexes;
-use controller_interface::types::{MarketIndex, MarketStatus, OracleSourceConfig, PriceFeedRaw};
+use controller_interface::types::{MarketStatus, OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;
@@ -60,9 +59,4 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
 
     cache.prices_cache.set(asset.clone(), feed.clone());
     feed
-}
-
-pub fn update_asset_index(cache: &mut Cache, asset: &Address) -> MarketIndex {
-    let sync_data = cache.cached_pool_sync_data(asset);
-    simulate_update_indexes(cache.env(), cache.current_timestamp_ms, &sync_data)
 }

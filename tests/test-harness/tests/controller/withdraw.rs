@@ -434,7 +434,7 @@ fn test_withdraw_with_debt_still_requires_oracle() {
 }
 
 #[test]
-fn test_withdraw_empty_vector_is_noop() {
+fn test_withdraw_empty_vector_rejected() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
@@ -445,9 +445,9 @@ fn test_withdraw_empty_vector_is_noop() {
     let supply_before = t.supply_balance_raw(ALICE, "USDC");
 
     let withdrawals = Vec::new(&t.env);
-    let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
+    let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
 
-    assert_eq!(paid.len(), 0, "empty withdraw should return no payments");
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
     assert_eq!(t.token_balance_raw(ALICE, "USDC"), wallet_before);
     assert_eq!(t.supply_balance_raw(ALICE, "USDC"), supply_before);
     t.assert_supply_count(ALICE, 1);

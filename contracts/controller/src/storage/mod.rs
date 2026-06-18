@@ -12,7 +12,6 @@ mod account;
 mod emode;
 mod instance;
 mod market;
-mod pools;
 mod ttl;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/storage.rs"]
@@ -24,7 +23,6 @@ pub(crate) use account::*;
 pub(crate) use emode::*;
 pub(crate) use instance::*;
 pub(crate) use market::*;
-pub(crate) use pools::*;
 pub(crate) use ttl::*;
 #[cfg(feature = "certora")]
 pub(crate) use verification_storage::*;

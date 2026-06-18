@@ -6,8 +6,8 @@
 //! which carries the market asset the central pool routes on.
 
 use controller_interface::types::{
-    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
     PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
@@ -91,16 +91,12 @@ pub(crate) fn pool_flash_loan_call(
     amount: i128,
     fee: i128,
     data: &Bytes,
-) -> MarketStateSnapshot {
+) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr)
         .flash_loan(asset, initiator, receiver, &amount, &fee, data)
 }
 
-pub(crate) fn pool_update_indexes_call(
-    env: &Env,
-    pool_addr: &Address,
-    asset: &Address,
-) -> MarketStateSnapshot {
+pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, asset: &Address) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).update_indexes(asset)
 }
 
@@ -112,12 +108,7 @@ pub(crate) fn pool_claim_revenue_call(
     pool_interface::LiquidityPoolClient::new(env, pool_addr).claim_revenue(asset)
 }
 
-pub(crate) fn pool_add_rewards_call(
-    env: &Env,
-    pool_addr: &Address,
-    asset: &Address,
-    amount: i128,
-) -> MarketStateSnapshot {
+pub(crate) fn pool_add_rewards_call(env: &Env, pool_addr: &Address, asset: &Address, amount: i128) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).add_rewards(asset, &amount)
 }
 
@@ -134,7 +125,7 @@ pub(crate) fn fetch_pool_bulk_indexes(
     pool_addr: &Address,
     assets: &Vec<Address>,
 ) -> Vec<MarketIndexRaw> {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).bulk_get_sync_data(assets)
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).bulk_get_indexes(assets)
 }
 
 pub(crate) fn pool_update_params_call(

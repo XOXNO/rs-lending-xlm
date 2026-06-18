@@ -70,142 +70,77 @@ pub fn calculate_ltv_collateral_wad(
     ltv
 }
 
-/// LTV collateral, total debt, and HF-weighted collateral from one prefetch and
-/// one pass per side for post-pool solvency gates.
-pub(crate) struct PostPoolRiskTotals {
+/// Full portfolio risk aggregates from one prefetch and one pass per side.
+///
+/// Collateral is valued three ways off the same chains: `total_collateral`
+/// (neutral half-up, for bad-debt socialization), `ltv_collateral`
+/// (LTV-weighted floor, for borrow capacity), and `weighted_collateral`
+/// (liquidation-threshold-weighted floor, the health-factor numerator). Debt is
+/// ceiled. `health_factor` is `weighted_collateral / total_debt`, saturating to
+/// `i128::MAX` when the account holds no debt.
+pub(crate) struct AccountRiskTotals {
+    pub total_collateral: Wad,
     pub ltv_collateral: Wad,
-    pub total_debt: Wad,
     pub weighted_collateral: Wad,
+    pub total_debt: Wad,
+    pub health_factor: Wad,
 }
 
-pub fn calculate_post_pool_risk_totals(
+pub fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> PostPoolRiskTotals {
-    let mut priced_assets = supply_positions.keys();
-    priced_assets.append(&borrow_positions.keys());
-    oracle::prefetch_redstone_feeds(cache, &priced_assets);
-    cache.prefetch_market_indexes(&priced_assets);
-
-    let mut ltv_collateral = Wad::ZERO;
-    let mut hf_weighted_collateral = Wad::ZERO;
-
-    for (asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-
-        let gate_value = position_value_floor(
-            env,
-            position.scaled_amount,
-            market_index.supply_index,
-            feed.price,
-        );
-
-        ltv_collateral += position.loan_to_value.apply_to_wad_floor(env, gate_value);
-        hf_weighted_collateral +=
-            weighted_collateral(env, gate_value, position.liquidation_threshold);
-    }
-
-    let mut total_debt = Wad::ZERO;
-    for (asset, position) in iter_debt_positions(borrow_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
-
-        let value = position_value_ceil(
-            env,
-            position.scaled_amount,
-            market_index.borrow_index,
-            feed.price,
-        );
-
-        total_debt += value;
-    }
-
-    PostPoolRiskTotals {
-        ltv_collateral,
-        total_debt,
-        weighted_collateral: hf_weighted_collateral,
-    }
-}
-
-pub fn calculate_health_factor(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<Address, AccountPositionRaw>,
-    borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> Wad {
-    if borrow_positions.is_empty() {
-        return Wad::from(i128::MAX); // No debt means infinite HF.
-    }
-
-    let (_, total_borrow, weighted_collateral_total) =
-        calculate_account_totals(env, cache, supply_positions, borrow_positions);
-
-    if total_borrow == Wad::ZERO {
-        return Wad::from(i128::MAX);
-    }
-
-    weighted_collateral_total.div_floor(env, total_borrow)
-}
-
-pub fn calculate_account_totals(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<Address, AccountPositionRaw>,
-    borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> (Wad, Wad, Wad) {
-    _calculate_account_totals_impl(env, cache, supply_positions, borrow_positions)
+) -> AccountRiskTotals {
+    _calculate_account_risk_totals_impl(env, cache, supply_positions, borrow_positions)
 }
 
 #[cfg(not(feature = "certora"))]
-fn _calculate_account_totals_impl(
+fn _calculate_account_risk_totals_impl(
     env: &Env,
     cache: &mut Cache,
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> (Wad, Wad, Wad) {
-    calculate_account_totals_body(env, cache, supply_positions, borrow_positions)
+) -> AccountRiskTotals {
+    calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
 }
 
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
-    crate::spec::summaries::calculate_account_totals_summary,
-    pub(crate) fn _calculate_account_totals_impl(
+    crate::spec::summaries::calculate_account_risk_totals_summary,
+    pub(crate) fn _calculate_account_risk_totals_impl(
         env: &Env,
         cache: &mut Cache,
         supply_positions: &Map<Address, AccountPositionRaw>,
         borrow_positions: &Map<Address, DebtPositionRaw>,
-    ) -> (Wad, Wad, Wad) {
-        calculate_account_totals_body(env, cache, supply_positions, borrow_positions)
+    ) -> AccountRiskTotals {
+        calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
     }
 );
 
-fn calculate_account_totals_body(
+fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,
     supply_positions: &Map<Address, AccountPositionRaw>,
     borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> (Wad, Wad, Wad) {
-    // Prime the RedStone prefetch with each position's feeds and the pool
-    // index prefetch with each position's markets before the per-asset
-    // reads below.
+) -> AccountRiskTotals {
+    // Prime the RedStone and pool-sync prefetches with every position's feeds
+    // and markets before the per-asset reads below.
     let mut priced_assets = supply_positions.keys();
     priced_assets.append(&borrow_positions.keys());
     oracle::prefetch_redstone_feeds(cache, &priced_assets);
     cache.prefetch_market_indexes(&priced_assets);
 
     let mut total_collateral = Wad::ZERO;
+    let mut ltv_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
-
     for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
-        // Neutral valuation for proportions and socialization checks; the
-        // health-factor numerator gets the floored chain so no rounding
-        // step can loosen the gate.
+        // Neutral valuation feeds proportions and socialization; the floored
+        // chain feeds the borrow-capacity and health-factor gates so no
+        // rounding step can loosen them.
         let value = position_value(
             env,
             position.scaled_amount,
@@ -220,20 +155,9 @@ fn calculate_account_totals_body(
         );
 
         total_collateral += value;
+        ltv_collateral += position.loan_to_value.apply_to_wad_floor(env, gate_value);
         weighted_coll += weighted_collateral(env, gate_value, position.liquidation_threshold);
     }
-
-    let total_debt = calculate_total_debt_wad(env, cache, borrow_positions);
-
-    (total_collateral, total_debt, weighted_coll)
-}
-
-pub fn calculate_total_debt_wad(
-    env: &Env,
-    cache: &mut Cache,
-    borrow_positions: &Map<Address, DebtPositionRaw>,
-) -> Wad {
-    cache.prefetch_market_indexes(&borrow_positions.keys());
 
     let mut total_debt = Wad::ZERO;
     for (asset, position) in iter_debt_positions(borrow_positions) {
@@ -241,14 +165,25 @@ pub fn calculate_total_debt_wad(
         let market_index = cache.cached_market_index(&asset);
 
         // Ceil the whole chain: owed value cannot round downward.
-        let value = position_value_ceil(
+        total_debt += position_value_ceil(
             env,
             position.scaled_amount,
             market_index.borrow_index,
             feed.price,
         );
-
-        total_debt += value;
     }
-    total_debt
+
+    let health_factor = if total_debt == Wad::ZERO {
+        Wad::from(i128::MAX)
+    } else {
+        weighted_coll.div_floor(env, total_debt)
+    };
+
+    AccountRiskTotals {
+        total_collateral,
+        ltv_collateral,
+        weighted_collateral: weighted_coll,
+        total_debt,
+        health_factor,
+    }
 }

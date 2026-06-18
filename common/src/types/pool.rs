@@ -341,7 +341,6 @@ pub struct MarketStateSnapshot {
 pub struct PoolPositionMutation {
     pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
-    pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
 }
 
@@ -350,7 +349,6 @@ pub struct PoolPositionMutation {
 pub struct PoolStrategyMutation {
     pub position: ScaledPositionRaw,
     pub market_index: MarketIndexRaw,
-    pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
     pub amount_received: i128,
 }
@@ -360,7 +358,6 @@ impl From<&PoolStrategyMutation> for PoolPositionMutation {
         Self {
             position: m.position.clone(),
             market_index: m.market_index.clone(),
-            market_state: m.market_state.clone(),
             actual_amount: m.actual_amount,
         }
     }
@@ -369,7 +366,6 @@ impl From<&PoolStrategyMutation> for PoolPositionMutation {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAmountMutation {
-    pub market_state: MarketStateSnapshot,
     pub actual_amount: i128,
 }
 

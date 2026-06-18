@@ -557,7 +557,6 @@ pub enum ControllerKey {
     SupplyPositions(u64),
     BorrowPositions(u64),
     EModeCategory(u32),
-    PoolsList,
     AppVersion,
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     MinBorrowCollateralUsd,

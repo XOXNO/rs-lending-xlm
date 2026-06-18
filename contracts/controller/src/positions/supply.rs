@@ -183,7 +183,10 @@ fn settle_deposit(
         // Merge ONLY the scaled share back; the pool does not echo collateral
         // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-        cache.record_market_update(&result.market_state);
+
+        // Cache the pool-returned index so post-action valuation reads it
+        // instead of asking the pool again.
+        cache.put_market_index(asset, &result.market_index);
 
         // Emit with the exact supply index the pool used, not a re-read.
         cache.record_position_update(

@@ -4,7 +4,7 @@
 //! (~1.28MB of linear-memory charge per cross-contract invocation), not the
 //! returned struct's payload bytes (~509 B per Reflector PriceData record,
 //! ~0.1% of the per-feed cost). That finding motivated the two bulk levers
-//! now in place — RedStone bulk prefetch and the pool's `bulk_get_sync_data`
+//! now in place — RedStone bulk prefetch and the pool's `bulk_get_indexes`
 //! index prefetch — which together strip the per-feed pool frame out of HF
 //! valuation: the measured 5-feed withdraw dropped from ~1.67MB to ~1.07MB
 //! and the per-feed slope from ~294KB to ~94KB, well under one call frame.

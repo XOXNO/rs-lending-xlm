@@ -51,7 +51,8 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     let mut cache = Cache::new(env, OraclePolicy::Repay);
 
     let aggregated = utils::aggregate_positive_payments(env, payments);
-    validate_repay(env, &account, &aggregated);
+    validation::require_non_empty_payments(env, &aggregated);
+
     settle_repay(env, caller, &mut account, &aggregated, &mut cache);
 
     finalize_position_flow(
@@ -62,14 +63,6 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
         PositionSides::DEBT,
         false,
     );
-}
-
-fn validate_repay(env: &Env, account: &Account, aggregated: &AggregatedPayments) {
-    validation::require_non_empty_payments(env, aggregated);
-
-    for (asset, _) in aggregated.iter() {
-        let _ = get_debt_position_or_panic(env, account, &asset);
-    }
 }
 
 fn settle_repay(
@@ -130,11 +123,10 @@ pub(crate) fn finish_repayment(
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
-    cache.record_market_update(&result.market_state);
-
     let position = DebtPosition::from(&result.position);
     update_or_remove_debt_position(account, asset, &position);
 
+    cache.put_market_index(asset, &result.market_index);
     cache.record_debt_position_update(
         action,
         asset,

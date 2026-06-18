@@ -415,18 +415,18 @@ fn risk_partial_cap(
     market: &MarketLimitCtx,
     full_request: i128,
 ) -> i128 {
-    let (_, debt, hf_weighted) = helpers::calculate_account_totals(
+    let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if debt == Wad::ZERO {
+    if totals.total_debt == Wad::ZERO {
         return full_request;
     }
-    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
-    let ltv_slack = ltv_weighted.raw().saturating_sub(debt.raw());
-    let hf_slack = hf_weighted.raw().saturating_sub(debt.raw());
+    let debt = totals.total_debt.raw();
+    let ltv_slack = totals.ltv_collateral.raw().saturating_sub(debt);
+    let hf_slack = totals.weighted_collateral.raw().saturating_sub(debt);
     if ltv_slack == 0 && hf_slack == 0 {
         return 0;
     }
@@ -599,22 +599,22 @@ fn account_gates_ok(env: &Env, cache: &mut Cache, account: &Account) -> bool {
     if account.borrow_positions.is_empty() {
         return true;
     }
-    let (_, debt, hf_weighted) = helpers::calculate_account_totals(
+    let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    if debt == Wad::ZERO {
+    if totals.total_debt == Wad::ZERO {
         return true;
     }
-    if hf_weighted.raw() < debt.raw() {
+    let debt = totals.total_debt.raw();
+    if totals.weighted_collateral.raw() < debt {
         return false;
     }
-    let ltv_weighted = helpers::calculate_ltv_collateral_wad(env, cache, &account.supply_positions);
-    if ltv_weighted.raw() < debt.raw() {
+    if totals.ltv_collateral.raw() < debt {
         return false;
     }
     let floor = storage::get_min_borrow_collateral_usd_wad(env);
-    floor == 0 || ltv_weighted.raw() >= floor
+    floor == 0 || totals.ltv_collateral.raw() >= floor
 }

@@ -17,7 +17,6 @@ use crate::events;
 use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
-use crate::oracle;
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::{
     finalize_position_flow, get_supply_position_or_panic, make_pool_action, AggregatedPayments,
@@ -76,9 +75,6 @@ pub fn process_withdraw(
     let mut cache = Cache::new(env, policy);
 
     let aggregated = utils::aggregate_payments(env, withdrawals, true);
-    if aggregated.is_empty() {
-        return Vec::new(env);
-    }
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
 
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
@@ -103,7 +99,6 @@ fn settle_withdraw(
     cache: &mut Cache,
 ) -> Vec<Payment> {
     validation::require_non_empty_payments(env, aggregated);
-    prefetch_withdraw_oracles(cache, account);
 
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (asset, amount) in aggregated.iter() {
@@ -135,17 +130,6 @@ fn settle_withdraw(
         paid.push_back((entry.action.asset.clone(), result.actual_amount));
     }
     paid
-}
-
-/// Bulk-prefetches RedStone feeds for post-pool LTV/HF gates on indebted accounts.
-/// Debt-free exits need no prices and return immediately.
-fn prefetch_withdraw_oracles(cache: &mut Cache, account: &Account) {
-    if account.borrow_positions.is_empty() {
-        return;
-    }
-    let mut priced_assets = account.supply_positions.keys();
-    priced_assets.append(&account.borrow_positions.keys());
-    oracle::prefetch_redstone_feeds(cache, &priced_assets);
 }
 
 /// Executes one bulk pool withdraw for `entries` (one cross-contract frame)
@@ -226,7 +210,6 @@ pub(crate) fn finish_withdrawal(
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
-    cache.record_market_update(&result.market_state);
     let mut result_position = get_supply_position_or_panic(env, account, asset);
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     if let Some(e_mode) = refresh_e_mode {
@@ -235,6 +218,7 @@ pub(crate) fn finish_withdrawal(
     }
     update_or_remove_supply_position(account, asset, &result_position);
 
+    cache.put_market_index(asset, &result.market_index);
     cache.record_position_update(
         action,
         asset,

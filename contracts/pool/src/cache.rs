@@ -21,7 +21,6 @@ pub struct Cache {
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
-    /// Pool-accounted liquid token units available as reserves.
     pub cash: i128,
 }
 
@@ -254,17 +253,13 @@ impl Cache {
                 scaled_amount_ray: scaled.raw(),
             },
             market_index: self.market_index(),
-            market_state: self.market_snapshot(),
             actual_amount,
         }
     }
 
     /// Revenue claim mutation snapshot.
     pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
-        PoolAmountMutation {
-            market_state: self.market_snapshot(),
-            actual_amount,
-        }
+        PoolAmountMutation { actual_amount }
     }
 
     /// Strategy borrow mutation snapshot, including net amount sent to caller.
@@ -279,7 +274,6 @@ impl Cache {
                 scaled_amount_ray: scaled.raw(),
             },
             market_index: self.market_index(),
-            market_state: self.market_snapshot(),
             actual_amount,
             amount_received,
         }

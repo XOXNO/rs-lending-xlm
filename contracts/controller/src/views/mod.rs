@@ -152,12 +152,13 @@ impl Controller {
 pub fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
-        Some(account) => helpers::calculate_health_factor(
+        Some(account) => helpers::calculate_account_risk_totals(
             env,
             &mut cache,
             &account.supply_positions,
             &account.borrow_positions,
         )
+        .health_factor
         .raw(),
         None => i128::MAX,
     }
@@ -236,13 +237,14 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
-    let (_, _, weighted_coll) = helpers::calculate_account_totals(
+    helpers::calculate_account_risk_totals(
         env,
         &mut cache,
         &account.supply_positions,
         &account.borrow_positions,
-    );
-    weighted_coll.raw()
+    )
+    .weighted_collateral
+    .raw()
 }
 
 pub fn get_pool_address(env: &Env) -> Address {

@@ -282,48 +282,6 @@ pub struct UpdateMarketParamsEvent {
     pub reserve_factor_bps: u32,
 }
 
-/// Per-market accrual snapshot, vec-encoded for the batch market event.
-///
-/// Field order is wire ABI; do not reorder:
-/// `[asset, timestamp, supply_index_ray, borrow_index_ray, reserves_ray,
-///   supplied_ray, borrowed_ray, revenue_ray, asset_price_wad]`.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct EventMarketState(
-    pub Address,
-    pub u64,
-    pub i128,
-    pub i128,
-    pub i128,
-    pub i128,
-    pub i128,
-    pub i128,
-    pub Option<i128>,
-);
-
-impl From<&controller_interface::types::MarketStateSnapshot> for EventMarketState {
-    fn from(s: &controller_interface::types::MarketStateSnapshot) -> Self {
-        Self(
-            s.asset.clone(),
-            s.timestamp,
-            s.supply_index_ray,
-            s.borrow_index_ray,
-            s.reserves_ray,
-            s.supplied_ray,
-            s.borrowed_ray,
-            s.revenue_ray,
-            s.asset_price_wad,
-        )
-    }
-}
-
-#[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpdateMarketStateBatchEvent {
-    /// Pool accrual and accounting snapshots emitted after a successful batch.
-    pub updates: Vec<EventMarketState>,
-}
-
 /// Action that produced a position delta. The `u32` discriminants are wire
 /// ABI: the off-chain decoder maps them back to the legacy action strings,
 /// so variants must not be renumbered or removed.
@@ -832,25 +790,6 @@ mod tests {
                 optimal_utilization_ray: 0,
                 max_utilization_ray: 0,
                 reserve_factor_bps: 0,
-            }
-            .publish(&env);
-
-            let mut market_updates = Vec::new(&env);
-            market_updates.push_back(EventMarketState::from(
-                &controller_interface::types::MarketStateSnapshot {
-                    asset: asset.clone(),
-                    timestamp: 0,
-                    supply_index_ray: 0,
-                    borrow_index_ray: 0,
-                    reserves_ray: 0,
-                    supplied_ray: 0,
-                    borrowed_ray: 0,
-                    revenue_ray: 0,
-                    asset_price_wad: None,
-                },
-            ));
-            UpdateMarketStateBatchEvent {
-                updates: market_updates,
             }
             .publish(&env);
 

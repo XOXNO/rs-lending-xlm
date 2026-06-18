@@ -2,8 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::types::{
-    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, MarketStateSnapshot,
-    PoolAction, PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
+    PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
     PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
 use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env, Vec};
@@ -36,8 +36,8 @@ pub trait LiquidityPoolInterface {
     /// Repays each action (tokens pre-transferred by the controller),
     /// refunding overpayments to `payer`; input-ordered.
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>;
-    fn update_indexes(env: Env, asset: Address) -> MarketStateSnapshot;
-    fn add_rewards(env: Env, asset: Address, amount: i128) -> MarketStateSnapshot;
+    fn update_indexes(env: Env, asset: Address);
+    fn add_rewards(env: Env, asset: Address, amount: i128);
     /// Executes a flash loan that must return `amount + fee`.
     fn flash_loan(
         env: Env,
@@ -47,7 +47,7 @@ pub trait LiquidityPoolInterface {
         amount: i128,
         fee: i128,
         data: Bytes,
-    ) -> MarketStateSnapshot;
+    );
 
     /// Creates strategy debt and transfers `action.amount - fee` to `receiver`.
     fn create_strategy(
@@ -80,9 +80,11 @@ pub trait LiquidityPoolInterface {
     fn supplied_amount(env: Env, asset: Address) -> i128;
     fn borrowed_amount(env: Env, asset: Address) -> i128;
     fn delta_time(env: Env, asset: Address) -> u64;
+    /// Raw params and accounting state for one asset. Used for pool params
+    /// (decimals, utilization caps); index reads go through `bulk_get_indexes`.
     fn get_sync_data(env: Env, asset: Address) -> PoolSyncData;
-    /// Borrow/supply indexes accrued to the current ledger time for each
-    /// asset, index-aligned with the request. One call replaces N
-    /// `get_sync_data` reads for flows that only need indexes.
-    fn bulk_get_sync_data(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
+    /// Borrow/supply indexes accrued to the current ledger time for each asset,
+    /// index-aligned with the request. One call replaces N per-asset reads for
+    /// flows that only need indexes.
+    fn bulk_get_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
 }

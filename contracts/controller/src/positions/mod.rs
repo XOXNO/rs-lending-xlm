@@ -74,7 +74,6 @@ pub(crate) fn persist_account_positions(
 /// Emits batched position and market events recorded during the flow.
 pub(crate) fn emit_account_updates(cache: &mut Cache, account_id: u64, account: &Account) {
     cache.emit_position_batch(account_id, account);
-    cache.emit_market_batch();
 }
 
 /// Standard tail for user position flows: persist then emit.

@@ -33,7 +33,7 @@ pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
 pub(crate) use compose::certora;
 
 pub(crate) use prefetch::prefetch_redstone_feeds;
-pub use price::{token_price, update_asset_index};
+pub use price::token_price;
 
 pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
     let market = cache.cached_market_config(asset);

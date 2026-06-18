@@ -187,18 +187,26 @@ fn test_position_and_market_batch_v2_wire_shape() {
         assert_eq!(entry[0], ScVal::U32(4), "repay action discriminant");
     }
 
-    // market:batch_state_update data = vec of 9-element entries.
+    // market:batch_state_update is pool-emitted, once per pool mutation call. A
+    // liquidation makes separate repay and seize/withdraw pool calls, so the
+    // touched markets are snapshotted across multiple batches. Each entry is the
+    // pool's 8-field snapshot; it carries no oracle price (the pool cannot read
+    // prices).
     let market = data_for_topic(&events, "market", "batch_state_update");
-    assert_eq!(market.len(), 1);
-    let updates = as_vec(&market[0]);
-    assert!(updates.len() >= 2, "both touched markets snapshot");
-    for u in updates.iter() {
-        let entry = as_vec(u);
-        assert_eq!(entry.len(), 9, "market entry arity is wire ABI");
-        assert!(matches!(entry[0], ScVal::Address(_)), "asset");
-        assert!(matches!(entry[1], ScVal::U64(_)), "timestamp");
-        assert!(matches!(entry[2], ScVal::I128(_)), "supply_index_ray");
+    assert!(!market.is_empty(), "pool emits market snapshots");
+    let mut market_entries = 0;
+    for m in market.iter() {
+        let updates = as_vec(m);
+        for u in updates.iter() {
+            let entry = as_vec(u);
+            assert_eq!(entry.len(), 8, "market entry arity is wire ABI");
+            assert!(matches!(entry[0], ScVal::Address(_)), "asset");
+            assert!(matches!(entry[1], ScVal::U64(_)), "timestamp");
+            assert!(matches!(entry[2], ScVal::I128(_)), "supply_index_ray");
+            market_entries += 1;
+        }
     }
+    assert!(market_entries >= 2, "both touched markets are snapshotted");
 }
 
 #[test]

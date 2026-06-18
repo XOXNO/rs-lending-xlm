@@ -7,8 +7,7 @@
 
 use common::errors::CollateralError;
 use controller_interface::types::{
-    Account, AccountPositionType, AssetConfig, DebtPosition, Payment, PoolBorrowEntry,
-    PoolPositionMutation,
+    Account, AccountPositionType, DebtPosition, Payment, PoolBorrowEntry, PoolPositionMutation,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -80,7 +79,13 @@ fn validate_borrow(
     for (asset, _) in aggregated {
         validation::require_market_active(env, cache, &asset);
         let asset_config = configs.get(env, &asset);
-        validate_asset_borrowable(env, account, &asset, &asset_config, cache);
+        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
+
+        assert_with_error!(
+            env,
+            asset_config.is_borrowable,
+            CollateralError::AssetNotBorrowable
+        );
     }
 }
 
@@ -126,8 +131,8 @@ fn merge_borrow_result(
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
-    cache.record_market_update(&result.market_state);
-    let position: DebtPosition = (&result.position).into();
+    let position: DebtPosition = DebtPosition::from(&result.position);
+    cache.put_market_index(asset, &result.market_index);
     cache.record_debt_position_update(
         action,
         asset,
@@ -136,23 +141,6 @@ fn merge_borrow_result(
         &position,
     );
     update_or_remove_debt_position(account, asset, &position);
-}
-
-/// Account-level borrowability for one asset: e-mode and borrow flag.
-fn validate_asset_borrowable(
-    env: &Env,
-    account: &Account,
-    asset: &Address,
-    asset_config: &AssetConfig,
-    cache: &mut Cache,
-) {
-    emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, asset);
-
-    assert_with_error!(
-        env,
-        asset_config.is_borrowable,
-        CollateralError::AssetNotBorrowable
-    );
 }
 
 /// Creates strategy debt in the pool through the shared borrow gates and
@@ -184,7 +172,7 @@ pub fn borrow_for_strategy(
         flash_fee,
         debt_config.borrow_cap,
     );
-    let mutation: PoolPositionMutation = (&result).into();
+    let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
     merge_borrow_result(
         account,
         debt_token,

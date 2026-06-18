@@ -65,7 +65,7 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
         return;
     }
 
-    let totals = helpers::calculate_post_pool_risk_totals(
+    let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
         &account.supply_positions,
@@ -83,10 +83,13 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
     #[cfg(feature = "certora")]
     crate::spec::health_ghost::set_checked();
 
-    if totals.total_debt != Wad::ZERO {
-        let hf = totals.weighted_collateral.div_floor(env, totals.total_debt);
-        assert_with_error!(env, hf >= Wad::ONE, CollateralError::InsufficientCollateral);
-    }
+    // Debt-free accounts carry a saturated health factor, so this passes
+    // without a special case.
+    assert_with_error!(
+        env,
+        totals.health_factor >= Wad::ONE,
+        CollateralError::InsufficientCollateral
+    );
 
     let floor = storage::get_min_borrow_collateral_usd_wad(env);
     if floor != 0 && totals.ltv_collateral.raw() < floor {

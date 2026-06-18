@@ -81,13 +81,14 @@ pub fn process_liquidation(
     apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
     apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
 
-    let (post_total_coll, post_total_debt, _) = helpers::calculate_account_totals(
+    let post_totals = helpers::calculate_account_risk_totals(
         env,
         &mut cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    let will_socialize = is_socializable_bad_debt(post_total_debt, post_total_coll);
+    let will_socialize =
+        is_socializable_bad_debt(post_totals.total_debt, post_totals.total_collateral);
 
     persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
 
@@ -97,8 +98,8 @@ pub fn process_liquidation(
         &mut cache,
         account_id,
         &account,
-        post_total_coll,
-        post_total_debt,
+        post_totals.total_collateral,
+        post_totals.total_debt,
         will_socialize,
     );
 
@@ -142,41 +143,45 @@ fn build_liquidation_plan(
     aggregated_debt: &Vec<Payment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
-    // One totals pass feeds both the HF gate and the snapshot; the inlined HF
-    // mirrors calculate_health_factor, including the debt-free early panic
-    // that prices nothing.
+    // One totals pass feeds both the HF gate and the snapshot. A debt-free
+    // account carries a saturated health factor that fails the `hf < ONE` gate,
+    // but the early panic skips pricing it.
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
-    let (total_collateral, total_debt, weighted_coll) = helpers::calculate_account_totals(
+    let totals = helpers::calculate_account_risk_totals(
         env,
         cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
-    let hf = if total_debt == Wad::ZERO {
-        Wad::from(i128::MAX)
-    } else {
-        weighted_coll.div_floor(env, total_debt)
-    };
-    assert_with_error!(env, hf < Wad::ONE, CollateralError::HealthFactorTooHigh);
+    assert_with_error!(
+        env,
+        totals.health_factor < Wad::ONE,
+        CollateralError::HealthFactorTooHigh
+    );
 
-    let (proportion_seized, bonus_bounds) =
-        calculate_seizure_proportions(env, account, total_collateral, weighted_coll, cache);
+    let (proportion_seized, bonus_bounds) = calculate_seizure_proportions(
+        env,
+        account,
+        totals.total_collateral,
+        totals.weighted_collateral,
+        cache,
+    );
 
     let snap = LiquidationSnapshot {
-        total_debt,
-        total_collateral,
-        weighted_coll,
+        total_debt: totals.total_debt,
+        total_collateral: totals.total_collateral,
+        weighted_coll: totals.weighted_collateral,
         proportion_seized,
-        hf,
+        hf: totals.health_factor,
     };
 
     let repayment =
         normalize_repayment_plan(env, account, aggregated_debt, &snap, bonus_bounds, cache);
 
     let seized_collaterals =
-        calculate_seized_collateral(env, account, total_collateral, &repayment, cache);
+        calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
     let plan = LiquidationPlan {
         repayment,
@@ -287,14 +292,14 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         CollateralError::PositionNotFound
     );
 
-    let (total_collateral_usd, total_debt_usd, _) = helpers::calculate_account_totals(
+    let totals = helpers::calculate_account_risk_totals(
         env,
         &mut cache,
         &account.supply_positions,
         &account.borrow_positions,
     );
 
-    if !is_socializable_bad_debt(total_debt_usd, total_collateral_usd) {
+    if !is_socializable_bad_debt(totals.total_debt, totals.total_collateral) {
         panic_with_error!(env, CollateralError::CannotCleanBadDebt);
     }
 
@@ -303,10 +308,9 @@ pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
         &mut cache,
         account_id,
         &account,
-        total_debt_usd.raw(),
-        total_collateral_usd.raw(),
+        totals.total_debt.raw(),
+        totals.total_collateral.raw(),
     );
-    cache.emit_market_batch();
 }
 
 fn execute_bad_debt_cleanup(
@@ -355,6 +359,5 @@ fn seize_pool_position(
     position: ScaledPositionRaw,
 ) {
     let pool_addr = cache.cached_pool_address();
-    let result = pool_seize_position_call(env, &pool_addr, asset, side, position);
-    cache.record_market_update(&result.market_state);
+    pool_seize_position_call(env, &pool_addr, asset, side, position);
 }
