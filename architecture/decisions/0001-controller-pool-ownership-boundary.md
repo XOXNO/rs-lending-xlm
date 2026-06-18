@@ -58,8 +58,8 @@ Market listing is split:
   `POOL_DEPLOY_SALT` and stores it in `ControllerKey::Pool`.
 - `create_liquidity_pool(asset, params, config)` is a legacy ABI name. It
   creates an asset market inside the central pool, stores controller
-  `Market(asset)` as `PendingOracle`, adds `asset` to `PoolsList`, and consumes
-  the single-use `ApprovedToken(asset)` allow-list entry.
+  `Market(asset)` as `PendingOracle`, and consumes the single-use
+  `ApprovedToken(asset)` allow-list entry.
 - Oracle activation is separate. A market becomes usable only after governance
   schedules and executes `set_market_oracle_config`.
 
@@ -99,8 +99,6 @@ Negative / accepted costs:
   is separated by storage key, not by separate contract code.
 - The central pool custody address holds all listed token balances. A pool-code
   bug has wider custody impact than in a separate-pool deployment.
-- `PoolsList` is a legacy name. In current code it is the listed-asset registry,
-  not a list of pool contract addresses.
 - The controller is still the single user-facing risk authority. Governance
   timelock and immediate pause reduce admin risk, but controller logic still
   needs audit coverage.

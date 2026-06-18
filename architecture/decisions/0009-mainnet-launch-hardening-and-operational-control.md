@@ -132,7 +132,7 @@ when:
   creates an observation window before allowing TVL growth.
 - **Off-chain notice for non-emergency admin changes.** Superseded: notice is
   useful, but it is not an enforcement mechanism. Governance timelock is now
-  the load-bearing delay.
+  the binding delay.
 - **Timelock emergency pause.** Rejected: delaying a halt of a compromised
   market converts a containable incident into a loss.
 - **Single operator key for all roles.** Rejected: it concentrates upgrade,

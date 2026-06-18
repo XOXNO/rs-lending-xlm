@@ -60,7 +60,7 @@ The implementation enforces these properties:
   `repay_debt_with_collateral`) route through the same controller risk model
   as `supply`, `borrow`, `repay`, `withdraw`.
 - Storage records are split per concern (account meta, per-side position
-  maps, market config, e-mode category, listed-asset registry). Numeric
+  maps, market config, e-mode category). Numeric
   domains are explicit per field (BPS, WAD, RAY, asset-native).
 
 ## 3. System Topology
@@ -325,8 +325,7 @@ Deployment and listing path:
    validates asset config, and validates the rate model.
 7. At execution, the controller requires the single-use `ApprovedToken(asset)`,
    calls `pool.create_market(params)`, stores `Market(asset)` as
-   `PendingOracle`, adds the asset to `PoolsList`, and consumes the token
-   approval.
+   `PendingOracle`, and consumes the token approval.
 8. Governance schedules `set_market_oracle_config` through
    `propose_configure_market_oracle`; execution activates the market after the
    controller re-checks quote-market invariants.
@@ -987,9 +986,7 @@ Soroban storage is partitioned by entry kind:
   allow-list (a `LocalKey` variant).
 - **Temporary**: the `FlashLoanOngoing` single-flight flag (a `SessionKey`
   variant).
-- **Persistent shared**: `Market(asset)`, `PoolsList`, `EModeCategory(id)`.
-  `PoolsList` is the listed-asset registry, not a list of pool contract
-  addresses.
+- **Persistent shared**: `Market(asset)`, `EModeCategory(id)`.
 - **Persistent user**: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`.
 - **Pool instance**: owner and WASM instance metadata.
@@ -1016,7 +1013,7 @@ flowchart LR
     subgraph ControllerStorage["Controller storage"]
         I["Instance<br/>PoolTemplate, Pool, Aggregator, Accumulator<br/>AccountNonce, PositionLimits<br/>LastEModeCategoryId<br/>MinBorrowCollateralUsd, AppVersion<br/>ApprovedToken(asset)"]
         T["Temporary<br/>FlashLoanOngoing"]
-        M["Persistent shared<br/>Market(asset), PoolsList<br/>EModeCategory(id)"]
+        M["Persistent shared<br/>Market(asset)<br/>EModeCategory(id)"]
         U["Persistent user<br/>AccountMeta(id)<br/>SupplyPositions(id)<br/>BorrowPositions(id)"]
     end
 

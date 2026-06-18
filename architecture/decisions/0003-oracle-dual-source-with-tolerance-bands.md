@@ -14,7 +14,7 @@
 > `OracleStrategy` model (`Single` / `PrimaryWithAnchor`) with two
 > interchangeable providers: **Reflector** (SEP-40) and **RedStone**
 > (price-feed), composed as a `primary` source and an optional `anchor`
-> source that are deviation-checked against each other. The load-bearing
+> source that are deviation-checked against each other. The core
 > decision, dual-source pricing validated by tolerance bands, is unchanged;
 > the body below has been updated to the current model. See the Revisions
 > section for the change record, and `SCF_BUILD_ARCHITECTURE.md` §9 for the
@@ -179,7 +179,7 @@ fields; it does not re-probe the configured sources.
   cross-check spans two independent trust boundaries rather than one.
 - **Manual circuit breaker (off-chain pause on deviation).** Rejected as
   the only line of defense; off-chain monitors are still useful but cannot
-  be a load-bearing oracle gate.
+  be the oracle gate on their own.
 - **Custom oracle aggregator contract.** Rejected for launch: adds
   another upgradeable surface and another trust assumption. The chosen
   design reads Reflector and RedStone in the controller and validates tolerance,

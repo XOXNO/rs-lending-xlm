@@ -25,7 +25,7 @@ and verification assets.
 - [Protocol invariants](./architecture/INVARIANTS.md): fixed-point domains,
   solvency rules, oracle constraints, and accounting invariants.
 - [Architecture decisions](./architecture/decisions/README.md): ADRs for the
-  load-bearing design choices.
+  protocol's most consequential design choices.
 - [Certora verification](./certora/README.md): proof domains,
   profiles, and local prover commands.
 - [Security policy](./SECURITY.md): private vulnerability reporting and safe
