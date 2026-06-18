@@ -6,8 +6,8 @@ use soroban_sdk::{Address, Bytes, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::types::{
-    AccountPositionType, MarketIndex, MarketParamsRaw, MarketStateSnapshot, PoolAmountMutation,
-    PoolPositionMutation, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
+    AccountPositionType, MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolPositionMutation,
+    PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
 };
 
 fn nondet_market_index() -> MarketIndex {
@@ -29,33 +29,10 @@ fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
     idx
 }
 
-fn nondet_market_state(asset: &Address, market_index: &MarketIndex) -> MarketStateSnapshot {
-    let timestamp: u64 = nondet();
-    let reserves_ray: i128 = nondet();
-    let supplied_ray: i128 = nondet();
-    let borrowed_ray: i128 = nondet();
-    let revenue_ray: i128 = nondet();
-    cvlr_assume!(reserves_ray >= 0);
-    cvlr_assume!(supplied_ray >= 0);
-    cvlr_assume!(borrowed_ray >= 0);
-    cvlr_assume!(revenue_ray >= 0);
-    MarketStateSnapshot {
-        asset: asset.clone(),
-        timestamp,
-        supply_index_ray: market_index.supply_index.raw(),
-        borrow_index_ray: market_index.borrow_index.raw(),
-        reserves_ray,
-        supplied_ray,
-        borrowed_ray,
-        revenue_ray,
-        asset_price_wad: None,
-    }
-}
-
 /// Per-entry supply: `actual_amount == amount`, scaled amount non-decreasing, valid indexes.
 pub fn supply_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
     _supply_cap: i128,
@@ -66,11 +43,9 @@ pub fn supply_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount: amount,
     }
 }
@@ -78,7 +53,7 @@ pub fn supply_summary(
 /// Per-entry borrow: `actual_amount == amount`, scaled amount non-decreasing, valid indexes.
 pub fn borrow_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
     _borrow_cap: i128,
@@ -89,11 +64,9 @@ pub fn borrow_summary(
     new_position.scaled_amount_ray = new_scaled;
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount: amount,
     }
 }
@@ -101,7 +74,7 @@ pub fn borrow_summary(
 /// Withdraw: `0 <= actual_amount <= amount`, scaled amount non-increasing, valid indexes.
 pub fn withdraw_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
     _is_liquidation: bool,
@@ -118,11 +91,9 @@ pub fn withdraw_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount,
     }
 }
@@ -130,7 +101,7 @@ pub fn withdraw_summary(
 /// Repay: `0 <= actual_amount <= amount`, scaled amount non-increasing, valid indexes.
 pub fn repay_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     amount: i128,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
@@ -145,48 +116,40 @@ pub fn repay_summary(
     cvlr_assume!(actual_amount <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: new_position,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount,
     }
 }
 
-/// Index sync: fresh market state with valid supply/borrow indexes.
-pub fn update_indexes_summary(_env: &Env, asset: &Address) -> MarketStateSnapshot {
-    let market_index = nondet_market_index();
-    nondet_market_state(asset, &market_index)
-}
+/// Index sync: production accrues + emits an event and returns nothing.
+pub fn update_indexes_summary(_env: &Env, _asset: &Address) {}
 
-/// Add rewards: non-negative amount; empty pool panics in production.
-pub fn add_rewards_summary(_env: &Env, asset: &Address, _amount: i128) -> MarketStateSnapshot {
-    let market_index = nondet_market_index();
-    nondet_market_state(asset, &market_index)
-}
+/// Add rewards: non-negative amount; empty pool panics in production. Returns
+/// nothing (production emits an event).
+pub fn add_rewards_summary(_env: &Env, _asset: &Address, _amount: i128) {}
 
-/// Flash loan: `amount > 0`, `fee >= 0`, `amount + fee` in range; fee added to revenue.
+/// Flash loan: `amount > 0`, `fee >= 0`, `amount + fee` in range. Returns
+/// nothing (production emits an event).
 pub fn flash_loan_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     _initiator: &Address,
     _receiver: &Address,
     amount: i128,
     fee: i128,
     _data: &Bytes,
-) -> MarketStateSnapshot {
+) {
     cvlr_assume!(amount > 0);
     cvlr_assume!(fee >= 0);
     cvlr_assume!(fee <= i128::MAX - amount);
-    let market_index = nondet_market_index();
-    nondet_market_state(asset, &market_index)
 }
 
 /// Create strategy: `actual_amount == amount`, `amount_received == amount - fee`, debt non-decreasing.
 pub fn create_strategy_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     position: ScaledPositionRaw,
     amount: i128,
     fee: i128,
@@ -202,11 +165,9 @@ pub fn create_strategy_summary(
     cvlr_assume!(fee <= amount);
 
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolStrategyMutation {
         position: new_position,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount: amount,
         amount_received: amount - fee,
     }
@@ -215,29 +176,25 @@ pub fn create_strategy_summary(
 /// Seize: scaled amount zeroed; supply index may drop (floored), borrow index >= RAY.
 pub fn seize_position_summary(
     _env: &Env,
-    asset: &Address,
+    _asset: &Address,
     _side: AccountPositionType,
     position: ScaledPositionRaw,
 ) -> PoolPositionMutation {
     let mut zeroed = position.clone();
     zeroed.scaled_amount_ray = 0;
     let market_index = nondet_market_index();
-    let market_state = nondet_market_state(asset, &market_index);
     PoolPositionMutation {
         position: zeroed,
         market_index: (&market_index).into(),
-        market_state,
         actual_amount: 0,
     }
 }
 
 /// Claim revenue: non-negative transfer amount.
-pub fn claim_revenue_summary(_env: &Env, asset: &Address) -> PoolAmountMutation {
+pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation {
     let amount: i128 = nondet();
     cvlr_assume!(amount >= 0);
-    let market_index = nondet_market_index();
     PoolAmountMutation {
-        market_state: nondet_market_state(asset, &market_index),
         actual_amount: amount,
     }
 }

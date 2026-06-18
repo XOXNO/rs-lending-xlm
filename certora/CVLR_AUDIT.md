@@ -69,9 +69,11 @@ invariants must move to the **pool** spec where the real math runs.
   never run. FIX: repoint to the real math (as `ideal_repayment_targets_102` does).
 - `health_rules.rs:96-123` `liquidation_requires_unhealthy_account` — the `satisfy!(false)`
   must-revert is decoupled: the production liquidation gate runs on the nondet
-  `calculate_account_totals` summary, unrelated to the rule's inline healthiness assume,
+  `calculate_account_risk_totals` summary, unrelated to the rule's inline healthiness assume,
   so the revert isn't forced by the precondition. Proves nothing. FIX: verify against
-  real `calculate_account_totals_body`, or tie inline and gate totals to one symbol.
+  real `calculate_account_risk_totals_body`. The gate and the inline assume now share
+  one symbol whose summary derives the health factor from its own weighted/debt nondets,
+  so the rule should assert on `totals.health_factor` rather than re-deriving it.
 
 ### Cluster D — summary bounds production can violate / unproven
 - `shared/summaries/pool.rs:333-334` `capital_utilisation_summary` assumes `util <= RAY`;
@@ -118,7 +120,7 @@ invariants must move to the **pool** spec where the real math runs.
 - `emode_rules.rs:296-323` `emode_remove_category` loop bounded by `len()<=5` assume;
   confirm `loop_iter` ≥ 5 in emode.conf.
 - 5 controller-side summaries in `shared/summaries/mod.rs` (`token_price`,
-  `update_asset_index`, `calculate_account_totals`, `calculate_linear_bonus`, `total_*_in_usd`)
+  `update_asset_index`, `calculate_account_risk_totals`, `calculate_linear_bonus`, `total_*_in_usd`)
   have NO `*_satisfies_*` soundness lemma (trusted on faith, unlike the pool summaries).
 
 ## What is SOUND (no action)

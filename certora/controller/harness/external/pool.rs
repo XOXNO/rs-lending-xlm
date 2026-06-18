@@ -13,13 +13,14 @@
 //! returned `Vec` is length-preserving and every per-entry postcondition holds
 //! at its own index (matching the `results.get(i)` reads in production).
 
+use crate::spec::summaries::bulk_index_summary;
 use crate::spec::summaries::pool::{
     add_rewards_summary, borrow_summary, claim_revenue_summary, create_strategy_summary,
     flash_loan_summary, get_sync_data_summary, repay_summary, seize_position_summary,
     supply_summary, update_indexes_summary, withdraw_summary,
 };
 use crate::types::{
-    AccountPositionType, InterestRateModel, MarketParamsRaw, MarketStateSnapshot, PoolAction,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
     PoolAmountMutation, PoolBorrowEntry, PoolPositionMutation, PoolStrategyMutation,
     PoolSupplyEntry, PoolSyncData, PoolWithdrawEntry, ScaledPositionRaw,
 };
@@ -144,15 +145,11 @@ pub(crate) fn pool_flash_loan_call(
     amount: i128,
     fee: i128,
     data: &Bytes,
-) -> MarketStateSnapshot {
+) {
     flash_loan_summary(env, asset, initiator, receiver, amount, fee, data)
 }
 
-pub(crate) fn pool_update_indexes_call(
-    env: &Env,
-    _pool_addr: &Address,
-    asset: &Address,
-) -> MarketStateSnapshot {
+pub(crate) fn pool_update_indexes_call(env: &Env, _pool_addr: &Address, asset: &Address) {
     update_indexes_summary(env, asset)
 }
 
@@ -169,7 +166,7 @@ pub(crate) fn pool_add_rewards_call(
     _pool_addr: &Address,
     asset: &Address,
     amount: i128,
-) -> MarketStateSnapshot {
+) {
     add_rewards_summary(env, asset, amount)
 }
 
@@ -181,9 +178,19 @@ pub(crate) fn fetch_pool_sync_data(
     get_sync_data_summary(env, asset)
 }
 
-// `fetch_pool_bulk_indexes` is intentionally absent: its only production caller
-// (`cache::Cache::prefetch_market_indexes`) is `#[cfg(not(feature = "certora"))]`,
-// so the certora build never references it.
+// Backs the controller's index cache on a miss (`cache::Cache::cached_market_index`).
+// Each asset gets a nondet index bounded by production floors.
+pub(crate) fn fetch_pool_bulk_indexes(
+    env: &Env,
+    _pool_addr: &Address,
+    assets: &Vec<Address>,
+) -> Vec<MarketIndexRaw> {
+    let mut out: Vec<MarketIndexRaw> = Vec::new(env);
+    for asset in assets.iter() {
+        out.push_back(bulk_index_summary(env, &asset));
+    }
+    out
+}
 
 // Void privileged-config calls have no return value to summarize, so the
 // prover treats them as no-ops. They exist only so the production import path

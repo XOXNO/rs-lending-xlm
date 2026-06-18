@@ -485,7 +485,7 @@ fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
     let account = crate::storage::get_account(&e, account_id);
     cvlr_assume!(!account.borrow_positions.is_empty());
 
-    let (total_collateral_usd, total_debt_usd, _) = crate::helpers::calculate_account_totals(
+    let totals = crate::helpers::calculate_account_risk_totals(
         &e,
         &mut cache,
         &account.supply_positions,
@@ -493,8 +493,8 @@ fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
     );
 
     cvlr_assume!(
-        !(total_debt_usd.raw() > total_collateral_usd.raw()
-            && total_collateral_usd.raw() <= BAD_DEBT_USD_THRESHOLD)
+        !(totals.total_debt.raw() > totals.total_collateral.raw()
+            && totals.total_collateral.raw() <= BAD_DEBT_USD_THRESHOLD)
     );
 
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
