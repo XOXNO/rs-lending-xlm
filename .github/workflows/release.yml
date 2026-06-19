@@ -48,7 +48,7 @@ jobs:
     name: Build release WASM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Pinned to match rust-toolchain.toml so deployed bytes match the
       # toolchain used by CI lint/test runs.
@@ -184,7 +184,7 @@ jobs:
       group: testnet-e2e
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
