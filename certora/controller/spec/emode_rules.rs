@@ -218,7 +218,8 @@ fn deprecated_emode_allows_withdraw(
     }
 }
 
-/// Active e-mode overrides LTV, threshold, bonus, and collateral/borrow flags from the category.
+/// Active e-mode overrides LTV, threshold, bonus, and collateral/borrow flags
+/// from the asset's own e-mode config.
 #[rule]
 fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
@@ -229,6 +230,7 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
 
     let emode_asset = crate::storage::get_emode_asset(&e, category_id, &asset);
     cvlr_assume!(emode_asset.is_some());
+    let cfg = emode_asset.unwrap();
 
     let asset_cats = crate::storage::get_asset_emodes(&e, &asset);
     cvlr_assume!(asset_cats.contains(category_id));
@@ -242,43 +244,33 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     let emode_asset_cfg = cache.cached_emode_asset(category_id, &asset);
     crate::emode::apply_e_mode_to_asset_config(&e, &mut asset_config, &emode_cat, emode_asset_cfg);
 
-    cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(category.loan_to_value_bps));
+    cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value_bps));
     cvlr_assert!(
-        asset_config.liquidation_threshold.raw() == i128::from(category.liquidation_threshold_bps)
+        asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold_bps)
     );
-    cvlr_assert!(
-        asset_config.liquidation_bonus.raw() == i128::from(category.liquidation_bonus_bps)
-    );
+    cvlr_assert!(asset_config.liquidation_bonus.raw() == i128::from(cfg.liquidation_bonus_bps));
 
-    let cfg = emode_asset.unwrap();
     cvlr_assert!(asset_config.is_collateralizable == cfg.is_collateralizable);
     cvlr_assert!(asset_config.is_borrowable == cfg.is_borrowable);
 }
 
-/// Non-deprecated e-mode categories satisfy LTV < liquidation threshold.
+/// Registered e-mode assets satisfy LTV < liquidation threshold.
 #[rule]
-fn emode_category_has_valid_params(e: Env, category_id: u32) {
+fn emode_asset_has_valid_params(e: Env, asset: Address, category_id: u32) {
     cvlr_assume!(category_id > 0);
 
-    let category = crate::storage::get_emode_category(&e, category_id);
-    cvlr_assume!(!category.is_deprecated);
+    let emode_asset = crate::storage::get_emode_asset(&e, category_id, &asset);
+    cvlr_assume!(emode_asset.is_some());
+    let cfg = emode_asset.unwrap();
 
-    cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
+    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
 }
 
-/// `add_e_mode_category` persists only categories with threshold > LTV.
+/// `add_asset_to_e_mode_category` persists only assets with threshold > LTV.
 #[rule]
-fn add_emode_enforces_valid_bounds(e: Env, ltv: u32, threshold: u32, bonus: u32) {
-    let id = crate::governance::config::add_e_mode_category(&e, ltv, threshold, bonus);
-
-    let category = crate::storage::get_emode_category(&e, id);
-    cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
-}
-
-/// `edit_e_mode_category` leaves threshold > LTV in storage.
-#[rule]
-fn edit_emode_enforces_valid_bounds(
+fn add_asset_enforces_valid_bounds(
     e: Env,
+    asset: Address,
     category_id: u32,
     ltv: u32,
     threshold: u32,
@@ -286,10 +278,32 @@ fn edit_emode_enforces_valid_bounds(
 ) {
     cvlr_assume!(category_id > 0);
 
-    crate::governance::config::edit_e_mode_category(&e, category_id, ltv, threshold, bonus);
+    crate::governance::config::add_asset_to_e_mode_category(
+        &e, asset.clone(), category_id, true, true, ltv, threshold, bonus,
+    );
 
-    let category = crate::storage::get_emode_category(&e, category_id);
-    cvlr_assert!(category.liquidation_threshold_bps > category.loan_to_value_bps);
+    let cfg = crate::storage::get_emode_asset(&e, category_id, &asset).unwrap();
+    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+}
+
+/// `edit_asset_in_e_mode_category` leaves threshold > LTV in storage.
+#[rule]
+fn edit_asset_enforces_valid_bounds(
+    e: Env,
+    asset: Address,
+    category_id: u32,
+    ltv: u32,
+    threshold: u32,
+    bonus: u32,
+) {
+    cvlr_assume!(category_id > 0);
+
+    crate::governance::config::edit_asset_in_e_mode_category(
+        &e, asset.clone(), category_id, true, true, ltv, threshold, bonus,
+    );
+
+    let cfg = crate::storage::get_emode_asset(&e, category_id, &asset).unwrap();
+    cvlr_assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
 }
 
 /// `remove_e_mode_category` deprecates the category, clears its asset map, and updates reverse indexes.
@@ -331,7 +345,9 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     cvlr_assume!(category.is_some());
     cvlr_assume!(category.unwrap().is_deprecated);
 
-    crate::governance::config::add_asset_to_e_mode_category(&e, asset, category_id, true, true);
+    crate::governance::config::add_asset_to_e_mode_category(
+        &e, asset, category_id, true, true, 9_000, 9_300, 300,
+    );
 
     cvlr_satisfy!(false);
 }

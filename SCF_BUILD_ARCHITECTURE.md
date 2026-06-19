@@ -837,14 +837,17 @@ E-mode tunes risk for specific asset groups:
 
 - **E-mode** groups assets that move together (for example, two stablecoins) and
   gives them a higher LTV and liquidation threshold, so users can borrow more
-  against closely correlated collateral. Per-asset `can_collateral` and
-  `can_borrow` flags in the category restrict which assets pair together.
+  against closely correlated collateral. Each asset in the category carries its
+  own `can_collateral` / `can_borrow` flags and its own LTV, liquidation
+  threshold, and liquidation bonus, so members of the same category can run
+  different risk profiles.
 
 E-mode is category-based. `ControllerKey::EModeCategory(u32)` stores
-`EModeCategoryRaw { loan_to_value_bps, liquidation_threshold_bps,
-liquidation_bonus_bps, is_deprecated, assets: Map<Address,
-EModeAssetConfig> }`. Each market stores its reverse membership list in
-`AssetConfigRaw.e_mode_categories: Vec<u32>`.
+`EModeCategoryRaw { is_deprecated, assets: Map<Address, EModeAssetConfig> }`,
+where `EModeAssetConfig { is_collateralizable, is_borrowable,
+loan_to_value_bps, liquidation_threshold_bps, liquidation_bonus_bps }` holds
+the per-asset risk parameters. Each market stores its reverse membership list
+in `AssetConfigRaw.e_mode_categories: Vec<u32>`.
 
 `remove_e_mode_category` flags the category deprecated, clears its asset
 map, and removes the category id from each member market's reverse
@@ -853,7 +856,7 @@ blocked.
 
 ```mermaid
 flowchart LR
-    Cat["EModeCategory(id)<br/>ltv / threshold / bonus<br/>is_deprecated<br/>assets: Map&lt;Address, EModeAssetConfig&gt;"]
+    Cat["EModeCategory(id)<br/>is_deprecated<br/>assets: Map&lt;Address, EModeAssetConfig&gt;<br/>(per-asset ltv / threshold / bonus)"]
     AssetA["Market(asset A)<br/>AssetConfig.e_mode_categories"]
     AssetB["Market(asset B)<br/>AssetConfig.e_mode_categories"]
     Acct["AccountMeta<br/>e_mode_category_id"]

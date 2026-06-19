@@ -82,18 +82,20 @@ flow_admin() {
     view pool_util_view "$POOL" -- capital_utilisation --asset "$USDC_SAC" >/dev/null
 
     # E-mode admin lifecycle on a throwaway category (asset ops use idle EURC).
+    # Risk params are per-asset, so category creation takes no args and bound
+    # validation happens when an asset joins.
     local tmp_cat
-    tmp_cat=$(inv emode_tmp_add "$ADMIN" "$CONTROLLER" -- add_e_mode_category \
-        --ltv 8000 --threshold 8500 --bonus 300 | tr -d '"')
-    # validate_risk_bounds on e-mode categories too (#113 when ltv >= threshold).
-    xfail emode_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_e_mode_category \
-        --ltv 8600 --threshold 8500 --bonus 300
-    inv emode_tmp_edit "$ADMIN" "$CONTROLLER" -- edit_e_mode_category \
-        --id "$tmp_cat" --ltv 8100 --threshold 8600 --bonus 250 >/dev/null
+    tmp_cat=$(inv emode_tmp_add "$ADMIN" "$CONTROLLER" -- add_e_mode_category | tr -d '"')
     inv emode_tmp_add_asset "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-        --asset "$EURC_SAC" --category_id "$tmp_cat" --can_collateral true --can_borrow true >/dev/null
+        --asset "$EURC_SAC" --category_id "$tmp_cat" --can_collateral true --can_borrow true \
+        --ltv 8000 --threshold 8500 --bonus 300 >/dev/null
+    # validate_risk_bounds on e-mode assets (#113 when ltv >= threshold).
+    xfail emode_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
+        --asset "$EURC_SAC" --category_id "$tmp_cat" --can_collateral true --can_borrow true \
+        --ltv 8600 --threshold 8500 --bonus 300
     inv emode_tmp_edit_asset "$ADMIN" "$CONTROLLER" -- edit_asset_in_e_mode_category \
-        --asset "$EURC_SAC" --category_id "$tmp_cat" --can_collateral true --can_borrow false >/dev/null
+        --asset "$EURC_SAC" --category_id "$tmp_cat" --can_collateral true --can_borrow false \
+        --ltv 8100 --threshold 8600 --bonus 250 >/dev/null
     inv emode_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_e_mode \
         --asset "$EURC_SAC" --category_id "$tmp_cat" >/dev/null
     inv emode_tmp_deprecate "$ADMIN" "$CONTROLLER" -- remove_e_mode_category --id "$tmp_cat" >/dev/null

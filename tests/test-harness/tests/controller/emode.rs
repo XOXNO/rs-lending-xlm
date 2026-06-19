@@ -154,10 +154,10 @@ fn test_emode_deprecated_blocks_new_accounts() {
     let result = t.try_supply(ALICE, "USDC", 1_000.0);
     assert_contract_error(result, errors::EMODE_CATEGORY_DEPRECATED);
 }
-// 9. test_emode_edit_category_params
+// 9. test_emode_edit_asset_params
 
 #[test]
-fn test_emode_edit_category_params() {
+fn test_emode_edit_asset_params() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(usdt_stable_preset())
@@ -166,8 +166,8 @@ fn test_emode_edit_category_params() {
         .with_emode_asset(1, "USDT", true, true)
         .build();
 
-    // Edit the category to lower the LTV.
-    t.edit_e_mode_category(1, 8000, 8500, 300);
+    // Edit the collateral asset to lower its e-mode LTV from 97% to 80%.
+    t.edit_asset_in_e_mode("USDC", 1, true, true, 8000, 8500, 300);
 
     // Now create the account and borrow at 95%; the new 80% LTV must reject.
     t.create_emode_account(ALICE, 1);
@@ -231,8 +231,8 @@ fn test_emode_add_asset_to_category() {
         // USDT not yet in the category.
         .build();
 
-    // Add USDT to the category at runtime.
-    t.add_asset_to_e_mode("USDT", 1, true, true);
+    // Add USDT to the category at runtime with the stablecoin e-mode params.
+    t.add_asset_to_e_mode("USDT", 1, true, true, 9700, 9800, 200);
 
     // USDT is valid collateral and debt in the e-mode category.
     t.create_emode_account(ALICE, 1);
@@ -356,18 +356,7 @@ fn test_emode_deprecated_category_operations_rejected() {
     // Deprecate the category first.
     t.remove_e_mode_category(1);
 
-    // 1. Trying to edit the deprecated category must fail.
-    let edit_result = t
-        .ctrl_client()
-        .try_edit_e_mode_category(&1u32, &8000u32, &8500u32, &200u32);
-    let flat_edit: Result<(), soroban_sdk::Error> = match edit_result {
-        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
-        Ok(Err(err)) => Err(err.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(flat_edit, errors::EMODE_CATEGORY_DEPRECATED);
-
-    // 2. Trying to remove/deprecate the category again must fail.
+    // 1. Trying to remove/deprecate the category again must fail.
     let remove_result = t.ctrl_client().try_remove_e_mode_category(&1u32);
     let flat_remove: Result<(), soroban_sdk::Error> = match remove_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
@@ -376,11 +365,17 @@ fn test_emode_deprecated_category_operations_rejected() {
     };
     assert_contract_error(flat_remove, errors::EMODE_CATEGORY_DEPRECATED);
 
-    // 3. Trying to edit an asset in the deprecated category must fail.
+    // 2. Trying to edit an asset in the deprecated category must fail.
     let asset_address = t.resolve_asset("USDC");
-    let edit_asset_result =
-        t.ctrl_client()
-            .try_edit_asset_in_e_mode_category(&asset_address, &1u32, &true, &true);
+    let edit_asset_result = t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &asset_address,
+        &1u32,
+        &true,
+        &true,
+        &9_000u32,
+        &9_300u32,
+        &200u32,
+    );
     let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -699,7 +694,7 @@ fn test_emode_collateral_flag_update_blocks_new_supply_but_existing_withdraw_wor
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 1_000.0);
-    t.edit_asset_in_e_mode("USDC", 1, false, true);
+    t.edit_asset_in_e_mode("USDC", 1, false, true, 9700, 9800, 200);
 
     let add_more = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(add_more, errors::NOT_COLLATERAL);
@@ -724,7 +719,7 @@ fn test_emode_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 2_000.0);
-    t.edit_asset_in_e_mode("USDT", 1, true, false);
+    t.edit_asset_in_e_mode("USDT", 1, true, false, 9700, 9800, 200);
 
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(borrow_more, errors::ASSET_NOT_BORROWABLE);
@@ -738,24 +733,25 @@ fn test_emode_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Defense-in-depth (AAVE-D-028): the controller's own edit_e_mode_category
+// Defense-in-depth (AAVE-D-028): the controller's own edit_asset_in_e_mode_category
 // rejects an edit that would invert the LTV<threshold gap or breach the
 // seizure ceiling, even on a direct call that bypasses the governance
-// contract's validation. Because a position inherits BOTH ltv and threshold
-// from its category (apply_e_mode_to_asset_config), a category that can never
-// hold ltv >= threshold means no member position can either.
+// contract's validation. A collateral position inherits its ltv and threshold
+// from the asset's e-mode config (apply_e_mode_to_asset_config), so an asset
+// that can never hold ltv >= threshold means no member position can either.
 #[test]
-fn test_edit_e_mode_category_rejects_inverted_or_unsafe_bounds() {
+fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_emode(1, STABLECOIN_EMODE)
         .with_emode_asset(1, "USDC", true, true)
         .build();
+    let usdc = t.resolve_asset("USDC");
 
     // ltv >= threshold must reject (the borrow-buffer invariant).
-    let inverted = t
-        .ctrl_client()
-        .try_edit_e_mode_category(&1u32, &8_500u32, &8_000u32, &200u32);
+    let inverted = t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdc, &1u32, &true, &true, &8_500u32, &8_000u32, &200u32,
+    );
     let flat_inverted: Result<(), soroban_sdk::Error> = match inverted {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -765,9 +761,9 @@ fn test_edit_e_mode_category_rejects_inverted_or_unsafe_bounds() {
 
     // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
-    let unsafe_bonus = t
-        .ctrl_client()
-        .try_edit_e_mode_category(&1u32, &9_400u32, &9_500u32, &600u32);
+    let unsafe_bonus = t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdc, &1u32, &true, &true, &9_400u32, &9_500u32, &600u32,
+    );
     let flat_unsafe: Result<(), soroban_sdk::Error> = match unsafe_bonus {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -775,10 +771,51 @@ fn test_edit_e_mode_category_rejects_inverted_or_unsafe_bounds() {
     };
     assert_contract_error(flat_unsafe, errors::INVALID_LIQ_THRESHOLD);
 
-    // A valid edit still succeeds and the stored category keeps threshold > ltv.
-    t.edit_e_mode_category(1, 9_000, 9_300, 200);
+    // A valid edit still succeeds and the stored asset keeps threshold > ltv.
+    t.edit_asset_in_e_mode("USDC", 1, true, true, 9_000, 9_300, 200);
     let cat = t.ctrl_client().get_e_mode_category(&1u32);
-    assert_eq!(cat.loan_to_value_bps, 9_000);
-    assert_eq!(cat.liquidation_threshold_bps, 9_300);
-    assert!(cat.liquidation_threshold_bps > cat.loan_to_value_bps);
+    let cfg = cat.assets.get(usdc).expect("USDC registered");
+    assert_eq!(cfg.loan_to_value_bps, 9_000);
+    assert_eq!(cfg.liquidation_threshold_bps, 9_300);
+    assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
+}
+
+// Per-asset divergence: two assets in the SAME category carry DIFFERENT risk
+// params. Each supplied collateral position inherits its own asset's e-mode
+// LTV/threshold, proving params are no longer category-wide.
+#[test]
+fn test_emode_per_asset_divergent_params() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE) // USDC inherits 9700/9800/200.
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    // USDT joins the same category with a tighter, distinct risk profile.
+    t.add_asset_to_e_mode("USDT", 1, true, true, 9_000, 9_300, 300);
+
+    let account_id = t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 5_000.0);
+    t.supply(ALICE, "USDT", 5_000.0);
+
+    let usdc = t.resolve_asset("USDC");
+    let usdt = t.resolve_asset("USDT");
+    let (supplies, _) = t.ctrl_client().get_account_positions(&account_id);
+
+    // USDC position keeps the stablecoin-category params.
+    let usdc_pos = supplies.get(usdc).expect("USDC position");
+    assert_eq!(
+        usdc_pos.loan_to_value_bps, 9_700,
+        "USDC keeps its 97% e-mode LTV"
+    );
+    assert_eq!(usdc_pos.liquidation_threshold_bps, 9_800);
+
+    // USDT position carries its own, divergent params in the same category.
+    let usdt_pos = supplies.get(usdt).expect("USDT position");
+    assert_eq!(
+        usdt_pos.loan_to_value_bps, 9_000,
+        "USDT carries its own tighter LTV"
+    );
+    assert_eq!(usdt_pos.liquidation_threshold_bps, 9_300);
 }

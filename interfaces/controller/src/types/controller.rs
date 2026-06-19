@@ -113,23 +113,20 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
-/// Persistent e-mode category definition.
+/// Persistent e-mode category definition. Risk parameters live per-asset on
+/// each [`EModeAssetConfig`]; a category only groups assets and tracks
+/// deprecation.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeCategoryRaw {
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
 }
 
-/// Typed e-mode category used when applying category overrides.
+/// Typed e-mode category used when applying overrides; only `is_deprecated`
+/// gates the override, so this mirrors the raw record.
 #[derive(Clone, Debug)]
 pub struct EModeCategory {
-    pub loan_to_value: Bps,
-    pub liquidation_threshold: Bps,
-    pub liquidation_bonus: Bps,
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
 }
@@ -137,9 +134,6 @@ pub struct EModeCategory {
 impl From<&EModeCategoryRaw> for EModeCategory {
     fn from(r: &EModeCategoryRaw) -> Self {
         Self {
-            loan_to_value: Bps::from(i128::from(r.loan_to_value_bps)),
-            liquidation_threshold: Bps::from(i128::from(r.liquidation_threshold_bps)),
-            liquidation_bonus: Bps::from(i128::from(r.liquidation_bonus_bps)),
             is_deprecated: r.is_deprecated,
             assets: r.assets.clone(),
         }
@@ -149,20 +143,23 @@ impl From<&EModeCategoryRaw> for EModeCategory {
 impl From<&EModeCategory> for EModeCategoryRaw {
     fn from(t: &EModeCategory) -> Self {
         Self {
-            loan_to_value_bps: t.loan_to_value.raw() as u32,
-            liquidation_threshold_bps: t.liquidation_threshold.raw() as u32,
-            liquidation_bonus_bps: t.liquidation_bonus.raw() as u32,
             is_deprecated: t.is_deprecated,
             assets: t.assets.clone(),
         }
     }
 }
 
+/// Per-asset e-mode configuration: collateral/borrow flags plus the risk
+/// parameters applied while the owning category is active. `*_bps` fields use
+/// basis points.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EModeAssetConfig {
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
 }
 
 #[contracttype]
@@ -401,12 +398,12 @@ mod tests {
             EModeAssetConfig {
                 is_collateralizable: true,
                 is_borrowable: true,
+                loan_to_value_bps: 9_000,
+                liquidation_threshold_bps: 9_300,
+                liquidation_bonus_bps: 300,
             },
         );
         EModeCategoryRaw {
-            loan_to_value_bps: 9_000,
-            liquidation_threshold_bps: 9_300,
-            liquidation_bonus_bps: 300,
             is_deprecated: false,
             assets,
         }
@@ -418,12 +415,6 @@ mod tests {
         let raw = emode_category_raw(&env);
         let typed = EModeCategory::from(&raw);
         let back = EModeCategoryRaw::from(&typed);
-        assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
-        assert_eq!(
-            back.liquidation_threshold_bps,
-            raw.liquidation_threshold_bps
-        );
-        assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
         assert_eq!(back.is_deprecated, raw.is_deprecated);
         assert_eq!(back.assets.len(), raw.assets.len());
     }

@@ -769,7 +769,7 @@ list_emode_categories() {
             .[$network] as $cats |
             ($networks[0][$network].emode_category_ids // {}) as $ids |
             $cats | to_entries[] |
-            "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — LTV=\(.value.ltv) Threshold=\(.value.liquidation_threshold) Bonus=\(.value.liquidation_bonus)"
+            "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — assets: \(.value.assets | keys | join(", "))"
         ' "$EMODES_FILE"
     else
         echo "  No emodes config found: $EMODES_FILE"
@@ -808,27 +808,17 @@ add_emode_category() {
     local category_id=$1
 
     local name=$(get_emode_value "$category_id" ".name")
-    local ltv=$(get_emode_value "$category_id" ".ltv")
-    local threshold=$(get_emode_value "$category_id" ".liquidation_threshold")
-    local bonus=$(get_emode_value "$category_id" ".liquidation_bonus")
 
     echo "Adding E-Mode category ${category_id}: ${name}" >&2
-    echo "  LTV: ${ltv}" >&2
-    echo "  Liquidation Threshold: ${threshold}" >&2
-    echo "  Liquidation Bonus: ${bonus}" >&2
 
-    # add_e_mode_category(ltv, threshold, bonus) — three u32 args.
-    local args_json
-    args_json=$(jq -nc \
-        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        '[{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
+    # add_e_mode_category() — no args; risk params are per-asset.
+    local args_json='[]'
     local salt
     salt=$(gen_salt "add_e_mode_category" "$args_json")
 
     local op_id
     op_id=$(schedule_via_proposer \
-        propose_add_e_mode_category add_e_mode_category "$args_json" true "$salt" \
-        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
+        propose_add_e_mode_category add_e_mode_category "$args_json" true "$salt")
 
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
         echo "Scheduled e-mode category ${category_id} as op ${op_id} (AUTO_EXECUTE=0)." >&2
@@ -850,33 +840,6 @@ add_emode_category() {
 
     echo "E-Mode category ${category_id} created with on-chain id ${onchain_id}." >&2
     echo "$onchain_id"
-}
-
-edit_emode_category() {
-    local config_category_id=$1
-    local onchain_id=$2
-
-    local name=$(get_emode_value "$config_category_id" ".name")
-    local ltv=$(get_emode_value "$config_category_id" ".ltv")
-    local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
-    local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
-
-    echo "Editing E-Mode category ${config_category_id} (${name}) on-chain id ${onchain_id}..." >&2
-
-    # edit_e_mode_category(id, ltv, threshold, bonus) — four u32 args.
-    local args_json
-    args_json=$(jq -nc \
-        --argjson id "$onchain_id" --argjson ltv "$ltv" \
-        --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        '[{u32:$id},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
-    local salt
-    salt=$(gen_salt "edit_e_mode_category" "$args_json")
-
-    local op_id
-    op_id=$(schedule_via_proposer \
-        propose_edit_e_mode_category edit_e_mode_category "$args_json" true "$salt" \
-        --id "$onchain_id" --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
-    schedule_and_maybe_execute "$op_id"
 }
 
 get_mapped_emode_category_id() {
@@ -904,27 +867,14 @@ fetch_emode_category_json() {
         --send=no -- get_e_mode_category --category_id "$onchain_id"
 }
 
-emode_params_match_config() {
-    local category_json=$1
-    local config_category_id=$2
-    local ltv=$(get_emode_value "$config_category_id" ".ltv")
-    local threshold=$(get_emode_value "$config_category_id" ".liquidation_threshold")
-    local bonus=$(get_emode_value "$config_category_id" ".liquidation_bonus")
-
-    printf '%s' "$category_json" | jq -e \
-        --argjson ltv "$ltv" \
-        --argjson threshold "$threshold" \
-        --argjson bonus "$bonus" \
-        '.loan_to_value_bps == $ltv and
-         .liquidation_threshold_bps == $threshold and
-         .liquidation_bonus_bps == $bonus' >/dev/null
-}
-
 emode_is_deprecated() {
     local category_json=$1
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
 
+# A category only groups assets and tracks deprecation; risk params live on the
+# per-asset configs (ensured by `ensure_asset_in_emode`). Any non-deprecated
+# on-chain category is therefore reusable as-is.
 ensure_emode_category() {
     local config_category_id=$1
     local mapped_id
@@ -935,12 +885,8 @@ ensure_emode_category() {
         if category_json=$(fetch_emode_category_json "$mapped_id" 2>/dev/null); then
             if emode_is_deprecated "$category_json"; then
                 echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
-            elif emode_params_match_config "$category_json" "$config_category_id"; then
-                echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
-                echo "$mapped_id"
-                return 0
             else
-                edit_emode_category "$config_category_id" "$mapped_id"
+                echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
                 echo "$mapped_id"
                 return 0
             fi
@@ -952,15 +898,9 @@ ensure_emode_category() {
     if category_json=$(fetch_emode_category_json "$config_category_id" 2>/dev/null); then
         if emode_is_deprecated "$category_json"; then
             echo "On-chain E-Mode id ${config_category_id} is deprecated; creating a new category."
-        elif emode_params_match_config "$category_json" "$config_category_id"; then
-            persist_emode_category_id "$config_category_id" "$config_category_id"
-            echo "E-Mode config ${config_category_id} matches existing on-chain id ${config_category_id}."
-            echo "$config_category_id"
-            return 0
         else
-            echo "On-chain E-Mode id ${config_category_id} exists but does not match config; editing it."
-            edit_emode_category "$config_category_id" "$config_category_id"
             persist_emode_category_id "$config_category_id" "$config_category_id"
+            echo "E-Mode config ${config_category_id} reuses existing on-chain id ${config_category_id}."
             echo "$config_category_id"
             return 0
         fi
@@ -982,23 +922,28 @@ add_asset_to_emode() {
     local asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
     echo "  Can Be Collateral: ${can_collateral}"
     echo "  Can Be Borrowed: ${can_borrow}"
+    echo "  LTV: ${ltv}  Threshold: ${threshold}  Bonus: ${bonus}"
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
         echo "ERROR: No asset address found for ${asset_name} in ${MARKET_CONFIG_FILE}"
         exit 1
     fi
 
-    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow).
+    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" --argjson cat "$category_id" \
         --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb}]')
+        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
     local salt
     salt=$(gen_salt "add_asset_to_e_mode_category" "$args_json")
 
@@ -1006,7 +951,8 @@ add_asset_to_emode() {
     op_id=$(schedule_via_proposer \
         propose_add_asset_to_e_mode add_asset_to_e_mode_category "$args_json" true "$salt" \
         --asset "$asset_address" --category_id "$category_id" \
-        --can_collateral "$can_collateral" --can_borrow "$can_borrow")
+        --can_collateral "$can_collateral" --can_borrow "$can_borrow" \
+        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
     schedule_and_maybe_execute "$op_id"
 
     echo "Asset ${asset_name} scheduled into E-Mode category ${category_id}."
@@ -1020,15 +966,19 @@ edit_asset_in_emode() {
     local asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
 
-    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow).
+    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" --argjson cat "$category_id" \
         --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb}]')
+        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
     local salt
     salt=$(gen_salt "edit_asset_in_e_mode_category" "$args_json")
 
@@ -1036,7 +986,8 @@ edit_asset_in_emode() {
     op_id=$(schedule_via_proposer \
         propose_edit_asset_in_e_mode edit_asset_in_e_mode_category "$args_json" true "$salt" \
         --asset "$asset_address" --category_id "$category_id" \
-        --can_collateral "$can_collateral" --can_borrow "$can_borrow")
+        --can_collateral "$can_collateral" --can_borrow "$can_borrow" \
+        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
     schedule_and_maybe_execute "$op_id"
 }
 
@@ -1048,6 +999,9 @@ ensure_asset_in_emode() {
     local asset_address=$(get_market_value "$asset_name" "asset_address")
     local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
     local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local category_json
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
@@ -1061,8 +1015,14 @@ ensure_asset_in_emode() {
             --arg asset "$asset_address" \
             --argjson can_collateral "$can_collateral" \
             --argjson can_borrow "$can_borrow" \
+            --argjson ltv "$ltv" \
+            --argjson threshold "$threshold" \
+            --argjson bonus "$bonus" \
             '.assets[$asset].is_collateralizable == $can_collateral and
-             .assets[$asset].is_borrowable == $can_borrow' >/dev/null; then
+             .assets[$asset].is_borrowable == $can_borrow and
+             .assets[$asset].loan_to_value_bps == $ltv and
+             .assets[$asset].liquidation_threshold_bps == $threshold and
+             .assets[$asset].liquidation_bonus_bps == $bonus' >/dev/null; then
             echo "Asset ${asset_name} already configured in E-Mode category ${category_id}."
         else
             edit_asset_in_emode "$category_id" "$asset_name" "$config_category_id"

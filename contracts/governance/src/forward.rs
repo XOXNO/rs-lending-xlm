@@ -106,6 +106,7 @@ macro_rules! controller_ops {
         #[contractimpl]
         impl Governance {
             $(
+                #[allow(clippy::too_many_arguments)]
                 pub fn $propose(
                     $env: Env,
                     proposer: Address,
@@ -147,19 +148,19 @@ controller_ops! {
     op propose_set_min_borrow_collat => "set_min_borrow_collateral_usd" (floor_wad: [i128])
         validate: { assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams); }
 
-    op propose_add_e_mode_category => "add_e_mode_category" (ltv: [u32], threshold: [u32], bonus: [u32])
-        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
-
-    op propose_edit_e_mode_category => "edit_e_mode_category" (id: [u32], ltv: [u32], threshold: [u32], bonus: [u32])
-        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
+    op propose_add_e_mode_category => "add_e_mode_category" ()
 
     op propose_remove_e_mode_category => "remove_e_mode_category" (id: [u32])
 
     op propose_add_asset_to_e_mode => "add_asset_to_e_mode_category"
-        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool])
+        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool],
+         ltv: [u32], threshold: [u32], bonus: [u32])
+        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
 
     op propose_edit_asset_in_e_mode => "edit_asset_in_e_mode_category"
-        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool])
+        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool],
+         ltv: [u32], threshold: [u32], bonus: [u32])
+        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
 
     op propose_remove_asset_from_e_mode => "remove_asset_from_e_mode" (asset: [Address], category_id: [u32])
 
@@ -306,26 +307,33 @@ impl Governance {
     }
 
     #[only_owner]
-    pub fn add_e_mode_category(env: Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
+    pub fn add_e_mode_category(env: Env) -> u32 {
         storage::renew_governance_instance(&env);
-        validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
-        controller_client(&env).add_e_mode_category(&ltv, &threshold, &bonus)
+        controller_client(&env).add_e_mode_category()
     }
 
     #[only_owner]
+    #[allow(clippy::too_many_arguments)]
     pub fn add_asset_to_e_mode_category(
         env: Env,
         asset: Address,
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
     ) {
         storage::renew_governance_instance(&env);
+        validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
         controller_client(&env).add_asset_to_e_mode_category(
             &asset,
             &category_id,
             &can_collateral,
             &can_borrow,
+            &ltv,
+            &threshold,
+            &bonus,
         );
     }
 

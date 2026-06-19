@@ -148,23 +148,19 @@ proptest! {
         let _ = (max_supply, max_borrow);
 
         expect_rejected("add_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_add_e_mode_category(&ltv, &threshold, &bonus)
-        }).unwrap();
-        expect_rejected("edit_e_mode_category", || {
-            ctrl.set_auths(&no_auths)
-                .try_edit_e_mode_category(&category_id, &ltv, &threshold, &bonus)
+            ctrl.set_auths(&no_auths).try_add_e_mode_category()
         }).unwrap();
         expect_rejected("remove_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_remove_e_mode_category(&category_id)
         }).unwrap();
         expect_rejected("add_asset_to_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_add_asset_to_e_mode_category(
-                &usdc, &category_id, &can_collateral, &can_borrow,
+                &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
             )
         }).unwrap();
         expect_rejected("edit_asset_in_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_edit_asset_in_e_mode_category(
-                &usdc, &category_id, &can_collateral, &can_borrow,
+                &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
             )
         }).unwrap();
         expect_rejected("remove_asset_from_e_mode", || {
@@ -336,11 +332,7 @@ proptest! {
         // E-mode management.
         expect_rejected("gov.propose_add_e_mode_category", || {
             gov.set_auths(&no_auths)
-                .try_propose_add_e_mode_category(&random_addr, &ltv, &threshold, &bonus, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_edit_e_mode_category", || {
-            gov.set_auths(&no_auths)
-                .try_propose_edit_e_mode_category(&random_addr, &category_id, &ltv, &threshold, &bonus, &salt)
+                .try_propose_add_e_mode_category(&random_addr, &salt)
         }).unwrap();
         expect_rejected("gov.propose_remove_e_mode_category", || {
             gov.set_auths(&no_auths)
@@ -348,12 +340,14 @@ proptest! {
         }).unwrap();
         expect_rejected("gov.propose_add_asset_to_e_mode", || {
             gov.set_auths(&no_auths).try_propose_add_asset_to_e_mode(
-                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow, &salt,
+                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
+                &ltv, &threshold, &bonus, &salt,
             )
         }).unwrap();
         expect_rejected("gov.propose_edit_asset_in_e_mode", || {
             gov.set_auths(&no_auths).try_propose_edit_asset_in_e_mode(
-                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow, &salt,
+                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
+                &ltv, &threshold, &bonus, &salt,
             )
         }).unwrap();
         expect_rejected("gov.propose_remove_asset_from_e_mode", || {

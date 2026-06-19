@@ -67,15 +67,9 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn add_e_mode_category(env: Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
+    pub fn add_e_mode_category(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
-        add_e_mode_category(&env, ltv, threshold, bonus)
-    }
-
-    #[only_owner]
-    pub fn edit_e_mode_category(env: Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
-        storage::renew_controller_instance(&env);
-        edit_e_mode_category(&env, id, ltv, threshold, bonus);
+        add_e_mode_category(&env)
     }
 
     #[only_owner]
@@ -91,9 +85,21 @@ impl Controller {
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
     ) {
         storage::renew_controller_instance(&env);
-        add_asset_to_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
+        add_asset_to_e_mode_category(
+            &env,
+            asset,
+            category_id,
+            can_collateral,
+            can_borrow,
+            ltv,
+            threshold,
+            bonus,
+        );
     }
 
     #[only_owner]
@@ -103,9 +109,21 @@ impl Controller {
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
     ) {
         storage::renew_controller_instance(&env);
-        edit_asset_in_e_mode_category(&env, asset, category_id, can_collateral, can_borrow);
+        edit_asset_in_e_mode_category(
+            &env,
+            asset,
+            category_id,
+            can_collateral,
+            can_borrow,
+            ltv,
+            threshold,
+            bonus,
+        );
     }
 
     #[only_owner]
@@ -206,13 +224,9 @@ pub fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
     .publish(env);
 }
 
-pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u32 {
-    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+pub fn add_e_mode_category(env: &Env) -> u32 {
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategoryRaw {
-        loan_to_value_bps: ltv,
-        liquidation_threshold_bps: threshold,
-        liquidation_bonus_bps: bonus,
         is_deprecated: false,
         assets: soroban_sdk::Map::new(env),
     };
@@ -224,21 +238,6 @@ pub fn add_e_mode_category(env: &Env, ltv: u32, threshold: u32, bonus: u32) -> u
     .publish(env);
 
     id
-}
-
-pub fn edit_e_mode_category(env: &Env, id: u32, ltv: u32, threshold: u32, bonus: u32) {
-    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
-    let mut cat = storage::get_emode_category(env, id);
-    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
-    cat.loan_to_value_bps = ltv;
-    cat.liquidation_threshold_bps = threshold;
-    cat.liquidation_bonus_bps = bonus;
-    storage::set_emode_category(env, id, &cat);
-
-    UpdateEModeCategoryEvent {
-        category: EventEModeCategory::new(id, &cat),
-    }
-    .publish(env);
 }
 
 pub fn remove_e_mode_category(env: &Env, id: u32) {
@@ -260,13 +259,18 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     .publish(env);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add_asset_to_e_mode_category(
     env: &Env,
     asset: Address,
     category_id: u32,
     can_collateral: bool,
     can_borrow: bool,
+    ltv: u32,
+    threshold: u32,
+    bonus: u32,
 ) {
+    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
@@ -281,6 +285,9 @@ pub fn add_asset_to_e_mode_category(
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
         is_borrowable: can_borrow,
+        loan_to_value_bps: ltv,
+        liquidation_threshold_bps: threshold,
+        liquidation_bonus_bps: bonus,
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
@@ -297,13 +304,18 @@ pub fn add_asset_to_e_mode_category(
     .publish(env);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn edit_asset_in_e_mode_category(
     env: &Env,
     asset: Address,
     category_id: u32,
     can_collateral: bool,
     can_borrow: bool,
+    ltv: u32,
+    threshold: u32,
+    bonus: u32,
 ) {
+    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
     let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     assert_with_error!(
@@ -315,6 +327,9 @@ pub fn edit_asset_in_e_mode_category(
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
         is_borrowable: can_borrow,
+        loan_to_value_bps: ltv,
+        liquidation_threshold_bps: threshold,
+        liquidation_bonus_bps: bonus,
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 

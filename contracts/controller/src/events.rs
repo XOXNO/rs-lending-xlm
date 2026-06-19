@@ -412,14 +412,13 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-/// E-mode category snapshot emitted after category changes.
+/// E-mode category snapshot emitted after category changes. Risk parameters
+/// are per-asset (see [`UpdateEModeAssetEvent`]); a category only carries its
+/// id and deprecation state.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventEModeCategory {
     pub category_id: u32,
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
     pub is_deprecated: bool,
 }
 
@@ -427,9 +426,6 @@ impl EventEModeCategory {
     pub fn new(category_id: u32, category: &EModeCategoryRaw) -> Self {
         Self {
             category_id,
-            loan_to_value_bps: category.loan_to_value_bps,
-            liquidation_threshold_bps: category.liquidation_threshold_bps,
-            liquidation_bonus_bps: category.liquidation_bonus_bps,
             is_deprecated: category.is_deprecated,
         }
     }
@@ -840,9 +836,6 @@ mod tests {
             UpdateEModeCategoryEvent {
                 category: EventEModeCategory {
                     category_id: 1,
-                    loan_to_value_bps: 9000,
-                    liquidation_threshold_bps: 9500,
-                    liquidation_bonus_bps: 200,
                     is_deprecated: false,
                 },
             }
@@ -853,6 +846,9 @@ mod tests {
                 config: EModeAssetConfig {
                     is_collateralizable: true,
                     is_borrowable: true,
+                    loan_to_value_bps: 9000,
+                    liquidation_threshold_bps: 9500,
+                    liquidation_bonus_bps: 200,
                 },
                 category_id: 1,
             }

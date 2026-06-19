@@ -80,21 +80,20 @@ impl LendingTest {
     }
     // E-mode management
 
-    pub fn edit_e_mode_category(&self, category_id: u32, ltv: u32, threshold: u32, bonus: u32) {
-        self.ctrl_client()
-            .edit_e_mode_category(&category_id, &ltv, &threshold, &bonus);
-    }
-
     pub fn remove_e_mode_category(&self, category_id: u32) {
         self.ctrl_client().remove_e_mode_category(&category_id);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_asset_to_e_mode(
         &self,
         asset_name: &str,
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().add_asset_to_e_mode_category(
@@ -102,15 +101,22 @@ impl LendingTest {
             &category_id,
             &can_collateral,
             &can_borrow,
+            &ltv,
+            &threshold,
+            &bonus,
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn edit_asset_in_e_mode(
         &self,
         asset_name: &str,
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().edit_asset_in_e_mode_category(
@@ -118,6 +124,9 @@ impl LendingTest {
             &category_id,
             &can_collateral,
             &can_borrow,
+            &ltv,
+            &threshold,
+            &bonus,
         );
     }
 
