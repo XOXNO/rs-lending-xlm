@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
-use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw, PoolSyncData};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::cache::Cache;
@@ -18,6 +18,15 @@ pub fn load_params(env: &Env, asset: &Address) -> MarketParamsRaw {
         .persistent()
         .get(&PoolKey::Params(asset.clone()))
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
+}
+
+// Bundles the asset's params and state for index simulation. Raw reads, no
+// TTL renewal or interest accrual.
+pub fn load_sync_data(env: &Env, asset: &Address) -> PoolSyncData {
+    PoolSyncData {
+        params: load_params(env, asset),
+        state: load_state(env, asset),
+    }
 }
 
 // Capital utilization ratio in RAY from the last persisted checkpoint.
@@ -50,27 +59,27 @@ pub fn borrow_rate(env: &Env, asset: &Address) -> i128 {
 
 // Accrued protocol revenue in asset decimals. Does not trigger interest accrual.
 pub fn protocol_revenue(env: &Env, asset: &Address) -> i128 {
-    let c = Cache::load(env, asset);
-    c.unscale_supply(c.revenue)
+    let cache = Cache::load(env, asset);
+    cache.unscale_supply(cache.revenue)
 }
 
 // Total supplied in asset decimals. Does not trigger interest accrual.
 pub fn supplied_amount(env: &Env, asset: &Address) -> i128 {
-    let c = Cache::load(env, asset);
-    c.unscale_supply(c.supplied)
+    let cache = Cache::load(env, asset);
+    cache.unscale_supply(cache.supplied)
 }
 
 // Total borrowed in asset decimals. Does not trigger interest accrual.
 pub fn borrowed_amount(env: &Env, asset: &Address) -> i128 {
-    let c = Cache::load(env, asset);
-    c.unscale_borrow(c.borrowed)
+    let cache = Cache::load(env, asset);
+    cache.unscale_borrow(cache.borrowed)
 }
 
 // Milliseconds elapsed since last accrual. Does not trigger interest accrual.
 pub fn delta_time(env: &Env, asset: &Address) -> u64 {
-    let c = Cache::load(env, asset);
+    let cache = Cache::load(env, asset);
 
-    c.current_timestamp.saturating_sub(c.last_timestamp)
+    cache.current_timestamp.saturating_sub(cache.last_timestamp)
 }
 
 #[cfg(test)]

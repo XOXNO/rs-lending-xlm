@@ -41,6 +41,15 @@ pub fn aggregate_payments(
     payments: &Vec<Payment>,
     zero_is_withdraw_all: bool,
 ) -> Vec<Payment> {
+    if payments.len() == 1 {
+        // Single-payment fast path: skip the dedup machinery but still enforce
+        // the positive-amount gate (and withdraw-all sentinel) the loop applies.
+        let (asset, amount) = payments.get_unchecked(0);
+        let amount = aggregate_payment_amount(env, None, amount, zero_is_withdraw_all);
+        let mut result = Vec::new(env);
+        result.push_back((asset, amount));
+        return result;
+    }
     let mut order: Vec<Address> = Vec::new(env);
     let mut totals: Map<Address, i128> = Map::new(env);
 

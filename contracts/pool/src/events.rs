@@ -65,10 +65,24 @@ pub(crate) fn publish_market_state_batch(env: &Env, snapshots: Vec<MarketStateSn
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
+/// Emits a single market-state snapshot as a one-element batch.
+pub(crate) fn publish_market_state(env: &Env, snapshot: MarketStateSnapshot) {
+    let mut snapshots = Vec::new(env);
+    snapshots.push_back(snapshot);
+    publish_market_state_batch(env, snapshots);
+}
+
 pub(crate) fn publish_market_params_batch(env: &Env, updates: Vec<PoolMarketParamsEvent>) {
     if updates.is_empty() {
         return;
     }
 
     PoolMarketParamsBatchEvent { updates }.publish(env);
+}
+
+/// Emits a single market-params update as a one-element batch.
+pub(crate) fn publish_market_params(env: &Env, asset: Address, params: MarketParamsRaw) {
+    let mut updates = Vec::new(env);
+    updates.push_back(PoolMarketParamsEvent { asset, params });
+    publish_market_params_batch(env, updates);
 }

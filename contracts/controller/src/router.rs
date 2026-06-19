@@ -77,13 +77,11 @@ impl Controller {
         params: MarketParamsRaw,
         config: AssetConfigRaw,
     ) -> Address {
-        // Inner `create_liquidity_pool` bumps the controller instance.
         create_liquidity_pool(&env, &asset, &params, &config)
     }
 
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
-        storage::renew_controller_instance(&env);
         upgrade_liquidity_pool_params(&env, &asset, &params);
     }
 
@@ -97,7 +95,6 @@ impl Controller {
     #[when_not_paused]
     #[only_role(caller, "REVENUE")]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
-        // Instance TTL is renewed by `Cache::new` inside `claim_revenue`.
         validation::require_not_flash_loaning(&env);
         claim_revenue(&env, assets)
     }
@@ -202,6 +199,8 @@ pub fn create_liquidity_pool(
 /// Accrues pool indexes before replacing the market's interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    storage::renew_controller_instance(env);
+
     validation::require_asset_supported(env, &mut cache, asset);
 
     let pool_addr = cache.cached_pool_address();

@@ -13,7 +13,10 @@ mod test_support;
 pub mod spec;
 
 use cache::Cache;
-use common::constants::{MS_PER_SECOND, RAY};
+use common::constants::RAY;
+// Re-exported for the `tests` submodule's `use super::*`.
+#[cfg(test)]
+use common::constants::MS_PER_SECOND;
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::Ray;
 use common::rates::{simulate_update_indexes, update_supply_index};
@@ -25,7 +28,7 @@ use common::types::{
 use pool_interface::LiquidityPoolInterface;
 use soroban_sdk::{
     assert_with_error, contract, contractimpl, contractmeta, panic_with_error, token, Address,
-    Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+    Bytes, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
 };
 
 contractmeta!(key = "name", val = "Liquidity Pool");
@@ -40,7 +43,7 @@ use stellar_macros::only_owner;
 
 use utils::{
     apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, enforce_borrow_cap,
-    enforce_supply_cap, renew_market_keys, renew_pool_instance, require_nonneg_amount,
+    enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance, require_nonneg_amount,
     require_positive_amount, require_wasm_receiver,
 };
 
@@ -57,27 +60,64 @@ fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
     cache
 }
 
+/// Shared shell for the position-mutating batch endpoints.
+///
+/// Renews instance TTL once, applies `apply` to each entry in input order, then
+/// emits a single market-state batch event and returns the per-entry mutations.
+/// Any per-entry panic (cap, reserves, math) reverts the whole call. Per-entry
+/// CEI and accounting live in each `*_one` callee.
+fn run_batch<E>(
+    env: &Env,
+    entries: Vec<E>,
+    mut apply: impl FnMut(&Env, &E) -> (PoolPositionMutation, MarketStateSnapshot),
+) -> Vec<PoolPositionMutation>
+where
+    E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
+{
+    renew_pool_instance(env);
+    let mut mutations = Vec::new(env);
+    let mut snapshots = Vec::new(env);
+    for entry in entries.iter() {
+        let (mutation, snapshot) = apply(env, &entry);
+        mutations.push_back(mutation);
+        snapshots.push_back(snapshot);
+    }
+    events::publish_market_state_batch(env, snapshots);
+    mutations
+}
+
+/// Validates `action.amount` is non-negative, loads the market cache accrued to
+/// now, and reads the position's current scaled amount. Instance TTL is renewed
+/// once per batch by `run_batch`, so this does not renew it.
+fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
+    require_nonneg_amount(env, action.amount);
+    let cache = synced_market_cache(env, &action.asset);
+    let scaled = Ray::from(action.position.scaled_amount_ray);
+    (cache, scaled, action.amount)
+}
+
+/// Accrues a borrow of `amount` into `cache` and the caller's `scaled` position:
+/// requires sufficient reserves, enforces the borrow cap, adds the scaled debt,
+/// then rejects post-borrow utilization above the market's max.
+fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128, borrow_cap: i128) {
+    cache.require_reserves(amount);
+    let scaled_debt = cache.calculate_scaled_borrow(amount);
+    enforce_borrow_cap(env, cache, scaled_debt, borrow_cap);
+    scaled.checked_add_assign(env, scaled_debt);
+    cache.borrowed.checked_add_assign(env, scaled_debt);
+    utils::require_utilization_below_max(env, cache);
+}
+
 fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, MarketStateSnapshot) {
-    let PoolAction {
-        position,
-        amount,
-        asset,
-    } = entry.action.clone();
-    require_nonneg_amount(env, amount);
-    let mut cache = synced_market_cache(env, &asset);
+    let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
-    let mut scaled = Ray::from(position.scaled_amount_ray);
     let scaled_amount = cache.calculate_scaled_supply(amount);
-
     enforce_supply_cap(env, &cache, scaled_amount, entry.supply_cap);
 
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
     // Controller transferred `amount` into the pool before this call.
-    cache.cash = cache
-        .cash
-        .checked_add(amount)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    cache.credit_cash(amount);
 
     cache.save();
     (
@@ -91,29 +131,10 @@ fn borrow_one(
     receiver: &Address,
     entry: &PoolBorrowEntry,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
-    let PoolAction {
-        position,
-        amount,
-        asset,
-    } = entry.action.clone();
-    require_nonneg_amount(env, amount);
-    let mut cache = synced_market_cache(env, &asset);
+    let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
-    cache.require_reserves(amount);
-
-    let mut scaled = Ray::from(position.scaled_amount_ray);
-    let scaled_debt = cache.calculate_scaled_borrow(amount);
-
-    enforce_borrow_cap(env, &cache, scaled_debt, entry.borrow_cap);
-
-    scaled.checked_add_assign(env, scaled_debt);
-    cache.borrowed.checked_add_assign(env, scaled_debt);
-    // Borrow cannot leave the pool above its max-utilization cap.
-    utils::require_utilization_below_max(env, &cache);
-    cache.cash = cache
-        .cash
-        .checked_sub(amount)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    accrue_borrow(env, &mut cache, &mut scaled, amount, entry.borrow_cap);
+    cache.debit_cash(amount);
 
     // CEI: snapshot + commit before external call.
     cache.save();
@@ -130,17 +151,10 @@ fn withdraw_one(
     is_liquidation: bool,
     entry: &PoolWithdrawEntry,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
-    let PoolAction {
-        position,
-        amount,
-        asset,
-    } = entry.action.clone();
-    // Controller maps user amount `0` to this full-withdraw sentinel.
-    require_nonneg_amount(env, amount);
     require_nonneg_amount(env, entry.protocol_fee);
-    let mut cache = synced_market_cache(env, &asset);
+    // Controller maps user amount `0` to this full-withdraw sentinel.
+    let (mut cache, scaled, amount) = load_position(env, &entry.action);
 
-    let mut scaled = Ray::from(position.scaled_amount_ray);
     let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
 
     let net_transfer = apply_liquidation_fee(
@@ -154,17 +168,14 @@ fn withdraw_one(
     cache.require_reserves(net_transfer);
 
     cache.supplied.checked_sub_assign(env, scaled_withdrawal);
-    scaled = scaled.checked_sub(env, scaled_withdrawal);
+    let scaled = scaled.checked_sub(env, scaled_withdrawal);
 
     // User withdrawals cannot leave the pool above max utilization.
     if !is_liquidation {
         utils::require_utilization_below_max(env, &cache);
     }
     utils::require_solvent_withdraw_state(env, &cache);
-    cache.cash = cache
-        .cash
-        .checked_sub(net_transfer)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    cache.debit_cash(net_transfer);
 
     // CEI: snapshot + commit before external call.
     cache.save();
@@ -180,27 +191,16 @@ fn repay_one(
     payer: &Address,
     action: &PoolAction,
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
-    let PoolAction {
-        position,
-        amount,
-        asset,
-    } = action.clone();
-    require_nonneg_amount(env, amount);
-    let mut cache = synced_market_cache(env, &asset);
+    let (mut cache, scaled, amount) = load_position(env, action);
 
-    let mut scaled = Ray::from(position.scaled_amount_ray);
     let (scaled_repay, overpayment) = cache.resolve_repay(amount, scaled);
-
-    scaled = scaled.checked_sub(env, scaled_repay);
+    let scaled = scaled.checked_sub(env, scaled_repay);
     cache.borrowed.checked_sub_assign(env, scaled_repay);
     // Controller moved `amount` in; the `overpayment` is refunded below.
     let net_repay = amount
         .checked_sub(overpayment)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    cache.cash = cache
-        .cash
-        .checked_add(net_repay)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    cache.credit_cash(net_repay);
 
     // CEI: snapshot + commit before external call.
     cache.save();
@@ -249,11 +249,7 @@ impl LiquidityPoolInterface for LiquidityPool {
             revenue_ray: 0,
             borrow_index_ray: RAY,
             supply_index_ray: RAY,
-            last_timestamp: env
-                .ledger()
-                .timestamp()
-                .checked_mul(MS_PER_SECOND)
-                .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow)),
+            last_timestamp: now_ms(&env),
             cash: 0,
         };
         env.storage()
@@ -261,25 +257,13 @@ impl LiquidityPoolInterface for LiquidityPool {
             .set(&PoolKey::State(asset.clone()), &state);
 
         renew_market_keys(&env, &asset);
-        let mut updates = Vec::new(&env);
-        updates.push_back(events::PoolMarketParamsEvent { asset, params });
-        events::publish_market_params_batch(&env, updates);
+        events::publish_market_params(&env, asset, params);
     }
 
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
-        // Bulk entries sync independently; controller pre-transfers tokens for each entry.
-        // First failure (cap, etc.) reverts the entire call.
-        renew_pool_instance(&env);
-        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
-        let mut snapshots = Vec::new(&env);
-        for entry in entries.iter() {
-            let (mutation, snapshot) = supply_one(&env, &entry);
-            out.push_back(mutation);
-            snapshots.push_back(snapshot);
-        }
-        events::publish_market_state_batch(&env, snapshots);
-        out
+        // Controller pre-transfers tokens per entry; the first failure reverts all.
+        run_batch(&env, entries, supply_one)
     }
 
     #[only_owner]
@@ -288,16 +272,9 @@ impl LiquidityPoolInterface for LiquidityPool {
         receiver: Address,
         entries: Vec<PoolBorrowEntry>,
     ) -> Vec<PoolPositionMutation> {
-        renew_pool_instance(&env);
-        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
-        let mut snapshots = Vec::new(&env);
-        for entry in entries.iter() {
-            let (mutation, snapshot) = borrow_one(&env, &receiver, &entry);
-            out.push_back(mutation);
-            snapshots.push_back(snapshot);
-        }
-        events::publish_market_state_batch(&env, snapshots);
-        out
+        run_batch(&env, entries, |env, entry| {
+            borrow_one(env, &receiver, entry)
+        })
     }
 
     #[only_owner]
@@ -307,39 +284,21 @@ impl LiquidityPoolInterface for LiquidityPool {
         is_liquidation: bool,
         entries: Vec<PoolWithdrawEntry>,
     ) -> Vec<PoolPositionMutation> {
-        renew_pool_instance(&env);
-        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
-        let mut snapshots = Vec::new(&env);
-        for entry in entries.iter() {
-            let (mutation, snapshot) = withdraw_one(&env, &receiver, is_liquidation, &entry);
-            out.push_back(mutation);
-            snapshots.push_back(snapshot);
-        }
-        events::publish_market_state_batch(&env, snapshots);
-        out
+        run_batch(&env, entries, |env, entry| {
+            withdraw_one(env, &receiver, is_liquidation, entry)
+        })
     }
 
     #[only_owner]
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
-        renew_pool_instance(&env);
-        let mut out: Vec<PoolPositionMutation> = Vec::new(&env);
-        let mut snapshots = Vec::new(&env);
-        for action in actions.iter() {
-            let (mutation, snapshot) = repay_one(&env, &payer, &action);
-            out.push_back(mutation);
-            snapshots.push_back(snapshot);
-        }
-        events::publish_market_state_batch(&env, snapshots);
-        out
+        run_batch(&env, actions, |env, action| repay_one(env, &payer, action))
     }
 
     #[only_owner]
     fn update_indexes(env: Env, asset: Address) {
         let cache = load_synced_cache(&env, &asset);
         cache.save();
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
+        events::publish_market_state(&env, cache.market_snapshot());
     }
 
     #[only_owner]
@@ -357,15 +316,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         cache.supply_index =
             update_supply_index(&env, cache.supplied, cache.supply_index, amount_ray);
         // Controller transferred `amount` of reward tokens into the pool.
-        cache.cash = cache
-            .cash
-            .checked_add(amount)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.credit_cash(amount);
 
         cache.save();
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
+        events::publish_market_state(&env, cache.market_snapshot());
     }
 
     #[only_owner]
@@ -453,15 +407,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
         // Net token effect: pool sends `amount` and receives `amount + fee`, so
         // `cash` increases by `fee`. Direct transfers are balance-checked above.
-        cache.cash = cache
-            .cash
-            .checked_add(fee)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.credit_cash(fee);
 
         cache.save();
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
+        events::publish_market_state(&env, cache.market_snapshot());
     }
 
     #[only_owner]
@@ -486,17 +435,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         assert_with_error!(&env, fee <= amount, FlashLoanError::StrategyFeeExceeds);
 
         let mut cache = load_synced_cache(&env, &asset);
-        cache.require_reserves(amount);
-
         let mut scaled = Ray::from(position.scaled_amount_ray);
-        let scaled_debt = cache.calculate_scaled_borrow(amount);
-
-        enforce_borrow_cap(&env, &cache, scaled_debt, borrow_cap);
-
-        scaled.checked_add_assign(&env, scaled_debt);
-        cache.borrowed.checked_add_assign(&env, scaled_debt);
-        // Strategy debt cannot leave the pool above max utilization.
-        utils::require_utilization_below_max(&env, &cache);
+        accrue_borrow(&env, &mut cache, &mut scaled, amount, borrow_cap);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
@@ -504,19 +444,13 @@ impl LiquidityPoolInterface for LiquidityPool {
         let amount_to_send = amount
             .checked_sub(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
-        cache.cash = cache
-            .cash
-            .checked_sub(amount_to_send)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.debit_cash(amount_to_send);
 
         // CEI: snapshot + commit before external call.
         cache.save();
         cache.transfer_out(&caller, amount_to_send);
-        let mutation = cache.strategy_mutation(scaled, amount, amount_to_send);
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
-        mutation
+        events::publish_market_state(&env, cache.market_snapshot());
+        cache.strategy_mutation(scaled, amount, amount_to_send)
     }
 
     #[only_owner]
@@ -544,11 +478,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         // The seized position is removed from the controller-owned account map.
         cache.save();
-        let mutation = cache.position_mutation(Ray::ZERO, 0);
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
-        mutation
+        events::publish_market_state(&env, cache.market_snapshot());
+        cache.position_mutation(Ray::ZERO, 0)
     }
 
     #[only_owner]
@@ -562,10 +493,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         let amount_to_transfer = cache.burn_claimable_revenue();
 
         utils::require_solvent_withdraw_state(&env, &cache);
-        cache.cash = cache
-            .cash
-            .checked_sub(amount_to_transfer)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        cache.debit_cash(amount_to_transfer);
 
         // CEI: commit state before external call.
         cache.save();
@@ -576,11 +504,8 @@ impl LiquidityPoolInterface for LiquidityPool {
             cache.transfer_out(&owner, amount_to_transfer);
         }
 
-        let mutation = cache.amount_mutation(amount_to_transfer);
-        let mut snapshots = Vec::new(&env);
-        snapshots.push_back(cache.market_snapshot());
-        events::publish_market_state_batch(&env, snapshots);
-        mutation
+        events::publish_market_state(&env, cache.market_snapshot());
+        cache.amount_mutation(amount_to_transfer)
     }
 
     #[only_owner]
@@ -592,9 +517,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         model.verify(&env);
         apply_rate_model(&env, &asset, &model);
         let params = views::load_params(&env, &asset);
-        let mut updates = Vec::new(&env);
-        updates.push_back(events::PoolMarketParamsEvent { asset, params });
-        events::publish_market_params_batch(&env, updates);
+        events::publish_market_params(&env, asset, params);
     }
 
     #[only_owner]
@@ -636,26 +559,16 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     fn get_sync_data(env: Env, asset: Address) -> PoolSyncData {
-        PoolSyncData {
-            params: views::load_params(&env, &asset),
-            state: views::load_state(&env, &asset),
-        }
+        views::load_sync_data(&env, &asset)
     }
 
     fn bulk_get_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
-        let now_ms = env
-            .ledger()
-            .timestamp()
-            .checked_mul(MS_PER_SECOND)
-            .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
+        let now = now_ms(&env);
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
         for asset in assets.iter() {
-            let sync = PoolSyncData {
-                params: views::load_params(&env, &asset),
-                state: views::load_state(&env, &asset),
-            };
+            let sync = views::load_sync_data(&env, &asset);
             indexes.push_back(MarketIndexRaw::from(&simulate_update_indexes(
-                &env, now_ms, &sync,
+                &env, now, &sync,
             )));
         }
         indexes
