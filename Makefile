@@ -251,20 +251,20 @@ test-pool:
 ## Run Miri on pure-i128 subset of common crate (rescale_half_up, div_by_int_half_up).
 ## Requires: rustup +nightly + miri + rust-src components.
 miri-common:
-	@cd common && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+	@cd common && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
 		cargo +nightly miri test --lib -- \
 		fp_core::tests::test_rescale \
 		fp_core::tests::test_div_by_int
 
 ## Run Miri on pool::interest pure-arithmetic paths.
 miri-pool:
-	@cd contracts/pool && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+	@cd contracts/pool && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
 		cargo +nightly miri test --lib -- \
 		interest::
 
 ## Run Miri on controller::helpers pure-arithmetic paths.
 miri-controller:
-	@cd contracts/controller && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+	@cd contracts/controller && MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation" \
 		cargo +nightly miri test --lib -- \
 		helpers::
 
@@ -485,14 +485,14 @@ endif
 fuzz:
 	@set -o pipefail; for t in $(FUZZ_TARGETS); do \
 		echo "=== $$t ==="; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
 ## Run all contract-level libFuzzer targets for $(FUZZ_TIME) seconds each.
 fuzz-contract:
 	@set -o pipefail; for t in $(FUZZ_CONTRACT_TARGETS); do \
 		echo "=== $$t ==="; \
-		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tail -3; \
+		cargo +nightly fuzz run --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) 2>&1 | tee /tmp/fuzz-$$t.log | tail -3 || { echo "::error::fuzz $$t crashed:"; tail -80 /tmp/fuzz-$$t.log; exit 1; }; \
 	done
 
 ## Run a single fuzz target: make fuzz-one TARGET=fp_math FUZZ_TIME=300

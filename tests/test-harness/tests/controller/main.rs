@@ -20,6 +20,7 @@ mod liquidation_boundary;
 mod liquidation_coverage;
 mod liquidation_math;
 mod liquidation_mixed_decimal;
+mod liquidation_ratchet;
 mod max_utilization;
 mod min_borrow_collateral;
 mod ownership;

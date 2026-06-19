@@ -333,7 +333,6 @@ pub struct MarketStateSnapshot {
     pub borrowed_ray: i128,
     /// Scaled protocol revenue shares.
     pub revenue_ray: i128,
-    pub asset_price_wad: Option<i128>,
 }
 
 #[contracttype]

@@ -1,4 +1,3 @@
-use common::constants::MS_PER_SECOND;
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
@@ -44,11 +43,7 @@ impl Cache {
         utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
-        let timestamp = env
-            .ledger()
-            .timestamp()
-            .checked_mul(MS_PER_SECOND)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+        let timestamp = utils::now_ms(env);
 
         Cache {
             env: env.clone(),
@@ -114,6 +109,22 @@ impl Cache {
     /// increase borrowable liquidity, and no token balance call is needed.
     pub fn live_reserves(&self) -> i128 {
         self.cash
+    }
+
+    /// Adds `amount` to tracked cash, panicking on overflow.
+    pub fn credit_cash(&mut self, amount: i128) {
+        self.cash = self
+            .cash
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
+    }
+
+    /// Subtracts `amount` from tracked cash, panicking on under/overflow.
+    pub fn debit_cash(&mut self, amount: i128) {
+        self.cash = self
+            .cash
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
     /// Transfers pool asset to `recipient`; zero and negative amounts are no-ops.
@@ -238,11 +249,10 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
-            reserves_ray: self.live_reserves(),
+            reserves_ray: self.cash,
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),
             revenue_ray: self.revenue.raw(),
-            asset_price_wad: None,
         }
     }
 

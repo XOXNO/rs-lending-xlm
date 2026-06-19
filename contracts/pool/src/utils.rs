@@ -1,5 +1,5 @@
 use common::constants::{
-    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+    MS_PER_SECOND, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
@@ -18,6 +18,14 @@ pub(crate) fn renew_pool_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
+/// Current ledger time in milliseconds, panicking on overflow.
+pub(crate) fn now_ms(env: &Env) -> u64 {
+    env.ledger()
+        .timestamp()
+        .checked_mul(MS_PER_SECOND)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 /// Renews TTLs for market params/state entries. Both keys must exist because

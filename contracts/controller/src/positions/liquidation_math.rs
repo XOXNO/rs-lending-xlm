@@ -280,7 +280,7 @@ pub(crate) fn calculate_seized_collateral(
         // absorbs the rounding remainder before the protocol fee applies.
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
-        let protocol_fee = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
+        let protocol_fee_ray = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
         // Full seizure must use the pool's half-up conversion: the pool
         // full-closes only when `amount >= unscale_supply(pos_scaled)`
         // (half-up), and a floored amount one unit short would leave a
@@ -296,10 +296,21 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
+        // A sub-unit protocol fee must not floor to zero, which would hand the
+        // protocol's cut of the bonus to the liquidator. Charge a one-unit
+        // minimum when a positive fee was due, mirroring `Bps::flash_loan_fee_on`.
+        // `capped_amount >= 1` here, so `fee <= amount` still holds.
+        let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
+        let protocol_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
+            1
+        } else {
+            fee_asset
+        };
+
         seized.push_back(SeizeEntry {
             asset,
             amount: capped_amount,
-            protocol_fee: protocol_fee.to_asset_floor(feed.asset_decimals),
+            protocol_fee,
             feed: (&feed).into(),
             market_index: (&market_index).into(),
         });

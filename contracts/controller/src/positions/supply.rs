@@ -54,14 +54,8 @@ pub fn process_supply(
 
     let aggregated = utils::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
-    let (acct_id, mut account) = resolve_supply_account(
-        env,
-        caller,
-        account_id,
-        e_mode_category,
-        &aggregated,
-        &mut cache,
-    );
+    let (acct_id, mut account) =
+        resolve_supply_account(env, caller, account_id, e_mode_category, &aggregated);
 
     process_deposit(env, caller, &mut account, &aggregated, &mut cache);
 
@@ -83,12 +77,11 @@ fn resolve_supply_account(
     account_id: u64,
     e_mode_category: u32,
     aggregated: &AggregatedPayments,
-    cache: &mut Cache,
 ) -> (u64, Account) {
     validation::require_non_empty_payments(env, aggregated);
 
     if account_id == 0 {
-        create_account_for_first_asset(env, caller, e_mode_category, aggregated, cache)
+        helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
     } else {
         let account = storage::get_account(env, account_id);
         // Zero is the unspecified sentinel; any non-zero value must match the
@@ -200,14 +193,4 @@ fn settle_deposit(
         // Storage is written once after the whole supply batch completes.
         update_or_remove_supply_position(account, asset, &position);
     }
-}
-
-fn create_account_for_first_asset(
-    env: &Env,
-    caller: &Address,
-    e_mode_category: u32,
-    _aggregated: &AggregatedPayments,
-    _cache: &mut Cache,
-) -> (u64, Account) {
-    helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
 }

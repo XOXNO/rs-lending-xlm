@@ -17,10 +17,7 @@ use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, En
 use stellar_macros::only_role;
 
 use super::liquidation_math::*;
-use super::{
-    emit_account_updates, persist_account_positions, repay, withdraw, AggregatedPayments,
-    PositionSides,
-};
+use super::{persist_account_positions, repay, withdraw, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
 use crate::events;
 use crate::external::pool::pool_seize_position_call;
@@ -102,8 +99,7 @@ pub fn process_liquidation(
         post_totals.total_debt,
         will_socialize,
     );
-
-    emit_account_updates(&mut cache, account_id, &account);
+    cache.emit_position_batch(account_id, &account);
 }
 
 fn validate_liquidation_inputs(

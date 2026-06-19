@@ -1,16 +1,13 @@
 //! Shared validation gates for account ownership, market status, health factor,
 //! LTV, and position limits.
 
-use common::constants::POSITION_LIMIT_MAX;
-use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::errors::*;
 use common::math::fp::Wad;
-use controller_interface::types::{
-    Account, AccountPositionType, MarketStatus, Payment, PositionLimits,
-};
+pub use common::validation::{require_positive_amount, require_wasm_receiver};
+use controller_interface::types::{Account, AccountPositionType, MarketStatus, Payment};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
-use crate::cache::Cache;
-use crate::{helpers, storage};
+use crate::{cache::Cache, helpers, storage};
 
 /// Unwraps a controller-built value or panics with `InternalError`.
 ///
@@ -52,8 +49,6 @@ pub fn require_not_flash_loaning(env: &Env) {
     );
 }
 
-pub use common::validation::{require_positive_amount, require_wasm_receiver};
-
 pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
@@ -94,19 +89,6 @@ pub fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Acco
     let floor = storage::get_min_borrow_collateral_usd_wad(env);
     if floor != 0 && totals.ltv_collateral.raw() < floor {
         panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
-    }
-}
-
-/// Re-checks position-limit bounds at the controller boundary. Governance owns
-/// the authoritative validation; this setter mirrors it so persisted limits
-/// stay inside the budget-proven `1..=POSITION_LIMIT_MAX` envelope.
-pub fn validate_position_limits(env: &Env, limits: &PositionLimits) {
-    if limits.max_supply_positions == 0
-        || limits.max_borrow_positions == 0
-        || limits.max_supply_positions > POSITION_LIMIT_MAX
-        || limits.max_borrow_positions > POSITION_LIMIT_MAX
-    {
-        panic_with_error!(env, GenericError::InvalidPositionLimits);
     }
 }
 
@@ -158,28 +140,175 @@ pub fn validate_bulk_position_limits(
 mod tests {
     use super::*;
     use crate::Controller;
-    use controller_interface::types::{Account, AccountPositionType};
+    use common::types::pool::{AccountPositionRaw, DebtPositionRaw};
+    use controller_interface::types::{Account, AccountPositionType, PositionLimits, PositionMode};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, Vec};
+
+    fn new_controller(env: &Env) -> Address {
+        let admin = Address::generate(env);
+        env.register(Controller, (admin,))
+    }
+
+    /// Account holding at most one existing supply and/or borrow position. Values
+    /// are placeholders; the guard reads only key presence.
+    fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -> Account {
+        let mut supply_positions = Map::new(env);
+        if let Some(asset) = supply {
+            supply_positions.set(
+                asset.clone(),
+                AccountPositionRaw {
+                    scaled_amount_ray: 1,
+                    liquidation_threshold_bps: 0,
+                    liquidation_bonus_bps: 0,
+                    loan_to_value_bps: 0,
+                },
+            );
+        }
+        let mut borrow_positions = Map::new(env);
+        if let Some(asset) = borrow {
+            borrow_positions.set(
+                asset.clone(),
+                DebtPositionRaw {
+                    scaled_amount_ray: 1,
+                },
+            );
+        }
+        Account {
+            owner: Address::generate(env),
+            supply_positions,
+            borrow_positions,
+            e_mode_category_id: 0,
+            mode: PositionMode::Normal,
+        }
+    }
+
+    /// Writes the limits and runs `f` inside the controller's storage context;
+    /// both the setter and the guard read instance storage.
+    fn with_limits(
+        env: &Env,
+        contract: &Address,
+        max_supply: u32,
+        max_borrow: u32,
+        f: impl FnOnce(),
+    ) {
+        env.as_contract(contract, || {
+            storage::set_position_limits(
+                env,
+                &PositionLimits {
+                    max_supply_positions: max_supply,
+                    max_borrow_positions: max_borrow,
+                },
+            );
+            f();
+        });
+    }
 
     #[test]
     fn test_validate_bulk_position_limits_dedupes_duplicate_assets() {
         let env = Env::default();
-        let admin = Address::generate(&env);
-        let contract_id = env.register(Controller, (admin,));
+        let contract = new_controller(&env);
         let asset = Address::generate(&env);
-        let owner = Address::generate(&env);
-        let account = Account {
-            owner,
-            supply_positions: Map::new(&env),
-            borrow_positions: Map::new(&env),
-            e_mode_category_id: 0,
-            mode: controller_interface::types::PositionMode::Normal,
-        };
-        let assets: Vec<(Address, i128)> =
-            Vec::from_array(&env, [(asset.clone(), 100), (asset.clone(), 200)]);
-        env.as_contract(&contract_id, || {
-            validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &assets);
+        let account = account_with(&env, None, None);
+        // Same asset twice is one new position (1 <= cap 2).
+        let aggregated =
+            Vec::from_array(&env, [(asset.clone(), 100i128), (asset.clone(), 200i128)]);
+        with_limits(&env, &contract, 2, 2, || {
+            validate_bulk_position_limits(
+                &env,
+                &account,
+                AccountPositionType::Deposit,
+                &aggregated,
+            );
+        });
+    }
+
+    #[test]
+    fn test_validate_bulk_position_limits_deposit_at_cap_with_existing_passes() {
+        let env = Env::default();
+        let contract = new_controller(&env);
+        let existing = Address::generate(&env);
+        let fresh = Address::generate(&env);
+        let account = account_with(&env, Some(&existing), None);
+        // `existing` is already supplied (not new); `fresh` is the 2nd -> 2 == cap.
+        let aggregated = Vec::from_array(
+            &env,
+            [(existing.clone(), 100i128), (fresh.clone(), 100i128)],
+        );
+        with_limits(&env, &contract, 2, 0, || {
+            validate_bulk_position_limits(
+                &env,
+                &account,
+                AccountPositionType::Deposit,
+                &aggregated,
+            );
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #109)")]
+    fn test_validate_bulk_position_limits_deposit_over_cap_panics() {
+        let env = Env::default();
+        let contract = new_controller(&env);
+        let existing = Address::generate(&env);
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let account = account_with(&env, Some(&existing), None);
+        // 1 existing + 2 new = 3 > cap 2.
+        let aggregated = Vec::from_array(&env, [(a.clone(), 100i128), (b.clone(), 100i128)]);
+        with_limits(&env, &contract, 2, 0, || {
+            validate_bulk_position_limits(
+                &env,
+                &account,
+                AccountPositionType::Deposit,
+                &aggregated,
+            );
+        });
+    }
+
+    #[test]
+    fn test_validate_bulk_position_limits_borrow_at_cap_with_existing_passes() {
+        let env = Env::default();
+        let contract = new_controller(&env);
+        let existing = Address::generate(&env);
+        let account = account_with(&env, None, Some(&existing));
+        // Re-borrowing an existing asset adds no new position (1 == cap 1).
+        let aggregated = Vec::from_array(&env, [(existing.clone(), 100i128)]);
+        with_limits(&env, &contract, 0, 1, || {
+            validate_bulk_position_limits(&env, &account, AccountPositionType::Borrow, &aggregated);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #109)")]
+    fn test_validate_bulk_position_limits_borrow_over_cap_panics() {
+        let env = Env::default();
+        let contract = new_controller(&env);
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let account = account_with(&env, None, None);
+        // 2 new borrows > cap 1; exercises the Borrow branch.
+        let aggregated = Vec::from_array(&env, [(a.clone(), 100i128), (b.clone(), 100i128)]);
+        with_limits(&env, &contract, 0, 1, || {
+            validate_bulk_position_limits(&env, &account, AccountPositionType::Borrow, &aggregated);
+        });
+    }
+
+    #[test]
+    fn test_validate_bulk_position_limits_empty_aggregated_is_noop_at_cap() {
+        let env = Env::default();
+        let contract = new_controller(&env);
+        let existing = Address::generate(&env);
+        let account = account_with(&env, Some(&existing), None);
+        // No new positions; current count (1) == cap (1) still passes.
+        let aggregated: Vec<Payment> = Vec::new(&env);
+        with_limits(&env, &contract, 1, 1, || {
+            validate_bulk_position_limits(
+                &env,
+                &account,
+                AccountPositionType::Deposit,
+                &aggregated,
+            );
         });
     }
 }
