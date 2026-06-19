@@ -25,7 +25,7 @@ jobs:
     name: Build & Test
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Persistent self-hosted runners keep $HOME (cargo registry, git, and
           # installed tool binaries) and the workspace between runs. Skip the
@@ -67,7 +67,7 @@ jobs:
     runs-on: self-hosted
     needs: build-and-test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -126,7 +126,7 @@ jobs:
     runs-on: self-hosted
     needs: build-and-test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Persistent runner: preserve target/ across runs (see build-and-test).
           clean: false
