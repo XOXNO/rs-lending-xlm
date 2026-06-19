@@ -808,7 +808,8 @@ build_asset_addresses_json() {
 add_emode_category() {
     local category_id=$1
 
-    local name=$(get_emode_value "$category_id" ".name")
+    local name
+    name=$(get_emode_value "$category_id" ".name")
 
     echo "Adding E-Mode category ${category_id}: ${name}" >&2
 
@@ -863,7 +864,8 @@ persist_emode_category_id() {
 fetch_emode_category_json() {
     # E-mode reads stay on the controller; only writes route through governance.
     local onchain_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         --send=no -- get_e_mode_category --category_id "$onchain_id"
 }
@@ -920,12 +922,18 @@ add_asset_to_emode() {
 
     echo "Adding asset ${asset_name} to E-Mode category ${category_id}..."
 
-    local asset_address=$(get_market_value "$asset_name" "asset_address")
-    local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
-    local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
-    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
-    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
-    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local asset_address
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    local can_collateral
+    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    local can_borrow
+    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv
+    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold
+    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus
+    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
@@ -964,12 +972,18 @@ edit_asset_in_emode() {
     local asset_name=$2
     local config_category_id=${3:-$category_id}
 
-    local asset_address=$(get_market_value "$asset_name" "asset_address")
-    local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
-    local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
-    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
-    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
-    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local asset_address
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    local can_collateral
+    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    local can_borrow
+    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv
+    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold
+    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus
+    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
 
@@ -997,12 +1011,18 @@ ensure_asset_in_emode() {
     local asset_name=$2
     local config_category_id=${3:-$category_id}
 
-    local asset_address=$(get_market_value "$asset_name" "asset_address")
-    local can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
-    local can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
-    local ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
-    local threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
-    local bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local asset_address
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    local can_collateral
+    can_collateral=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_collateral")
+    local can_borrow
+    can_borrow=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".can_be_borrowed")
+    local ltv
+    ltv=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".ltv")
+    local threshold
+    threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
+    local bonus
+    bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local category_json
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
@@ -1035,13 +1055,15 @@ ensure_asset_in_emode() {
 
 setup_all_emodes() {
     echo "=== Setting up all E-Mode categories for ${NETWORK} ==="
-    local categories=$(jq -r ".\"$NETWORK\" | keys[]" "$EMODES_FILE")
+    local categories
+    categories=$(jq -r ".\"$NETWORK\" | keys[]" "$EMODES_FILE")
 
     for cat_id in $categories; do
         local onchain_id
         onchain_id=$(ensure_emode_category "$cat_id" | tail -n1)
 
-        local assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")
+        local assets
+        assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")
         for asset_name in $assets; do
             ensure_asset_in_emode "$onchain_id" "$asset_name" "$cat_id"
         done
@@ -1058,8 +1080,10 @@ create_market() {
 
     echo "Creating market for ${market_name}..."
 
-    local asset_address=$(get_market_value "$market_name" "asset_address")
-    local decimals=$(get_contract_decimals "$asset_address")
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
+    local decimals
+    decimals=$(get_contract_decimals "$asset_address")
 
     echo "  Asset Address: ${asset_address}"
     echo "  On-chain Decimals: ${decimals}"
@@ -1073,7 +1097,8 @@ create_market() {
         exit 1
     fi
 
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
 
     # Existence probe is a controller view; creation writes go via governance.
     if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_config --asset "$asset_address" &>/dev/null; then
@@ -1082,7 +1107,8 @@ create_market() {
     fi
 
     # Build params JSON from config
-    local params=$(jq -c --arg decimals "$decimals" \
+    local params
+    params=$(jq -c --arg decimals "$decimals" \
         ".markets[] | select(.name == \"$market_name\") | .market_params + {asset_id: .asset_address, asset_decimals: ($decimals | tonumber)}" \
         "$MARKET_CONFIG_FILE")
     # Markets are deployed in a pending state so they cannot be used before
@@ -1091,7 +1117,8 @@ create_market() {
     # `add_asset_to_e_mode_category` after the market exists; pin it
     # to an empty array at create time so the contract spec accepts
     # the JSON (jq emits `[]` which decodes to Vec::new).
-    local pending_config=$(jq -c \
+    local pending_config
+    pending_config=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .asset_config | \
          .is_collateralizable = false | \
          .is_borrowable = false | \
@@ -1140,11 +1167,13 @@ edit_asset_config() {
 
     echo "Editing asset config for ${market_name}..."
 
-    local asset_address=$(get_market_value "$market_name" "asset_address")
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
     # `e_mode_categories` is contract-managed and ignored by
     # `edit_asset_config` on chain — pin to `[]` so the JSON shape
     # matches the AssetConfig spec.
-    local config=$(jq -c \
+    local config
+    config=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .asset_config | .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
@@ -1175,10 +1204,12 @@ update_market_params() {
 
     echo "Updating market params for ${market_name}..."
 
-    local asset_address=$(get_market_value "$market_name" "asset_address")
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
     # Strip `asset_id` / `asset_decimals` — those are controller-resolved
     # and the InterestRateModel struct does not carry them.
-    local params=$(jq -c \
+    local params
+    params=$(jq -c \
         ".markets[] | select(.name == \"$market_name\") | .market_params" \
         "$MARKET_CONFIG_FILE")
 
@@ -1407,9 +1438,11 @@ supply_position() {
     local account_id=${3:-0}
     local e_mode_category=${4:-0}
 
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     local caller=$SIGNER_ADDRESS
-    local asset_addr=$(get_market_value "$market" "asset_address")
+    local asset_addr
+    asset_addr=$(get_market_value "$market" "asset_address")
 
     echo "=== supply ==="
     echo "  Account:  $account_id  (0 = create new)"
@@ -1434,9 +1467,11 @@ borrow_position() {
     local amount_raw=$2
     local account_id=$3
 
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     local caller=$SIGNER_ADDRESS
-    local asset_addr=$(get_market_value "$market" "asset_address")
+    local asset_addr
+    asset_addr=$(get_market_value "$market" "asset_address")
 
     echo "=== borrow ==="
     echo "  Account: $account_id"
@@ -1460,7 +1495,8 @@ configure_market_oracle() {
     # Preflight: every oracle config must carry sanity bounds. On mainnet
     # the `(0, 0)` disabled-sentinel is rejected — that combination is for
     # test setups only. (Codex adversarial-review #4.)
-    local missing=$(jq -r --arg m "$market_name" '
+    local missing
+    missing=$(jq -r --arg m "$market_name" '
         .markets[] | select(.name == $m) | .oracle |
         (if has("min_sanity_price_wad") and has("max_sanity_price_wad")
             then "" else "missing min_sanity_price_wad / max_sanity_price_wad" end)
@@ -1470,7 +1506,8 @@ configure_market_oracle() {
         exit 1
     fi
     if [ "$NETWORK" = "mainnet" ]; then
-        local zero=$(jq -r --arg m "$market_name" '
+        local zero
+        zero=$(jq -r --arg m "$market_name" '
             .markets[] | select(.name == $m) | .oracle |
             (if (.min_sanity_price_wad == "0" and .max_sanity_price_wad == "0")
                 then "yes" else "no" end)
@@ -1481,7 +1518,8 @@ configure_market_oracle() {
         fi
     fi
 
-    local asset_address=$(get_market_value "$market_name" "asset_address")
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
     local cfg_file
     cfg_file=$(mktemp)
     jq -c --arg market "$market_name" '
@@ -1511,8 +1549,10 @@ configure_market_oracle() {
     # block (the resolve_market_oracle_config view + the input cfg); executeOp
     # replays the view through the controller's typed setter (`--build-only`) to
     # reconstruct byte-identical args. See resolve_oracle_op_args.
-    local gov=$(get_governance)
-    local proposer=$(get_signer_address)
+    local gov
+    gov=$(get_governance)
+    local proposer
+    proposer=$(get_signer_address)
 
     local cfg_json
     cfg_json=$(jq -c . "$cfg_file")
@@ -1602,7 +1642,8 @@ edit_oracle_tolerance() {
 
 setup_all_markets() {
     echo "=== Setting up all markets for ${NETWORK} ==="
-    local markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
+    local markets
+    markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
 
     for market_name in $markets; do
         create_market "$market_name"
@@ -1778,13 +1819,15 @@ schedule_upgrade_pool() {
 # ---------------------------------------------------------------------------
 
 pause_protocol() {
-    local gov=$(get_governance)
+    local gov
+    gov=$(get_governance)
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- pause
     echo "Protocol paused on ${NETWORK}."
 }
 
 unpause_protocol() {
-    local gov=$(get_governance)
+    local gov
+    gov=$(get_governance)
     stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- unpause
     echo "Protocol unpaused on ${NETWORK}."
 }
@@ -1870,7 +1913,8 @@ revoke_gov_role_cmd() {
 has_role_cmd() {
     local account=$1
     local role=$2
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" has_role --account "$account" --role "$role"
 }
 
@@ -1909,7 +1953,8 @@ get_price() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== Price for ${market_name} (${asset_address}) ===" >&2
     invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
@@ -1918,7 +1963,8 @@ get_market_config_view_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== Market config for ${market_name} (${asset_address}) ===" >&2
     invoke_view "$ctrl" get_market_config --asset "$asset_address"
 }
@@ -1927,21 +1973,24 @@ get_index_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== Index for ${market_name} (${asset_address}) ===" >&2
     invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
 
 get_emode_cmd() {
     local cat_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" get_e_mode_category --category_id "$cat_id"
 }
 
 get_all_markets_cmd() {
     local assets_json
     assets_json=$(all_configured_asset_addresses)
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== All markets (${NETWORK}) ===" >&2
     invoke_view "$ctrl" get_all_markets_detailed --assets "$assets_json"
 }
@@ -1949,7 +1998,8 @@ get_all_markets_cmd() {
 get_all_indexes_cmd() {
     local assets_json
     assets_json=$(all_configured_asset_addresses)
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== All market indexes (${NETWORK}) ===" >&2
     invoke_view "$ctrl" get_all_market_indexes_detailed --assets "$assets_json"
 }
@@ -1960,13 +2010,15 @@ get_all_indexes_cmd() {
 
 get_health_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" health_factor --account_id "$account_id"
 }
 
 get_account_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     echo "=== Positions for account ${account_id} ===" >&2
     invoke_view "$ctrl" get_account_positions --account_id "$account_id"
     echo "=== Attributes for account ${account_id} ===" >&2
@@ -1975,31 +2027,36 @@ get_account_cmd() {
 
 get_collateral_usd_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" total_collateral_in_usd --account_id "$account_id"
 }
 
 get_borrow_usd_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" total_borrow_in_usd --account_id "$account_id"
 }
 
 get_ltv_usd_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" ltv_collateral_in_usd --account_id "$account_id"
 }
 
 get_liq_available_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" liquidation_collateral_available --account_id "$account_id"
 }
 
 can_liquidate_cmd() {
     local account_id=$1
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" can_be_liquidated --account_id "$account_id"
 }
 
@@ -2008,7 +2065,8 @@ get_collateral_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" collateral_amount_for_token --account_id "$account_id" --asset "$asset_address"
 }
 
@@ -2017,7 +2075,8 @@ get_borrow_cmd() {
     local market_name=$2
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
     invoke_view "$ctrl" borrow_amount_for_token --account_id "$account_id" --asset "$asset_address"
 }
 
@@ -2179,7 +2238,8 @@ get_oracle_cmd() {
     local market_name=$1
     local asset_address
     asset_address=$(require_market_address "$market_name")
-    local ctrl=$(get_controller)
+    local ctrl
+    ctrl=$(get_controller)
 
     local mc_json
     mc_json=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
