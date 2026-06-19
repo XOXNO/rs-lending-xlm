@@ -65,187 +65,100 @@ fn begin_self_execute(env: &Env, executor: Option<Address>, operation: &Operatio
     set_execute_operation(env, operation);
 }
 
-#[contractimpl]
-impl Governance {
-    pub fn propose_governance_upgrade(
-        env: Env,
-        proposer: Address,
-        new_wasm_hash: BytesN<32>,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_self_op(
-            &env,
-            "upgrade",
-            vec![&env, new_wasm_hash.into_val(&env)],
-            salt,
-        )
-    }
+/// Per-argument marshalling for the execute path. `byref` arguments are reused
+/// by the `apply:` expression after the `Operation` is built, so they are cloned
+/// into the replayed args; `byval` arguments are not reused and are marshalled
+/// directly. The propose path always marshals directly because nothing reuses
+/// the arguments after scheduling.
+macro_rules! exec_arg {
+    (byref $arg:ident, $env:ident) => {
+        $arg.clone().into_val(&$env)
+    };
+    (byval $arg:ident, $env:ident) => {
+        $arg.into_val(&$env)
+    };
+}
 
-    pub fn execute_governance_upgrade(
-        env: Env,
-        executor: Option<Address>,
-        new_wasm_hash: BytesN<32>,
-        salt: BytesN<32>,
-    ) {
-        let operation = self_operation(
-            &env,
-            "upgrade",
-            vec![&env, new_wasm_hash.into_val(&env)],
-            &salt,
-        );
-        begin_self_execute(&env, executor, &operation);
-        apply_upgrade(&env, &new_wasm_hash);
-    }
+/// Declares a governance-self timelock operation as a `propose_*` / `execute_*`
+/// pair from a single row. The OZ timelock keys an operation by
+/// `(target, function, args, ...)`, so propose and execute must agree on the
+/// function symbol and replayed args; sourcing both from one declaration makes
+/// that agreement structural rather than a hand-maintained invariant.
+///
+/// Each argument is tagged `byref` (cloned in the execute replay because the
+/// `apply:` expression borrows it afterwards) or `byval` (marshalled directly).
+macro_rules! self_timelock_ops {
+    ( $env:ident ; $(
+        op($propose:ident, $execute:ident, $func:literal)
+        ( $( $kind:tt $arg:ident : [ $( $argty:tt )+ ] ),* $(,)? )
+        $( validate: $validate:expr ; )?
+        apply: $apply:expr ;
+    )* ) => {
+        #[contractimpl]
+        impl Governance {
+            $(
+                pub fn $propose(
+                    $env: Env,
+                    proposer: Address,
+                    $( $arg: $( $argty )+, )*
+                    salt: BytesN<32>,
+                ) -> BytesN<32> {
+                    begin_proposal(&$env, &proposer);
+                    $( $validate; )?
+                    schedule_self_op(
+                        &$env,
+                        $func,
+                        vec![&$env, $( $arg.into_val(&$env) ),*],
+                        salt,
+                    )
+                }
 
-    pub fn propose_update_delay(
-        env: Env,
-        proposer: Address,
-        new_delay: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate_delay_update(&env, new_delay);
-        schedule_self_op(
-            &env,
-            "update_delay",
-            vec![&env, new_delay.into_val(&env)],
-            salt,
-        )
-    }
+                pub fn $execute(
+                    $env: Env,
+                    executor: Option<Address>,
+                    $( $arg: $( $argty )+, )*
+                    salt: BytesN<32>,
+                ) {
+                    let operation = self_operation(
+                        &$env,
+                        $func,
+                        vec![&$env, $( exec_arg!($kind $arg, $env) ),*],
+                        &salt,
+                    );
+                    begin_self_execute(&$env, executor, &operation);
+                    $apply;
+                }
+            )*
+        }
+    };
+}
 
-    pub fn execute_update_delay(
-        env: Env,
-        executor: Option<Address>,
-        new_delay: u32,
-        salt: BytesN<32>,
-    ) {
-        let operation = self_operation(
-            &env,
-            "update_delay",
-            vec![&env, new_delay.into_val(&env)],
-            &salt,
-        );
-        begin_self_execute(&env, executor, &operation);
-        apply_update_delay(&env, new_delay);
-    }
+// `env;` binds the identifier that the `validate:` / `apply:` expressions below
+// reference, sharing its hygiene context with the generated `env` parameter.
+self_timelock_ops! {
+    env;
+    op(propose_governance_upgrade, execute_governance_upgrade, "upgrade")
+        (byval new_wasm_hash: [BytesN<32>])
+        apply: apply_upgrade(&env, &new_wasm_hash);
 
-    pub fn propose_grant_governance_role(
-        env: Env,
-        proposer: Address,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        require_known_governance_role(&env, &role);
-        schedule_self_op(
-            &env,
-            "grant_role",
-            vec![&env, account.into_val(&env), role.into_val(&env)],
-            salt,
-        )
-    }
+    op(propose_update_delay, execute_update_delay, "update_delay")
+        (byval new_delay: [u32])
+        validate: validate_delay_update(&env, new_delay);
+        apply: apply_update_delay(&env, new_delay);
 
-    pub fn execute_grant_governance_role(
-        env: Env,
-        executor: Option<Address>,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) {
-        let operation = self_operation(
-            &env,
-            "grant_role",
-            vec![
-                &env,
-                account.clone().into_val(&env),
-                role.clone().into_val(&env),
-            ],
-            &salt,
-        );
-        begin_self_execute(&env, executor, &operation);
-        apply_grant_role(&env, &account, &role);
-    }
+    op(propose_grant_governance_role, execute_grant_governance_role, "grant_role")
+        (byref account: [Address], byref role: [Symbol])
+        validate: require_known_governance_role(&env, &role);
+        apply: apply_grant_role(&env, &account, &role);
 
-    pub fn propose_revoke_governance_role(
-        env: Env,
-        proposer: Address,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        require_known_governance_role(&env, &role);
-        schedule_self_op(
-            &env,
-            "revoke_role",
-            vec![&env, account.into_val(&env), role.into_val(&env)],
-            salt,
-        )
-    }
+    op(propose_revoke_governance_role, execute_revoke_governance_role, "revoke_role")
+        (byref account: [Address], byref role: [Symbol])
+        validate: require_known_governance_role(&env, &role);
+        apply: apply_revoke_role(&env, &account, &role);
 
-    pub fn execute_revoke_governance_role(
-        env: Env,
-        executor: Option<Address>,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) {
-        let operation = self_operation(
-            &env,
-            "revoke_role",
-            vec![
-                &env,
-                account.clone().into_val(&env),
-                role.clone().into_val(&env),
-            ],
-            &salt,
-        );
-        begin_self_execute(&env, executor, &operation);
-        apply_revoke_role(&env, &account, &role);
-    }
-
-    pub fn propose_transfer_gov_own(
-        env: Env,
-        proposer: Address,
-        new_owner: Address,
-        live_until_ledger: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_self_op(
-            &env,
-            "transfer_ownership",
-            vec![
-                &env,
-                new_owner.into_val(&env),
-                live_until_ledger.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn execute_transfer_gov_own(
-        env: Env,
-        executor: Option<Address>,
-        new_owner: Address,
-        live_until_ledger: u32,
-        salt: BytesN<32>,
-    ) {
-        let operation = self_operation(
-            &env,
-            "transfer_ownership",
-            vec![
-                &env,
-                new_owner.clone().into_val(&env),
-                live_until_ledger.into_val(&env),
-            ],
-            &salt,
-        );
-        begin_self_execute(&env, executor, &operation);
-        apply_transfer_ownership(&env, &new_owner, live_until_ledger);
-    }
+    op(propose_transfer_gov_own, execute_transfer_gov_own, "transfer_ownership")
+        (byref new_owner: [Address], byval live_until_ledger: [u32])
+        apply: apply_transfer_ownership(&env, &new_owner, live_until_ledger);
 }
 
 #[cfg(test)]

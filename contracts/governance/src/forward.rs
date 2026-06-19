@@ -87,404 +87,120 @@ pub(crate) fn resolve_market_oracle(
     validate::oracle_probe::validate_market_oracle_sources(env, &controller, asset, cfg, tolerance)
 }
 
+/// Declares a controller-admin `propose_*` entrypoint per row from a single
+/// table. Each proposer authorizes PROPOSER, runs the row's optional `validate`
+/// block, then schedules an `Operation` targeting the named controller setter
+/// at the minimum timelock delay. The function symbol and replayed args are
+/// sourced once from the row, so a proposer cannot drift from what `execute`
+/// will replay against the controller.
+///
+/// Argument types are bracketed (`[Ty]`) so `#[contractimpl]` reads transparent
+/// type tokens rather than an opaque `:ty` fragment. `env;` binds the identifier
+/// the `validate` blocks reference, sharing its hygiene context with the
+/// generated `env` parameter.
+macro_rules! controller_ops {
+    ( $env:ident ; $(
+        op $propose:ident => $func:literal ( $( $arg:ident : [ $( $argty:tt )+ ] ),* $(,)? )
+        $( validate: { $( $vtok:tt )* } )?
+    )* ) => {
+        #[contractimpl]
+        impl Governance {
+            $(
+                pub fn $propose(
+                    $env: Env,
+                    proposer: Address,
+                    $( $arg: $( $argty )+, )*
+                    salt: BytesN<32>,
+                ) -> BytesN<32> {
+                    begin_proposal(&$env, &proposer);
+                    $( $( $vtok )* )?
+                    schedule_controller_op(
+                        &$env,
+                        $func,
+                        vec![&$env $(, $arg.into_val(&$env) )*],
+                        salt,
+                    )
+                }
+            )*
+        }
+    };
+}
+
+controller_ops! {
+    env;
+
+    op propose_set_aggregator => "set_aggregator" (addr: [Address])
+        validate: { validate::require_contract_address(&env, &addr, OracleError::InvalidAggregator); }
+
+    // Revenue treasury accepts a wallet or contract address.
+    op propose_set_accumulator => "set_accumulator" (addr: [Address])
+
+    op propose_set_pool_template => "set_liquidity_pool_template" (hash: [BytesN<32>])
+        validate: { validate::require_nonzero_wasm_hash(&env, &hash); }
+
+    op propose_edit_asset_config => "edit_asset_config" (asset: [Address], cfg: [AssetConfigRaw])
+        validate: { validate::asset::validate_asset_config(&env, &cfg); }
+
+    op propose_set_position_limits => "set_position_limits" (limits: [PositionLimits])
+        validate: { validate::asset::validate_position_limits(&env, &limits); }
+
+    op propose_set_min_borrow_collat => "set_min_borrow_collateral_usd" (floor_wad: [i128])
+        validate: { assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams); }
+
+    op propose_add_e_mode_category => "add_e_mode_category" (ltv: [u32], threshold: [u32], bonus: [u32])
+        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
+
+    op propose_edit_e_mode_category => "edit_e_mode_category" (id: [u32], ltv: [u32], threshold: [u32], bonus: [u32])
+        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
+
+    op propose_remove_e_mode_category => "remove_e_mode_category" (id: [u32])
+
+    op propose_add_asset_to_e_mode => "add_asset_to_e_mode_category"
+        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool])
+
+    op propose_edit_asset_in_e_mode => "edit_asset_in_e_mode_category"
+        (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool])
+
+    op propose_remove_asset_from_e_mode => "remove_asset_from_e_mode" (asset: [Address], category_id: [u32])
+
+    op propose_approve_token => "approve_token" (token: [Address])
+
+    op propose_revoke_token => "revoke_token" (token: [Address])
+
+    op propose_create_liquidity_pool => "create_liquidity_pool"
+        (asset: [Address], params: [MarketParamsRaw], config: [AssetConfigRaw])
+        validate: {
+            let token_decimals = validate::asset::validate_and_fetch_token_decimals(&env, &asset);
+            validate::asset::validate_market_creation(&env, &asset, &params, &config, token_decimals);
+        }
+
+    op propose_upgrade_pool_params => "upgrade_liquidity_pool_params" (asset: [Address], params: [InterestRateModel])
+        // Duplicate pool validation rejects invalid params before scheduling.
+        validate: { params.verify(&env); }
+
+    op propose_deploy_pool => "deploy_pool" ()
+
+    op propose_upgrade_pool => "upgrade_pool" (new_wasm_hash: [BytesN<32>])
+
+    op propose_grant_controller_role => "grant_role" (account: [Address], role: [Symbol])
+        validate: { require_known_controller_role(&env, &role); }
+
+    op propose_revoke_controller_role => "revoke_role" (account: [Address], role: [Symbol])
+        validate: { require_known_controller_role(&env, &role); }
+
+    op propose_upgrade_controller => "upgrade" (new_wasm_hash: [BytesN<32>])
+
+    op propose_migrate_controller => "migrate" (new_version: [u32])
+
+    op propose_transfer_ctrl_ownership => "transfer_ownership" (new_owner: [Address], live_until_ledger: [u32])
+        validate: { validate::require_contract_address(&env, &new_owner, GenericError::NotSmartContract); }
+}
+
+// Oracle-config proposers transform inputs into a resolved struct before
+// scheduling (the replayed arg differs from the entrypoint input), so they stay
+// explicit rather than fitting the args-equal-inputs table above.
 #[contractimpl]
 impl Governance {
-    pub fn propose_set_aggregator(
-        env: Env,
-        proposer: Address,
-        addr: Address,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::require_contract_address(&env, &addr, OracleError::InvalidAggregator);
-        schedule_controller_op(
-            &env,
-            "set_aggregator",
-            vec![&env, addr.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_set_accumulator(
-        env: Env,
-        proposer: Address,
-        addr: Address,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        // Revenue treasury accepts a wallet or contract address.
-        schedule_controller_op(
-            &env,
-            "set_accumulator",
-            vec![&env, addr.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_set_pool_template(
-        env: Env,
-        proposer: Address,
-        hash: BytesN<32>,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::require_nonzero_wasm_hash(&env, &hash);
-        schedule_controller_op(
-            &env,
-            "set_liquidity_pool_template",
-            vec![&env, hash.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_edit_asset_config(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        cfg: AssetConfigRaw,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::asset::validate_asset_config(&env, &cfg);
-        schedule_controller_op(
-            &env,
-            "edit_asset_config",
-            vec![&env, asset.into_val(&env), cfg.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_set_position_limits(
-        env: Env,
-        proposer: Address,
-        limits: PositionLimits,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::asset::validate_position_limits(&env, &limits);
-        schedule_controller_op(
-            &env,
-            "set_position_limits",
-            vec![&env, limits.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_set_min_borrow_collat(
-        env: Env,
-        proposer: Address,
-        floor_wad: i128,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
-        schedule_controller_op(
-            &env,
-            "set_min_borrow_collateral_usd",
-            vec![&env, floor_wad.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_add_e_mode_category(
-        env: Env,
-        proposer: Address,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
-        schedule_controller_op(
-            &env,
-            "add_e_mode_category",
-            vec![
-                &env,
-                ltv.into_val(&env),
-                threshold.into_val(&env),
-                bonus.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn propose_edit_e_mode_category(
-        env: Env,
-        proposer: Address,
-        id: u32,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
-        schedule_controller_op(
-            &env,
-            "edit_e_mode_category",
-            vec![
-                &env,
-                id.into_val(&env),
-                ltv.into_val(&env),
-                threshold.into_val(&env),
-                bonus.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn propose_remove_e_mode_category(
-        env: Env,
-        proposer: Address,
-        id: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "remove_e_mode_category",
-            vec![&env, id.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_add_asset_to_e_mode(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "add_asset_to_e_mode_category",
-            vec![
-                &env,
-                asset.into_val(&env),
-                category_id.into_val(&env),
-                can_collateral.into_val(&env),
-                can_borrow.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn propose_edit_asset_in_e_mode(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "edit_asset_in_e_mode_category",
-            vec![
-                &env,
-                asset.into_val(&env),
-                category_id.into_val(&env),
-                can_collateral.into_val(&env),
-                can_borrow.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn propose_remove_asset_from_e_mode(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        category_id: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "remove_asset_from_e_mode",
-            vec![&env, asset.into_val(&env), category_id.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_approve_token(
-        env: Env,
-        proposer: Address,
-        token: Address,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "approve_token",
-            vec![&env, token.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_revoke_token(
-        env: Env,
-        proposer: Address,
-        token: Address,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(&env, "revoke_token", vec![&env, token.into_val(&env)], salt)
-    }
-
-    pub fn propose_create_liquidity_pool(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        params: MarketParamsRaw,
-        config: AssetConfigRaw,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        let token_decimals = validate::asset::validate_and_fetch_token_decimals(&env, &asset);
-        validate::asset::validate_market_creation(&env, &asset, &params, &config, token_decimals);
-        schedule_controller_op(
-            &env,
-            "create_liquidity_pool",
-            vec![
-                &env,
-                asset.into_val(&env),
-                params.into_val(&env),
-                config.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
-    pub fn propose_upgrade_pool_params(
-        env: Env,
-        proposer: Address,
-        asset: Address,
-        params: InterestRateModel,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        // Duplicate pool validation rejects invalid params before scheduling.
-        params.verify(&env);
-        schedule_controller_op(
-            &env,
-            "upgrade_liquidity_pool_params",
-            vec![&env, asset.into_val(&env), params.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_deploy_pool(env: Env, proposer: Address, salt: BytesN<32>) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(&env, "deploy_pool", vec![&env], salt)
-    }
-
-    pub fn propose_upgrade_pool(
-        env: Env,
-        proposer: Address,
-        new_wasm_hash: BytesN<32>,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "upgrade_pool",
-            vec![&env, new_wasm_hash.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_grant_controller_role(
-        env: Env,
-        proposer: Address,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        require_known_controller_role(&env, &role);
-        schedule_controller_op(
-            &env,
-            "grant_role",
-            vec![&env, account.into_val(&env), role.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_revoke_controller_role(
-        env: Env,
-        proposer: Address,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        require_known_controller_role(&env, &role);
-        schedule_controller_op(
-            &env,
-            "revoke_role",
-            vec![&env, account.into_val(&env), role.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_upgrade_controller(
-        env: Env,
-        proposer: Address,
-        new_wasm_hash: BytesN<32>,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "upgrade",
-            vec![&env, new_wasm_hash.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_migrate_controller(
-        env: Env,
-        proposer: Address,
-        new_version: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        schedule_controller_op(
-            &env,
-            "migrate",
-            vec![&env, new_version.into_val(&env)],
-            salt,
-        )
-    }
-
-    pub fn propose_transfer_ctrl_ownership(
-        env: Env,
-        proposer: Address,
-        new_owner: Address,
-        live_until_ledger: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32> {
-        begin_proposal(&env, &proposer);
-        validate::require_contract_address(&env, &new_owner, GenericError::NotSmartContract);
-        schedule_controller_op(
-            &env,
-            "transfer_ownership",
-            vec![
-                &env,
-                new_owner.into_val(&env),
-                live_until_ledger.into_val(&env),
-            ],
-            salt,
-        )
-    }
-
     pub fn propose_configure_market_oracle(
         env: Env,
         proposer: Address,
