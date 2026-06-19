@@ -1060,6 +1060,7 @@ create-market:
 # passing positional args verbatim. Adding a new verb = add here + script.sh.
 SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setupAll setupAllMarkets setupAllEModes \
+                  whitelistBlendPools \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
                   claimRevenueAll deployPool

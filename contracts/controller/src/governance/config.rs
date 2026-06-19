@@ -143,6 +143,11 @@ impl Controller {
         set_token_approval(&env, token, false);
     }
 
+    /// View: whether `pool` is on the Blend-pool allow-list (migration source).
+    pub fn is_blend_pool_approved(env: Env, pool: Address) -> bool {
+        storage::is_blend_pool_approved(&env, &pool)
+    }
+
     #[only_owner]
     pub fn approve_blend_pool(env: Env, pool: Address) {
         set_blend_pool_approval(&env, pool, true);

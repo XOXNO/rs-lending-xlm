@@ -31,6 +31,7 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 NETWORKS_FILE="$SCRIPT_DIR/networks.json"
 EMODES_FILE="$SCRIPT_DIR/emodes.json"
 MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}_markets.json"
+BLEND_POOLS_FILE="$SCRIPT_DIR/blend_pools.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -1272,6 +1273,70 @@ claim_revenue_all() {
     echo "Revenue claimed for all markets."
 }
 
+# ---------------------------------------------------------------------------
+# Blend V2 migration source allow-list
+#
+# `migrate_from_blend` only accepts a governance-approved Blend pool as its
+# source. `whitelistBlendPools` reads configs/blend_pools.json for the current
+# network, checks each pool against the controller view `is_blend_pool_approved`,
+# and schedules a timelocked `approve_blend_pool` for any that are missing.
+# Already-approved pools are skipped, so re-runs cost no redundant timelock op
+# (important on mainnet's multi-day delay).
+# ---------------------------------------------------------------------------
+
+is_blend_pool_whitelisted() {
+    local pool=$1
+    local ctrl
+    ctrl=$(get_controller)
+    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- is_blend_pool_approved --pool "$pool" 2>/dev/null | tr -d '"' | tr -d '[:space:]'
+}
+
+approve_blend_pool() {
+    local pool=$1
+
+    if [ "$(is_blend_pool_whitelisted "$pool")" = "true" ]; then
+        echo "Blend pool ${pool} already whitelisted; skipping." >&2
+        return 0
+    fi
+
+    echo "Whitelisting Blend pool ${pool} (timelocked approve_blend_pool)..." >&2
+    # approve_blend_pool(pool) — single Address arg; scheduled args equal the
+    # input, so the op is fully CLI-replayable through generic execute.
+    local args_json
+    args_json=$(jq -nc --arg p "$pool" '[{address:$p}]')
+    local salt
+    salt=$(gen_salt "approve_blend_pool" "$args_json")
+
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_approve_blend_pool approve_blend_pool "$args_json" true "$salt" \
+        --pool "$pool")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Blend pool ${pool} whitelisted." >&2
+}
+
+whitelist_blend_pools() {
+    if [ ! -f "$BLEND_POOLS_FILE" ]; then
+        echo "ERROR: Blend pools config not found: $BLEND_POOLS_FILE" >&2
+        exit 1
+    fi
+
+    local pools
+    pools=$(jq -r --arg net "$NETWORK" '(.[$net].pools // [])[] | .address' "$BLEND_POOLS_FILE")
+    if [ -z "$pools" ]; then
+        echo "No Blend pools configured for ${NETWORK} in ${BLEND_POOLS_FILE}." >&2
+        return 0
+    fi
+
+    echo "=== Whitelisting Blend pools for ${NETWORK} ===" >&2
+    for pool in $pools; do
+        approve_blend_pool "$pool"
+    done
+    echo "=== Blend pool whitelist complete (${NETWORK}) ===" >&2
+}
+
 set_aggregator() {
     echo "Configuring Aggregator for ${NETWORK}..."
     local router
@@ -2240,6 +2305,9 @@ case "$1" in
         setup_all_markets
         setup_all_emodes
         echo "=== Full setup complete ==="
+        ;;
+    "whitelistBlendPools")
+        whitelist_blend_pools
         ;;
     "setAggregator")
         set_aggregator

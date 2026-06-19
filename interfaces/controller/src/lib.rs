@@ -159,6 +159,10 @@ pub trait ControllerInterface {
     /// Returns whether `account_id` still has controller metadata on-chain.
     fn account_exists(env: Env, account_id: u64) -> bool;
 
+    /// Returns whether `pool` is on the governance Blend-pool allow-list and may
+    /// be used as a `migrate_from_blend` source.
+    fn is_blend_pool_approved(env: Env, pool: Address) -> bool;
+
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     fn get_min_borrow_collateral_usd(env: Env) -> i128;
 
