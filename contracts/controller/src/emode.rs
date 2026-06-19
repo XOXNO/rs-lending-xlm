@@ -3,13 +3,16 @@
 //! Applies active category overrides to market asset configs.
 
 use common::errors::EModeError;
+use common::math::fp::Bps;
 use controller_interface::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
 use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::cache::Cache;
 use crate::storage;
 
-/// Applies active e-mode collateral and borrow flags to an asset config.
+/// Applies active e-mode flags and per-asset risk parameters to an asset
+/// config. Risk parameters come from the asset's own [`EModeAssetConfig`], so
+/// assets in the same category can carry different LTV/threshold/bonus.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
@@ -22,9 +25,9 @@ pub fn apply_e_mode_to_asset_config(
         }
         asset_config.is_collateralizable = aec.is_collateralizable;
         asset_config.is_borrowable = aec.is_borrowable;
-        asset_config.loan_to_value = cat.loan_to_value;
-        asset_config.liquidation_threshold = cat.liquidation_threshold;
-        asset_config.liquidation_bonus = cat.liquidation_bonus;
+        asset_config.loan_to_value = Bps::from(i128::from(aec.loan_to_value_bps));
+        asset_config.liquidation_threshold = Bps::from(i128::from(aec.liquidation_threshold_bps));
+        asset_config.liquidation_bonus = Bps::from(i128::from(aec.liquidation_bonus_bps));
     }
 }
 

@@ -223,20 +223,6 @@ pub trait GovernanceInterface {
     fn propose_add_e_mode_category(
         env: Env,
         proposer: Address,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        salt: BytesN<32>,
-    ) -> BytesN<32>;
-
-    /// Schedules `edit_e_mode_category`.
-    fn propose_edit_e_mode_category(
-        env: Env,
-        proposer: Address,
-        id: u32,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
@@ -256,6 +242,9 @@ pub trait GovernanceInterface {
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
@@ -267,6 +256,9 @@ pub trait GovernanceInterface {
         category_id: u32,
         can_collateral: bool,
         can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 

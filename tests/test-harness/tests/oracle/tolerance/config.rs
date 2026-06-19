@@ -97,7 +97,7 @@ fn test_edit_asset_in_e_mode_category() {
 
     // Initially: can_collateral=true, can_borrow=true.
     // Edit: set can_borrow=false.
-    t.edit_asset_in_e_mode("USDC", 1, true, false);
+    t.edit_asset_in_e_mode("USDC", 1, true, false, 9700, 9800, 200);
 
     // Verify the update by reading storage.
     let usdc_asset = t.resolve_market("USDC").asset.clone();

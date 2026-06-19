@@ -275,12 +275,10 @@ impl LendingTestBuilder {
         }
 
         for emode in &self.pending_emodes {
-            let _id = gov.add_e_mode_category(
-                &emode.preset.ltv,
-                &emode.preset.threshold,
-                &emode.preset.bonus,
-            );
+            let _id = gov.add_e_mode_category();
 
+            // Assets in a builder category share the preset's risk params; tests
+            // that need per-asset divergence use `t.add_asset_to_e_mode(..)`.
             for (asset_name, can_collateral, can_borrow) in &emode.assets {
                 let asset_addr = markets
                     .get(asset_name.as_str())
@@ -297,6 +295,9 @@ impl LendingTestBuilder {
                     &emode.category_id,
                     can_collateral,
                     can_borrow,
+                    &emode.preset.ltv,
+                    &emode.preset.threshold,
+                    &emode.preset.bonus,
                 );
             }
         }

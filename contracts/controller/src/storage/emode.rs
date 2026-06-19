@@ -82,9 +82,6 @@ mod tests {
 
         env.as_contract(&contract_id, || {
             let cat = EModeCategoryRaw {
-                loan_to_value_bps: 7_500,
-                liquidation_threshold_bps: 8_000,
-                liquidation_bonus_bps: 500,
                 is_deprecated: false,
                 assets: Map::new(&env),
             };

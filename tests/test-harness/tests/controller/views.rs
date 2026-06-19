@@ -239,17 +239,16 @@ fn test_get_emode_category_view() {
 
     let ctrl = t.ctrl_client();
     let category = ctrl.get_e_mode_category(&1u32);
+    let usdc = t.resolve_asset("USDC");
+    let cfg = category.assets.get(usdc).expect("USDC registered in category");
 
-    // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200
-    assert_eq!(category.loan_to_value_bps, 9700, "emode ltv should be 9700");
+    // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
+    assert_eq!(cfg.loan_to_value_bps, 9700, "emode ltv should be 9700");
     assert_eq!(
-        category.liquidation_threshold_bps, 9800,
+        cfg.liquidation_threshold_bps, 9800,
         "emode threshold should be 9800"
     );
-    assert_eq!(
-        category.liquidation_bonus_bps, 200,
-        "emode bonus should be 200"
-    );
+    assert_eq!(cfg.liquidation_bonus_bps, 200, "emode bonus should be 200");
 }
 // 11. test_get_position_limits_default
 
