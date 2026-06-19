@@ -436,6 +436,13 @@ fuzz_target!(|i: In| {
                         scaled_amount_ray: supply_scaled,
                     }
                 };
+                // Sync to `now` so the seize is measured against an accrued
+                // baseline. seize_position accrues via load_synced_cache; the
+                // outer `before` is captured pre-sync, so without this a
+                // borrow-side seize (accrue up, then socialize down) looks like
+                // it raises supply_index when it is only interest accrual.
+                pool.update_indexes(&asset);
+                let before = pool_state(&pool, &asset);
                 let result =
                     flatten_contract_result(pool.try_seize_position(&asset, &side, &position));
                 match result {

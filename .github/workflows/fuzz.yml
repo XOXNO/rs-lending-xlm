@@ -82,15 +82,6 @@ jobs:
       - name: Contract-level proptest (256 cases each)
         run: make proptest PROPTEST_CASES=256
 
-      - name: Upload fuzz artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: fuzz-smoke-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            tests/fuzz/artifacts/
-            tests/test-harness/tests/*.proptest-regressions
-
   miri:
     if: github.event_name == 'pull_request'
     name: Miri pass (common + pool::interest + controller::helpers)
