@@ -12,6 +12,7 @@
 //! `strategy_finalize`; solvency gates run only at finalize.
 
 pub(crate) mod flash_loan;
+mod migrate_blend;
 mod multiply;
 pub(crate) mod positions;
 mod repay_debt_with_collateral;
@@ -20,7 +21,7 @@ mod swap_collateral;
 mod swap_debt;
 
 pub(crate) use positions::{
-    execute_withdraw_all, open_strategy_borrow, repay_debt_from_controller,
+    execute_withdraw_all, open_migration_borrow, open_strategy_borrow, repay_debt_from_controller,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
 };
 pub(crate) use swap::swap_tokens;

@@ -287,6 +287,22 @@ pub trait GovernanceInterface {
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
+    /// Schedules `approve_blend_pool`.
+    fn propose_approve_blend_pool(
+        env: Env,
+        proposer: Address,
+        pool: Address,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Schedules `revoke_blend_pool`.
+    fn propose_revoke_blend_pool(
+        env: Env,
+        proposer: Address,
+        pool: Address,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
     /// Schedules `create_liquidity_pool`.
     fn propose_create_liquidity_pool(
         env: Env,

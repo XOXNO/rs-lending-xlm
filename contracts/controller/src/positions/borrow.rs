@@ -152,6 +152,50 @@ pub fn borrow_for_strategy(
     amount: i128,
     cache: &mut Cache,
 ) -> i128 {
+    borrow_strategy_inner(
+        env,
+        account,
+        debt_token,
+        amount,
+        cache,
+        None,
+        events::PositionAction::Multiply,
+    )
+}
+
+/// Zero-fee strategy borrow used by Blend migration. The opened debt is the
+/// user's permanent migrated debt, not a flash loan, so no flash fee is charged;
+/// like other strategy borrows it defers solvency to `strategy_finalize`.
+pub fn borrow_for_migration(
+    env: &Env,
+    account: &mut Account,
+    debt_token: &Address,
+    amount: i128,
+    cache: &mut Cache,
+) -> i128 {
+    borrow_strategy_inner(
+        env,
+        account,
+        debt_token,
+        amount,
+        cache,
+        Some(0),
+        events::PositionAction::Migrate,
+    )
+}
+
+/// Shared strategy-borrow body. `fee_override` of `Some(fee)` bypasses the
+/// configured flash-loan fee (migration uses `Some(0)`); `None` charges the
+/// asset's configured fee.
+fn borrow_strategy_inner(
+    env: &Env,
+    account: &mut Account,
+    debt_token: &Address,
+    amount: i128,
+    cache: &mut Cache,
+    fee_override: Option<i128>,
+    event_action: events::PositionAction,
+) -> i128 {
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((debt_token.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
@@ -159,27 +203,22 @@ pub fn borrow_for_strategy(
     validate_borrow(env, account, &aggregated, &configs, cache);
 
     let debt_config = configs.get(env, debt_token);
-    let flash_fee = debt_config.flashloan_fee.flash_loan_fee_on(env, amount);
+    let flash_fee =
+        fee_override.unwrap_or_else(|| debt_config.flashloan_fee.flash_loan_fee_on(env, amount));
     let borrow_position = account.get_or_create_debt_position(debt_token);
 
     let pool_addr = cache.cached_pool_address();
-    let action = make_pool_action(&borrow_position, amount, debt_token.clone());
+    let pool_action = make_pool_action(&borrow_position, amount, debt_token.clone());
     let result = pool_create_strategy_call(
         env,
         &pool_addr,
         &env.current_contract_address(),
-        action,
+        pool_action,
         flash_fee,
         debt_config.borrow_cap,
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    merge_borrow_result(
-        account,
-        debt_token,
-        events::PositionAction::Multiply,
-        &mutation,
-        cache,
-    );
+    merge_borrow_result(account, debt_token, event_action, &mutation, cache);
 
     result.amount_received
 }

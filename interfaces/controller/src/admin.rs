@@ -38,6 +38,8 @@ pub trait ControllerAdmin {
     fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32);
     fn approve_token(env: Env, token: Address);
     fn revoke_token(env: Env, token: Address);
+    fn approve_blend_pool(env: Env, pool: Address);
+    fn revoke_blend_pool(env: Env, pool: Address);
     fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig);
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
     fn create_liquidity_pool(

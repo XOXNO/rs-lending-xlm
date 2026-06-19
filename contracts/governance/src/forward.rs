@@ -168,6 +168,10 @@ controller_ops! {
 
     op propose_revoke_token => "revoke_token" (token: [Address])
 
+    op propose_approve_blend_pool => "approve_blend_pool" (pool: [Address])
+
+    op propose_revoke_blend_pool => "revoke_blend_pool" (pool: [Address])
+
     op propose_create_liquidity_pool => "create_liquidity_pool"
         (asset: [Address], params: [MarketParamsRaw], config: [AssetConfigRaw])
         validate: {
@@ -341,6 +345,18 @@ impl Governance {
     pub fn approve_token(env: Env, token: Address) {
         storage::renew_governance_instance(&env);
         controller_client(&env).approve_token(&token);
+    }
+
+    #[only_owner]
+    pub fn approve_blend_pool(env: Env, pool: Address) {
+        storage::renew_governance_instance(&env);
+        controller_client(&env).approve_blend_pool(&pool);
+    }
+
+    #[only_owner]
+    pub fn revoke_blend_pool(env: Env, pool: Address) {
+        storage::renew_governance_instance(&env);
+        controller_client(&env).revoke_blend_pool(&pool);
     }
 
     #[only_owner]

@@ -14,11 +14,17 @@ use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, By
 /// must not accumulate without bound.
 const MAX_OUTSTANDING_TOKEN_APPROVALS: u32 = 16;
 
+/// Cap on approved Blend migration source pools. Instance keys load on every
+/// invocation, so the allow-list must stay bounded.
+const MAX_APPROVED_BLEND_POOLS: u32 = 16;
+
 #[contracttype]
 #[derive(Clone, Debug)]
 enum LocalKey {
     ApprovedToken(Address),
     ApprovedTokenCount,
+    BlendPoolAllowed(Address),
+    BlendPoolAllowedCount,
 }
 
 #[contracttype]
@@ -66,6 +72,48 @@ pub(crate) fn set_token_approved(env: &Env, token: &Address, approved: bool) {
             env.storage()
                 .instance()
                 .set(&LocalKey::ApprovedTokenCount, &count);
+        }
+        env.storage().instance().remove(&key);
+    }
+}
+
+pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
+    env.storage()
+        .instance()
+        .get(&LocalKey::BlendPoolAllowed(pool.clone()))
+        .unwrap_or(false)
+}
+
+fn approved_blend_pool_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&LocalKey::BlendPoolAllowedCount)
+        .unwrap_or(0u32)
+}
+
+pub(crate) fn set_blend_pool_approved(env: &Env, pool: &Address, approved: bool) {
+    let key = LocalKey::BlendPoolAllowed(pool.clone());
+    let already_approved: bool = env.storage().instance().get(&key).unwrap_or(false);
+
+    if approved {
+        if !already_approved {
+            let count = approved_blend_pool_count(env);
+            assert_with_error!(
+                env,
+                count < MAX_APPROVED_BLEND_POOLS,
+                GenericError::InvalidPositionLimits
+            );
+            env.storage()
+                .instance()
+                .set(&LocalKey::BlendPoolAllowedCount, &(count + 1));
+        }
+        env.storage().instance().set(&key, &true);
+    } else {
+        if already_approved {
+            let count = approved_blend_pool_count(env).saturating_sub(1);
+            env.storage()
+                .instance()
+                .set(&LocalKey::BlendPoolAllowedCount, &count);
         }
         env.storage().instance().remove(&key);
     }

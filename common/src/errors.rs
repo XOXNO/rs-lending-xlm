@@ -66,6 +66,8 @@ pub enum GenericError {
     TimelockOperationExpired = 40,
     /// Requested role is not part of the protocol role allowlist.
     InvalidRole = 41,
+    /// Migration source pool is not on the governance Blend-pool allowlist.
+    BlendPoolNotApproved = 42,
 }
 
 #[contracterror]

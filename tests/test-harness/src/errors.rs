@@ -25,6 +25,7 @@ pub mod codes {
     pub const NOT_SMART_CONTRACT: u32 = GenericError::NotSmartContract as u32;
     pub const TIMELOCK_OPERATION_EXPIRED: u32 = GenericError::TimelockOperationExpired as u32;
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
+    pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
 
     // CollateralError
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;

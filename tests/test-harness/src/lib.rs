@@ -39,6 +39,7 @@ pub use strategy::{
 };
 pub use view::PositionType;
 pub mod mock_aggregator;
+pub mod mock_blend;
 pub mod mock_redstone;
 pub mod mock_reflector;
 pub mod mock_sac;

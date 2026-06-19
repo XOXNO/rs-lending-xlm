@@ -302,6 +302,7 @@ pub enum PositionAction {
     RpColWd = 10,
     RpColR = 11,
     CloseWd = 12,
+    Migrate = 13,
 }
 
 /// Collateral-side position delta, vec-encoded for the batch position event.
@@ -471,10 +472,28 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
+/// Emitted once per successful Blend V2 → controller migration.
+#[contractevent(topics = ["strategy", "blend_migration"])]
+#[derive(Clone, Debug)]
+pub struct BlendMigrationEvent {
+    pub account_id: u64,
+    pub blend_pool: Address,
+    pub collateral_count: u32,
+    pub supply_count: u32,
+    pub debt_count: u32,
+}
+
 #[contractevent(topics = ["config", "approve_token"])]
 #[derive(Clone, Debug)]
 pub struct ApproveTokenEvent {
     pub wasm_hash: soroban_sdk::BytesN<32>,
+    pub approved: bool,
+}
+
+#[contractevent(topics = ["config", "approve_blend_pool"])]
+#[derive(Clone, Debug)]
+pub struct ApproveBlendPoolEvent {
+    pub pool: Address,
     pub approved: bool,
 }
 

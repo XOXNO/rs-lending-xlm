@@ -6,10 +6,11 @@
 //! storage writes, state-dependent invariants, and event emission.
 
 use crate::events::{
-    ApproveTokenEvent, EventEModeCategory, EventOracleProvider, OracleDisabledEvent,
-    RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
-    UpdateAssetOracleEvent, UpdateEModeAssetEvent, UpdateEModeCategoryEvent,
-    UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
+    ApproveBlendPoolEvent, ApproveTokenEvent, EventEModeCategory, EventOracleProvider,
+    OracleDisabledEvent, RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent,
+    UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
+    UpdateEModeCategoryEvent, UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent,
+    UpdatePositionLimitsEvent,
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
@@ -143,6 +144,16 @@ impl Controller {
     }
 
     #[only_owner]
+    pub fn approve_blend_pool(env: Env, pool: Address) {
+        set_blend_pool_approval(&env, pool, true);
+    }
+
+    #[only_owner]
+    pub fn revoke_blend_pool(env: Env, pool: Address) {
+        set_blend_pool_approval(&env, pool, false);
+    }
+
+    #[only_owner]
     pub fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig) {
         storage::renew_controller_instance(&env);
         set_market_oracle_config(&env, asset, config);
@@ -170,6 +181,12 @@ fn set_token_approval(env: &Env, token: Address, approved: bool) {
         approved,
     }
     .publish(env);
+}
+
+fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) {
+    storage::renew_controller_instance(env);
+    storage::set_blend_pool_approved(env, &pool, approved);
+    ApproveBlendPoolEvent { pool, approved }.publish(env);
 }
 
 pub fn set_aggregator(env: &Env, addr: Address) {

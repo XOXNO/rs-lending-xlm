@@ -88,6 +88,22 @@ pub trait ControllerInterface {
         swap: Bytes,
     );
 
+    /// Migrates a Blend V2 position (collateral, non-collateral supply, and
+    /// debt) into the controller in one transaction at zero flash-loan fee.
+    /// `account_id == 0` creates a fresh account. Collateral/supply are swept
+    /// with withdraw-all semantics; each `(debt_asset, max)` bounds the zero-fee
+    /// borrow used to clear that Blend debt. Returns the account id.
+    fn migrate_from_blend(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        e_mode_category: u32,
+        blend_pool: Address,
+        collateral_assets: Vec<Address>,
+        supply_assets: Vec<Address>,
+        debt_caps: Vec<(Address, i128)>,
+    ) -> u64;
+
     /// Uses collateral proceeds to repay debt through the aggregator.
     fn repay_debt_with_collateral(
         env: Env,

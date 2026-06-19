@@ -46,6 +46,17 @@ pub(crate) fn open_strategy_borrow(
     borrow::borrow_for_strategy(env, account, asset, amount, cache)
 }
 
+/// Zero-fee strategy borrow for Blend migration; returns the amount received.
+pub(crate) fn open_migration_borrow(
+    env: &Env,
+    cache: &mut Cache,
+    account: &mut Account,
+    asset: &Address,
+    amount: i128,
+) -> i128 {
+    borrow::borrow_for_migration(env, account, asset, amount, cache)
+}
+
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
