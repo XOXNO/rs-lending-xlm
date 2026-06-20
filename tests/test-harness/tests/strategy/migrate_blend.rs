@@ -199,6 +199,74 @@ fn test_migrate_debt_and_collateral() {
     assert!(t.health_factor_for(ALICE, account_id) > 1.0);
 }
 
+/// Same-asset loop (the looping pattern): Blend holds USDC collateral AND USDC
+/// debt in the same reserve. Migrates faithfully to USDC collateral + USDC debt
+/// in the controller via the two-phase submit (repay phase, then withdraw phase),
+/// so the repay-refund delta and the collateral-withdraw delta never alias.
+#[test]
+fn test_migrate_same_asset_loop() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_COLLATERAL,
+        1000.0,
+    );
+    seed_position(
+        &t,
+        &blend,
+        &blend_addr,
+        &caller,
+        "USDC",
+        KIND_LIABILITY,
+        400.0,
+    );
+
+    let usdc = t.resolve_asset("USDC");
+    // Cap 500 > the 400 actual debt: Blend refunds 100, which the reconcile nets
+    // back so the resulting debt is exactly the migrated 400 — not the 500 cap.
+    let cap = f64_to_i128(500.0, t.resolve_market("USDC").decimals);
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &0u32,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc.clone()]),
+        &empty_assets(&t),
+        &SorobanVec::from_array(&t.env, [(usdc.clone(), cap)]),
+    );
+
+    assert!(account_id > 0);
+    let supply = t.supply_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (990.0..=1010.0).contains(&supply),
+        "USDC collateral should be ~1000, got {supply}"
+    );
+    let borrow = t.borrow_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (395.0..=405.0).contains(&borrow),
+        "USDC debt should be reconciled to ~400 (not the 500 cap), got {borrow}"
+    );
+    assert_eq!(
+        blend.position(&caller, &usdc, &KIND_COLLATERAL),
+        0,
+        "Blend collateral should be fully withdrawn"
+    );
+    assert_eq!(
+        blend.position(&caller, &usdc, &KIND_LIABILITY),
+        0,
+        "Blend debt should be fully repaid"
+    );
+    assert!(t.health_factor_for(ALICE, account_id) > 1.0);
+}
+
 /// Migrating into an existing account adds positions to it.
 #[test]
 fn test_migrate_into_existing_account() {
@@ -259,10 +327,12 @@ fn test_migrate_empty_params_rejected() {
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
-/// An asset in both a withdraw role and the debt role is rejected
-/// (ASSETS_ARE_THE_SAME) before any Blend interaction.
+/// A debt asset listed twice in `debt_caps` is rejected (ASSETS_ARE_THE_SAME)
+/// before any Blend interaction — it would double-borrow and double-repay the
+/// same asset. (An asset in both a withdraw role and the debt role is now
+/// supported; see `test_migrate_same_asset_loop`.)
 #[test]
-fn test_migrate_role_overlap_rejected() {
+fn test_migrate_duplicate_debt_rejected() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
@@ -275,9 +345,9 @@ fn test_migrate_role_overlap_rejected() {
             &0u64,
             &0u32,
             &blend_addr,
-            &SorobanVec::from_array(&t.env, [usdc.clone()]),
             &empty_assets(&t),
-            &SorobanVec::from_array(&t.env, [(usdc, cap)]),
+            &empty_assets(&t),
+            &SorobanVec::from_array(&t.env, [(usdc.clone(), cap), (usdc, cap)]),
         ));
     assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);
 }
