@@ -156,3 +156,48 @@ for this verification run.
 
 - Blend supply: https://stellar.expert/explorer/testnet/tx/cbc867b50cecdb96cb86f1c0d9cf236a5447ba8add45859dc2b80c3119180997
 - Migration: https://stellar.expert/explorer/testnet/tx/e47c381f346b38fc8384bef64587cdbaa2f8d87a6a7fb304a032be08dc4a174c
+
+---
+
+## Addendum — same-asset (looped) debt migration (2026-06-20)
+
+After implementing same-asset looping support (`docs/.../2026-06-20-blend-migration-same-asset-looping-design.md`),
+the **debt path was verified live for the first time**. The controller was upgraded
+in-place to the looping-capable wasm via governance (timelocked `upgrade`, which
+pauses the controller — followed by `unpause`).
+
+**Setup:** the deployer opened a real XLM loop on Blend — one `submit` with
+`SupplyCollateral(XLM, 500)` + `Borrow(XLM, 200)` (tx
+`886d266e813229df32fb13cd2b9b8993d138ba0a2206050b3d72f561c011b91c`), yielding 500
+XLM collateral + 200 XLM debt in the same reserve.
+
+**Auth bug found and fixed.** The first migration attempt failed at simulation with
+`Error(Auth, InvalidAction)`: the repay pull `transfer(controller → blend_pool, cap)`
+was authorized as a sub-invocation **nested under** a `submit` auth entry. But Blend's
+`submit` `spender.require_auth()` (spender = controller) is satisfied *implicitly*
+because the controller is `submit`'s direct invoker, so the submit frame collapses out
+of the controller's auth tree and the host expects the deeper transfer at the **top
+level**. Fix (commit `74a7e2d`): emit the repay pulls as top-level
+`authorize_as_current_contract` entries (matching `swap::pre_authorize_router_pull`).
+This path is invisible to the harness (`mock_all_auths` bypasses real auth), so the bug
+was latent until this live debt-path run.
+
+**Migration (tx `8b9dd2198230d11ffd284c4cd4fbab9b732337fd266bed6ec6d3e1b7a43a46a0`):**
+`migrate_from_blend(collateral_assets=[XLM], debt_caps=[(XLM, 250)])` into a fresh
+account. Trace: phase-1 borrow 250 XLM → Blend repay (cleared 200.008, refunded 49.99)
+→ reconcile to 200 debt; phase-2 withdraw 500.016 XLM → deposit as collateral. Returned
+account id `3`.
+
+**Verification (post-state):**
+
+| Check | Result |
+|---|---|
+| Blend position | `{collateral:{},liabilities:{},supply:{}}` — cleared ✅ |
+| Account #3 XLM collateral | `5000158201` (~500.02 XLM) ✅ |
+| Account #3 XLM debt | `2000084822` (~200.01 XLM) — reconciled, not the 250 cap ✅ |
+| Health factor | `1749981152471011145` (~1.75) ✅ |
+| can_be_liquidated | `false` ✅ |
+
+The same token (XLM) is both collateral and debt on account #3 — the looped position,
+preserved 1:1. The two-phase submit and the dual nested-`submit` auth (the design's #1
+risk) are proven on real infrastructure.
