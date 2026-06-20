@@ -13,8 +13,11 @@
 //!     liability by `min(amount, debt)`, refund the excess to `to`.
 //!   - REQ_WITHDRAW_COLLATERAL (3) / REQ_WITHDRAW (1): pay `min(amount, balance)`
 //!     of `from`'s collateral / supply to `to` (so `i128::MAX` == withdraw-all).
-//!   - After the batch, if any collateral was withdrawn while `from` still owes a
-//!     repaid asset, revert (Blend's post-action health check).
+//!   - After the batch, if any collateral was withdrawn while `from` still owes
+//!     ANY liability, revert (Blend's post-action health check). Liability assets
+//!     are tracked per user (`seed` registers them) so the check holds even when
+//!     the withdrawal happens in a separate submit from the repay (the two-phase
+//!     migration path).
 //!
 //! Seed a user's Blend balances with `seed(user, asset, kind, amount)` and mint
 //! the underlying tokens to the mock's address so it can pay withdrawals/refunds.
@@ -60,6 +63,8 @@ enum Key {
     Collateral(Address, Address),
     Supply(Address, Address),
     Liability(Address, Address),
+    /// Per-user list of assets the user has a liability in (append-only).
+    LiabAssets(Address),
 }
 
 #[contract]
@@ -75,6 +80,9 @@ impl MockBlend {
         env.storage()
             .persistent()
             .set(&key(kind, &user, &asset), &amount);
+        if kind == KIND_LIABILITY {
+            track_liability_asset(&env, &user, &asset);
+        }
     }
 
     /// Reads `user`'s underlying balance for a position `kind`.
@@ -143,16 +151,22 @@ impl MockBlend {
             }
         }
 
-        // Blend reverts when collateral is withdrawn while the user is still
-        // indebted in any repaid asset (the post-action health check).
+        // Blend reverts when collateral is withdrawn while the user still owes ANY
+        // liability (the post-action health check). Checking every tracked
+        // liability asset — not just assets repaid in this batch — keeps the check
+        // valid when the withdrawal is in a different submit from the repay (the
+        // two-phase migration path).
         if withdrew_collateral {
-            for req in requests.iter() {
-                if req.request_type == REQ_REPAY {
-                    let k = Key::Liability(from.clone(), req.address.clone());
-                    let debt: i128 = env.storage().persistent().get(&k).unwrap_or(0);
-                    if debt > 0 {
-                        return Err(MockBlendError::HealthCheckFailed);
-                    }
+            let liab_assets: Vec<Address> = env
+                .storage()
+                .persistent()
+                .get(&Key::LiabAssets(from.clone()))
+                .unwrap_or_else(|| Vec::new(&env));
+            for asset in liab_assets.iter() {
+                let k = Key::Liability(from.clone(), asset.clone());
+                let debt: i128 = env.storage().persistent().get(&k).unwrap_or(0);
+                if debt > 0 {
+                    return Err(MockBlendError::HealthCheckFailed);
                 }
             }
         }
@@ -171,6 +185,21 @@ fn key(kind: u32, user: &Address, asset: &Address) -> Key {
         KIND_COLLATERAL => Key::Collateral(user.clone(), asset.clone()),
         KIND_SUPPLY => Key::Supply(user.clone(), asset.clone()),
         _ => Key::Liability(user.clone(), asset.clone()),
+    }
+}
+
+/// Records `asset` in `user`'s liability-asset list (append-only, deduplicated)
+/// so the post-action health check can enumerate the user's debts.
+fn track_liability_asset(env: &Env, user: &Address, asset: &Address) {
+    let k = Key::LiabAssets(user.clone());
+    let mut list: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&k)
+        .unwrap_or_else(|| Vec::new(env));
+    if !list.contains(asset) {
+        list.push_back(asset.clone());
+        env.storage().persistent().set(&k, &list);
     }
 }
 
