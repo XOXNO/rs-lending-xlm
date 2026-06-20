@@ -53,6 +53,7 @@ lcov.info
 *.tmp
 *.swp
 *.swo
+tmp
 
 # Local agent / debug scratch (exit codes, review dumps, diff snapshots)
 *.exit
