@@ -66,10 +66,9 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000000",
-        "supply_cap": "100000000000000",
+        "supply_cap": "100000000000000"
       }
     },
     {
@@ -137,10 +136,9 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
         "flashloan_fee_bps": 9,
         "borrow_cap": "654974084165841",
-        "supply_cap": "654974084165841",
+        "supply_cap": "654974084165841"
       }
     },
     {
@@ -197,10 +195,9 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000000",
-        "supply_cap": "100000000000000",
+        "supply_cap": "100000000000000"
       }
     },
     {
@@ -212,12 +209,22 @@
         "last_tolerance_bps": 1000,
         "strategy": 1,
         "primary": {
-          "tag": "RedStone",
+          "tag": "Reflector",
           "values": [
             {
-              "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
-              "feed_id": "BTC",
-              "max_stale_seconds": 86400
+              "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "BTC"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
             }
           ]
         },
@@ -225,22 +232,12 @@
           "tag": "Some",
           "values": [
             {
-              "tag": "Reflector",
+              "tag": "RedStone",
               "values": [
                 {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "tag": "Symbol",
-                    "values": [
-                      "BTC"
-                    ]
-                  },
-                  "read_mode": {
-                    "tag": "Twap",
-                    "values": [
-                      3
-                    ]
-                  }
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "BTC",
+                  "max_stale_seconds": 86400
                 }
               ]
             }
@@ -268,10 +265,9 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
         "flashloan_fee_bps": 9,
         "borrow_cap": "1000000000",
-        "supply_cap": "1000000000",
+        "supply_cap": "1000000000"
       }
     },
     {
@@ -283,12 +279,22 @@
         "last_tolerance_bps": 1000,
         "strategy": 1,
         "primary": {
-          "tag": "RedStone",
+          "tag": "Reflector",
           "values": [
             {
-              "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
-              "feed_id": "ETH",
-              "max_stale_seconds": 86400
+              "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+              "asset": {
+                "tag": "Symbol",
+                "values": [
+                  "ETH"
+                ]
+              },
+              "read_mode": {
+                "tag": "Twap",
+                "values": [
+                  3
+                ]
+              }
             }
           ]
         },
@@ -296,22 +302,12 @@
           "tag": "Some",
           "values": [
             {
-              "tag": "Reflector",
+              "tag": "RedStone",
               "values": [
                 {
-                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
-                  "asset": {
-                    "tag": "Symbol",
-                    "values": [
-                      "ETH"
-                    ]
-                  },
-                  "read_mode": {
-                    "tag": "Twap",
-                    "values": [
-                      3
-                    ]
-                  }
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "ETH",
+                  "max_stale_seconds": 86400
                 }
               ]
             }
@@ -339,10 +335,9 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
         "flashloan_fee_bps": 9,
         "borrow_cap": "100000000000",
-        "supply_cap": "100000000000",
+        "supply_cap": "100000000000"
       }
     }
   ]
