@@ -18,9 +18,11 @@
 //! phase, so they remain single-submit.
 //!
 //! Authorization: the user authorizes this entrypoint and, in the transaction's
-//! auth tree, Blend's `submit(from = user, ...)` for each phase; the controller
-//! authorizes its own `spender` legs (the submit and the repay token pulls) via
-//! `authorize_as_current_contract`, emitted immediately before each submit.
+//! auth tree, Blend's `submit(from = user, ...)` for each phase. The controller's
+//! own `submit` authorization (it is the `spender`) is implicit because it is the
+//! direct invoker; only the deeper repay token pulls — `transfer(controller ->
+//! blend_pool, cap)`, invoked by Blend — need explicit `authorize_as_current_contract`,
+//! emitted as top-level entries immediately before the repay submit.
 //!
 //! See docs/superpowers/specs/2026-06-19-blend-v2-migration-design.md and
 //! docs/superpowers/specs/2026-06-20-blend-migration-same-asset-looping-design.md.
@@ -151,7 +153,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
             open_migration_borrow(env, &mut cache, &mut account, &debt_asset, max);
         }
         let repay_requests = build_repay_requests(env, &debt_caps);
-        authorize_blend_submit(env, &blend_pool, caller, &repay_requests, &debt_caps);
+        authorize_repay_pulls(env, &blend_pool, &debt_caps);
         guarded_submit(env, &blend_pool, caller, &repay_requests);
         reconcile_debt_refunds(env, &mut account, &mut cache, caller, &debt_caps, &before_debt);
     }
@@ -163,9 +165,9 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     if !withdraw_assets.is_empty() {
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
         let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
-        // No transfer legs: withdrawals pay the controller, they do not pull from it.
-        let no_transfer_legs: Vec<(Address, i128)> = Vec::new(env);
-        authorize_blend_submit(env, &blend_pool, caller, &withdraw_requests, &no_transfer_legs);
+        // No controller-authed legs to pre-authorize: Blend's `submit` auth is
+        // implicit (the controller is its direct invoker) and the withdrawals pay
+        // the controller (authorized by Blend, the token spender).
         guarded_submit(env, &blend_pool, caller, &withdraw_requests);
         deposit_withdrawn(env, &mut account, &mut cache, &withdraw_assets, &before_withdraw);
     }
@@ -306,22 +308,23 @@ fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Ve
     }
 }
 
-/// Authorizes, as the controller, the `spender` legs of a Blend submit: the
-/// submit call itself and one `transfer(controller -> blend_pool, max)` per debt
-/// asset (the repay pull). Pass an empty `debt_caps` for a withdraw-only submit
-/// (withdrawals pay the controller, so there are no transfer legs). Must be the
-/// call immediately preceding the submit.
-fn authorize_blend_submit(
-    env: &Env,
-    blend_pool: &Address,
-    user: &Address,
-    requests: &Vec<BlendRequest>,
-    debt_caps: &Vec<(Address, i128)>,
-) {
+/// Authorizes, as the controller, the repay token-pull legs of a Blend submit:
+/// one `transfer(controller -> blend_pool, cap)` per debt asset. These are
+/// emitted as TOP-LEVEL entries (not nested under the submit). Blend's `submit`
+/// also calls `spender.require_auth()` with `spender == controller`, but that is
+/// satisfied implicitly because the controller is `submit`'s direct invoker — so
+/// the submit frame collapses out of the controller's authorization tree and the
+/// deeper transfers appear at the top level (mirrors `swap::pre_authorize_router_pull`).
+/// Must be the call immediately preceding the submit; a withdraw-only submit has
+/// no debt caps, hence no legs, and relies solely on the implicit submit auth.
+fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
+    if debt_caps.is_empty() {
+        return;
+    }
     let controller = env.current_contract_address();
-    let mut sub: Vec<InvokerContractAuthEntry> = Vec::new(env);
+    let mut entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
     for (debt_asset, max) in debt_caps.iter() {
-        sub.push_back(InvokerContractAuthEntry::Contract(SubContractInvocation {
+        entries.push_back(InvokerContractAuthEntry::Contract(SubContractInvocation {
             context: ContractContext {
                 contract: debt_asset,
                 fn_name: symbol_short!("transfer"),
@@ -330,21 +333,7 @@ fn authorize_blend_submit(
             sub_invocations: Vec::new(env),
         }));
     }
-    let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
-        context: ContractContext {
-            contract: blend_pool.clone(),
-            fn_name: symbol_short!("submit"),
-            args: (
-                user.clone(),
-                controller.clone(),
-                controller.clone(),
-                requests.clone(),
-            )
-                .into_val(env),
-        },
-        sub_invocations: sub,
-    });
-    env.authorize_as_current_contract(soroban_sdk::vec![env, entry]);
+    env.authorize_as_current_contract(entries);
 }
 
 fn deposit_withdrawn(
