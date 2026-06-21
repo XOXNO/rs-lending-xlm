@@ -2,7 +2,7 @@ use crate::types::{
     AssetConfigRaw, MarketConfig, MarketOracleConfig, OraclePriceFluctuation, PositionLimits,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
-use soroban_sdk::{contractclient, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contractclient, Address, BytesN, Env};
 
 /// Mirrors the controller admin ABI for governance forwarding.
 #[contractclient(name = "ControllerAdminClient")]
@@ -42,6 +42,7 @@ pub trait ControllerAdmin {
     fn revoke_blend_pool(env: Env, pool: Address);
     fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig);
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
+    fn disable_token_oracle(env: Env, asset: Address);
     fn create_liquidity_pool(
         env: Env,
         asset: Address,
@@ -53,8 +54,6 @@ pub trait ControllerAdmin {
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
     fn pause(env: Env);
     fn unpause(env: Env);
-    fn grant_role(env: Env, account: Address, role: Symbol);
-    fn revoke_role(env: Env, account: Address, role: Symbol);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);

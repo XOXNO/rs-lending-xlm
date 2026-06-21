@@ -5,7 +5,7 @@ impl LendingTest {
     // Revenue claims
 
     /// Claim accrued protocol revenue for an asset.
-    /// Uses admin (who has REVENUE role from constructor).
+    /// Uses admin as the signed caller (permissionless; no REVENUE role).
     pub fn claim_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
         let assets = soroban_sdk::vec![&self.env, asset];

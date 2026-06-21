@@ -1,17 +1,15 @@
-//! Ownership, roles (KEEPER / REVENUE / ORACLE), pause, and upgrade.
+//! Ownership, pause, and upgrade.
 //!
-//! Built on the `stellar_access` crate primitives. The three operational
-//! roles are the only way to reach privileged-but-not-owner entrypoints
-//! (index updates, revenue claims, oracle configuration). Pause is a
+//! Built on `stellar_access` ownable primitives. Keeper, revenue, and oracle
+//! circuit-breaker paths are either permissionless (caller-signed) or
+//! `#[only_owner]`; the controller holds no operational roles. Pause is a
 //! risk freeze: risk-increasing position paths, strategies, and flash loans are
 //! gated `when_not_paused`; withdraw, repay, liquidation, views, `renew_account`
-//! (TTL keep-alive only), and owner/role governance remain callable while paused.
+//! (TTL keep-alive only), and owner governance remain callable while paused.
 
 use common::errors::GenericError;
 use controller_interface::types::{ControllerKey, PositionLimits};
-use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
-};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
 
@@ -20,18 +18,6 @@ use common::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 const INITIAL_APP_VERSION: u32 = 1;
-
-pub(crate) const KEEPER_ROLE: &str = "KEEPER";
-pub(crate) const REVENUE_ROLE: &str = "REVENUE";
-pub(crate) const ORACLE_ROLE: &str = "ORACLE";
-
-fn default_operational_roles(env: &Env) -> [Symbol; 3] {
-    [
-        Symbol::new(env, KEEPER_ROLE),
-        Symbol::new(env, REVENUE_ROLE),
-        Symbol::new(env, ORACLE_ROLE),
-    ]
-}
 
 fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     let pending_admin_key = access_control::AccessControlStorageKey::PendingAdmin;
@@ -68,16 +54,6 @@ fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Ad
         .temporary()
         .remove(&access_control::AccessControlStorageKey::PendingAdmin);
     access_control::emit_admin_transfer_completed(env, &previous_admin, new_owner);
-
-    for role in default_operational_roles(env) {
-        access_control::grant_role_no_auth(env, new_owner, &role, new_owner);
-
-        if previous_owner != new_owner
-            && access_control::has_role(env, previous_owner, &role).is_some()
-        {
-            access_control::revoke_role_no_auth(env, previous_owner, &role, new_owner);
-        }
-    }
 }
 
 fn owner_or_panic(env: &Env) -> Address {
@@ -90,8 +66,6 @@ impl Controller {
         ownable::set_owner(&env, &admin);
 
         access_control::set_admin(&env, &admin);
-        let keeper_role = Symbol::new(&env, KEEPER_ROLE);
-        access_control::grant_role_no_auth(&env, &admin, &keeper_role, &admin);
 
         storage::set_position_limits(
             &env,
@@ -157,28 +131,6 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn grant_role(env: Env, account: Address, role: Symbol) {
-        storage::renew_controller_instance(&env);
-        // `#[only_owner]` enforced owner auth; owner must exist here.
-        let owner = owner_or_panic(&env);
-        access_control::grant_role_no_auth(&env, &account, &role, &owner);
-    }
-
-    #[only_owner]
-    pub fn revoke_role(env: Env, account: Address, role: Symbol) {
-        storage::renew_controller_instance(&env);
-        let owner = owner_or_panic(&env);
-        // Missing role revocation is an error; otherwise an operator could
-        // believe a privilege was removed.
-        assert_with_error!(
-            &env,
-            access_control::has_role(&env, &account, &role).is_some(),
-            GenericError::InvalidRole
-        );
-        access_control::revoke_role_no_auth(&env, &account, &role, &owner);
-    }
-
-    #[only_owner]
     pub fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
         storage::renew_controller_instance(&env);
         let current_owner = owner_or_panic(&env);
@@ -223,13 +175,5 @@ mod tests {
                 .remove(&AccessControlStorageKey::Admin);
             sync_pending_admin_transfer(&env, &candidate, 100);
         });
-    }
-}
-
-#[cfg(any(test, feature = "testing"))]
-#[contractimpl]
-impl Controller {
-    pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
-        access_control::has_role(&env, &account, &role).is_some()
     }
 }

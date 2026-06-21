@@ -206,7 +206,7 @@ fn test_supply_rejects_disabled_market_with_pair_not_active() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
+    t.ctrl_client().disable_token_oracle(&usdc);
 
     let assets = vec![&t.env, (usdc, 10_000_000i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {

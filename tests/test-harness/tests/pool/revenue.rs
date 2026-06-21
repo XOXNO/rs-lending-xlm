@@ -1,9 +1,6 @@
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
-    BOB, LIQUIDATOR,
+    days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
 };
-
-const UNAUTHORIZED: u32 = 2000;
 
 /// Helper: set the accumulator address (required for claim_revenue).
 fn setup_accumulator(t: &LendingTest) {
@@ -265,34 +262,27 @@ fn test_add_rewards_rejects_zero() {
         _ => panic!("add_rewards with 0 amount should fail"),
     }
 }
-// 6. test_revenue_role_required
+// 6. test_permissionless_revenue_endpoints
 
 #[test]
-fn test_revenue_role_required() {
+fn test_permissionless_revenue_endpoints() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create Bob without the REVENUE role.
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    // Bob tries claim_revenue. The only_role guard panics with
-    // AccessControlError::Unauthorized = 2000, which surfaces as
-    // Err(Ok(soroban_sdk::Error)) for the non-Result-returning
-    // claim_revenue / add_rewards entry points.
+    t.env.mock_all_auths();
     let assets = soroban_sdk::vec![&t.env, asset.clone()];
-    let claim_err = ctrl
-        .try_claim_revenue(&bob_addr, &assets)
-        .expect_err("non-revenue user must not claim revenue")
-        .expect("expected contract error, got InvokeError");
-    assert_contract_error::<()>(Err(claim_err), UNAUTHORIZED);
+    assert!(
+        ctrl.try_claim_revenue(&bob_addr, &assets).is_ok(),
+        "any signed caller may claim_revenue"
+    );
 
-    // Bob tries add_rewards.
     let rewards = soroban_sdk::vec![&t.env, (asset, 100i128)];
-    let rewards_err = ctrl
-        .try_add_rewards(&bob_addr, &rewards)
-        .expect_err("non-revenue user must not add rewards")
-        .expect("expected contract error, got InvokeError");
-    assert_contract_error::<()>(Err(rewards_err), UNAUTHORIZED);
+    assert!(
+        ctrl.try_add_rewards(&bob_addr, &rewards).is_ok(),
+        "any signed caller may add_rewards"
+    );
 }

@@ -253,6 +253,38 @@ fn set_liquidity_pool_template_rejects_zero_hash() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn deploy_controller_rejects_zero_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, gov) = register_governance(&env);
+
+    gov.deploy_controller(&BytesN::from_array(&env, &[0u8; 32]));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn propose_upgrade_pool_rejects_zero_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let salt = BytesN::from_array(&env, &[0u8; 32]);
+
+    gov.propose_upgrade_pool(&admin, &BytesN::from_array(&env, &[0u8; 32]), &salt);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn propose_upgrade_controller_rejects_zero_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, gov) = register_governance(&env);
+    let salt = BytesN::from_array(&env, &[0u8; 32]);
+
+    gov.propose_upgrade_controller(&admin, &BytesN::from_array(&env, &[0u8; 32]), &salt);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #113)")]
 fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
     let env = Env::default();

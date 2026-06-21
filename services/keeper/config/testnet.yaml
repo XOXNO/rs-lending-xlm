@@ -29,9 +29,8 @@ schedule:
   ttl_safety_margin_days: 14
   asset_chunk: 20
   max_txs_per_tick: 50
-  # Set to true to enable update_indexes(assets) — requires the signer to
-  # hold the on-chain KEEPER role. Default (false) runs pure-TTL only and
-  # needs no role grant.
+  # Set to true to enable update_indexes(assets). Caller must sign; no role grant.
+  # Default (false) runs pure-TTL only.
   enable_index_refresh: false
 
 metrics:

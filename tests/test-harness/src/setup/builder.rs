@@ -3,7 +3,7 @@ extern crate std;
 use std::collections::HashMap;
 
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{token, Address, Env, Symbol};
+use soroban_sdk::{token, Address, Env};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
 use crate::helpers::f64_to_i128;
@@ -175,8 +175,6 @@ impl LendingTestBuilder {
         gov.set_controller(&controller_address);
 
         gov.unpause();
-        gov.grant_controller_role(&admin, &Symbol::new(&env, "REVENUE"));
-        gov.grant_controller_role(&admin, &Symbol::new(&env, "ORACLE"));
 
         let pool_wasm_path = "target/wasm32v1-none/release/pool.wasm".to_string();
         let mut bytes = std::fs::read(&pool_wasm_path);
@@ -203,7 +201,6 @@ impl LendingTestBuilder {
         gov.set_accumulator(&treasury);
 
         let keeper = Address::generate(&env);
-        gov.grant_controller_role(&keeper, &Symbol::new(&env, "KEEPER"));
 
         if let Some((max_supply, max_borrow)) = self.position_limits {
             let limits = controller::types::PositionLimits {

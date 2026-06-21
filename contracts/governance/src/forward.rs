@@ -19,12 +19,13 @@ use soroban_sdk::{
     assert_with_error, contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val,
 };
 use stellar_access::access_control;
-use stellar_governance::timelock::{get_min_delay, schedule_operation, Operation};
+use stellar_governance::timelock::{schedule_operation, Operation};
 use stellar_macros::only_owner;
 #[cfg(any(test, feature = "testing"))]
 use stellar_macros::only_role;
 
 use crate::access::PROPOSER_ROLE;
+use crate::timelock::{operation_delay, DelayTier};
 use crate::{storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
 fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
@@ -39,12 +40,13 @@ fn begin_proposal(env: &Env, proposer: &Address) {
     access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
 }
 
-/// Schedules a validated controller-targeted operation at the minimum delay.
+/// Schedules a validated controller-targeted operation at the tier delay.
 fn schedule_controller_op(
     env: &Env,
     function: &str,
     args: soroban_sdk::Vec<Val>,
     salt: BytesN<32>,
+    delay: u32,
 ) -> BytesN<32> {
     let operation = Operation {
         target: storage::get_controller(env),
@@ -53,22 +55,20 @@ fn schedule_controller_op(
         predecessor: BytesN::from_array(env, &[0u8; 32]),
         salt,
     };
-    schedule_controller(env, &operation)
+    schedule_controller(env, &operation, delay)
 }
 
-fn schedule_controller(env: &Env, operation: &Operation) -> BytesN<32> {
-    schedule_operation(env, operation, get_min_delay(env))
+fn schedule_controller(env: &Env, operation: &Operation, delay: u32) -> BytesN<32> {
+    schedule_operation(env, operation, delay)
 }
 
-fn require_known_controller_role(env: &Env, role: &Symbol) {
-    let keeper = Symbol::new(env, "KEEPER");
-    let revenue = Symbol::new(env, "REVENUE");
-    let oracle = Symbol::new(env, "ORACLE");
-    assert_with_error!(
-        env,
-        role == &keeper || role == &revenue || role == &oracle,
-        GenericError::InvalidRole
-    );
+macro_rules! controller_delay_tier {
+    () => {
+        DelayTier::Standard
+    };
+    (sensitive) => {
+        DelayTier::Sensitive
+    };
 }
 
 /// Resolves the `MarketOracleConfig` persisted by `set_market_oracle_config`.
@@ -101,6 +101,7 @@ pub(crate) fn resolve_market_oracle(
 macro_rules! controller_ops {
     ( $env:ident ; $(
         op $propose:ident => $func:literal ( $( $arg:ident : [ $( $argty:tt )+ ] ),* $(,)? )
+        $( delay: $delay_tier:ident ; )?
         $( validate: { $( $vtok:tt )* } )?
     )* ) => {
         #[contractimpl]
@@ -115,11 +116,16 @@ macro_rules! controller_ops {
                 ) -> BytesN<32> {
                     begin_proposal(&$env, &proposer);
                     $( $( $vtok )* )?
+                    let delay = operation_delay(
+                        &$env,
+                        controller_delay_tier!($($delay_tier)?),
+                    );
                     schedule_controller_op(
                         &$env,
                         $func,
                         vec![&$env $(, $arg.into_val(&$env) )*],
                         salt,
+                        delay,
                     )
                 }
             )*
@@ -186,18 +192,19 @@ controller_ops! {
     op propose_deploy_pool => "deploy_pool" ()
 
     op propose_upgrade_pool => "upgrade_pool" (new_wasm_hash: [BytesN<32>])
+        delay: sensitive ;
+        validate: { validate::require_nonzero_wasm_hash(&env, &new_wasm_hash); }
 
-    op propose_grant_controller_role => "grant_role" (account: [Address], role: [Symbol])
-        validate: { require_known_controller_role(&env, &role); }
-
-    op propose_revoke_controller_role => "revoke_role" (account: [Address], role: [Symbol])
-        validate: { require_known_controller_role(&env, &role); }
+    op propose_disable_token_oracle => "disable_token_oracle" (asset: [Address])
 
     op propose_upgrade_controller => "upgrade" (new_wasm_hash: [BytesN<32>])
+        delay: sensitive ;
+        validate: { validate::require_nonzero_wasm_hash(&env, &new_wasm_hash); }
 
     op propose_migrate_controller => "migrate" (new_version: [u32])
 
     op propose_transfer_ctrl_ownership => "transfer_ownership" (new_owner: [Address], live_until_ledger: [u32])
+        delay: sensitive ;
         validate: { validate::require_contract_address(&env, &new_owner, GenericError::NotSmartContract); }
 }
 
@@ -220,6 +227,7 @@ impl Governance {
             "set_market_oracle_config",
             vec![&env, asset.into_val(&env), config.into_val(&env)],
             salt,
+            operation_delay(&env, DelayTier::Standard),
         )
     }
 
@@ -242,6 +250,7 @@ impl Governance {
             "set_oracle_tolerance",
             vec![&env, asset.into_val(&env), tolerance.into_val(&env)],
             salt,
+            operation_delay(&env, DelayTier::Standard),
         )
     }
 }
@@ -387,9 +396,9 @@ impl Governance {
     }
 
     #[only_owner]
-    pub fn grant_controller_role(env: Env, account: Address, role: Symbol) {
+    pub fn disable_token_oracle(env: Env, asset: Address) {
         storage::renew_governance_instance(&env);
-        controller_client(&env).grant_role(&account, &role);
+        controller_client(&env).disable_token_oracle(&asset);
     }
 
     #[only_role(caller, "ORACLE")]

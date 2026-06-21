@@ -74,7 +74,7 @@ fn test_disable_token_oracle_blocks_operations() {
     // Disable the USDC oracle: oracle_type becomes 0 (None).
     let usdc_asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    t.ctrl_client().disable_token_oracle(&admin, &usdc_asset);
+    t.ctrl_client().disable_token_oracle(&usdc_asset);
 
     // The disabled USDC oracle returns zero, changing HF-sensitive behavior.
     // Borrowing against zero-value collateral must fail.

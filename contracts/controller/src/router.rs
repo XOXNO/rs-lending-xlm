@@ -11,7 +11,7 @@ use controller_interface::types::{
     MarketParamsRaw, MarketStatus,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
-use stellar_macros::{only_owner, only_role, when_not_paused};
+use stellar_macros::{only_owner, when_not_paused};
 
 use crate::cache::Cache;
 use crate::emode;
@@ -34,8 +34,8 @@ const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    #[only_role(caller, "KEEPER")]
     pub fn update_indexes(env: Env, caller: Address, assets: Vec<Address>) {
+        caller.require_auth();
         validation::require_not_flash_loaning(&env);
 
         let mut cache = Cache::new(&env, OraclePolicy::RiskDecreasing);
@@ -93,28 +93,28 @@ impl Controller {
     }
 
     #[when_not_paused]
-    #[only_role(caller, "REVENUE")]
     pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
+        caller.require_auth();
         validation::require_not_flash_loaning(&env);
         claim_revenue(&env, assets)
     }
 
     #[when_not_paused]
-    #[only_role(caller, "REVENUE")]
     pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
+        caller.require_auth();
         // Instance TTL is renewed by `Cache::new` inside `add_rewards_batch`.
         validation::require_not_flash_loaning(&env);
         add_rewards_batch(&env, &caller, rewards);
     }
 
     #[when_not_paused]
-    #[only_role(caller, "KEEPER")]
     pub fn update_account_threshold(
         env: Env,
         caller: Address,
         has_risks: bool,
         account_ids: Vec<u64>,
     ) {
+        caller.require_auth();
         validation::require_not_flash_loaning(&env);
 
         // Propagates risk-param updates for each supplied asset on each account.

@@ -351,102 +351,46 @@ fn test_set_oracle_tolerance_rejects_unknown_asset() {
     };
     assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
 }
-// 10. test_grant_and_revoke_role
+// 10. test_permissionless_keeper_ops
 
 #[test]
-fn test_grant_and_revoke_role() {
+fn test_permissionless_keeper_ops() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB.
-    t.get_or_create_user(BOB);
-
-    // Grant KEEPER to BOB.
-    t.grant_role(BOB, "KEEPER");
-    assert!(t.has_role(BOB, "KEEPER"), "BOB should have KEEPER role");
-
-    // BOB must lack the REVENUE role.
-    assert!(
-        !t.has_role(BOB, "REVENUE"),
-        "BOB should not have REVENUE role"
-    );
-
-    // Revoke KEEPER from BOB.
-    t.revoke_role(BOB, "KEEPER");
-    assert!(
-        !t.has_role(BOB, "KEEPER"),
-        "BOB should no longer have KEEPER role"
-    );
-}
-// 11. test_role_enforcement_keeper
-
-#[test]
-fn test_role_enforcement_keeper() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-
-    // Create BOB (no KEEPER role).
     let bob_addr = t.get_or_create_user(BOB);
 
-    // BOB calls update_indexes without KEEPER; this must fail with
-    // AccessControlError::Unauthorized = 2000.
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
+    t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, 2000);
+    assert!(result.is_ok(), "any signed caller may update_indexes");
 }
-// 12. test_role_enforcement_revenue
+// 12. test_permissionless_revenue_ops
 
 #[test]
-fn test_role_enforcement_revenue() {
+fn test_permissionless_revenue_ops() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
-    // Create BOB (no REVENUE role).
     let bob_addr = t.get_or_create_user(BOB);
 
-    // claim_revenue is `#[only_role(caller, "REVENUE")]`; non-revenue callers
-    // must trip AccessControlError::Unauthorized = 2000.
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
     let assets = soroban_sdk::vec![&t.env, asset];
+    t.env.mock_all_auths();
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, 2000);
+    assert!(result.is_ok(), "any signed caller may claim_revenue");
 }
-// 13. test_role_enforcement_oracle
+// 13. test_disable_token_oracle_owner_only
 
 #[test]
-fn test_role_enforcement_oracle() {
+fn test_disable_token_oracle_owner_only() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
-    let bob_addr = t.get_or_create_user(BOB);
+    let _ = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 
-    let disable_result = match ctrl.try_disable_token_oracle(&bob_addr, &asset) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(disable_result, 2000);
-}
-// 14. test_oracle_role_can_disable_token_oracle
-
-#[test]
-fn test_oracle_role_can_disable_token_oracle() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
-    t.get_or_create_user(BOB);
-    t.grant_role(BOB, "ORACLE");
-
-    let bob_addr = t.users.get(BOB).unwrap().address.clone();
-    let ctrl = t.ctrl_client();
-    let asset = t.resolve_market("USDC").asset.clone();
-
-    ctrl.disable_token_oracle(&bob_addr, &asset);
+    ctrl.disable_token_oracle(&asset);
     let after_disable = ctrl.get_market_config(&asset);
     assert_eq!(
         (after_disable.status as u32),
@@ -454,7 +398,7 @@ fn test_oracle_role_can_disable_token_oracle() {
         "disable_token_oracle must move market to Disabled (=2)",
     );
 }
-// 15. test_create_liquidity_pool_uniqueness
+// 14. test_create_liquidity_pool_uniqueness
 
 #[test]
 fn test_create_liquidity_pool_uniqueness() {

@@ -14,7 +14,7 @@ use controller_interface::types::{
     PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
-use stellar_macros::only_role;
+
 
 use super::liquidation_math::*;
 use super::{persist_account_positions, repay, withdraw, AggregatedPayments, PositionSides};
@@ -41,8 +41,8 @@ impl Controller {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
 
-    #[only_role(caller, "KEEPER")]
     pub fn clean_bad_debt(env: Env, caller: Address, account_id: u64) {
+        caller.require_auth();
         validation::require_not_flash_loaning(&env);
 
         clean_bad_debt_standalone(&env, account_id);

@@ -56,8 +56,6 @@ deploy_protocol() {
         # Revenue treasury (wallet ok). Not the swap aggregator — claim_revenue
         # forwards SAC balances here and fails with NoAccumulator (#211) if unset.
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
-        inv grant_role_oracle "$ADMIN" "$CONTROLLER" -- grant_role --account "$ADMIN_ADDR" --role ORACLE >/dev/null
-        inv grant_role_revenue "$ADMIN" "$CONTROLLER" -- grant_role --account "$ADMIN_ADDR" --role REVENUE >/dev/null
         save_state WIRED 1
     fi
     if [ -z "${FLASH_RECEIVER:-}" ]; then

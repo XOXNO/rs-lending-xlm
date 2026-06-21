@@ -52,20 +52,20 @@ flow_admin() {
     xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$CONTROLLER" -- set_oracle_tolerance \
         --asset "$EURC_SAC" --tolerance "$tol_bands"
 
-    # Keeper ops (KEEPER role; granted to admin at construct).
+    # Keeper ops (permissionless; caller must sign).
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
         --caller "$ADMIN_ADDR" --assets "[\"$XLM_SAC\",\"$USDC_SAC\",\"$EURC_SAC\"]" >/dev/null
-    xfail update_indexes_non_keeper 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- update_indexes \
-        --caller "$ALICE_ADDR" --assets "[\"$XLM_SAC\"]"
+    inv update_indexes "$ALICE" "$CONTROLLER" -- update_indexes \
+        --caller "$ALICE_ADDR" --assets "[\"$XLM_SAC\"]" >/dev/null
     # update_account_threshold (update positions risk): recompute thresholds for the
     # admin seed account. Gated (no `|| true`) — a failure is a suite failure.
     inv update_account_threshold "$ADMIN" "$CONTROLLER" -- update_account_threshold \
         --caller "$ADMIN_ADDR" --has_risks false \
         --account_ids "[${ADMIN_ACCT:-1}]" >/dev/null
-    xfail uat_non_keeper 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- update_account_threshold \
-        --caller "$ALICE_ADDR" --has_risks false --account_ids "[${ADMIN_ACCT:-1}]"
+    inv update_account_threshold "$ALICE" "$CONTROLLER" -- update_account_threshold \
+        --caller "$ALICE_ADDR" --has_risks false --account_ids "[${ADMIN_ACCT:-1}]" >/dev/null
 
-    # Revenue: rewards in, revenue out (REVENUE role). Admin's USDC is spent
+    # Revenue: rewards in, revenue out (permissionless; caller must sign). Admin's USDC is spent
     # on seeding by this point — top up from carol for the reward deposit.
     sac_transfer "$CAROL" "$USDC_SAC" "$CAROL_ADDR" "$ADMIN_ADDR" 20000000 fund_admin_rewards
     local pool_rev_before
@@ -75,9 +75,8 @@ flow_admin() {
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
         --caller "$ADMIN_ADDR" --assets "[\"$USDC_SAC\"]" >/dev/null
     assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
-    # Role guard: only REVENUE may claim (#2000 for a non-REVENUE caller).
-    xfail claim_revenue_non_role 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- claim_revenue \
-        --caller "$ALICE_ADDR" --assets "[\"$USDC_SAC\"]"
+    inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
+        --caller "$ALICE_ADDR" --assets "[\"$USDC_SAC\"]" >/dev/null
     view pool_rates_view "$POOL" -- borrow_rate --asset "$USDC_SAC" >/dev/null
     view pool_util_view "$POOL" -- capital_utilisation --asset "$USDC_SAC" >/dev/null
 
@@ -121,17 +120,15 @@ flow_admin() {
     xfail minb_negative 'Error\(Contract, #116\)' "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
         --floor_wad=-1
 
-    # Oracle circuit-breaker: ORACLE role disables a market (Active -> Disabled);
-    # re-disable rejects (#12 PairNotActive), non-ORACLE caller rejects (#2000).
-    # EURC is unused after this point, so it stays disabled; the role-guard
-    # negative targets active USDC (it never disables — the role check rejects first).
+    # Oracle circuit-breaker: owner disables a market (Active -> Disabled);
+    # re-disable rejects (#12 PairNotActive), non-owner caller rejects (#2000).
     inv disable_oracle "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
-        --caller "$ADMIN_ADDR" --asset "$EURC_SAC" >/dev/null
+        --asset "$EURC_SAC" >/dev/null
     assert_market_status disable_status "$EURC_SAC" Disabled
     xfail disable_non_active 'Error\(Contract, #12\)' "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
-        --caller "$ADMIN_ADDR" --asset "$EURC_SAC"
-    xfail disable_non_oracle 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
-        --caller "$ALICE_ADDR" --asset "$USDC_SAC"
+        --asset "$EURC_SAC"
+    xfail disable_non_owner 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
+        --asset "$USDC_SAC"
 
     # Token approval admin (idle EURC: revoke then re-approve round-trip).
     inv revoke_token_admin "$ADMIN" "$CONTROLLER" -- revoke_token --token "$EURC_SAC" >/dev/null

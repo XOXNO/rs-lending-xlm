@@ -174,7 +174,7 @@ fn test_dex_read_rejects_disabled_quote_market() {
     );
 
     // Disable USDC, then read XLM -> must revert (cannot price off a disabled quote).
-    t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
+    t.ctrl_client().disable_token_oracle(&usdc);
     index_view(&t, &xlm);
 }
 
@@ -211,7 +211,7 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     let stale = t.ctrl_client().get_market_config(&xlm).oracle_config;
 
     // During the timelock delay the quote market is disabled.
-    t.ctrl_client().disable_token_oracle(&t.admin(), &usdc);
+    t.ctrl_client().disable_token_oracle(&usdc);
 
     // Executing the stale op re-asserts the quote invariant and reverts.
     t.ctrl_client().set_market_oracle_config(&xlm, &stale);

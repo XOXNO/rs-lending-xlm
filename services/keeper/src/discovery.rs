@@ -251,7 +251,7 @@ pub async fn snapshot(
 }
 
 /// Operational roles assumed when `ExistingRoles` itself cannot be read.
-const DEFAULT_ROLES: [&str; 3] = ["KEEPER", "REVENUE", "ORACLE"];
+const DEFAULT_ROLES: [&str; 0] = [];
 
 /// Discover persistent access-control keys, including role-admin links.
 async fn discover_role_keys(
@@ -557,8 +557,8 @@ pub fn self_check(contracts: &ContractsConfig) -> Result<Vec<[u8; 32]>> {
     configured_market_assets(contracts)
 }
 
-/// Verifies the signer can simulate `update_indexes`.
-pub async fn assert_keeper_role(
+/// Verifies the signer can simulate `update_indexes` (caller auth only).
+pub async fn assert_update_indexes_simulation(
     client: &RpcClient,
     controller_strkey: &str,
     caller_strkey: &str,
@@ -574,11 +574,11 @@ pub async fn assert_keeper_role(
         .inner()
         .simulate_transaction_envelope(&envelope, Some(stellar_rpc_client::AuthMode::Enforce))
         .await
-        .context("simulate update_indexes(empty) for KEEPER role check")?;
+        .context("simulate update_indexes(empty) for boot preflight")?;
 
     if let Some(err) = sim.error {
         return Err(anyhow!(
-            "KEEPER role check failed: simulation rejected with `{err}`. Grant role to {caller_strkey}."
+            "update_indexes simulation failed with `{err}` for signer {caller_strkey}."
         ));
     }
     Ok(())

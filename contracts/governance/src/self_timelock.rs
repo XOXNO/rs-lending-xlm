@@ -7,17 +7,17 @@
 
 use soroban_sdk::{contractimpl, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
 use stellar_access::access_control;
-use stellar_governance::timelock::{
-    get_min_delay, schedule_operation, set_execute_operation, Operation,
-};
+use stellar_governance::timelock::{schedule_operation, set_execute_operation, Operation};
 
 use crate::access::{
     apply_grant_role, apply_revoke_role, apply_transfer_ownership, apply_upgrade,
     require_known_governance_role, PROPOSER_ROLE,
 };
+use crate::validate;
 use crate::storage::renew_governance_instance;
 use crate::timelock::{
-    apply_update_delay, authorize_executor, require_operation_not_expired, validate_delay_update,
+    apply_update_delay, authorize_executor, operation_delay, require_operation_not_expired,
+    validate_delay_update, DelayTier,
 };
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
@@ -32,6 +32,7 @@ fn schedule_self_op(
     function: &str,
     args: soroban_sdk::Vec<Val>,
     salt: BytesN<32>,
+    delay: u32,
 ) -> BytesN<32> {
     let operation = Operation {
         target: env.current_contract_address(),
@@ -40,7 +41,16 @@ fn schedule_self_op(
         predecessor: BytesN::from_array(env, &[0u8; 32]),
         salt,
     };
-    schedule_operation(env, &operation, get_min_delay(env))
+    schedule_operation(env, &operation, delay)
+}
+
+macro_rules! self_delay_tier {
+    () => {
+        DelayTier::Standard
+    };
+    (sensitive) => {
+        DelayTier::Sensitive
+    };
 }
 
 fn self_operation(
@@ -91,6 +101,7 @@ macro_rules! self_timelock_ops {
     ( $env:ident ; $(
         op($propose:ident, $execute:ident, $func:literal)
         ( $( $kind:tt $arg:ident : [ $( $argty:tt )+ ] ),* $(,)? )
+        $( delay: $delay_tier:ident ; )?
         $( validate: $validate:expr ; )?
         apply: $apply:expr ;
     )* ) => {
@@ -105,11 +116,16 @@ macro_rules! self_timelock_ops {
                 ) -> BytesN<32> {
                     begin_proposal(&$env, &proposer);
                     $( $validate; )?
+                    let delay = operation_delay(
+                        &$env,
+                        self_delay_tier!($($delay_tier)?),
+                    );
                     schedule_self_op(
                         &$env,
                         $func,
                         vec![&$env, $( $arg.into_val(&$env) ),*],
                         salt,
+                        delay,
                     )
                 }
 
@@ -139,6 +155,8 @@ self_timelock_ops! {
     env;
     op(propose_governance_upgrade, execute_governance_upgrade, "upgrade")
         (byval new_wasm_hash: [BytesN<32>])
+        delay: sensitive ;
+        validate: validate::require_nonzero_wasm_hash(&env, &new_wasm_hash);
         apply: apply_upgrade(&env, &new_wasm_hash);
 
     op(propose_update_delay, execute_update_delay, "update_delay")
@@ -158,6 +176,7 @@ self_timelock_ops! {
 
     op(propose_transfer_gov_own, execute_transfer_gov_own, "transfer_ownership")
         (byref new_owner: [Address], byval live_until_ledger: [u32])
+        delay: sensitive ;
         apply: apply_transfer_ownership(&env, &new_owner, live_until_ledger);
 }
 
@@ -168,6 +187,7 @@ mod tests {
     use stellar_governance::timelock::OperationState;
 
     use crate::access::EXECUTOR_ROLE;
+    use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
     use crate::{Governance, GovernanceClient};
 
     const ZERO_SALT: [u8; 32] = [0u8; 32];
@@ -213,6 +233,35 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Error(Contract, #39)")]
+    fn propose_update_delay_rejects_above_max_cap() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, gov) = register(&env, 10);
+
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        let over_max = crate::constants::TIMELOCK_MAX_DELAY_LEDGERS + 1;
+        gov.propose_update_delay(&admin, &over_max, &salt);
+    }
+
+    #[test]
+    fn propose_governance_upgrade_uses_sensitive_delay() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, gov) = register(&env, 10);
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        let hash = BytesN::from_array(&env, &[9u8; 32]);
+
+        let current = env.ledger().sequence();
+        let id = gov.propose_governance_upgrade(&admin, &hash, &salt);
+
+        assert_eq!(
+            gov.get_operation_ledger(&id),
+            current + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS
+        );
+    }
+
+    #[test]
     fn execute_update_delay_applies_after_delay() {
         let env = Env::default();
         env.mock_all_auths();
@@ -248,6 +297,16 @@ mod tests {
         let stranger = Address::generate(&env);
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
         gov.propose_governance_upgrade(&stranger, &BytesN::from_array(&env, &ZERO_SALT), &salt);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn propose_governance_upgrade_rejects_zero_hash() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, gov) = register(&env, 10);
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        gov.propose_governance_upgrade(&admin, &BytesN::from_array(&env, &[0u8; 32]), &salt);
     }
 
     #[test]

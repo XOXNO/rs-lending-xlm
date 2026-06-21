@@ -17,7 +17,7 @@ fn test_disabled_market_blocks_supply_and_borrow() {
 
     let admin = t.admin();
     let eth_asset = t.resolve_asset("ETH");
-    t.ctrl_client().disable_token_oracle(&admin, &eth_asset);
+    t.ctrl_client().disable_token_oracle(&eth_asset);
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -46,7 +46,7 @@ fn test_disabled_debt_oracle_allows_repay_but_blocks_risk_increasing_ops() {
 
     let eth_asset = t.resolve_market("ETH").asset.clone();
     let admin = t.admin();
-    t.ctrl_client().disable_token_oracle(&admin, &eth_asset);
+    t.ctrl_client().disable_token_oracle(&eth_asset);
 
     let repay_result = t.try_repay(ALICE, "ETH", 0.25);
     assert!(

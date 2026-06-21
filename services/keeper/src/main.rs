@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use keeper_bot::{
     config::KeeperConfig,
-    discovery::{assert_keeper_role, self_check},
+    discovery::{assert_update_indexes_simulation, self_check},
     metrics::{serve as serve_metrics, Metrics},
     scheduler::run as run_scheduler,
     signer::{signer_from_mnemonic, vault::load_signer, Ed25519Signer},
@@ -39,7 +39,7 @@ struct Args {
     #[arg(long, env = "KEEPER_MNEMONIC", hide_env_values = true)]
     mnemonic: Option<String>,
 
-    /// Skip the boot-time KEEPER role check.
+    /// Skip the boot-time update_indexes simulation preflight.
     #[arg(long, env = "KEEPER_SKIP_ROLE_CHECK", default_value_t = false)]
     skip_role_check: bool,
 }
@@ -64,33 +64,34 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(Metrics::new()?);
     let cancel = CancellationToken::new();
 
-    // Pre-flight: encoding self-check + KEEPER role gate.
+    // Pre-flight: encoding self-check + optional update_indexes simulation.
     let pools = self_check(&cfg.contracts)?;
     info!(target: "keeper.boot", n_assets = pools.len(), "self-check passed");
 
     let signer_pk = signer.public_key_strkey();
-    // KEEPER role is only required when the operator enables the
-    // update_indexes loop. Pure-TTL mode uses permissionless
-    // ExtendFootprintTtl ops and needs no on-chain role.
     if args.skip_role_check {
         warn!(
             target: "keeper.boot",
             signer = %signer_pk,
-            "DEV: skipping KEEPER role check (--skip-role-check)"
+            "DEV: skipping update_indexes simulation (--skip-role-check)"
         );
     } else if !cfg.schedule.enable_index_refresh {
         info!(
             target: "keeper.boot",
             signer = %signer_pk,
-            "pure-TTL mode (enable_index_refresh=false); no role check needed"
+            "pure-TTL mode (enable_index_refresh=false); no invoke preflight"
         );
-    } else if let Err(e) =
-        assert_keeper_role(client.as_ref(), &cfg.contracts.controller, &signer_pk).await
+    } else if let Err(e) = assert_update_indexes_simulation(
+        client.as_ref(),
+        &cfg.contracts.controller,
+        &signer_pk,
+    )
+    .await
     {
-        error!(target: "keeper.boot", error = ?e, "KEEPER role check failed — aborting");
+        error!(target: "keeper.boot", error = ?e, "update_indexes simulation failed — aborting");
         return Err(e);
     } else {
-        info!(target: "keeper.boot", signer = %signer_pk, "KEEPER role check passed");
+        info!(target: "keeper.boot", signer = %signer_pk, "update_indexes simulation passed");
     }
 
     // Spawn metrics surface.

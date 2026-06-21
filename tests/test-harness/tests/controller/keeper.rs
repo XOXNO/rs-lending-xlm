@@ -415,35 +415,21 @@ fn test_update_account_threshold_syncs_all_supply_assets() {
     assert_eq!(supply_threshold_bps(&t, account_id, "ETH"), 6100);
     t.assert_healthy(ALICE);
 }
-// 9. test_keeper_role_required
+// 9. test_permissionless_keeper_endpoints
 
 #[test]
-fn test_keeper_role_required() {
+fn test_permissionless_keeper_endpoints() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_dust_disabled_all_markets()
         .build();
 
-    // Create BOB without the KEEPER role.
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
 
-    // BOB calls `update_indexes` without the KEEPER role; expect
-    // AccessControlError::Unauthorized = 2000.
+    t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, 2000);
-
-    // BOB calls clean_bad_debt without the KEEPER role.
-    let result = ctrl.try_clean_bad_debt(&bob_addr, &999u64);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(mapped, 2000);
+    assert!(result.is_ok(), "any signed caller may update_indexes");
 }

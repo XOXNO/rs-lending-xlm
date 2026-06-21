@@ -109,24 +109,9 @@ proptest! {
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");
         let random_addr = Address::generate(&env);
-        let role_kp = Symbol::new(&env, "KEEPER");
-        let role_rev = Symbol::new(&env, "REVENUE");
-        let role_oracle = Symbol::new(&env, "ORACLE");
 
         expect_rejected("pause", || ctrl.set_auths(&no_auths).try_pause()).unwrap();
         expect_rejected("unpause", || ctrl.set_auths(&no_auths).try_unpause()).unwrap();
-        expect_rejected("grant_role(KEEPER)", || {
-            ctrl.set_auths(&no_auths).try_grant_role(&random_addr, &role_kp)
-        }).unwrap();
-        expect_rejected("grant_role(REVENUE)", || {
-            ctrl.set_auths(&no_auths).try_grant_role(&random_addr, &role_rev)
-        }).unwrap();
-        expect_rejected("grant_role(ORACLE)", || {
-            ctrl.set_auths(&no_auths).try_grant_role(&random_addr, &role_oracle)
-        }).unwrap();
-        expect_rejected("revoke_role", || {
-            ctrl.set_auths(&no_auths).try_revoke_role(&random_addr, &role_kp)
-        }).unwrap();
         expect_rejected("transfer_ownership", || {
             ctrl.set_auths(&no_auths).try_transfer_ownership(&random_addr, &1_000_000u32)
         }).unwrap();
@@ -215,20 +200,20 @@ proptest! {
         let empty_assets: SVec<Address> = SVec::new(&env);
         let empty_ids: SVec<u64> = SVec::new(&env);
 
-        expect_rejected("update_indexes (KEEPER)", || {
+        expect_rejected("update_indexes (caller auth)", || {
             ctrl.set_auths(&no_auths).try_update_indexes(&random_addr, &empty_assets)
         }).unwrap();
-        expect_rejected("clean_bad_debt (KEEPER)", || {
+        expect_rejected("clean_bad_debt (caller auth)", || {
             ctrl.set_auths(&no_auths).try_clean_bad_debt(&random_addr, &0u64)
         }).unwrap();
-        expect_rejected("update_account_threshold (KEEPER)", || {
+        expect_rejected("update_account_threshold (caller auth)", || {
             ctrl.set_auths(&no_auths)
                 .try_update_account_threshold(&random_addr, &false, &empty_ids)
         }).unwrap();
-        expect_rejected("claim_revenue (REVENUE)", || {
+        expect_rejected("claim_revenue (caller auth)", || {
             ctrl.set_auths(&no_auths).try_claim_revenue(&random_addr, &empty_assets)
         }).unwrap();
-        expect_rejected("add_rewards (REVENUE)", || {
+        expect_rejected("add_rewards (caller auth)", || {
             let rewards: SVec<(Address, i128)> = SVec::new(&env);
             ctrl.set_auths(&no_auths).try_add_rewards(&random_addr, &rewards)
         }).unwrap();
@@ -239,8 +224,8 @@ proptest! {
             let tolerance = sample_tolerance();
             ctrl.set_auths(&no_auths).try_set_oracle_tolerance(&usdc, &tolerance)
         }).unwrap();
-        expect_rejected("disable_token_oracle (ORACLE)", || {
-            ctrl.set_auths(&no_auths).try_disable_token_oracle(&random_addr, &usdc)
+        expect_rejected("disable_token_oracle (owner)", || {
+            ctrl.set_auths(&no_auths).try_disable_token_oracle(&usdc)
         }).unwrap();
     }
 
@@ -266,7 +251,6 @@ proptest! {
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");
         let random_addr = Address::generate(&env);
-        let role_kp = Symbol::new(&env, "KEEPER");
         let role_executor = Symbol::new(&env, "EXECUTOR");
         let salt = dummy_bytes_n(&env, seed);
 
@@ -384,14 +368,10 @@ proptest! {
         expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
         expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
 
-        // Role and ownership management.
-        expect_rejected("gov.propose_grant_controller_role", || {
+        // Ownership management.
+        expect_rejected("gov.propose_disable_token_oracle", || {
             gov.set_auths(&no_auths)
-                .try_propose_grant_controller_role(&random_addr, &random_addr, &role_kp, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_revoke_controller_role", || {
-            gov.set_auths(&no_auths)
-                .try_propose_revoke_controller_role(&random_addr, &random_addr, &role_kp, &salt)
+                .try_propose_disable_token_oracle(&random_addr, &usdc, &salt)
         }).unwrap();
         expect_rejected("gov.propose_transfer_ctrl_ownership", || {
             gov.set_auths(&no_auths)
@@ -423,69 +403,20 @@ proptest! {
     }
 
     #[test]
-    fn prop_wrong_role_rejected(case_idx in 0u8..6) {
-        use soroban_sdk::testutils::MockAuth;
-        use soroban_sdk::testutils::MockAuthInvoke;
-        use soroban_sdk::IntoVal;
-
+    fn prop_non_owner_cannot_disable_token_oracle(_case in 0u8..2) {
         let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
-        let env = t.env.clone();
         let ctrl = t.ctrl_client();
         let usdc = t.resolve_asset("USDC");
-        let empty_assets: SVec<Address> = SVec::new(&env);
+        let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
 
-        let (granted, target, endpoint) = match case_idx {
-            0 => ("KEEPER", "REVENUE", "claim_revenue"),
-            1 => ("KEEPER", "ORACLE", "disable_token_oracle"),
-            2 => ("REVENUE", "ORACLE", "disable_token_oracle"),
-            3 => ("REVENUE", "KEEPER", "update_indexes"),
-            4 => ("ORACLE", "KEEPER", "update_indexes"),
-            5 => ("ORACLE", "REVENUE", "claim_revenue"),
-            _ => unreachable!(),
-        };
-
-        let caller = Address::generate(&env);
-        ctrl.grant_role(&caller, &Symbol::new(&env, granted));
-
-        let args: soroban_sdk::Vec<soroban_sdk::Val> = match endpoint {
-            "claim_revenue" => (caller.clone(), empty_assets.clone()).into_val(&env),
-            "disable_token_oracle" => (caller.clone(), usdc.clone()).into_val(&env),
-            "update_indexes" => (caller.clone(), empty_assets.clone()).into_val(&env),
-            _ => unreachable!(),
-        };
-        let invoke = MockAuthInvoke {
-            contract: &t.controller,
-            fn_name: endpoint,
-            args,
-            sub_invokes: &[],
-        };
-        let auths = [MockAuth {
-            address: &caller,
-            invoke: &invoke,
-        }];
-
-        let res = match endpoint {
-            "claim_revenue" => ctrl
-                .mock_auths(&auths)
-                .try_claim_revenue(&caller, &empty_assets)
-                .map(|inner| inner.map(|_| ()))
-                .map_err(|e| std::format!("{:?}", e)),
-            "disable_token_oracle" => ctrl
-                .mock_auths(&auths)
-                .try_disable_token_oracle(&caller, &usdc)
-                .map(|inner| inner.map(|_| ()))
-                .map_err(|e| std::format!("{:?}", e)),
-            "update_indexes" => ctrl
-                .mock_auths(&auths)
-                .try_update_indexes(&caller, &empty_assets)
-                .map(|inner| inner.map(|_| ()))
-                .map_err(|e| std::format!("{:?}", e)),
-            _ => unreachable!(),
-        };
+        let res = ctrl
+            .set_auths(&no_auths)
+            .try_disable_token_oracle(&usdc)
+            .map(|inner| inner.map(|_| ()))
+            .map_err(|e| std::format!("{:?}", e));
         prop_assert!(
             !matches!(res, Ok(Ok(_))),
-            "CRITICAL: {} role called {} endpoint {}",
-            granted, target, endpoint
+            "CRITICAL: non-owner must not disable_token_oracle without owner auth"
         );
     }
 }

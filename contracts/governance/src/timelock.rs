@@ -23,18 +23,35 @@ use stellar_governance::timelock::{
     hash_operation, Operation, OperationState,
 };
 
+/// Standard vs elevated schedule delays for governance operations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DelayTier {
+    Standard,
+    /// Governance/controller upgrade and ownership transfer proposals.
+    Sensitive,
+}
+
+/// Ledger delay used when scheduling an operation at the given tier.
+pub(crate) fn operation_delay(env: &Env, tier: DelayTier) -> u32 {
+    let min = get_min_delay(env);
+    match tier {
+        DelayTier::Standard => min,
+        DelayTier::Sensitive => min.max(constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS),
+    }
+}
+
 /// Rejects a zero minimum timelock delay, which would nullify the timelock.
 pub(crate) fn require_nonzero_delay(env: &Env, delay: u32) {
     assert_with_error!(env, delay >= 1, GenericError::InvalidTimelockDelay);
 }
 
-/// Delay updates must not shorten the timelock window.
+/// Delay updates must not shorten the timelock window and cannot exceed 14 days.
 pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
     require_nonzero_delay(env, new_delay);
     let current = get_min_delay(env);
     assert_with_error!(
         env,
-        new_delay >= current,
+        new_delay >= current && new_delay <= constants::TIMELOCK_MAX_DELAY_LEDGERS,
         GenericError::InvalidTimelockDelay
     );
 }
@@ -174,7 +191,11 @@ mod tests {
     use controller_interface::types::{ControllerKey, PositionLimits};
 
     use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
-    use crate::constants::{TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS};
+    use crate::constants::{
+        TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
+        TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
+    };
+    use crate::timelock::{operation_delay, DelayTier};
     use crate::{Governance, GovernanceClient};
 
     const ZERO_SALT: [u8; 32] = [0u8; 32];
@@ -246,6 +267,23 @@ mod tests {
         let id = gov.propose_set_position_limits(&admin, &limits, &salt);
 
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    }
+
+    #[test]
+    fn propose_upgrade_pool_uses_sensitive_delay() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _controller, gov) = register_with_controller(&env, 10);
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        let hash = BytesN::from_array(&env, &[8u8; 32]);
+
+        let current = env.ledger().sequence();
+        let id = gov.propose_upgrade_pool(&admin, &hash, &salt);
+
+        assert_eq!(
+            gov.get_operation_ledger(&id),
+            current + TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS
+        );
     }
 
     #[test]
@@ -350,17 +388,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #41)")]
-    fn propose_controller_role_rejects_unknown_role() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (admin, _controller, gov) = register_with_controller(&env, 10);
-
-        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        gov.propose_grant_controller_role(&admin, &admin, &Symbol::new(&env, "BAD_ROLE"), &salt);
-    }
-
-    #[test]
     fn cancel_returns_operation_to_unset() {
         let env = Env::default();
         env.mock_all_auths();
@@ -445,5 +472,54 @@ mod tests {
         let env = Env::default();
         let admin = Address::generate(&env);
         let _ = env.register(Governance, (admin, 0u32));
+    }
+
+    #[test]
+    fn operation_delay_sensitive_uses_seven_day_floor() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, gov) = register(&env, 10);
+
+        env.as_contract(&gov.address, || {
+            assert_eq!(
+                operation_delay(&env, DelayTier::Sensitive),
+                TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS
+            );
+        });
+    }
+
+    #[test]
+    fn operation_delay_sensitive_respects_higher_global_min() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let higher_min = TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS + 1_000;
+        let (_admin, gov) = register(&env, higher_min);
+
+        env.as_contract(&gov.address, || {
+            assert_eq!(operation_delay(&env, DelayTier::Sensitive), higher_min);
+        });
+    }
+
+    #[test]
+    fn validate_delay_update_accepts_max_cap() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+
+        let id = gov.propose_update_delay(&admin, &TIMELOCK_MAX_DELAY_LEDGERS, &salt);
+        assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #39)")]
+    fn validate_delay_update_rejects_above_max_cap() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
+        let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
+        let over_max = TIMELOCK_MAX_DELAY_LEDGERS + 1;
+
+        gov.propose_update_delay(&admin, &over_max, &salt);
     }
 }

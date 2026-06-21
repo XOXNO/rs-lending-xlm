@@ -1833,41 +1833,21 @@ unpause_protocol() {
 }
 
 # ---------------------------------------------------------------------------
-# Role management
+# Oracle circuit-breaker (controller has no operational roles)
 # ---------------------------------------------------------------------------
 
-# Controller roles (KEEPER / REVENUE / ORACLE — keeper bots, claim_revenue,
-# disable_token_oracle) are granted on the controller through governance.
-grant_role_cmd() {
-    local account=$1
-    local role=$2
-    # grant_role(account, role) — Address + Symbol; timelocked via governance.
+disable_token_oracle_cmd() {
+    local asset=$1
     local args_json
-    args_json=$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')
+    args_json=$(jq -nc --arg a "$asset" '[{address:$a}]')
     local salt
-    salt=$(gen_salt "grant_role" "$args_json")
+    salt=$(gen_salt "disable_token_oracle" "$args_json")
     local op_id
     op_id=$(schedule_via_proposer \
-        propose_grant_controller_role grant_role "$args_json" true "$salt" \
-        --account "$account" --role "$role")
+        propose_disable_token_oracle disable_token_oracle "$args_json" true "$salt" \
+        --asset "$asset")
     schedule_and_maybe_execute "$op_id"
-    echo "Controller role ${role} scheduled for ${account}."
-}
-
-revoke_role_cmd() {
-    local account=$1
-    local role=$2
-    # revoke_role(account, role) — Address + Symbol; timelocked via governance.
-    local args_json
-    args_json=$(jq -nc --arg a "$account" --arg r "$role" '[{address:$a},{symbol:$r}]')
-    local salt
-    salt=$(gen_salt "revoke_role" "$args_json")
-    local op_id
-    op_id=$(schedule_via_proposer \
-        propose_revoke_controller_role revoke_role "$args_json" true "$salt" \
-        --account "$account" --role "$role")
-    schedule_and_maybe_execute "$op_id"
-    echo "Controller role ${role} revoke scheduled for ${account}."
+    echo "disable_token_oracle scheduled for ${asset}."
 }
 
 validate_governance_role() {
@@ -1913,9 +1893,9 @@ revoke_gov_role_cmd() {
 has_role_cmd() {
     local account=$1
     local role=$2
-    local ctrl
-    ctrl=$(get_controller)
-    invoke_view "$ctrl" has_role --account "$account" --role "$role"
+    local gov
+    gov=$(get_governance)
+    invoke_view "$gov" has_role --account "$account" --role "$role"
 }
 
 # ---------------------------------------------------------------------------
@@ -2446,20 +2426,12 @@ case "$1" in
     "deployPool")
         schedule_deploy_pool
         ;;
-    "grantRole")
-        if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 grantRole <account> <role>" >&2
-            echo "Roles: KEEPER | REVENUE | ORACLE" >&2
+    "disableTokenOracle")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 disableTokenOracle <asset_contract_id>" >&2
             exit 1
         fi
-        grant_role_cmd "$2" "$3"
-        ;;
-    "revokeRole")
-        if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 revokeRole <account> <role>" >&2
-            exit 1
-        fi
-        revoke_role_cmd "$2" "$3"
+        disable_token_oracle_cmd "$2"
         ;;
     "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
@@ -2598,7 +2570,7 @@ case "$1" in
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
         echo "  Admin verbs (createMarket, editAssetConfig, configureMarketOracle, e-mode,"
-        echo "  setAggregator, grantRole, ...) SCHEDULE a governance op and, by default"
+        echo "  setAggregator, disableTokenOracle, ...) SCHEDULE a governance op and, by default"
         echo "  (AUTO_EXECUTE=1), await the min-delay then execute it. Set AUTO_EXECUTE=0"
         echo "  to schedule-only and execute later with executeOp."
         echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"
@@ -2611,8 +2583,7 @@ case "$1" in
         echo ""
         echo "Protocol control (writes, all routed through governance):"
         echo "  pause | unpause                 Pause/unpause protocol (immediate, owner)"
-        echo "  grantRole <account> <role>      Grant controller KEEPER | REVENUE | ORACLE via governance"
-        echo "  revokeRole <account> <role>     Revoke controller role via governance"
+        echo "  disableTokenOracle <asset>      Timelock disable_token_oracle on controller"
         echo "  grantGovRole <account> <role>   Grant governance role (ORACLE|PROPOSER|EXECUTOR|CANCELLER; timelocked)"
         echo "  revokeGovRole <account> <role>  Revoke governance role (timelocked)"
         echo "  upgradeGovernanceHash <hash>    Timelocked governance WASM upgrade"
@@ -2656,7 +2627,7 @@ case "$1" in
         echo "  NETWORK=testnet $0 getPrice USDC"
         echo "  NETWORK=testnet $0 getHealth 1"
         echo "  NETWORK=testnet $0 getCollateral 1 XLM"
-        echo "  NETWORK=testnet $0 grantRole GAB... KEEPER"
+        echo "  NETWORK=testnet $0 disableTokenOracle C...USDC"
         echo "  SIGNER=ledger NETWORK=mainnet $0 pause"
         ;;
 esac

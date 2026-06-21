@@ -1,5 +1,5 @@
 use controller::types::InterestRateModel;
-use soroban_sdk::{Address, Symbol};
+use soroban_sdk::Address;
 
 use crate::context::LendingTest;
 
@@ -51,25 +51,6 @@ impl LendingTest {
             max_borrow_positions: max_borrow,
         };
         self.ctrl_client().set_position_limits(&limits);
-    }
-    // Role management
-
-    pub fn grant_role(&self, user: &str, role: &str) {
-        let addr = self.users.get(user).unwrap().address.clone();
-        self.ctrl_client()
-            .grant_role(&addr, &Symbol::new(&self.env, role));
-    }
-
-    pub fn revoke_role(&self, user: &str, role: &str) {
-        let addr = self.users.get(user).unwrap().address.clone();
-        self.ctrl_client()
-            .revoke_role(&addr, &Symbol::new(&self.env, role));
-    }
-
-    pub fn has_role(&self, user: &str, role: &str) -> bool {
-        let addr = self.users.get(user).unwrap().address.clone();
-        self.ctrl_client()
-            .has_role(&addr, &Symbol::new(&self.env, role))
     }
     // Pool params upgrade
 

@@ -5,6 +5,7 @@ use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env};
 use stellar_macros::only_owner;
 
 use crate::events::DeployControllerEvent;
+use crate::validate;
 use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 
 /// Deterministic salt for the one-time controller deployment; the controller
@@ -19,6 +20,7 @@ impl Governance {
     #[only_owner]
     pub fn deploy_controller(env: Env, wasm_hash: BytesN<32>) -> Address {
         storage::renew_governance_instance(&env);
+        validate::require_nonzero_wasm_hash(&env, &wasm_hash);
         assert_with_error!(
             &env,
             !storage::has_controller(&env),

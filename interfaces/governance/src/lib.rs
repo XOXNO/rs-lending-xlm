@@ -333,21 +333,11 @@ pub trait GovernanceInterface {
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
-    /// Schedules controller `grant_role`.
-    fn propose_grant_controller_role(
+    /// Schedules controller `disable_token_oracle`.
+    fn propose_disable_token_oracle(
         env: Env,
         proposer: Address,
-        account: Address,
-        role: Symbol,
-        salt: BytesN<32>,
-    ) -> BytesN<32>;
-
-    /// Schedules controller `revoke_role`.
-    fn propose_revoke_controller_role(
-        env: Env,
-        proposer: Address,
-        account: Address,
-        role: Symbol,
+        asset: Address,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 

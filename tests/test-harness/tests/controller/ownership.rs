@@ -1,11 +1,10 @@
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Symbol};
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{usdc_preset, LendingTest, ALICE, BOB};
 
 fn fresh() -> LendingTest {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     // Pre-register ALICE / BOB so `users.get(...)` is non-empty in tests
-    // that grant/revoke roles or transfer ownership.
+    // that transfer ownership.
     let _ = t.get_or_create_user(ALICE);
     let _ = t.get_or_create_user(BOB);
     t
@@ -16,32 +15,18 @@ fn fresh() -> LendingTest {
 fn test_transfer_and_accept_ownership_completes() {
     let t = fresh();
     let ctrl = t.ctrl_client();
-    let admin = t.admin();
     let new_owner = t.users.get(ALICE).unwrap().address.clone();
 
     // Phase 1: current admin proposes a new owner with a non-zero TTL.
     let ledger_seq = t.env.ledger().sequence();
     ctrl.transfer_ownership(&new_owner, &(ledger_seq + 1000));
 
-    // Phase 2: candidate accepts. The hook then mirrors the admin slot
-    // and grants the three operational roles to the new owner.
+    // Phase 2: candidate accepts. The hook mirrors the admin slot to the new owner.
     t.env.mock_all_auths();
     ctrl.accept_ownership();
 
-    // KEEPER / REVENUE / ORACLE all granted to the new owner.
-    for role in ["KEEPER", "REVENUE", "ORACLE"] {
-        let role_sym = Symbol::new(&t.env, role);
-        assert!(
-            ctrl.has_role(&new_owner, &role_sym),
-            "{} should be granted to the new owner",
-            role
-        );
-    }
-
-    // Previous admin no longer holds KEEPER (only KEEPER was granted at
-    // construction time so this is the only role to revoke).
-    let keeper = Symbol::new(&t.env, "KEEPER");
-    assert!(!ctrl.has_role(&admin, &keeper));
+    // Owner-gated smoke check: the accepted candidate can pause.
+    ctrl.pause();
 }
 
 #[test]
@@ -59,60 +44,18 @@ fn test_transfer_ownership_with_zero_ttl_cancels_pending() {
 }
 
 #[test]
-fn test_transfer_ownership_to_self_keeps_roles() {
+fn test_transfer_ownership_to_self_keeps_owner() {
     let t = fresh();
     let ctrl = t.ctrl_client();
     let admin = t.admin();
 
-    // Self-transfer: previous_owner == new_owner exercises the
-    // role-retention branch in `sync_owner_access_control`.
+    // Self-transfer: previous_owner == new_owner exercises the no-op branch.
     let ledger_seq = t.env.ledger().sequence();
     ctrl.transfer_ownership(&admin, &(ledger_seq + 1000));
     t.env.mock_all_auths();
     ctrl.accept_ownership();
 
-    let keeper = Symbol::new(&t.env, "KEEPER");
-    assert!(ctrl.has_role(&admin, &keeper));
-}
-// grant_role / revoke_role — owner-gated
-
-#[test]
-fn test_grant_role_then_revoke_round_trip() {
-    let t = fresh();
-    let bob_addr = t.users.get(BOB).unwrap().address.clone();
-    let oracle_sym = Symbol::new(&t.env, "ORACLE");
-
-    assert!(!t.ctrl_client().has_role(&bob_addr, &oracle_sym));
-    t.grant_role(BOB, "ORACLE");
-    assert!(t.ctrl_client().has_role(&bob_addr, &oracle_sym));
-    t.revoke_role(BOB, "ORACLE");
-    assert!(!t.ctrl_client().has_role(&bob_addr, &oracle_sym));
-}
-
-// #8: revoking a role the account never held must revert (loud), not no-op.
-#[test]
-fn test_revoke_role_rejects_unheld() {
-    let t = fresh();
-    t.env.mock_all_auths();
-    let bob_addr = t.users.get(BOB).unwrap().address.clone();
-    let oracle_sym = Symbol::new(&t.env, "ORACLE");
-    assert!(!t.ctrl_client().has_role(&bob_addr, &oracle_sym));
-
-    let result = t.ctrl_client().try_revoke_role(&bob_addr, &oracle_sym);
-    let flat: Result<(), soroban_sdk::Error> = match result {
-        Ok(Ok(_)) => panic!("expected contract error, got Ok"),
-        Ok(Err(err)) => Err(err.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(flat, errors::INVALID_ROLE);
-}
-
-#[test]
-fn test_has_role_false_for_unknown_address() {
-    let t = fresh();
-    let stranger = Address::generate(&t.env);
-    let keeper = Symbol::new(&t.env, "KEEPER");
-    assert!(!t.ctrl_client().has_role(&stranger, &keeper));
+    ctrl.pause();
 }
 // pause / unpause — owner-gated
 
@@ -160,3 +103,4 @@ fn test_migrate_rejects_lower_version() {
     // Downgrade attempt must reject.
     ctrl.migrate(&2);
 }
+

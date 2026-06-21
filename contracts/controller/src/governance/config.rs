@@ -21,7 +21,7 @@ use controller_interface::types::{
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
 };
-use stellar_macros::{only_owner, only_role};
+use stellar_macros::only_owner;
 
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
@@ -170,8 +170,8 @@ impl Controller {
         set_oracle_tolerance(&env, asset, tolerance);
     }
 
-    #[only_role(caller, "ORACLE")]
-    pub fn disable_token_oracle(env: Env, caller: Address, asset: Address) {
+    #[only_owner]
+    pub fn disable_token_oracle(env: Env, asset: Address) {
         storage::renew_controller_instance(&env);
         disable_token_oracle(&env, asset);
     }
