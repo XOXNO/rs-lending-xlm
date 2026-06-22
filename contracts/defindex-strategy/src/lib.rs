@@ -210,6 +210,7 @@ impl DeFindexStrategyTrait for Strategy {
     }
 
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
+        from.require_auth();
         let ctx = Ctx::try_load(&env)?;
         HarvestEvent {
             from,
