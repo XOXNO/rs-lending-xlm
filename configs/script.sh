@@ -320,8 +320,8 @@ scval_asset_config() {
         def u(k): {key:{symbol:k}, val:{u32:($c[k])}};
         def b(k): {key:{symbol:k}, val:{bool:($c[k])}};
         {map: [
-            {key:{symbol:"e_mode_categories"}, val:{vec:((($c.e_mode_categories) // []) | map({u32:.}))}},
             u("asset_decimals"),
+            {key:{symbol:"e_mode_categories"}, val:{vec:((($c.e_mode_categories) // []) | map({u32:.}))}},
             u("flashloan_fee_bps"),
             b("is_borrowable"),
             b("is_collateralizable"),
@@ -936,8 +936,8 @@ add_asset_to_emode() {
     supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
     borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
-    supply_cap=${supply_cap:-0}
-    borrow_cap=${borrow_cap:-0}
+    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
+    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
@@ -995,8 +995,8 @@ edit_asset_in_emode() {
     supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
     local borrow_cap
     borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
-    supply_cap=${supply_cap:-0}
-    borrow_cap=${borrow_cap:-0}
+    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
+    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
 
