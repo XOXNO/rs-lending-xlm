@@ -8,10 +8,12 @@
 //! `OraclePolicy` remains the caller's responsibility.
 
 mod account;
+pub(crate) mod emode_caps;
 mod math;
 mod risk_params;
 pub(crate) mod utils;
 
 pub(crate) use account::*;
+pub(crate) use emode_caps::EModeUsageContext;
 pub(crate) use math::*;
 pub(crate) use risk_params::*;

@@ -267,9 +267,9 @@ fn test_swap_debt_borrow_cap_new_debt() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market(wbtc_preset())
-        .with_market_config("WBTC", |c| {
+        .with_market_params("WBTC", |p| {
             // Set a very low borrow cap: 1 unit (0.0000001 WBTC).
-            c.borrow_cap = 1;
+            p.borrow_cap = 1;
         })
         .build();
 
@@ -369,8 +369,8 @@ fn test_swap_collateral_rejects_supply_cap_after_deposit() {
         .with_market(usdc_preset())
         .with_market(eth_preset())
         .with_market(wbtc_preset())
-        .with_market_config("WBTC", |c| {
-            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 WBTC).
+        .with_market_params("WBTC", |p| {
+            p.supply_cap = 1; // extremely low: 1 unit (0.0000001 WBTC).
         })
         .build();
 

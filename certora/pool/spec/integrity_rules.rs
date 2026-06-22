@@ -21,6 +21,8 @@ fn valid_params(asset: Address) -> MarketParamsRaw {
         max_borrow_rate_ray: 2 * RAY,
         max_utilization_ray: RAY,
         reserve_factor_bps: 1_000,
+        supply_cap: 0,
+        borrow_cap: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -69,12 +71,9 @@ fn action(position: ScaledPositionRaw, amount: i128, asset: Address) -> PoolActi
 }
 
 // Bulk-of-one wrappers: one entry through the bulk endpoint.
-fn supply_first(e: &Env, act: PoolAction, cap: i128) -> common::types::PoolPositionMutation {
+fn supply_first(e: &Env, act: PoolAction, _cap: i128) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolSupplyEntry> = soroban_sdk::Vec::new(e);
-    entries.push_back(common::types::PoolSupplyEntry {
-        action: act,
-        supply_cap: cap,
-    });
+    entries.push_back(common::types::PoolSupplyEntry { action: act });
     crate::LiquidityPool::supply(e.clone(), entries).get_unchecked(0)
 }
 
@@ -82,13 +81,10 @@ fn borrow_first(
     e: &Env,
     receiver: Address,
     act: PoolAction,
-    cap: i128,
+    _cap: i128,
 ) -> common::types::PoolPositionMutation {
     let mut entries: soroban_sdk::Vec<common::types::PoolBorrowEntry> = soroban_sdk::Vec::new(e);
-    entries.push_back(common::types::PoolBorrowEntry {
-        action: act,
-        borrow_cap: cap,
-    });
+    entries.push_back(common::types::PoolBorrowEntry { action: act });
     crate::LiquidityPool::borrow(e.clone(), receiver, entries).get_unchecked(0)
 }
 

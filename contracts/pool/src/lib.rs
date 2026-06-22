@@ -42,7 +42,8 @@ use stellar_access::ownable;
 use stellar_macros::only_owner;
 
 use utils::{
-    apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from, enforce_borrow_cap,
+    apply_hub_caps, apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from,
+    enforce_borrow_cap,
     enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance, require_nonneg_amount,
     require_positive_amount, require_wasm_receiver,
 };
@@ -99,10 +100,10 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
 /// Accrues a borrow of `amount` into `cache` and the caller's `scaled` position:
 /// requires sufficient reserves, enforces the borrow cap, adds the scaled debt,
 /// then rejects post-borrow utilization above the market's max.
-fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128, borrow_cap: i128) {
+fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
     cache.require_reserves(amount);
     let scaled_debt = cache.calculate_scaled_borrow(amount);
-    enforce_borrow_cap(env, cache, scaled_debt, borrow_cap);
+    enforce_borrow_cap(env, cache, scaled_debt);
     scaled.checked_add_assign(env, scaled_debt);
     cache.borrowed.checked_add_assign(env, scaled_debt);
     utils::require_utilization_below_max(env, cache);
@@ -112,7 +113,7 @@ fn supply_one(env: &Env, entry: &PoolSupplyEntry) -> (PoolPositionMutation, Mark
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
     let scaled_amount = cache.calculate_scaled_supply(amount);
-    enforce_supply_cap(env, &cache, scaled_amount, entry.supply_cap);
+    enforce_supply_cap(env, &cache, scaled_amount);
 
     scaled.checked_add_assign(env, scaled_amount);
     cache.supplied.checked_add_assign(env, scaled_amount);
@@ -133,7 +134,7 @@ fn borrow_one(
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
     let (mut cache, mut scaled, amount) = load_position(env, &entry.action);
 
-    accrue_borrow(env, &mut cache, &mut scaled, amount, entry.borrow_cap);
+    accrue_borrow(env, &mut cache, &mut scaled, amount);
     cache.debit_cash(amount);
 
     // CEI: snapshot + commit before external call.
@@ -421,14 +422,13 @@ impl LiquidityPoolInterface for LiquidityPool {
         receiver: Address,
         action: PoolAction,
         fee: i128,
-        borrow_cap: i128,
     ) -> PoolStrategyMutation {
         let PoolAction {
             position,
             amount,
             asset,
         } = action;
-        let caller = receiver;
+        let caller = receiver.clone();
         require_nonneg_amount(&env, amount);
         require_nonneg_amount(&env, fee);
 
@@ -436,7 +436,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let mut cache = load_synced_cache(&env, &asset);
         let mut scaled = Ray::from(position.scaled_amount_ray);
-        accrue_borrow(&env, &mut cache, &mut scaled, amount, borrow_cap);
+        accrue_borrow(&env, &mut cache, &mut scaled, amount);
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
         interest::add_protocol_revenue_ray(&mut cache, fee_ray);
@@ -449,6 +449,13 @@ impl LiquidityPoolInterface for LiquidityPool {
         // CEI: snapshot + commit before external call.
         cache.save();
         cache.transfer_out(&caller, amount_to_send);
+        events::publish_strategy_fee(
+            &env,
+            asset.clone(),
+            amount,
+            fee,
+            amount_to_send,
+        );
         events::publish_market_state(&env, cache.market_snapshot());
         cache.strategy_mutation(scaled, amount, amount_to_send)
     }
@@ -516,6 +523,15 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         model.verify(&env);
         apply_rate_model(&env, &asset, &model);
+        let params = views::load_params(&env, &asset);
+        events::publish_market_params(&env, asset, params);
+    }
+
+    #[only_owner]
+    fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128) {
+        let cache = load_synced_cache(&env, &asset);
+        cache.save();
+        apply_hub_caps(&env, &asset, supply_cap, borrow_cap);
         let params = views::load_params(&env, &asset);
         events::publish_market_params(&env, asset, params);
     }
@@ -612,6 +628,8 @@ mod lib_orchestration_tests {
                 optimal_utilization_ray: RAY * 8 / 10,
                 max_utilization_ray: RAY * 95 / 100,
                 reserve_factor_bps: 1_000,
+                supply_cap: 0,
+                borrow_cap: 0,
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
@@ -651,11 +669,9 @@ mod lib_orchestration_tests {
         // Call through the client; output order follows the *_one path.
         let entry1 = PoolSupplyEntry {
             action: make_action(0, 100_000_000, &t.asset),
-            supply_cap: 0,
         };
         let entry2 = PoolSupplyEntry {
             action: make_action(0, 50_000_000, &t.asset),
-            supply_cap: 0,
         };
         let results = client.supply(&vec![&t.env, entry1, entry2]);
         assert_eq!(results.len(), 2);
@@ -670,7 +686,6 @@ mod lib_orchestration_tests {
         // Supply first so there are suppliers to reward.
         let sup = PoolSupplyEntry {
             action: make_action(0, 100_000_000, &t.asset),
-            supply_cap: 0,
         };
         let _ = client.supply(&vec![&t.env, sup]);
 

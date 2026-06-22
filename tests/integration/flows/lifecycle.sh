@@ -114,7 +114,7 @@ flow_lifecycle() {
     # collateral with USDC+XLM debt here, so each is exercised with live state.
     assert_bool_view account_exists_alice true account_exists --account_id "$acct"
     assert_int_view_eq pool_addr_view "$POOL" get_pool_address
-    assert_int_view_positive max_supply_usdc max_supply --asset "$USDC_SAC"
+    assert_int_view_positive max_supply_usdc max_supply --account_id "$acct" --asset "$USDC_SAC"
     assert_int_view_positive max_withdraw_xlm max_withdraw --account_id "$acct" --asset "$XLM_SAC"
     assert_int_view_nonneg max_borrow_usdc max_borrow --account_id "$acct" --asset "$USDC_SAC"
 
@@ -189,7 +189,7 @@ flow_lifecycle() {
     inv renew_account "$ALICE" "$CONTROLLER" -- renew_account \
         --caller "$ALICE_ADDR" --account_id "$acct" >/dev/null
     local xlm_coll usdc_coll
-    xlm_coll=$(view coll_xlm_alice "$CONTROLLER" -- collateral_amount_for_token \
+    Makxlm_coll=$(view coll_xlm_alice "$CONTROLLER" -- collateral_amount_for_token \
         --account_id "$acct" --asset "$XLM_SAC" | tr -d '"')
     usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- collateral_amount_for_token \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')

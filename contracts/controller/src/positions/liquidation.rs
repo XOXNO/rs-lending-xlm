@@ -15,7 +15,6 @@ use controller_interface::types::{
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
 
-
 use super::liquidation_math::*;
 use super::{persist_account_positions, repay, withdraw, AggregatedPayments, PositionSides};
 use crate::cache::Cache;
@@ -87,6 +86,7 @@ pub fn process_liquidation(
     let will_socialize =
         is_socializable_bad_debt(post_totals.total_debt, post_totals.total_collateral);
 
+    cache.persist_emode_usage();
     persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
 
     // Reuse the post-liquidation account snapshot for bad-debt cleanup.
@@ -317,6 +317,15 @@ fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
+    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        for (asset, position) in iter_typed_positions(&account.supply_positions) {
+            ctx.apply_withdraw_after_pool(env, &asset, position.scaled_amount);
+        }
+        for (asset, position) in iter_debt_positions(&account.borrow_positions) {
+            ctx.apply_repay_after_pool(env, &asset, position.scaled_amount);
+        }
+    }
+
     for (asset, position) in iter_typed_positions(&account.supply_positions) {
         seize_pool_position(
             env,
@@ -336,6 +345,8 @@ fn execute_bad_debt_cleanup(
             (&position).into(),
         );
     }
+
+    cache.persist_emode_usage();
 
     CleanBadDebtEvent {
         account_id,

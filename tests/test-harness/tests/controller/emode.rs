@@ -375,6 +375,8 @@ fn test_emode_deprecated_category_operations_rejected() {
         &9_000u32,
         &9_300u32,
         &200u32,
+        &0i128,
+        &0i128,
     );
     let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
@@ -750,7 +752,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
 
     // ltv >= threshold must reject (the borrow-buffer invariant).
     let inverted = t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc, &1u32, &true, &true, &8_500u32, &8_000u32, &200u32,
+        &usdc, &1u32, &true, &true, &8_500u32, &8_000u32, &200u32, &0i128, &0i128,
     );
     let flat_inverted: Result<(), soroban_sdk::Error> = match inverted {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
@@ -762,7 +764,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
     let unsafe_bonus = t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc, &1u32, &true, &true, &9_400u32, &9_500u32, &600u32,
+        &usdc, &1u32, &true, &true, &9_400u32, &9_500u32, &600u32, &0i128, &0i128,
     );
     let flat_unsafe: Result<(), soroban_sdk::Error> = match unsafe_bonus {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
@@ -818,4 +820,268 @@ fn test_emode_per_asset_divergent_params() {
         "USDT carries its own tighter LTV"
     );
     assert_eq!(usdt_pos.liquidation_threshold_bps, 9_300);
+}
+
+const UNIT: i128 = 10_000_000;
+
+#[test]
+fn test_emode_spoke_supply_cap_enforced_below_hub() {
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &spoke_cap,
+        &0i128,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 500.0);
+
+    let result = t.try_supply(ALICE, "USDC", 600.0);
+    assert_contract_error(result, errors::SPOKE_SUPPLY_CAP_REACHED);
+}
+
+#[test]
+fn test_emode_spoke_borrow_cap_enforced_below_hub() {
+    let hub_borrow_cap = 10_000 * UNIT;
+    let spoke_borrow_cap = 500 * UNIT;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market_params("USDT", |params| {
+            params.borrow_cap = hub_borrow_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    let usdt = t.resolve_asset("USDT");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdt,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &0i128,
+        &spoke_borrow_cap,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 400.0);
+
+    let result = t.try_borrow(ALICE, "USDT", 200.0);
+    assert_contract_error(result, errors::SPOKE_BORROW_CAP_REACHED);
+}
+
+fn emode_supply_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i128 {
+    let asset = t.resolve_asset(asset_name);
+    let cat = t.ctrl_client().get_e_mode_category(&category_id);
+    cat.usage
+        .get(asset)
+        .map(|u| u.supplied_scaled_ray)
+        .unwrap_or(0)
+}
+
+fn emode_borrow_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i128 {
+    let asset = t.resolve_asset(asset_name);
+    let cat = t.ctrl_client().get_e_mode_category(&category_id);
+    cat.usage
+        .get(asset)
+        .map(|u| u.borrowed_scaled_ray)
+        .unwrap_or(0)
+}
+
+#[test]
+fn test_removed_emode_asset_withdraw_decrements_usage() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 1_000.0);
+    let usage_before = emode_supply_usage(&t, 1, "USDC");
+    assert!(usage_before > 0, "supply should record spoke usage");
+
+    t.remove_asset_from_e_mode("USDC", 1);
+    let withdraw = t.try_withdraw(ALICE, "USDC", 400.0);
+    assert!(withdraw.is_ok(), "withdraw must still work after asset removal");
+
+    let usage_after = emode_supply_usage(&t, 1, "USDC");
+    assert!(
+        usage_after < usage_before,
+        "withdraw must decrement usage even when asset left the category"
+    );
+}
+
+#[test]
+fn test_deprecated_emode_repay_decrements_usage() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 2_000.0);
+    let usage_before = emode_borrow_usage(&t, 1, "USDT");
+    assert!(usage_before > 0);
+
+    t.remove_e_mode_category(1);
+    let repay = t.try_repay(ALICE, "USDT", 500.0);
+    assert!(repay.is_ok(), "repay must still work in deprecated category");
+
+    let usage_after = emode_borrow_usage(&t, 1, "USDT");
+    assert!(
+        usage_after < usage_before,
+        "repay must decrement usage even when category is deprecated"
+    );
+}
+
+#[test]
+fn test_edit_emode_rejects_supply_cap_below_usage() {
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &spoke_cap,
+        &0i128,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 500.0);
+
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &(100 * UNIT),
+        &0i128,
+    ) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+}
+
+#[test]
+fn test_update_pool_caps_rejects_hub_below_spoke() {
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 2_000 * UNIT;
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &spoke_cap,
+        &0i128,
+    );
+
+    let result = match t
+        .ctrl_client()
+        .try_update_pool_caps(&usdc, &(500 * UNIT), &0i128)
+    {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+}
+
+#[test]
+fn test_max_supply_respects_spoke_cap_headroom() {
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &spoke_cap,
+        &0i128,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 500.0);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let headroom = t.ctrl_client().max_supply(&account_id, &usdc);
+    assert!(
+        headroom > 400 * UNIT && headroom <= 500 * UNIT,
+        "spoke headroom should be ~500 USDC, got {headroom}"
+    );
+
+    t.supply_raw(ALICE, "USDC", headroom);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &usdc), 0);
 }

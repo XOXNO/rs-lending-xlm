@@ -155,7 +155,14 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         let repay_requests = build_repay_requests(env, &debt_caps);
         authorize_repay_pulls(env, &blend_pool, &debt_caps);
         guarded_submit(env, &blend_pool, caller, &repay_requests);
-        reconcile_debt_refunds(env, &mut account, &mut cache, caller, &debt_caps, &before_debt);
+        reconcile_debt_refunds(
+            env,
+            &mut account,
+            &mut cache,
+            caller,
+            &debt_caps,
+            &before_debt,
+        );
     }
 
     // Phase 2 — WITHDRAW. Sweep all Blend collateral and non-collateral supply to
@@ -169,7 +176,13 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         // implicit (the controller is its direct invoker) and the withdrawals pay
         // the controller (authorized by Blend, the token spender).
         guarded_submit(env, &blend_pool, caller, &withdraw_requests);
-        deposit_withdrawn(env, &mut account, &mut cache, &withdraw_assets, &before_withdraw);
+        deposit_withdrawn(
+            env,
+            &mut account,
+            &mut cache,
+            &withdraw_assets,
+            &before_withdraw,
+        );
     }
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
@@ -193,7 +206,7 @@ fn load_or_create_migration_account(
     e_mode_category: u32,
 ) -> (u64, Account) {
     if account_id == 0 {
-        return helpers::create_account(env, caller, e_mode_category, PositionMode::Normal);
+        return helpers::create_account(env, caller, e_mode_category, PositionMode::Normal, None);
     }
     let account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);

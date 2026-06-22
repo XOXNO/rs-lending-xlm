@@ -76,6 +76,10 @@ pub mod codes {
     pub const EMODE_CATEGORY_DEPRECATED: u32 = EModeError::EModeCategoryDeprecated as u32;
     pub const ASSET_NOT_IN_EMODE: u32 = EModeError::AssetNotInEmode as u32;
     pub const EMODE_MISMATCH: u32 = EModeError::EModeMismatch as u32;
+    pub const SPOKE_SUPPLY_CAP_REACHED: u32 = EModeError::SpokeSupplyCapReached as u32;
+    pub const SPOKE_BORROW_CAP_REACHED: u32 = EModeError::SpokeBorrowCapReached as u32;
+    pub const SPOKE_CAP_EXCEEDS_HUB: u32 = EModeError::SpokeCapExceedsHub as u32;
+    pub const SPOKE_CAP_BELOW_USAGE: u32 = EModeError::SpokeCapBelowUsage as u32;
 
     // FlashLoanError
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;

@@ -138,9 +138,9 @@ fn test_multiply_borrow_cap_would_exceed() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_market_config("ETH", |c| {
+        .with_market_params("ETH", |p| {
             // Set borrow cap extremely low: 1 unit (0.0000001 ETH).
-            c.borrow_cap = 1;
+            p.borrow_cap = 1;
         })
         .build();
 
@@ -525,8 +525,8 @@ fn test_multiply_rejects_supply_cap_after_deposit() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_market_config("USDC", |c| {
-            c.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC).
+        .with_market_params("USDC", |p| {
+            p.supply_cap = 1; // extremely low: 1 unit (0.0000001 USDC).
         })
         .build();
 

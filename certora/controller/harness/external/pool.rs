@@ -44,7 +44,7 @@ pub(crate) fn pool_supply_call(
             &entry.action.asset,
             entry.action.position.clone(),
             entry.action.amount,
-            entry.supply_cap,
+            0,
         ));
     }
     out
@@ -63,7 +63,7 @@ pub(crate) fn pool_borrow_call(
             &entry.action.asset,
             entry.action.amount,
             entry.action.position.clone(),
-            entry.borrow_cap,
+            0,
         ));
     }
     out
@@ -75,7 +75,6 @@ pub(crate) fn pool_create_strategy_call(
     _receiver: &Address,
     action: PoolAction,
     fee: i128,
-    borrow_cap: i128,
 ) -> PoolStrategyMutation {
     create_strategy_summary(
         env,
@@ -83,7 +82,7 @@ pub(crate) fn pool_create_strategy_call(
         action.position,
         action.amount,
         fee,
-        borrow_cap,
+        0,
     )
 }
 

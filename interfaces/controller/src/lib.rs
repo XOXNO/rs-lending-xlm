@@ -202,9 +202,9 @@ pub trait ControllerInterface {
     /// gates, dust floor); `0` while paused.
     fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128;
 
-    /// Returns remaining supply-cap headroom for `asset` in asset units;
-    /// `i128::MAX` when uncapped, `0` while paused or market not active.
-    fn max_supply(env: Env, asset: Address) -> i128;
+    /// Returns remaining supply-cap headroom for `account_id` and `asset` in asset
+    /// units; `i128::MAX` when uncapped, `0` while paused or market not active.
+    fn max_supply(env: Env, account_id: u64, asset: Address) -> i128;
 
     /// Returns the largest `borrow` amount of `asset` currently executable for
     /// `account_id` (pool liquidity, max-utilization, borrow cap, LTV/HF

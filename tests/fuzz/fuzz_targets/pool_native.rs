@@ -53,6 +53,8 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
         max_borrow_rate_ray: RAY * max_pct / 100,
         reserve_factor_bps: (((i.reserve_pct as i128 % 51) * 100).clamp(0, BPS - 1)) as u32,
         max_utilization_ray: RAY,
+        supply_cap: 0,
+        borrow_cap: 0,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -122,7 +124,6 @@ fn supply_entry(asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolS
             amount,
             asset: asset.clone(),
         },
-        supply_cap: i128::MAX,
     }
 }
 
@@ -133,7 +134,6 @@ fn borrow_entry(asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolB
             amount,
             asset: asset.clone(),
         },
-        borrow_cap: i128::MAX,
     }
 }
 

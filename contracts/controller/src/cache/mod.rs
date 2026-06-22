@@ -9,13 +9,16 @@ use crate::constants::MS_PER_SECOND;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
+use common::errors::EModeError;
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, MarketConfig,
-    MarketIndex, MarketIndexRaw, PoolSyncData, PriceFeed, PriceFeedRaw,
+    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, EModeCategory,
+    EModeSpokeUsageRaw, MarketConfig, MarketIndex, MarketIndexRaw, PoolSyncData, PriceFeed,
+    PriceFeedRaw,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
 use crate::external::pool::{fetch_pool_bulk_indexes, fetch_pool_sync_data};
+use crate::helpers::EModeUsageContext;
 use crate::oracle::policy::OraclePolicy;
 use crate::oracle::token_price;
 use crate::storage;
@@ -36,7 +39,8 @@ pub struct Cache {
     market_indexes: Map<Address, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<Address, PoolSyncData>,
-    emode_assets: Map<(u32, Address), Option<EModeAssetConfig>>,
+    /// One loaded category per tx: spoke configs, usage totals, and cap writes.
+    emode_usage: Option<EModeUsageContext>,
     deposit_updates: Vec<EventDepositDelta>,
     borrow_updates: Vec<EventBorrowDelta>,
 
@@ -67,7 +71,7 @@ impl Cache {
             market_indexes: Map::new(env),
             pool_address: None,
             pool_sync_data: Map::new(env),
-            emode_assets: Map::new(env),
+            emode_usage: None,
             deposit_updates: Vec::new(env),
             borrow_updates: Vec::new(env),
             current_timestamp_ms,
@@ -255,6 +259,22 @@ impl Cache {
         data
     }
 
+    /// Loads the account's e-mode category once per transaction when first needed.
+    pub(crate) fn ensure_emode_loaded(&mut self, category_id: u32) {
+        if category_id == 0 {
+            return;
+        }
+        if let Some(ctx) = &self.emode_usage {
+            assert_with_error!(
+                &self.env,
+                ctx.category_id() == category_id,
+                EModeError::EModeMismatch
+            );
+            return;
+        }
+        self.emode_usage = EModeUsageContext::load(&self.env, category_id);
+    }
+
     pub fn cached_emode_asset(
         &mut self,
         category_id: u32,
@@ -263,12 +283,51 @@ impl Cache {
         if category_id == 0 {
             return None;
         }
-        let key = (category_id, asset.clone());
-        if let Some(cached) = self.emode_assets.get(key.clone()) {
-            return cached;
+        self.ensure_emode_loaded(category_id);
+        self.emode_usage
+            .as_ref()
+            .and_then(|ctx| ctx.emode_asset(asset))
+    }
+
+    pub fn cached_e_mode_category(&mut self, category_id: u32) -> Option<EModeCategory> {
+        if category_id == 0 {
+            return None;
         }
-        let value = storage::get_emode_asset(&self.env, category_id, asset);
-        self.emode_assets.set(key, value.clone());
-        value
+        self.ensure_emode_loaded(category_id);
+        self.emode_usage.as_ref().map(EModeUsageContext::as_category)
+    }
+
+    pub fn active_e_mode_category(&mut self, env: &Env, category_id: u32) -> Option<EModeCategory> {
+        let category = self.cached_e_mode_category(category_id)?;
+        crate::emode::ensure_e_mode_not_deprecated(env, &Some(category.clone()));
+        Some(category)
+    }
+
+    pub fn cached_emode_spoke_usage(
+        &mut self,
+        category_id: u32,
+        asset: &Address,
+    ) -> Option<EModeSpokeUsageRaw> {
+        if category_id == 0 {
+            return None;
+        }
+        self.ensure_emode_loaded(category_id);
+        self.emode_usage
+            .as_ref()
+            .map(|ctx| ctx.spoke_usage(asset))
+    }
+
+    pub(crate) fn emode_usage_mut(&mut self, category_id: u32) -> Option<&mut EModeUsageContext> {
+        if category_id == 0 {
+            return None;
+        }
+        self.ensure_emode_loaded(category_id);
+        self.emode_usage.as_mut()
+    }
+
+    pub(crate) fn persist_emode_usage(&self) {
+        if let Some(ctx) = &self.emode_usage {
+            ctx.persist(&self.env);
+        }
     }
 }

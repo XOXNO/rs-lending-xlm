@@ -12,7 +12,7 @@ use common::rates::{scaled_to_original, utilization};
 use common::validation::cap_is_enabled;
 use controller_interface::types::PriceFeed;
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPositionRaw, MarketStatus,
+    Account, AccountPosition, AssetConfig, DebtPositionRaw, EModeSpokeUsageRaw, MarketStatus,
 };
 use soroban_sdk::{Address, Env};
 
@@ -148,7 +148,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
     )
 }
 
-pub fn max_supply(env: &Env, asset: &Address) -> i128 {
+pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
@@ -160,20 +160,40 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
     if !config.can_supply() {
         return 0;
     }
-    if !cap_is_enabled(config.supply_cap) {
+    let account = match storage::try_get_account(env, account_id) {
+        Some(account) => account,
+        None => return 0,
+    };
+    let mut cache = Cache::new_view(env);
+    if account.e_mode_category_id > 0
+        && (!market_config
+            .asset_config
+            .e_mode_categories
+            .contains(account.e_mode_category_id)
+            || cache
+                .cached_emode_asset(account.e_mode_category_id, asset)
+                .is_none())
+    {
+        return 0;
+    }
+    let hub_supply_cap = cache.cached_pool_sync_data(asset).params.supply_cap;
+    let market = MarketLimitCtx::load(&mut cache, asset);
+    let hub_headroom = hub_supply_cap_headroom(env, &market, hub_supply_cap);
+    let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, asset, &market);
+    hub_headroom.min(spoke_headroom)
+}
+
+/// Hub supply-cap headroom in asset units; `i128::MAX` when the cap is disabled.
+fn hub_supply_cap_headroom(env: &Env, market: &MarketLimitCtx, supply_cap: i128) -> i128 {
+    if !cap_is_enabled(supply_cap) {
         return i128::MAX;
     }
-
-    let mut cache = Cache::new_view(env);
-    let market = MarketLimitCtx::load(&mut cache, asset);
-    let cap_ray = Ray::from_asset(config.supply_cap, market.decimals);
+    let cap_ray = Ray::from_asset(supply_cap, market.decimals);
     let current = market.supplied.mul(env, market.supply_index);
     if current >= cap_ray {
         return 0;
     }
 
-    // The floor-converted headroom sits within a few stroops of the true
-    // bound; walk down against the pool's exact cap gate at the same index.
     let mut candidate = (cap_ray - current).to_asset_floor(market.decimals);
     for _ in 0..8 {
         if candidate <= 0 {
@@ -186,6 +206,38 @@ pub fn max_supply(env: &Env, asset: &Address) -> i128 {
         candidate -= 1;
     }
     0
+}
+
+/// Spoke supply-cap headroom for an e-mode account; `i128::MAX` when disabled.
+fn spoke_supply_cap_headroom(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    market: &MarketLimitCtx,
+) -> i128 {
+    if account.e_mode_category_id == 0 {
+        return i128::MAX;
+    }
+    let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, asset) else {
+        return i128::MAX;
+    };
+    if !cap_is_enabled(emode_cfg.supply_cap) {
+        return i128::MAX;
+    }
+    let usage = cache
+        .cached_emode_spoke_usage(account.e_mode_category_id, asset)
+        .unwrap_or(EModeSpokeUsageRaw {
+            supplied_scaled_ray: 0,
+            borrowed_scaled_ray: 0,
+        });
+    let cap_scaled = Ray::from_asset(emode_cfg.supply_cap, market.decimals)
+        .div_floor(env, market.supply_index);
+    let used_scaled = Ray::from(usage.supplied_scaled_ray);
+    if used_scaled >= cap_scaled {
+        return 0;
+    }
+    scaled_to_original(env, cap_scaled - used_scaled, market.supply_index).to_asset(market.decimals)
 }
 
 /// Largest currently executable `borrow` amount of `asset` for `account_id`.
@@ -220,10 +272,17 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
         return 0;
     }
 
-    let config = cache.cached_asset_config(asset);
+    let hub_borrow_cap = cache.cached_pool_sync_data(asset).params.borrow_cap;
     let mut hi = market
         .cash
-        .min(borrow_cap_headroom(env, &market, &config))
+        .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
+        .min(spoke_borrow_cap_headroom(
+            env,
+            &mut cache,
+            &account,
+            asset,
+            &market,
+        ))
         .max(0);
     if hi <= 0 {
         return 0;
@@ -234,7 +293,15 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let mut lo: i128 = 0;
     while lo < hi {
         let mid = hi - (hi - lo) / 2;
-        if borrow_ok(env, &mut cache, &account, asset, &market, &config, mid) {
+        if borrow_ok(
+            env,
+            &mut cache,
+            &account,
+            asset,
+            &market,
+            hub_borrow_cap,
+            mid,
+        ) {
             lo = mid;
         } else {
             hi = mid - 1;
@@ -252,7 +319,7 @@ fn account_can_borrow_asset(
     account: &Account,
     asset: &Address,
 ) -> bool {
-    let category = emode::e_mode_category(env, account.e_mode_category_id);
+    let category = cache.cached_e_mode_category(account.e_mode_category_id);
     if let Some(cat) = &category {
         // A deprecated category reverts the borrow in the mutating path.
         if cat.is_deprecated {
@@ -288,14 +355,46 @@ fn account_can_borrow_asset(
     true
 }
 
-/// Borrow-cap headroom in asset units; `i128::MAX` when the cap is disabled.
-fn borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, config: &AssetConfig) -> i128 {
-    if !cap_is_enabled(config.borrow_cap) {
+/// Hub borrow-cap headroom in asset units; `i128::MAX` when the cap is disabled.
+fn hub_borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, borrow_cap: i128) -> i128 {
+    if !cap_is_enabled(borrow_cap) {
         return i128::MAX;
     }
     let current =
         scaled_to_original(env, market.borrowed, market.borrow_index).to_asset(market.decimals);
-    (config.borrow_cap - current).max(0)
+    (borrow_cap - current).max(0)
+}
+
+/// Spoke borrow-cap headroom for an e-mode account; `i128::MAX` when disabled.
+fn spoke_borrow_cap_headroom(
+    env: &Env,
+    cache: &mut Cache,
+    account: &Account,
+    asset: &Address,
+    market: &MarketLimitCtx,
+) -> i128 {
+    if account.e_mode_category_id == 0 {
+        return i128::MAX;
+    }
+    let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, asset) else {
+        return i128::MAX;
+    };
+    if !cap_is_enabled(emode_cfg.borrow_cap) {
+        return i128::MAX;
+    }
+    let usage = cache
+        .cached_emode_spoke_usage(account.e_mode_category_id, asset)
+        .unwrap_or(EModeSpokeUsageRaw {
+            supplied_scaled_ray: 0,
+            borrowed_scaled_ray: 0,
+        });
+    let cap_scaled = Ray::from_asset(emode_cfg.borrow_cap, market.decimals)
+        .div_floor(env, market.borrow_index);
+    let used_scaled = Ray::from(usage.borrowed_scaled_ray);
+    if used_scaled >= cap_scaled {
+        return 0;
+    }
+    scaled_to_original(env, cap_scaled - used_scaled, market.borrow_index).to_asset(market.decimals)
 }
 
 /// Exact feasibility replica for borrowing `amount` of `asset`: pool liquidity,
@@ -308,7 +407,7 @@ fn borrow_ok(
     account: &Account,
     asset: &Address,
     market: &MarketLimitCtx,
-    config: &AssetConfig,
+    hub_borrow_cap: i128,
     amount: i128,
 ) -> bool {
     if amount <= 0 {
@@ -333,12 +432,32 @@ fn borrow_ok(
         }
     }
 
-    // Borrow cap on post-borrow debt.
-    if cap_is_enabled(config.borrow_cap) {
+    // Hub borrow cap on post-borrow pool debt.
+    if cap_is_enabled(hub_borrow_cap) {
         let post_actual =
             scaled_to_original(env, post_borrowed, market.borrow_index).to_asset(market.decimals);
-        if post_actual > config.borrow_cap {
+        if post_actual > hub_borrow_cap {
             return false;
+        }
+    }
+
+    // Spoke borrow cap on post-borrow scaled usage.
+    if account.e_mode_category_id > 0 {
+        if let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, asset) {
+            if cap_is_enabled(emode_cfg.borrow_cap) {
+                let usage = cache
+                    .cached_emode_spoke_usage(account.e_mode_category_id, asset)
+                    .unwrap_or(EModeSpokeUsageRaw {
+                        supplied_scaled_ray: 0,
+                        borrowed_scaled_ray: 0,
+                    });
+                let cap_scaled = Ray::from_asset(emode_cfg.borrow_cap, market.decimals)
+                    .div_floor(env, market.borrow_index);
+                let next_scaled = Ray::from(usage.borrowed_scaled_ray) + new_scaled;
+                if next_scaled > cap_scaled {
+                    return false;
+                }
+            }
         }
     }
 

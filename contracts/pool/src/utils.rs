@@ -44,8 +44,9 @@ pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
     );
 }
 
-/// Rejects a supply that would put current underlying supply above the cap.
-pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, supply_cap: i128) {
+/// Rejects a supply that would put current underlying supply above the hub cap.
+pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
+    let supply_cap = cache.params.supply_cap;
     if !cap_is_enabled(supply_cap) {
         return;
     }
@@ -59,8 +60,9 @@ pub(crate) fn enforce_supply_cap(env: &Env, cache: &Cache, scaled_delta: Ray, su
     );
 }
 
-/// Rejects a borrow that would put current underlying debt above the cap.
-pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray, borrow_cap: i128) {
+/// Rejects a borrow that would put current underlying debt above the hub cap.
+pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
+    let borrow_cap = cache.params.borrow_cap;
     if !cap_is_enabled(borrow_cap) {
         return;
     }
@@ -92,6 +94,23 @@ pub(crate) fn apply_rate_model(env: &Env, asset: &Address, m: &InterestRateModel
     params.max_utilization_ray = m.max_utilization_ray;
     params.reserve_factor_bps = m.reserve_factor_bps;
 
+    env.storage().persistent().set(&key, &params);
+}
+
+pub(crate) fn apply_hub_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
+    assert_with_error!(
+        env,
+        supply_cap >= 0 && borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
+    let key = PoolKey::Params(asset.clone());
+    let mut params: MarketParamsRaw = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
+    params.supply_cap = supply_cap;
+    params.borrow_cap = borrow_cap;
     env.storage().persistent().set(&key, &params);
 }
 
@@ -204,6 +223,8 @@ mod tests {
                 optimal_utilization_ray: RAY * 8 / 10,
                 max_utilization_ray: RAY * 95 / 100,
                 reserve_factor_bps: 1_000,
+                supply_cap: 0,
+                borrow_cap: 0,
                 asset_id: asset.clone(),
                 asset_decimals: 7,
             };
@@ -249,8 +270,11 @@ mod tests {
         t.as_contract(|| {
             let cache = cache_with(&t.env, &t.params, 10 * 10i128.pow(20), 0, 0);
             let delta = Ray::from(10i128.pow(20));
-            enforce_supply_cap(&t.env, &cache, delta, 0);
-            enforce_supply_cap(&t.env, &cache, delta, i128::MAX);
+            enforce_supply_cap(&t.env, &cache, delta);
+            let mut params = t.params.clone();
+            params.supply_cap = i128::MAX;
+            let cache = cache_with(&t.env, &params, 10 * 10i128.pow(20), 0, 0);
+            enforce_supply_cap(&t.env, &cache, delta);
         });
     }
 
@@ -260,10 +284,11 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             // Use the same scaled convention as other tests in this file (10 * RAY = 10 units @ idx 1)
-            let cache = cache_with(&t.env, &t.params, 10 * RAY, 0, 0);
+            let mut params = t.params.clone();
+            params.supply_cap = 12 * 10_000_000;
+            let cache = cache_with(&t.env, &params, 10 * RAY, 0, 0);
             let delta = Ray::from(3 * RAY);
-            // cap 12 units in asset (7 dec) -> from_asset inside will be 12 * RAY in value terms
-            enforce_supply_cap(&t.env, &cache, delta, 12 * 10_000_000);
+            enforce_supply_cap(&t.env, &cache, delta);
         });
     }
 
@@ -272,7 +297,7 @@ mod tests {
         let t = TestSetup::new();
         t.as_contract(|| {
             let cache = cache_with(&t.env, &t.params, 0, 5 * RAY, 0);
-            enforce_borrow_cap(&t.env, &cache, Ray::from(RAY), 0);
+            enforce_borrow_cap(&t.env, &cache, Ray::from(RAY));
         });
     }
 
@@ -281,9 +306,11 @@ mod tests {
     fn test_enforce_borrow_cap_rejects_over_cap() {
         let t = TestSetup::new();
         t.as_contract(|| {
-            let cache = cache_with(&t.env, &t.params, 0, 5 * RAY, 0);
+            let mut params = t.params.clone();
+            params.borrow_cap = 7 * 10_000_000;
+            let cache = cache_with(&t.env, &params, 0, 5 * RAY, 0);
             let delta = Ray::from(3 * RAY);
-            enforce_borrow_cap(&t.env, &cache, delta, 7 * 10_000_000);
+            enforce_borrow_cap(&t.env, &cache, delta);
         });
     }
 

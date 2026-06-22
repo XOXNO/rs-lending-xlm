@@ -24,6 +24,8 @@ pub trait ControllerAdmin {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
     );
     fn edit_asset_in_e_mode_category(
         env: Env,
@@ -34,6 +36,8 @@ pub trait ControllerAdmin {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
     );
     fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32);
     fn approve_token(env: Env, token: Address);
@@ -50,6 +54,7 @@ pub trait ControllerAdmin {
         config: AssetConfigRaw,
     ) -> Address;
     fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel);
+    fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
     fn deploy_pool(env: Env) -> Address;
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
     fn pause(env: Env);

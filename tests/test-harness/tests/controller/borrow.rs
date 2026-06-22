@@ -192,8 +192,8 @@ fn test_borrow_cap_enforcement() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
-        .with_market_config("ETH", |cfg| {
-            cfg.borrow_cap = cap;
+        .with_market_params("ETH", |params| {
+            params.borrow_cap = cap;
         })
         .build();
 

@@ -32,8 +32,6 @@ pub struct AssetConfigPreset {
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee_bps: u32,
-    pub borrow_cap: i128,
-    pub supply_cap: i128,
 }
 
 #[derive(Clone)]
@@ -47,6 +45,8 @@ pub struct MarketParamsPreset {
     pub optimal_utilization_ray: i128,
     pub max_utilization_ray: i128,
     pub reserve_factor_bps: u32,
+    pub supply_cap: i128,
+    pub borrow_cap: i128,
 }
 
 #[derive(Clone)]
@@ -74,8 +74,6 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     is_borrowable: true,
     is_flashloanable: true,
     flashloan_fee_bps: 9,
-    borrow_cap: 0, // 0 = no cap (tests that need caps override per-market)
-    supply_cap: 0, // 0 = no cap
 };
 
 pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
@@ -92,6 +90,8 @@ pub const DEFAULT_MARKET_PARAMS: MarketParamsPreset = MarketParamsPreset {
     // `RAY`. Markets may tighten per asset class.
     max_utilization_ray: RAY * 95 / 100,
     reserve_factor_bps: 1000,
+    supply_cap: 0,
+    borrow_cap: 0,
 };
 // Market presets (functions instead of const due to f64 field)
 
@@ -186,7 +186,11 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // Conversion helpers (preset -> contract types)
 
 impl AssetConfigPreset {
-    pub fn to_asset_config(&self, env: &soroban_sdk::Env) -> controller::types::AssetConfigRaw {
+    pub fn to_asset_config(
+        &self,
+        env: &soroban_sdk::Env,
+        decimals: u32,
+    ) -> controller::types::AssetConfigRaw {
         controller::types::AssetConfigRaw {
             loan_to_value_bps: self.loan_to_value_bps,
             liquidation_threshold_bps: self.liquidation_threshold_bps,
@@ -196,8 +200,7 @@ impl AssetConfigPreset {
             is_borrowable: self.is_borrowable,
             is_flashloanable: self.is_flashloanable,
             flashloan_fee_bps: self.flashloan_fee_bps,
-            borrow_cap: self.borrow_cap,
-            supply_cap: self.supply_cap,
+            asset_decimals: decimals,
             // Memberships are populated via `add_asset_to_e_mode_category`,
             // never at preset → market construction time.
             e_mode_categories: soroban_sdk::Vec::new(env),
@@ -221,6 +224,8 @@ impl MarketParamsPreset {
             optimal_utilization_ray: self.optimal_utilization_ray,
             max_utilization_ray: self.max_utilization_ray,
             reserve_factor_bps: self.reserve_factor_bps,
+            supply_cap: self.supply_cap,
+            borrow_cap: self.borrow_cap,
             asset_id: asset.clone(),
             asset_decimals: decimals,
         }

@@ -870,14 +870,12 @@ fn test_strategy_swap_collateral_supply_cap_reached() {
     // Bob supplies 1M USDC to fill the pool.
     t.supply(BOB, "USDC", 1_000_000.0);
 
-    // Set the USDC supply cap to 1,010,000 tokens (7 decimals). Current
+    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Current
     // total = 1,000,000.
-    t.ctrl_client().edit_asset_config(
+    t.ctrl_client().update_pool_caps(
         &t.resolve_asset("USDC"),
-        &AssetConfigRaw {
-            supply_cap: 10_100_000_000_000,
-            ..usdc_preset().config.to_asset_config(&t.env)
-        },
+        &10_100_000_000_000i128,
+        &0i128,
     );
 
     // Alice supplies some ETH.
@@ -910,15 +908,13 @@ fn test_strategy_multiply_supply_cap_reached() {
     // Bob supplies 1M USDC.
     t.supply(BOB, "USDC", 1_000_000.0);
 
-    // Set the USDC supply cap to 1,010,000 tokens (7 decimals). Preserves
+    // Set the USDC hub supply cap to 1,010,000 tokens (7 decimals). Preserves
     // the dust-disabled sentinel from `with_dust_disabled_all_markets()` so
     // Alice's deliberately-tiny 5 USDC seed position survives the new gate.
-    t.ctrl_client().edit_asset_config(
+    t.ctrl_client().update_pool_caps(
         &t.resolve_asset("USDC"),
-        &AssetConfigRaw {
-            supply_cap: 10_100_000_000_000,
-            ..usdc_preset().config.to_asset_config(&t.env)
-        },
+        &10_100_000_000_000i128,
+        &0i128,
     );
 
     // Alice has some USDC.

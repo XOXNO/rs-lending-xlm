@@ -39,14 +39,8 @@ pub(crate) fn pool_create_strategy_call(
     receiver: &Address,
     action: PoolAction,
     fee: i128,
-    borrow_cap: i128,
 ) -> PoolStrategyMutation {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).create_strategy(
-        receiver,
-        &action,
-        &fee,
-        &borrow_cap,
-    )
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).create_strategy(receiver, &action, &fee)
 }
 
 pub(crate) fn pool_withdraw_call(
@@ -135,6 +129,16 @@ pub(crate) fn pool_update_params_call(
     params: &InterestRateModel,
 ) {
     pool_interface::LiquidityPoolClient::new(env, pool_addr).update_params(asset, params)
+}
+
+pub(crate) fn pool_update_caps_call(
+    env: &Env,
+    pool_addr: &Address,
+    asset: &Address,
+    supply_cap: i128,
+    borrow_cap: i128,
+) {
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).update_caps(asset, &supply_cap, &borrow_cap)
 }
 
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {

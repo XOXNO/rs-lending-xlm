@@ -56,7 +56,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1000
+        "reserve_factor_bps": 1000,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "30000000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 8500,
@@ -66,10 +68,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
-        "flashloan_fee_bps": 9,
-        "borrow_cap": "30000000000000",
-        "supply_cap": "50000000000000",
+        "flashloan_fee_bps": 9
       }
     },
     {
@@ -127,7 +126,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500
+        "reserve_factor_bps": 1500,
+        "supply_cap": "250000000000000",
+        "borrow_cap": "100000000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7000,
@@ -137,10 +138,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
-        "flashloan_fee_bps": 9,
-        "borrow_cap": "100000000000000",
-        "supply_cap": "250000000000000",
+        "flashloan_fee_bps": 9
       }
     },
     {
@@ -198,7 +196,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1000
+        "reserve_factor_bps": 1000,
+        "supply_cap": "20000000000000",
+        "borrow_cap": "10000000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 8500,
@@ -208,10 +208,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
-        "flashloan_fee_bps": 9,
-        "borrow_cap": "10000000000000",
-        "supply_cap": "20000000000000",
+        "flashloan_fee_bps": 9
       }
     },
     {
@@ -269,7 +266,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 2000
+        "reserve_factor_bps": 2000,
+        "supply_cap": "1000000000000",
+        "borrow_cap": "500000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7500,
@@ -279,10 +278,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": false,
-
-        "flashloan_fee_bps": 0,
-        "borrow_cap": "500000000000",
-        "supply_cap": "1000000000000",
+        "flashloan_fee_bps": 0
       }
     },
     {
@@ -340,7 +336,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 2000
+        "reserve_factor_bps": 2000,
+        "supply_cap": "1500000000000",
+        "borrow_cap": "750000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7000,
@@ -350,10 +348,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": false,
-
-        "flashloan_fee_bps": 0,
-        "borrow_cap": "750000000000",
-        "supply_cap": "1500000000000",
+        "flashloan_fee_bps": 0
       }
     },
     {
@@ -411,7 +406,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "800000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 2000
+        "reserve_factor_bps": 2000,
+        "supply_cap": "1000000000000",
+        "borrow_cap": "500000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7000,
@@ -421,10 +418,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": false,
-
-        "flashloan_fee_bps": 0,
-        "borrow_cap": "500000000000",
-        "supply_cap": "1000000000000",
+        "flashloan_fee_bps": 0
       }
     },
     {
@@ -482,7 +476,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "650000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500
+        "reserve_factor_bps": 1500,
+        "supply_cap": "4000000000",
+        "borrow_cap": "2000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7000,
@@ -492,10 +488,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
-        "flashloan_fee_bps": 9,
-        "borrow_cap": "2000000000",
-        "supply_cap": "4000000000",
+        "flashloan_fee_bps": 9
       }
     },
     {
@@ -553,7 +546,9 @@
         "mid_utilization_ray": "500000000000000000000000000",
         "optimal_utilization_ray": "650000000000000000000000000",
         "max_utilization_ray": "950000000000000000000000000",
-        "reserve_factor_bps": 1500
+        "reserve_factor_bps": 1500,
+        "supply_cap": "3000000000",
+        "borrow_cap": "2000000000"
       },
       "asset_config": {
         "loan_to_value_bps": 7000,
@@ -563,10 +558,7 @@
         "is_collateralizable": true,
         "is_borrowable": true,
         "is_flashloanable": true,
-
-        "flashloan_fee_bps": 9,
-        "borrow_cap": "2000000000",
-        "supply_cap": "3000000000",
+        "flashloan_fee_bps": 9
       }
     }
   ]

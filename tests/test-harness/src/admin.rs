@@ -85,6 +85,8 @@ impl LendingTest {
             &ltv,
             &threshold,
             &bonus,
+            &0i128,
+            &0i128,
         );
     }
 
@@ -108,6 +110,8 @@ impl LendingTest {
             &ltv,
             &threshold,
             &bonus,
+            &0i128,
+            &0i128,
         );
     }
 
@@ -116,4 +120,5 @@ impl LendingTest {
         self.ctrl_client()
             .remove_asset_from_e_mode(&asset, &category_id);
     }
+
 }

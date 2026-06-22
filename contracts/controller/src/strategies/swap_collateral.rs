@@ -135,7 +135,7 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new_collateral: &Address,
 ) {
-    let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+    let e_mode = cache.active_e_mode_category(env, account.e_mode_category_id);
     let config = emode::effective_asset_config(env, account, new_collateral, cache, &e_mode);
     emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, new_collateral);
 

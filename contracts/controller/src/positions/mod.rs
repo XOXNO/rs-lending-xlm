@@ -80,6 +80,7 @@ pub(crate) fn finalize_position_flow(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
+    cache.persist_emode_usage();
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
     cache.emit_position_batch(account_id, account);
 }
@@ -97,7 +98,7 @@ impl AggregatedConfigs {
         aggregated: &AggregatedPayments,
         cache: &mut Cache,
     ) -> Self {
-        let e_mode = emode::active_e_mode_category(env, account.e_mode_category_id);
+        let e_mode = cache.active_e_mode_category(env, account.e_mode_category_id);
         let mut configs: Map<Address, AssetConfigRaw> = Map::new(env);
         for (asset, _) in aggregated.iter() {
             let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);

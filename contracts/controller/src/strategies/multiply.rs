@@ -224,7 +224,7 @@ fn load_or_create_multiply_account(
     if account_id == 0 {
         // `create_account` returns the in-memory snapshot it wrote; no storage
         // re-read is needed.
-        return helpers::create_account(env, caller, e_mode_category, mode);
+        return helpers::create_account(env, caller, e_mode_category, mode, None);
     }
 
     let account = storage::get_account(env, account_id);

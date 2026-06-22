@@ -220,11 +220,7 @@ pub trait GovernanceInterface {
     ) -> BytesN<32>;
 
     /// Schedules `add_e_mode_category`.
-    fn propose_add_e_mode_category(
-        env: Env,
-        proposer: Address,
-        salt: BytesN<32>,
-    ) -> BytesN<32>;
+    fn propose_add_e_mode_category(env: Env, proposer: Address, salt: BytesN<32>) -> BytesN<32>;
 
     /// Schedules `remove_e_mode_category`.
     fn propose_remove_e_mode_category(
@@ -245,6 +241,8 @@ pub trait GovernanceInterface {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 
@@ -259,6 +257,18 @@ pub trait GovernanceInterface {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
+        salt: BytesN<32>,
+    ) -> BytesN<32>;
+
+    /// Schedules `update_pool_caps`.
+    fn propose_update_pool_caps(
+        env: Env,
+        proposer: Address,
+        asset: Address,
+        supply_cap: i128,
+        borrow_cap: i128,
         salt: BytesN<32>,
     ) -> BytesN<32>;
 

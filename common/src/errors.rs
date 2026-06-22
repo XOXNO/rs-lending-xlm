@@ -194,6 +194,14 @@ pub enum EModeError {
     EModeAssetsLimitReached = 309,
     /// Requested e-mode category does not match account category.
     EModeMismatch = 310,
+    /// E-mode spoke supply cap would be exceeded.
+    SpokeSupplyCapReached = 311,
+    /// E-mode spoke borrow cap would be exceeded.
+    SpokeBorrowCapReached = 312,
+    /// Spoke cap exceeds the hub cap for the same asset.
+    SpokeCapExceedsHub = 313,
+    /// Spoke cap would fall below current category usage.
+    SpokeCapBelowUsage = 314,
 }
 
 #[contracterror]

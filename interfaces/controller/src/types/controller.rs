@@ -4,10 +4,10 @@ use common::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, Deb
 use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
-/// Persistent asset risk and limit configuration.
+/// Persistent asset risk configuration. Hub supply/borrow caps live on the pool
+/// [`common::types::pool::MarketParamsRaw`].
 ///
-/// `*_bps` fields use basis points. `*_usd_wad` floors and ceilings are
-/// denominated in USD WAD. `borrow_cap` and `supply_cap` use asset units.
+/// `*_bps` fields use basis points.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct AssetConfigRaw {
@@ -19,8 +19,8 @@ pub struct AssetConfigRaw {
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee_bps: u32,
-    pub borrow_cap: i128,
-    pub supply_cap: i128,
+    /// SAC decimal count for this market; copied from pool params at create time.
+    pub asset_decimals: u32,
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -35,8 +35,7 @@ pub struct AssetConfig {
     pub is_borrowable: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee: Bps,
-    pub borrow_cap: i128,
-    pub supply_cap: i128,
+    pub asset_decimals: u32,
     pub e_mode_categories: Vec<u32>,
 }
 
@@ -65,8 +64,7 @@ impl From<&AssetConfigRaw> for AssetConfig {
             is_borrowable: r.is_borrowable,
             is_flashloanable: r.is_flashloanable,
             flashloan_fee: Bps::from(i128::from(r.flashloan_fee_bps)),
-            borrow_cap: r.borrow_cap,
-            supply_cap: r.supply_cap,
+            asset_decimals: r.asset_decimals,
             e_mode_categories: r.e_mode_categories.clone(),
         }
     }
@@ -83,8 +81,7 @@ impl From<&AssetConfig> for AssetConfigRaw {
             is_borrowable: t.is_borrowable,
             is_flashloanable: t.is_flashloanable,
             flashloan_fee_bps: t.flashloan_fee.raw() as u32,
-            borrow_cap: t.borrow_cap,
-            supply_cap: t.supply_cap,
+            asset_decimals: t.asset_decimals,
             e_mode_categories: t.e_mode_categories.clone(),
         }
     }
@@ -121,6 +118,8 @@ pub struct AccountMeta {
 pub struct EModeCategoryRaw {
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
+    /// Per-asset scaled-share totals for accounts in this spoke.
+    pub usage: Map<Address, EModeSpokeUsageRaw>,
 }
 
 /// Typed e-mode category used when applying overrides; only `is_deprecated`
@@ -129,6 +128,7 @@ pub struct EModeCategoryRaw {
 pub struct EModeCategory {
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
+    pub usage: Map<Address, EModeSpokeUsageRaw>,
 }
 
 impl From<&EModeCategoryRaw> for EModeCategory {
@@ -136,6 +136,7 @@ impl From<&EModeCategoryRaw> for EModeCategory {
         Self {
             is_deprecated: r.is_deprecated,
             assets: r.assets.clone(),
+            usage: r.usage.clone(),
         }
     }
 }
@@ -145,6 +146,7 @@ impl From<&EModeCategory> for EModeCategoryRaw {
         Self {
             is_deprecated: t.is_deprecated,
             assets: t.assets.clone(),
+            usage: t.usage.clone(),
         }
     }
 }
@@ -160,6 +162,18 @@ pub struct EModeAssetConfig {
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
+    /// Spoke supply cap in asset-native units; zero disables.
+    pub supply_cap: i128,
+    /// Spoke borrow cap in asset-native units; zero disables.
+    pub borrow_cap: i128,
+}
+
+/// Running scaled-share totals for one asset within an e-mode spoke.
+#[contracttype]
+#[derive(Clone, Debug, Default)]
+pub struct EModeSpokeUsageRaw {
+    pub supplied_scaled_ray: i128,
+    pub borrowed_scaled_ray: i128,
 }
 
 #[contracttype]
@@ -354,8 +368,7 @@ mod tests {
             is_borrowable: true,
             is_flashloanable: true,
             flashloan_fee_bps: 9,
-            borrow_cap: 1_000_000,
-            supply_cap: 5_000_000,
+            asset_decimals: 7,
             e_mode_categories: categories,
         }
     }
@@ -377,8 +390,6 @@ mod tests {
         assert_eq!(back.is_borrowable, raw.is_borrowable);
         assert_eq!(back.is_flashloanable, raw.is_flashloanable);
         assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
-        assert_eq!(back.borrow_cap, raw.borrow_cap);
-        assert_eq!(back.supply_cap, raw.supply_cap);
         assert_eq!(back.e_mode_categories, raw.e_mode_categories);
     }
 
@@ -401,11 +412,14 @@ mod tests {
                 loan_to_value_bps: 9_000,
                 liquidation_threshold_bps: 9_300,
                 liquidation_bonus_bps: 300,
+                supply_cap: 0,
+                borrow_cap: 0,
             },
         );
         EModeCategoryRaw {
             is_deprecated: false,
             assets,
+            usage: Map::new(env),
         }
     }
 

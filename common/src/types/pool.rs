@@ -19,6 +19,10 @@ pub struct MarketParamsRaw {
     pub optimal_utilization_ray: i128,
     pub max_utilization_ray: i128,
     pub reserve_factor_bps: u32,
+    /// Hub supply cap in asset-native units; zero or `i128::MAX` disables.
+    pub supply_cap: i128,
+    /// Hub borrow cap in asset-native units; zero or `i128::MAX` disables.
+    pub borrow_cap: i128,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
@@ -50,6 +54,11 @@ impl MarketParamsRaw {
             self.asset_decimals <= RAY_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
         );
+        assert_with_error!(
+            env,
+            self.supply_cap >= 0 && self.borrow_cap >= 0,
+            CollateralError::InvalidBorrowParams
+        );
         self.verify_rate_model(env);
     }
 }
@@ -66,6 +75,8 @@ pub struct MarketParams {
     pub optimal_utilization: Ray,
     pub max_utilization: Ray,
     pub reserve_factor: Bps,
+    pub supply_cap: i128,
+    pub borrow_cap: i128,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
@@ -82,6 +93,8 @@ impl From<&MarketParamsRaw> for MarketParams {
             optimal_utilization: Ray::from(r.optimal_utilization_ray),
             max_utilization: Ray::from(r.max_utilization_ray),
             reserve_factor: Bps::from(i128::from(r.reserve_factor_bps)),
+            supply_cap: r.supply_cap,
+            borrow_cap: r.borrow_cap,
             asset_id: r.asset_id.clone(),
             asset_decimals: r.asset_decimals,
         }
@@ -100,6 +113,8 @@ impl From<&MarketParams> for MarketParamsRaw {
             optimal_utilization_ray: t.optimal_utilization.raw(),
             max_utilization_ray: t.max_utilization.raw(),
             reserve_factor_bps: t.reserve_factor.raw() as u32,
+            supply_cap: t.supply_cap,
+            borrow_cap: t.borrow_cap,
             asset_id: t.asset_id.clone(),
             asset_decimals: t.asset_decimals,
         }
@@ -400,7 +415,6 @@ pub struct PoolAction {
 #[derive(Clone, Debug)]
 pub struct PoolSupplyEntry {
     pub action: PoolAction,
-    pub supply_cap: i128,
 }
 
 /// One asset of a bulk pool `borrow`.
@@ -408,7 +422,6 @@ pub struct PoolSupplyEntry {
 #[derive(Clone, Debug)]
 pub struct PoolBorrowEntry {
     pub action: PoolAction,
-    pub borrow_cap: i128,
 }
 
 /// One asset of a bulk pool `withdraw`. The liquidation flag is per call;
@@ -502,6 +515,8 @@ mod tests {
             reserve_factor_bps: 1_000,
             asset_id: asset(env),
             asset_decimals: 7,
+            supply_cap: 0,
+            borrow_cap: 0,
         }
     }
 

@@ -279,7 +279,16 @@ fn add_asset_enforces_valid_bounds(
     cvlr_assume!(category_id > 0);
 
     crate::governance::config::add_asset_to_e_mode_category(
-        &e, asset.clone(), category_id, true, true, ltv, threshold, bonus,
+        &e,
+        asset.clone(),
+        category_id,
+        true,
+        true,
+        ltv,
+        threshold,
+        bonus,
+        0,
+        0,
     );
 
     let cfg = crate::storage::get_emode_asset(&e, category_id, &asset).unwrap();
@@ -299,7 +308,16 @@ fn edit_asset_enforces_valid_bounds(
     cvlr_assume!(category_id > 0);
 
     crate::governance::config::edit_asset_in_e_mode_category(
-        &e, asset.clone(), category_id, true, true, ltv, threshold, bonus,
+        &e,
+        asset.clone(),
+        category_id,
+        true,
+        true,
+        ltv,
+        threshold,
+        bonus,
+        0,
+        0,
     );
 
     let cfg = crate::storage::get_emode_asset(&e, category_id, &asset).unwrap();
@@ -346,7 +364,16 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     cvlr_assume!(category.unwrap().is_deprecated);
 
     crate::governance::config::add_asset_to_e_mode_category(
-        &e, asset, category_id, true, true, 9_000, 9_300, 300,
+        &e,
+        asset,
+        category_id,
+        true,
+        true,
+        9_000,
+        9_300,
+        300,
+        0,
+        0,
     );
 
     cvlr_satisfy!(false);

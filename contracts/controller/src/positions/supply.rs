@@ -54,8 +54,14 @@ pub fn process_supply(
 
     let aggregated = utils::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
-    let (acct_id, mut account) =
-        resolve_supply_account(env, caller, account_id, e_mode_category, &aggregated);
+    let (acct_id, mut account) = resolve_supply_account(
+        env,
+        caller,
+        account_id,
+        e_mode_category,
+        &aggregated,
+        &mut cache,
+    );
 
     process_deposit(env, caller, &mut account, &aggregated, &mut cache);
 
@@ -77,11 +83,18 @@ fn resolve_supply_account(
     account_id: u64,
     e_mode_category: u32,
     aggregated: &AggregatedPayments,
+    cache: &mut Cache,
 ) -> (u64, Account) {
     validation::require_non_empty_payments(env, aggregated);
 
     if account_id == 0 {
-        helpers::create_account(env, caller, e_mode_category, PositionMode::Normal)
+        helpers::create_account(
+            env,
+            caller,
+            e_mode_category,
+            PositionMode::Normal,
+            Some(cache),
+        )
     } else {
         let account = storage::get_account(env, account_id);
         // Zero is the unspecified sentinel; any non-zero value must match the
@@ -161,7 +174,6 @@ fn settle_deposit(
         let position = account.get_or_create_supply_position(&asset, &asset_config);
         entries.push_back(PoolSupplyEntry {
             action: make_pool_action(&position, amount_in, asset.clone()),
-            supply_cap: asset_config.supply_cap,
         });
     }
     let results = pool_supply_call(env, &pool_addr, &entries);
@@ -172,10 +184,21 @@ fn settle_deposit(
         let asset_config = configs.get(env, asset);
 
         let mut position = account.get_or_create_supply_position(asset, &asset_config);
+        let old_scaled = position.scaled_amount;
         refresh_supply_risk_params(env, cache, account, asset, &mut position, &asset_config);
         // Merge ONLY the scaled share back; the pool does not echo collateral
         // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+        if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+            let delta = position.scaled_amount - old_scaled;
+            ctx.apply_supply_after_pool(
+                env,
+                asset,
+                delta,
+                &result.market_index,
+                asset_config.asset_decimals,
+            );
+        }
 
         // Cache the pool-returned index so post-action valuation reads it
         // instead of asking the pool again.

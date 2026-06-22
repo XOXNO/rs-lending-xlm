@@ -15,14 +15,20 @@ use crate::events::{
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, MarketOracleConfig, MarketStatus,
-    OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase,
+    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, EModeSpokeUsageRaw, MarketOracleConfig,
+    MarketStatus, OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
 };
 use stellar_macros::only_owner;
 
+use crate::external::pool::fetch_pool_sync_data;
+use common::math::fp::Ray;
+
+use crate::helpers::emode_caps::{
+    empty_usage_map, validate_spoke_caps_against_hub, validate_spoke_caps_against_usage,
+};
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -89,6 +95,8 @@ impl Controller {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
     ) {
         storage::renew_controller_instance(&env);
         add_asset_to_e_mode_category(
@@ -100,6 +108,8 @@ impl Controller {
             ltv,
             threshold,
             bonus,
+            supply_cap,
+            borrow_cap,
         );
     }
 
@@ -113,6 +123,8 @@ impl Controller {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
     ) {
         storage::renew_controller_instance(&env);
         edit_asset_in_e_mode_category(
@@ -124,6 +136,8 @@ impl Controller {
             ltv,
             threshold,
             bonus,
+            supply_cap,
+            borrow_cap,
         );
     }
 
@@ -218,6 +232,7 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     );
     let mut market = storage::get_market_config(env, &asset);
     next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
+    next_config.asset_decimals = market.asset_config.asset_decimals;
     market.asset_config = next_config.clone();
     storage::set_market_config(env, &asset, &market);
 
@@ -251,6 +266,7 @@ pub fn add_e_mode_category(env: &Env) -> u32 {
     let cat = EModeCategoryRaw {
         is_deprecated: false,
         assets: soroban_sdk::Map::new(env),
+        usage: empty_usage_map(env),
     };
     storage::set_emode_category(env, id, &cat);
 
@@ -291,8 +307,15 @@ pub fn add_asset_to_e_mode_category(
     ltv: u32,
     threshold: u32,
     bonus: u32,
+    supply_cap: i128,
+    borrow_cap: i128,
 ) {
     common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+    assert_with_error!(
+        env,
+        supply_cap >= 0 && borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
     let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
@@ -304,12 +327,24 @@ pub fn add_asset_to_e_mode_category(
         EModeError::AssetAlreadyInEmode
     );
 
+    let pool_addr = storage::get_pool(env);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &asset);
+    validate_spoke_caps_against_hub(
+        env,
+        hub.params.supply_cap,
+        hub.params.borrow_cap,
+        supply_cap,
+        borrow_cap,
+    );
+
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
         is_borrowable: can_borrow,
         loan_to_value_bps: ltv,
         liquidation_threshold_bps: threshold,
         liquidation_bonus_bps: bonus,
+        supply_cap,
+        borrow_cap,
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 
@@ -336,8 +371,15 @@ pub fn edit_asset_in_e_mode_category(
     ltv: u32,
     threshold: u32,
     bonus: u32,
+    supply_cap: i128,
+    borrow_cap: i128,
 ) {
     common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+    assert_with_error!(
+        env,
+        supply_cap >= 0 && borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
     let cat = storage::get_emode_category(env, category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     assert_with_error!(
@@ -346,12 +388,40 @@ pub fn edit_asset_in_e_mode_category(
         EModeError::AssetNotInEmode
     );
 
+    let pool_addr = storage::get_pool(env);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &asset);
+    validate_spoke_caps_against_hub(
+        env,
+        hub.params.supply_cap,
+        hub.params.borrow_cap,
+        supply_cap,
+        borrow_cap,
+    );
+    let usage = cat
+        .usage
+        .get(asset.clone())
+        .unwrap_or(EModeSpokeUsageRaw {
+            supplied_scaled_ray: 0,
+            borrowed_scaled_ray: 0,
+        });
+    validate_spoke_caps_against_usage(
+        env,
+        &usage,
+        supply_cap,
+        borrow_cap,
+        Ray::from(hub.state.supply_index_ray),
+        Ray::from(hub.state.borrow_index_ray),
+        hub.params.asset_decimals,
+    );
+
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
         is_borrowable: can_borrow,
         loan_to_value_bps: ltv,
         liquidation_threshold_bps: threshold,
         liquidation_bonus_bps: bonus,
+        supply_cap,
+        borrow_cap,
     };
     storage::set_emode_asset(env, category_id, &asset, &config);
 

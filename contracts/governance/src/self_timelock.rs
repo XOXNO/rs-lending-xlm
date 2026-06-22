@@ -13,12 +13,12 @@ use crate::access::{
     apply_grant_role, apply_revoke_role, apply_transfer_ownership, apply_upgrade,
     require_known_governance_role, PROPOSER_ROLE,
 };
-use crate::validate;
 use crate::storage::renew_governance_instance;
 use crate::timelock::{
     apply_update_delay, authorize_executor, operation_delay, require_operation_not_expired,
     validate_delay_update, DelayTier,
 };
+use crate::validate;
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 fn begin_proposal(env: &Env, proposer: &Address) {

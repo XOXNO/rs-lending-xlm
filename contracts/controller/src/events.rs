@@ -577,8 +577,7 @@ mod tests {
             e_mode_categories: soroban_sdk::Vec::new(env),
             is_flashloanable: true,
             flashloan_fee_bps: 9,
-            borrow_cap: 0,
-            supply_cap: 0,
+            asset_decimals: 7,
         }
     }
 
@@ -868,6 +867,8 @@ mod tests {
                     loan_to_value_bps: 9000,
                     liquidation_threshold_bps: 9500,
                     liquidation_bonus_bps: 200,
+                    supply_cap: 0,
+                    borrow_cap: 0,
                 },
                 category_id: 1,
             }

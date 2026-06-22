@@ -18,7 +18,7 @@ use crate::emode;
 use crate::events;
 use crate::external::pool::{
     pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
-    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
+    pool_update_caps_call, pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
@@ -83,6 +83,11 @@ impl Controller {
     #[only_owner]
     pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
         upgrade_liquidity_pool_params(&env, &asset, &params);
+    }
+
+    #[only_owner]
+    pub fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128) {
+        update_pool_caps(&env, &asset, supply_cap, borrow_cap);
     }
 
     #[only_owner]
@@ -166,6 +171,7 @@ pub fn create_liquidity_pool(
 
     let mut asset_config = config.clone();
     asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
+    asset_config.asset_decimals = params.asset_decimals;
     let market = MarketConfig {
         status: MarketStatus::PendingOracle,
         asset_config,
@@ -194,6 +200,26 @@ pub fn create_liquidity_pool(
     storage::set_token_approved(env, asset, false);
 
     pool_address
+}
+
+/// Updates hub supply/borrow caps on the central pool for one market.
+pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
+    assert_with_error!(
+        env,
+        supply_cap >= 0 && borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
+    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    storage::renew_controller_instance(env);
+    validation::require_asset_supported(env, &mut cache, asset);
+    crate::helpers::emode_caps::validate_hub_caps_against_category_spokes(
+        env,
+        asset,
+        supply_cap,
+        borrow_cap,
+    );
+    let pool_addr = cache.cached_pool_address();
+    pool_update_caps_call(env, &pool_addr, asset, supply_cap, borrow_cap);
 }
 
 /// Accrues pool indexes before replacing the market's interest-rate model.
@@ -315,7 +341,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     storage::renew_user_account(env, account_id);
 
-    let e_mode_category = emode::e_mode_category(env, meta.e_mode_category_id);
+    let e_mode_category = cache.cached_e_mode_category(meta.e_mode_category_id);
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 

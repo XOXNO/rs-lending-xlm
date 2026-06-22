@@ -6,6 +6,7 @@
 //! No oracle reads: repay only reduces debt and needs no live prices.
 
 use common::errors::GenericError;
+use common::math::fp::Ray;
 use controller_interface::types::{
     Account, DebtPosition, Payment, PoolAction, PoolPositionMutation,
 };
@@ -110,20 +111,30 @@ pub(crate) fn settle_repay_actions(
     let results = pool_repay_call(env, &pool_addr, payer, actions);
     for (i, entry) in actions.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        finish_repayment(account, action, &entry.asset, &result, cache);
+        finish_repayment(env, account, action, &entry.asset, &result, cache);
     }
     results
 }
 
 /// Merges one pool repay result back into the account and event buffers.
 pub(crate) fn finish_repayment(
+    env: &Env,
     account: &mut Account,
     action: events::PositionAction,
     asset: &Address,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
+    let old_scaled = account
+        .borrow_positions
+        .get(asset.clone())
+        .map(|p| Ray::from(p.scaled_amount_ray))
+        .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
+    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        let delta = old_scaled - position.scaled_amount;
+        ctx.apply_repay_after_pool(env, asset, delta);
+    }
     update_or_remove_debt_position(account, asset, &position);
 
     cache.put_market_index(asset, &result.market_index);

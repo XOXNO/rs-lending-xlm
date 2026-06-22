@@ -17,19 +17,21 @@ fn test_max_supply_uncapped_returns_max() {
     t.supply(ALICE, "USDC", 1_000.0);
 
     let asset = t.resolve_asset("USDC");
-    assert_eq!(t.ctrl_client().max_supply(&asset), i128::MAX);
+    let account_id = t.resolve_account_id(ALICE);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), i128::MAX);
 }
 
 #[test]
 fn test_max_supply_tracks_cap_headroom_and_is_executable() {
     let mut preset = usdc_preset();
-    preset.config.supply_cap = 2_000 * UNIT;
+    preset.params.supply_cap = 2_000 * UNIT;
     let mut t = LendingTest::new().with_market(preset).build();
 
     t.supply(ALICE, "USDC", 500.0);
 
     let asset = t.resolve_asset("USDC");
-    let headroom = t.ctrl_client().max_supply(&asset);
+    let account_id = t.resolve_account_id(ALICE);
+    let headroom = t.ctrl_client().max_supply(&account_id, &asset);
     assert!(
         headroom > 1_499 * UNIT && headroom <= 1_500 * UNIT,
         "headroom should be ~1500 USDC, got {headroom}"
@@ -37,7 +39,7 @@ fn test_max_supply_tracks_cap_headroom_and_is_executable() {
 
     // The preview executes; one more unit trips the cap.
     t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(t.ctrl_client().max_supply(&asset), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), 0);
     let res = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
 }
@@ -48,10 +50,11 @@ fn test_max_supply_zero_when_paused() {
     t.supply(ALICE, "USDC", 100.0);
 
     let asset = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
     t.pause();
-    assert_eq!(t.ctrl_client().max_supply(&asset), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), 0);
     t.unpause();
-    assert_eq!(t.ctrl_client().max_supply(&asset), i128::MAX);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), i128::MAX);
 }
 
 #[test]

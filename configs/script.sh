@@ -299,6 +299,7 @@ scval_market_params() {
             {key:{symbol:"asset_decimals"}, val:{u32:($p.asset_decimals)}},
             {key:{symbol:"asset_id"}, val:{address:($p.asset_id)}},
             i("base_borrow_rate_ray"),
+            i("borrow_cap"),
             i("max_borrow_rate_ray"),
             i("max_utilization_ray"),
             i("mid_utilization_ray"),
@@ -306,23 +307,21 @@ scval_market_params() {
             {key:{symbol:"reserve_factor_bps"}, val:{u32:($p.reserve_factor_bps)}},
             i("slope1_ray"),
             i("slope2_ray"),
-            i("slope3_ray")
+            i("slope3_ray"),
+            i("supply_cap")
         ]}'
 }
 
-# AssetConfigRaw ScVal map (16 fields, sorted keys — matches the governance spec
-# exactly). i128 caps/ceilings/floors as decimal strings, u32 bps, bool flags,
-# e_mode_categories as vec<u32>. Missing or extra fields fail host decode, so the
-# full set is enumerated explicitly.
+# AssetConfigRaw ScVal map (9 fields, sorted keys). Hub caps live on
+# MarketParamsRaw; e_mode_categories is contract-managed after create.
 scval_asset_config() {
     local j=$1
     jq -nc --argjson c "$j" '
-        def i(k): {key:{symbol:k}, val:{i128:($c[k] | tostring)}};
         def u(k): {key:{symbol:k}, val:{u32:($c[k])}};
         def b(k): {key:{symbol:k}, val:{bool:($c[k])}};
         {map: [
-            i("borrow_cap"),
             {key:{symbol:"e_mode_categories"}, val:{vec:((($c.e_mode_categories) // []) | map({u32:.}))}},
+            u("asset_decimals"),
             u("flashloan_fee_bps"),
             b("is_borrowable"),
             b("is_collateralizable"),
@@ -330,8 +329,7 @@ scval_asset_config() {
             u("liquidation_bonus_bps"),
             u("liquidation_fees_bps"),
             u("liquidation_threshold_bps"),
-            u("loan_to_value_bps"),
-            i("supply_cap")
+            u("loan_to_value_bps")
         ]}'
 }
 
@@ -934,25 +932,33 @@ add_asset_to_emode() {
     threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
     bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local supply_cap
+    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    local borrow_cap
+    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    supply_cap=${supply_cap:-0}
+    borrow_cap=${borrow_cap:-0}
 
     echo "  Asset Address: ${asset_address}"
     echo "  Config Category: ${config_category_id}"
     echo "  Can Be Collateral: ${can_collateral}"
     echo "  Can Be Borrowed: ${can_borrow}"
     echo "  LTV: ${ltv}  Threshold: ${threshold}  Bonus: ${bonus}"
+    echo "  Spoke supply cap: ${supply_cap}  Spoke borrow cap: ${borrow_cap}"
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
         echo "ERROR: No asset address found for ${asset_name} in ${MARKET_CONFIG_FILE}"
         exit 1
     fi
 
-    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus).
+    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus, supply_cap, borrow_cap).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" --argjson cat "$category_id" \
         --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
         --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
+        --arg supply_cap "$supply_cap" --arg borrow_cap "$borrow_cap" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus},{i128:$supply_cap},{i128:$borrow_cap}]')
     local salt
     salt=$(gen_salt "add_asset_to_e_mode_category" "$args_json")
 
@@ -961,7 +967,8 @@ add_asset_to_emode() {
         propose_add_asset_to_e_mode add_asset_to_e_mode_category "$args_json" true "$salt" \
         --asset "$asset_address" --category_id "$category_id" \
         --can_collateral "$can_collateral" --can_borrow "$can_borrow" \
-        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
+        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus" \
+        --supply_cap "$supply_cap" --borrow_cap "$borrow_cap")
     schedule_and_maybe_execute "$op_id"
 
     echo "Asset ${asset_name} scheduled into E-Mode category ${category_id}."
@@ -984,16 +991,23 @@ edit_asset_in_emode() {
     threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
     bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local supply_cap
+    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    local borrow_cap
+    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    supply_cap=${supply_cap:-0}
+    borrow_cap=${borrow_cap:-0}
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
 
-    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus).
+    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus, supply_cap, borrow_cap).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" --argjson cat "$category_id" \
         --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
         --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus}]')
+        --arg supply_cap "$supply_cap" --arg borrow_cap "$borrow_cap" \
+        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus},{i128:$supply_cap},{i128:$borrow_cap}]')
     local salt
     salt=$(gen_salt "edit_asset_in_e_mode_category" "$args_json")
 
@@ -1002,7 +1016,8 @@ edit_asset_in_emode() {
         propose_edit_asset_in_e_mode edit_asset_in_e_mode_category "$args_json" true "$salt" \
         --asset "$asset_address" --category_id "$category_id" \
         --can_collateral "$can_collateral" --can_borrow "$can_borrow" \
-        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus")
+        --ltv "$ltv" --threshold "$threshold" --bonus "$bonus" \
+        --supply_cap "$supply_cap" --borrow_cap "$borrow_cap")
     schedule_and_maybe_execute "$op_id"
 }
 
@@ -1118,11 +1133,12 @@ create_market() {
     # to an empty array at create time so the contract spec accepts
     # the JSON (jq emits `[]` which decodes to Vec::new).
     local pending_config
-    pending_config=$(jq -c \
+    pending_config=$(jq -c --argjson decimals "$decimals" \
         ".markets[] | select(.name == \"$market_name\") | .asset_config | \
          .is_collateralizable = false | \
          .is_borrowable = false | \
          .is_flashloanable = false | \
+         .asset_decimals = \$decimals | \
          .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
@@ -1169,12 +1185,16 @@ edit_asset_config() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-    # `e_mode_categories` is contract-managed and ignored by
-    # `edit_asset_config` on chain — pin to `[]` so the JSON shape
+    local decimals
+    decimals=$(get_contract_decimals "$asset_address")
+    # `e_mode_categories` and `asset_decimals` are contract-managed and
+    # ignored by `edit_asset_config` on chain — pin them so the JSON shape
     # matches the AssetConfig spec.
     local config
-    config=$(jq -c \
-        ".markets[] | select(.name == \"$market_name\") | .asset_config | .e_mode_categories = []" \
+    config=$(jq -c --argjson decimals "$decimals" \
+        ".markets[] | select(.name == \"$market_name\") | .asset_config | \
+         .asset_decimals = \$decimals | \
+         .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
     # edit_asset_config(asset, AssetConfigRaw) — Address + field-map struct.
@@ -1229,6 +1249,43 @@ update_market_params() {
     schedule_and_maybe_execute "$op_id"
 
     echo "Market params scheduled for ${market_name}."
+}
+
+# Push hub supply/borrow caps from `market_params` onto the central pool via
+# `update_pool_caps`. Use after changing supply_cap / borrow_cap in the JSON.
+update_pool_caps() {
+    local market_name=$1
+
+    echo "Updating hub pool caps for ${market_name}..."
+
+    local asset_address
+    asset_address=$(get_market_value "$market_name" "asset_address")
+    local supply_cap
+    supply_cap=$(get_market_value "$market_name" "market_params.supply_cap")
+    local borrow_cap
+    borrow_cap=$(get_market_value "$market_name" "market_params.borrow_cap")
+    supply_cap=${supply_cap:-0}
+    borrow_cap=${borrow_cap:-0}
+
+    echo "  Supply cap: ${supply_cap}  Borrow cap: ${borrow_cap}"
+
+    # update_pool_caps(asset, supply_cap, borrow_cap).
+    local args_json
+    args_json=$(jq -nc \
+        --arg asset "$asset_address" \
+        --arg supply_cap "$supply_cap" \
+        --arg borrow_cap "$borrow_cap" \
+        '[{address:$asset},{i128:$supply_cap},{i128:$borrow_cap}]')
+    local salt
+    salt=$(gen_salt "update_pool_caps" "$args_json")
+
+    local op_id
+    op_id=$(schedule_via_proposer \
+        propose_update_pool_caps update_pool_caps "$args_json" true "$salt" \
+        --asset "$asset_address" --supply_cap "$supply_cap" --borrow_cap "$borrow_cap")
+    schedule_and_maybe_execute "$op_id"
+
+    echo "Hub pool caps scheduled for ${market_name}."
 }
 
 update_indexes() {
@@ -2300,6 +2357,14 @@ case "$1" in
             exit 1
         fi
         update_market_params "$2"
+        ;;
+    "updatePoolCaps")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 updatePoolCaps <market_name>"
+            list_markets
+            exit 1
+        fi
+        update_pool_caps "$2"
         ;;
     "configureMarketOracle")
         if [ -z "$2" ]; then

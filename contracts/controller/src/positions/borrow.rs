@@ -6,6 +6,7 @@
 //! market indexes the pool borrow writes into the cache.
 
 use common::errors::CollateralError;
+use common::math::fp::Ray;
 use controller_interface::types::{
     Account, AccountPositionType, DebtPosition, Payment, PoolBorrowEntry, PoolPositionMutation,
 };
@@ -101,23 +102,24 @@ fn settle_borrow(
     // input-ordered in one cross-contract frame.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
     for (asset, amount) in aggregated {
-        let asset_config = configs.get(env, &asset);
         let borrow_position = account.get_or_create_debt_position(&asset);
         entries.push_back(PoolBorrowEntry {
             action: make_pool_action(&borrow_position, amount, asset.clone()),
-            borrow_cap: asset_config.borrow_cap,
         });
     }
     let pool_addr = cache.cached_pool_address();
     let results = pool_borrow_call(env, &pool_addr, caller, &entries);
 
     for (i, entry) in entries.iter().enumerate() {
+        let asset_config = configs.get(env, &entry.action.asset);
         let result = validation::expect_invariant(env, results.get(i as u32));
         merge_borrow_result(
+            env,
             account,
             &entry.action.asset,
             events::PositionAction::Borrow,
             &result,
+            asset_config.asset_decimals,
             cache,
         );
     }
@@ -125,13 +127,24 @@ fn settle_borrow(
 
 /// Merges one pool borrow result into the account and event buffers.
 fn merge_borrow_result(
+    env: &Env,
     account: &mut Account,
     asset: &Address,
     action: events::PositionAction,
     result: &PoolPositionMutation,
+    asset_decimals: u32,
     cache: &mut Cache,
 ) {
+    let old_scaled = account
+        .borrow_positions
+        .get(asset.clone())
+        .map(|p| Ray::from(p.scaled_amount_ray))
+        .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
+    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        let delta = position.scaled_amount - old_scaled;
+        ctx.apply_borrow_after_pool(env, asset, delta, &result.market_index, asset_decimals);
+    }
     cache.put_market_index(asset, &result.market_index);
     cache.record_debt_position_update(
         action,
@@ -215,10 +228,17 @@ fn borrow_strategy_inner(
         &env.current_contract_address(),
         pool_action,
         flash_fee,
-        debt_config.borrow_cap,
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    merge_borrow_result(account, debt_token, event_action, &mutation, cache);
+    merge_borrow_result(
+        env,
+        account,
+        debt_token,
+        event_action,
+        &mutation,
+        debt_config.asset_decimals,
+        cache,
+    );
 
     result.amount_received
 }

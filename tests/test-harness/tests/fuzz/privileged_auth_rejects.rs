@@ -34,9 +34,8 @@ fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfig
 
         is_flashloanable: true,
         flashloan_fee_bps: 9,
+        asset_decimals: 7,
         e_mode_categories: soroban_sdk::Vec::new(env),
-        borrow_cap: i128::MAX,
-        supply_cap: i128::MAX,
     }
 }
 
@@ -141,11 +140,13 @@ proptest! {
         expect_rejected("add_asset_to_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_add_asset_to_e_mode_category(
                 &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
+                &0i128, &0i128,
             )
         }).unwrap();
         expect_rejected("edit_asset_in_e_mode_category", || {
             ctrl.set_auths(&no_auths).try_edit_asset_in_e_mode_category(
                 &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
+                &0i128, &0i128,
             )
         }).unwrap();
         expect_rejected("remove_asset_from_e_mode", || {
@@ -191,6 +192,8 @@ proptest! {
                 optimal_utilization_ray: 0,
                 max_utilization_ray: controller::constants::RAY * 95 / 100,
                 reserve_factor_bps: 0,
+                supply_cap: 0,
+                borrow_cap: 0,
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };
@@ -291,6 +294,8 @@ proptest! {
                 optimal_utilization_ray: 0,
                 max_utilization_ray: controller::constants::RAY * 95 / 100,
                 reserve_factor_bps: 0,
+                supply_cap: 0,
+                borrow_cap: 0,
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };
@@ -325,13 +330,13 @@ proptest! {
         expect_rejected("gov.propose_add_asset_to_e_mode", || {
             gov.set_auths(&no_auths).try_propose_add_asset_to_e_mode(
                 &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
-                &ltv, &threshold, &bonus, &salt,
+                &ltv, &threshold, &bonus, &0i128, &0i128, &salt,
             )
         }).unwrap();
         expect_rejected("gov.propose_edit_asset_in_e_mode", || {
             gov.set_auths(&no_auths).try_propose_edit_asset_in_e_mode(
                 &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
-                &ltv, &threshold, &bonus, &salt,
+                &ltv, &threshold, &bonus, &0i128, &0i128, &salt,
             )
         }).unwrap();
         expect_rejected("gov.propose_remove_asset_from_e_mode", || {

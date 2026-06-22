@@ -160,13 +160,32 @@ controller_ops! {
 
     op propose_add_asset_to_e_mode => "add_asset_to_e_mode_category"
         (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool],
-         ltv: [u32], threshold: [u32], bonus: [u32])
-        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
+         ltv: [u32], threshold: [u32], bonus: [u32], supply_cap: [i128], borrow_cap: [i128])
+        validate: {
+            validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
+            validate::asset::validate_hub_caps(&env, supply_cap, borrow_cap);
+        }
 
     op propose_edit_asset_in_e_mode => "edit_asset_in_e_mode_category"
         (asset: [Address], category_id: [u32], can_collateral: [bool], can_borrow: [bool],
-         ltv: [u32], threshold: [u32], bonus: [u32])
-        validate: { validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus); }
+         ltv: [u32], threshold: [u32], bonus: [u32], supply_cap: [i128], borrow_cap: [i128])
+        validate: {
+            validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
+            validate::asset::validate_hub_caps(&env, supply_cap, borrow_cap);
+        }
+
+    op propose_update_pool_caps => "update_pool_caps"
+        (asset: [Address], supply_cap: [i128], borrow_cap: [i128])
+        validate: {
+            validate::asset::validate_hub_caps(&env, supply_cap, borrow_cap);
+            validate::asset::validate_proposed_hub_caps_against_spokes(
+                &env,
+                &storage::get_controller(&env),
+                &asset,
+                supply_cap,
+                borrow_cap,
+            );
+        }
 
     op propose_remove_asset_from_e_mode => "remove_asset_from_e_mode" (asset: [Address], category_id: [u32])
 
@@ -336,9 +355,12 @@ impl Governance {
         ltv: u32,
         threshold: u32,
         bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
     ) {
         storage::renew_governance_instance(&env);
         validate::asset::validate_risk_bounds(&env, ltv, threshold, bonus);
+        validate::asset::validate_hub_caps(&env, supply_cap, borrow_cap);
         controller_client(&env).add_asset_to_e_mode_category(
             &asset,
             &category_id,
@@ -347,6 +369,8 @@ impl Governance {
             &ltv,
             &threshold,
             &bonus,
+            &supply_cap,
+            &borrow_cap,
         );
     }
 

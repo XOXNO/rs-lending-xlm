@@ -37,8 +37,7 @@ fn pinned_market_config(
 
             is_flashloanable: true,
             flashloan_fee_bps: 9,
-            borrow_cap: 2_000_000,
-            supply_cap: 3_000_000,
+            asset_decimals: 7,
         },
         oracle_config: MarketOracleConfig {
             asset_decimals: 7,

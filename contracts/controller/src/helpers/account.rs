@@ -9,17 +9,26 @@ use controller_interface::types::{
 };
 use soroban_sdk::{Address, Env, Map};
 
+use crate::cache::Cache;
 use crate::emode;
 use crate::storage;
 
 /// Creates account metadata and returns an empty in-memory account snapshot.
+///
+/// When `cache` is provided, e-mode deprecation is checked via the transaction
+/// cache so a later `AggregatedConfigs::resolve` does not re-read storage.
 pub fn create_account(
     env: &Env,
     owner: &Address,
     e_mode_category: u32,
     mode: PositionMode,
+    cache: Option<&mut Cache>,
 ) -> (u64, Account) {
-    emode::active_e_mode_category(env, e_mode_category);
+    if let Some(cache) = cache {
+        cache.active_e_mode_category(env, e_mode_category);
+    } else {
+        emode::active_e_mode_category(env, e_mode_category);
+    }
 
     let account_id = storage::increment_account_nonce(env);
     let account = Account {

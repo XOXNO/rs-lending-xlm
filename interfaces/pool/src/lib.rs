@@ -55,7 +55,6 @@ pub trait LiquidityPoolInterface {
         receiver: Address,
         action: PoolAction,
         fee: i128,
-        borrow_cap: i128,
     ) -> PoolStrategyMutation;
 
     /// Removes a seized liquidation or bad-debt position.
@@ -69,6 +68,7 @@ pub trait LiquidityPoolInterface {
     /// Claims protocol revenue capped by reserves and claimable shares.
     fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation;
     fn update_params(env: Env, asset: Address, model: InterestRateModel);
+    fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn capital_utilisation(env: Env, asset: Address) -> i128;
     /// Available reserves = accounted `cash` (asset decimals), not the live token

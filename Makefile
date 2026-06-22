@@ -1064,7 +1064,7 @@ SIMPLE_ACTIONS := listMarkets listEModeCategories \
                   setAggregator setAccumulator pause unpause info \
                   getAllMarkets getAllIndexes \
                   claimRevenueAll deployPool
-POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams \
+POSITIONAL_MARKET_ACTIONS := createMarket editAssetConfig updateMarketParams updatePoolCaps \
                              configureMarketOracle \
                              getPrice getMarket getIndex \
                              getReflector
@@ -1230,6 +1230,7 @@ help:
 	@echo "    make testnet createMarket USDC"
 	@echo "    make testnet editAssetConfig USDC"
 	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
+	@echo "    make testnet updatePoolCaps USDC                           Push hub supply_cap/borrow_cap from JSON"
 	@echo "    make testnet configureMarketOracle USDC"
 	@echo "    make testnet updateIndexes USDC XLM"
 	@echo "    make testnet setupAllMarkets       Configure markets only; does not deploy or unpause"

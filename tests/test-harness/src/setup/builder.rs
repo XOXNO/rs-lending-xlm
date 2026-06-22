@@ -227,7 +227,7 @@ impl LendingTestBuilder {
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
 
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
-            let asset_config = pm.config.to_asset_config(&env);
+            let asset_config = pm.config.to_asset_config(&env, pm.decimals);
             gov.approve_token(&asset_address);
             let pool_address =
                 gov.create_liquidity_pool(&asset_address, &market_params, &asset_config);
@@ -295,6 +295,8 @@ impl LendingTestBuilder {
                     &emode.preset.ltv,
                     &emode.preset.threshold,
                     &emode.preset.bonus,
+                    &0i128,
+                    &0i128,
                 );
             }
         }

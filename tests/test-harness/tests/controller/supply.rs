@@ -260,8 +260,8 @@ fn test_supply_cap_enforcement() {
     let cap = 500_0000000i128; // 500 tokens in asset decimals
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_market_config("USDC", |cfg| {
-            cfg.supply_cap = cap;
+        .with_market_params("USDC", |params| {
+            params.supply_cap = cap;
         })
         .build();
 

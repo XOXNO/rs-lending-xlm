@@ -119,8 +119,8 @@ pub mod asset_config {
 
             is_flashloanable: cfg.is_flashloanable,
             flashloan_fee_bps: cfg.flashloan_fee_bps as i128,
-            borrow_cap: cfg.borrow_cap,
-            supply_cap: cfg.supply_cap,
+            borrow_cap: sync.params.borrow_cap,
+            supply_cap: sync.params.supply_cap,
             reserve_factor_bps: sync.params.reserve_factor_bps as i128,
         }
     }

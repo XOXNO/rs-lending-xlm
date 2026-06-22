@@ -84,6 +84,7 @@ mod tests {
             let cat = EModeCategoryRaw {
                 is_deprecated: false,
                 assets: Map::new(&env),
+                usage: Map::new(&env),
             };
             set_emode_category(&env, 1, &cat);
             let key = ControllerKey::EModeCategory(1);

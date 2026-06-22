@@ -151,14 +151,14 @@ pub(crate) fn settle_withdraw_entries(
     let e_mode_category = if is_liquidation {
         None
     } else {
-        Some(emode::e_mode_category(env, account.e_mode_category_id))
+        Some(cache.cached_e_mode_category(account.e_mode_category_id))
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         let refresh_e_mode = if is_liquidation {
             None
         } else {
-            withdraw_refresh_e_mode_for_asset(cache, account, &entry.action.asset, &e_mode_category)
+            withdraw_refresh_e_mode_for_asset(account, &entry.action.asset, &e_mode_category)
         };
         finish_withdrawal(
             env,
@@ -174,7 +174,6 @@ pub(crate) fn settle_withdraw_entries(
 }
 
 fn withdraw_refresh_e_mode_for_asset(
-    cache: &mut Cache,
     account: &Account,
     asset: &Address,
     e_mode_category: &Option<Option<EModeCategory>>,
@@ -186,11 +185,7 @@ fn withdraw_refresh_e_mode_for_asset(
     let Some(Some(category)) = e_mode_category else {
         return None;
     };
-    if category.is_deprecated
-        || cache
-            .cached_emode_asset(account.e_mode_category_id, asset)
-            .is_none()
-    {
+    if category.is_deprecated || category.assets.get(asset.clone()).is_none() {
         return None;
     }
 
@@ -211,7 +206,12 @@ pub(crate) fn finish_withdrawal(
     cache: &mut Cache,
 ) {
     let mut result_position = get_supply_position_or_panic(env, account, asset);
+    let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        let delta = old_scaled - result_position.scaled_amount;
+        ctx.apply_withdraw_after_pool(env, asset, delta);
+    }
     if let Some(e_mode) = refresh_e_mode {
         let config = emode::effective_asset_config(env, account, asset, cache, e_mode);
         refresh_supply_risk_params(env, cache, account, asset, &mut result_position, &config);

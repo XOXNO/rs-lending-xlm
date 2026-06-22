@@ -130,9 +130,9 @@ impl Controller {
         limits::max_withdraw(&env, account_id, &asset)
     }
 
-    /// Supply-cap headroom; `i128::MAX` uncapped, `0` paused or inactive.
-    pub fn max_supply(env: Env, asset: Address) -> i128 {
-        limits::max_supply(&env, &asset)
+    /// Supply-cap headroom for `account_id`; `i128::MAX` uncapped, `0` paused or inactive.
+    pub fn max_supply(env: Env, account_id: u64, asset: Address) -> i128 {
+        limits::max_supply(&env, account_id, &asset)
     }
 
     /// Largest currently executable `borrow` amount of `asset`; `0` while
@@ -176,9 +176,7 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    // Decimals come from pool params, not the price feed, so balance reads
-    // do not depend on oracle liveness.
-    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
+    let decimals = storage::get_market_config(env, asset).asset_config.asset_decimals;
 
     position
         .scaled_amount
@@ -194,9 +192,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    // Decimals come from pool params, not the price feed, so debt reads
-    // do not depend on oracle liveness.
-    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
+    let decimals = storage::get_market_config(env, asset).asset_config.asset_decimals;
 
     position
         .scaled_amount

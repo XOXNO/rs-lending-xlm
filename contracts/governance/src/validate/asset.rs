@@ -2,9 +2,11 @@
 //! plus the live token-shape probe.
 
 use common::constants::{BPS, MAX_FLASHLOAN_FEE_BPS, POSITION_LIMIT_MAX};
-use common::errors::{CollateralError, FlashLoanError, GenericError};
+use common::errors::{CollateralError, EModeError, FlashLoanError, GenericError};
 use common::types::MarketParamsRaw;
+use common::validation::cap_is_enabled;
 use controller_interface::types::{AssetConfigRaw, PositionLimits};
+use controller_interface::{ControllerAdminClient, ControllerClient};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 // SAC decimal range for RAY/WAD conversions. Assets below 6 decimals can
@@ -45,10 +47,6 @@ pub(crate) fn validate_asset_config(env: &Env, config: &AssetConfigRaw) {
         CollateralError::InvalidLiqThreshold
     );
 
-    if config.supply_cap < 0 || config.borrow_cap < 0 {
-        panic_with_error!(env, CollateralError::InvalidBorrowParams);
-    }
-
     assert_with_error!(
         env,
         i128::from(config.flashloan_fee_bps) <= MAX_FLASHLOAN_FEE_BPS,
@@ -88,7 +86,46 @@ pub(crate) fn validate_market_creation(
     );
 
     validate_asset_config(env, config);
-    params.verify_rate_model(env);
+    params.verify(env);
+}
+
+pub(crate) fn validate_hub_caps(env: &Env, supply_cap: i128, borrow_cap: i128) {
+    assert_with_error!(
+        env,
+        supply_cap >= 0 && borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
+}
+
+pub(crate) fn validate_proposed_hub_caps_against_spokes(
+    env: &Env,
+    controller: &Address,
+    asset: &Address,
+    hub_supply_cap: i128,
+    hub_borrow_cap: i128,
+) {
+    let market = ControllerAdminClient::new(env, controller).get_market_config(asset);
+    let views = ControllerClient::new(env, controller);
+    for category_id in market.asset_config.e_mode_categories.iter() {
+        let category = views.get_e_mode_category(&category_id);
+        let Some(cfg) = category.assets.get(asset.clone()) else {
+            continue;
+        };
+        if cap_is_enabled(hub_supply_cap) && cap_is_enabled(cfg.supply_cap) {
+            assert_with_error!(
+                env,
+                cfg.supply_cap <= hub_supply_cap,
+                EModeError::SpokeCapExceedsHub
+            );
+        }
+        if cap_is_enabled(hub_borrow_cap) && cap_is_enabled(cfg.borrow_cap) {
+            assert_with_error!(
+                env,
+                cfg.borrow_cap <= hub_borrow_cap,
+                EModeError::SpokeCapExceedsHub
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -108,8 +145,7 @@ mod tests {
             is_borrowable: true,
             is_flashloanable: true,
             flashloan_fee_bps: 9,
-            borrow_cap: 1_000_000,
-            supply_cap: 5_000_000,
+            asset_decimals: 7,
             e_mode_categories: Vec::new(env),
         }
     }
@@ -125,6 +161,8 @@ mod tests {
             optimal_utilization_ray: 8 * RAY / 10,
             max_utilization_ray: 95 * RAY / 100,
             reserve_factor_bps: 1_000,
+            supply_cap: 5_000_000,
+            borrow_cap: 1_000_000,
             asset_id: asset.clone(),
             asset_decimals: decimals,
         }
@@ -139,11 +177,9 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_validate_asset_config_rejects_negative_supply_cap() {
+    fn test_validate_hub_caps_rejects_negative_supply_cap() {
         let env = Env::default();
-        let mut cfg = sample_asset_config(&env);
-        cfg.supply_cap = -1;
-        validate_asset_config(&env, &cfg);
+        validate_hub_caps(&env, -1, 0);
     }
 
     #[test]

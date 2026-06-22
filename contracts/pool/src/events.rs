@@ -53,6 +53,15 @@ pub struct PoolMarketParamsBatchEvent {
     pub updates: Vec<PoolMarketParamsEvent>,
 }
 
+#[contractevent(topics = ["strategy", "fee"])]
+#[derive(Clone, Debug)]
+pub struct StrategyFeeEvent {
+    pub asset: Address,
+    pub amount: i128,
+    pub fee: i128,
+    pub amount_sent: i128,
+}
+
 pub(crate) fn publish_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -85,4 +94,24 @@ pub(crate) fn publish_market_params(env: &Env, asset: Address, params: MarketPar
     let mut updates = Vec::new(env);
     updates.push_back(PoolMarketParamsEvent { asset, params });
     publish_market_params_batch(env, updates);
+}
+
+pub(crate) fn publish_strategy_fee(
+    env: &Env,
+    asset: Address,
+    amount: i128,
+    fee: i128,
+    amount_sent: i128,
+) {
+    if fee == 0 {
+        return;
+    }
+
+    StrategyFeeEvent {
+        asset,
+        amount,
+        fee,
+        amount_sent,
+    }
+    .publish(env);
 }

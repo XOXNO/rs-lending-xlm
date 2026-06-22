@@ -11,7 +11,7 @@ fn test_create_liquidity_pool_rejects_token_without_symbol() {
     let gov = t.gov_client();
     let sac = t.env.register(test_harness::mock_sac::MockSacNoSymbol, ());
     let params = usdc_preset().params.to_market_params(&sac, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env);
+    let config = usdc_preset().config.to_asset_config(&t.env, 7);
     gov.approve_token(&sac);
     let result = match gov.try_create_liquidity_pool(&sac, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
@@ -27,7 +27,7 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     let gov = t.gov_client();
     let asset = Address::generate(&t.env);
     let params = usdc_preset().params.to_market_params(&asset, 7);
-    let config = usdc_preset().config.to_asset_config(&t.env);
+    let config = usdc_preset().config.to_asset_config(&t.env, 7);
     gov.approve_token(&asset);
     let result = match gov.try_create_liquidity_pool(&asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),

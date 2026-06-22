@@ -103,4 +103,3 @@ fn test_migrate_rejects_lower_version() {
     // Downgrade attempt must reject.
     ctrl.migrate(&2);
 }
-
