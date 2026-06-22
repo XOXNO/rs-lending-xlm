@@ -270,6 +270,12 @@ fn test_permissionless_revenue_endpoints() {
 
     let bob_addr = t.get_or_create_user(BOB);
 
+    // `add_rewards` distributes to existing suppliers (else `NoSuppliersToReward`)
+    // and pulls the reward amount from the caller — so seed a supplier and fund BOB.
+    // (The endpoints are still permissionless: BOB is a non-admin signed caller.)
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.resolve_market("USDC").token_admin.mint(&bob_addr, &100i128);
+
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
 

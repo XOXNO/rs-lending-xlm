@@ -344,6 +344,81 @@ fn test_harvest_price_per_share_independent_of_vault_balance() {
     assert_eq!(pps_large, expected);
 }
 
+// Regression (VECTOR.md #1.2, FIXED): `harvest` now calls `from.require_auth()`,
+// matching `deposit`/`withdraw`. Under enforced auth (`set_auths(&[])`), a harvest
+// with a `from` the caller does not control is rejected — closing the spoofable
+// `from` attribution (pre-fix this call succeeded and emitted a spoofed event).
+#[test]
+fn harvest_requires_from_auth() {
+    let s = StrategyTest::new();
+    // Seed a real account (under the suite's mock auth) so a successful harvest
+    // would emit a genuine pps — isolating auth, not state, as the rejection cause.
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+
+    // An address the attacker does not own and never authorizes.
+    let attacker_chosen_from = Address::generate(&s.t.env);
+
+    // Enforce real auth: no mocked entries are available from here on.
+    s.t.env.set_auths(&[]);
+
+    // FIX: harvest now requires `from` auth, so an unauthorized `from` is rejected
+    // under the same empty-auth context in which `deposit` is rejected — a non-owner
+    // can no longer emit a harvest event with a spoofed `from`.
+    let blocked_harvest = s.client().try_harvest(&attacker_chosen_from, &None);
+    assert!(
+        blocked_harvest.is_err(),
+        "harvest must require `from` auth (VECTOR #1.2 fix)"
+    );
+
+    // CONTROL: `deposit` is likewise rejected with no auth, confirming the
+    // empty-auth context is genuinely enforcing (not mocked).
+    let blocked_deposit = s
+        .client()
+        .try_deposit(&UNIT, &attacker_chosen_from);
+    assert!(
+        blocked_deposit.is_err(),
+        "deposit must require `from` auth"
+    );
+}
+
+// POC (VECTOR.md #14.1): the strategy's `balance(vault)` reads raw controller
+// collateral (`collateral_amount_for_token`). Because controller `supply` has no
+// owner check (VECTOR #12.1), a third party can deposit directly into the
+// strategy's controller account, inflating the vault's reported balance/NAV
+// without ever going through `Strategy::deposit`. The injected funds are owned by
+// the strategy account (withdrawable only by the vault), so the attacker cannot
+// reclaim them — this is unrecoverable-donation NAV griefing, not theft.
+#[test]
+fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
+    let s = StrategyTest::new();
+    let client = s.client();
+
+    client.deposit(&(1_000 * UNIT), &s.vault);
+    let account_id = client.lending_account_id(&s.vault);
+    assert!(account_id > 0);
+    let before = client.balance(&s.vault);
+
+    // A stranger (not the vault) supplies straight into the strategy's controller
+    // account, bypassing Strategy::deposit entirely.
+    let attacker = Address::generate(&s.t.env);
+    s.t.resolve_market("USDC")
+        .token_admin
+        .mint(&attacker, &(500 * UNIT));
+    s.t.ctrl_client().supply(
+        &attacker,
+        &account_id,
+        &0u32,
+        &vec![&s.t.env, (s.asset.clone(), 500 * UNIT)],
+    );
+
+    // The strategy now reports the stranger's donation as the vault's balance/NAV.
+    let after = client.balance(&s.vault);
+    assert!(
+        after >= before + 499 * UNIT,
+        "external donation inflated strategy balance/NAV: {before} -> {after}"
+    );
+}
+
 #[test]
 fn test_deposit_zero_amount_returns_amount_not_positive() {
     let s = StrategyTest::new();
