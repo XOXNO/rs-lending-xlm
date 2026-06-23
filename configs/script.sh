@@ -873,9 +873,59 @@ emode_is_deprecated() {
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
 
+# Content guard for category reuse. Returns 0 when every asset already
+# configured on-chain in `category_json` also appears in config category
+# `config_category_id`; returns 1 when the on-chain category holds any asset
+# this config does not list. An on-chain category with no assets is compatible
+# (setup will populate it). On-chain categories carry no name, so a foreign
+# category whose assets are a strict subset of this config's assets cannot be
+# distinguished here — closing that residual needs an on-chain identity field.
+emode_category_assets_match_config() {
+    local config_category_id=$1
+    local category_json=$2
+
+    # A degraded response missing a readable `.assets` map (null/absent, not an
+    # empty `{}`) cannot be verified; refuse reuse instead of masking it as an
+    # empty (compatible) category.
+    if ! printf '%s' "$category_json" | jq -e '.assets | type == "object"' >/dev/null 2>&1; then
+        echo "ERROR: on-chain E-Mode category for config ${config_category_id} has no readable .assets map; refusing to reuse." >&2
+        return 1
+    fi
+
+    local onchain_assets
+    onchain_assets=$(printf '%s' "$category_json" | jq -r '.assets | keys[]')
+    # An empty on-chain category is compatible — setup will populate it.
+    [ -z "$onchain_assets" ] && return 0
+
+    local expected_addrs=" "
+    local asset_name asset_addr
+    for asset_name in $(jq -r ".\"$NETWORK\".\"$config_category_id\".assets | keys[]" "$EMODES_FILE"); do
+        asset_addr=$(get_market_value "$asset_name" "asset_address")
+        # An unresolved asset means the config references something the markets
+        # file lacks; fail with that specific reason rather than silently
+        # dropping it (which would later mislabel an on-chain asset as foreign).
+        if [ -z "$asset_addr" ] || [ "$asset_addr" = "null" ]; then
+            echo "ERROR: e-mode config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
+            return 1
+        fi
+        expected_addrs="${expected_addrs}${asset_addr} "
+    done
+
+    local onchain_addr
+    for onchain_addr in $onchain_assets; do
+        case "$expected_addrs" in
+            *" $onchain_addr "*) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
+}
+
 # A category only groups assets and tracks deprecation; risk params live on the
-# per-asset configs (ensured by `ensure_asset_in_emode`). Any non-deprecated
-# on-chain category is therefore reusable as-is.
+# per-asset configs (ensured by `ensure_asset_in_emode`). Reuse therefore
+# requires two checks: the category must not be deprecated, and every asset it
+# already holds on-chain must belong to this config category — otherwise we
+# would silently rewrite a different category's (possibly live) risk params.
 ensure_emode_category() {
     local config_category_id=$1
     local mapped_id
@@ -886,6 +936,11 @@ ensure_emode_category() {
         if category_json=$(fetch_emode_category_json "$mapped_id" 2>/dev/null); then
             if emode_is_deprecated "$category_json"; then
                 echo "Mapped E-Mode id ${mapped_id} for config ${config_category_id} is deprecated; creating a replacement."
+            elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
+                echo "ERROR: mapped E-Mode id ${mapped_id} for config ${config_category_id} holds assets this config does not list." >&2
+                echo "       Refusing to apply config ${config_category_id} to an unverified on-chain category; it may be a different category or have live users." >&2
+                echo "       Fix the mapping in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
+                return 1
             else
                 echo "E-Mode config ${config_category_id} already mapped to on-chain id ${mapped_id}."
                 echo "$mapped_id"
@@ -899,6 +954,11 @@ ensure_emode_category() {
     if category_json=$(fetch_emode_category_json "$config_category_id" 2>/dev/null); then
         if emode_is_deprecated "$category_json"; then
             echo "On-chain E-Mode id ${config_category_id} is deprecated; creating a new category."
+        elif ! emode_category_assets_match_config "$config_category_id" "$category_json"; then
+            echo "ERROR: on-chain E-Mode id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
+            echo "       Refusing to reuse it by numeric id; it may be a different category or have live users." >&2
+            echo "       Map config ${config_category_id} to the correct on-chain id in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
+            return 1
         else
             persist_emode_category_id "$config_category_id" "$config_category_id"
             echo "E-Mode config ${config_category_id} reuses existing on-chain id ${config_category_id}."
@@ -1038,6 +1098,12 @@ ensure_asset_in_emode() {
     threshold=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_threshold")
     local bonus
     bonus=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
+    local supply_cap
+    supply_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    local borrow_cap
+    borrow_cap=$(get_emode_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
+    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
+    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
     local category_json
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
@@ -1054,11 +1120,15 @@ ensure_asset_in_emode() {
             --argjson ltv "$ltv" \
             --argjson threshold "$threshold" \
             --argjson bonus "$bonus" \
+            --arg supply_cap "$supply_cap" \
+            --arg borrow_cap "$borrow_cap" \
             '.assets[$asset].is_collateralizable == $can_collateral and
              .assets[$asset].is_borrowable == $can_borrow and
              .assets[$asset].loan_to_value_bps == $ltv and
              .assets[$asset].liquidation_threshold_bps == $threshold and
-             .assets[$asset].liquidation_bonus_bps == $bonus' >/dev/null; then
+             .assets[$asset].liquidation_bonus_bps == $bonus and
+             (.assets[$asset].supply_cap | tostring) == $supply_cap and
+             (.assets[$asset].borrow_cap | tostring) == $borrow_cap' >/dev/null; then
             echo "Asset ${asset_name} already configured in E-Mode category ${category_id}."
         else
             edit_asset_in_emode "$category_id" "$asset_name" "$config_category_id"
@@ -1075,7 +1145,15 @@ setup_all_emodes() {
 
     for cat_id in $categories; do
         local onchain_id
-        onchain_id=$(ensure_emode_category "$cat_id" | tail -n1)
+        # Bare assignment (declared separately so `local` doesn't mask the
+        # status): a command substitution inside an `if` condition would suppress
+        # `set -e` within ensure_emode_category and its callees, silently
+        # continuing on an inner failure or the content guard's `return 1`. With
+        # a plain assignment, `set -e` stays active inside the function and
+        # aborts the deploy on any non-zero exit; the guard prints the specific
+        # reason to stderr before returning.
+        onchain_id=$(ensure_emode_category "$cat_id")
+        onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
         local assets
         assets=$(jq -r ".\"$NETWORK\".\"$cat_id\".assets | keys[]" "$EMODES_FILE")

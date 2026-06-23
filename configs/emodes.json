@@ -6,16 +6,39 @@
         "USDC": {
           "can_be_collateral": true,
           "can_be_borrowed": true,
-          "ltv": 9700,
+          "ltv": 9701,
           "liquidation_threshold": 9800,
-          "liquidation_bonus": 200
+          "liquidation_bonus": 200,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "25000000000000"
         },
         "EURC": {
           "can_be_collateral": true,
           "can_be_borrowed": true,
           "ltv": 9700,
           "liquidation_threshold": 9800,
-          "liquidation_bonus": 200
+          "liquidation_bonus": 200,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "25000000000000"
+        }
+      }
+    },
+    "2": {
+      "name": "XLM + USDC",
+      "assets": {
+        "XLM": {
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 6847,
+          "liquidation_threshold": 7512,
+          "liquidation_bonus": 423
+        },
+        "USDC": {
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 8923,
+          "liquidation_threshold": 9156,
+          "liquidation_bonus": 187
         }
       }
     }
