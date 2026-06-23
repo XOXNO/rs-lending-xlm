@@ -438,10 +438,10 @@ fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `rates_and_index`: 29 bytes matching the `In` struct in
+/// `rates_and_index`: 61 bytes matching the `In` struct in
 /// `fuzz_targets/rates_and_index.rs`. The seed layout combines rate-model
-/// geometry with accrual and borrow fields so mutations can cross related
-/// inputs in one target.
+/// geometry with accrual, borrow, and starting-index fields so mutations can
+/// cross related inputs in one target.
 fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     const MS_PER_YEAR: i128 = MILLISECONDS_PER_YEAR as i128;
@@ -504,7 +504,7 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
             for flip in [0u8, 1] {
                 for &delta_ms in &delta_samples {
                     for &borrowed_units in &borrowed_samples {
-                        let mut buf = Vec::with_capacity(29);
+                        let mut buf = Vec::with_capacity(61);
                         push_u16_le(&mut buf, util);
                         buf.push(base_pct);
                         buf.push(s1_pct);
@@ -517,6 +517,12 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
                         buf.push(reserve_pct);
                         push_u64_le(&mut buf, delta_ms);
                         push_u64_le(&mut buf, borrowed_units);
+                        // Appended In fields. Seeds use representative values;
+                        // the fuzzer mutates and decorrelates from here.
+                        push_u64_le(&mut buf, borrowed_units); // supplied_units → supplied ≈ 2× borrowed
+                        push_u64_le(&mut buf, delta_ms); // chunk_units (decorrelated by mutation)
+                        push_u64_le(&mut buf, 0); // borrow_index_units → start at RAY
+                        push_u64_le(&mut buf, u64::MAX); // supply_index_units → supply ≈ borrow
                         out.push(buf);
                     }
                 }

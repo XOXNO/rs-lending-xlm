@@ -31,8 +31,22 @@ const MAX_ACCRUAL_MS: u64 = 10 * MS_PER_YEAR;
 /// compounding. Not a domain clamp.
 const AMOUNT_CAP_RAW: i128 = 100_000_000_000_000_000; // 1e17
 
-/// 29-byte layout (unchanged for seed-corpus bit-compat). Leading fields drive
-/// the rate-model geometry; the tail carries accrual inputs.
+/// Starting borrow index spans [RAY, RAY + 9·RAY] = [1×, 10×]. `borrow_index_units`
+/// (u64, max ≈1.8e19) is smaller than RAY, so it must be scaled up, not modulo'd.
+/// Pre-dividing the 9·RAY span by u64::MAX keeps the multiply inside i128.
+const START_BORROW_INDEX_GROWTH: i128 = 9 * RAY;
+const BI_SCALE: i128 = START_BORROW_INDEX_GROWTH / (u64::MAX as i128);
+
+/// Floor for the starting supply index, as `borrow_index / 16`. Supply index
+/// sits at or below the borrow index (suppliers earn a fraction) but never far
+/// below: bounding `borrow/supply ≤ 16` at the start — and the supply index only
+/// grows during accrual — keeps `borrow/supply ≤ MAX_BORROW_INDEX/(RAY/16)`, so
+/// utilization stays inside i128 across the full 10-year accrual.
+const SUPPLY_INDEX_MIN_DIVISOR: i128 = 16;
+
+/// Leading fields drive the rate-model geometry; the tail carries accrual inputs
+/// and the fuzzed starting indices. Appended fields keep the original prefix
+/// offsets so existing seeds still decode.
 #[derive(Debug, Arbitrary)]
 struct In {
     // --- rate-model geometry (mapped into the verified domain) ---
@@ -46,10 +60,13 @@ struct In {
     max_pct: u16,
     max_util_pct: u8,
     reserve_pct: u8,
-    // --- accrual ---
-    delta_ms: u64,
+    // --- accrual (original prefix offsets preserved; new fields appended) ---
+    delta_ms: u64, // total accrual gap (multi-chunk)
     borrowed_units: u64,
     supplied_units: u64,
+    chunk_units: u64,        // per-chunk compound delta, decorrelated from delta_ms
+    borrow_index_units: u64, // starting borrow index in [RAY, 10·RAY]
+    supply_index_units: u64, // starting supply index in [borrow_index/16, borrow_index]
 }
 
 /// Builds a `MarketParamsRaw` that satisfies `InterestRateModel::verify` by
@@ -236,7 +253,8 @@ fuzz_target!(|i: In| {
     // Production evaluates `compound_interest` per accrual chunk of at most
     // MAX_COMPOUND_DELTA_MS. With the verified cap (rate ≤ 2 RAY/yr), one chunk
     // keeps x = rate·chunk ≤ 2 RAY, inside the Taylor-accurate domain.
-    let chunk_ms = i.delta_ms % (MAX_COMPOUND_DELTA_MS + 1); // [0, MAX_COMPOUND_DELTA_MS]
+    // Decorrelated from total_delta_ms below (its own entropy field).
+    let chunk_ms = i.chunk_units % (MAX_COMPOUND_DELTA_MS + 1); // [0, MAX_COMPOUND_DELTA_MS]
     let factor = compound_interest(&env, rate, chunk_ms);
     assert_compound_invariants(&env, rate, chunk_ms, factor);
 
@@ -280,7 +298,16 @@ fuzz_target!(|i: In| {
     let supplied_raw = borrowed_raw + 1 + (i.supplied_units as i128 % AMOUNT_CAP_RAW);
     let total_delta_ms = i.delta_ms % (MAX_ACCRUAL_MS + 1); // [0, 10 years]
 
-    let old_index_raw = Ray::ONE.raw();
+    // Fuzz the starting indices, not always RAY: production calls
+    // simulate_update_indexes from whatever the current indices are. Scale the
+    // u64 entropy across the safe ranges (pre-dividing each span by u64::MAX so
+    // the multiply can't overflow); the bounds keep utilization inside i128
+    // across the accrual (see the constants above).
+    let start_borrow_index = RAY + i.borrow_index_units as i128 * BI_SCALE; // [RAY, 10·RAY]
+    let si_floor = start_borrow_index / SUPPLY_INDEX_MIN_DIVISOR;
+    let si_scale = (start_borrow_index - si_floor) / (u64::MAX as i128);
+    let start_supply_index = si_floor + i.supply_index_units as i128 * si_scale; // [BI/16, BI]
+
     let sync = PoolSyncData {
         params: params_raw,
         state: PoolStateRaw {
@@ -288,32 +315,32 @@ fuzz_target!(|i: In| {
             borrowed_ray: borrowed_raw,
             revenue_ray: 0,
             cash: 0,
-            borrow_index_ray: old_index_raw,
-            supply_index_ray: old_index_raw,
+            borrow_index_ray: start_borrow_index,
+            supply_index_ray: start_supply_index,
             last_timestamp: 0,
         },
     };
     let new_idx = simulate_update_indexes(&env, total_delta_ms, &sync);
 
-    // Monotonic non-decrease: indices only grow across a positive time step.
+    // Monotonic non-decrease from the starting indices: accrual only grows them.
     assert!(
-        new_idx.borrow_index.raw() >= old_index_raw,
+        new_idx.borrow_index.raw() >= start_borrow_index,
         "borrow index regressed: new={} old={} dt={}",
         new_idx.borrow_index.raw(),
-        old_index_raw,
+        start_borrow_index,
         total_delta_ms
     );
     assert!(
-        new_idx.supply_index.raw() >= old_index_raw,
+        new_idx.supply_index.raw() >= start_supply_index,
         "supply index regressed: new={} old={} dt={}",
         new_idx.supply_index.raw(),
-        old_index_raw,
+        start_supply_index,
         total_delta_ms
     );
 
     // total_delta_ms == 0 ⇒ indices are passed through unchanged.
     if total_delta_ms == 0 {
-        assert_eq!(new_idx.borrow_index.raw(), old_index_raw);
-        assert_eq!(new_idx.supply_index.raw(), old_index_raw);
+        assert_eq!(new_idx.borrow_index.raw(), start_borrow_index);
+        assert_eq!(new_idx.supply_index.raw(), start_supply_index);
     }
 });
