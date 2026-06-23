@@ -288,10 +288,10 @@ coverage-controller:
 	restore_snapshots() { \
 		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
 		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
 	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup"; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/; \
+	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/controller.lcov.info $(COV_IGNORE) >/dev/null
@@ -328,10 +328,10 @@ coverage-merged:
 	restore_snapshots() { \
 		rm -rf $(TEST_HARNESS_DIR)/test_snapshots; \
 		mkdir -p $(TEST_HARNESS_DIR)/test_snapshots; \
-		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/; \
+		cp -R "$$backup"/. $(TEST_HARNESS_DIR)/test_snapshots/ 2>/dev/null || true; \
 	}; \
-	rm -rf "$$backup" && mkdir -p "$$backup"; \
-	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/; \
+	rm -rf "$$backup" && mkdir -p "$$backup" $(TEST_HARNESS_DIR)/test_snapshots; \
+	cp -R $(TEST_HARNESS_DIR)/test_snapshots/. "$$backup"/ 2>/dev/null || true; \
 	trap 'restore_snapshots' EXIT; \
 	cargo llvm-cov test -p test-harness --no-report $(COV_IGNORE) -- --test-threads=1 2>&1 | tail -5
 	@cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null
