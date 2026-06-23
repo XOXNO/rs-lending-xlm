@@ -59,13 +59,16 @@ struct In {
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let cap = MAX_BORROW_RATE_RAY; // 2 RAY — production ceiling on the borrow rate.
 
-    // Cumulative non-decreasing slopes within [0, cap].
-    let base = cap * (i.base_pct as i128) / 1_024; // [0, cap·255/1024]
-    let s1 = base + (cap - base) * (i.s1_pct as i128) / 1_024;
-    let s2 = s1 + (cap - s1) * (i.s2_pct as i128) / 1_024;
-    let s3 = s2 + (cap - s2) * (i.s3_pct as i128 % 1_024) / 2_048;
+    // Cumulative non-decreasing slopes within [0, cap]. Each fraction divides by
+    // its input's field width so it spans the full remaining headroom — the
+    // verified slope range, not just its low end. `base` stays modest (≤ ~cap/4)
+    // so the slopes have room to vary across a realistic curve.
+    let base = cap * (i.base_pct as i128) / 1_024; // [0, ~cap/4]
+    let s1 = base + (cap - base) * (i.s1_pct as i128) / 256; // u8 → [base, ~cap)
+    let s2 = s1 + (cap - s1) * (i.s2_pct as i128) / 256; // u8 → [s1, ~cap)
+    let s3 = s2 + (cap - s2) * (i.s3_pct as i128) / 65_536; // u16 → [s2, ~cap)
     // max ∈ [s3, cap), forced strictly above base.
-    let max_rate = (s3 + (cap - s3) * (i.max_pct as i128 % 256) / 256).max(base + 1);
+    let max_rate = (s3 + (cap - s3) * (i.max_pct as i128) / 65_536).max(base + 1); // u16
 
     // Utilization breakpoints: 0 < mid < optimal < RAY, optimal ≤ max_util ≤ RAY.
     let mid = RAY * (i.mid_pct as i128 % 98 + 1) / 100; // [1%, 98%] of RAY
@@ -81,7 +84,9 @@ fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
         mid_utilization_ray: mid,
         optimal_utilization_ray: optimal,
         max_utilization_ray: max_util,
-        reserve_factor_bps: (i.reserve_pct as u32) % (BPS as u32), // [0, BPS)
+        // `reserve_pct % BPS` would be a no-op (u8 max 255). Scale the byte
+        // across the full verified range [0, BPS), hitting the BPS-1 boundary.
+        reserve_factor_bps: (i.reserve_pct as u32) * (BPS as u32 - 1) / (u8::MAX as u32),
         supply_cap: 0,
         borrow_cap: 0,
         asset_id: Address::from_str(
