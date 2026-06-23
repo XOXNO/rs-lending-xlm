@@ -249,6 +249,7 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
+            // Carries asset-native `cash`, not a RAY value; the `_ray` suffix is legacy wire naming.
             reserves_ray: self.cash,
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),

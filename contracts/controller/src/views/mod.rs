@@ -200,11 +200,11 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .to_asset(decimals)
 }
 
-/// Returns raw scaled supply and debt maps for `account_id`.
 pub fn account_exists(env: &Env, account_id: u64) -> bool {
     storage::try_get_account_meta(env, account_id).is_some()
 }
 
+/// Returns raw scaled supply and debt maps for `account_id`.
 pub fn get_account_positions(
     env: &Env,
     account_id: u64,

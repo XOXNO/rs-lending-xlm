@@ -96,13 +96,10 @@ fn call_router_with_reentrancy_guard(
     amount_in: i128,
     swap: &StrategySwap,
 ) {
-    let previously_set = storage::is_flash_loan_ongoing(env);
-    storage::set_flash_loan_ongoing(env, true);
-    let sender = env.current_contract_address();
-    let _ = router.execute_strategy(&sender, &amount_in, swap);
-    if !previously_set {
-        storage::set_flash_loan_ongoing(env, false);
-    }
+    storage::with_flash_guard(env, || {
+        let sender = env.current_contract_address();
+        let _ = router.execute_strategy(&sender, &amount_in, swap);
+    });
 }
 
 fn pre_authorize_router_pull(

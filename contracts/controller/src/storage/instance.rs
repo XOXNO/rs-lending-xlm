@@ -248,6 +248,19 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
+/// Runs `f` with the flash-loan reentrancy flag set, restoring the prior
+/// value afterward so nested guarded sections stay protected. (panic=abort
+/// rolls back the whole tx on revert, so no restore-on-unwind is needed.)
+pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
+    let prev = is_flash_loan_ongoing(env);
+    set_flash_loan_ongoing(env, true);
+    let out = f();
+    if !prev {
+        set_flash_loan_ongoing(env, false);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

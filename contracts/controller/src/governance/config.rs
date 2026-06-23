@@ -336,6 +336,10 @@ pub fn add_asset_to_e_mode_category(
         supply_cap,
         borrow_cap,
     );
+    // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
+    // that would overflow it so a misconfig fails here, not at view time.
+    common::validation::require_cap_within_asset_domain(env, supply_cap, hub.params.asset_decimals);
+    common::validation::require_cap_within_asset_domain(env, borrow_cap, hub.params.asset_decimals);
 
     let config = EModeAssetConfig {
         is_collateralizable: can_collateral,
@@ -397,6 +401,10 @@ pub fn edit_asset_in_e_mode_category(
         supply_cap,
         borrow_cap,
     );
+    // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
+    // that would overflow it so a misconfig fails here, not at view time.
+    common::validation::require_cap_within_asset_domain(env, supply_cap, hub.params.asset_decimals);
+    common::validation::require_cap_within_asset_domain(env, borrow_cap, hub.params.asset_decimals);
     let usage = cat
         .usage
         .get(asset.clone())

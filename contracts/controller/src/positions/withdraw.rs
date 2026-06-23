@@ -27,6 +27,18 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
 pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
+/// Per-asset decision for refreshing supply risk params after a withdraw.
+///
+/// - `Frozen`: keep existing risk params (liquidation, deprecated category, or
+///   removed e-mode membership).
+/// - `None`: refresh from current config with no e-mode category.
+/// - `From`: refresh from the given active e-mode category.
+pub(crate) enum EModeRefresh {
+    Frozen,
+    None,
+    From(EModeCategory),
+}
+
 /// Per-call withdrawal inputs that travel together through the pipeline.
 pub(crate) struct WithdrawalRequest<'a> {
     pub asset: &'a Address,
@@ -148,15 +160,16 @@ pub(crate) fn settle_withdraw_entries(
     // Resolve the category once, then decide per asset whether it is still
     // active membership. Deprecated categories and removed assets must not block
     // exits, but they also must not rewrite existing position risk params.
+    // Liquidation never refreshes, so the category is only loaded otherwise.
     let e_mode_category = if is_liquidation {
         None
     } else {
-        Some(cache.cached_e_mode_category(account.e_mode_category_id))
+        cache.cached_e_mode_category(account.e_mode_category_id)
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
         let refresh_e_mode = if is_liquidation {
-            None
+            EModeRefresh::Frozen
         } else {
             withdraw_refresh_e_mode_for_asset(account, &entry.action.asset, &e_mode_category)
         };
@@ -165,7 +178,7 @@ pub(crate) fn settle_withdraw_entries(
             account,
             action,
             &entry.action.asset,
-            refresh_e_mode.as_ref(),
+            &refresh_e_mode,
             &result,
             cache,
         );
@@ -176,32 +189,32 @@ pub(crate) fn settle_withdraw_entries(
 fn withdraw_refresh_e_mode_for_asset(
     account: &Account,
     asset: &Address,
-    e_mode_category: &Option<Option<EModeCategory>>,
-) -> Option<Option<EModeCategory>> {
+    e_mode_category: &Option<EModeCategory>,
+) -> EModeRefresh {
     if account.e_mode_category_id == 0 {
-        return Some(None);
+        return EModeRefresh::None;
     }
 
-    let Some(Some(category)) = e_mode_category else {
-        return None;
+    let Some(category) = e_mode_category else {
+        return EModeRefresh::Frozen;
     };
     if category.is_deprecated || category.assets.get(asset.clone()).is_none() {
-        return None;
+        return EModeRefresh::Frozen;
     }
 
-    Some(Some(category.clone()))
+    EModeRefresh::From(category.clone())
 }
 
 /// Merges one pool withdraw result back into the account and event buffers.
-/// `refresh_e_mode` is `Some` when the withdrawn asset should refresh from
-/// current config and `None` when risk params must stay frozen (liquidation,
+/// `refresh_e_mode` refreshes the withdrawn asset's risk params from current
+/// config (`None`/`From`) or keeps them frozen (`Frozen`: liquidation,
 /// deprecated category, or removed e-mode membership).
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,
     action: events::PositionAction,
     asset: &Address,
-    refresh_e_mode: Option<&Option<EModeCategory>>,
+    refresh_e_mode: &EModeRefresh,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -212,8 +225,13 @@ pub(crate) fn finish_withdrawal(
         let delta = old_scaled - result_position.scaled_amount;
         ctx.apply_withdraw_after_pool(env, asset, delta);
     }
-    if let Some(e_mode) = refresh_e_mode {
-        let config = emode::effective_asset_config(env, account, asset, cache, e_mode);
+    let refresh_category = match refresh_e_mode {
+        EModeRefresh::Frozen => None,
+        EModeRefresh::None => Some(None),
+        EModeRefresh::From(category) => Some(Some(category.clone())),
+    };
+    if let Some(category) = &refresh_category {
+        let config = emode::effective_asset_config(env, account, asset, cache, category);
         refresh_supply_risk_params(env, cache, account, asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, asset, &result_position);

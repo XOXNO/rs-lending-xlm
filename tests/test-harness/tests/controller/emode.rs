@@ -1085,3 +1085,250 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     t.supply_raw(ALICE, "USDC", headroom);
     assert_eq!(t.ctrl_client().max_supply(&account_id, &usdc), 0);
 }
+
+// Borrow-side twin of `test_update_pool_caps_rejects_hub_below_spoke`: a spoke
+// borrow cap above the enabled hub borrow cap must be rejected at config time
+// (the borrow branch of `validate_spoke_caps_against_hub`).
+#[test]
+fn test_emode_spoke_borrow_cap_above_hub_rejected() {
+    let hub_borrow_cap = 1_000 * UNIT;
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.borrow_cap = hub_borrow_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &0i128,
+        &(2_000 * UNIT), // spoke borrow cap above the hub borrow cap
+    ) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+}
+
+// Borrow-side twin of `test_edit_emode_rejects_supply_cap_below_usage`: editing
+// the spoke borrow cap below the category's current borrow usage must be
+// rejected (the borrow branch of `validate_spoke_caps_against_usage`).
+#[test]
+fn test_edit_emode_rejects_borrow_cap_below_usage() {
+    let hub_borrow_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market_params("USDT", |params| {
+            params.borrow_cap = hub_borrow_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    let usdt = t.resolve_asset("USDT");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdt, &1, &true, &true, &9_700, &9_800, &200, &0i128, &spoke_cap,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 500.0); // ~500 USDT of borrow usage
+
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdt,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &0i128,
+        &(100 * UNIT), // spoke borrow cap below the ~500 current usage
+    ) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
+}
+
+// Integration of the from_asset-domain guard on the spoke path: a spoke cap far
+// above the `Ray::from_asset` domain would overflow in a cap preview, so
+// `require_cap_within_asset_domain` must reject it at config time. Hub caps are
+// disabled so the spoke<=hub check is skipped and the domain guard is binding.
+#[test]
+fn test_emode_spoke_cap_above_from_asset_domain_rejected() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    // At 7 decimals the ceiling is ~i128::MAX / 10^20 (~1.7e18); 2e21 overflows.
+    let overflowing_cap = 2_000_000_000_000_000_000_000i128;
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
+        &usdc,
+        &1,
+        &true,
+        &true,
+        &9_700,
+        &9_800,
+        &200,
+        &overflowing_cap,
+        &0i128,
+    ) {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::INVALID_BORROW_PARAMS);
+}
+
+// Round-trip: filling the spoke supply cap collapses headroom and blocks new
+// supply; withdrawing decrements usage and restores headroom for a re-supply.
+#[test]
+fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc, &1, &true, &true, &9_700, &9_800, &200, &spoke_cap, &0i128,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    let account_id = t.resolve_account_id(ALICE);
+
+    // Fill to the spoke cap: headroom collapses and one more unit reverts.
+    t.supply(ALICE, "USDC", 1_000.0);
+    assert!(
+        t.ctrl_client().max_supply(&account_id, &usdc) <= 1,
+        "headroom must collapse at the spoke cap"
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 1.0),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
+    );
+
+    // Withdraw frees usage; headroom is restored and a re-supply executes.
+    t.withdraw(ALICE, "USDC", 400.0);
+    let restored = t.ctrl_client().max_supply(&account_id, &usdc);
+    assert!(
+        restored > 390 * UNIT && restored <= 400 * UNIT,
+        "headroom should restore to ~400 USDC after withdraw, got {restored}"
+    );
+    let res = t.try_supply(ALICE, "USDC", 300.0);
+    assert!(res.is_ok(), "re-supply within restored headroom must execute");
+}
+
+// The spoke cap is fixed in asset units while debt accrues interest, so a
+// position borrowed up to the cap drifts past it as the index grows: a later
+// borrow must revert on the spoke cap even though scaled usage is unchanged.
+#[test]
+fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
+    let hub_borrow_cap = 100_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market_params("USDT", |params| {
+            params.borrow_cap = hub_borrow_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    let usdt = t.resolve_asset("USDT");
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdt, &1, &true, &true, &9_700, &9_800, &200, &0i128, &spoke_cap,
+    );
+
+    // A non-e-mode USDT supplier so utilization is defined and interest accrues.
+    t.supply(LIQUIDATOR, "USDT", 5_000.0);
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 1_000.0); // borrow up to the spoke cap
+
+    let account_id = t.resolve_account_id(ALICE);
+    assert!(
+        t.ctrl_client().max_borrow(&account_id, &usdt) <= 1,
+        "headroom must be ~0 right at the cap"
+    );
+
+    t.advance_time(60 * 60 * 24 * 365);
+
+    assert_eq!(
+        t.ctrl_client().max_borrow(&account_id, &usdt),
+        0,
+        "accrued debt must push the e-mode position past the fixed spoke cap"
+    );
+    assert_contract_error(
+        t.try_borrow(ALICE, "USDT", 1.0),
+        errors::SPOKE_BORROW_CAP_REACHED,
+    );
+}
+
+// `update_pool_caps` must validate the proposed hub cap against EVERY e-mode
+// category the asset belongs to, not just the first. USDC sits in two
+// categories: a lowering hub cap clears category 1's spoke cap but violates
+// category 2's, so the validator's loop must iterate past the passing category
+// to reject on the second (`validate_hub_caps_against_category_spokes`).
+#[test]
+fn test_update_pool_caps_validates_every_category_spoke() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = 10_000 * UNIT;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode(2, STABLECOIN_EMODE)
+        .with_emode_asset(2, "USDC", true, true)
+        .build();
+
+    let usdc = t.resolve_asset("USDC");
+    // Category 1 spoke cap below the proposed hub (will pass the check)...
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc, &1, &true, &true, &9_700, &9_800, &200, &(800 * UNIT), &0i128,
+    );
+    // ...category 2 spoke cap above it (will fail on the second iteration).
+    t.ctrl_client().edit_asset_in_e_mode_category(
+        &usdc, &2, &true, &true, &9_700, &9_800, &200, &(1_500 * UNIT), &0i128,
+    );
+
+    // A hub supply cap of 1000 clears category 1's 800 but violates category 2's
+    // 1500 — the loop must reach the second category to reject.
+    let result = match t
+        .ctrl_client()
+        .try_update_pool_caps(&usdc, &(1_000 * UNIT), &0i128)
+    {
+        Ok(res) => res.map_err(|e| e.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+
+    // A hub cap that clears BOTH spoke caps succeeds, confirming the loop's
+    // pass path over multiple categories.
+    t.ctrl_client().update_pool_caps(&usdc, &(2_000 * UNIT), &0i128);
+}

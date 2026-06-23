@@ -56,11 +56,9 @@ pub fn process_flash_loan(
     let pool_addr = cache.cached_pool_address();
 
     // Reentrancy guard.
-    storage::set_flash_loan_ongoing(env, true);
-
-    pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
-
-    storage::set_flash_loan_ongoing(env, false);
+    storage::with_flash_guard(env, || {
+        pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
+    });
 
     FlashLoanEvent {
         asset: asset.clone(),

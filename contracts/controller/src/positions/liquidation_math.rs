@@ -112,16 +112,11 @@ pub(crate) fn calculate_repayment_amounts(
     account: &Account,
     refunds: &mut Vec<PaymentTuple>,
     cache: &mut Cache,
-) -> (Wad, Vec<RepayEntry>, bool) {
+) -> (Wad, Vec<RepayEntry>) {
     let mut total_repaid_usd = Wad::ZERO;
     let mut repaid_tokens: Vec<RepayEntry> = Vec::new(env);
 
     let merged = utils::aggregate_positive_payments(env, raw_payments);
-
-    // Full coverage is decided in token terms, the pool's settlement unit.
-    // The aggregated payments reach each debt position, and each payment
-    // settles its position's full token debt.
-    let mut covers_full_debt = merged.len() == account.borrow_positions.len();
 
     for i in 0..merged.len() {
         let (asset, amount) = validation::expect_invariant(env, merged.get(i));
@@ -149,8 +144,6 @@ pub(crate) fn calculate_repayment_amounts(
                 amount: excess,
             });
             payment_amount = actual_debt;
-        } else if payment_amount < actual_debt {
-            covers_full_debt = false;
         }
 
         let payment_usd = feed.usd_value_wad(env, payment_amount);
@@ -165,7 +158,7 @@ pub(crate) fn calculate_repayment_amounts(
         });
     }
 
-    (total_repaid_usd, repaid_tokens, covers_full_debt)
+    (total_repaid_usd, repaid_tokens)
 }
 
 pub(crate) fn normalize_repayment_plan(
@@ -177,7 +170,7 @@ pub(crate) fn normalize_repayment_plan(
     cache: &mut Cache,
 ) -> NormalizedRepaymentPlan {
     let mut refunds = Vec::new(env);
-    let (total_debt_payment_usd, repaid_tokens, _) =
+    let (total_debt_payment_usd, repaid_tokens) =
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
     let (max_debt_to_repay_usd, bonus) =
@@ -406,45 +399,71 @@ pub fn calculate_linear_bonus_with_target(
     )
 }
 
+/// Candidate close amount and bonus for the unconditional base tier, plus the
+/// post-liquidation HF used to decide whether the base tier pre-empts fallback.
+struct BaseTier {
+    candidate: (Wad, Bps),
+    new_hf: Wad,
+}
+
+/// Primary tier: seize toward a 1.02 HF target and accept only when the result
+/// restores HF to at least one.
+fn primary_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Option<(Wad, Bps)> {
+    let target = Wad::from(1_020_000_000_000_000_000i128);
+    let bonus = calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target);
+    let d = try_liquidation_at_target(env, snap, bonus, target)?;
+    if calculate_post_liquidation_hf(env, snap, d, bonus) >= Wad::ONE {
+        Some((d, bonus))
+    } else {
+        None
+    }
+}
+
+/// Fallback tier: seize toward a 1.01 HF target without the HF-restored check.
+fn fallback_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Option<(Wad, Bps)> {
+    let target = Wad::from(WAD + WAD / 100);
+    let bonus = calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target);
+    try_liquidation_at_target(env, snap, bonus, target).map(|d| (d, bonus))
+}
+
+/// Base tier: largest seizure at base bonus, capped at total debt.
+fn base_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> BaseTier {
+    let one_plus_base = Wad::ONE + bounds.base.to_wad(env);
+    let d_max = snap
+        .total_collateral
+        .div(env, one_plus_base)
+        .min(snap.total_debt);
+    BaseTier {
+        candidate: (d_max, bounds.base),
+        new_hf: calculate_post_liquidation_hf(env, snap, d_max, bounds.base),
+    }
+}
+
 /// Estimates repayment and bonus using a 1.02 HF target, then 1.01 fallback,
 /// then max-collateral seizure at base bonus without worsening account HF.
+///
+/// Precedence: primary wins when it restores HF; otherwise the base tier
+/// pre-empts when it strictly improves a still-unhealthy HF; otherwise the
+/// fallback tier wins when it yields a candidate; otherwise the base tier.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
     bounds: BonusBounds,
 ) -> (Wad, Bps) {
-    let target_primary = Wad::from(1_020_000_000_000_000_000i128);
-    let bonus_primary =
-        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target_primary);
-    if let Some(d) = try_liquidation_at_target(env, snap, bonus_primary, target_primary) {
-        let new_hf = calculate_post_liquidation_hf(env, snap, d, bonus_primary);
-        if new_hf >= Wad::ONE {
-            return (d, bonus_primary);
-        }
+    if let Some(result) = primary_tier(env, snap, bounds) {
+        return result;
     }
 
-    let target_fallback = Wad::from(WAD + WAD / 100);
-    let bonus_fallback =
-        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target_fallback);
-    let fallback_result = try_liquidation_at_target(env, snap, bonus_fallback, target_fallback);
+    // Order preserved from the inline form: fallback is evaluated before the
+    // base candidate so any math behavior is identical to the prior flow.
+    let fallback = fallback_tier(env, snap, bounds);
+    let base = base_tier(env, snap, bounds);
 
-    let base_bonus_wad = bounds.base.to_wad(env);
-    let one_plus_base = Wad::ONE + base_bonus_wad;
-    let d_max = snap
-        .total_collateral
-        .div(env, one_plus_base)
-        .min(snap.total_debt);
-
-    let base_new_hf = calculate_post_liquidation_hf(env, snap, d_max, bounds.base);
-
-    if base_new_hf < Wad::ONE && base_new_hf < snap.hf {
-        return (d_max, bounds.base);
+    if base.new_hf < Wad::ONE && base.new_hf < snap.hf {
+        return base.candidate;
     }
 
-    match fallback_result {
-        Some(d) => (d, bonus_fallback),
-        None => (d_max, bounds.base),
-    }
+    fallback.unwrap_or(base.candidate)
 }
 
 fn calculate_post_liquidation_hf(

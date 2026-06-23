@@ -121,4 +121,34 @@ impl LendingTest {
             .remove_asset_from_e_mode(&asset, &category_id);
     }
 
+    /// Edit an e-mode asset with explicit spoke supply/borrow caps. Mirrors
+    /// `edit_asset_in_e_mode` but forwards real cap values instead of the
+    /// hardcoded `0` (disabled) the other helpers use, so cap-bound preview
+    /// branches become reachable from tests.
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit_asset_in_e_mode_caps(
+        &self,
+        asset_name: &str,
+        category_id: u32,
+        can_collateral: bool,
+        can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
+        supply_cap: i128,
+        borrow_cap: i128,
+    ) {
+        let asset = self.resolve_asset(asset_name);
+        self.ctrl_client().edit_asset_in_e_mode_category(
+            &asset,
+            &category_id,
+            &can_collateral,
+            &can_borrow,
+            &ltv,
+            &threshold,
+            &bonus,
+            &supply_cap,
+            &borrow_cap,
+        );
+    }
 }

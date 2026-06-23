@@ -272,6 +272,8 @@ mod tests {
             max_utilization: Ray::from(RAY * 95 / 100),     // 95%
             max_borrow_rate: Ray::from(RAY),                // 100%
             reserve_factor: Bps::from(1000),                // 10%
+            supply_cap: 0,
+            borrow_cap: 0,
             asset_id: soroban_sdk::Address::from_str(
                 &Env::default(),
                 "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -520,6 +522,8 @@ mod tests {
             optimal_utilization_ray: RAY * 80 / 100,
             max_utilization_ray: RAY * 95 / 100,
             reserve_factor_bps: 1_000,
+            supply_cap: 0,
+            borrow_cap: 0,
             asset_id: soroban_sdk::Address::from_str(
                 &env,
                 "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -570,6 +574,8 @@ mod tests {
             optimal_utilization_ray: RAY * 80 / 100,
             max_utilization_ray: RAY * 95 / 100,
             reserve_factor_bps: 1_000,
+            supply_cap: 0,
+            borrow_cap: 0,
             asset_id: soroban_sdk::Address::from_str(
                 &env,
                 "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
