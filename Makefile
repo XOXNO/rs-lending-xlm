@@ -478,7 +478,12 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   FUZZ_FLAGS := --sanitizer=thread -Zbuild-std
 else
-  FUZZ_FLAGS :=
+  # The prebuilt cargo-fuzz (taiki-e/install-action) is the musl-static binary,
+  # and cargo-fuzz defaults its build target to its own — musl — which ASan
+  # cannot link against statically-linked libc. Pin the build to the gnu host
+  # target so the sanitizer links (matches the old gnu source-built cargo-fuzz).
+  FUZZ_HOST := $(shell rustc -vV | sed -n 's/^host: //p')
+  FUZZ_FLAGS := --target $(FUZZ_HOST)
 endif
 
 ## Run all fuzz targets for $(FUZZ_TIME) seconds each (default: 60s)
