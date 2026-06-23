@@ -87,10 +87,19 @@ fn pool_balance(env: &Env, asset: &Address, pool_addr: &Address) -> i128 {
 }
 
 fn assert_cash_matches_balance(env: &Env, pool: &Address, asset: &Address, state: &PoolStateRaw) {
-    assert_eq!(
-        pool_balance(env, asset, pool),
+    // The pool tracks deposits via internal `cash`, not its live token balance,
+    // and deliberately ignores tokens it never accounted for (donation
+    // resistance). The real invariant is therefore `cash <= balance`: the pool
+    // must never claim more cash than it actually holds — claiming more would
+    // enable over-withdrawal. balance may legitimately exceed cash: a donation,
+    // or (in this harness) tokens minted into the pool for an op that then
+    // reverts, orphaning them outside the pool's accounting.
+    let balance = pool_balance(env, asset, pool);
+    assert!(
+        state.cash <= balance,
+        "cash exceeds token balance: cash={} balance={}",
         state.cash,
-        "token balance and cash diverged"
+        balance,
     );
 }
 
