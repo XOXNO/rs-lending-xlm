@@ -83,8 +83,6 @@ pub fn process_liquidation(
         &account.supply_positions,
         &account.borrow_positions,
     );
-    let will_socialize =
-        is_socializable_bad_debt(post_totals.total_debt, post_totals.total_collateral);
 
     cache.persist_emode_usage();
     persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
@@ -97,7 +95,6 @@ pub fn process_liquidation(
         &account,
         post_totals.total_collateral,
         post_totals.total_debt,
-        will_socialize,
     );
     cache.emit_position_batch(account_id, &account);
 }
@@ -256,14 +253,13 @@ fn check_bad_debt_after_liquidation(
     account: &Account,
     total_collateral_usd: Wad,
     total_debt_usd: Wad,
-    will_socialize: bool,
 ) {
     if account.borrow_positions.is_empty() {
         helpers::cleanup_account_if_empty(env, account, account_id);
         return;
     }
 
-    if will_socialize {
+    if is_socializable_bad_debt(total_debt_usd, total_collateral_usd) {
         execute_bad_debt_cleanup(
             env,
             cache,

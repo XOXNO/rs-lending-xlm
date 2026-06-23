@@ -74,6 +74,13 @@ pub(crate) fn is_within_anchor(
     if anchor == 0 {
         return false;
     }
+    // A primary/anchor ratio beyond any representable u32 BPS band is out of
+    // band by definition; short-circuit before the RAY-scaled mul_div so a
+    // degenerate (valid but near-zero) anchor reports divergence instead of
+    // overflowing to a MathOverflow revert.
+    if primary / anchor > i128::from(u32::MAX) {
+        return false;
+    }
     // primary/anchor are same-scale (Wad) i128 prices; ratio = primary * RAY /
     // anchor at RAY precision, then rescaled RAY->BPS for comparison.
     let ratio_ray = fp_core::mul_div_half_up(env, primary, RAY, anchor);
@@ -104,6 +111,22 @@ mod tests {
     fn test_is_within_anchor_zero_anchor_returns_false() {
         let env = Env::default();
         assert!(!is_within_anchor(&env, 0, 100 * constants::WAD, 200, 200));
+    }
+
+    #[test]
+    fn test_is_within_anchor_degenerate_anchor_is_out_of_band_no_panic() {
+        let env = Env::default();
+        // A valid but near-zero anchor (1) against a near-maximum primary makes
+        // primary * RAY overflow the i128 narrowing in mul_div_half_up. The
+        // short-circuit must report out-of-band (false) rather than panicking
+        // with MathOverflow, so divergence-tolerant policies degrade gracefully.
+        assert!(!is_within_anchor(
+            &env,
+            1,
+            constants::MAX_REASONABLE_PRICE_WAD,
+            10_500,
+            9_500,
+        ));
     }
 
     #[test]

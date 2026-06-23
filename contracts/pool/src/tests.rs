@@ -2051,3 +2051,103 @@ fn test_bulk_supply_cap_violation_reverts_whole_batch() {
     assert_pool_state_eq(&b_after, &b_before);
     assert_eq!(b_after.cash, b_before.cash);
 }
+
+// Sets the market's max-utilization cap, overriding the disabled RAY sentinel
+// the default params use for accounting tests.
+fn set_max_utilization(t: &TestSetup, max_utilization_ray: i128) {
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(t.asset.clone());
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.max_utilization_ray = max_utilization_ray;
+        t.env.storage().persistent().set(&key, &params);
+    });
+}
+
+// The withdraw path enforces max utilization on the post-withdraw state: a
+// withdraw that lifts utilization above the 50% cap reverts, while one that
+// keeps it at or below the cap succeeds. Exercises the gate through withdraw,
+// not only through the borrow/index-drift paths covered in utils.rs.
+#[test]
+fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
+    let t = TestSetup::new();
+    let client = t.client();
+    set_max_utilization(&t, RAY / 2);
+
+    // Supply 20 units; borrow 5 -> 25% utilization, well below the 50% cap.
+    let supply_amount = 20_000_000_000i128;
+    let supplied = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
+
+    let borrower = Address::generate(&t.env);
+    client.borrow(&borrower, &t.bor(0, 5_000_000_000i128));
+
+    let supplier = Address::generate(&t.env);
+    let scaled = supplied.position.scaled_amount_ray;
+
+    // Withdraw 5 units: supplied 20 -> 15, utilization 5/15 = 33% <= 50% cap.
+    let ok = client
+        .withdraw(&supplier, &false, &t.wdr(scaled, 5_000_000_000i128, 0i128))
+        .get_unchecked(0);
+    assert_eq!(ok.actual_amount, 5_000_000_000i128);
+
+    // Withdraw 6 more units: supplied 15 -> 9, utilization 5/9 = 55% > 50% cap.
+    let result = flatten_contract_result(client.try_withdraw(
+        &supplier,
+        &false,
+        &t.wdr(ok.position.scaled_amount_ray, 6_000_000_000i128, 0i128),
+    ));
+    assert_contract_error(
+        result,
+        common::errors::CollateralError::UtilizationAboveMax as u32,
+    );
+}
+
+// Tracked `cash` stays consistent across supply -> borrow -> overpaid repay ->
+// withdraw. Overpayment is refunded to the payer and must not change `cash`:
+// only the applied debt repayment credits it. Net effect is supply - withdraw.
+#[test]
+fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    let cash_start = t.state_snapshot().cash;
+
+    let supply_amount = 50_000_000_000i128;
+    let supplied = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
+    assert_eq!(t.state_snapshot().cash, cash_start + supply_amount);
+
+    let borrower = Address::generate(&t.env);
+    let borrow_amount = 10_000_000_000i128;
+    let borrowed = client
+        .borrow(&borrower, &t.bor(0, borrow_amount))
+        .get_unchecked(0);
+    assert_eq!(
+        t.state_snapshot().cash,
+        cash_start + supply_amount - borrow_amount
+    );
+
+    // Overpay the debt: applied repayment is the outstanding debt; the surplus
+    // is refunded and does not touch `cash`.
+    let overpayment = 4_000_000_000i128;
+    let repaid = client
+        .repay(
+            &borrower,
+            &t.ract(borrowed.position.scaled_amount_ray, borrow_amount + overpayment),
+        )
+        .get_unchecked(0);
+    assert_eq!(repaid.actual_amount, borrow_amount);
+    assert_eq!(repaid.position.scaled_amount_ray, 0);
+    assert_eq!(t.state_snapshot().cash, cash_start + supply_amount);
+
+    // Withdraw part of the supply; `cash` drops by exactly the net transfer.
+    let withdraw_amount = 30_000_000_000i128;
+    let supplier = Address::generate(&t.env);
+    client.withdraw(
+        &supplier,
+        &false,
+        &t.wdr(supplied.position.scaled_amount_ray, withdraw_amount, 0i128),
+    );
+    assert_eq!(
+        t.state_snapshot().cash,
+        cash_start + supply_amount - withdraw_amount
+    );
+}

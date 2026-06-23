@@ -56,20 +56,6 @@ impl EModeUsageContext {
             })
     }
 
-    fn asset_config(&self, asset: &Address) -> Option<EModeAssetConfig> {
-        self.emode_asset(asset)
-    }
-
-    fn usage_mut(&mut self, asset: &Address) -> EModeSpokeUsageRaw {
-        self.category
-            .usage
-            .get(asset.clone())
-            .unwrap_or(EModeSpokeUsageRaw {
-                supplied_scaled_ray: 0,
-                borrowed_scaled_ray: 0,
-            })
-    }
-
     fn set_usage(&mut self, asset: &Address, usage: EModeSpokeUsageRaw) {
         if usage.supplied_scaled_ray == 0 && usage.borrowed_scaled_ray == 0 {
             self.category.usage.remove(asset.clone());
@@ -90,11 +76,11 @@ impl EModeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.asset_config(asset) {
+        let cfg = match self.emode_asset(asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.usage_mut(asset);
+        let mut usage = self.spoke_usage(asset);
         enforce_spoke_supply_cap(
             env,
             &usage,
@@ -118,11 +104,11 @@ impl EModeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.asset_config(asset) {
+        let cfg = match self.emode_asset(asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.usage_mut(asset);
+        let mut usage = self.spoke_usage(asset);
         enforce_spoke_borrow_cap(
             env,
             &usage,
@@ -147,7 +133,7 @@ impl EModeUsageContext {
         if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
             return;
         }
-        let mut usage = self.usage_mut(asset);
+        let mut usage = self.spoke_usage(asset);
         usage.supplied_scaled_ray = usage
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
@@ -164,7 +150,7 @@ impl EModeUsageContext {
         if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
             return;
         }
-        let mut usage = self.usage_mut(asset);
+        let mut usage = self.spoke_usage(asset);
         usage.borrowed_scaled_ray = usage
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())

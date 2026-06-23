@@ -275,11 +275,15 @@ fuzz_target!(|i: In| {
     // simulate_update_indexes' internal rate falls inside the clamped domain.
     const SUPPLY_CAP_RAW: i128 = 200_000_000_000_000_000;
     let supplied_raw = match borrowed_raw.checked_mul(10_000) {
-        Some(scaled) => (scaled / util_bps).min(SUPPLY_CAP_RAW),
+        Some(scaled) => scaled / util_bps,
         None => return,
     };
-    if supplied_raw <= borrowed_raw {
-        // Utilization >= 1 would land in region 3 with rates outside the clamp.
+    // Clamping supplied to a cap would raise simulate's internal utilization
+    // above `util_bps`, pushing its recomputed rate out of the Taylor-validated
+    // `rate * delta_ms <= 2 RAY` domain enforced above and overflowing
+    // compound_interest. Skip cases needing more supplied than the cap (low
+    // `util_bps`) and `supplied <= borrowed` (utilization >= 1, region 3).
+    if supplied_raw > SUPPLY_CAP_RAW || supplied_raw <= borrowed_raw {
         return;
     }
 

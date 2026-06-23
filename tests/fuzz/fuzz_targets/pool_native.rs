@@ -480,7 +480,6 @@ fuzz_target!(|i: In| {
                     &receiver,
                     &action,
                     &fee,
-                    &i128::MAX,
                 ));
                 match result {
                     Ok(out) => {

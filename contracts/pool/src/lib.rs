@@ -158,6 +158,8 @@ fn withdraw_one(
 
     let (scaled_withdrawal, gross_amount) = cache.resolve_withdrawal(amount, scaled);
 
+    // Build the projected post-withdraw state: accrue the liquidation fee and
+    // remove the withdrawn shares from supplied before any check runs.
     let net_transfer = apply_liquidation_fee(
         env,
         &mut cache,
@@ -165,12 +167,11 @@ fn withdraw_one(
         is_liquidation,
         entry.protocol_fee,
     );
-
-    cache.require_reserves(net_transfer);
-
     cache.supplied.checked_sub_assign(env, scaled_withdrawal);
     let scaled = scaled.checked_sub(env, scaled_withdrawal);
 
+    // Validate the projected state before committing or transferring.
+    cache.require_reserves(net_transfer);
     // User withdrawals cannot leave the pool above max utilization.
     if !is_liquidation {
         utils::require_utilization_below_max(env, &cache);
@@ -210,6 +211,44 @@ fn repay_one(
         cache.position_mutation(scaled, net_repay),
         cache.market_snapshot(),
     )
+}
+
+/// Asserts the pool's loaned-token balance equals `expected`, mapping any
+/// mismatch to InvalidFlashloanRepay. Brackets the payout and the callback so a
+/// receiver cannot retain funds or alter the pool balance.
+fn verify_flash_repay(
+    env: &Env,
+    tok: &token::Client,
+    pool_addr: &Address,
+    expected: i128,
+) {
+    assert_with_error!(
+        env,
+        tok.balance(pool_addr) == expected,
+        FlashLoanError::InvalidFlashloanRepay
+    );
+}
+
+/// Settles flash repayment: checks the receiver's allowance, pulls
+/// `amount + fee` via `transfer_from`, and asserts the final pool balance.
+/// Allowance is checked first so SAC failures map to InvalidFlashloanRepay.
+fn pull_flash_repayment(
+    env: &Env,
+    tok: &token::Client,
+    asset_id: &Address,
+    receiver: &Address,
+    pool_addr: &Address,
+    total: i128,
+    expected_after_repay: i128,
+) {
+    assert_with_error!(
+        env,
+        tok.allowance(receiver, pool_addr) >= total,
+        FlashLoanError::InvalidFlashloanRepay
+    );
+    authorize_token_transfer_from(env, asset_id, receiver, pool_addr, total);
+    tok.transfer_from(pool_addr, receiver, pool_addr, &total);
+    verify_flash_repay(env, tok, pool_addr, expected_after_repay);
 }
 
 #[contract]
@@ -359,13 +398,9 @@ impl LiquidityPoolInterface for LiquidityPool {
             .checked_add(fee)
             .unwrap_or_else(|| panic_with_error!(&env, GenericError::MathOverflow));
 
+        // Payout, then verify the receiver did not retain funds.
         tok.transfer(&pool_addr, &receiver, &amount);
-
-        assert_with_error!(
-            &env,
-            tok.balance(&pool_addr) == expected_after_payout,
-            FlashLoanError::InvalidFlashloanRepay
-        );
+        verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
         env.invoke_contract::<()>(
             &receiver,
@@ -382,26 +417,17 @@ impl LiquidityPoolInterface for LiquidityPool {
         );
 
         // The callback must not retain funds or change the pool balance again.
-        assert_with_error!(
-            &env,
-            tok.balance(&pool_addr) == expected_after_payout,
-            FlashLoanError::InvalidFlashloanRepay
-        );
+        verify_flash_repay(&env, &tok, &pool_addr, expected_after_payout);
 
-        // Receiver approves `amount + fee` during callback. Check allowance before
-        // transfer_from so SAC failures map to InvalidFlashloanRepay (#402).
-        assert_with_error!(
+        // Receiver approves `amount + fee` during callback; pull and verify repay.
+        pull_flash_repayment(
             &env,
-            tok.allowance(&receiver, &pool_addr) >= total,
-            FlashLoanError::InvalidFlashloanRepay
-        );
-        authorize_token_transfer_from(&env, &cache.params.asset_id, &receiver, &pool_addr, total);
-        tok.transfer_from(&pool_addr, &receiver, &pool_addr, &total);
-
-        assert_with_error!(
-            &env,
-            tok.balance(&pool_addr) == expected_after_repay,
-            FlashLoanError::InvalidFlashloanRepay
+            &tok,
+            &cache.params.asset_id,
+            &receiver,
+            &pool_addr,
+            total,
+            expected_after_repay,
         );
 
         let fee_ray = Ray::from_asset(fee, cache.params.asset_decimals);
@@ -494,8 +520,6 @@ impl LiquidityPoolInterface for LiquidityPool {
     // Solvency is checked before transfer.
     fn claim_revenue(env: Env, asset: Address) -> PoolAmountMutation {
         let mut cache = load_synced_cache(&env, &asset);
-
-        assert_with_error!(&env, cache.revenue >= Ray::ZERO, GenericError::MathOverflow);
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 

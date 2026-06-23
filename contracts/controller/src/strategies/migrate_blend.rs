@@ -312,13 +312,10 @@ fn build_withdraw_requests(
 /// controller). The caller MUST have emitted `authorize_blend_submit` for these
 /// `requests` immediately before, with no intervening cross-call.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
-    let controller = env.current_contract_address();
-    let guard_was_set = storage::is_flash_loan_ongoing(env);
-    storage::set_flash_loan_ongoing(env, true);
-    let _ = blend_submit_call(env, blend_pool, from, &controller, &controller, requests);
-    if !guard_was_set {
-        storage::set_flash_loan_ongoing(env, false);
-    }
+    storage::with_flash_guard(env, || {
+        let controller = env.current_contract_address();
+        let _ = blend_submit_call(env, blend_pool, from, &controller, &controller, requests);
+    });
 }
 
 /// Authorizes, as the controller, the repay token-pull legs of a Blend submit:

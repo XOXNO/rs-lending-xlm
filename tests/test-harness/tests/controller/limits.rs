@@ -6,7 +6,8 @@
 use controller::constants::RAY;
 use soroban_sdk::Vec as SorobanVec;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    BOB, STABLECOIN_EMODE,
 };
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
@@ -381,4 +382,203 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
     );
     let res = t.try_borrow(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
+}
+
+#[test]
+fn test_max_borrow_bounded_by_hub_borrow_cap_and_executable() {
+    // ETH collateral gives ~$15k of LTV room and BOB seeds deep USDC liquidity,
+    // so neither the account LTV nor pool cash binds. A 2_000 USDC hub borrow
+    // cap is the only constraint, forcing the preview through
+    // `hub_borrow_cap_headroom` and the `borrow_ok` hub-cap gate.
+    let mut preset = usdc_preset();
+    preset.params.borrow_cap = 2_000 * UNIT;
+    let mut t = LendingTest::new()
+        .with_market(preset)
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(BOB, "USDC", 100_000.0);
+    t.supply(ALICE, "ETH", 10.0); // $20k collateral, 75% LTV → $15k room.
+
+    let usdc = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    // Headroom is the full 2_000 USDC cap (pool starts with zero borrows).
+    let max = t.ctrl_client().max_borrow(&account_id, &usdc);
+    assert!(
+        max > 1_999 * UNIT && max <= 2_000 * UNIT,
+        "expected ~2000 USDC hub-cap headroom, got {max}"
+    );
+
+    // The preview executes to the stroop.
+    t.borrow_raw(ALICE, "USDC", max);
+
+    // The pool now sits at the cap: headroom collapses and one more unit trips
+    // the borrow-cap gate the preview modeled.
+    let after = t.ctrl_client().max_borrow(&account_id, &usdc);
+    assert!(after <= 1, "headroom should be ~0 at the cap, got {after}");
+    let res = t.try_borrow(ALICE, "USDC", 1.0);
+    assert_contract_error(res, errors::BORROW_CAP_REACHED);
+}
+
+#[test]
+fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
+    // An e-mode account borrowing USDT under a 500 USDT spoke borrow cap. The
+    // 10_000 USDC collateral at the 97% e-mode LTV leaves ~$9_700 of room and
+    // the hub USDT borrow cap (10_000) is slack, so the spoke cap is the
+    // binding constraint — exercising `spoke_borrow_cap_headroom`, the
+    // `borrow_ok` spoke-cap gate, and the e-mode branches of
+    // `account_can_borrow_asset`. BOB supplies USDT through the protocol so the
+    // market has tracked supply (the preview returns 0 on a zero-supply market).
+    let hub_borrow_cap = 10_000 * UNIT;
+    let spoke_borrow_cap = 500 * UNIT;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_market_params("USDT", |params| {
+            params.borrow_cap = hub_borrow_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    // Set the USDT spoke borrow cap with the category's own risk params so the
+    // edit leaves LTV/threshold/bonus untouched.
+    t.edit_asset_in_e_mode_caps(
+        "USDT",
+        1,
+        true,
+        true,
+        STABLECOIN_EMODE.ltv,
+        STABLECOIN_EMODE.threshold,
+        STABLECOIN_EMODE.bonus,
+        0i128,
+        spoke_borrow_cap,
+    );
+
+    // Real protocol supply on the borrowed market keeps the preview's
+    // utilization defined; this normal account is unaffected by the spoke cap.
+    t.supply(BOB, "USDT", 50_000.0);
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+
+    let usdt = t.resolve_asset("USDT");
+    let account_id = t.resolve_account_id(ALICE);
+
+    // Headroom is the full 500 USDT spoke cap (no USDT borrowed yet).
+    let max = t.ctrl_client().max_borrow(&account_id, &usdt);
+    assert!(
+        max > 499 * UNIT && max <= 500 * UNIT,
+        "expected ~500 USDT spoke-cap headroom, got {max}"
+    );
+
+    // The preview executes to the stroop.
+    t.borrow_raw(ALICE, "USDT", max);
+
+    // Spoke usage now sits at the cap: headroom collapses and one more unit
+    // trips the spoke borrow-cap gate the preview modeled.
+    let after = t.ctrl_client().max_borrow(&account_id, &usdt);
+    assert!(after <= 1, "spoke headroom should be ~0 at the cap, got {after}");
+    let res = t.try_borrow(ALICE, "USDT", 1.0);
+    assert_contract_error(res, errors::SPOKE_BORROW_CAP_REACHED);
+}
+
+#[test]
+fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
+    // An e-mode account supplying USDC under a 1_000 USDC spoke supply cap,
+    // with the hub supply cap (10_000) slack. The spoke cap binds, driving the
+    // preview through `spoke_supply_cap_headroom`. Asserts both directions:
+    // the preview executes and one unit over trips the spoke supply-cap gate.
+    let hub_cap = 10_000 * UNIT;
+    let spoke_cap = 1_000 * UNIT;
+
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market_params("USDC", |params| {
+            params.supply_cap = hub_cap;
+        })
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .build();
+
+    t.edit_asset_in_e_mode_caps(
+        "USDC",
+        1,
+        true,
+        true,
+        STABLECOIN_EMODE.ltv,
+        STABLECOIN_EMODE.threshold,
+        STABLECOIN_EMODE.bonus,
+        spoke_cap,
+        0i128,
+    );
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 400.0);
+
+    let usdc = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    // ~600 USDC of spoke headroom remains (1_000 cap − 400 supplied).
+    let headroom = t.ctrl_client().max_supply(&account_id, &usdc);
+    assert!(
+        headroom > 599 * UNIT && headroom <= 600 * UNIT,
+        "expected ~600 USDC spoke headroom, got {headroom}"
+    );
+
+    // The preview executes; one more unit trips the spoke supply cap.
+    t.supply_raw(ALICE, "USDC", headroom);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &usdc), 0);
+    let res = t.try_supply(ALICE, "USDC", 1.0);
+    assert_contract_error(res, errors::SPOKE_SUPPLY_CAP_REACHED);
+}
+
+#[test]
+fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
+    // An e-mode account with debt: the withdrawn collateral's e-mode LTV (97%)
+    // governs the partial-withdraw cap, routing the preview through the
+    // e-mode-influenced `risk_partial_cap` / `partial_ok` path. $10k USDC at
+    // 97% e-mode LTV backing $9_000 USDT debt leaves
+    // (9_700 − 9_000) / 0.97 ≈ $721.6 removable.
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(usdt_stable_preset())
+        .with_emode(1, STABLECOIN_EMODE)
+        .with_emode_asset(1, "USDC", true, true)
+        .with_emode_asset(1, "USDT", true, true)
+        .build();
+
+    t.create_emode_account(ALICE, 1);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "USDT", 9_000.0);
+
+    let usdc = t.resolve_asset("USDC");
+    let account_id = t.resolve_account_id(ALICE);
+
+    let max = t.ctrl_client().max_withdraw(&account_id, &usdc);
+    let expected = 7_216_494_845_i128; // ~721.65 USDC at the 97% e-mode LTV.
+    assert!(
+        (max - expected).abs() < UNIT,
+        "expected ~721.6 USDC removable under 97% e-mode LTV, got {max}"
+    );
+
+    // A dollar above the preview violates the LTV gate the preview modeled.
+    let alice = t.get_or_create_user(ALICE);
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (usdc.clone(), max + UNIT)];
+    let res = match t
+        .ctrl_client()
+        .try_withdraw(&alice, &account_id, &over, &None)
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(err.into()),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    };
+    assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
+
+    // The preview itself executes and leaves the account healthy.
+    t.withdraw_raw(ALICE, "USDC", max);
+    assert!(t.health_factor(ALICE) >= 1.0);
 }
