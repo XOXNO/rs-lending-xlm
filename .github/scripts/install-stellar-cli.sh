@@ -8,11 +8,11 @@
 # - Version is controlled by $STELLAR_VERSION (defaults to the CI-pinned version).
 #
 # Usage:
-#   STELLAR_VERSION=26.1.0 bash .github/scripts/install-stellar-cli.sh
+#   STELLAR_VERSION=27.0.0 bash .github/scripts/install-stellar-cli.sh
 #   # or from Makefile (see target below)
 set -euo pipefail
 
-STELLAR_VERSION="${STELLAR_VERSION:-26.1.0}"
+STELLAR_VERSION="${STELLAR_VERSION:-27.0.0}"
 
 detect_target() {
   local os

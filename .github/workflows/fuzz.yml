@@ -25,7 +25,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '26.1.0'
+  STELLAR_VERSION: '27.0.0'
   # Pin untrusted workflow_dispatch inputs into env to avoid injection.
   FUZZ_TIME_INPUT: ${{ github.event.inputs.fuzz_time }}
   PROPTEST_CASES_INPUT: ${{ github.event.inputs.proptest_cases }}
@@ -66,7 +66,7 @@ jobs:
           key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
-        # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
+        # Version pinned via workflow env (stellar-cli, independent of the soroban-sdk crate pin).
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Build pool WASM (required by test-harness)
@@ -125,7 +125,7 @@ jobs:
           key: ${{ runner.os }}-fuzz-nightly-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
-        # Version pinned via workflow env (matches soroban-sdk and rust-toolchain.toml).
+        # Version pinned via workflow env (stellar-cli, independent of the soroban-sdk crate pin).
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Build pool WASM

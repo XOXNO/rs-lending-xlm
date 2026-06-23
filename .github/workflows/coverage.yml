@@ -34,7 +34,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '26.1.0'
+  STELLAR_VERSION: '27.0.0'
   # Baseline caches are keyed by main commit SHA under this prefix; PR runs
   # restore the most recent match via restore-keys.
   COV_CACHE_PREFIX: cov-baseline-main

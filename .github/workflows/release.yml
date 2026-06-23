@@ -35,7 +35,7 @@ permissions:
   attestations: write
 
 env:
-  STELLAR_VERSION: '26.1.0'
+  STELLAR_VERSION: '27.0.0'
 
 # Releases and manual dispatches are not cancelled; the testnet-e2e job
 # additionally serializes itself with its own concurrency group.
