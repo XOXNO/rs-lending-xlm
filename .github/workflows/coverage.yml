@@ -50,6 +50,14 @@ jobs:
     # first baseline manually (run it once from main before opening PRs).
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
+    # sccache caches per-crate compilations under $HOME (persistent on the
+    # self-hosted runner) so the heavy dependency tree is not recompiled each
+    # run, and is shared with the other self-hosted jobs. CARGO_INCREMENTAL=0 is
+    # required for sccache to cache (it passes through incremental builds).
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_CACHE_SIZE: 20G
     steps:
       - uses: actions/checkout@v7
         with:
@@ -72,8 +80,17 @@ jobs:
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Install cargo-llvm-cov
-        run: command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov --locked
+      - name: Install cargo-llvm-cov (prebuilt)
+        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
+        # install-action fetches a prebuilt binary in seconds.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
 
       - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
         run: make build
@@ -105,6 +122,14 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    # The ephemeral ubuntu runner has no persistent cache, so it re-fetched
+    # every crate and recompiled the whole dependency tree each run. sccache
+    # (objects) + the cargo/sccache cache below (registry + sccache dir) make it
+    # incremental across PR runs without sharing the self-hosted runners — which
+    # this job must stay off, since it executes untrusted PR code.
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@v7
 
@@ -118,8 +143,27 @@ jobs:
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Install cargo-llvm-cov
-        run: command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov --locked
+      - name: Install cargo-llvm-cov (prebuilt)
+        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
+        # install-action fetches a prebuilt binary in seconds.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Cache cargo registry + sccache objects
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/sccache
+          key: cov-pr-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cov-pr-
 
       - name: Build WASM fixtures (test-harness loads target/wasm32v1-none/release/pool.wasm)
         run: make build

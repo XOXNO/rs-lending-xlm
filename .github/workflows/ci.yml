@@ -24,6 +24,13 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: self-hosted
+    # sccache caches per-crate compilations under $HOME (persistent on the
+    # self-hosted runner), shared with the other self-hosted jobs and warming
+    # cold runners. CARGO_INCREMENTAL=0 is required for sccache to cache.
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_CACHE_SIZE: 20G
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,6 +56,11 @@ jobs:
         # Reuses the platform-aware idempotent helper. Version comes from
         # the workflow env (kept in sync with rust-toolchain.toml + soroban-sdk pin).
         run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
 
       - name: Build deploy artifacts and WASM size budget
         run: make wasm-size-check
@@ -95,10 +107,20 @@ jobs:
         #      canonical-path lookups hit.
         # When upstream ships these, switch the --git URL back to
         # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
+        # Persistent self-hosted runner keeps ~/.cargo/bin and $HOME across runs,
+        # so only (re)compile this fork when the binary is missing or the pinned
+        # rev changed — instead of recompiling it from source every run.
+        env:
+          SCANNER_REV: 43231611f039c444c4a1db0ef2ef25c3257afff1
         run: |
-          cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
-            --rev 43231611f039c444c4a1db0ef2ef25c3257afff1 \
-            soroban-security-detectors-runner
+          marker="$HOME/.cache/ci-tool-revs/soroban-scanner"
+          if command -v soroban-scanner >/dev/null 2>&1 && [ "$(cat "$marker" 2>/dev/null)" = "$SCANNER_REV" ]; then
+            echo "soroban-scanner already at $SCANNER_REV"
+          else
+            cargo +nightly install --git https://github.com/XOXNO/soroban-security-detectors-sdk \
+              --rev "$SCANNER_REV" soroban-security-detectors-runner
+            mkdir -p "$(dirname "$marker")" && printf '%s' "$SCANNER_REV" > "$marker"
+          fi
 
       - name: Run security detectors
         # run_scanner.sh invokes soroban-scanner with the audit-gate scope
@@ -145,13 +167,20 @@ jobs:
       - name: Install Scout detector toolchain
         run: rustup toolchain install nightly-2025-08-07 --component rustc-dev --target wasm32v1-none
 
-      - name: Install Scout
+      - name: Install Scout (cached by rev)
+        # Only (re)compile the Scout fork when the binary is missing or the
+        # pinned rev changed; ~/.cargo/bin persists on the self-hosted runner.
+        env:
+          SCOUT_REV: 57ce8762c4bea3fdecd37bdc3ee5729be66472da
         run: |
-          cargo install \
-            --git https://github.com/mihaieremia/scout-audit.git \
-            --rev 57ce8762c4bea3fdecd37bdc3ee5729be66472da \
-            cargo-scout-audit \
-            --locked
+          marker="$HOME/.cache/ci-tool-revs/cargo-scout-audit"
+          if command -v cargo-scout-audit >/dev/null 2>&1 && [ "$(cat "$marker" 2>/dev/null)" = "$SCOUT_REV" ]; then
+            echo "cargo-scout-audit already at $SCOUT_REV"
+          else
+            cargo install --git https://github.com/mihaieremia/scout-audit.git \
+              --rev "$SCOUT_REV" cargo-scout-audit --locked
+            mkdir -p "$(dirname "$marker")" && printf '%s' "$SCOUT_REV" > "$marker"
+          fi
 
       - name: Run Scout
         run: make scout
