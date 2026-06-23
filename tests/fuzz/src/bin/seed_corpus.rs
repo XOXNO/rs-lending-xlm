@@ -14,7 +14,7 @@
 //!
 //! Snapshots that fail to parse are logged and skipped; never abort the run.
 
-use common::constants::{BPS, MILLISECONDS_PER_YEAR, RAY};
+use common::constants::{BPS, MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -438,10 +438,10 @@ fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
     out
 }
 
-/// `rates_and_index`: 29 bytes matching the `In` struct in
+/// `rates_and_index`: 61 bytes matching the `In` struct in
 /// `fuzz_targets/rates_and_index.rs`. The seed layout combines rate-model
-/// geometry with accrual and borrow fields so mutations can cross related
-/// inputs in one target.
+/// geometry with accrual, borrow, and starting-index fields so mutations can
+/// cross related inputs in one target.
 fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     const MS_PER_YEAR: i128 = MILLISECONDS_PER_YEAR as i128;
@@ -482,29 +482,55 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
     }
     let borrowed_samples: Vec<u64> = borroweds.iter().copied().take(4).collect();
 
+    // Cap matches make_params (the decoder): the rate model is verified ≤ 2·RAY.
+    const CAP: i128 = MAX_BORROW_RATE_RAY;
     for p in &f.market_params {
-        // Convert RAY-denominated params to the %-scale the target uses.
-        let to_pct = |v: Option<i128>| -> i128 { v.map(|r| r * 100 / RAY).unwrap_or(0) };
-        let base_pct = to_pct(p.base_borrow_rate_ray).clamp(0, 50) as u8;
-        let s1_pct = to_pct(p.slope1_ray).clamp(0, 50) as u8;
-        let s2_pct = to_pct(p.slope2_ray).clamp(0, 100) as u8;
-        let s3_pct = to_pct(p.slope3_ray).clamp(0, 500) as u16;
-        let mid_pct = to_pct(p.mid_utilization_ray).clamp(1, 98) as u8;
-        let opt_pct = to_pct(p.optimal_utilization_ray).clamp(mid_pct as i128 + 1, 99) as u8;
-        let max_pct = to_pct(p.max_borrow_rate_ray).clamp(1, 1000) as u16;
-        let reserve_pct = p
-            .reserve_factor_bps
-            .map(|r| r.clamp(0, BPS - 1) / 100)
-            .unwrap_or(10)
-            .clamp(0, 50) as u8;
+        // Inverse of make_params' decode: pick the byte each field will decode
+        // back to (≈) its snapshot value, so seeds replay real high-rate curves
+        // instead of collapsing to the low end. Cumulative slopes mirror the
+        // decoder step by step using the decoded (not raw) running value.
+        let pick = |v: Option<i128>| v.unwrap_or(0).max(0);
 
-        // Keep seed count per market param bounded: 4 utils × 2 flips × 4 deltas
-        // × 4 borroweds = 128. Times ~1.4k snapshots → ~180k total seeds.
+        let base_r = pick(p.base_borrow_rate_ray).min(CAP);
+        let base_pct = (base_r * 1_024 / CAP).clamp(0, 255) as u8;
+        let dbase = CAP * base_pct as i128 / 1_024;
+
+        let s1_r = pick(p.slope1_ray).clamp(dbase, CAP);
+        let s1_pct = ((s1_r - dbase) * 256 / (CAP - dbase).max(1)).clamp(0, 255) as u8;
+        let ds1 = dbase + (CAP - dbase) * s1_pct as i128 / 256;
+
+        let s2_r = pick(p.slope2_ray).clamp(ds1, CAP);
+        let s2_pct = ((s2_r - ds1) * 256 / (CAP - ds1).max(1)).clamp(0, 255) as u8;
+        let ds2 = ds1 + (CAP - ds1) * s2_pct as i128 / 256;
+
+        let s3_r = pick(p.slope3_ray).clamp(ds2, CAP);
+        let s3_pct = ((s3_r - ds2) * 65_536 / (CAP - ds2).max(1)).clamp(0, 65_535) as u16;
+        let ds3 = ds2 + (CAP - ds2) * s3_pct as i128 / 65_536;
+
+        let max_r = pick(p.max_borrow_rate_ray).clamp(ds3, CAP);
+        let max_pct = ((max_r - ds3) * 65_536 / (CAP - ds3).max(1)).clamp(0, 65_535) as u16;
+
+        // Breakpoints: the decoder recovers the percentage via `% N + 1`, so
+        // write (percentage − 1).
+        let mid_p = (pick(p.mid_utilization_ray) * 100 / RAY).clamp(1, 98);
+        let mid_pct = (mid_p - 1) as u8;
+        let dmid = RAY * mid_p / 100;
+        let opt_frac = (101 * (pick(p.optimal_utilization_ray) - dmid).max(0)
+            / (RAY - dmid).max(1))
+        .clamp(1, 99);
+        let opt_pct = (opt_frac - 1) as u8;
+
+        let reserve_pct =
+            (pick(p.reserve_factor_bps).clamp(0, BPS - 1) * 255 / (BPS - 1)).clamp(0, 255) as u8;
+
+        // Keep seed count per market param bounded: 4 utils × 2 max-utils × 4
+        // deltas × 4 borroweds = 128. Times ~1.4k snapshots → ~180k total seeds.
+        // max_util has no snapshot source; seed two high-utilization variants.
         for util in [0u16, 5000, 9500, 10000] {
-            for flip in [0u8, 1] {
+            for max_util_pct in [128u8, 230u8] {
                 for &delta_ms in &delta_samples {
                     for &borrowed_units in &borrowed_samples {
-                        let mut buf = Vec::with_capacity(29);
+                        let mut buf = Vec::with_capacity(61);
                         push_u16_le(&mut buf, util);
                         buf.push(base_pct);
                         buf.push(s1_pct);
@@ -513,10 +539,16 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
                         buf.push(mid_pct);
                         buf.push(opt_pct);
                         push_u16_le(&mut buf, max_pct);
-                        buf.push(flip);
+                        buf.push(max_util_pct);
                         buf.push(reserve_pct);
                         push_u64_le(&mut buf, delta_ms);
                         push_u64_le(&mut buf, borrowed_units);
+                        // Appended In fields. Seeds use representative values;
+                        // the fuzzer mutates and decorrelates from here.
+                        push_u64_le(&mut buf, borrowed_units); // supplied_units → supplied ≈ 2× borrowed
+                        push_u64_le(&mut buf, delta_ms); // chunk_units (decorrelated by mutation)
+                        push_u64_le(&mut buf, 0); // borrow_index_units → start at RAY
+                        push_u64_le(&mut buf, u64::MAX); // supply_index_units → supply ≈ borrow
                         out.push(buf);
                     }
                 }
