@@ -97,19 +97,16 @@ jobs:
   coverage:
     name: PR coverage delta
     if: github.event_name == 'pull_request'
-    runs-on: self-hosted
+    # Pull requests run untrusted repository content (Cargo build scripts,
+    # tests, Makefile targets, and coverage_report.py). Keep that execution off
+    # persistent self-hosted runners so PR authors cannot access runner-local
+    # state or poison caches for later jobs.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
-        with:
-          clean: false
-
-      - name: Reset workspace, preserve target/ build cache
-        run: |
-          git reset --hard
-          git clean -ffdx -e target
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
