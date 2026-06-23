@@ -1,7 +1,6 @@
 //! Router adversarial tests, panic-site coverage, oracle boundaries, and supply-cap gates.
 
 use controller::constants::{RAY, WAD};
-use controller::types::AssetConfigRaw;
 use soroban_sdk::token;
 use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};

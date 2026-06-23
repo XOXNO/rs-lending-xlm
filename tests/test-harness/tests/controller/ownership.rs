@@ -1,4 +1,3 @@
-use soroban_sdk::testutils::Address as _;
 use test_harness::{usdc_preset, LendingTest, ALICE, BOB};
 
 fn fresh() -> LendingTest {
