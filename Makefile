@@ -461,7 +461,7 @@ clean:
 ## workflows.
 ## The helper script is platform-aware (Linux + macOS darwin) and idempotent.
 install-stellar-cli:
-	STELLAR_VERSION=26.1.0 bash .github/scripts/install-stellar-cli.sh
+	STELLAR_VERSION=27.0.0 bash .github/scripts/install-stellar-cli.sh
 
 # ---------------------------------------------------------------------------
 # Fuzzing (function-level math primitives)

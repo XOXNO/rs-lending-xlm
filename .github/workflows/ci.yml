@@ -14,7 +14,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  STELLAR_VERSION: '26.1.0'
+  STELLAR_VERSION: '27.0.0'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,8 +53,10 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install stellar-cli
-        # Reuses the platform-aware idempotent helper. Version comes from
-        # the workflow env (kept in sync with rust-toolchain.toml + soroban-sdk pin).
+        # Reuses the platform-aware idempotent helper. Version comes from the
+        # workflow env. stellar-cli is pinned independently of the soroban-sdk
+        # crate (`=26.1.0`): CLI 27.x builds those contracts fine and the wasm
+        # size budget is verified against it.
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)
