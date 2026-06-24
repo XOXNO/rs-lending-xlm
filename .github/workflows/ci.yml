@@ -134,31 +134,26 @@ jobs:
           git reset --hard
           git clean -ffdx -e target
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.95'
-          targets: wasm32v1-none
-
-      - name: Install Scout detector toolchain
-        run: rustup toolchain install nightly-2026-05-28 --component rustc-dev --component llvm-tools-preview --component rust-src --target wasm32v1-none
-
-      - name: Install Scout
-        # SECURITY: check out + build the pinned rev fresh every run rather than
-        # trusting a cached binary — PR code shares this runner and could plant a
-        # fake cargo-scout-audit. The same checkout supplies the driver
-        # (--scout-source) and detectors (--local-detectors) at run time, so Scout
-        # never fetches code over the network during analysis.
-        run: |
-          SCOUT_DIR="$RUNNER_TEMP/scout-audit"
-          rm -rf "$SCOUT_DIR"
-          git clone https://github.com/mihaieremia/scout-audit.git "$SCOUT_DIR"
-          git -C "$SCOUT_DIR" checkout 19e5e02bda65662c6ee5d2b3e26c272fe510e691
-          cargo install --path "$SCOUT_DIR/apps/cargo-scout-audit/crates/cargo-scout-audit" --locked
-          echo "SCOUT_SOURCE_DIR=$SCOUT_DIR" >> "$GITHUB_ENV"
-
       - name: Run Scout
-        run: make scout
+        # Pinned to a specific Scout rev (SECURITY: PR code shares this runner). The
+        # action installs the detector toolchain and builds the driver + all detectors
+        # from its own pinned checkout, so Scout never fetches code over the network
+        # during analysis. Advisory: findings are written to reports, not gated; the
+        # step fails only if a contract does not analyze cleanly.
+        uses: mihaieremia/scout-audit@28353a6a3d83829e9f6d9b8f6b39fdf50737691b
+        with:
+          contracts: |
+            contracts/pool
+            contracts/controller
+            contracts/governance
+            contracts/defindex-strategy
+            contracts/flash-loan-receiver
+            contracts/mock-oracle
+            contracts/mock-redstone
+          exclude: dos-unexpected-revert-with-storage
+          output-format: md
+          output-dir: target/scout-audit
+          extra-args: "-- --locked"
 
       - name: Upload Scout reports
         if: always()
