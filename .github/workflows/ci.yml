@@ -147,9 +147,6 @@ jobs:
             contracts/controller
             contracts/governance
             contracts/defindex-strategy
-            contracts/flash-loan-receiver
-            contracts/mock-oracle
-            contracts/mock-redstone
           exclude: dos-unexpected-revert-with-storage
           output-format: md
           output-dir: target/scout-audit
