@@ -135,12 +135,14 @@ jobs:
           git clean -ffdx -e target
 
       - name: Run Scout
-        # Pinned to the v1 tag of the maintained Scout fork. The action installs the
-        # detector toolchain and builds the driver + all detectors from its own pinned
-        # checkout, so Scout never fetches code over the network during analysis
-        # (SECURITY: PR code shares this runner). Advisory: findings are written to
-        # reports, not gated; the step fails only if a contract does not analyze cleanly.
-        uses: mihaieremia/scout-audit@v1
+        # Pinned to an immutable Scout commit (NOT the moving v1 tag): this self-hosted
+        # runner caches action checkouts under _work/_actions, so a moved tag can serve a
+        # stale build — a SHA forces a fresh fetch and is the right security posture for a
+        # runner shared with PR code. The action installs the detector toolchain and builds
+        # the driver + all detectors from its own pinned checkout, so Scout never fetches
+        # code over the network during analysis. Advisory: findings are written to reports,
+        # not gated; the step fails only if a contract does not analyze cleanly.
+        uses: mihaieremia/scout-audit@fd272ce6cdda5f750ebae322fde74eb2f3675d7d
         with:
           contracts: |
             contracts/pool
