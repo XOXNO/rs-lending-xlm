@@ -141,7 +141,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install Scout detector toolchain
-        run: rustup toolchain install nightly-2025-08-07 --component rustc-dev --target wasm32v1-none
+        run: rustup toolchain install nightly-2026-05-28 --component rustc-dev --component llvm-tools-preview --component rust-src --target wasm32v1-none
 
       - name: Install Scout
         # SECURITY: reinstall the pinned rev every run rather than trusting a
@@ -151,7 +151,7 @@ jobs:
         run: |
           cargo install \
             --git https://github.com/mihaieremia/scout-audit.git \
-            --rev 57ce8762c4bea3fdecd37bdc3ee5729be66472da \
+            --rev 19e5e02bda65662c6ee5d2b3e26c272fe510e691 \
             cargo-scout-audit \
             --locked
 
