@@ -1,24 +1,11 @@
 name: Release Build
 
-# The external stellar-expert/soroban-build-workflow action we previously
-# used ships its own stellar-cli, which does not currently set
-# `SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2` — required by the
-# `experimental_spec_shaking_v2` feature that `stellar-access` and
-# `stellar-contract-utils` 0.7.0 pin on in `soroban-sdk` 25.3.1. Without
-# that env var, the soroban-sdk build script panics before compile.
+# Release builds install the pinned stellar-cli and set the spec-shaking env var
+# required by stellar-access and stellar-contract-utils.
 #
-# This workflow installs the same stellar-cli used by ci.yml and
-# fuzz.yml, which sets the env var correctly. Release WASM is packaged from
-# `make wasm-size-check` / artifacts/wasm/deploy/ (same bytes CI gates).
-#
-# All four deployable contracts are packaged: controller, pool, governance,
-# and defindex-strategy. These are the exact stripped deploy artifacts that
-# `make deploy-artifacts` produces and that `stellar contract upload --wasm
-# artifacts/wasm/deploy/<c>.wasm` puts on chain (controller/pool/governance via
-# the `make upgrade-*` flow; defindex-strategy via DeFindex integrators). A
-# Soroban contract's on-chain WASM hash is the sha256 of the uploaded module,
-# so each published `*.wasm.sha256` is directly verifiable against the deployed
-# contract's hash.
+# The workflow packages deploy artifacts from artifacts/wasm/deploy/ and
+# publishes *.wasm.sha256 hashes for uploaded Soroban modules.
+# Deployable contracts: controller, pool, governance, defindex-strategy.
 
 on:
   release:

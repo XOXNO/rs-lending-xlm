@@ -56,11 +56,8 @@ fn test_dex_quoted_source_repriced_to_usd() {
     assert_eq!(index_view(&t, &xlm).price_wad, usd_frac(2002, 1000));
 }
 
-/// The DEX repricing path (the extra `base()` call plus the recursive
-/// `token_price(quote)`) fits Soroban's default per-call budget on a real
-/// multi-asset HF path. Guards the protocol-wide `base()` call now made on every
-/// Reflector read. Uses the realistic mainnet shape: DEX (USDC-quoted) primary +
-/// RedStone (USD) anchor.
+/// DEX repricing path fits Soroban's default per-call budget on a multi-asset
+/// HF path. Uses DEX (USDC-quoted) primary plus RedStone (USD) anchor.
 #[test]
 fn test_dex_quoted_market_priced_within_default_budget() {
     let mut t = LendingTest::new()

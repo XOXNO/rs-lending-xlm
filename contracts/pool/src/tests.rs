@@ -118,8 +118,7 @@ fn market_params(asset: &Address) -> MarketParamsRaw {
         slope3_ray: RAY * 80 / 100,
         mid_utilization_ray: RAY * 50 / 100,
         optimal_utilization_ray: RAY * 80 / 100,
-        // RAY sentinel disables max-utilization checks for accounting tests;
-        // integration harness covers the ceiling.
+            // Disable max-utilization checks in accounting tests.
         max_utilization_ray: RAY,
         reserve_factor_bps: 1000,
         supply_cap: 0,
@@ -1755,8 +1754,7 @@ fn test_create_market_rejects_non_owner() {
     );
 }
 
-// bulk_get_indexes returns per-asset simulated indexes in request order — the
-// same value as simulating the per-asset get_sync_data read.
+    // bulk_get_indexes returns per-asset simulated indexes in request order.
 #[test]
 fn test_bulk_get_indexes_matches_per_asset() {
     let t = TestSetup::new();
@@ -2063,10 +2061,7 @@ fn set_max_utilization(t: &TestSetup, max_utilization_ray: i128) {
     });
 }
 
-// The withdraw path enforces max utilization on the post-withdraw state: a
-// withdraw that lifts utilization above the 50% cap reverts, while one that
-// keeps it at or below the cap succeeds. Exercises the gate through withdraw,
-// not only through the borrow/index-drift paths covered in utils.rs.
+    // Withdraw enforces max utilization on projected post-withdraw state.
 #[test]
 fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     let t = TestSetup::new();
@@ -2101,9 +2096,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     );
 }
 
-// Tracked `cash` stays consistent across supply -> borrow -> overpaid repay ->
-// withdraw. Overpayment is refunded to the payer and must not change `cash`:
-// only the applied debt repayment credits it. Net effect is supply - withdraw.
+    // `cash` changes by supply minus borrow, applied repay, and withdraw.
 #[test]
 fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
     let t = TestSetup::new();

@@ -25,13 +25,8 @@ pub fn cap_is_enabled(cap: i128) -> bool {
     cap > 0 && cap != i128::MAX
 }
 
-/// Rejects a cap that would overflow `Ray::from_asset(cap, asset_decimals)`,
-/// which scales by `10^(RAY_DECIMALS - asset_decimals)` during cap previews.
-/// Both the hub market caps (`MarketParamsRaw::verify`) and the e-mode spoke
-/// caps (`add/edit_asset_in_e_mode_category`) feed the same rescale, so both
-/// share this guard — a misconfigured cap fails at the config boundary instead
-/// of as a runtime `MathOverflow` inside a view. The disabled sentinels (`0`
-/// and `i128::MAX`) always pass.
+/// Rejects caps that overflow asset-to-RAY scaling.
+/// Disabled sentinels (`0` and `i128::MAX`) pass.
 pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32) {
     if cap == i128::MAX {
         return;
@@ -76,11 +71,8 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
     );
 }
 
-/// Validates a market's final-price bounds (USD WAD).
-///
-/// Governance oracle-config validation and controller activation both require
-/// `0 < min < max <= MAX_REASONABLE_PRICE_WAD`. This prevents activation with
-/// bounds that would revert on the first risk-increasing or liquidation read.
+/// Validates market final-price bounds (USD WAD).
+/// Requires `0 < min < max <= MAX_REASONABLE_PRICE_WAD`.
 pub fn validate_sanity_bounds(env: &Env, min_wad: i128, max_wad: i128) {
     assert_with_error!(
         env,

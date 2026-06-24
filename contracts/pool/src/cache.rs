@@ -39,7 +39,7 @@ impl Cache {
             .persistent()
             .get(&PoolKey::State(asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
-        // Renew after loads because `extend_ttl` panics on missing keys (soroban-sdk 26.x).
+        // Renew after successful loads; `extend_ttl` requires existing keys.
         utils::renew_market_keys(env, asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
@@ -249,7 +249,7 @@ impl Cache {
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
-            // Carries asset-native `cash`, not a RAY value; the `_ray` suffix is legacy wire naming.
+            // Carries asset-native `cash`, not a RAY value; field name is wire ABI.
             reserves_ray: self.cash,
             supplied_ray: self.supplied.raw(),
             borrowed_ray: self.borrowed.raw(),
@@ -490,8 +490,7 @@ mod tests {
         });
     }
 
-    // ABI tests cover `amount_mutation` / `burn_claimable_revenue`; direct
-    // cache tests keep failure scope local.
+    // Direct cache tests keep panic scope local.
 
     #[test]
     fn test_burn_claimable_revenue_zero_revenue_returns_zero() {
@@ -566,8 +565,7 @@ mod tests {
         });
     }
 
-    // ABI withdraw/seize tests cover `Ray::checked_sub_assign` panics; direct
-    // cache test covers the helper boundary.
+    // Direct cache test covers the helper boundary.
     #[test]
     #[should_panic(expected = "Error(Contract, #33)")]
     fn test_ray_checked_sub_assign_panics_on_underflow() {

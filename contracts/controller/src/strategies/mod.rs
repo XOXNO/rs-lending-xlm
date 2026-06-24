@@ -1,15 +1,8 @@
-//! Strategy and flash-loan flows.
+//! Strategy flash-loan flows.
 //!
-//! Orchestration entrypoints compose position primitives (`borrow`, `supply`,
-//! `withdraw`, `repay`) with aggregator swaps. Swap output is not trusted
-//! from router reports; see `swap.rs`.
-//!
-//! Standard levered pipeline:
-//! auth → flash guard → account → cache(policy) → [preflight] → prefetch →
-//! mutate (borrow/withdraw/swap/deposit/repay) → `strategy_finalize`.
-//!
-//! Invariant: flows that open debt must not return between the borrow step and
-//! `strategy_finalize`; solvency gates run only at finalize.
+//! Entrypoints compose position primitives and aggregator swaps. Swap output
+//! is verified against router reports. Flows that open debt must reach
+//! `strategy_finalize`; solvency gates run there.
 
 pub(crate) mod flash_loan;
 mod migrate_blend;

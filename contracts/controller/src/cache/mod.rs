@@ -1,9 +1,8 @@
 //! Transaction-local cache for oracle policy and market reads.
 //!
-//! Each mutating entrypoint creates the cache with its `OraclePolicy`; each
-//! price and index read then follows that policy for the rest of the call.
-//! Position deltas are buffered until the flow has written storage, then
-//! emitted as a single batch event.
+//! Each mutating entrypoint creates a cache with its `OraclePolicy`. Price
+//! and index reads follow that policy for the call. Position deltas buffer
+//! until storage writes, then emit as one batch event.
 
 use crate::constants::MS_PER_SECOND;
 use crate::events::{
@@ -158,10 +157,8 @@ impl Cache {
     #[cfg(feature = "certora")]
     pub fn prefetch_market_indexes(&mut self, _assets: &Vec<Address>) {}
 
-    /// Seeds `market_indexes` for `assets` with one `bulk_get_indexes` pool call
-    /// (the pool simulates accrual). Assets already cached this tx — including
-    /// those a pool mutation already returned — duplicates, and unlisted assets
-    /// are skipped, so the call is never empty and never panics.
+    /// Seeds `market_indexes` for listed, uncached assets.
+    /// Skips duplicates and assets already loaded in this transaction.
     #[cfg(not(feature = "certora"))]
     pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
         let mut missing: Vec<Address> = Vec::new(&self.env);

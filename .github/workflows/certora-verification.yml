@@ -1,10 +1,8 @@
 name: Certora Verification
 
 on:
-  # Certora prover runs (16-job cloud verification matrix) are slow, so they no
-  # longer gate every PR — run on demand. Per-PR confidence comes from the full
-  # test suite (ci.yml: cargo test --workspace) + quick fuzz (fuzz.yml). Run this
-  # before releases / after verification-relevant changes.
+  # Runs the full Certora verification matrix on demand.
+  # PR confidence comes from ci.yml and fuzz.yml.
   workflow_dispatch:
 
 env:
@@ -114,7 +112,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install stellar-cli
-        # Unconditional in original; script now does smart version check (idempotent).
+        # Installer skips a matching local version and installs STELLAR_VERSION otherwise.
         # Version supplied by workflow env.
         run: bash .github/scripts/install-stellar-cli.sh
 

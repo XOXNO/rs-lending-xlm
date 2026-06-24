@@ -1,10 +1,9 @@
-//! Liquidation and keeper bad-debt cleanup.
+//! Liquidation and bad-debt cleanup flows.
 //!
-//! Pipeline: auth → aggregate → cache → validate inputs → plan → apply repay
-//! → apply seize → post-checks → persist → emit. Liquidation requires health
-//! factor below one, prices with `OraclePolicy::Liquidation`, repays debt,
-//! seizes collateral, and refunds payment above the close amount. Bad-debt
-//! cleanup socializes residual debt only when collateral is below the USD threshold.
+//! Liquidation requires health factor below one, uses liquidation oracle
+//! policy, repays debt, seizes collateral, and refunds payment above close
+//! amount. Bad-debt cleanup socializes residual debt only when collateral is
+//! below the USD threshold.
 
 use crate::events::CleanBadDebtEvent;
 use common::errors::{CollateralError, GenericError};

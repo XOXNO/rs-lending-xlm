@@ -1,11 +1,6 @@
-//! Bulk prefetch of RedStone feeds into the transaction cache.
-//!
-//! One `read_price_data` call per adapter replaces N single-feed calls
-//! (~1.27MB metered memory each). Only raw provider payloads are cached,
-//! so each policy, staleness, and sanity check still runs per flow.
-//! Any bulk failure leaves the cache empty and the per-feed lazy path
-//! takes over unchanged. The adapter returns results index-aligned with the
-//! request and fails the call on a missing feed; `get_unchecked` depends on that.
+//! Bulk-prefetches RedStone feeds into the transaction cache.
+//! Only raw provider payloads are cached; policy, staleness, and sanity
+//! checks still run per flow.
 
 use soroban_sdk::{Address, Vec};
 

@@ -1,9 +1,5 @@
 //! Owner- and role-gated configuration for markets, oracles, e-mode, caps,
 //! aggregator, accumulator, approved tokens, and pool templates.
-//!
-//! Owner setters are thin: input validation lives in the governance
-//! contract, which owns the controller in production. The controller keeps
-//! storage writes, state-dependent invariants, and event emission.
 
 use crate::events::{
     ApproveBlendPoolEvent, ApproveTokenEvent, EventEModeCategory, EventOracleProvider,
@@ -476,9 +472,8 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         config.max_sanity_price_wad,
     );
 
-    // Re-assert the quote-market USD/Active invariant at execute time: governance
-    // validated it at propose time, but the timelock delay opens a staleness
-    // window in which the quote market could be disabled or reconfigured.
+    // Re-assert quote-market USD/Active invariant at execution time.
+    // Timelock delay can make the proposed quote market stale.
     require_quote_markets_active_usd(env, &asset, &config);
 
     // Test markets register pools with preset decimals that may diverge from
@@ -498,11 +493,8 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
     .publish(env);
 }
 
-/// Re-asserts that each quoted-base source in `config` still points at an
-/// Active, USD-based quote market. Storage-only check: the resolved `base`
-/// lives in the stored config, so this does not cross-call the oracle. Mirrors
-/// the propose-time `validate_quote_is_usd_market` check, reading controller
-/// storage instead of the controller view. USD-direct and RedStone sources skip it.
+/// Checks that quote sources point at active USD-based markets.
+/// Direct USD and Other sources pass without lookup.
 fn require_quote_markets_active_usd(env: &Env, asset: &Address, config: &MarketOracleConfig) {
     require_source_quote_active_usd(env, asset, &config.primary);
     if let Some(anchor) = config.anchor.as_ref() {

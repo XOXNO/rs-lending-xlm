@@ -89,26 +89,9 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install soroban-scanner
-        # Installs from XOXNO's fork of soroban-security-detectors-sdk, pinned
-        # by commit SHA for reproducibility. The fork carries six patches on
-        # top of upstream `main` (commit f3888e0):
-        #   1. tolerate non-UTF-8 byte-string literals (upstream panics on
-        #      `b"a\xc3\x28d"` in soroban-sdk-25.x unit tests);
-        #   2. accept `extern "C" { ... }` foreign modules (upstream hits
-        #      `todo!("Should not appear")` on vendored FFI crates such as
-        #      `vendor/cvlr`);
-        #   3. warn-and-continue on unparseable files instead of aborting the
-        #      whole workspace scan;
-        #   4. `--exclude <substring>...` CLI flag that skips matching paths
-        #      during file discovery (see scan steps below);
-        #   5. run the scan on a 4 GiB-stack worker thread (upstream's
-        #      symbol resolver overflows the default 8 MiB main-thread stack
-        #      on real workspaces; the Linux self-hosted runner needed more
-        #      headroom than macOS);
-        #   6. canonicalize corpus keys so the symbol resolver's internal
-        #      canonical-path lookups hit.
-        # When upstream ships these, switch the --git URL back to
-        # OpenZeppelin/soroban-security-detectors-sdk and drop --rev.
+        # Installs XOXNO fork pinned by commit SHA.
+        # The fork handles scanner parser and stack limits used by this workspace.
+        # Switch back to upstream when equivalent fixes are available.
         #
         # SECURITY: reinstall the pinned rev on every run rather than trusting a
         # cached binary. This gate shares the persistent self-hosted runner with
@@ -123,15 +106,8 @@ jobs:
             soroban-security-detectors-runner
 
       - name: Run security detectors
-        # run_scanner.sh invokes soroban-scanner with the audit-gate scope
-        # (--exclude vendor/ target/ .certora_internal) and retries up to
-        # 5 times to absorb upstream's non-deterministic stack-overflow.
-        # Output is piped through scope_scanner_output.py, which narrows
-        # findings to the deployable crates (common, pool-interface, pool,
-        # controller) — tests/test-harness and tests/fuzz stay in the scan
-        # corpus so the symbol resolver can see cross-crate references
-        # (passing a smaller corpus makes the resolver recurse unboundedly),
-        # but their findings are noise for an audit gate.
+        # Runs scanner with audit-gate exclusions and retries transient stack failures.
+        # Scope filtering reports deployable-crate findings.
         run: .github/scripts/run_scanner.sh
 
       - name: Run security detectors (strict)

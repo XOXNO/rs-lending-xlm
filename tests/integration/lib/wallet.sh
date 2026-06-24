@@ -1,8 +1,5 @@
-# Wallet management: per-run unique aliases funded by friendbot.
-#
-# Wallet depletion is the #1 flakiness source across runs (supplies lock XLM
-# and friendbot funds an address only once) — every run uses fresh aliases
-# namespaced by RUN_TS so each wallet starts with the full 10,000 XLM grant.
+# Wallet management: per-run aliases funded by friendbot.
+# Fresh RUN_TS-scoped aliases avoid depleted XLM balances across runs.
 
 # Creates (or resumes) a funded wallet. Sets <VAR> to the alias and
 # <VAR>_ADDR to the G-address; persists both into state.env.

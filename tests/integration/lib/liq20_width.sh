@@ -140,7 +140,7 @@ liq20_fullrepay_probe() {
     save_state "$state_key" "$best_n"
 }
 
-# One-shot 9-debt send with fixed leeway (legacy retry9 shape).
+# One-shot 9-debt send with fixed leeway.
 liq20_send_9debt_leeway() {
     local label=liq20_proof_9debt_leeway
     if liq20_liquidate_send "$label" "$LIQ20_DEFAULT_LEEWAY" 9; then

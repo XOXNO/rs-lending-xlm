@@ -35,10 +35,7 @@ pub(crate) struct BonusBounds {
     pub max: Bps,
 }
 
-/// Repayment legs after each close-amount, excess-refund, and dust-residue cap.
-///
-/// Seizure math must use `repay_usd`, not the liquidator's original payment
-/// amount or the pre-dust-cap close amount.
+/// Repayment legs after close-amount, excess-refund, and dust-residue caps.
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -274,12 +271,8 @@ pub(crate) fn calculate_seized_collateral(
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
         let protocol_fee_ray = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
-        // Full seizure must use the pool's half-up conversion: the pool
-        // full-closes only when `amount >= unscale_supply(pos_scaled)`
-        // (half-up), and a floored amount one unit short would leave a
-        // sub-unit residue that trips the dust gate. Partial seizures floor
-        // so they cannot exceed the computed RAY amount; fee <= amount holds
-        // in both branches.
+    // Full seizure uses pool half-up conversion so pool full-close succeeds.
+    // Partial seizures floor and cannot exceed the computed RAY amount.
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -439,12 +432,8 @@ fn base_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Base
     }
 }
 
-/// Estimates repayment and bonus using a 1.02 HF target, then 1.01 fallback,
-/// then max-collateral seizure at base bonus without worsening account HF.
-///
-/// Precedence: primary wins when it restores HF; otherwise the base tier
-/// pre-empts when it strictly improves a still-unhealthy HF; otherwise the
-/// fallback tier wins when it yields a candidate; otherwise the base tier.
+/// Estimates liquidation amount and bonus tier.
+/// Prefers the capped candidate when it reaches the minimum close value.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -454,8 +443,7 @@ pub(crate) fn estimate_liquidation_amount(
         return result;
     }
 
-    // Order preserved from the inline form: fallback is evaluated before the
-    // base candidate so any math behavior is identical to the prior flow.
+    // Fallback is evaluated before the base candidate to preserve math behavior.
     let fallback = fallback_tier(env, snap, bounds);
     let base = base_tier(env, snap, bounds);
 

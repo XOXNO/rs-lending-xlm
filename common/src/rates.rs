@@ -154,11 +154,7 @@ pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
 }
 
 /// Simulates index accrual without mutating pool storage.
-///
-/// Mirrors the pool's mutating accrual loop chunk for chunk: utilization is
-/// recomputed per chunk and the protocol fee grows scaled supply exactly as
-/// `add_protocol_revenue_ray` does, so a read at any timestamp matches what
-/// the pool would persist for the same elapsed time.
+/// Recomputes utilization and protocol revenue for each accrual chunk.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,

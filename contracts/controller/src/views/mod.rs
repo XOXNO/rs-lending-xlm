@@ -1,11 +1,6 @@
 //! Read-only views and liquidation estimation.
-//!
-//! Views use `Cache::new_view` (no instance TTL bump, permissive
-//! `OraclePolicy::View`) so stale oracles on disabled markets do not block
-//! front-ends or indexers. Reads of `Market`/`EModeCategory` keys renew
-//! shared-tier TTL below threshold; view calls can extend rent.
-//!
-//! Aggregates are harnessed under certora.
+//! Views use `Cache::new_view`, so disabled-market stale oracles do not block
+//! front ends or indexers. Reads can still renew shared-tier TTLs.
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use common::errors::GenericError;
@@ -125,7 +120,7 @@ impl Controller {
         ltv_collateral_in_usd(&env, account_id)
     }
 
-    /// Largest currently executable `withdraw` amount.
+    /// Largest executable `withdraw` amount.
     pub fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128 {
         limits::max_withdraw(&env, account_id, &asset)
     }
@@ -135,14 +130,14 @@ impl Controller {
         limits::max_supply(&env, account_id, &asset)
     }
 
-    /// Largest currently executable `borrow` amount of `asset`; `0` while
+    /// Largest executable `borrow` amount of `asset`; `0` while
     /// paused, on an inactive/non-borrowable market, or when the asset is
     /// structurally not borrowable for the account.
     pub fn max_borrow(env: Env, account_id: u64, asset: Address) -> i128 {
         limits::max_borrow(&env, account_id, &asset)
     }
 
-    /// Current indexes accrued to now; reads no oracle.
+    /// Accrued indexes; reads no oracle.
     pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
         let mut cache = Cache::new_view(&env);
         MarketIndexRaw::from(&cache.cached_market_index(&asset))

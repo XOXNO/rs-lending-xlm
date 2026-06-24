@@ -70,14 +70,7 @@ pub fn calculate_ltv_collateral_wad(
     ltv
 }
 
-/// Full portfolio risk aggregates from one prefetch and one pass per side.
-///
-/// Collateral is valued three ways off the same chains: `total_collateral`
-/// (neutral half-up, for bad-debt socialization), `ltv_collateral`
-/// (LTV-weighted floor, for borrow capacity), and `weighted_collateral`
-/// (liquidation-threshold-weighted floor, the health-factor numerator). Debt is
-/// ceiled. `health_factor` is `weighted_collateral / total_debt`, saturating to
-/// `i128::MAX` when the account holds no debt.
+/// Portfolio risk aggregates for borrow capacity and health-factor checks.
 pub(crate) struct AccountRiskTotals {
     pub total_collateral: Wad,
     pub ltv_collateral: Wad,

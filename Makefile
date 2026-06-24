@@ -52,14 +52,8 @@ SHELL := /bin/bash
 
 WASM_TARGET  := wasm32v1-none
 RELEASE_DIR  := target/$(WASM_TARGET)/release
-# Wasm shadow-stack size. rustc's default is 1MB (16 pages of linear memory),
-# and Soroban charges a callee's full initial linear memory against the tx
-# MEMORY budget on EVERY cross-contract invocation — measured ~1.28MB/call,
-# ~70% of the per-oracle-feed cost of HF-checked ops. 16KB collapses the
-# declared memory from 17 pages to ONE (stack + static data fit in 64KB) and
-# the full test-harness suite (637 tests incl. max-position liquidations)
-# passes with no overflow. Layout is stack-first, so an overflow TRAPS — it
-# cannot silently corrupt the data section.
+# Wasm shadow-stack size. Smaller stacks reduce Soroban memory budget charged
+# on cross-contract calls while preserving trap-on-overflow behavior.
 WASM_STACK_SIZE ?= 16384
 WASM_RUSTFLAGS := -C link-arg=-zstack-size=$(WASM_STACK_SIZE)
 OPTIMIZED_DIR := target/optimized
@@ -478,10 +472,8 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   FUZZ_FLAGS := --sanitizer=thread -Zbuild-std
 else
-  # The prebuilt cargo-fuzz (taiki-e/install-action) is the musl-static binary,
-  # and cargo-fuzz defaults its build target to its own — musl — which ASan
-  # cannot link against statically-linked libc. Pin the build to the gnu host
-  # target so the sanitizer links (matches the old gnu source-built cargo-fuzz).
+  # Static cargo-fuzz binaries default to musl, which cannot link ASan.
+  # Pin the Rust host target so the sanitizer links.
   FUZZ_HOST := $(shell rustc -vV | sed -n 's/^host: //p')
   FUZZ_FLAGS := --target $(FUZZ_HOST)
 endif
@@ -508,23 +500,21 @@ fuzz-one:
 fuzz-build:
 	@cargo +nightly fuzz build --fuzz-dir $(FUZZ_DIR) $(FUZZ_FLAGS)
 
-## Seed tests/fuzz/corpus/<target>/ from */test_snapshots/**/*.json. Run once before
-## a campaign to give libFuzzer realistic numeric entropy from the start.
+## Seed tests/fuzz/corpus/<target>/ from */test_snapshots/**/*.json.
+## Run before fuzz campaigns to provide numeric entropy at start.
 fuzz-seed-corpus:
 	@cd $(FUZZ_DIR) && cargo run --release --features seed-corpus --bin seed_corpus -- --output corpus
 
 # ---------------------------------------------------------------------------
 # Fuzz coverage (fast: corpus replay only, no active fuzzing)
 # ---------------------------------------------------------------------------
-# `cargo fuzz coverage` builds with profile instrumentation and replays the
-# existing corpus once — inherently fast once the build is warm. HTML reports
-# land in $(COV_DIR)/fuzz/<target>/. Set FUZZ_COV_TIME=<seconds> to do a short
-# fuzz run first (grows the corpus before measuring).
+# `cargo fuzz coverage` builds profile instrumentation and replays the corpus.
+# HTML reports land in $(COV_DIR)/fuzz/<target>/. Set FUZZ_COV_TIME=<seconds>
+# to grow the corpus before measuring.
 #
-# macOS: all targets need --sanitizer=thread -Zbuild-std because the default
-# sancov+ASAN build fails to link the stellar-access cdylib (same workaround
-# used by `make fuzz`). First build is slow (~2–5 min); subsequent runs reuse
-# the cache so replay + report complete in seconds.
+# macOS targets need --sanitizer=thread -Zbuild-std because the default
+# sancov+ASAN build cannot link the stellar-access cdylib. Cached replay and
+# report runs complete faster after the first build.
 
 FUZZ_COV_TIME ?= 0
 ifeq ($(UNAME_S),Darwin)
@@ -1312,7 +1302,7 @@ help:
 
 MUTANTS_JOBS ?= 4
 # Test-harness integration tests can run long under accrual-loop mutations.
-# 120s is generous enough to disambiguate "infinite loop" from "merely slow".
+# 120s separates infinite loops from slow test runs.
 MUTANTS_TIMEOUT ?= 120
 
 mutants-math:

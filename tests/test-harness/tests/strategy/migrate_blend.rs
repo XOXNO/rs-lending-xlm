@@ -327,10 +327,8 @@ fn test_migrate_empty_params_rejected() {
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
-/// A debt asset listed twice in `debt_caps` is rejected (ASSETS_ARE_THE_SAME)
-/// before any Blend interaction — it would double-borrow and double-repay the
-/// same asset. (An asset in both a withdraw role and the debt role is now
-/// supported; see `test_migrate_same_asset_loop`.)
+/// A debt asset listed twice in `debt_caps` is rejected before Blend calls.
+/// An asset may appear in both a withdraw role and the debt role.
 #[test]
 fn test_migrate_duplicate_debt_rejected() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

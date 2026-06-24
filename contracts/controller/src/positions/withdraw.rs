@@ -27,10 +27,9 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 /// Pool ABI sentinel for full-position withdraw (`withdraw` maps user `0` here).
 pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
-/// Per-asset decision for refreshing supply risk params after a withdraw.
+/// Per-asset decision for refreshing supply risk params during withdraw.
 ///
-/// - `Frozen`: keep existing risk params (liquidation, deprecated category, or
-///   removed e-mode membership).
+/// - `Frozen`: keep existing risk params.
 /// - `None`: refresh from current config with no e-mode category.
 /// - `From`: refresh from the given active e-mode category.
 pub(crate) enum EModeRefresh {
@@ -157,10 +156,8 @@ pub(crate) fn settle_withdraw_entries(
 ) -> Vec<PoolPositionMutation> {
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
-    // Resolve the category once, then decide per asset whether it is still
-    // active membership. Deprecated categories and removed assets must not block
-    // exits, but they also must not rewrite existing position risk params.
-    // Liquidation never refreshes, so the category is only loaded otherwise.
+    // Resolve the category once, then decide per asset whether active
+    // membership still applies.
     let e_mode_category = if is_liquidation {
         None
     } else {
@@ -205,10 +202,8 @@ fn withdraw_refresh_e_mode_for_asset(
     EModeRefresh::From(category.clone())
 }
 
-/// Merges one pool withdraw result back into the account and event buffers.
-/// `refresh_e_mode` refreshes the withdrawn asset's risk params from current
-/// config (`None`/`From`) or keeps them frozen (`Frozen`: liquidation,
-/// deprecated category, or removed e-mode membership).
+/// `refresh_e_mode` refreshes risk params from current config or keeps them
+/// frozen for liquidation, deprecated categories, and removed e-mode members.
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,

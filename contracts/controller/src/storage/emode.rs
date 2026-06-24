@@ -1,7 +1,6 @@
-//! E-mode category and membership storage.
-//!
+//! E-mode category membership storage.
 //! Categories are versioned records that can be deprecated without rewriting
-//! accounts that used the old category.
+//! accounts that use existing categories.
 
 use super::renew_protocol_shared_key;
 use crate::constants::MAX_EMODE_ASSETS_PER_CATEGORY;
@@ -72,8 +71,7 @@ mod tests {
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{Address, Env, Map};
 
-    // Mirrors the market-config read-renewal test: a category read once its
-    // TTL is below threshold must re-arm the shared bump.
+// Category reads renew shared-tier TTL once it falls below threshold.
     #[test]
     fn test_try_get_emode_category_renews_shared_ttl_on_read() {
         let env = Env::default();

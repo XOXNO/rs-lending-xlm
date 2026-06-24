@@ -1,20 +1,14 @@
-//! Blend V2 pool client for one-click migration.
-//!
-//! Mirrors only the Blend ABI surface the migration uses: `submit`. The
-//! `BlendRequest` and `BlendPositions` field NAMES must match Blend exactly
-//! (`#[contracttype]` structs encode as field-name maps); see Blend
-//! `pool/src/pool/actions.rs` (`Request`) and `pool/src/pool/user.rs`
-//! (`Positions`). The migration never reads Blend positions or reserves: it
-//! repays with the caller's debt cap and reconciles Blend's over-repay refund.
+//! Blend V2 pool client used by migration flows.
+//! Mirrors the Blend `submit` ABI; field names must match Blend maps.
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Map, Vec};
 
-/// Blend `RequestType` discriminants. Only these three are emitted by migration.
+/// Blend `RequestType` discriminants emitted by migration.
 pub const REQ_WITHDRAW: u32 = 1; // sweep non-collateral supply
 pub const REQ_WITHDRAW_COLLATERAL: u32 = 3; // sweep collateral
 pub const REQ_REPAY: u32 = 5; // clear debt
 
-/// A request against the Blend pool. Mirror of Blend `Request`.
+/// Request against the Blend pool. Mirrors Blend `Request`.
 #[contracttype]
 #[derive(Clone)]
 pub struct BlendRequest {
@@ -23,9 +17,7 @@ pub struct BlendRequest {
     pub amount: i128,
 }
 
-/// A user's per-pool position on Blend. Mirror of Blend `Positions`. Returned by
-/// `submit`; decoded for type fidelity then discarded (migration measures
-/// controller balance deltas instead of trusting this value).
+/// User position returned by Blend `submit`.
 #[contracttype]
 #[derive(Clone)]
 pub struct BlendPositions {
@@ -46,12 +38,7 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
-/// Calls Blend `submit`.
-///
-/// The caller MUST have emitted `authorize_as_current_contract` for the
-/// controller's `spender` legs immediately before this call (no intervening
-/// cross-call); the user authorizes the `from` leg through the transaction's
-/// auth tree.
+/// Calls Blend `submit` after controller and user authorization.
 pub(crate) fn blend_submit_call(
     env: &Env,
     blend_pool: &Address,

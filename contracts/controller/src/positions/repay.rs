@@ -1,9 +1,7 @@
 //! Repay and strategy-internal repay flows.
-//!
-//! Pipeline: auth → aggregate → cache → validate → settle → persist → emit.
-//! Repay is permissionless w.r.t. the account owner and can only reduce risk;
-//! the pool refunds any amount above the ceiling-rounded debt to the payer.
-//! No oracle reads: repay only reduces debt and needs no live prices.
+//! Repay is permissionless with respect to the account owner because it only
+//! reduces risk. Pool refunds any amount above ceiling-rounded debt to payer.
+//! No oracle reads are needed.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;

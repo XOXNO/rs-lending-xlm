@@ -8,9 +8,7 @@ use soroban_sdk::{Address, Env, String, Vec};
 use crate::cache::Cache;
 
 /// Reads RedStone price data, returning `None` on provider failure.
-/// Served from the tx-local prefetch when `prefetch_redstone_feeds` ran.
-/// A lazy uncached read also warms the same map so any later consumer of
-/// this (adapter, feed_id) within the tx is a cache hit.
+/// Uses and warms the transaction-local RedStone cache.
 pub(crate) fn read_price_data(
     cache: &mut Cache,
     contract: &Address,

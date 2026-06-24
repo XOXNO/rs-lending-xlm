@@ -1,12 +1,8 @@
-# Strategy endpoints (aggregator-routed) and flash-loan modes, on real markets.
+# Strategy endpoints flash-loan from the pool and run user-selected DEX
+# instructions. The mock strategy rejects oracle-mismatched routes and enforces
+# min_out. Swap legs refresh quotes inside each callback.
 #
-# Swap payloads are aggregator routeXdr bytes (max_splits=1 — multi-hop
-# payloads exceed the tx budget). swap_debt's `amount` is the NEW debt
-# borrowed; size every leg above the $10 dust floor (#126).
-
 # XDR-encodes FlashLoanRequest{mode} for the test receiver's `data` arg.
-# (Swap legs use retry_leg from lib/invoke.sh — quotes are refreshed inside
-# each callback, so every attempt re-simulates against current venue state.)
 flash_data_hex() {
     local mode="$1"
     jq -nc --argjson m "$mode" '{map:[{key:{symbol:"mode"},val:{u32:$m}}]}' \
@@ -115,11 +111,9 @@ flow_strategies() {
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
-    # repay_debt_with_collateral close_position=true (full-close branch). A
-    # dedicated CAROL account (full XLM balance at this phase) takes a small,
-    # single USDC debt, then sells XLM collateral that over-covers it. The branch
-    # asserts borrow_positions is empty (#... CannotCloseWithRemainingDebt) then
-    # withdraws ALL remaining collateral, so the account is fully closed.
+    # repay_debt_with_collateral close_position=true full-close branch.
+    # CAROL opens a small USDC debt, over-covers it with XLM collateral, and
+    # exits with no borrow or collateral positions.
     local rdwc_acct
     rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \

@@ -1,14 +1,6 @@
-# Prometheus alerting rules for the rs-lending keeper.
-#
-# WHY THIS IS A DEPLOYMENT REQUIREMENT, NOT OPTIONAL:
-# the keeper is the only thing extending the protocol's footprint TTLs. If it
-# silently dies (crash / OOM / lost RPC / out-of-funds signer) and nobody is
-# paged, entries eventually archive and the protocol FREEZES until manually
-# restored. The keeper exposes the right metrics on :9090/metrics but does not
-# page itself — these rules close that loop.
-#
-# Load via Prometheus `rule_files:` (see prometheus.example.yml). The rules
-# assume the keeper scrape job is labelled job="keeper".
+# Prometheus alerting rules for rs-lending keeper.
+# Keeper liveness preserves protocol TTLs and exposes metrics on :9090/metrics.
+# Load via Prometheus `rule_files:`; rules expect job="keeper".
 groups:
   - name: keeper.liveness
     rules:

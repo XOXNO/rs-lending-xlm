@@ -45,10 +45,8 @@ pub fn refresh_supply_risk_params_for_asset(
     asset: &Address,
     position: &mut AccountPosition,
 ) {
-    // Views that model exits must not reject solely because governance
-    // deprecated a category or removed an asset from it. In those cases existing
-    // positions keep their stored risk params; only active category membership
-    // may refresh them.
+    // Views modeling exits must not reject only because governance deprecated
+    // a category or removed an asset from it.
     let e_mode = match cache.cached_e_mode_category(account.e_mode_category_id) {
         Some(category) => {
             if category.is_deprecated || category.assets.get(asset.clone()).is_none() {

@@ -1,11 +1,9 @@
-//! Ownership, pause, and upgrade.
+//! Ownership, pause, and upgrade entrypoints.
 //!
-//! Built on `stellar_access` ownable primitives. Keeper, revenue, and oracle
-//! circuit-breaker paths are either permissionless (caller-signed) or
-//! `#[only_owner]`; the controller holds no operational roles. Pause is a
-//! risk freeze: risk-increasing position paths, strategies, and flash loans are
-//! gated `when_not_paused`; withdraw, repay, liquidation, views, `renew_account`
-//! (TTL keep-alive only), and owner governance remain callable while paused.
+//! Keeper, revenue, and oracle circuit-breaker paths are permissionless or
+//! owner-gated. Pause blocks risk-increasing position paths, strategies, and
+//! flash loans. Withdraw, repay, liquidation, views, renew_account, and owner
+//! governance remain callable while paused.
 
 use common::errors::GenericError;
 use controller_interface::types::{ControllerKey, PositionLimits};

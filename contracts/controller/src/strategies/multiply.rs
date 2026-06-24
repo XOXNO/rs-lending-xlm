@@ -85,8 +85,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         GenericError::AssetsAreTheSame
     );
 
-    // Allow-list rather than `!= Normal` so a future `PositionMode` variant
-    // cannot silently slip through multiply.
+    // Allow-list accepted modes so only supported account modes reach multiply.
     assert_with_error!(
         env,
         matches!(
@@ -179,9 +178,8 @@ fn collect_initial_multiply_payment(
     if let Some((payment_token, payment_amount)) = initial_payment.as_ref() {
         validation::require_positive_amount(env, *payment_amount);
 
-        // Only listed assets may be invoked as token contracts: the payment
-        // token is the one user-supplied call target in this flow, and the
-        // event enrichment at the end prices it against a market anyway.
+        // Only listed assets may invoke token contracts; payment token is the
+        // user-supplied call target.
         assert_with_error!(
             env,
             storage::has_market_config(env, payment_token),

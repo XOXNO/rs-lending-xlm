@@ -282,9 +282,8 @@ pub struct UpdateMarketParamsEvent {
     pub reserve_factor_bps: u32,
 }
 
-/// Action that produced a position delta. The `u32` discriminants are wire
-/// ABI: the off-chain decoder maps them back to the legacy action strings,
-/// so variants must not be renumbered or removed.
+/// Position action stored as a stable `u32` discriminant.
+/// Off-chain decoders depend on these values.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -305,12 +304,9 @@ pub enum PositionAction {
     Migrate = 13,
 }
 
-/// Collateral-side position delta, vec-encoded for the batch position event.
-///
-/// Field order is wire ABI; do not reorder:
-/// `[action, asset, scaled_amount_ray, index_ray, amount,
-///   liquidation_threshold_bps, liquidation_bonus_bps, loan_to_value_bps]`.
-/// The risk params are the position's entry values (e-mode adjusted).
+/// Collateral-side position delta, vec-encoded for client compatibility.
+/// Field order is wire ABI; do not reorder.
+/// Risk params are the position entry values.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventDepositDelta(
@@ -413,9 +409,8 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-/// E-mode category snapshot emitted after category changes. Risk parameters
-/// are per-asset (see [`UpdateEModeAssetEvent`]); a category only carries its
-/// id and deprecation state.
+/// E-mode category snapshot emitted after category changes.
+/// Risk parameters are per-asset values.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventEModeCategory {
@@ -472,7 +467,7 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
-/// Emitted once per successful Blend V2 → controller migration.
+/// Emitted after a Blend V2 migration into the controller.
 #[contractevent(topics = ["strategy", "blend_migration"])]
 #[derive(Clone, Debug)]
 pub struct BlendMigrationEvent {

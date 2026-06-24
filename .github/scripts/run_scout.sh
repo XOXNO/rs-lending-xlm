@@ -69,9 +69,8 @@ export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 
 tar --exclude './.git' --exclude './target' -cf - . | (cd "$work_dir" && tar -xf -)
 
-# Scout analyzes compiler lints against a temporary copy. Keep production
-# manifests unchanged while making the scan copy compatible with Scout's
-# pinned detector nightly.
+# Scout analyzes compiler lints against a scan copy.
+# Production manifests stay unchanged.
 find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 \
   | xargs -0 perl -0pi -e 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/g'
 patch_soroban_sdk_macros

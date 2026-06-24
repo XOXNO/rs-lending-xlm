@@ -53,7 +53,7 @@ fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
     synced_market_cache(env, asset)
 }
 
-/// Market cache accrued to now without instance-TTL renewal.
+/// Accrued market cache without instance-TTL renewal.
 /// Bulk endpoints renew instance TTL once per call.
 fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
     let mut cache = Cache::load(env, asset);
@@ -61,12 +61,10 @@ fn synced_market_cache(env: &Env, asset: &Address) -> Cache {
     cache
 }
 
-/// Shared shell for the position-mutating batch endpoints.
+/// Runs position-mutating batch entries in order.
 ///
-/// Renews instance TTL once, applies `apply` to each entry in input order, then
-/// emits a single market-state batch event and returns the per-entry mutations.
-/// Any per-entry panic (cap, reserves, math) reverts the whole call. Per-entry
-/// CEI and accounting live in each `*_one` callee.
+/// Renews instance TTL once, emits one market-state batch event, and
+/// returns per-entry mutations. Any entry panic reverts the whole call.
 fn run_batch<E>(
     env: &Env,
     entries: Vec<E>,
@@ -87,9 +85,8 @@ where
     mutations
 }
 
-/// Validates `action.amount` is non-negative, loads the market cache accrued to
-/// now, and reads the position's current scaled amount. Instance TTL is renewed
-/// once per batch by `run_batch`, so this does not renew it.
+/// Validates `action.amount`, loads accrued market cache, and reads scaled amount.
+/// Instance TTL is renewed once per batch by `run_batch`.
 fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market_cache(env, &action.asset);
@@ -541,7 +538,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     #[only_owner]
     fn update_params(env: Env, asset: Address, model: InterestRateModel) {
-        // Accrue at the old rate model before replacing it.
+        // Accrue at the existing rate model before replacing it.
         let cache = load_synced_cache(&env, &asset);
         cache.save();
 

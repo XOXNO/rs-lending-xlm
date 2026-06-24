@@ -1,31 +1,10 @@
-//! Blend V2 → controller one-click position migration.
+//! Blend V2 to controller position migration.
 //!
-//! Atomically moves a user's Blend position (collateral, non-collateral supply,
-//! and debt) into the controller in a single transaction at zero flash-loan fee.
-//!
-//! The "flash loan" is a fee=0 `create_strategy` borrow (`open_migration_borrow`)
-//! whose proceeds repay the user's Blend debt; Blend's collateral and supply are
-//! withdrawn to the controller and re-supplied into the user's account; a single
-//! end-state gate (`strategy_finalize`) enforces solvency. The Blend over-repay
-//! refund is reconciled back into the new debt so the user's debt equals exactly
-//! what cleared Blend.
-//!
-//! Looped positions (the same token as both collateral and debt) are supported by
-//! splitting the Blend interaction into two phase-scoped submits — a repay submit
-//! then a withdraw submit — each with its own balance snapshot. This keeps the
-//! repay-refund delta and the collateral-withdraw delta from aliasing when the
-//! asset is identical. Collateral-only and debt-only migrations touch a single
-//! phase, so they remain single-submit.
-//!
-//! Authorization: the user authorizes this entrypoint and, in the transaction's
-//! auth tree, Blend's `submit(from = user, ...)` for each phase. The controller's
-//! own `submit` authorization (it is the `spender`) is implicit because it is the
-//! direct invoker; only the deeper repay token pulls — `transfer(controller ->
-//! blend_pool, cap)`, invoked by Blend — need explicit `authorize_as_current_contract`,
-//! emitted as top-level entries immediately before the repay submit.
-//!
-//! See docs/superpowers/specs/2026-06-19-blend-v2-migration-design.md and
-//! docs/superpowers/specs/2026-06-20-blend-migration-same-asset-looping-design.md.
+//! Moves a user's Blend collateral, supply, and debt into controller in one
+//! transaction with a zero-fee strategy borrow. The flow clears Blend debt,
+//! sweeps Blend balances, re-supplies collateral, and gates the final account
+//! state with `strategy_finalize`. Looped same-asset positions use separate
+//! repay and withdraw submits so balance deltas do not alias.
 
 use common::errors::GenericError;
 use controller_interface::types::{Account, DebtPosition, PositionMode};
@@ -62,11 +41,8 @@ pub struct MigrateBlendParams {
 
 #[contractimpl]
 impl Controller {
-    /// Migrates a Blend V2 position into the controller. `account_id == 0`
-    /// creates a fresh account. `collateral_assets`/`supply_assets` are swept
-    /// with "withdraw all" semantics; each `(debt_asset, max)` in `debt_caps`
-    /// bounds the zero-fee borrow used to clear that Blend debt. An asset may be
-    /// both withdrawn and borrowed (a looped position).
+    /// Migrates a Blend V2 position into the controller.
+    /// Debt caps bound the zero-fee borrow used to clear Blend debt.
     #[when_not_paused]
     pub fn migrate_from_blend(
         env: Env,
@@ -129,10 +105,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     // Reject duplicate debt entries (a duplicate would double-borrow and
     // double-repay the same asset).
     require_unique_debt_assets(env, &debt_caps);
-    // Deduplicated collateral ∪ supply. An asset may ALSO be a debt asset (a
-    // looped position): the two-phase submit below measures the repay-refund and
-    // the collateral-withdraw deltas against separate snapshots, so the same-asset
-    // roles never alias.
+    // Same-asset debt and withdraw roles use separate snapshots so deltas do not alias.
     let withdraw_assets = unique_withdraw_assets(env, &collateral_assets, &supply_assets);
 
     let mut all_assets = withdraw_assets.clone();
@@ -141,11 +114,8 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     }
     prefetch_strategy_oracles(&mut cache, &account, &all_assets);
 
-    // Phase 1 — REPAY. Open the zero-fee migration borrow for each debt asset (the
-    // "flash loan"), then clear all Blend debt in a single submit. Snapshotting
-    // BEFORE the borrow makes the post-submit delta purely the Blend over-repay
-    // refund (no collateral is withdrawn in this submit); reconcile each refund so
-    // the new debt equals exactly what cleared Blend.
+    // Borrow before submit so the post-submit delta is only Blend's
+    // over-repay refund.
     if !debt_caps.is_empty() {
         let before_debt = snapshot_balances(env, &debt_asset_list(env, &debt_caps));
         for (debt_asset, max) in debt_caps.iter() {
@@ -165,10 +135,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         );
     }
 
-    // Phase 2 — WITHDRAW. Sweep all Blend collateral and non-collateral supply to
-    // the controller (withdraw-all) in a single submit, then re-supply into the
-    // account as collateral. A fresh snapshot taken AFTER phase 1 isolates the
-    // withdrawn amount from any phase-1 refund left on the controller.
+    // Sweep Blend collateral and supply, then re-supply controller collateral.
     if !withdraw_assets.is_empty() {
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
         let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
@@ -307,10 +274,8 @@ fn build_withdraw_requests(
     requests
 }
 
-/// Runs a Blend `submit` under the re-entrancy guard (defense-in-depth, mirroring
-/// the aggregator swap path; the Soroban host already prohibits re-entering the
-/// controller). The caller MUST have emitted `authorize_blend_submit` for these
-/// `requests` immediately before, with no intervening cross-call.
+/// Runs Blend `submit` under the reentrancy guard.
+/// Caller must authorize immediately before this call.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
@@ -318,15 +283,8 @@ fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Ve
     });
 }
 
-/// Authorizes, as the controller, the repay token-pull legs of a Blend submit:
-/// one `transfer(controller -> blend_pool, cap)` per debt asset. These are
-/// emitted as TOP-LEVEL entries (not nested under the submit). Blend's `submit`
-/// also calls `spender.require_auth()` with `spender == controller`, but that is
-/// satisfied implicitly because the controller is `submit`'s direct invoker — so
-/// the submit frame collapses out of the controller's authorization tree and the
-/// deeper transfers appear at the top level (mirrors `swap::pre_authorize_router_pull`).
-/// Must be the call immediately preceding the submit; a withdraw-only submit has
-/// no debt caps, hence no legs, and relies solely on the implicit submit auth.
+/// Authorizes Blend debt-token pulls from the controller.
+/// Withdraw-only submits have no debt caps and need no pull authorization.
 fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
     if debt_caps.is_empty() {
         return;

@@ -1,5 +1,4 @@
 //! E-mode risk-parameter overrides for correlated asset categories.
-//!
 //! Applies active category overrides to market asset configs.
 
 use common::errors::EModeError;
@@ -10,9 +9,7 @@ use soroban_sdk::{assert_with_error, Address, Env};
 use crate::cache::Cache;
 use crate::storage;
 
-/// Applies active e-mode flags and per-asset risk parameters to an asset
-/// config. Risk parameters come from the asset's own [`EModeAssetConfig`], so
-/// assets in the same category can carry different LTV/threshold/bonus.
+/// Applies active e-mode flags to per-asset risk parameters.
 pub fn apply_e_mode_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
@@ -56,9 +53,8 @@ pub fn e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCatego
     Some((&storage::get_emode_category(env, e_mode_category_id)).into())
 }
 
-/// Returns a non-deprecated e-mode category from storage unless
-/// `e_mode_category_id` is zero. Account creation uses this path; position
-/// flows should use [`Cache::active_e_mode_category`] instead.
+/// Returns a non-deprecated e-mode category unless `e_mode_category_id` is zero.
+/// Account creation uses this path; position flows should use `Cache`.
 pub fn active_e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCategory> {
     let category = e_mode_category(env, e_mode_category_id);
     ensure_e_mode_not_deprecated(env, &category);

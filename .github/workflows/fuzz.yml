@@ -102,9 +102,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Fuzz long run
     runs-on: self-hosted
-    # Self-hosted runner — no GitHub-imposed cap. 24h ceiling lets the
-    # nightly fuzz crank FUZZ_TIME well beyond the prior 30-min default
-    # without the workflow killing it midway.
+    # Self-hosted runner with a 24h ceiling for long fuzz runs.
     timeout-minutes: 1440
     steps:
       - uses: actions/checkout@v7

@@ -5,9 +5,8 @@ init_run() {
     if [ ! -f "$ACTIONS_TSV" ]; then
         printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
     fi
-    # Resume support: restore contract addresses and wallet aliases from a
-    # previous invocation of the same RUN_TS. Sourced BEFORE flows run, so
-    # explicit env overrides must be exported AFTER init_run.
+    # Load persisted state first, then let explicit env overrides win.
+    # Export overrides after init_run.
     [ -f "$STATE_ENV" ] && source "$STATE_ENV"
     PHASE="${PHASE:-init}"
 }

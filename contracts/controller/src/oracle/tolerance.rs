@@ -74,10 +74,8 @@ pub(crate) fn is_within_anchor(
     if anchor == 0 {
         return false;
     }
-    // A primary/anchor ratio beyond any representable u32 BPS band is out of
-    // band by definition; short-circuit before the RAY-scaled mul_div so a
-    // degenerate (valid but near-zero) anchor reports divergence instead of
-    // overflowing to a MathOverflow revert.
+    // A primary/anchor ratio beyond any representable u32 BPS band is
+    // out of band by definition.
     if primary / anchor > i128::from(u32::MAX) {
         return false;
     }

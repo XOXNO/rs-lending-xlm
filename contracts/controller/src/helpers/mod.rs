@@ -1,11 +1,9 @@
-//! Account-math helpers, split by responsibility:
+//! Account math helpers.
 //!
-//! - `math`: health-factor, LTV, and debt aggregation over position maps.
+//! - `math`: health factor, LTV, and debt aggregation over position maps.
 //! - `account`: min-borrow-collateral gate and in-memory account lifecycle.
-//! - `utils`: payment aggregation and small shared utilities.
-//!
-//! Price and index reads go through `Cache`, so the active
-//! `OraclePolicy` remains the caller's responsibility.
+//! - `utils`: asset list helpers and error/assertion glue.
+//! - `risk_params`: e-mode and liquidation risk refresh helpers.
 
 mod account;
 pub(crate) mod emode_caps;

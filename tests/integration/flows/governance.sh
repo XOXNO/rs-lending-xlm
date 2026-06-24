@@ -71,7 +71,7 @@ flow_governance() {
     view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
         --first_tolerance 200 --last_tolerance 500 >/dev/null
 
-    # Propose -> cancel: state goes Waiting, then Unset once the CANCELLER undoes it.
+    # Propose then cancel: state moves from Waiting to Unset.
     local op_cancel
     op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose_set_position_limits \
         --proposer "$ADMIN_ADDR" \

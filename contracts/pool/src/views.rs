@@ -20,8 +20,7 @@ pub fn load_params(env: &Env, asset: &Address) -> MarketParamsRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-// Bundles the asset's params and state for index simulation. Raw reads, no
-// TTL renewal or interest accrual.
+// Loads params and state without TTL renewal or interest accrual.
 pub fn load_sync_data(env: &Env, asset: &Address) -> PoolSyncData {
     PoolSyncData {
         params: load_params(env, asset),
@@ -35,10 +34,7 @@ pub fn capital_utilisation(env: &Env, asset: &Address) -> i128 {
     Cache::load(env, asset).calculate_utilization().raw()
 }
 
-// Available reserves in asset decimals. Uses persisted `cash`, the liquidity
-// source for borrows, withdrawals, and revenue claims.
-// Direct token donations are excluded, matching `require_reserves` and
-// `claim_revenue`. No TTL renewal or interest accrual.
+// Returns persisted `cash`; direct token donations are excluded.
 pub fn reserves(env: &Env, asset: &Address) -> i128 {
     load_state(env, asset).cash
 }

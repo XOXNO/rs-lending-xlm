@@ -176,9 +176,8 @@ pub fn borrow_for_strategy(
     )
 }
 
-/// Zero-fee strategy borrow used by Blend migration. The opened debt is the
-/// user's permanent migrated debt, not a flash loan, so no flash fee is charged;
-/// like other strategy borrows it defers solvency to `strategy_finalize`.
+/// Zero-fee strategy borrow used by Blend migration.
+/// Other strategy borrows defer solvency to `strategy_finalize`.
 pub fn borrow_for_migration(
     env: &Env,
     account: &mut Account,

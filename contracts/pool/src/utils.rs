@@ -28,8 +28,7 @@ pub(crate) fn now_ms(env: &Env) -> u64 {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
-/// Renews TTLs for market params/state entries. Both keys must exist because
-/// `extend_ttl` panics on missing keys (soroban-sdk 26.x).
+/// Renews TTLs for market params/state entries. Both keys must exist.
 pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
     let storage = env.storage().persistent();
     storage.extend_ttl(

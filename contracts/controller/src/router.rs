@@ -112,12 +112,8 @@ impl Controller {
         add_rewards_batch(&env, &caller, rewards);
     }
 
-    /// Permissionless risk-param fan-out: any `caller` may propagate updates for
-    /// any accounts (keepers and governance both rely on this). It deliberately
-    /// does not assert `meta.owner == caller` — unlike `renew_account`, which
-    /// does — because the `hf >= THRESHOLD_UPDATE_MIN_HF_RAW` gate in
-    /// `sync_account_thresholds` keeps a risk-increasing update safe regardless
-    /// of who triggers it.
+    /// Permissionless risk-param fan-out.
+    /// Any caller may propagate updates because the HF gate prevents risk increases.
     #[when_not_paused]
     pub fn update_account_threshold(
         env: Env,

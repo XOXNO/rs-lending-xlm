@@ -10,9 +10,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 use crate::{cache::Cache, helpers, storage};
 
 /// Unwraps a controller-built value or panics with `InternalError`.
-///
-/// Missing values here indicate corrupted storage or a caller logic bug after
-/// prior length/key checks, not malformed user input.
+/// Missing values indicate corrupted storage or caller logic bugs after checks.
 #[inline]
 pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))

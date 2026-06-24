@@ -6,15 +6,13 @@ rpc:
   timeout_seconds: 30
 
 contracts:
-  # NOTE: mainnet contract IDs are unset in configs/networks.json today.
-  # Populate before deploying to mainnet.
+  # Populate before running the keeper on mainnet.
   controller: ""
   pool_wasm_hash: ""
   market_assets: []
   flash_loan_receiver: ""
-  # Optional: governance contract that owns the controller. When set, its
-  # instance + MinDelay (instance-tier) + role keys are bumped too. Populate
-  # alongside the other mainnet ids.
+  # Optional governance owner for controller access checks.
+  # Populate alongside other mainnet ids.
   governance: ""
 
 keyvault:

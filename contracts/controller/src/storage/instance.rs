@@ -1,8 +1,6 @@
 //! Instance and temporary storage for non-market controller state.
-//!
 //! `ApprovedToken` is a one-use instance allow-list for pool creation.
-//! `FlashLoanOngoing` is a temporary transaction guard that blocks re-entrant
-//! controller mutations during flash-loan and strategy callbacks.
+//! `FlashLoanOngoing` blocks re-entrant controller mutations during callbacks.
 
 use crate::constants;
 use common::errors::GenericError;
@@ -248,9 +246,7 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
-/// Runs `f` with the flash-loan reentrancy flag set, restoring the prior
-/// value afterward so nested guarded sections stay protected. (panic=abort
-/// rolls back the whole tx on revert, so no restore-on-unwind is needed.)
+/// Runs `f` with the flash-loan reentrancy flag set, then restores the saved value.
 pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     let prev = is_flash_loan_ongoing(env);
     set_flash_loan_ongoing(env, true);

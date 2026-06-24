@@ -1,7 +1,6 @@
 //! Outbound pool and SAC token wrappers.
 
-/// Blend V2 pool client (migration only). Real module under every feature: it is
-/// never reached by a Certora rule, so no harness stub is needed.
+/// Blend V2 pool client used by migration flows.
 pub(crate) mod blend;
 
 #[cfg(not(feature = "certora"))]

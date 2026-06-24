@@ -1,9 +1,6 @@
 //! Per-entrypoint oracle failure policy.
-//!
-//! Each controller flow chooses one variant before reading prices. The variant
-//! decides whether disabled markets, stale sources, out-of-band deviations,
-//! degraded dual-source resolution (missing anchor, stale anchor skip, TWAP
-//! fallback), or out-of-sanity-bounds prices can be tolerated for that flow.
+//! Each controller flow chooses one variant before reading prices.
+//! The variant decides which oracle failures the flow may tolerate.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OraclePolicy {
@@ -21,11 +18,8 @@ struct Allowances {
     unsafe_deviation: bool,
     /// Missing anchor, stale anchor treated as unusable, or TWAP degradation to spot.
     degraded_dual_source: bool,
-    /// Final price outside the configured `[min, max]` sanity band (or with an
-    /// unset `max <= 0`) tolerated. Mirrors `unsafe_deviation`: a flow that
-    /// accepts a deviated price also accepts an out-of-sanity one, because such
-    /// flows can only reduce account risk. Any value extraction needs a
-    /// risk-increasing flow, which re-resolves the price with sanity enforced.
+    /// Final price outside `[min, max]` sanity bounds is tolerated when
+    /// the policy also tolerates unsafe deviation.
     sanity_violation: bool,
 }
 

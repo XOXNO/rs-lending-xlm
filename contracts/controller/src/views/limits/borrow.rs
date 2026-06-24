@@ -1,5 +1,4 @@
-//! `max_borrow` preview: amount-independent borrowability gates, hub and spoke
-//! borrow-cap headroom, then a binary search over the exact `borrow_ok` replica.
+//! `max_borrow` preview for borrowability gates, caps, and health factor.
 
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
@@ -12,16 +11,10 @@ use crate::{emode, storage};
 
 use super::{account_gates_ok, MarketLimitCtx};
 
-/// Largest currently executable `borrow` amount of `asset` for `account_id`.
+/// Largest executable `borrow` amount for `asset` and `account_id`.
 ///
-/// Returns `0` while paused, on an inactive or non-borrowable market, or when
-/// the asset is structurally not borrowable for this account (e-mode category or
-/// borrow-position limit). Otherwise mirrors the mutating path's
-/// amount-dependent gates: pool liquidity, max utilization, borrow cap, account
-/// LTV, and health factor. Binary search returns the largest passing amount.
-/// Feasibility is monotone in the amount, so the result does not overstate what
-/// the next transaction allows; indexes keep accruing after the read, so
-/// callers acting later should leave a margin.
+/// Returns `0` when paused, inactive, non-borrowable, structurally blocked,
+/// or limited by pool liquidity, utilization, caps, LTV, or health factor.
 pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;

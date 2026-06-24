@@ -1,7 +1,5 @@
 //! Oracle price resolution for Reflector and RedStone sources.
-//!
-//! Reads produce USD WAD prices, timestamps, and decimals. The primary source
-//! prices the market; an anchor is an independent tolerance check.
+//! Reads produce USD WAD prices, timestamps, and decimals.
 
 mod compose;
 mod observation;

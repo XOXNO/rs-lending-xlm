@@ -2,13 +2,11 @@
 # params, oracle admin, revenue, keeper ops, e-mode admin lifecycle, and the
 # upgrade / migrate / ownership round-trip.
 #
-# Self-contained on the real markets created by the lifecycle phase (XLM / USDC
-# / the otherwise-idle EURC, used as the throwaway config/oracle/disable target)
-# plus ADMIN_ACCT from flow_seed_liquidity — NO dependency on the mock-market
-# liquidation phase, so this flow runs in its own parallel lane.
+# Self-contained on lifecycle markets (XLM, USDC, idle EURC) plus
+# ADMIN_ACCT flow_seed_liquidity. It does not depend on mock liquidation markets.
 #
-# Ordering: upgrade() PAUSES the protocol by design — run the
-# upgrade/migrate/ownership block LAST, then unpause.
+# Ordering: upgrade() pauses the protocol. Run upgrade, migrate, and ownership
+# checks last, then unpause.
 
 flow_admin() {
     phase admin
@@ -147,7 +145,7 @@ flow_admin_upgrade() {
             "$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')" \
             "" "" "" "" "$ctrl_hash"
         inv controller_upgrade "$ADMIN" "$CONTROLLER" -- upgrade --new_wasm_hash "$ctrl_hash" >/dev/null
-        # upgrade() pauses by design — every user op now reverts until unpause.
+        # upgrade() pauses the protocol; user operations revert until unpause.
         xfail upgraded_paused_gate 'Error\(Contract, #1000\)' "$ALICE" "$CONTROLLER" -- supply \
             --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
             --assets "$(pay_vec "$XLM_SAC" 1000000000)"

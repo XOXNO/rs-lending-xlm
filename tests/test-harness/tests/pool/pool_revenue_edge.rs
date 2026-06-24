@@ -116,12 +116,8 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
 }
 // 3. claim_revenue blocked when burning the last supply would leave debt
 
-/// `burn_claimable_revenue` decrements both `cache.revenue` and
-/// `cache.supplied` by the revenue's scaled share. If the previous final
-/// supplier has already withdrawn (leaving only the protocol-revenue
-/// share as `supplied`), the burn would land at `supplied == 0` while
-/// `borrowed > 0` — the same insolvent post-state the withdraw path
-/// guards against. Pins that the symmetric guard in `claim_revenue`
+/// `burn_claimable_revenue` decrements `cache.revenue` and `cache.supplied`.
+/// Revenue burns cannot leave `supplied == 0` while `borrowed > 0`.
 /// rejects this state and the revenue stays parked until borrowers exit.
 #[test]
 fn test_claim_revenue_blocked_when_post_state_insolvent() {

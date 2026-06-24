@@ -193,7 +193,7 @@ impl InterestRateModel {
 
 /// Persistent collateral position encoding.
 ///
-/// `scaled_amount_ray` is a supply share, not current underlying balance.
+/// `scaled_amount_ray` is a supply share, not underlying balance.
 /// Risk fields are snapshotted by the controller for HF/LTV/liquidation math.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -263,7 +263,7 @@ impl From<&DebtPosition> for ScaledPositionRaw {
 
 /// Persistent debt position encoding.
 ///
-/// `scaled_amount_ray` is a borrow share, not current underlying debt.
+/// `scaled_amount_ray` is a borrow share, not underlying debt.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DebtPositionRaw {
@@ -345,7 +345,7 @@ pub struct MarketStateSnapshot {
     pub supply_index_ray: i128,
     /// Borrow index after accrual, in RAY.
     pub borrow_index_ray: i128,
-    /// Live pool token balance in asset-native units despite the legacy suffix.
+    /// Pool token balance, in asset-native units.
     pub reserves_ray: i128,
     /// Total scaled supply shares.
     pub supplied_ray: i128,
@@ -441,7 +441,7 @@ pub struct PoolWithdrawEntry {
 /// Persistent pool accounting state.
 ///
 /// Supply, borrow, and revenue totals are scaled shares; indexes convert them
-/// to current underlying amounts.
+/// to underlying amounts.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {

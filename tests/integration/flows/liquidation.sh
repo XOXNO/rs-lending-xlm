@@ -114,7 +114,7 @@ flow_liq_bulk() {
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$SAC_LIQB" $((500 * LIQ_UNIT)) "$SAC_LIQD" $((500 * LIQ_UNIT)))" >/dev/null
 
-    # Crash both collaterals 30% (LIQA from its current 0.70 → 0.49).
+    # Crash both collaterals 30%; LIQA moves from 0.70 to 0.49.
     set_mock_price "$SAC_LIQC" $((WAD / 10 * 7)) liq2_crash_c
     set_mock_price "$SAC_LIQA" $((WAD / 100 * 49)) liq2_crash_a
     assert_hf_below_wad liq2_hf "$acct"
@@ -217,7 +217,7 @@ flow_caps() {
         save_state CAP_SETUP_DONE 1
     fi
 
-    # Supply cap: tighten below current supply, breach, reset to disabled.
+    # Supply cap: tighten below supply, breach, reset to disabled.
     inv cap_supply_tighten "$ADMIN" "$CONTROLLER" -- edit_asset_config \
         --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800 '.supply_cap="1"')" >/dev/null
     xfail cap_supply_breach 'Error\(Contract, #105\)' "$BOB" "$CONTROLLER" -- supply \

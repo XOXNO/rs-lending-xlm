@@ -1,9 +1,5 @@
-//! Liquidity pool ABI wrappers.
-//!
-//! Pool calls exchange `ScaledPositionRaw` only. Collateral risk parameters
-//! remain controller-owned and are merged back after the pool returns scaled
-//! supply or debt shares. Position verbs bundle their payload in `PoolAction`,
-//! which carries the market asset the central pool routes on.
+//! Pool calls exchange `ScaledPositionRaw` only.
+//! The controller owns collateral risk parameters and merges them after pool mutations.
 
 use controller_interface::types::{
     AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
