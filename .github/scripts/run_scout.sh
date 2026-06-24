@@ -53,6 +53,15 @@ find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 \
 # [profile.release] overflow-checks-aware and reports 0 findings across all 7 contracts.
 scout_exclude="dos-unexpected-revert-with-storage"
 
+# When SCOUT_SOURCE_DIR is set (CI checks out the pinned Scout rev there), build the
+# driver (--scout-source) and load detectors (--local-detectors) from that local
+# checkout instead of fetching them over the network at run time. This is the path
+# verified end-to-end on all 7 contracts.
+scout_local_flags=()
+if [ -n "${SCOUT_SOURCE_DIR:-}" ]; then
+  scout_local_flags=(--scout-source "$SCOUT_SOURCE_DIR" --local-detectors "$SCOUT_SOURCE_DIR/nightly")
+fi
+
 incomplete=0
 for manifest in "${contracts[@]}"; do
   crate="$(basename "$(dirname "$manifest")")"
@@ -61,6 +70,7 @@ for manifest in "${contracts[@]}"; do
   echo "Running Scout on $manifest"
   if ! cargo scout-audit \
     --manifest-path "$work_dir/$manifest" \
+    "${scout_local_flags[@]}" \
     --debug \
     --exclude "$scout_exclude" \
     --output-format "$format" \

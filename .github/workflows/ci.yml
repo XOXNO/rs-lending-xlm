@@ -144,16 +144,18 @@ jobs:
         run: rustup toolchain install nightly-2026-05-28 --component rustc-dev --component llvm-tools-preview --component rust-src --target wasm32v1-none
 
       - name: Install Scout
-        # SECURITY: reinstall the pinned rev every run rather than trusting a
-        # cached binary — PR code shares this runner and could plant a fake
-        # cargo-scout-audit. `cargo install` from the pinned rev overwrites it
-        # with the trusted build, so a detector can't be silently bypassed.
+        # SECURITY: check out + build the pinned rev fresh every run rather than
+        # trusting a cached binary — PR code shares this runner and could plant a
+        # fake cargo-scout-audit. The same checkout supplies the driver
+        # (--scout-source) and detectors (--local-detectors) at run time, so Scout
+        # never fetches code over the network during analysis.
         run: |
-          cargo install \
-            --git https://github.com/mihaieremia/scout-audit.git \
-            --rev 19e5e02bda65662c6ee5d2b3e26c272fe510e691 \
-            cargo-scout-audit \
-            --locked
+          SCOUT_DIR="$RUNNER_TEMP/scout-audit"
+          rm -rf "$SCOUT_DIR"
+          git clone https://github.com/mihaieremia/scout-audit.git "$SCOUT_DIR"
+          git -C "$SCOUT_DIR" checkout 19e5e02bda65662c6ee5d2b3e26c272fe510e691
+          cargo install --path "$SCOUT_DIR/apps/cargo-scout-audit/crates/cargo-scout-audit" --locked
+          echo "SCOUT_SOURCE_DIR=$SCOUT_DIR" >> "$GITHUB_ENV"
 
       - name: Run Scout
         run: make scout
