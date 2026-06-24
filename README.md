@@ -161,6 +161,22 @@ cargo check -p controller --features certora --no-default-features
 Mainnet launch uses the stronger acceptance matrix in
 [SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md#16-verification-surface).
 
+### Static analysis (Scout)
+
+[Scout](https://github.com/mihaieremia/scout-audit) runs on every PR, gates on
+Critical findings, and publishes a report to the run's job summary.
+
+Run the same analysis locally:
+
+```bash
+scripts/scout-local.sh                       # all contracts
+scripts/scout-local.sh contracts/controller  # one contract
+```
+
+For inline results in VS Code, install the **SARIF Viewer** extension
+(`ms-sarifvscode.sarif-viewer`) and open `target/scout-audit/scout.sarif`, or run
+the bundled task (Run Task → "Scout: scan …").
+
 ## Deployment and Operations
 
 Deployment is Makefile-driven and requires the Stellar CLI, configured network

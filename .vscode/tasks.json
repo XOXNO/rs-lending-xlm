@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Scout: scan all contracts (SARIF)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/scout-local.sh",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "group": "build"
+    },
+    {
+      "label": "Scout: scan current contract (SARIF)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/scout-local.sh",
+      "args": ["contracts/${input:scoutContract}"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "group": "build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "scoutContract",
+      "type": "pickString",
+      "description": "Contract to scan with Scout",
+      "options": [
+        "pool",
+        "controller",
+        "governance",
+        "defindex-strategy",
+        "flash-loan-receiver",
+        "mock-oracle",
+        "mock-redstone"
+      ],
+      "default": "controller"
+    }
+  ]
+}
