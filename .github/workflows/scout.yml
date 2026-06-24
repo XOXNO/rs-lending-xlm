@@ -25,15 +25,15 @@ jobs:
           git clean -ffdx -e target
 
       - name: Run Scout
-        # Pinned to an immutable Scout commit (NOT the moving v1 tag): this self-hosted
-        # runner caches action checkouts under _work/_actions, so a moved tag can serve a
-        # stale build — a SHA forces a fresh fetch and is the right posture for a runner
-        # shared with PR code. The action installs the detector toolchain, builds the driver
-        # + detectors from its own pinned checkout (no network fetch at analysis time), and
-        # uploads the reports automatically as the 'scout-audit-reports' artifact. Advisory:
-        # findings are written to reports, not gated; the step fails only if a contract does
-        # not analyze cleanly.
-        uses: mihaieremia/scout-audit@54aad15e7aaa34dcb2da445449501b652017c034
+        # Pinned to the immutable v1.1.0 release tag (NOT the moving v1 tag): self-hosted
+        # runners cache action checkouts under _work/_actions, so a moved tag can serve a
+        # stale build — an immutable release never goes stale and is the right posture for a
+        # runner shared with PR code. The action installs the detector toolchain, builds the
+        # driver + detectors from its own pinned checkout (no network fetch at analysis time),
+        # and uploads the reports automatically as the 'scout-audit-reports' artifact. Gates
+        # the PR on Critical findings (Medium/Minor/Enhancement stay advisory); the step also
+        # fails if a contract does not analyze cleanly.
+        uses: mihaieremia/scout-audit@v1.1.0
         with:
           contracts: |
             contracts/pool
@@ -41,6 +41,7 @@ jobs:
             contracts/governance
             contracts/defindex-strategy
           exclude: dos-unexpected-revert-with-storage
-          output-format: md
+          output-format: json
           output-dir: target/scout-audit
+          fail-on-severity: critical
           extra-args: "-- --locked"
