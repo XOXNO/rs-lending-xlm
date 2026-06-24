@@ -76,6 +76,18 @@ find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 \
   | xargs -0 perl -0pi -e 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/g'
 patch_soroban_sdk_macros
 
+# Detectors that are false positives by construction for this protocol, suppressed
+# via Scout's --exclude (comma-separated). Deliberately NOT a .scout-audit/config.yaml:
+# loading a config file makes Scout adopt the config's output_format and ignore
+# --output-format, which silently corrupts non-md output (SCOUT_OUTPUT_FORMAT=json would
+# write Markdown into .json files). --exclude suppresses without touching the format.
+#   - integer-overflow-or-underflow: [profile.release] sets overflow-checks = true +
+#     panic = abort, so every overflow traps -> reverts (non-exploitable).
+#   - dos-unexpected-revert-with-storage: supply/borrow/withdraw are intentionally
+#     permissionless with per-user-keyed storage; the "storage op without require_auth
+#     in this fn = DoS" model does not represent per-user keys / SAC-transfer auth.
+scout_exclude="integer-overflow-or-underflow,dos-unexpected-revert-with-storage"
+
 incomplete=0
 for manifest in "${contracts[@]}"; do
   crate="$(basename "$(dirname "$manifest")")"
@@ -85,6 +97,7 @@ for manifest in "${contracts[@]}"; do
   if ! cargo scout-audit \
     --manifest-path "$work_dir/$manifest" \
     --debug \
+    --exclude "$scout_exclude" \
     --output-format "$format" \
     --output-path "$out" \
     -- --locked > "$log" 2>&1; then
