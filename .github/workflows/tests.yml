@@ -1,0 +1,76 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main, feat/*, rc/*]
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+  workflow_dispatch:
+
+permissions:
+  # Least-privilege: checkout + local tool execution only.
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  STELLAR_VERSION: '27.0.0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: self-hosted
+    # sccache caches per-crate compilations under $HOME (persistent on the
+    # self-hosted runner), shared with the other self-hosted jobs and warming
+    # cold runners. CARGO_INCREMENTAL=0 is required for sccache to cache.
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_CACHE_SIZE: 20G
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Persistent self-hosted runners keep $HOME (cargo registry, git, and
+          # installed tool binaries) and the workspace between runs. Skip the
+          # default git clean so the Cargo build cache in target/ survives; the
+          # next step restores a clean source tree while preserving target/.
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          targets: wasm32v1-none
+          components: clippy, rustfmt
+
+      - name: Install stellar-cli
+        # Reuses the platform-aware idempotent helper. Version comes from the
+        # workflow env. stellar-cli is pinned independently of the soroban-sdk
+        # crate (`=26.1.0`): CLI 27.x builds those contracts fine and the wasm
+        # size budget is verified against it.
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install sccache (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Build deploy artifacts and WASM size budget
+        run: make wasm-size-check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (fuzz crate, workspace-excluded)
+        run: make clippy-fuzz

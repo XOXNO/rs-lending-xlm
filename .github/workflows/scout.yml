@@ -1,9 +1,11 @@
 name: Scout Audit
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    branches: [master, main, feat/*, rc/*]
+  pull_request:
+    branches: [master, main, feat/*, rc/*]
+  workflow_dispatch:
 
 concurrency:
   group: scout-${{ github.ref }}
