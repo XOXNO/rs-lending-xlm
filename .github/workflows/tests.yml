@@ -1,8 +1,6 @@
 name: Tests
 
 on:
-  push:
-    branches: [master, main, feat/*, rc/*]
   pull_request:
     branches: [master, main, feat/*, rc/*]
   workflow_dispatch:
