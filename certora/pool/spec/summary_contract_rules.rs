@@ -231,7 +231,6 @@ fn create_strategy_satisfies_controller_summary_contract(
         caller,
         action(before.clone(), amount, asset),
         fee,
-        i128::MAX,
     );
 
     cvlr_assert!(result.actual_amount == amount);

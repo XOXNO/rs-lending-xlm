@@ -21,6 +21,8 @@ fn valid_params(asset: Address) -> MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),
         max_borrow_rate: Ray::from(MAX_BORROW_RATE_RAY),
         reserve_factor: Bps::from(1_000),
+        supply_cap: 0,
+        borrow_cap: 0,
         asset_id: asset,
         asset_decimals: 7,
     }

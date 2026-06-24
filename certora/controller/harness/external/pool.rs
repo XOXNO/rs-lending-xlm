@@ -203,4 +203,13 @@ pub(crate) fn pool_update_params_call(
 ) {
 }
 
+pub(crate) fn pool_update_caps_call(
+    _env: &Env,
+    _pool_addr: &Address,
+    _asset: &Address,
+    _supply_cap: i128,
+    _borrow_cap: i128,
+) {
+}
+
 pub(crate) fn pool_upgrade_call(_env: &Env, _pool_addr: &Address, _new_wasm_hash: &BytesN<32>) {}

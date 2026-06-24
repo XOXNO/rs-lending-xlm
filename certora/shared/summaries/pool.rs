@@ -229,6 +229,10 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let asset_decimals: u32 = nondet();
     cvlr_assume!(asset_decimals <= 27);
     let asset_id: Address = asset.clone();
+    let supply_cap: i128 = nondet();
+    let borrow_cap: i128 = nondet();
+    cvlr_assume!(supply_cap >= 0);
+    cvlr_assume!(borrow_cap >= 0);
 
     PoolSyncData {
         params: MarketParamsRaw {
@@ -241,6 +245,8 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
             optimal_utilization_ray,
             max_utilization_ray,
             reserve_factor_bps,
+            supply_cap,
+            borrow_cap,
             asset_id,
             asset_decimals,
         },
