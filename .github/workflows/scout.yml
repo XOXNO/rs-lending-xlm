@@ -1,0 +1,46 @@
+name: Scout Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: scout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scout:
+    name: Scout Audit (advisory)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Persistent runner: preserve target/ across runs.
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      - name: Run Scout
+        # Pinned to an immutable Scout commit (NOT the moving v1 tag): this self-hosted
+        # runner caches action checkouts under _work/_actions, so a moved tag can serve a
+        # stale build — a SHA forces a fresh fetch and is the right posture for a runner
+        # shared with PR code. The action installs the detector toolchain, builds the driver
+        # + detectors from its own pinned checkout (no network fetch at analysis time), and
+        # uploads the reports automatically as the 'scout-audit-reports' artifact. Advisory:
+        # findings are written to reports, not gated; the step fails only if a contract does
+        # not analyze cleanly.
+        uses: mihaieremia/scout-audit@54aad15e7aaa34dcb2da445449501b652017c034
+        with:
+          contracts: |
+            contracts/pool
+            contracts/controller
+            contracts/governance
+            contracts/defindex-strategy
+          exclude: dos-unexpected-revert-with-storage
+          output-format: md
+          output-dir: target/scout-audit
+          extra-args: "-- --locked"
