@@ -37,3 +37,11 @@ jobs:
           output-dir: target/scout-audit
           fail-on-severity: critical
           extra-args: "-- --locked"
+
+      # Render the JSON reports as a Markdown summary on the run page. Runs even
+      # when the gate above fails (always()), so Critical findings are still
+      # visible. The action only uploads JSON + gates; this surfaces the report.
+      - name: Scout summary
+        if: always()
+        shell: bash
+        run: python3 scripts/scout-summary.py target/scout-audit >> "$GITHUB_STEP_SUMMARY"
