@@ -22,6 +22,8 @@ fn boundary_test_params(env: &Env) -> MarketParams {
         max_utilization: Ray::from(RAY * 95 / 100),
         max_borrow_rate: Ray::from(RAY),
         reserve_factor: Bps::from(1000),
+        supply_cap: 0,
+        borrow_cap: 0,
         asset_id: env.current_contract_address(),
         asset_decimals: 7,
     }

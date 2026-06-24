@@ -55,6 +55,8 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
         max_utilization: Ray::from(max_utilization_ray),
         max_borrow_rate: Ray::from(max_borrow_rate_ray),
         reserve_factor: common::math::fp::Bps::from(i128::from(reserve_factor_bps)),
+        supply_cap: 0,
+        borrow_cap: 0,
         asset_id,
         asset_decimals,
     }
