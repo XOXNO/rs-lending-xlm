@@ -28,9 +28,9 @@ stellar-macros = "=0.7.2"
 # Certora formal verification (only compiled with `certora` feature).
 # Certora dependencies compile with the local patches below.
 cvlr = { git = "https://github.com/Certora/cvlr.git", default-features = false }
-cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
-cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
-cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "d2d516a5b27d1926608aa2ce06544dc81c09b435" }
+cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
+cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
+cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 
 
 # Vendored cvlr adds #![no_std] to cvlr-spec.
@@ -46,11 +46,6 @@ cvlr-derive = { path = "vendor/cvlr/cvlr-derive" }
 cvlr-fixed = { path = "vendor/cvlr/cvlr-fixed" }
 cvlr-macros = { path = "vendor/cvlr/cvlr-macros" }
 cvlr-spec = { path = "vendor/cvlr/cvlr-spec" }
-
-[patch."https://github.com/Certora/cvlr-soroban.git"]
-cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
-cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }
-cvlr-soroban-derive = { path = "vendor/cvlr-soroban/cvlr-soroban-derive" }
 
 [profile.release]
 opt-level = "z"
