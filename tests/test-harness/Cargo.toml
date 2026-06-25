@@ -5,6 +5,10 @@ edition = "2021"
 
 [lib]
 crate-type = ["rlib"]
+# Test-helper crate: no runnable doctests (the only doc example is `ignore`d).
+# Disable the rustdoc doc-compile pass, which transitively pulls the Soroban
+# contract dep graph and is fragile to incremental-metadata churn.
+doctest = false
 
 [features]
 default = ["reference-math"]

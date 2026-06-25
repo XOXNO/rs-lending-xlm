@@ -2,6 +2,10 @@
 name = "governance"
 version = "0.1.0"
 edition = "2021"
+# Test sources live in tests/ but compile as crate-internal unit modules via
+# #[path] redirects (they require private access). Disable integration-target
+# auto-discovery so Cargo does not also build tests/*.rs as standalone crates.
+autotests = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

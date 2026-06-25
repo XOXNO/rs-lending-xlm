@@ -19,7 +19,8 @@
       "1": 1,
       "2": 2
     },
-    "pool": "CC264UKRU34OHGCPC2DJF7JD4S2MYE5TQBYE4H76R4XH3YG5ZLTKSKS6"
+    "pool": "CC264UKRU34OHGCPC2DJF7JD4S2MYE5TQBYE4H76R4XH3YG5ZLTKSKS6",
+    "governance_wasm_hash": "1d6d1f6b503ebaae76a5e2123fb1acbfd34836c643815892eeb077c2b3fc02ce"
   },
   "mainnet": {
     "rpc_url": "https://soroban-rpc.mainnet.stellar.gateway.fm",
