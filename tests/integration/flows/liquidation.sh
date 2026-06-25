@@ -138,11 +138,9 @@ flow_liq_emode() {
         emode_id=$(inv emode_add_category "$ADMIN" "$CONTROLLER" -- add_e_mode_category | tr -d '"')
         save_state EMODE_ID "$emode_id"
         inv emode_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-            --asset "$SAC_LIQE" --category_id "$emode_id" --can_collateral true --can_borrow false \
-            --ltv 9500 --threshold 9700 --bonus 200 >/dev/null
+            --input "$(emode_args "$SAC_LIQE" "$emode_id" true false 9500 9700 200)" >/dev/null
         inv emode_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-            --asset "$SAC_LIQF" --category_id "$emode_id" --can_collateral false --can_borrow true \
-            --ltv 9500 --threshold 9700 --bonus 200 >/dev/null
+            --input "$(emode_args "$SAC_LIQF" "$emode_id" false true 9500 9700 200)" >/dev/null
     fi
     view emode_view "$CONTROLLER" -- get_e_mode_category --category_id "$EMODE_ID" >/dev/null
 

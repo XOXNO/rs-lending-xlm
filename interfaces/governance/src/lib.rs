@@ -18,19 +18,11 @@ pub use stellar_governance::timelock::OperationState;
 
 pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
 
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct EModeAssetArgs {
-    pub asset: Address,
-    pub category_id: u32,
-    pub can_collateral: bool,
-    pub can_borrow: bool,
-    pub ltv: u32,
-    pub threshold: u32,
-    pub bonus: u32,
-    pub supply_cap: i128,
-    pub borrow_cap: i128,
-}
+/// E-mode asset input forwarded verbatim to the controller's
+/// `add_asset_to_e_mode_category` / `edit_asset_in_e_mode_category` entrypoints.
+/// Defined in `controller-interface` (the call's owner) and re-exported here so
+/// `AdminOperation` keeps a single source of truth.
+pub use controller_interface::types::EModeAssetArgs;
 
 #[contracttype]
 #[derive(Clone, Debug)]

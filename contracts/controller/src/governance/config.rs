@@ -11,8 +11,9 @@ use crate::events::{
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    AssetConfigRaw, EModeAssetConfig, EModeCategoryRaw, EModeSpokeUsageRaw, MarketOracleConfig,
-    MarketStatus, OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase,
+    AssetConfigRaw, EModeAssetArgs, EModeAssetConfig, EModeCategoryRaw, EModeSpokeUsageRaw,
+    MarketOracleConfig, MarketStatus, OraclePriceFluctuation, OracleSourceConfig, PositionLimits,
+    ReflectorBase,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
@@ -82,58 +83,36 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn add_asset_to_e_mode_category(
-        env: Env,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        supply_cap: i128,
-        borrow_cap: i128,
-    ) {
+    pub fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs) {
         storage::renew_controller_instance(&env);
         add_asset_to_e_mode_category(
             &env,
-            asset,
-            category_id,
-            can_collateral,
-            can_borrow,
-            ltv,
-            threshold,
-            bonus,
-            supply_cap,
-            borrow_cap,
+            input.asset,
+            input.category_id,
+            input.can_collateral,
+            input.can_borrow,
+            input.ltv,
+            input.threshold,
+            input.bonus,
+            input.supply_cap,
+            input.borrow_cap,
         );
     }
 
     #[only_owner]
-    pub fn edit_asset_in_e_mode_category(
-        env: Env,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        supply_cap: i128,
-        borrow_cap: i128,
-    ) {
+    pub fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs) {
         storage::renew_controller_instance(&env);
         edit_asset_in_e_mode_category(
             &env,
-            asset,
-            category_id,
-            can_collateral,
-            can_borrow,
-            ltv,
-            threshold,
-            bonus,
-            supply_cap,
-            borrow_cap,
+            input.asset,
+            input.category_id,
+            input.can_collateral,
+            input.can_borrow,
+            input.ltv,
+            input.threshold,
+            input.bonus,
+            input.supply_cap,
+            input.borrow_cap,
         );
     }
 
