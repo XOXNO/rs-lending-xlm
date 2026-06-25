@@ -336,8 +336,10 @@ scval_asset_config() {
         ]}'
 }
 
-# EModeAssetArgs ScVal map (sorted keys). Mirrors the Rust struct in
-# governance_interface; supply_cap / borrow_cap are i128 decimal strings.
+# EModeAssetArgs ScVal map (sorted keys), used for the REPLAY args_json only.
+# On current main resolve_op schedules a single EModeAssetArgs struct, so the
+# stored replay args are `[<this map>]`. supply_cap / borrow_cap are i128
+# decimal strings. (The propose `--op` payload uses the friendly form below.)
 scval_emode_args() {
     local asset=$1 cat=$2 cc=$3 cb=$4 ltv=$5 thr=$6 bonus=$7 sc=$8 bc=$9
     jq -nc \
@@ -357,96 +359,42 @@ scval_emode_args() {
         ]}'
 }
 
-# PoolCapsArgs ScVal map (sorted keys): asset, supply_cap, borrow_cap.
-scval_pool_caps_args() {
-    local asset=$1 sc=$2 bc=$3
-    jq -nc --arg asset "$asset" --arg sc "$sc" --arg bc "$bc" \
-        '{map:[
-            {key:{symbol:"asset"},val:{address:$asset}},
-            {key:{symbol:"borrow_cap"},val:{i128:$bc}},
-            {key:{symbol:"supply_cap"},val:{i128:$sc}}
-        ]}'
+# Friendly EModeAssetArgs object for the propose `--op` payload (plain JSON, Rust
+# field names). Address is a bare strkey; i128 caps are decimal strings.
+friendly_emode_args() {
+    local asset=$1 cat=$2 cc=$3 cb=$4 ltv=$5 thr=$6 bonus=$7 sc=$8 bc=$9
+    jq -nc \
+        --arg asset "$asset" --argjson cat "$cat" --argjson cc "$cc" --argjson cb "$cb" \
+        --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" \
+        --arg sc "$sc" --arg bc "$bc" \
+        '{asset:$asset, category_id:$cat, can_collateral:$cc, can_borrow:$cb,
+          ltv:$ltv, threshold:$thr, bonus:$bonus, supply_cap:$sc, borrow_cap:$bc}'
 }
 
-# RemoveAssetFromEModeArgs ScVal map (sorted keys): asset, category_id.
-scval_remove_emode_args() {
-    local asset=$1 cat=$2
-    jq -nc --arg asset "$asset" --argjson cat "$cat" \
-        '{map:[
-            {key:{symbol:"asset"},val:{address:$asset}},
-            {key:{symbol:"category_id"},val:{u32:$cat}}
-        ]}'
-}
-
-# RoleArgs ScVal map (sorted keys): account(address), role(symbol).
-scval_role_args() {
-    local account=$1 role=$2
-    jq -nc --arg account "$account" --arg role "$role" \
-        '{map:[
-            {key:{symbol:"account"},val:{address:$account}},
-            {key:{symbol:"role"},val:{symbol:$role}}
-        ]}'
-}
-
-# TransferOwnershipArgs ScVal map (sorted keys): new_owner, live_until_ledger.
-scval_transfer_ownership_args() {
-    local owner=$1 live=$2
-    jq -nc --arg owner "$owner" --argjson live "$live" \
-        '{map:[
-            {key:{symbol:"live_until_ledger"},val:{u32:$live}},
-            {key:{symbol:"new_owner"},val:{address:$owner}}
-        ]}'
-}
-
-# CreatePoolArgs ScVal map (sorted keys): asset, params(MarketParamsRaw),
-# config(AssetConfigRaw). $2/$3 are already-built ScVal map JSON.
-scval_create_pool_args() {
-    local asset=$1 params=$2 config=$3
-    jq -nc --arg asset "$asset" --argjson params "$params" --argjson config "$config" \
-        '{map:[
-            {key:{symbol:"asset"},val:{address:$asset}},
-            {key:{symbol:"config"},val:$config},
-            {key:{symbol:"params"},val:$params}
-        ]}'
-}
-
-# UpgradePoolParamsArgs ScVal map (sorted keys): asset, params(InterestRateModel).
-# $2 is an already-built ScVal map JSON.
-scval_upgrade_pool_params_args() {
-    local asset=$1 params=$2
-    jq -nc --arg asset "$asset" --argjson params "$params" \
-        '{map:[
-            {key:{symbol:"asset"},val:{address:$asset}},
-            {key:{symbol:"params"},val:$params}
-        ]}'
-}
-
-# EditToleranceArgs ScVal map (sorted keys): asset, first_tolerance(u32),
-# last_tolerance(u32). The `--op` payload for EditOracleTolerance carries the
-# INPUT tolerances; the controller's RESOLVED OraclePriceFluctuation is replayed
-# at execute time via the oracle resolve block (resolve_oracle_op_args).
-scval_edit_tolerance_args() {
-    local asset=$1 first=$2 last=$3
-    jq -nc --arg asset "$asset" --argjson first "$first" --argjson last "$last" \
-        '{map:[
-            {key:{symbol:"asset"},val:{address:$asset}},
-            {key:{symbol:"first_tolerance"},val:{u32:$first}},
-            {key:{symbol:"last_tolerance"},val:{u32:$last}}
-        ]}'
-}
-
-# Build an AdminOperation enum ScVal: {vec:[{symbol:Variant}, ...payload]}.
-# At the XDR level a Soroban enum value is scvVec([scvSymbol(Variant), ...fields])
-# — a unit variant carries only the symbol, tuple/struct variants append their
-# ScVal-JSON payload elements in declaration order. Mirrors the sdk-js encoder
-# `adminOp(variant, ...payload) = scvVec([scvSymbol(variant), ...payload])`.
-# Callers pass the variant name then zero or more ScVal-JSON payload elements.
+# Build an AdminOperation enum value in stellar-cli FRIENDLY-JSON form. The
+# `propose`/`execute_self` `op` argument is a TYPED `AdminOperation` enum, so the
+# CLI expects friendly JSON (like the typed `--asset "{\"Stellar\":\"...\"}"`
+# enum arg in tests/integration/lib/oracle.sh), NOT the explicit `{vec:[...]}`
+# ScVal form (that form is only for untyped `Vec<Val>` args such as execute's
+# --args).
+#   - unit variant (0 fields)   -> the bare string "Variant"
+#   - single-field variant      -> {"Variant": <friendly-payload>}
+#   - multi-field TUPLE variant   -> {"Variant": [<field0>, <field1>, ...]}
+# Payloads are PLAIN friendly JSON (objects/strings/numbers), NOT scval forms:
+# Address fields are bare strkey strings, Symbols are bare strings, struct fields
+# carry the Rust struct field names, i128 values are decimal strings.
 admin_op() {
     local variant=$1
     shift
-    jq -nc --arg v "$variant" \
-        --argjson payload "$(jq -nc '$ARGS.positional' --jsonargs "$@" 2>/dev/null || echo '[]')" \
-        '{vec: ([{symbol:$v}] + $payload)}'
+    if [ "$#" -eq 0 ]; then
+        jq -nc --arg v "$variant" '$v'
+    elif [ "$#" -eq 1 ]; then
+        jq -nc --arg v "$variant" --argjson p "$1" '{($v): $p}'
+    else
+        jq -nc --arg v "$variant" \
+            --argjson fields "$(jq -nc '$ARGS.positional' --jsonargs "$@")" \
+            '{($v): $fields}'
+    fi
 }
 
 # Persist an op record so executeOp/cancelOp can replay it. args_json is the full
@@ -601,7 +549,7 @@ parse_op_id() {
 # Core scheduler: invoke the generic `propose(proposer, op, salt)` on governance
 # and record the controller op for replay through the generic `execute`.
 #   $1 controller_fn       controller thin-setter the op targets (for the record)
-#   $2 admin_op_json       AdminOperation ScVal ({vec:[{symbol:Variant},...]})
+#   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
 #   $3 args_json           ScVal Vec<Val> array (JSON) for replay (resolve_op args)
 #   $4 cli_executable      true|false (false ⇒ executeOp refuses; oracle ops)
 #   $5 salt_hex            deterministic salt (64 hex)
@@ -643,7 +591,7 @@ schedule_via_proposer() {
 # uses the same AdminOperation through `execute_self`, so the op record stores
 # the admin_op JSON itself.
 #   $1 execute_label       human label for the record/log (e.g. update_delay)
-#   $2 admin_op_json       AdminOperation ScVal ({vec:[{symbol:Variant},...]})
+#   $2 admin_op_json       AdminOperation friendly JSON ("Variant" | {"Variant":payload})
 #   $3 salt_hex            deterministic salt (64 hex)
 schedule_via_gov_self_proposer() {
     local execute_label=$1; shift
@@ -1142,22 +1090,20 @@ add_asset_to_emode() {
         exit 1
     fi
 
-    # add_asset_to_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus, supply_cap, borrow_cap).
+    # add_asset_to_e_mode_category(EModeAssetArgs). resolve_op schedules a single
+    # EModeAssetArgs struct, so the replay args_json is one struct element.
     local args_json
     args_json=$(jq -nc \
-        --arg asset "$asset_address" --argjson cat "$category_id" \
-        --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
-        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        --arg supply_cap "$supply_cap" --arg borrow_cap "$borrow_cap" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus},{i128:$supply_cap},{i128:$borrow_cap}]')
+        --argjson arg "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+        '[$arg]')
     local salt
     salt=$(gen_salt "add_asset_to_e_mode_category" "$args_json")
 
-    # The `--op` payload is the single EModeAssetArgs struct; the scheduled
-    # (replay) args stay the 9 flat ScVals `resolve_op` unpacks them into.
+    # The propose `--op` payload is the single EModeAssetArgs in friendly form.
     local admin_op_json
     admin_op_json=$(admin_op AddAssetToEModeCategory \
-        "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
+        "$(friendly_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
             "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
 
     local op_id
@@ -1194,22 +1140,20 @@ edit_asset_in_emode() {
 
     echo "Editing asset ${asset_name} in E-Mode category ${category_id}..." >&2
 
-    # edit_asset_in_e_mode_category(asset, category_id, can_collateral, can_borrow, ltv, threshold, bonus, supply_cap, borrow_cap).
+    # edit_asset_in_e_mode_category(EModeAssetArgs). resolve_op schedules a single
+    # EModeAssetArgs struct, so the replay args_json is one struct element.
     local args_json
     args_json=$(jq -nc \
-        --arg asset "$asset_address" --argjson cat "$category_id" \
-        --argjson cc "$can_collateral" --argjson cb "$can_borrow" \
-        --argjson ltv "$ltv" --argjson threshold "$threshold" --argjson bonus "$bonus" \
-        --arg supply_cap "$supply_cap" --arg borrow_cap "$borrow_cap" \
-        '[{address:$asset},{u32:$cat},{bool:$cc},{bool:$cb},{u32:$ltv},{u32:$threshold},{u32:$bonus},{i128:$supply_cap},{i128:$borrow_cap}]')
+        --argjson arg "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" \
+            "$can_borrow" "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")" \
+        '[$arg]')
     local salt
     salt=$(gen_salt "edit_asset_in_e_mode_category" "$args_json")
 
-    # The `--op` payload is the single EModeAssetArgs struct; the scheduled
-    # (replay) args stay the 9 flat ScVals `resolve_op` unpacks them into.
+    # The propose `--op` payload is the single EModeAssetArgs in friendly form.
     local admin_op_json
     admin_op_json=$(admin_op EditAssetInEModeCategory \
-        "$(scval_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
+        "$(friendly_emode_args "$asset_address" "$category_id" "$can_collateral" "$can_borrow" \
             "$ltv" "$threshold" "$bonus" "$supply_cap" "$borrow_cap")")
 
     local op_id
@@ -1368,7 +1312,7 @@ create_market() {
     approve_salt=$(gen_salt "approve_token" "$approve_args")
     local approve_op
     approve_op=$(schedule_via_proposer \
-        approve_token "$(admin_op ApproveToken "$(scval_address "$asset_address")")" \
+        approve_token "$(admin_op ApproveToken "$(jq -nc --arg a "$asset_address" '$a')")" \
         "$approve_args" true "$approve_salt")
     schedule_and_maybe_execute "$approve_op"
 
@@ -1387,10 +1331,13 @@ create_market() {
     local salt
     salt=$(gen_salt "create_liquidity_pool" "$args_json")
 
-    # The `--op` payload wraps the same asset/params/config in CreatePoolArgs.
+    # The propose `--op` payload wraps asset + the friendly params/config objects
+    # (loaded from the markets file, Rust field names) in CreatePoolArgs.
     local admin_op_json
     admin_op_json=$(admin_op CreateLiquidityPool \
-        "$(scval_create_pool_args "$asset_address" "$params_scval" "$config_scval")")
+        "$(jq -nc --arg asset "$asset_address" --argjson params "$params" \
+            --argjson config "$pending_config" \
+            '{asset:$asset, params:$params, config:$config}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1419,20 +1366,22 @@ edit_asset_config() {
          .e_mode_categories = []" \
         "$MARKET_CONFIG_FILE")
 
-    # edit_asset_config(asset, AssetConfigRaw) — Address + field-map struct.
-    local cfg_scval
-    cfg_scval=$(scval_asset_config "$config")
+    # edit_asset_config(asset, AssetConfigRaw) — Address + field-map struct. The
+    # replay args_json stays explicit ScVal (Address + AssetConfigRaw scval map).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" \
-        --argjson cfg "$cfg_scval" \
+        --argjson cfg "$(scval_asset_config "$config")" \
         '[{address:$asset}, $cfg]')
     local salt
     salt=$(gen_salt "edit_asset_config" "$args_json")
 
-    # EditAssetConfig(Address, AssetConfigRaw) — two ScVal payload elements.
+    # EditAssetConfig(Address, AssetConfigRaw) is a TUPLE variant -> friendly form
+    # {"EditAssetConfig": [<address>, <friendly config>]} (fields in declaration
+    # order). TESTNET-CONFIRM: the multi-field-tuple enum friendly shape.
     local admin_op_json
-    admin_op_json=$(admin_op EditAssetConfig "$(scval_address "$asset_address")" "$cfg_scval")
+    admin_op_json=$(admin_op EditAssetConfig \
+        "$(jq -nc --arg a "$asset_address" '$a')" "$config")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1461,20 +1410,33 @@ update_market_params() {
         "$MARKET_CONFIG_FILE")
 
     # upgrade_liquidity_pool_params(asset, InterestRateModel) — Address + struct.
-    local params_scval
-    params_scval=$(scval_interest_rate_model "$params")
+    # The replay args_json stays explicit ScVal (Address + InterestRateModel map).
     local args_json
     args_json=$(jq -nc \
         --arg asset "$asset_address" \
-        --argjson params "$params_scval" \
+        --argjson params "$(scval_interest_rate_model "$params")" \
         '[{address:$asset}, $params]')
     local salt
     salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
 
-    # The `--op` payload wraps asset + InterestRateModel in UpgradePoolParamsArgs.
+    # The propose `--op` payload wraps asset + the friendly InterestRateModel (the
+    # 9 IRM fields only) in UpgradePoolParamsArgs.
+    local irm_friendly
+    irm_friendly=$(jq -nc --argjson p "$params" '{
+        base_borrow_rate_ray: ($p.base_borrow_rate_ray|tostring),
+        max_borrow_rate_ray: ($p.max_borrow_rate_ray|tostring),
+        max_utilization_ray: ($p.max_utilization_ray|tostring),
+        mid_utilization_ray: ($p.mid_utilization_ray|tostring),
+        optimal_utilization_ray: ($p.optimal_utilization_ray|tostring),
+        reserve_factor_bps: $p.reserve_factor_bps,
+        slope1_ray: ($p.slope1_ray|tostring),
+        slope2_ray: ($p.slope2_ray|tostring),
+        slope3_ray: ($p.slope3_ray|tostring)
+    }')
     local admin_op_json
     admin_op_json=$(admin_op UpgradeLiquidityPoolParams \
-        "$(scval_upgrade_pool_params_args "$asset_address" "$params_scval")")
+        "$(jq -nc --arg asset "$asset_address" --argjson params "$irm_friendly" \
+            '{asset:$asset, params:$params}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1512,10 +1474,12 @@ update_pool_caps() {
     local salt
     salt=$(gen_salt "update_pool_caps" "$args_json")
 
-    # The `--op` payload wraps the three values in PoolCapsArgs.
+    # The propose `--op` payload wraps the three values in friendly PoolCapsArgs
+    # (caps as i128 decimal strings).
     local admin_op_json
     admin_op_json=$(admin_op UpdatePoolCaps \
-        "$(scval_pool_caps_args "$asset_address" "$supply_cap" "$borrow_cap")")
+        "$(jq -nc --arg asset "$asset_address" --arg sc "$supply_cap" --arg bc "$borrow_cap" \
+            '{asset:$asset, supply_cap:$sc, borrow_cap:$bc}')")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1635,7 +1599,7 @@ approve_blend_pool() {
 
     local op_id
     op_id=$(schedule_via_proposer \
-        approve_blend_pool "$(admin_op ApproveBlendPool "$(scval_address "$pool")")" \
+        approve_blend_pool "$(admin_op ApproveBlendPool "$(jq -nc --arg a "$pool" '$a')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
@@ -1680,7 +1644,7 @@ set_aggregator() {
 
     local op_id
     op_id=$(schedule_via_proposer \
-        set_aggregator "$(admin_op SetAggregator "$(scval_address "$router")")" \
+        set_aggregator "$(admin_op SetAggregator "$(jq -nc --arg a "$router" '$a')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
@@ -1707,7 +1671,7 @@ set_accumulator() {
 
     local op_id
     op_id=$(schedule_via_proposer \
-        set_accumulator "$(admin_op SetAccumulator "$(scval_address "$accumulator")")" \
+        set_accumulator "$(admin_op SetAccumulator "$(jq -nc --arg a "$accumulator" '$a')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
 
@@ -1921,13 +1885,14 @@ edit_oracle_tolerance() {
     local salt
     salt=$(gen_salt "set_oracle_tolerance" "$salt_input")
 
-    # EditOracleTolerance wraps EditToleranceArgs { asset, first_tolerance(u32),
-    # last_tolerance(u32) } — fully explicit ScVal. The `--op` payload carries the
+    # EditOracleTolerance wraps friendly EditToleranceArgs { asset,
+    # first_tolerance(u32), last_tolerance(u32) }. The `--op` payload carries the
     # INPUT tolerances; the controller's RESOLVED OraclePriceFluctuation is
     # re-derived at execute time via the resolve_oracle_tolerance block below.
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
-        "$(scval_edit_tolerance_args "$asset_address" "$first" "$last")")
+        "$(jq -nc --arg asset "$asset_address" --argjson f "$first" --argjson l "$last" \
+            '{asset:$asset, first_tolerance:$f, last_tolerance:$l}')")
     local op_file
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
@@ -2014,7 +1979,7 @@ schedule_set_pool_template() {
     local op_id
     op_id=$(schedule_via_proposer \
         set_liquidity_pool_template \
-        "$(admin_op SetLiquidityPoolTemplate "$(scval_bytes "$hash")")" \
+        "$(admin_op SetLiquidityPoolTemplate "$(jq -nc --arg h "$hash" '$h')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Pool template set scheduled (hash ${hash})."
@@ -2033,7 +1998,7 @@ schedule_upgrade_controller() {
     salt=$(gen_salt "upgrade" "$args_json")
     local op_id
     op_id=$(schedule_via_proposer \
-        upgrade "$(admin_op UpgradeController "$(scval_bytes "$hash")")" \
+        upgrade "$(admin_op UpgradeController "$(jq -nc --arg h "$hash" '$h')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Controller upgrade scheduled (hash ${hash})."
@@ -2049,7 +2014,7 @@ schedule_upgrade_governance() {
     salt=$(gen_salt "governance_upgrade" "$(jq -nc --arg h "$hash" '{hash:$h}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        upgrade_gov "$(admin_op UpgradeGov "$(scval_bytes "$hash")")" "$salt")
+        upgrade_gov "$(admin_op UpgradeGov "$(jq -nc --arg h "$hash" '$h')")" "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Governance upgrade scheduled (hash ${hash})."
 }
@@ -2064,7 +2029,7 @@ schedule_update_delay() {
     salt=$(gen_salt "update_delay" "$(jq -nc --argjson d "$new_delay" '{delay:$d}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        update_gov_delay "$(admin_op UpdateGovDelay "$(scval_u32 "$new_delay")")" "$salt")
+        update_gov_delay "$(admin_op UpdateGovDelay "$(jq -nc --argjson d "$new_delay" '$d')")" "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Governance min-delay update scheduled (${new_delay} ledgers)."
 }
@@ -2081,7 +2046,8 @@ schedule_transfer_gov_ownership() {
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
         transfer_gov_ownership \
-        "$(admin_op TransferGovOwnership "$(scval_transfer_ownership_args "$new_owner" "$live_until")")" \
+        "$(admin_op TransferGovOwnership "$(jq -nc --arg o "$new_owner" --argjson l "$live_until" \
+            '{new_owner:$o, live_until_ledger:$l}')")" \
         "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Governance ownership transfer scheduled to ${new_owner}."
@@ -2126,7 +2092,7 @@ schedule_upgrade_pool() {
     salt=$(gen_salt "upgrade_pool" "$args_json")
     local op_id
     op_id=$(schedule_via_proposer \
-        upgrade_pool "$(admin_op UpgradePool "$(scval_bytes "$hash")")" \
+        upgrade_pool "$(admin_op UpgradePool "$(jq -nc --arg h "$hash" '$h')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Pool upgrade scheduled (hash ${hash})."
@@ -2162,7 +2128,7 @@ disable_token_oracle_cmd() {
     salt=$(gen_salt "disable_token_oracle" "$args_json")
     local op_id
     op_id=$(schedule_via_proposer \
-        disable_token_oracle "$(admin_op DisableTokenOracle "$(scval_address "$asset")")" \
+        disable_token_oracle "$(admin_op DisableTokenOracle "$(jq -nc --arg a "$asset" '$a')")" \
         "$args_json" true "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "disable_token_oracle scheduled for ${asset}."
@@ -2188,7 +2154,9 @@ grant_gov_role_cmd() {
     salt=$(gen_salt "grant_governance_role" "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a,role:$r}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        grant_gov_role "$(admin_op GrantGovRole "$(scval_role_args "$account" "$role")")" "$salt")
+        grant_gov_role \
+        "$(admin_op GrantGovRole "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a, role:$r}')")" \
+        "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Governance role ${role} grant scheduled for ${account}."
 }
@@ -2201,7 +2169,9 @@ revoke_gov_role_cmd() {
     salt=$(gen_salt "revoke_governance_role" "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a,role:$r}')")
     local op_id
     op_id=$(schedule_via_gov_self_proposer \
-        revoke_gov_role "$(admin_op RevokeGovRole "$(scval_role_args "$account" "$role")")" "$salt")
+        revoke_gov_role \
+        "$(admin_op RevokeGovRole "$(jq -nc --arg a "$account" --arg r "$role" '{account:$a, role:$r}')")" \
+        "$salt")
     schedule_and_maybe_execute "$op_id"
     echo "Governance role ${role} revoke scheduled for ${account}."
 }
