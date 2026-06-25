@@ -1,7 +1,7 @@
 //! Ownership, governance roles, and self-admin apply helpers.
 //!
 //! Governance-self mutations (`upgrade`, delay changes, role grants/revokes,
-//! ownership transfer initiation) are timelocked in `self_timelock.rs`.
+//! ownership transfer initiation) are timelocked in `timelock.rs`.
 //! This module holds the constructor, `accept_ownership`, shared apply
 //! helpers, and the role allowlist.
 
