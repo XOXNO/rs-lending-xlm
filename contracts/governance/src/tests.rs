@@ -10,6 +10,7 @@ use controller_interface::types::{
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
+use crate::op::{AdminOperation, RoleArgs, ConfigureOracleArgs, EditToleranceArgs};
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
@@ -83,7 +84,7 @@ fn deploy_controller_stores_address_and_governance_owns_it() {
     env.cost_estimate().budget().reset_unlimited();
     env.cost_estimate().disable_resource_limits();
     env.mock_all_auths();
-    let (_, gov_id, gov) = register_governance(&env);
+    let (admin, gov_id, gov) = register_governance(&env);
 
     let wasm_hash = upload_controller_wasm(&env);
     let controller_id = gov.deploy_controller(&wasm_hash);
@@ -94,10 +95,10 @@ fn deploy_controller_stores_address_and_governance_owns_it() {
     });
 
     // Owner-gated forwarding reaches the deployed controller's storage.
-    gov.set_position_limits(&PositionLimits {
+    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
         max_supply_positions: 5,
         max_borrow_positions: 4,
-    });
+    }));
     let stored = read_controller_position_limits(&env, &controller_id);
     assert_eq!(stored.max_supply_positions, 5);
     assert_eq!(stored.max_borrow_positions, 4);
@@ -129,28 +130,28 @@ fn controller_view_panics_when_unset() {
 // controller lookup.
 #[test]
 #[should_panic(expected = "Error(Contract, #36)")]
-fn set_position_limits_rejects_zero_before_any_cross_call() {
+fn validation_runs_before_controller_lookup() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, gov) = register_governance(&env);
+    let (admin, _, gov) = register_governance(&env);
 
-    gov.set_position_limits(&PositionLimits {
+    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
         max_supply_positions: 0,
         max_borrow_positions: 5,
-    });
+    }));
 }
 
 #[test]
 fn set_position_limits_forwards_to_native_controller() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, gov_id, gov) = register_governance(&env);
+    let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
-    gov.set_position_limits(&PositionLimits {
+    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
         max_supply_positions: 3,
         max_borrow_positions: 2,
-    });
+    }));
 
     let stored = read_controller_position_limits(&env, &controller_id);
     assert_eq!(stored.max_supply_positions, 3);
@@ -172,16 +173,17 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
         max_supply_positions: 7,
         max_borrow_positions: 6,
     };
+    let op = AdminOperation::SetPositionLimits(limits);
     env.mock_auths(&[MockAuth {
         address: &admin,
         invoke: &MockAuthInvoke {
             contract: &gov_id,
-            fn_name: "set_position_limits",
-            args: (limits.clone(),).into_val(&env),
+            fn_name: "execute_immediate",
+            args: soroban_sdk::vec![&env, admin.clone().into_val(&env), op.clone().into_val(&env)],
             sub_invokes: &[],
         },
     }]);
-    gov.set_position_limits(&limits);
+    gov.execute_immediate(&admin, &op);
 
     let stored = read_controller_position_limits(&env, &controller_id);
     assert_eq!(stored.max_supply_positions, 7);
@@ -190,14 +192,17 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #2000)")]
-fn configure_market_oracle_requires_governance_oracle_role() {
+fn configure_market_oracle_requires_oracle_role() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, gov) = register_governance(&env);
+    let (_admin, _, gov) = register_governance(&env);
     let stranger = Address::generate(&env);
     let asset = Address::generate(&env);
 
-    gov.configure_market_oracle(&stranger, &asset, &sample_oracle_input(&env));
+    gov.execute_immediate(&stranger, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+        asset,
+        cfg: sample_oracle_input(&env),
+    }));
 }
 
 // With no controller set, BadFirstTolerance confirms tolerance validation runs
@@ -210,7 +215,11 @@ fn edit_oracle_tolerance_validates_before_any_cross_call() {
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    gov.edit_oracle_tolerance(&admin, &asset, &0, &200);
+    gov.execute_immediate(&admin, &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+        asset,
+        first_tolerance: 0,
+        last_tolerance: 200,
+    }));
 }
 
 #[test]
@@ -218,20 +227,20 @@ fn edit_oracle_tolerance_validates_before_any_cross_call() {
 fn set_aggregator_rejects_non_contract_address() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, gov) = register_governance(&env);
+    let (admin, _, gov) = register_governance(&env);
 
-    gov.set_aggregator(&Address::generate(&env));
+    gov.execute_immediate(&admin, &AdminOperation::SetAggregator(Address::generate(&env)));
 }
 
 #[test]
 fn set_accumulator_accepts_wallet_address() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, gov_id, gov) = register_governance(&env);
+    let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
     let treasury = Address::generate(&env);
 
-    gov.set_accumulator(&treasury);
+    gov.execute_immediate(&admin, &AdminOperation::SetAccumulator(treasury.clone()));
 
     let stored: Address = env.as_contract(&controller_id, || {
         env.storage()
@@ -247,9 +256,9 @@ fn set_accumulator_accepts_wallet_address() {
 fn set_liquidity_pool_template_rejects_zero_hash() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, gov) = register_governance(&env);
+    let (admin, _, gov) = register_governance(&env);
 
-    gov.set_liquidity_pool_template(&BytesN::from_array(&env, &[0u8; 32]));
+    gov.execute_immediate(&admin, &AdminOperation::SetLiquidityPoolTemplate(BytesN::from_array(&env, &[0u8; 32])));
 }
 
 #[test]
@@ -270,7 +279,7 @@ fn propose_upgrade_pool_rejects_zero_hash() {
     let (admin, _, gov) = register_governance(&env);
     let salt = BytesN::from_array(&env, &[0u8; 32]);
 
-    gov.propose_upgrade_pool(&admin, &BytesN::from_array(&env, &[0u8; 32]), &salt);
+    gov.propose(&admin, &AdminOperation::UpgradePool(BytesN::from_array(&env, &[0u8; 32])), &salt);
 }
 
 #[test]
@@ -281,7 +290,7 @@ fn propose_upgrade_controller_rejects_zero_hash() {
     let (admin, _, gov) = register_governance(&env);
     let salt = BytesN::from_array(&env, &[0u8; 32]);
 
-    gov.propose_upgrade_controller(&admin, &BytesN::from_array(&env, &[0u8; 32]), &salt);
+    gov.propose(&admin, &AdminOperation::UpgradeController(BytesN::from_array(&env, &[0u8; 32])), &salt);
 }
 
 #[test]
@@ -289,7 +298,7 @@ fn propose_upgrade_controller_rejects_zero_hash() {
 fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, gov) = register_governance(&env);
+    let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
     let cfg = controller_interface::types::AssetConfigRaw {
@@ -306,7 +315,7 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
         asset_decimals: 7,
         e_mode_categories: soroban_sdk::Vec::new(&env),
     };
-    gov.edit_asset_config(&asset, &cfg);
+    gov.execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.
@@ -321,11 +330,25 @@ fn entrypoint_renews_governance_instance_ttl() {
     let role = Symbol::new(&env, EXECUTOR_ROLE);
     let salt = BytesN::<32>::from_array(&env, &[0u8; 32]);
     let grantee = Address::generate(&env);
-    gov.propose_grant_governance_role(&admin, &grantee, &role, &salt);
+    gov.propose(
+        &admin,
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: grantee.clone(),
+            role: role.clone(),
+        }),
+        &salt,
+    );
     env.ledger().with_mut(|l| {
         l.sequence_number += constants::TIMELOCK_MIN_DELAY_LEDGERS;
     });
-    gov.execute_grant_governance_role(&Some(admin.clone()), &grantee, &role, &salt);
+    gov.execute_self(
+        &Some(admin.clone()),
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: grantee.clone(),
+            role: role.clone(),
+        }),
+        &salt,
+    );
 
     let renewed_ttl = env.as_contract(&gov_id, || env.storage().instance().get_ttl());
     assert!(

@@ -976,6 +976,7 @@ dependencies = [
  "common",
  "controller",
  "controller-interface",
+ "governance-interface",
  "soroban-sdk",
  "stellar-access",
  "stellar-contract-utils",

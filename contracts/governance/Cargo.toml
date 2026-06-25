@@ -14,6 +14,7 @@ stellar-governance = { workspace = true }
 stellar-macros = { workspace = true }
 common = { path = "../../common" }
 controller-interface = { path = "../../interfaces/controller" }
+governance-interface = { path = "../../interfaces/governance" }
 
 [features]
 testing = []

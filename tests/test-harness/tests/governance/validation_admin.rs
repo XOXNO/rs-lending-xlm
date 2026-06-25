@@ -8,6 +8,7 @@ use controller::types::{
 };
 use soroban_sdk::{String, Symbol};
 use test_harness::{usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+use governance::op::{AdminOperation, UpgradePoolParamsArgs, ConfigureOracleArgs};
 
 // `InterestRateModel::verify` invariants, driven via
 // `upgrade_liquidity_pool_params`, which validates before forwarding.
@@ -32,9 +33,13 @@ fn baseline_irm() -> InterestRateModel {
 fn test_validate_irm_rejects_negative_base_rate() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut irm = baseline_irm();
     irm.base_borrow_rate_ray = -1;
-    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        asset,
+        params: irm,
+    }));
 }
 
 // mid_utilization_ray <= 0 rejects InvalidUtilRange (#117).
@@ -43,9 +48,13 @@ fn test_validate_irm_rejects_negative_base_rate() {
 fn test_validate_irm_rejects_zero_mid_utilization() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut irm = baseline_irm();
     irm.mid_utilization_ray = 0;
-    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        asset,
+        params: irm,
+    }));
 }
 
 // optimal_utilization_ray <= mid_utilization_ray rejects #117.
@@ -54,9 +63,13 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
 fn test_validate_irm_rejects_optimal_not_above_mid() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut irm = baseline_irm();
     irm.optimal_utilization_ray = irm.mid_utilization_ray;
-    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        asset,
+        params: irm,
+    }));
 }
 
 // optimal_utilization_ray >= RAY rejects OptUtilTooHigh (#118).
@@ -65,9 +78,13 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
 fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut irm = baseline_irm();
     irm.optimal_utilization_ray = RAY;
-    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        asset,
+        params: irm,
+    }));
 }
 
 // reserve_factor_bps >= BPS rejects InvalidReserveFactor (#119).
@@ -76,9 +93,13 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
 fn test_validate_irm_rejects_reserve_factor_at_bps() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut irm = baseline_irm();
     irm.reserve_factor_bps = BPS as u32;
-    t.gov_client().upgrade_liquidity_pool_params(&asset, &irm);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+        asset,
+        params: irm,
+    }));
 }
 
 // `validate_asset_config` invariants, driven via `edit_asset_config`.
@@ -90,12 +111,13 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
 fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
     // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
     cfg.loan_to_value_bps = 8000;
     cfg.liquidation_threshold_bps = 9500;
     cfg.liquidation_bonus_bps = 1000;
-    t.gov_client().edit_asset_config(&asset, &cfg);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }
 
 // A large bonus is permitted when the threshold leaves room:
@@ -105,11 +127,12 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
 fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
     cfg.loan_to_value_bps = 4000;
     cfg.liquidation_threshold_bps = 5000;
     cfg.liquidation_bonus_bps = 5000;
-    t.gov_client().edit_asset_config(&asset, &cfg);
+    t.gov_client().execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }
 
 // `configure_market_oracle` error paths against the live mock reflector.
@@ -132,8 +155,12 @@ fn set_primary_reflector_read_mode(cfg: &mut MarketOracleConfigInput, read_mode:
 
 fn configure_usdc(t: &LendingTest, cfg: &MarketOracleConfigInput) {
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     t.gov_client()
-        .configure_market_oracle(&t.admin(), &asset, cfg);
+        .execute_immediate(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            asset,
+            cfg: cfg.clone(),
+        }));
 }
 
 // max_price_stale_seconds < 60 rejects InvalidStalenessConfig (#218).

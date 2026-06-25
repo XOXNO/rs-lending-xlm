@@ -48,11 +48,10 @@ fn empty_debt(t: &LendingTest) -> SorobanVec<(Address, i128)> {
     SorobanVec::new(&t.env)
 }
 
-/// Registers a `MockBlend` and adds it to the controller's governance Blend-pool
-/// allow-list (migration rejects un-approved pools).
 fn register_approved_blend(t: &LendingTest) -> Address {
     let addr = t.env.register(MockBlend, ());
-    t.gov_client().approve_blend_pool(&addr);
+    let admin = t.admin();
+    t.gov_client().execute_immediate(&admin, &governance_interface::AdminOperation::ApproveBlendPool(addr.clone()));
     addr
 }
 

@@ -2,8 +2,9 @@ use crate::config::config;
 use controller::types::InterestRateModel;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, BytesN, Symbol, Vec as SVec};
+use soroban_sdk::{Address, BytesN, Vec as SVec};
 use test_harness::LendingTest;
+use governance_interface::AdminOperation;
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where
@@ -235,176 +236,51 @@ proptest! {
     // Governance timelock proposers + immediate emergency/meta entrypoints: every
     // privileged surface must reject when no auth is presented, before any
     // validation or scheduling. Protocol and governance-self admin both route
-    // through `propose_*` (PROPOSER auth); `pause`/`unpause` stay owner-immediate.
+    // through `propose` (PROPOSER auth); `pause`/`unpause` stay owner-immediate.
     #[test]
     fn prop_governance_endpoints_reject_unauthed(
-        ltv in 0u32..10_000,
-        threshold in 0u32..10_000,
-        bonus in 0u32..2_000,
-        category_id in 1u32..100,
-        can_collateral in any::<bool>(),
-        can_borrow in any::<bool>(),
         seed in any::<u8>(),
     ) {
         let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
         let env = t.env.clone();
         let gov = t.gov_client();
         let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-        let cfg = sample_asset_config(&env);
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");
         let random_addr = Address::generate(&env);
-        let role_executor = Symbol::new(&env, "EXECUTOR");
         let salt = dummy_bytes_n(&env, seed);
 
-        // Timelock proposers: PROPOSER auth must gate every controller-targeted
-        // schedule. Address / hash setters.
-        expect_rejected("gov.propose_set_aggregator", || {
-            gov.set_auths(&no_auths).try_propose_set_aggregator(&random_addr, &random_addr, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_set_accumulator", || {
-            gov.set_auths(&no_auths).try_propose_set_accumulator(&random_addr, &random_addr, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_set_pool_template", || {
-            gov.set_auths(&no_auths)
-                .try_propose_set_pool_template(&random_addr, &dummy_bytes_n(&env, seed), &salt)
-        }).unwrap();
-
-        // Market / asset configuration.
-        expect_rejected("gov.propose_edit_asset_config", || {
-            gov.set_auths(&no_auths).try_propose_edit_asset_config(&random_addr, &usdc, &cfg, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_set_position_limits", || {
-            gov.set_auths(&no_auths).try_propose_set_position_limits(&random_addr, &limits, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_approve_token", || {
-            gov.set_auths(&no_auths).try_propose_approve_token(&random_addr, &usdc, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_revoke_token", || {
-            gov.set_auths(&no_auths).try_propose_revoke_token(&random_addr, &usdc, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_create_liquidity_pool", || {
-            let params = controller::types::MarketParamsRaw {
-                max_borrow_rate_ray: 0,
-                base_borrow_rate_ray: 0,
-                slope1_ray: 0,
-                slope2_ray: 0,
-                slope3_ray: 0,
-                mid_utilization_ray: 0,
-                optimal_utilization_ray: 0,
-                max_utilization_ray: controller::constants::RAY * 95 / 100,
-                reserve_factor_bps: 0,
-                supply_cap: 0,
-                borrow_cap: 0,
-                asset_id: usdc.clone(),
-                asset_decimals: 7,
-            };
-            gov.set_auths(&no_auths)
-                .try_propose_create_liquidity_pool(&random_addr, &usdc, &params, &cfg, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_upgrade_pool_params", || {
-            let zero_model = InterestRateModel {
-                max_borrow_rate_ray: 0,
-                base_borrow_rate_ray: 0,
-                slope1_ray: 0,
-                slope2_ray: 0,
-                slope3_ray: 0,
-                mid_utilization_ray: 0,
-                optimal_utilization_ray: 0,
-                max_utilization_ray: controller::constants::RAY * 95 / 100,
-                reserve_factor_bps: 0,
-            };
-            gov.set_auths(&no_auths)
-                .try_propose_upgrade_pool_params(&random_addr, &usdc, &zero_model, &salt)
-        }).unwrap();
-
-        // E-mode management.
-        expect_rejected("gov.propose_add_e_mode_category", || {
-            gov.set_auths(&no_auths)
-                .try_propose_add_e_mode_category(&random_addr, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_remove_e_mode_category", || {
-            gov.set_auths(&no_auths)
-                .try_propose_remove_e_mode_category(&random_addr, &category_id, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_add_asset_to_e_mode", || {
-            gov.set_auths(&no_auths).try_propose_add_asset_to_e_mode(
-                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
-                &ltv, &threshold, &bonus, &0i128, &0i128, &salt,
+        // Test the unified `propose` endpoint with representative operations to prove PROPOSER role check is enforced.
+        expect_rejected("gov.propose(SetPositionLimits)", || {
+            gov.set_auths(&no_auths).try_propose(
+                &random_addr,
+                &AdminOperation::SetPositionLimits(limits),
+                &salt,
             )
         }).unwrap();
-        expect_rejected("gov.propose_edit_asset_in_e_mode", || {
-            gov.set_auths(&no_auths).try_propose_edit_asset_in_e_mode(
-                &random_addr, &usdc, &category_id, &can_collateral, &can_borrow,
-                &ltv, &threshold, &bonus, &0i128, &0i128, &salt,
+
+        expect_rejected("gov.propose(UpdateGovDelay)", || {
+            gov.set_auths(&no_auths).try_propose(
+                &random_addr,
+                &AdminOperation::UpdateGovDelay(60u32),
+                &salt,
             )
         }).unwrap();
-        expect_rejected("gov.propose_remove_asset_from_e_mode", || {
-            gov.set_auths(&no_auths)
-                .try_propose_remove_asset_from_e_mode(&random_addr, &usdc, &category_id, &salt)
+
+        expect_rejected("gov.propose(DisableTokenOracle)", || {
+            gov.set_auths(&no_auths).try_propose(
+                &random_addr,
+                &AdminOperation::DisableTokenOracle(usdc),
+                &salt,
+            )
         }).unwrap();
 
-        // Deployment / upgrade / lifecycle. `deploy_controller` stays
-        // owner-immediate; governance-self and controller upgrades are timelocked.
+        // Immediate admin actions
         expect_rejected("gov.deploy_controller", || {
             gov.set_auths(&no_auths).try_deploy_controller(&dummy_bytes_n(&env, seed))
         }).unwrap();
-        expect_rejected("gov.propose_deploy_pool", || {
-            gov.set_auths(&no_auths).try_propose_deploy_pool(&random_addr, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_upgrade_pool", || {
-            gov.set_auths(&no_auths)
-                .try_propose_upgrade_pool(&random_addr, &dummy_bytes_n(&env, seed), &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_upgrade_controller", || {
-            gov.set_auths(&no_auths)
-                .try_propose_upgrade_controller(&random_addr, &dummy_bytes_n(&env, seed), &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_migrate_controller", || {
-            gov.set_auths(&no_auths).try_propose_migrate_controller(&random_addr, &2u32, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_governance_upgrade", || {
-            gov.set_auths(&no_auths)
-                .try_propose_governance_upgrade(&random_addr, &dummy_bytes_n(&env, seed), &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_update_delay", || {
-            gov.set_auths(&no_auths).try_propose_update_delay(&random_addr, &60u32, &salt)
-        }).unwrap();
         expect_rejected("gov.pause", || gov.set_auths(&no_auths).try_pause()).unwrap();
         expect_rejected("gov.unpause", || gov.set_auths(&no_auths).try_unpause()).unwrap();
-
-        // Ownership management.
-        expect_rejected("gov.propose_disable_token_oracle", || {
-            gov.set_auths(&no_auths)
-                .try_propose_disable_token_oracle(&random_addr, &usdc, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_transfer_ctrl_ownership", || {
-            gov.set_auths(&no_auths)
-                .try_propose_transfer_ctrl_ownership(&random_addr, &random_addr, &1_000_000u32, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_grant_governance_role", || {
-            gov.set_auths(&no_auths)
-                .try_propose_grant_governance_role(&random_addr, &random_addr, &role_executor, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_revoke_governance_role", || {
-            gov.set_auths(&no_auths)
-                .try_propose_revoke_governance_role(&random_addr, &random_addr, &role_executor, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_transfer_gov_own", || {
-            gov.set_auths(&no_auths)
-                .try_propose_transfer_gov_own(&random_addr, &random_addr, &1_000_000u32, &salt)
-        }).unwrap();
-
-        // Oracle proposers: PROPOSER auth gates the oracle schedules too.
-        expect_rejected("gov.propose_configure_market_oracle", || {
-            let input = test_harness::reflector_single_spot_config(&t.mock_reflector, &usdc, 100, 200);
-            gov.set_auths(&no_auths)
-                .try_propose_configure_market_oracle(&random_addr, &usdc, &input, &salt)
-        }).unwrap();
-        expect_rejected("gov.propose_edit_oracle_tolerance", || {
-            gov.set_auths(&no_auths)
-                .try_propose_edit_oracle_tolerance(&random_addr, &usdc, &100u32, &200u32, &salt)
-        }).unwrap();
     }
 
     #[test]

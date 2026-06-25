@@ -3,6 +3,7 @@
 use common::errors::OracleError;
 use soroban_sdk::Address;
 use test_harness::{assert_contract_error, usdc_preset, LendingTest};
+use governance::op::{AdminOperation, EditToleranceArgs};
 
 fn try_tolerance(
     t: &LendingTest,
@@ -12,9 +13,16 @@ fn try_tolerance(
 ) -> Result<(), soroban_sdk::Error> {
     match t
         .gov_client()
-        .try_edit_oracle_tolerance(&t.admin(), asset, &first, &last)
+        .try_execute_immediate(
+            &t.admin(),
+            &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+                asset: asset.clone(),
+                first_tolerance: first,
+                last_tolerance: last,
+            }),
+        )
     {
-        Ok(res) => res.map_err(|e| e.into()),
+        Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     }
 }

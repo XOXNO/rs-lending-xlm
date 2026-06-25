@@ -19,6 +19,7 @@ use test_harness::{
     assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
     DEFAULT_TOLERANCE,
 };
+use governance_interface::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, TransferOwnershipArgs};
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
 
@@ -74,14 +75,14 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     );
     assert_eq!(
         gov.get_operation_state(&pre_id),
-        governance::OperationState::Unset
+        governance_interface::OperationState::Unset
     );
 
     // Waiting: scheduled but the delay has not elapsed.
-    let id = gov.propose_set_position_limits(&admin, &new_limits, &s);
+    let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 
     // Ready: the delay has elapsed.
@@ -90,7 +91,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Ready
+        governance_interface::OperationState::Ready
     );
 
     // Done: executed, and the controller now holds the new limits.
@@ -104,7 +105,7 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Done
+        governance_interface::OperationState::Done
     );
 
     let stored = read_controller_position_limits(&t);
@@ -125,16 +126,16 @@ fn cancelled_operation_cannot_execute() {
     assert_harness_delay(&t);
 
     let new_limits = limits(8, 6);
-    let id = gov.propose_set_position_limits(&admin, &new_limits, &s);
+    let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 
     gov.cancel(&admin, &id);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Unset
+        governance_interface::OperationState::Unset
     );
 
     // Past the delay, a cancelled op is still not executable.
@@ -166,7 +167,7 @@ fn non_proposer_propose_rejected() {
     let gov = t.gov_iface_client();
     let stranger = Address::generate(&t.env);
 
-    let result = gov.try_propose_set_position_limits(&stranger, &limits(5, 4), &salt(&t.env, 3));
+    let result = gov.try_propose(&stranger, &AdminOperation::SetPositionLimits(limits(5, 4)), &salt(&t.env, 3));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -182,8 +183,14 @@ fn propose_transfer_controller_ownership_rejects_non_contract_owner() {
     let new_owner = Address::generate(&t.env);
     let live_until = t.env.ledger().sequence() + 1_000;
 
-    let result =
-        gov.try_propose_transfer_ctrl_ownership(&admin, &new_owner, &live_until, &salt(&t.env, 9));
+    let result = gov.try_propose(
+        &admin,
+        &AdminOperation::TransferCtrlOwnership(TransferOwnershipArgs {
+            new_owner,
+            live_until_ledger: live_until,
+        }),
+        &salt(&t.env, 9),
+    );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -204,7 +211,7 @@ fn non_executor_execute_rejected() {
     assert_harness_delay(&t);
 
     let new_limits = limits(5, 4);
-    gov.propose_set_position_limits(&admin, &new_limits, &s);
+    gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
     t.env
         .ledger()
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
@@ -236,7 +243,7 @@ fn non_canceller_cancel_rejected() {
 
     assert_harness_delay(&t);
 
-    let id = gov.propose_set_position_limits(&admin, &limits(5, 4), &s);
+    let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits(5, 4)), &s);
 
     let result = gov.try_cancel(&stranger, &id);
     let mapped = match result {
@@ -247,7 +254,7 @@ fn non_canceller_cancel_rejected() {
 
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 }
 
@@ -258,7 +265,7 @@ fn propose_update_delay_requires_proposer() {
     let gov = t.gov_iface_client();
     let stranger = Address::generate(&t.env);
 
-    let result = gov.try_propose_update_delay(&stranger, &60u32, &salt(&t.env, 10));
+    let result = gov.try_propose(&stranger, &AdminOperation::UpdateGovDelay(60u32), &salt(&t.env, 10));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -288,17 +295,17 @@ fn same_params_distinct_salts_schedule_independently() {
     let salt_a = salt(&t.env, 6);
     let salt_b = salt(&t.env, 7);
 
-    let id_a = gov.propose_set_position_limits(&admin, &new_limits, &salt_a);
-    let id_b = gov.propose_set_position_limits(&admin, &new_limits, &salt_b);
+    let id_a = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &salt_a);
+    let id_b = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &salt_b);
 
     assert_ne!(id_a, id_b, "distinct salts must yield distinct op ids");
     assert_eq!(
         gov.get_operation_state(&id_a),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
     assert_eq!(
         gov.get_operation_state(&id_b),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 }
 
@@ -333,10 +340,13 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let resolved: MarketOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
 
     // Schedule the same op through the proposer; it stores the resolved struct.
-    let id = gov.propose_configure_market_oracle(&admin, &asset, &cfg, &s);
+    let id = gov.propose(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+        asset: asset.clone(),
+        cfg,
+    }), &s);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 
     t.env
@@ -360,7 +370,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Done
+        governance_interface::OperationState::Done
     );
 
     // The controller now stores exactly the view's resolved config.
@@ -386,10 +396,14 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     let resolved = gov.resolve_oracle_tolerance(&first, &last);
 
-    let id = gov.propose_edit_oracle_tolerance(&admin, &asset, &first, &last, &s);
+    let id = gov.propose(&admin, &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+        asset: asset.clone(),
+        first_tolerance: first,
+        last_tolerance: last,
+    }), &s);
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Waiting
+        governance_interface::OperationState::Waiting
     );
 
     t.env
@@ -410,7 +424,7 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
     );
     assert_eq!(
         gov.get_operation_state(&id),
-        governance::OperationState::Done
+        governance_interface::OperationState::Done
     );
 
     let stored = t

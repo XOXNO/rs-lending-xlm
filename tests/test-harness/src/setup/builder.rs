@@ -3,7 +3,8 @@ extern crate std;
 use std::collections::HashMap;
 
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{token, Address, Env, TryFromVal};
+use governance::op::{AdminOperation, EModeAssetArgs, CreatePoolArgs, ConfigureOracleArgs};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
 use crate::helpers::f64_to_i128;
@@ -191,14 +192,15 @@ impl LendingTestBuilder {
                 .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
             Err(_) => panic!("Liquidity pool WASM not found. Run 'make build' first."),
         };
-        gov.set_liquidity_pool_template(&pool_hash);
+        gov.execute_immediate(&admin, &AdminOperation::SetLiquidityPoolTemplate(pool_hash.clone()));
 
-        let global_pool = gov.deploy_pool();
+        let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool);
+        let global_pool: Address = Address::try_from_val(&env, &global_pool_val).unwrap();
 
-        gov.set_aggregator(&aggregator_address);
+        gov.execute_immediate(&admin, &AdminOperation::SetAggregator(aggregator_address.clone()));
 
         let treasury = Address::generate(&env);
-        gov.set_accumulator(&treasury);
+        gov.execute_immediate(&admin, &AdminOperation::SetAccumulator(treasury.clone()));
 
         let keeper = Address::generate(&env);
 
@@ -207,11 +209,11 @@ impl LendingTestBuilder {
                 max_supply_positions: max_supply,
                 max_borrow_positions: max_borrow,
             };
-            gov.set_position_limits(&limits);
+            gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(limits));
         }
 
         if let Some(floor_wad) = self.min_borrow_collateral_usd_wad {
-            gov.set_min_borrow_collateral_usd(&floor_wad);
+            gov.execute_immediate(&admin, &AdminOperation::SetMinBorrowCollateralUsd(floor_wad));
         }
 
         let mock_reflector_client =
@@ -228,9 +230,16 @@ impl LendingTestBuilder {
 
             let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
             let asset_config = pm.config.to_asset_config(&env, pm.decimals);
-            gov.approve_token(&asset_address);
-            let pool_address =
-                gov.create_liquidity_pool(&asset_address, &market_params, &asset_config);
+            gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
+            let pool_address_val = gov.execute_immediate(
+                &admin,
+                &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+                    asset: asset_address.clone(),
+                    params: market_params,
+                    config: asset_config,
+                }),
+            );
+            let pool_address: Address = Address::try_from_val(&env, &pool_address_val).unwrap();
             assert_eq!(
                 pool_address, global_pool,
                 "create_liquidity_pool must return the global pool address"
@@ -245,7 +254,13 @@ impl LendingTestBuilder {
                     DEFAULT_TOLERANCE.first_upper_bps,
                     DEFAULT_TOLERANCE.last_upper_bps,
                 );
-                gov.configure_market_oracle(&admin, &asset_address, &oracle_input);
+                gov.execute_immediate(
+                    &admin,
+                    &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+                        asset: asset_address.clone(),
+                        cfg: oracle_input,
+                    }),
+                );
             }
 
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, pm.decimals);
@@ -272,7 +287,8 @@ impl LendingTestBuilder {
         }
 
         for emode in &self.pending_emodes {
-            let _id = gov.add_e_mode_category();
+            let id_val = gov.execute_immediate(&admin, &AdminOperation::AddEModeCategory);
+            let _id: u32 = u32::try_from_val(&env, &id_val).unwrap();
 
             // Assets in a builder category share the preset's risk params; tests
             // that need per-asset divergence use `t.add_asset_to_e_mode(..)`.
@@ -287,16 +303,19 @@ impl LendingTestBuilder {
                     })
                     .asset
                     .clone();
-                gov.add_asset_to_e_mode_category(
-                    &asset_addr,
-                    &emode.category_id,
-                    can_collateral,
-                    can_borrow,
-                    &emode.preset.ltv,
-                    &emode.preset.threshold,
-                    &emode.preset.bonus,
-                    &0i128,
-                    &0i128,
+                gov.execute_immediate(
+                    &admin,
+                    &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+                        asset: asset_addr.clone(),
+                        category_id: emode.category_id,
+                        can_collateral: *can_collateral,
+                        can_borrow: *can_borrow,
+                        ltv: emode.preset.ltv,
+                        threshold: emode.preset.threshold,
+                        bonus: emode.preset.bonus,
+                        supply_cap: 0i128,
+                        borrow_cap: 0i128,
+                    }),
                 );
             }
         }

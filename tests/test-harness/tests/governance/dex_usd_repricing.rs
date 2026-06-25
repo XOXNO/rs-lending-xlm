@@ -21,8 +21,7 @@ fn register_dex_oracle(t: &LendingTest, quote: &Address) -> Address {
 }
 
 fn configure(t: &LendingTest, asset: &Address, cfg: &controller::types::MarketOracleConfigInput) {
-    t.gov_client()
-        .configure_market_oracle(&t.admin(), asset, cfg);
+    t.configure_market_oracle(asset, cfg);
 }
 
 /// Configuring a DEX-quoted source whose quote asset is not a configured market
