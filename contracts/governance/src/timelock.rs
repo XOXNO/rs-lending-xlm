@@ -1,27 +1,39 @@
-//! Timelock execution and query surface backed by `stellar-governance` storage.
+//! Governance timelock operation surface plus immediate emergency controls.
 //!
-//! Operations are queued through typed `propose_*` entrypoints in `forward.rs`;
-//! generic `Timelock::schedule` is not exposed. This module provides `execute`,
-//! `cancel`, and query views over the OZ operation state machine.
+//! Backed by `stellar-governance` storage. Operations are queued through the
+//! typed `propose` entrypoint, then run via `execute` (controller targets) or
+//! `execute_self` (governance-self targets). `cancel` and the view methods
+//! cover the rest of the OZ operation state machine.
 //!
 //! `execute` requires EXECUTOR auth when `executor` is `Some`; `None` keeps
 //! execution open. `cancel` requires CANCELLER. Controller-targeted operations
-//! call `execute_operation`; governance-self operations use typed inline
-//! dispatch in `self_timelock.rs` because Soroban prohibits self-reentry.
+//! call `execute_operation`; governance-self operations use inline dispatch
+//! (`execute_self` / `begin_self_execute`) because Soroban prohibits
+//! `invoke_contract` self-reentry — the OZ state machine is advanced via
+//! `set_execute_operation` and the mutation applied inline in the same frame.
+//!
+//! `pause` / `unpause` are owner-gated, immediate (non-timelocked) emergency
+//! controls. A test-only `execute_immediate` forwarder (own `#[contractimpl]`
+//! block) collapses the timelock for single-frame harness setup.
 
-use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE};
-use crate::storage::renew_governance_instance;
-use crate::{constants, forward, validate, Governance, GovernanceArgs, GovernanceClient};
 use common::errors::GenericError;
 use controller_interface::types::{
     MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
 };
+use controller_interface::ControllerAdminClient;
 use soroban_sdk::{assert_with_error, contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
+#[cfg(any(test, feature = "testing"))]
+use soroban_sdk::IntoVal;
 use stellar_access::access_control;
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_min_delay, get_operation_ledger, get_operation_state,
-    hash_operation, Operation, OperationState,
+    hash_operation, schedule_operation, set_execute_operation, Operation, OperationState,
 };
+use stellar_macros::only_owner;
+
+use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, PROPOSER_ROLE};
+use crate::storage::renew_governance_instance;
+use crate::{constants, storage, validate, Governance, GovernanceArgs, GovernanceClient};
 
 /// Standard vs elevated schedule delays for governance operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,8 +95,65 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation: &Operation) {
     );
 }
 
+fn controller_client(env: &Env) -> ControllerAdminClient<'_> {
+    ControllerAdminClient::new(env, &storage::get_controller(env))
+}
+
+/// Shared proposal preamble: renew instance TTL, authorize the proposer, and
+/// require PROPOSER.
+fn begin_proposal(env: &Env, proposer: &Address) {
+    storage::renew_governance_instance(env);
+    proposer.require_auth();
+    access_control::ensure_role(env, &Symbol::new(env, PROPOSER_ROLE), proposer);
+}
+
+/// Self-execute preamble: renew TTL, authorize the executor, reject expired
+/// operations, then advance the OZ state machine without re-entering the
+/// contract (Soroban prohibits `invoke_contract` self-reentry).
+fn begin_self_execute(env: &Env, executor: Option<Address>, operation: &Operation) {
+    renew_governance_instance(env);
+    authorize_executor(env, executor.as_ref());
+    require_operation_not_expired(env, operation);
+    set_execute_operation(env, operation);
+}
+
+/// Resolves the `MarketOracleConfig` persisted by `set_market_oracle_config`.
+/// Used by the view so simulation can replay the scheduled args.
+fn resolve_market_oracle(
+    env: &Env,
+    asset: &Address,
+    cfg: &MarketOracleConfigInput,
+) -> controller_interface::types::MarketOracleConfig {
+    let tolerance = validate::tolerance::validate_and_calculate_tolerances(
+        env,
+        cfg.first_tolerance_bps,
+        cfg.last_tolerance_bps,
+    );
+    let controller = storage::get_controller(env);
+    validate::oracle_probe::validate_market_oracle_sources(env, &controller, asset, cfg, tolerance)
+}
+
 #[contractimpl]
 impl Governance {
+    pub fn propose(
+        env: Env,
+        proposer: Address,
+        op: crate::op::AdminOperation,
+        salt: BytesN<32>,
+    ) -> BytesN<32> {
+        begin_proposal(&env, &proposer);
+        let (target, function, args, delay_tier) = crate::op::resolve_op(&env, &op);
+        let delay = operation_delay(&env, delay_tier);
+        let operation = Operation {
+            target,
+            function,
+            args,
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        schedule_operation(&env, &operation, delay)
+    }
+
     /// Executes a ready controller operation. When `executor` is `Some`, that
     /// address must hold EXECUTOR and authorize; `None` allows open execution.
     pub fn execute(
@@ -114,12 +183,48 @@ impl Governance {
         execute_operation(&env, &operation)
     }
 
+    /// Executes a ready governance-self operation via inline dispatch. Soroban
+    /// prohibits `invoke_contract` self-reentry, so the OZ state machine is
+    /// advanced with `set_execute_operation` and the mutation applied inline.
+    pub fn execute_self(
+        env: Env,
+        executor: Option<Address>,
+        op: crate::op::AdminOperation,
+        salt: BytesN<32>,
+    ) {
+        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        assert!(target == env.current_contract_address());
+        let operation = Operation {
+            target,
+            function,
+            args,
+            predecessor: BytesN::from_array(&env, &[0u8; 32]),
+            salt,
+        };
+        begin_self_execute(&env, executor, &operation);
+        crate::op::apply_self_op(&env, &op);
+    }
+
     /// Cancels a pending operation. The caller must hold CANCELLER.
     pub fn cancel(env: Env, canceller: Address, operation_id: BytesN<32>) {
         renew_governance_instance(&env);
         canceller.require_auth();
         access_control::ensure_role(&env, &Symbol::new(&env, CANCELLER_ROLE), &canceller);
         cancel_operation(&env, &operation_id);
+    }
+
+    /// Halt the controller immediately; owner-gated and not timelocked.
+    #[only_owner]
+    pub fn pause(env: Env) {
+        storage::renew_governance_instance(&env);
+        controller_client(&env).pause();
+    }
+
+    /// Resume the controller immediately; owner-gated.
+    #[only_owner]
+    pub fn unpause(env: Env) {
+        storage::renew_governance_instance(&env);
+        controller_client(&env).unpause();
     }
 
     /// Minimum timelock delay in ledgers.
@@ -157,18 +262,18 @@ impl Governance {
     }
 
     /// Resolves a market oracle input to the `MarketOracleConfig` scheduled by
-    /// `propose_configure_market_oracle`. Uses the proposer's validation and
+    /// `propose` for `ConfigureMarketOracle`. Uses the proposer's validation and
     /// live oracle probes so simulation can replay the returned args at execute.
     pub fn resolve_market_oracle_config(
         env: Env,
         asset: Address,
         cfg: MarketOracleConfigInput,
     ) -> MarketOracleConfig {
-        forward::resolve_market_oracle(&env, &asset, &cfg)
+        resolve_market_oracle(&env, &asset, &cfg)
     }
 
     /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` scheduled
-    /// by `propose_edit_oracle_tolerance`. Uses the proposer's computation.
+    /// by `propose` for `EditOracleTolerance`. Uses the proposer's computation.
     pub fn resolve_oracle_tolerance(
         env: Env,
         first_tolerance: u32,
@@ -182,6 +287,45 @@ impl Governance {
     }
 }
 
+/// Forwarder compiled for tests and the `testing` feature. Excluded from
+/// production wasm; production configuration uses the timelocked `propose`
+/// entrypoint.
+#[cfg(any(test, feature = "testing"))]
+#[contractimpl]
+impl Governance {
+    pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
+        storage::renew_governance_instance(&env);
+        match &op {
+            crate::op::AdminOperation::ConfigureMarketOracle(_)
+            | crate::op::AdminOperation::EditOracleTolerance(_) => {
+                caller.require_auth();
+                stellar_access::access_control::ensure_role(
+                    &env,
+                    &Symbol::new(&env, crate::access::ORACLE_ROLE),
+                    &caller,
+                );
+            }
+            _ => {
+                caller.require_auth();
+                let owner = stellar_access::ownable::get_owner(&env)
+                    .unwrap_or_else(|| panic!("Owner not set"));
+                assert_eq!(caller, owner, "not owner");
+            }
+        }
+        let (target, function, args, _) = crate::op::resolve_op(&env, &op);
+        if target == env.current_contract_address() {
+            crate::op::apply_self_op(&env, &op);
+            ().into_val(&env)
+        } else {
+            env.invoke_contract(&target, &function, args)
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "../tests/timelock.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/self_timelock.rs"]
+mod self_timelock_tests;

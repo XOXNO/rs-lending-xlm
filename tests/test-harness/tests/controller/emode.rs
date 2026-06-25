@@ -1,3 +1,4 @@
+use controller::types::EModeAssetArgs;
 use test_harness::{
     assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
@@ -367,17 +368,17 @@ fn test_emode_deprecated_category_operations_rejected() {
 
     // 2. Trying to edit an asset in the deprecated category must fail.
     let asset_address = t.resolve_asset("USDC");
-    let edit_asset_result = t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &asset_address,
-        &1u32,
-        &true,
-        &true,
-        &9_000u32,
-        &9_300u32,
-        &200u32,
-        &0i128,
-        &0i128,
-    );
+    let edit_asset_result = t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: asset_address.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_000,
+        threshold: 9_300,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_edit_asset: Result<(), soroban_sdk::Error> = match edit_asset_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -751,9 +752,17 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let usdc = t.resolve_asset("USDC");
 
     // ltv >= threshold must reject (the borrow-buffer invariant).
-    let inverted = t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc, &1u32, &true, &true, &8_500u32, &8_000u32, &200u32, &0i128, &0i128,
-    );
+    let inverted = t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 8_500,
+        threshold: 8_000,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_inverted: Result<(), soroban_sdk::Error> = match inverted {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -763,9 +772,17 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
 
     // Gap preserved (9_500 > 9_400) but threshold*(1+bonus) > 100% must still
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
-    let unsafe_bonus = t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc, &1u32, &true, &true, &9_400u32, &9_500u32, &600u32, &0i128, &0i128,
-    );
+    let unsafe_bonus = t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_400,
+        threshold: 9_500,
+        bonus: 600,
+        supply_cap: 0,
+        borrow_cap: 0,
+    });
     let flat_unsafe: Result<(), soroban_sdk::Error> = match unsafe_bonus {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -839,17 +856,17 @@ fn test_emode_spoke_supply_cap_enforced_below_hub() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &spoke_cap,
-        &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 500.0);
@@ -875,17 +892,17 @@ fn test_emode_spoke_borrow_cap_enforced_below_hub() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdt,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &0i128,
-        &spoke_borrow_cap,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdt.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_borrow_cap,
+    });
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -978,32 +995,32 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &spoke_cap,
-        &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 500.0);
 
-    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &(100 * UNIT),
-        &0i128,
-    ) {
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 100 * UNIT,
+        borrow_cap: 0,
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1024,17 +1041,17 @@ fn test_update_pool_caps_rejects_hub_below_spoke() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &spoke_cap,
-        &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     let result = match t
         .ctrl_client()
@@ -1060,17 +1077,17 @@ fn test_max_supply_respects_spoke_cap_headroom() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &spoke_cap,
-        &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 500.0);
@@ -1102,17 +1119,17 @@ fn test_emode_spoke_borrow_cap_above_hub_rejected() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &0i128,
-        &(2_000 * UNIT), // spoke borrow cap above the hub borrow cap
-    ) {
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 2_000 * UNIT, // spoke borrow cap above the hub borrow cap
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1138,25 +1155,33 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdt, &1, &true, &true, &9_700, &9_800, &200, &0i128, &spoke_cap,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdt.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_cap,
+    });
 
     t.create_emode_account(ALICE, 1);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 500.0); // ~500 USDT of borrow usage
 
-    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdt,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &0i128,
-        &(100 * UNIT), // spoke borrow cap below the ~500 current usage
-    ) {
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdt.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: 100 * UNIT, // spoke borrow cap below the ~500 current usage
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1178,17 +1203,17 @@ fn test_emode_spoke_cap_above_from_asset_domain_rejected() {
     let usdc = t.resolve_asset("USDC");
     // At 7 decimals the ceiling is ~i128::MAX / 10^20 (~1.7e18); 2e21 overflows.
     let overflowing_cap = 2_000_000_000_000_000_000_000i128;
-    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(
-        &usdc,
-        &1,
-        &true,
-        &true,
-        &9_700,
-        &9_800,
-        &200,
-        &overflowing_cap,
-        &0i128,
-    ) {
+    let result = match t.ctrl_client().try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: overflowing_cap,
+        borrow_cap: 0,
+    }) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
@@ -1211,9 +1236,17 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
         .build();
 
     let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc, &1, &true, &true, &9_700, &9_800, &200, &spoke_cap, &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: spoke_cap,
+        borrow_cap: 0,
+    });
 
     t.create_emode_account(ALICE, 1);
     let account_id = t.resolve_account_id(ALICE);
@@ -1259,9 +1292,17 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
         .build();
 
     let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdt, &1, &true, &true, &9_700, &9_800, &200, &0i128, &spoke_cap,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdt.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 0,
+        borrow_cap: spoke_cap,
+    });
 
     // A non-e-mode USDT supplier so utilization is defined and interest accrues.
     t.supply(LIQUIDATOR, "USDT", 5_000.0);
@@ -1309,13 +1350,29 @@ fn test_update_pool_caps_validates_every_category_spoke() {
 
     let usdc = t.resolve_asset("USDC");
     // Category 1 spoke cap below the proposed hub (will pass the check)...
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc, &1, &true, &true, &9_700, &9_800, &200, &(800 * UNIT), &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 1,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 800 * UNIT,
+        borrow_cap: 0,
+    });
     // ...category 2 spoke cap above it (will fail on the second iteration).
-    t.ctrl_client().edit_asset_in_e_mode_category(
-        &usdc, &2, &true, &true, &9_700, &9_800, &200, &(1_500 * UNIT), &0i128,
-    );
+    t.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
+        asset: usdc.clone(),
+        category_id: 2,
+        can_collateral: true,
+        can_borrow: true,
+        ltv: 9_700,
+        threshold: 9_800,
+        bonus: 200,
+        supply_cap: 1_500 * UNIT,
+        borrow_cap: 0,
+    });
 
     // A hub supply cap of 1000 clears category 1's 800 but violates category 2's
     // 1500 — the loop must reach the second category to reject.
