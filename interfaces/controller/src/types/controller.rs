@@ -168,6 +168,23 @@ pub struct EModeAssetConfig {
     pub borrow_cap: i128,
 }
 
+/// Input for `add_asset_to_e_mode_category` / `edit_asset_in_e_mode_category`:
+/// the target (`asset`, `category_id`) plus the spoke risk parameters. Bundles
+/// what were positional entrypoint arguments so governance forwards one value.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EModeAssetArgs {
+    pub asset: Address,
+    pub category_id: u32,
+    pub can_collateral: bool,
+    pub can_borrow: bool,
+    pub ltv: u32,
+    pub threshold: u32,
+    pub bonus: u32,
+    pub supply_cap: i128,
+    pub borrow_cap: i128,
+}
+
 /// Running scaled-share totals for one asset within an e-mode spoke.
 #[contracttype]
 #[derive(Clone, Debug, Default)]
