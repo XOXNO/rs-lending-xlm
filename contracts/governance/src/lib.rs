@@ -15,6 +15,7 @@ mod timelock;
 mod validate;
 
 #[cfg(test)]
+#[path = "../tests/flows.rs"]
 mod tests;
 
 use soroban_sdk::{contract, contractmeta};

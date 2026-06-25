@@ -5,12 +5,12 @@
 
 extern crate std;
 
+use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs};
 use controller_interface::types::{
     ControllerKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
-use crate::op::{AdminOperation, RoleArgs, ConfigureOracleArgs, EditToleranceArgs};
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol};
@@ -95,10 +95,13 @@ fn deploy_controller_stores_address_and_governance_owns_it() {
     });
 
     // Owner-gated forwarding reaches the deployed controller's storage.
-    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
-        max_supply_positions: 5,
-        max_borrow_positions: 4,
-    }));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetPositionLimits(PositionLimits {
+            max_supply_positions: 5,
+            max_borrow_positions: 4,
+        }),
+    );
     let stored = read_controller_position_limits(&env, &controller_id);
     assert_eq!(stored.max_supply_positions, 5);
     assert_eq!(stored.max_borrow_positions, 4);
@@ -135,10 +138,13 @@ fn validation_runs_before_controller_lookup() {
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
 
-    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
-        max_supply_positions: 0,
-        max_borrow_positions: 5,
-    }));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetPositionLimits(PositionLimits {
+            max_supply_positions: 0,
+            max_borrow_positions: 5,
+        }),
+    );
 }
 
 #[test]
@@ -148,10 +154,13 @@ fn set_position_limits_forwards_to_native_controller() {
     let (admin, gov_id, gov) = register_governance(&env);
     let controller_id = register_native_controller(&env, &gov_id, &gov);
 
-    gov.execute_immediate(&admin, &AdminOperation::SetPositionLimits(PositionLimits {
-        max_supply_positions: 3,
-        max_borrow_positions: 2,
-    }));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetPositionLimits(PositionLimits {
+            max_supply_positions: 3,
+            max_borrow_positions: 2,
+        }),
+    );
 
     let stored = read_controller_position_limits(&env, &controller_id);
     assert_eq!(stored.max_supply_positions, 3);
@@ -179,7 +188,11 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
         invoke: &MockAuthInvoke {
             contract: &gov_id,
             fn_name: "execute_immediate",
-            args: soroban_sdk::vec![&env, admin.clone().into_val(&env), op.clone().into_val(&env)],
+            args: soroban_sdk::vec![
+                &env,
+                admin.clone().into_val(&env),
+                op.clone().into_val(&env)
+            ],
             sub_invokes: &[],
         },
     }]);
@@ -199,10 +212,13 @@ fn configure_market_oracle_requires_oracle_role() {
     let stranger = Address::generate(&env);
     let asset = Address::generate(&env);
 
-    gov.execute_immediate(&stranger, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-        asset,
-        cfg: sample_oracle_input(&env),
-    }));
+    gov.execute_immediate(
+        &stranger,
+        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            asset,
+            cfg: sample_oracle_input(&env),
+        }),
+    );
 }
 
 // With no controller set, BadFirstTolerance confirms tolerance validation runs
@@ -215,11 +231,14 @@ fn edit_oracle_tolerance_validates_before_any_cross_call() {
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    gov.execute_immediate(&admin, &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-        asset,
-        first_tolerance: 0,
-        last_tolerance: 200,
-    }));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+            asset,
+            first_tolerance: 0,
+            last_tolerance: 200,
+        }),
+    );
 }
 
 #[test]
@@ -229,7 +248,10 @@ fn set_aggregator_rejects_non_contract_address() {
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
 
-    gov.execute_immediate(&admin, &AdminOperation::SetAggregator(Address::generate(&env)));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetAggregator(Address::generate(&env)),
+    );
 }
 
 #[test]
@@ -258,7 +280,10 @@ fn set_liquidity_pool_template_rejects_zero_hash() {
     env.mock_all_auths();
     let (admin, _, gov) = register_governance(&env);
 
-    gov.execute_immediate(&admin, &AdminOperation::SetLiquidityPoolTemplate(BytesN::from_array(&env, &[0u8; 32])));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::SetLiquidityPoolTemplate(BytesN::from_array(&env, &[0u8; 32])),
+    );
 }
 
 #[test]
@@ -279,7 +304,11 @@ fn propose_upgrade_pool_rejects_zero_hash() {
     let (admin, _, gov) = register_governance(&env);
     let salt = BytesN::from_array(&env, &[0u8; 32]);
 
-    gov.propose(&admin, &AdminOperation::UpgradePool(BytesN::from_array(&env, &[0u8; 32])), &salt);
+    gov.propose(
+        &admin,
+        &AdminOperation::UpgradePool(BytesN::from_array(&env, &[0u8; 32])),
+        &salt,
+    );
 }
 
 #[test]
@@ -290,7 +319,11 @@ fn propose_upgrade_controller_rejects_zero_hash() {
     let (admin, _, gov) = register_governance(&env);
     let salt = BytesN::from_array(&env, &[0u8; 32]);
 
-    gov.propose(&admin, &AdminOperation::UpgradeController(BytesN::from_array(&env, &[0u8; 32])), &salt);
+    gov.propose(
+        &admin,
+        &AdminOperation::UpgradeController(BytesN::from_array(&env, &[0u8; 32])),
+        &salt,
+    );
 }
 
 #[test]

@@ -1,21 +1,15 @@
 use common::errors::{CollateralError, GenericError, OracleError};
-use soroban_sdk::{
-    assert_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
-};
+use soroban_sdk::{assert_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec};
 
-use crate::timelock::{DelayTier, validate_delay_update};
+use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
     AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs, EditToleranceArgs,
-    PoolCapsArgs, RemoveAssetFromEModeArgs, RoleArgs, TransferOwnershipArgs,
-    UpgradePoolParamsArgs,
+    PoolCapsArgs, RemoveAssetFromEModeArgs, RoleArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
-pub(crate) fn resolve_op(
-    env: &Env,
-    op: &AdminOperation,
-) -> (Address, Symbol, Vec<Val>, DelayTier) {
+pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
     let gov_addr = env.current_contract_address();
 
     match op {
@@ -64,18 +58,16 @@ pub(crate) fn resolve_op(
                 DelayTier::Standard,
             )
         }
-        AdminOperation::TransferGovOwnership(args) => {
-            (
-                gov_addr,
-                Symbol::new(env, "transfer_ownership"),
-                vec![
-                    env,
-                    args.new_owner.clone().into_val(env),
-                    args.live_until_ledger.into_val(env),
-                ],
-                DelayTier::Sensitive,
-            )
-        }
+        AdminOperation::TransferGovOwnership(args) => (
+            gov_addr,
+            Symbol::new(env, "transfer_ownership"),
+            vec![
+                env,
+                args.new_owner.clone().into_val(env),
+                args.live_until_ledger.into_val(env),
+            ],
+            DelayTier::Sensitive,
+        ),
 
         // --- Controller target ---
         AdminOperation::SetAggregator(addr) => {
@@ -87,14 +79,12 @@ pub(crate) fn resolve_op(
                 DelayTier::Standard,
             )
         }
-        AdminOperation::SetAccumulator(addr) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "set_accumulator"),
-                vec![env, addr.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::SetAccumulator(addr) => (
+            storage::get_controller(env),
+            Symbol::new(env, "set_accumulator"),
+            vec![env, addr.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
         AdminOperation::SetLiquidityPoolTemplate(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             (
@@ -131,22 +121,18 @@ pub(crate) fn resolve_op(
                 DelayTier::Standard,
             )
         }
-        AdminOperation::AddEModeCategory => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "add_e_mode_category"),
-                vec![env],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::RemoveEModeCategory(id) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "remove_e_mode_category"),
-                vec![env, id.into_val(env)],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::AddEModeCategory => (
+            storage::get_controller(env),
+            Symbol::new(env, "add_e_mode_category"),
+            vec![env],
+            DelayTier::Standard,
+        ),
+        AdminOperation::RemoveEModeCategory(id) => (
+            storage::get_controller(env),
+            Symbol::new(env, "remove_e_mode_category"),
+            vec![env, id.into_val(env)],
+            DelayTier::Standard,
+        ),
         AdminOperation::AddAssetToEModeCategory(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
@@ -211,53 +197,50 @@ pub(crate) fn resolve_op(
                 DelayTier::Standard,
             )
         }
-        AdminOperation::RemoveAssetFromEMode(args) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "remove_asset_from_e_mode"),
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    args.category_id.into_val(env),
-                ],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::ApproveToken(token) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "approve_token"),
-                vec![env, token.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::RevokeToken(token) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "revoke_token"),
-                vec![env, token.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::ApproveBlendPool(pool) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "approve_blend_pool"),
-                vec![env, pool.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
-        AdminOperation::RevokeBlendPool(pool) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "revoke_blend_pool"),
-                vec![env, pool.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::RemoveAssetFromEMode(args) => (
+            storage::get_controller(env),
+            Symbol::new(env, "remove_asset_from_e_mode"),
+            vec![
+                env,
+                args.asset.clone().into_val(env),
+                args.category_id.into_val(env),
+            ],
+            DelayTier::Standard,
+        ),
+        AdminOperation::ApproveToken(token) => (
+            storage::get_controller(env),
+            Symbol::new(env, "approve_token"),
+            vec![env, token.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
+        AdminOperation::RevokeToken(token) => (
+            storage::get_controller(env),
+            Symbol::new(env, "revoke_token"),
+            vec![env, token.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
+        AdminOperation::ApproveBlendPool(pool) => (
+            storage::get_controller(env),
+            Symbol::new(env, "approve_blend_pool"),
+            vec![env, pool.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
+        AdminOperation::RevokeBlendPool(pool) => (
+            storage::get_controller(env),
+            Symbol::new(env, "revoke_blend_pool"),
+            vec![env, pool.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
         AdminOperation::CreateLiquidityPool(args) => {
-            let token_decimals = validate::asset::validate_and_fetch_token_decimals(env, &args.asset);
-            validate::asset::validate_market_creation(env, &args.asset, &args.params, &args.config, token_decimals);
+            let token_decimals =
+                validate::asset::validate_and_fetch_token_decimals(env, &args.asset);
+            validate::asset::validate_market_creation(
+                env,
+                &args.asset,
+                &args.params,
+                &args.config,
+                token_decimals,
+            );
             (
                 storage::get_controller(env),
                 Symbol::new(env, "create_liquidity_pool"),
@@ -283,14 +266,12 @@ pub(crate) fn resolve_op(
                 DelayTier::Standard,
             )
         }
-        AdminOperation::DeployPool => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "deploy_pool"),
-                vec![env],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::DeployPool => (
+            storage::get_controller(env),
+            Symbol::new(env, "deploy_pool"),
+            vec![env],
+            DelayTier::Standard,
+        ),
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             (
@@ -300,14 +281,12 @@ pub(crate) fn resolve_op(
                 DelayTier::Sensitive,
             )
         }
-        AdminOperation::DisableTokenOracle(asset) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "disable_token_oracle"),
-                vec![env, asset.clone().into_val(env)],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::DisableTokenOracle(asset) => (
+            storage::get_controller(env),
+            Symbol::new(env, "disable_token_oracle"),
+            vec![env, asset.clone().into_val(env)],
+            DelayTier::Standard,
+        ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             (
@@ -317,16 +296,18 @@ pub(crate) fn resolve_op(
                 DelayTier::Sensitive,
             )
         }
-        AdminOperation::MigrateController(version) => {
-            (
-                storage::get_controller(env),
-                Symbol::new(env, "migrate"),
-                vec![env, version.into_val(env)],
-                DelayTier::Standard,
-            )
-        }
+        AdminOperation::MigrateController(version) => (
+            storage::get_controller(env),
+            Symbol::new(env, "migrate"),
+            vec![env, version.into_val(env)],
+            DelayTier::Standard,
+        ),
         AdminOperation::TransferCtrlOwnership(args) => {
-            validate::require_contract_address(env, &args.new_owner, GenericError::NotSmartContract);
+            validate::require_contract_address(
+                env,
+                &args.new_owner,
+                GenericError::NotSmartContract,
+            );
             (
                 storage::get_controller(env),
                 Symbol::new(env, "transfer_ownership"),
@@ -405,61 +386,5 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
 }
 
 #[cfg(test)]
-mod xdr_parity {
-    extern crate std;
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::xdr::{Limits, ScVal, WriteXdr};
-    use soroban_sdk::{IntoVal, TryFromVal, Val};
-
-    fn b64(env: &Env, op: AdminOperation) -> std::string::String {
-        let val: Val = op.into_val(env);
-        let sc = ScVal::try_from_val(env, &val).unwrap();
-        sc.to_xdr_base64(Limits::none()).unwrap()
-    }
-
-    /// All-zero contract address strkey (`Address::generate` is deterministic
-    /// from a fresh `Env`). Mirrors the `PARITY_ADDR` constant in the sdk-js
-    /// `governance.test.ts` byte-parity suite.
-    const PARITY_ADDR: &str =
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
-
-    /// Pins the contract-side `AdminOperation` XDR encoding. The timelock hashes
-    /// these into the operation id, and sdk-js builders must encode the same
-    /// bytes (a mismatch would strand proposals). The identical base64 strings
-    /// are asserted in sdk-js `governance.test.ts`; if the enum/struct layout
-    /// changes here, both this test and the SDK gate must be updated together.
-    #[test]
-    fn admin_op_xdr_is_byte_stable() {
-        let env = Env::default();
-        let addr = Address::generate(&env);
-        assert_eq!(
-            addr.to_string(),
-            soroban_sdk::String::from_str(&env, PARITY_ADDR)
-        );
-
-        assert_eq!(
-            b64(&env, AdminOperation::DeployPool),
-            "AAAAEAAAAAEAAAABAAAADwAAAApEZXBsb3lQb29sAAA="
-        );
-        assert_eq!(
-            b64(&env, AdminOperation::UpdateGovDelay(34560)),
-            "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVHb3ZEZWxheQAAAAAAAwAAhwA="
-        );
-        assert_eq!(
-            b64(&env, AdminOperation::SetAggregator(addr.clone())),
-            "AAAAEAAAAAEAAAACAAAADwAAAA1TZXRBZ2dyZWdhdG9yAAAAAAAAEgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ=="
-        );
-        assert_eq!(
-            b64(
-                &env,
-                AdminOperation::UpdatePoolCaps(PoolCapsArgs {
-                    asset: addr.clone(),
-                    supply_cap: 100_000_000_000_000,
-                    borrow_cap: 50_000_000_000_000,
-                })
-            ),
-            "AAAAEAAAAAEAAAACAAAADwAAAA5VcGRhdGVQb29sQ2FwcwAAAAAAEQAAAAEAAAADAAAADwAAAAVhc3NldAAAAAAAABIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAPAAAACmJvcnJvd19jYXAAAAAAAAoAAAAAAAAAAAAALXmIPSAAAAAADwAAAApzdXBwbHlfY2FwAAAAAAAKAAAAAAAAAAAAAFrzEHpAAA=="
-        );
-    }
-}
+#[path = "../tests/op.rs"]
+mod xdr_parity;

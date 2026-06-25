@@ -1,7 +1,7 @@
 extern crate std;
 
 use super::*;
-use common::constants::{BPS, RAY};
+use common::constants::{BPS, MS_PER_SECOND, RAY};
 use common::types::ScaledPositionRaw;
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
@@ -118,7 +118,7 @@ fn market_params(asset: &Address) -> MarketParamsRaw {
         slope3_ray: RAY * 80 / 100,
         mid_utilization_ray: RAY * 50 / 100,
         optimal_utilization_ray: RAY * 80 / 100,
-            // Disable max-utilization checks in accounting tests.
+        // Disable max-utilization checks in accounting tests.
         max_utilization_ray: RAY,
         reserve_factor_bps: 1000,
         supply_cap: 0,
@@ -189,12 +189,7 @@ impl TestSetup {
         }
     }
 
-    fn sup_entry(
-        &self,
-        asset: &Address,
-        scaled_amount_ray: i128,
-        amount: i128,
-    ) -> PoolSupplyEntry {
+    fn sup_entry(&self, asset: &Address, scaled_amount_ray: i128, amount: i128) -> PoolSupplyEntry {
         PoolSupplyEntry {
             action: self.action_for(asset, scaled_amount_ray, amount),
         }
@@ -211,10 +206,7 @@ impl TestSetup {
         scaled_amount_ray: i128,
         amount: i128,
     ) -> Vec<PoolSupplyEntry> {
-        vec![
-            &self.env,
-            self.sup_entry(asset, scaled_amount_ray, amount),
-        ]
+        vec![&self.env, self.sup_entry(asset, scaled_amount_ray, amount)]
     }
 
     /// Singleton borrow batch against the default market.
@@ -228,8 +220,7 @@ impl TestSetup {
     }
 
     fn set_caps(&self, asset: &Address, supply_cap: i128, borrow_cap: i128) {
-        self.client()
-            .update_caps(asset, &supply_cap, &borrow_cap);
+        self.client().update_caps(asset, &supply_cap, &borrow_cap);
     }
 
     /// Singleton withdraw batch against the default market.
@@ -415,9 +406,7 @@ fn test_borrow_cap_enforced_after_pool_sync() {
     let borrow_amount = 100_0000000i128;
     t.set_caps(&t.asset, 0, borrow_amount - 1);
 
-    let result = flatten_contract_result(
-        client.try_borrow(&borrower, &t.bor(0, borrow_amount)),
-    );
+    let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, borrow_amount)));
     assert_contract_error(
         result,
         common::errors::CollateralError::BorrowCapReached as u32,
@@ -435,11 +424,8 @@ fn test_strategy_borrow_cap_enforced_after_pool_sync() {
     let amount = 100_0000000i128;
     t.set_caps(&t.asset, 0, amount - 1);
 
-    let result = flatten_contract_result(client.try_create_strategy(
-        &caller,
-        &t.action(0, amount),
-        &0i128,
-    ));
+    let result =
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, amount), &0i128));
     assert_contract_error(
         result,
         common::errors::CollateralError::BorrowCapReached as u32,
@@ -452,9 +438,8 @@ fn test_borrow_rejects_when_reserves_are_insufficient() {
     let client = t.client();
     let borrower = Address::generate(&t.env);
 
-    let result = flatten_contract_result(
-        client.try_borrow(&borrower, &t.bor(0, 200_000_000_000_000i128)),
-    );
+    let result =
+        flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 200_000_000_000_000i128)));
     assert_contract_error(
         result,
         common::errors::CollateralError::InsufficientLiquidity as u32,
@@ -466,9 +451,7 @@ fn test_withdraw() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client
-        .supply(&t.sup(0, supply_amount))
-        .get_unchecked(0);
+    let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
@@ -503,9 +486,7 @@ fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated_pos = client
-        .supply(&t.sup(0, 10_000_000i128))
-        .get_unchecked(0);
+    let updated_pos = client.supply(&t.sup(0, 10_000_000i128)).get_unchecked(0);
     let user = Address::generate(&t.env);
 
     let result = flatten_contract_result(client.try_withdraw(
@@ -543,8 +524,7 @@ fn test_borrow_above_max_utilization_panics() {
     let client = t.client();
     let borrower = Address::generate(&t.env);
     // Borrow above 50% of supplied reverts with UtilizationAboveMax.
-    let result =
-        flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128)));
+    let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 60_000i128)));
     assert_contract_error(
         result,
         common::errors::CollateralError::UtilizationAboveMax as u32,
@@ -970,9 +950,7 @@ fn test_seize_position_deposit_dust() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let updated = client
-        .supply(&t.sup(0, 100_0000000i128))
-        .get_unchecked(0);
+    let updated = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
     let seized = client.seize_position(&t.asset, &AccountPositionType::Deposit, &updated.position);
@@ -1265,9 +1243,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client
-        .supply(&t.sup(0, supply_amount))
-        .get_unchecked(0);
+    let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
 
@@ -1307,9 +1283,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let client = t.client();
 
     let supply_amount = 10_000_000_000i128;
-    let updated_pos = client
-        .supply(&t.sup(0, supply_amount))
-        .get_unchecked(0);
+    let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
     let revenue_before = client.protocol_revenue(&t.asset);
     let user = Address::generate(&t.env);
@@ -1661,8 +1635,8 @@ fn test_supply_rejects_unknown_market() {
     let client = t.client();
 
     let unknown_asset = Address::generate(&t.env);
-    let result = flatten_contract_result(client.try_supply(&t.sup_for(
-        &unknown_asset, 0, 1_0000000i128)));
+    let result =
+        flatten_contract_result(client.try_supply(&t.sup_for(&unknown_asset, 0, 1_0000000i128)));
     assert_contract_error(
         result,
         common::errors::GenericError::PoolNotInitialized as u32,
@@ -1754,7 +1728,7 @@ fn test_create_market_rejects_non_owner() {
     );
 }
 
-    // bulk_get_indexes returns per-asset simulated indexes in request order.
+// bulk_get_indexes returns per-asset simulated indexes in request order.
 #[test]
 fn test_bulk_get_indexes_matches_per_asset() {
     let t = TestSetup::new();
@@ -2061,7 +2035,7 @@ fn set_max_utilization(t: &TestSetup, max_utilization_ray: i128) {
     });
 }
 
-    // Withdraw enforces max utilization on projected post-withdraw state.
+// Withdraw enforces max utilization on projected post-withdraw state.
 #[test]
 fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     let t = TestSetup::new();
@@ -2096,7 +2070,7 @@ fn test_withdraw_above_max_utilization_panics_but_within_cap_succeeds() {
     );
 }
 
-    // `cash` changes by supply minus borrow, applied repay, and withdraw.
+// `cash` changes by supply minus borrow, applied repay, and withdraw.
 #[test]
 fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
     let t = TestSetup::new();
@@ -2124,7 +2098,10 @@ fn test_cash_conservation_across_supply_borrow_overpaid_repay_withdraw() {
     let repaid = client
         .repay(
             &borrower,
-            &t.ract(borrowed.position.scaled_amount_ray, borrow_amount + overpayment),
+            &t.ract(
+                borrowed.position.scaled_amount_ray,
+                borrow_amount + overpayment,
+            ),
         )
         .get_unchecked(0);
     assert_eq!(repaid.actual_amount, borrow_amount);
