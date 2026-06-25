@@ -139,18 +139,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             (
                 storage::get_controller(env),
                 Symbol::new(env, "add_asset_to_e_mode_category"),
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    args.category_id.into_val(env),
-                    args.can_collateral.into_val(env),
-                    args.can_borrow.into_val(env),
-                    args.ltv.into_val(env),
-                    args.threshold.into_val(env),
-                    args.bonus.into_val(env),
-                    args.supply_cap.into_val(env),
-                    args.borrow_cap.into_val(env),
-                ],
+                vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }
@@ -160,18 +149,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             (
                 storage::get_controller(env),
                 Symbol::new(env, "edit_asset_in_e_mode_category"),
-                vec![
-                    env,
-                    args.asset.clone().into_val(env),
-                    args.category_id.into_val(env),
-                    args.can_collateral.into_val(env),
-                    args.can_borrow.into_val(env),
-                    args.ltv.into_val(env),
-                    args.threshold.into_val(env),
-                    args.bonus.into_val(env),
-                    args.supply_cap.into_val(env),
-                    args.borrow_cap.into_val(env),
-                ],
+                vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }

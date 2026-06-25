@@ -154,6 +154,26 @@ asset_config_json() {
     }' | jq -c "$overrides"
 }
 
+# E-mode asset input struct for add_asset_to_e_mode_category /
+# edit_asset_in_e_mode_category (single EModeAssetArgs argument).
+#   emode_args <asset> <category_id> <can_collateral> <can_borrow> \
+#              <ltv> <threshold> <bonus> [supply_cap] [borrow_cap]
+emode_args() {
+    jq -nc --arg asset "$1" --argjson cat "$2" --argjson cc "$3" --argjson cb "$4" \
+        --argjson ltv "$5" --argjson thr "$6" --argjson bonus "$7" \
+        --arg sc "${8:-0}" --arg bc "${9:-0}" '{
+        asset: $asset,
+        category_id: $cat,
+        can_collateral: $cc,
+        can_borrow: $cb,
+        ltv: $ltv,
+        threshold: $thr,
+        bonus: $bonus,
+        supply_cap: $sc,
+        borrow_cap: $bc
+    }'
+}
+
 # Single-source oracle config: Reflector-shaped mock, Twap(3).
 #   oracle_cfg_mock_single <sac-id>
 oracle_cfg_mock_single() {

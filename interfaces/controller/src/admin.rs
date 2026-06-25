@@ -1,5 +1,6 @@
 use crate::types::{
-    AssetConfigRaw, MarketConfig, MarketOracleConfig, OraclePriceFluctuation, PositionLimits,
+    AssetConfigRaw, EModeAssetArgs, MarketConfig, MarketOracleConfig, OraclePriceFluctuation,
+    PositionLimits,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
@@ -15,30 +16,8 @@ pub trait ControllerAdmin {
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
     fn add_e_mode_category(env: Env) -> u32;
     fn remove_e_mode_category(env: Env, id: u32);
-    fn add_asset_to_e_mode_category(
-        env: Env,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        supply_cap: i128,
-        borrow_cap: i128,
-    );
-    fn edit_asset_in_e_mode_category(
-        env: Env,
-        asset: Address,
-        category_id: u32,
-        can_collateral: bool,
-        can_borrow: bool,
-        ltv: u32,
-        threshold: u32,
-        bonus: u32,
-        supply_cap: i128,
-        borrow_cap: i128,
-    );
+    fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs);
+    fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs);
     fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32);
     fn approve_token(env: Env, token: Address);
     fn revoke_token(env: Env, token: Address);

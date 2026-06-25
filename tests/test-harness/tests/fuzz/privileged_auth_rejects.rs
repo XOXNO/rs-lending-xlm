@@ -1,4 +1,5 @@
 use crate::config::config;
+use controller::types::EModeAssetArgs;
 use controller::types::InterestRateModel;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
@@ -139,16 +140,32 @@ proptest! {
             ctrl.set_auths(&no_auths).try_remove_e_mode_category(&category_id)
         }).unwrap();
         expect_rejected("add_asset_to_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_add_asset_to_e_mode_category(
-                &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
-                &0i128, &0i128,
-            )
+            ctrl.set_auths(&no_auths)
+                .try_add_asset_to_e_mode_category(&EModeAssetArgs {
+                    asset: usdc.clone(),
+                    category_id,
+                    can_collateral,
+                    can_borrow,
+                    ltv,
+                    threshold,
+                    bonus,
+                    supply_cap: 0,
+                    borrow_cap: 0,
+                })
         }).unwrap();
         expect_rejected("edit_asset_in_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_edit_asset_in_e_mode_category(
-                &usdc, &category_id, &can_collateral, &can_borrow, &ltv, &threshold, &bonus,
-                &0i128, &0i128,
-            )
+            ctrl.set_auths(&no_auths)
+                .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+                    asset: usdc.clone(),
+                    category_id,
+                    can_collateral,
+                    can_borrow,
+                    ltv,
+                    threshold,
+                    bonus,
+                    supply_cap: 0,
+                    borrow_cap: 0,
+                })
         }).unwrap();
         expect_rejected("remove_asset_from_e_mode", || {
             ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
