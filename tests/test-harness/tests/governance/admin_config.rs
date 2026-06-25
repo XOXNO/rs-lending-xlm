@@ -4,12 +4,13 @@
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
 use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
+use governance::op::{AdminOperation, UpgradePoolParamsArgs};
 
 // `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
 fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-
+    let admin = t.admin();
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
 
@@ -17,7 +18,7 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     config.loan_to_value_bps = 8000;
     config.liquidation_threshold_bps = 8000; // Equal to LTV.
 
-    let result = gov.try_edit_asset_config(&asset, &config);
+    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, config));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -33,13 +34,14 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
 #[test]
 fn test_set_position_limits_rejects_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
+    let admin = t.admin();
 
     // 10/10 is the documented ceiling and must be accepted.
     t.gov_client()
-        .set_position_limits(&controller::types::PositionLimits {
+        .execute_immediate(&admin, &AdminOperation::SetPositionLimits(controller::types::PositionLimits {
             max_supply_positions: 10,
             max_borrow_positions: 10,
-        });
+        }));
 
     // 11 on either side exceeds the budget-proven envelope.
     assert_invalid_position_limits(&t, 11, 10);
@@ -52,11 +54,12 @@ fn test_set_position_limits_rejects_above_cap() {
 }
 
 fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
+    let admin = t.admin();
     let limits = controller::types::PositionLimits {
         max_supply_positions: supply,
         max_borrow_positions: borrow,
     };
-    let result = t.gov_client().try_set_position_limits(&limits);
+    let result = t.gov_client().try_execute_immediate(&admin, &AdminOperation::SetPositionLimits(limits));
     let expected = soroban_sdk::Error::from_contract_error(errors::INVALID_POSITION_LIMITS);
     match result {
         Ok(_) => panic!(
@@ -86,21 +89,25 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
+    let admin = t.admin();
 
     // `2 * RAY + 1` exceeds MAX_BORROW_RATE_RAY → MAX_BORROW_RATE_TOO_HIGH (#131).
-    let result = gov.try_upgrade_liquidity_pool_params(
-        &asset,
-        &InterestRateModel {
-            max_borrow_rate_ray: 2 * RAY + 1,
-            base_borrow_rate_ray: RAY / 100,
-            slope1_ray: RAY * 4 / 100,
-            slope2_ray: RAY * 10 / 100,
-            slope3_ray: RAY * 150 / 100,
-            mid_utilization_ray: RAY * 50 / 100,
-            optimal_utilization_ray: RAY * 80 / 100,
-            max_utilization_ray: controller::constants::RAY * 95 / 100,
-            reserve_factor_bps: 1000,
-        },
+    let result = gov.try_execute_immediate(
+        &admin,
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            asset,
+            params: InterestRateModel {
+                max_borrow_rate_ray: 2 * RAY + 1,
+                base_borrow_rate_ray: RAY / 100,
+                slope1_ray: RAY * 4 / 100,
+                slope2_ray: RAY * 10 / 100,
+                slope3_ray: RAY * 150 / 100,
+                mid_utilization_ray: RAY * 50 / 100,
+                optimal_utilization_ray: RAY * 80 / 100,
+                max_utilization_ray: controller::constants::RAY * 95 / 100,
+                reserve_factor_bps: 1000,
+            },
+        }),
     );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
@@ -108,5 +115,3 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     };
     assert_contract_error(mapped, errors::MAX_BORROW_RATE_TOO_HIGH);
 }
-
-// Oracle tolerance negative bounds live in `governance/tolerance.rs`.

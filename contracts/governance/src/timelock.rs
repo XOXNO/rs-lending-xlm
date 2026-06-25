@@ -197,6 +197,7 @@ mod tests {
     };
     use crate::timelock::{operation_delay, DelayTier};
     use crate::{Governance, GovernanceClient};
+    use crate::op::AdminOperation;
 
     const ZERO_SALT: [u8; 32] = [0u8; 32];
 
@@ -264,7 +265,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let id = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
 
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
     }
@@ -278,7 +279,7 @@ mod tests {
         let hash = BytesN::from_array(&env, &[8u8; 32]);
 
         let current = env.ledger().sequence();
-        let id = gov.propose_upgrade_pool(&admin, &hash, &salt);
+        let id = gov.propose(&admin, &AdminOperation::UpgradePool(hash), &salt);
 
         assert_eq!(
             gov.get_operation_ledger(&id),
@@ -299,7 +300,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let _ = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let _ = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits.clone()), &salt);
 
         gov.execute(
             &Some(admin.clone()),
@@ -323,7 +324,7 @@ mod tests {
             max_borrow_positions: 3,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let id = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits.clone()), &salt);
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
         env.ledger().with_mut(|l| l.sequence_number += delay);
@@ -357,7 +358,7 @@ mod tests {
             max_borrow_positions: 3,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let _id = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let _id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits.clone()), &salt);
 
         env.ledger()
             .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
@@ -384,7 +385,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        gov.propose_set_position_limits(&admin, &limits, &salt);
+        gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
     }
 
     #[test]
@@ -398,7 +399,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let id = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 
         gov.cancel(&admin, &id);
@@ -418,7 +419,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        gov.propose_set_position_limits(&stranger, &limits, &salt);
+        gov.propose(&stranger, &AdminOperation::SetPositionLimits(limits), &salt);
     }
 
     #[test]
@@ -435,7 +436,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        gov.propose_set_position_limits(&admin, &limits, &salt);
+        gov.propose(&admin, &AdminOperation::SetPositionLimits(limits.clone()), &salt);
         env.ledger().with_mut(|l| l.sequence_number += delay);
 
         gov.execute(
@@ -461,7 +462,7 @@ mod tests {
             max_borrow_positions: 4,
         };
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
-        let id = gov.propose_set_position_limits(&admin, &limits, &salt);
+        let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits), &salt);
 
         gov.cancel(&stranger, &id);
     }
@@ -507,7 +508,7 @@ mod tests {
         let (admin, gov) = register(&env, TIMELOCK_MIN_DELAY_LEDGERS);
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
 
-        let id = gov.propose_update_delay(&admin, &TIMELOCK_MAX_DELAY_LEDGERS, &salt);
+        let id = gov.propose(&admin, &AdminOperation::UpdateGovDelay(TIMELOCK_MAX_DELAY_LEDGERS), &salt);
         assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
     }
 
@@ -520,6 +521,6 @@ mod tests {
         let salt = BytesN::<32>::from_array(&env, &ZERO_SALT);
         let over_max = TIMELOCK_MAX_DELAY_LEDGERS + 1;
 
-        gov.propose_update_delay(&admin, &over_max, &salt);
+        gov.propose(&admin, &AdminOperation::UpdateGovDelay(over_max), &salt);
     }
 }

@@ -5,15 +5,20 @@ use test_harness::oracle::redstone::register_redstone_adapter;
 use test_harness::{
     assert_contract_error, errors, usd, usdc_preset, LendingTest, DEFAULT_TOLERANCE,
 };
+use governance::op::{AdminOperation, ConfigureOracleArgs};
 
 fn try_configure_usdc(
     t: &LendingTest,
     cfg: &controller::types::MarketOracleConfigInput,
 ) -> Result<(), soroban_sdk::Error> {
     let asset = t.resolve_market("USDC").asset.clone();
+    let admin = t.admin();
     t.gov_client()
-        .try_configure_market_oracle(&t.admin(), &asset, cfg)
-        .map(|inner| inner.map_err(|e| e.into()))
+        .try_execute_immediate(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            asset,
+            cfg: cfg.clone(),
+        }))
+        .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
         .unwrap_or_else(|e| Err(e.expect("expected contract error")))
 }
 
@@ -26,6 +31,7 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1))]);
+    let admin = t.admin();
 
     let cfg = test_harness::reflector_primary_redstone_anchor_config_with_anchor_stale(
         &t.mock_reflector,
@@ -37,7 +43,10 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
         DEFAULT_TOLERANCE.last_upper_bps,
     );
     t.gov_client()
-        .configure_market_oracle(&t.admin(), &asset, &cfg);
+        .execute_immediate(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            asset,
+            cfg,
+        }));
 }
 
 #[test]
