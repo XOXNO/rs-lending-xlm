@@ -436,11 +436,19 @@ mutants:
 		echo "  cargo install cargo-mutants --locked"; \
 		exit 1; \
 	}
+	# The harness loads target/wasm32v1-none/release/pool.wasm at setup
+	# (test-harness builder.rs); build it so the baseline phase does not panic
+	# on a clean checkout.
+	$(MAKE) build
 	cargo mutants --package common --package controller \
 		--file 'common/src/**/*.rs' \
 		--file 'contracts/controller/src/helpers/**/*.rs' \
 		--exclude '**/tests/**' \
 		--exclude '**/certora/**' \
+		--test-package common \
+		--test-package controller \
+		--test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		--jobs 1
 
 mutants-math:
@@ -453,12 +461,14 @@ mutants-pool-interest:
 	cargo mutants --package pool --file 'contracts/pool/src/interest.rs' -j $(MUTANTS_JOBS)
 
 mutants-pool:
+	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
 	cargo mutants --package pool \
 		--test-package pool --test-package test-harness \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		-j $(MUTANTS_JOBS)
 
 mutants-oracle-policy:
+	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
 	cargo mutants --package controller \
 		--file 'contracts/controller/src/oracle/policy.rs' \
 		--file 'contracts/controller/src/oracle/compose.rs' \
@@ -467,12 +477,14 @@ mutants-oracle-policy:
 		-j $(MUTANTS_JOBS)
 
 mutants-controller-positions:
+	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
 	cargo mutants --package controller --file 'contracts/controller/src/positions/**' \
 		--test-package controller --test-package test-harness \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		-j $(MUTANTS_JOBS)
 
 mutants-controller-strategies:
+	$(MAKE) build  # harness loads the pool.wasm fixture; see `mutants`
 	cargo mutants --package controller --file 'contracts/controller/src/strategies/**' \
 		--test-package controller --test-package test-harness \
 		--minimum-test-timeout $(MUTANTS_TIMEOUT) \

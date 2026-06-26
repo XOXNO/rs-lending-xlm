@@ -75,3 +75,7 @@ pub fn millis_to_seconds(timestamp_ms: u64) -> u64 {
     // `MS_PER_SECOND` is a nonzero constant, so this division cannot fail.
     timestamp_ms / MS_PER_SECOND
 }
+
+#[cfg(test)]
+#[path = "../../tests/oracle/observation.rs"]
+mod tests;
