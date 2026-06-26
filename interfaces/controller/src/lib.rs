@@ -130,22 +130,22 @@ pub trait ControllerInterface {
     fn renew_account(env: Env, caller: Address, account_id: u64);
 
     /// Returns true when health factor is below one.
-    fn can_be_liquidated(env: Env, account_id: u64) -> bool;
+    fn is_liquidatable(env: Env, account_id: u64) -> bool;
 
     /// Returns account health factor in WAD; debt-free accounts return `i128::MAX`.
-    fn health_factor(env: Env, account_id: u64) -> i128;
+    fn get_health_factor(env: Env, account_id: u64) -> i128;
 
     /// Returns total collateral value in USD WAD.
-    fn total_collateral_in_usd(env: Env, account_id: u64) -> i128;
+    fn get_total_collateral_usd(env: Env, account_id: u64) -> i128;
 
     /// Returns total borrow value in USD WAD.
-    fn total_borrow_in_usd(env: Env, account_id: u64) -> i128;
+    fn get_total_borrow_usd(env: Env, account_id: u64) -> i128;
 
     /// Returns current underlying collateral amount for one asset.
-    fn collateral_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128;
+    fn get_collateral_amount(env: Env, account_id: u64, asset: Address) -> i128;
 
     /// Returns current underlying debt amount for one asset.
-    fn borrow_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128;
+    fn get_borrow_amount(env: Env, account_id: u64, asset: Address) -> i128;
 
     /// Returns raw scaled supply and debt maps for an account.
     fn get_account_positions(
@@ -179,23 +179,23 @@ pub trait ControllerInterface {
     fn get_pool_address(env: Env) -> Address;
 
     /// Returns config and oracle data for each requested market.
-    fn get_all_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;
+    fn get_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;
 
     /// Returns indexes and price components for each requested market.
-    fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView>;
+    fn get_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView>;
 
     /// Estimates liquidation seize, repay, refund, and bonus data.
-    fn liquidation_estimations_detailed(
+    fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
         debt_payments: Vec<(Address, i128)>,
     ) -> LiquidationEstimate;
 
     /// Returns total collateral value available for liquidation, in USD WAD.
-    fn liquidation_collateral_available(env: Env, account_id: u64) -> i128;
+    fn get_liquidation_collateral(env: Env, account_id: u64) -> i128;
 
     /// Returns collateral value counted toward LTV, in USD WAD.
-    fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128;
+    fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128;
 
     /// Returns the largest `withdraw` amount of `asset` currently executable
     /// for `account_id` (position, pool cash, max-utilization cap, LTV/HF

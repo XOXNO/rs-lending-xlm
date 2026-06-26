@@ -37,27 +37,27 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 
 #[contractimpl]
 impl Controller {
-    pub fn can_be_liquidated(env: Env, account_id: u64) -> bool {
+    pub fn is_liquidatable(env: Env, account_id: u64) -> bool {
         can_be_liquidated(&env, account_id)
     }
 
-    pub fn health_factor(env: Env, account_id: u64) -> i128 {
+    pub fn get_health_factor(env: Env, account_id: u64) -> i128 {
         health_factor(&env, account_id)
     }
 
-    pub fn total_collateral_in_usd(env: Env, account_id: u64) -> i128 {
+    pub fn get_total_collateral_usd(env: Env, account_id: u64) -> i128 {
         total_collateral_in_usd(&env, account_id)
     }
 
-    pub fn total_borrow_in_usd(env: Env, account_id: u64) -> i128 {
+    pub fn get_total_borrow_usd(env: Env, account_id: u64) -> i128 {
         total_borrow_in_usd(&env, account_id)
     }
 
-    pub fn collateral_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128 {
+    pub fn get_collateral_amount(env: Env, account_id: u64, asset: Address) -> i128 {
         collateral_amount_for_token(&env, account_id, &asset)
     }
 
-    pub fn borrow_amount_for_token(env: Env, account_id: u64, asset: Address) -> i128 {
+    pub fn get_borrow_amount(env: Env, account_id: u64, asset: Address) -> i128 {
         borrow_amount_for_token(&env, account_id, &asset)
     }
 
@@ -93,18 +93,15 @@ impl Controller {
         get_pool_address(&env)
     }
 
-    pub fn get_all_markets_detailed(
-        env: Env,
-        assets: Vec<Address>,
-    ) -> Vec<AssetExtendedConfigView> {
+    pub fn get_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView> {
         get_all_markets_detailed(&env, &assets)
     }
 
-    pub fn get_all_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView> {
+    pub fn get_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView> {
         get_all_market_indexes_detailed(&env, &assets)
     }
 
-    pub fn liquidation_estimations_detailed(
+    pub fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
         debt_payments: Vec<(Address, i128)>,
@@ -112,11 +109,11 @@ impl Controller {
         liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }
 
-    pub fn liquidation_collateral_available(env: Env, account_id: u64) -> i128 {
+    pub fn get_liquidation_collateral(env: Env, account_id: u64) -> i128 {
         liquidation_collateral_available(&env, account_id)
     }
 
-    pub fn ltv_collateral_in_usd(env: Env, account_id: u64) -> i128 {
+    pub fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128 {
         ltv_collateral_in_usd(&env, account_id)
     }
 
@@ -171,7 +168,9 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let decimals = storage::get_market_config(env, asset).asset_config.asset_decimals;
+    let decimals = storage::get_market_config(env, asset)
+        .asset_config
+        .asset_decimals;
 
     position
         .scaled_amount
@@ -187,7 +186,9 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let decimals = storage::get_market_config(env, asset).asset_config.asset_decimals;
+    let decimals = storage::get_market_config(env, asset)
+        .asset_config
+        .asset_decimals;
 
     position
         .scaled_amount
