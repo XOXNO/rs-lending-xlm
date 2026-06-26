@@ -67,7 +67,7 @@ Each run writes `runs/<RUN_TS>/`:
   (expected revert), `view` (read-only), `sim_probe` (build+simulate budget
   probe, no fees). Tx hash parsed from the CLI's `Signing transaction:` line —
   present only after simulation passes, so it doubles as the success signal.
-- `lib/assert.sh` — parsed on-chain assertions (HF, debt, `can_be_liquidated`, pool revenue).
+- `lib/assert.sh` — parsed on-chain assertions (HF, debt, `is_liquidatable`, pool revenue).
 - `lib/liq20_width.sh` — 20-feed liquidation width research helpers (`research` status).
 - `lib/wallet.sh` — per-run unique friendbot-funded wallets (reused aliases
   run dry across runs; never share wallets between runs).

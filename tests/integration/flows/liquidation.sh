@@ -64,9 +64,9 @@ flow_liq_single() {
     set_mock_price "$SAC_LIQA" $((WAD / 10 * 7)) liq1_crash
     assert_hf_below_wad liq1_hf "$acct"
     assert_can_liquidated liq1_can_liq "$acct" true
-    view liq1_estimate "$CONTROLLER" -- liquidation_estimations_detailed \
+    view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate \
         --account_id "$acct" --debt_payments "$(pay_vec "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
-    view liq1_avail "$CONTROLLER" -- liquidation_collateral_available --account_id "$acct" >/dev/null
+    view liq1_avail "$CONTROLLER" -- get_liquidation_collateral --account_id "$acct" >/dev/null
 
     # Partial liquidation: repay 100 of 600 debt.
     local liq1_debt_pre_partial=$((600 * LIQ_UNIT))
@@ -84,7 +84,7 @@ flow_liq_single() {
     # then submit just under it — payments ≤ close transfer the exact user
     # amount and stay auth-stable. (Design note for liquidation bots.)
     local est refund close
-    est=$(view liq1_estimate_close "$CONTROLLER" -- liquidation_estimations_detailed \
+    est=$(view liq1_estimate_close "$CONTROLLER" -- get_liquidation_estimate \
         --account_id "$acct" --debt_payments "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))")
     refund=$(jq -r '[.refunds[]?.amount | tonumber] | add // 0' <<<"$est")
     close=$(( 600 * LIQ_UNIT - refund ))
@@ -120,8 +120,8 @@ flow_liq_bulk() {
     assert_hf_below_wad liq2_hf "$acct"
 
     local liq2_debt_b_pre liq2_debt_d_pre
-    liq2_debt_b_pre=$(_view_int liq2_debt_b_pre borrow_amount_for_token --account_id "$acct" --asset "$SAC_LIQB")
-    liq2_debt_d_pre=$(_view_int liq2_debt_d_pre borrow_amount_for_token --account_id "$acct" --asset "$SAC_LIQD")
+    liq2_debt_b_pre=$(_view_int liq2_debt_b_pre get_borrow_amount --account_id "$acct" --asset "$SAC_LIQB")
+    liq2_debt_d_pre=$(_view_int liq2_debt_d_pre get_borrow_amount --account_id "$acct" --asset "$SAC_LIQD")
     inv liq2_liquidate_bulk "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$SAC_LIQB" $((150 * LIQ_UNIT)) "$SAC_LIQD" $((150 * LIQ_UNIT)))" >/dev/null
@@ -216,13 +216,13 @@ flow_caps() {
     fi
 
     # Supply cap: tighten below supply, breach, reset to disabled.
-    inv cap_supply_tighten "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800 '.supply_cap="1"')" >/dev/null
+    inv cap_supply_tighten "$ADMIN" "$CONTROLLER" -- update_pool_caps \
+        --asset "$SAC_CAP" --supply_cap 1 --borrow_cap 0 >/dev/null
     xfail cap_supply_breach 'Error\(Contract, #105\)' "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
         --assets "$(pay_vec "$SAC_CAP" $((1000 * LIQ_UNIT)))"
-    inv cap_supply_reset "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800)" >/dev/null
+    inv cap_supply_reset "$ADMIN" "$CONTROLLER" -- update_pool_caps \
+        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 0 >/dev/null
 
     # Borrow cap: BOB supplies stable CAPC collateral, then a CAP borrow above the
     # cap reverts (#106). The tiny borrow stays well within LTV so #106, not #100.
@@ -230,11 +230,11 @@ flow_caps() {
     cap_acct=$(inv cap_coll_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
         --assets "$(pay_vec "$SAC_CAPC" $((3000 * LIQ_UNIT)))" | tr -d '"') || return 1
-    inv cap_borrow_tighten "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800 '.borrow_cap="1"')" >/dev/null
+    inv cap_borrow_tighten "$ADMIN" "$CONTROLLER" -- update_pool_caps \
+        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 1 >/dev/null
     xfail cap_borrow_breach 'Error\(Contract, #106\)' "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$cap_acct" \
         --borrows "$(pay_vec "$SAC_CAP" $((10 * LIQ_UNIT)))"
-    inv cap_borrow_reset "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$SAC_CAP" --cfg "$(asset_config_json 7000 7500 800)" >/dev/null
+    inv cap_borrow_reset "$ADMIN" "$CONTROLLER" -- update_pool_caps \
+        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 0 >/dev/null
 }

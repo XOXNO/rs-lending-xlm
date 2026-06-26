@@ -83,14 +83,14 @@ flow_lifecycle() {
         --assets "$(pay_vec "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
 
     # Views.
-    view hf_alice "$CONTROLLER" -- health_factor --account_id "$acct" >/dev/null
-    view coll_usd_alice "$CONTROLLER" -- total_collateral_in_usd --account_id "$acct" >/dev/null
-    view ltv_usd_alice "$CONTROLLER" -- ltv_collateral_in_usd --account_id "$acct" >/dev/null
+    view hf_alice "$CONTROLLER" -- get_health_factor --account_id "$acct" >/dev/null
+    view coll_usd_alice "$CONTROLLER" -- get_total_collateral_usd --account_id "$acct" >/dev/null
+    view ltv_usd_alice "$CONTROLLER" -- get_ltv_collateral_usd --account_id "$acct" >/dev/null
     view attrs_alice "$CONTROLLER" -- get_account_attributes --account_id "$acct" >/dev/null
     view positions_alice "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null
-    view markets_view "$CONTROLLER" -- get_all_markets_detailed \
+    view markets_view "$CONTROLLER" -- get_markets_detailed \
         --assets "[\"$XLM_SAC\",\"$USDC_SAC\",\"$EURC_SAC\"]" >/dev/null
-    view indexes_view "$CONTROLLER" -- get_all_market_indexes_detailed \
+    view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
         --assets "[\"$XLM_SAC\",\"$USDC_SAC\"]" >/dev/null
 
     # Borrow: single, then bulk (two assets in one tx).
@@ -101,7 +101,7 @@ flow_lifecycle() {
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$USDC_SAC" 150000000 "$XLM_SAC" 1000000000)" >/dev/null
     local borrow_usd
-    borrow_usd=$(_view_int borrow_usd_alice total_borrow_in_usd --account_id "$acct")
+    borrow_usd=$(_view_int borrow_usd_alice get_total_borrow_usd --account_id "$acct")
     if [ -z "$borrow_usd" ] || [ "$borrow_usd" -le 0 ]; then
         log "ASSERT FAIL [borrow_usd_alice]: total_borrow_usd=$borrow_usd want > 0"
         return 1
@@ -141,16 +141,16 @@ flow_lifecycle() {
 
     # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
     local usdc_debt_pre_partial
-    usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial borrow_amount_for_token \
+    usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial get_borrow_amount \
         --account_id "$acct" --asset "$USDC_SAC")
     inv repay_partial "$ALICE" "$CONTROLLER" -- repay \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --payments "$(pay_vec "$USDC_SAC" 100000000)" >/dev/null
     assert_borrow_decreased debt_usdc_post_partial "$acct" "$USDC_SAC" "$usdc_debt_pre_partial"
     local usdc_debt xlm_debt
-    usdc_debt=$(view debt_usdc_alice "$CONTROLLER" -- borrow_amount_for_token \
+    usdc_debt=$(view debt_usdc_alice "$CONTROLLER" -- get_borrow_amount \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
-    xlm_debt=$(view debt_xlm_alice "$CONTROLLER" -- borrow_amount_for_token \
+    xlm_debt=$(view debt_xlm_alice "$CONTROLLER" -- get_borrow_amount \
         --account_id "$acct" --asset "$XLM_SAC" | tr -d '"')
     inv repay_full_bulk "$ALICE" "$CONTROLLER" -- repay \
         --caller "$ALICE_ADDR" --account_id "$acct" \
@@ -167,7 +167,7 @@ flow_lifecycle() {
             --caller "$ALICE_ADDR" --account_id "$acct" \
             --borrows "$(pay_vec "$USDC_SAC" 120000000)" >/dev/null
         local debt_after_borrow
-        debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- borrow_amount_for_token \
+        debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- get_borrow_amount \
             --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
         if [ -z "$debt_after_borrow" ] || [ "$debt_after_borrow" -lt 120000000 ]; then
             log "borrow_again: USDC debt too low ($debt_after_borrow) for cross-account repay"
@@ -189,9 +189,9 @@ flow_lifecycle() {
     inv renew_account "$ALICE" "$CONTROLLER" -- renew_account \
         --caller "$ALICE_ADDR" --account_id "$acct" >/dev/null
     local xlm_coll usdc_coll
-    Makxlm_coll=$(view coll_xlm_alice "$CONTROLLER" -- collateral_amount_for_token \
+    Makxlm_coll=$(view coll_xlm_alice "$CONTROLLER" -- get_collateral_amount \
         --account_id "$acct" --asset "$XLM_SAC" | tr -d '"')
-    usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- collateral_amount_for_token \
+    usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
         --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
     # Full close via the amount-0 sentinel: retried because live oracle round
     # rotation can trap between sim and apply.

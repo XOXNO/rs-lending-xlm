@@ -96,7 +96,7 @@ sim_probe probe_liquidate_10coll_10debt "$CAROL" "$CONTROLLER" -- liquidate \
     --debt_payments "$(pay_vec "$(stress_sac 19)" "$REPAY")"
 if [ "$PROBE_STATUS" = ok ]; then
     # Top-level (not a function): `local` would error, so use a plain assignment.
-    liq20_debt_pre=$(_view_int liq20_debt_pre borrow_amount_for_token \
+    liq20_debt_pre=$(_view_int liq20_debt_pre get_borrow_amount \
         --account_id "$ACCT" --asset "$(stress_sac 19)")
     if inv liq20_liquidate_proof "$CAROL" "$CONTROLLER" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
