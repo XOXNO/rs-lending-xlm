@@ -441,6 +441,10 @@ mutants:
 		--file 'contracts/controller/src/helpers/**/*.rs' \
 		--exclude '**/tests/**' \
 		--exclude '**/certora/**' \
+		--test-package common \
+		--test-package controller \
+		--test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
 		--jobs 1
 
 mutants-math:
