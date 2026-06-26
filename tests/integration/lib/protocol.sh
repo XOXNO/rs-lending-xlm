@@ -129,6 +129,8 @@ market_params_json() {
         optimal_utilization_ray: "800000000000000000000000000",
         max_utilization_ray: "950000000000000000000000000",
         reserve_factor_bps: 1000,
+        supply_cap: "0",
+        borrow_cap: "0",
         asset_id: $sac,
         asset_decimals: $dec
     }'
@@ -148,8 +150,7 @@ asset_config_json() {
 
         is_flashloanable: true,
         flashloan_fee_bps: 5,
-        borrow_cap: "0",
-        supply_cap: "0",
+        asset_decimals: 7,
         e_mode_categories: []
     }' | jq -c "$overrides"
 }

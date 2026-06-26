@@ -18,11 +18,12 @@ flow_admin() {
     inv admin_unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     xfail unpause_when_live 'Error\(Contract, #1001\)' "$ADMIN" "$CONTROLLER" -- unpause
 
-    # Position limits: valid update + cap guard (#36 above POSITION_LIMIT_MAX=10).
+    # Position limits: the EOA-owned controller setter is a thin owner-only writer.
+    # The > POSITION_LIMIT_MAX bound (#36) is validated on the governance propose
+    # path (see flows/governance.sh gov_propose_bad_limits), not on this direct
+    # setter, so only the valid update runs here.
     inv set_position_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits '{"max_supply_positions":10,"max_borrow_positions":10}' >/dev/null
-    xfail position_limits_too_high 'Error\(Contract, #36\)' "$ADMIN" "$CONTROLLER" -- set_position_limits \
-        --limits '{"max_supply_positions":11,"max_borrow_positions":11}'
 
     # Market param + asset config edits on EURC (idle real market: edits here
     # disturb nothing else, and it is disabled at the end of this flow).
@@ -116,13 +117,15 @@ flow_admin() {
         --floor_wad=-1
 
     # Oracle circuit-breaker: owner disables a market (Active -> Disabled);
-    # re-disable rejects (#12 PairNotActive), non-owner caller rejects (#2000).
+    # re-disable rejects (#12 PairNotActive). disable_token_oracle is owner-only,
+    # so a non-owner caller can't satisfy the owner's require_auth() and the CLI
+    # reports a missing signing key (same owner-guard shape as oracle_tol_owner_guard).
     inv disable_oracle "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
         --asset "$EURC_SAC" >/dev/null
     assert_market_status disable_status "$EURC_SAC" Disabled
     xfail disable_non_active 'Error\(Contract, #12\)' "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
         --asset "$EURC_SAC"
-    xfail disable_non_owner 'Error\(Contract, #2000\)' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
+    xfail disable_non_owner 'Missing signing key' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
         --asset "$USDC_SAC"
 
     # Token approval admin (idle EURC: revoke then re-approve round-trip).

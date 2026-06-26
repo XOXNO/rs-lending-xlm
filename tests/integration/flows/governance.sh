@@ -12,6 +12,7 @@ GOV_ZERO32="0000000000000000000000000000000000000000000000000000000000000000"
 GOV_SALT_CANCEL="1111111111111111111111111111111111111111111111111111111111111111"
 GOV_SALT_EXEC="2222222222222222222222222222222222222222222222222222222222222222"
 GOV_SALT_DENY="3333333333333333333333333333333333333333333333333333333333333333"
+GOV_SALT_BADLIMITS="4444444444444444444444444444444444444444444444444444444444444444"
 
 # Raw operation state (Unset|Waiting|Ready|Done) for an op id.
 gov_state() {
@@ -112,6 +113,14 @@ flow_governance() {
         --proposer "$ALICE_ADDR" \
         --op '{"SetPositionLimits":{"max_supply_positions":5,"max_borrow_positions":5}}' \
         --salt "$GOV_SALT_DENY"
+
+    # Operation validation runs at propose time: limits above POSITION_LIMIT_MAX=10
+    # are rejected (#36) before anything is scheduled. This bound lives on the
+    # governance path (controller's direct setter is a thin owner-only writer).
+    xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- propose \
+        --proposer "$ADMIN_ADDR" \
+        --op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
+        --salt "$GOV_SALT_BADLIMITS"
 
     # Owner-immediate emergency brake forwards to the governance-owned controller.
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause >/dev/null

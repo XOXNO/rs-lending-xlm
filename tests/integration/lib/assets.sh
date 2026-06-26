@@ -41,15 +41,28 @@ trustline() {
     local wallet="$1" code="$2" issuer="$3"
     local label="trust_${code}_${wallet%%_e2e*}"
     local err_f="$LOG_DIR/$label.err"
-    if stellar tx new change-trust --source-account "$wallet" --line "$code:$issuer" \
-        --network "$NETWORK" >"$LOG_DIR/$label.out" 2>"$err_f"; then
-        local hash
-        hash=$(grep -oE '[0-9a-f]{64}' "$err_f" | tail -1)
-        record "$label" ok "change_trust" "$hash" "" "" "" "" "$code"
-    else
-        record "$label" FAIL "change_trust" "" "" "" "" "" "$(tail -c 200 "$err_f" | tr '\n\t' '  ')"
-        return 1
-    fi
+    local attempt
+    for attempt in 1 2 3; do
+        [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
+        if stellar tx new change-trust --source-account "$wallet" --line "$code:$issuer" \
+            --network "$NETWORK" >"$LOG_DIR/$label.out" 2>"$err_f"; then
+            local hash
+            hash=$(grep -oE '[0-9a-f]{64}' "$err_f" | tail -1)
+            record "$label" ok "change_trust" "$hash" "" "" "" "" "$code"
+            return 0
+        fi
+        # A transient gateway/timeout failure leaves no on-ledger effect, and a
+        # change-trust to an already-established line re-submits harmlessly, so
+        # resubmitting is always safe. A deterministic failure recurs and falls
+        # through to FAIL on the final attempt.
+        if [ "$attempt" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE" "$err_f"; then
+            record "$label" retry "change_trust" "" "" "" "" "" "transient rpc failure; retrying"
+            continue
+        fi
+        break
+    done
+    record "$label" FAIL "change_trust" "" "" "" "" "" "$(tail -c 200 "$err_f" | tr '\n\t' '  ')"
+    return 1
 }
 
 # Mints self-issued SAC units to a trustline holder (NOT the issuer).

@@ -8,6 +8,11 @@
 #   live in the signed envelope's SorobanTransactionData; fetched post-send
 #   via RPC getTransaction and decoded with `stellar xdr`.
 
+# Infra-level transients (gateway 5xx, request timeouts, connection resets) carry
+# no on-ledger effect and are always safe to resubmit — distinct from a contract
+# revert, which is deterministic. Shared by the inv / xfail / trustline retry loops.
+RPC_TRANSIENT_RE='rejected .?50[0-9]|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable'
+
 # Fetch declared resource usage for a sent tx hash.
 # Sets: RES_INSTR RES_READ RES_WRITE RES_FEE
 fetch_resources() {
@@ -55,6 +60,14 @@ inv() {
             cat "$out_f"
             return 0
         fi
+        # Transient RPC/gateway failure (5xx, timeout, connection reset) at
+        # simulate or send: no on-ledger effect, resubmit.
+        if [ "$attempt" -lt 3 ] \
+            && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
+            && ! grep -q "Error(Contract" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure; retrying"
+            continue
+        fi
         # Transient sim-vs-apply divergence: the tx simulated clean (it was
         # signed) but the apply read keys outside the simulated footprint —
         # live Reflector round rotation, DEX state movement, accrual drift.
@@ -101,7 +114,7 @@ xfail() {
             return 0
         fi
         if [ "$attempt" -lt 3 ] \
-            && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
+            && grep -qE "$RPC_TRANSIENT_RE|Trapped|ResourceLimitExceeded" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "transient infra failure; resimulating"
             continue

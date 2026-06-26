@@ -188,7 +188,7 @@ flow_clean_bad_debt() {
 
 # Supply-cap / borrow-cap revert coverage on a dedicated, stable ($1) mock market.
 # borrow_cap/supply_cap default to 0 (disabled) protocol-wide, so these reverts
-# are otherwise never exercised. Each cap is tightened via edit_asset_config,
+# are otherwise never exercised. Each cap is tightened via update_pool_caps,
 # breached (#105 / #106), then reset to disabled so nothing leaks to later flows.
 flow_caps() {
     phase caps
