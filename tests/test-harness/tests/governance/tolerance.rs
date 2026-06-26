@@ -1,9 +1,9 @@
 //! Oracle tolerance bounds on the `edit_oracle_tolerance` forwarder.
 
 use common::errors::OracleError;
+use governance::op::{AdminOperation, EditToleranceArgs};
 use soroban_sdk::Address;
 use test_harness::{assert_contract_error, usdc_preset, LendingTest};
-use governance::op::{AdminOperation, EditToleranceArgs};
 
 fn try_tolerance(
     t: &LendingTest,
@@ -11,17 +11,14 @@ fn try_tolerance(
     first: u32,
     last: u32,
 ) -> Result<(), soroban_sdk::Error> {
-    match t
-        .gov_client()
-        .try_execute_immediate(
-            &t.admin(),
-            &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-                asset: asset.clone(),
-                first_tolerance: first,
-                last_tolerance: last,
-            }),
-        )
-    {
+    match t.gov_client().try_execute_immediate(
+        &t.admin(),
+        &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+            asset: asset.clone(),
+            first_tolerance: first,
+            last_tolerance: last,
+        }),
+    ) {
         Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     }

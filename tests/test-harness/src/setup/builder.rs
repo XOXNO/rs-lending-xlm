@@ -2,9 +2,9 @@ extern crate std;
 
 use std::collections::HashMap;
 
+use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
-use governance::op::{AdminOperation, EModeAssetArgs, CreatePoolArgs, ConfigureOracleArgs};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
 use crate::helpers::f64_to_i128;
@@ -192,12 +192,18 @@ impl LendingTestBuilder {
                 .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
             Err(_) => panic!("Liquidity pool WASM not found. Run 'make build' first."),
         };
-        gov.execute_immediate(&admin, &AdminOperation::SetLiquidityPoolTemplate(pool_hash.clone()));
+        gov.execute_immediate(
+            &admin,
+            &AdminOperation::SetLiquidityPoolTemplate(pool_hash.clone()),
+        );
 
         let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool);
         let global_pool: Address = Address::try_from_val(&env, &global_pool_val).unwrap();
 
-        gov.execute_immediate(&admin, &AdminOperation::SetAggregator(aggregator_address.clone()));
+        gov.execute_immediate(
+            &admin,
+            &AdminOperation::SetAggregator(aggregator_address.clone()),
+        );
 
         let treasury = Address::generate(&env);
         gov.execute_immediate(&admin, &AdminOperation::SetAccumulator(treasury.clone()));
@@ -213,7 +219,10 @@ impl LendingTestBuilder {
         }
 
         if let Some(floor_wad) = self.min_borrow_collateral_usd_wad {
-            gov.execute_immediate(&admin, &AdminOperation::SetMinBorrowCollateralUsd(floor_wad));
+            gov.execute_immediate(
+                &admin,
+                &AdminOperation::SetMinBorrowCollateralUsd(floor_wad),
+            );
         }
 
         let mock_reflector_client =

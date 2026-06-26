@@ -433,6 +433,21 @@ fn test_strategy_borrow_cap_enforced_after_pool_sync() {
 }
 
 #[test]
+fn test_borrow_rejects_zero_amount() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    client.supply(&t.sup(0, 50_000_000_000i128));
+
+    let borrower = Address::generate(&t.env);
+    let result = flatten_contract_result(client.try_borrow(&borrower, &t.bor(0, 0i128)));
+    assert_contract_error(
+        result,
+        common::errors::GenericError::AmountMustBePositive as u32,
+    );
+}
+
+#[test]
 fn test_borrow_rejects_when_reserves_are_insufficient() {
     let t = TestSetup::new();
     let client = t.client();
@@ -849,6 +864,20 @@ fn test_flash_loan_rejects_negative_fee() {
         &-1i128,
         &Bytes::new(&t.env),
     ));
+    assert_contract_error(
+        result,
+        common::errors::GenericError::AmountMustBePositive as u32,
+    );
+}
+
+#[test]
+fn test_create_strategy_rejects_zero_amount() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let caller = Address::generate(&t.env);
+
+    let result =
+        flatten_contract_result(client.try_create_strategy(&caller, &t.action(0, 0i128), &0i128));
     assert_contract_error(
         result,
         common::errors::GenericError::AmountMustBePositive as u32,

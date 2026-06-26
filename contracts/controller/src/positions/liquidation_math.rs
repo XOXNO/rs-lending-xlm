@@ -271,8 +271,8 @@ pub(crate) fn calculate_seized_collateral(
         let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
         let bonus_ray = capped_ray - base_ray;
         let protocol_fee_ray = asset_config.liquidation_fees.apply_to_ray(env, bonus_ray);
-    // Full seizure uses pool half-up conversion so pool full-close succeeds.
-    // Partial seizures floor and cannot exceed the computed RAY amount.
+        // Full seizure uses pool half-up conversion so pool full-close succeeds.
+        // Partial seizures floor and cannot exceed the computed RAY amount.
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {

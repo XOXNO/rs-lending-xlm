@@ -161,10 +161,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         let asset_addr = t.resolve_asset(asset);
         let ctrl = t.ctrl_client();
         let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
-        let index = ctrl
-            .get_market_indexes_detailed(&assets)
-            .get(0)
-            .unwrap();
+        let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
         assert!(
             index.supply_index_ray >= RAY,
             "{} supply index should be >= 1.0 RAY",

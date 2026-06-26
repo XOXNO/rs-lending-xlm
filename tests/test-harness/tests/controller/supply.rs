@@ -447,7 +447,10 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
         assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
         // Strictly increasing => each call minted a fresh, distinct account.
         assert!(id > last_id, "each supply(id=0) must mint a new account id");
-        assert!(ctrl.account_exists(&id), "spammed account persists in storage");
+        assert!(
+            ctrl.account_exists(&id),
+            "spammed account persists in storage"
+        );
         last_id = id;
         created += 1;
     }
@@ -476,23 +479,28 @@ fn poc_non_owner_can_supply_into_victims_account() {
     // ALICE opens her account with a USDC supply.
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_market("USDC").asset.clone();
-    t.resolve_market("USDC").token_admin.mint(&alice, &100_000_000);
-    let alice_id = t
-        .ctrl_client()
-        .supply(&alice, &0u64, &0u32, &vec![&t.env, (usdc, 100_000_000i128)]);
+    t.resolve_market("USDC")
+        .token_admin
+        .mint(&alice, &100_000_000);
+    let alice_id =
+        t.ctrl_client()
+            .supply(&alice, &0u64, &0u32, &vec![&t.env, (usdc, 100_000_000i128)]);
     assert!(alice_id > 0);
 
     // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
     let bob = t.get_or_create_user(BOB);
     let eth = t.resolve_market("ETH").asset.clone();
     t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
-    let returned = t
-        .ctrl_client()
-        .supply(&bob, &alice_id, &0u32, &vec![&t.env, (eth, 50_000_000i128)]);
+    let returned =
+        t.ctrl_client()
+            .supply(&bob, &alice_id, &0u32, &vec![&t.env, (eth, 50_000_000i128)]);
 
     // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
     // one of her supply-position slots, and ALICE still owns the account.
-    assert_eq!(returned, alice_id, "stranger's supply targets the victim account");
+    assert_eq!(
+        returned, alice_id,
+        "stranger's supply targets the victim account"
+    );
     assert!(
         t.supply_balance_for(ALICE, alice_id, "ETH") > 0.0,
         "stranger-gifted ETH position now occupies a slot on the victim account"

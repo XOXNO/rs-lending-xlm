@@ -1,11 +1,11 @@
 use crate::config::config;
 use controller::types::EModeAssetArgs;
 use controller::types::InterestRateModel;
+use governance_interface::AdminOperation;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec as SVec};
 use test_harness::LendingTest;
-use governance_interface::AdminOperation;
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where

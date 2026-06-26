@@ -124,12 +124,7 @@ impl EModeUsageContext {
         self.set_usage(asset, usage);
     }
 
-    pub fn apply_withdraw_after_pool(
-        &mut self,
-        env: &Env,
-        asset: &Address,
-        delta_scaled: Ray,
-    ) {
+    pub fn apply_withdraw_after_pool(&mut self, env: &Env, asset: &Address, delta_scaled: Ray) {
         if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
             return;
         }
@@ -141,12 +136,7 @@ impl EModeUsageContext {
         self.set_usage(asset, usage);
     }
 
-    pub fn apply_repay_after_pool(
-        &mut self,
-        env: &Env,
-        asset: &Address,
-        delta_scaled: Ray,
-    ) {
+    pub fn apply_repay_after_pool(&mut self, env: &Env, asset: &Address, delta_scaled: Ray) {
         if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
             return;
         }

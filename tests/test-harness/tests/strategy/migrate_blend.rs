@@ -51,7 +51,10 @@ fn empty_debt(t: &LendingTest) -> SorobanVec<(Address, i128)> {
 fn register_approved_blend(t: &LendingTest) -> Address {
     let addr = t.env.register(MockBlend, ());
     let admin = t.admin();
-    t.gov_client().execute_immediate(&admin, &governance_interface::AdminOperation::ApproveBlendPool(addr.clone()));
+    t.gov_client().execute_immediate(
+        &admin,
+        &governance_interface::AdminOperation::ApproveBlendPool(addr.clone()),
+    );
     addr
 }
 

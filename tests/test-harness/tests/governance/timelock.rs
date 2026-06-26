@@ -13,13 +13,15 @@
 //! `Waiting` until the ledger advances to `Ready`.
 
 use controller::types::{ControllerKey, MarketOracleConfig, PositionLimits};
+use governance_interface::{
+    AdminOperation, ConfigureOracleArgs, EditToleranceArgs, TransferOwnershipArgs,
+};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
     assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
     DEFAULT_TOLERANCE,
 };
-use governance_interface::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, TransferOwnershipArgs};
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
 
@@ -79,7 +81,11 @@ fn operation_state_transitions_unset_waiting_ready_done() {
     );
 
     // Waiting: scheduled but the delay has not elapsed.
-    let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &s,
+    );
     assert_eq!(
         gov.get_operation_state(&id),
         governance_interface::OperationState::Waiting
@@ -126,7 +132,11 @@ fn cancelled_operation_cannot_execute() {
     assert_harness_delay(&t);
 
     let new_limits = limits(8, 6);
-    let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &s,
+    );
     assert_eq!(
         gov.get_operation_state(&id),
         governance_interface::OperationState::Waiting
@@ -167,7 +177,11 @@ fn non_proposer_propose_rejected() {
     let gov = t.gov_iface_client();
     let stranger = Address::generate(&t.env);
 
-    let result = gov.try_propose(&stranger, &AdminOperation::SetPositionLimits(limits(5, 4)), &salt(&t.env, 3));
+    let result = gov.try_propose(
+        &stranger,
+        &AdminOperation::SetPositionLimits(limits(5, 4)),
+        &salt(&t.env, 3),
+    );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -211,7 +225,11 @@ fn non_executor_execute_rejected() {
     assert_harness_delay(&t);
 
     let new_limits = limits(5, 4);
-    gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &s);
+    gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &s,
+    );
     t.env
         .ledger()
         .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS);
@@ -265,7 +283,11 @@ fn propose_update_delay_requires_proposer() {
     let gov = t.gov_iface_client();
     let stranger = Address::generate(&t.env);
 
-    let result = gov.try_propose(&stranger, &AdminOperation::UpdateGovDelay(60u32), &salt(&t.env, 10));
+    let result = gov.try_propose(
+        &stranger,
+        &AdminOperation::UpdateGovDelay(60u32),
+        &salt(&t.env, 10),
+    );
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -295,8 +317,16 @@ fn same_params_distinct_salts_schedule_independently() {
     let salt_a = salt(&t.env, 6);
     let salt_b = salt(&t.env, 7);
 
-    let id_a = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &salt_a);
-    let id_b = gov.propose(&admin, &AdminOperation::SetPositionLimits(new_limits.clone()), &salt_b);
+    let id_a = gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &salt_a,
+    );
+    let id_b = gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &salt_b,
+    );
 
     assert_ne!(id_a, id_b, "distinct salts must yield distinct op ids");
     assert_eq!(
@@ -340,10 +370,14 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let resolved: MarketOracleConfig = gov.resolve_market_oracle_config(&asset, &cfg);
 
     // Schedule the same op through the proposer; it stores the resolved struct.
-    let id = gov.propose(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-        asset: asset.clone(),
-        cfg,
-    }), &s);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
+            asset: asset.clone(),
+            cfg,
+        }),
+        &s,
+    );
     assert_eq!(
         gov.get_operation_state(&id),
         governance_interface::OperationState::Waiting
@@ -396,11 +430,15 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     let resolved = gov.resolve_oracle_tolerance(&first, &last);
 
-    let id = gov.propose(&admin, &AdminOperation::EditOracleTolerance(EditToleranceArgs {
-        asset: asset.clone(),
-        first_tolerance: first,
-        last_tolerance: last,
-    }), &s);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::EditOracleTolerance(EditToleranceArgs {
+            asset: asset.clone(),
+            first_tolerance: first,
+            last_tolerance: last,
+        }),
+        &s,
+    );
     assert_eq!(
         gov.get_operation_state(&id),
         governance_interface::OperationState::Waiting

@@ -380,13 +380,10 @@ pub fn edit_asset_in_e_mode_category(
     // that would overflow it so a misconfig fails here, not at view time.
     common::validation::require_cap_within_asset_domain(env, supply_cap, hub.params.asset_decimals);
     common::validation::require_cap_within_asset_domain(env, borrow_cap, hub.params.asset_decimals);
-    let usage = cat
-        .usage
-        .get(asset.clone())
-        .unwrap_or(EModeSpokeUsageRaw {
-            supplied_scaled_ray: 0,
-            borrowed_scaled_ray: 0,
-        });
+    let usage = cat.usage.get(asset.clone()).unwrap_or(EModeSpokeUsageRaw {
+        supplied_scaled_ray: 0,
+        borrowed_scaled_ray: 0,
+    });
     validate_spoke_caps_against_usage(
         env,
         &usage,

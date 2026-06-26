@@ -76,14 +76,7 @@ pub(crate) fn pool_create_strategy_call(
     action: PoolAction,
     fee: i128,
 ) -> PoolStrategyMutation {
-    create_strategy_summary(
-        env,
-        &action.asset,
-        action.position,
-        action.amount,
-        fee,
-        0,
-    )
+    create_strategy_summary(env, &action.asset, action.position, action.amount, fee, 0)
 }
 
 pub(crate) fn pool_withdraw_call(

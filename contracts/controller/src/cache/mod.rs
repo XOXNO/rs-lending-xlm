@@ -291,7 +291,9 @@ impl Cache {
             return None;
         }
         self.ensure_emode_loaded(category_id);
-        self.emode_usage.as_ref().map(EModeUsageContext::as_category)
+        self.emode_usage
+            .as_ref()
+            .map(EModeUsageContext::as_category)
     }
 
     pub fn active_e_mode_category(&mut self, env: &Env, category_id: u32) -> Option<EModeCategory> {
@@ -309,9 +311,7 @@ impl Cache {
             return None;
         }
         self.ensure_emode_loaded(category_id);
-        self.emode_usage
-            .as_ref()
-            .map(|ctx| ctx.spoke_usage(asset))
+        self.emode_usage.as_ref().map(|ctx| ctx.spoke_usage(asset))
     }
 
     pub(crate) fn emode_usage_mut(&mut self, category_id: u32) -> Option<&mut EModeUsageContext> {

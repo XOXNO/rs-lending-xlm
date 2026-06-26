@@ -189,12 +189,7 @@ pub trait GovernanceInterface {
     // --- forward.rs: generic proposer ---
 
     /// Schedules an administrative operation.
-    fn propose(
-        env: Env,
-        proposer: Address,
-        op: AdminOperation,
-        salt: BytesN<32>,
-    ) -> BytesN<32>;
+    fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>;
 
     /// Emergency brake: halts the controller immediately, owner-gated.
     fn pause(env: Env);
@@ -205,12 +200,7 @@ pub trait GovernanceInterface {
     // --- access.rs / self_timelock.rs: governance-self administration ---
 
     /// Executes a scheduled self-operation.
-    fn execute_self(
-        env: Env,
-        executor: Option<Address>,
-        op: AdminOperation,
-        salt: BytesN<32>,
-    );
+    fn execute_self(env: Env, executor: Option<Address>, op: AdminOperation, salt: BytesN<32>);
 
     /// Accepts a pending ownership transfer of the governance contract.
     fn accept_ownership(env: Env);

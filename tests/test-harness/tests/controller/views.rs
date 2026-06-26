@@ -348,10 +348,7 @@ fn test_get_market_index_view() {
     let asset = t.resolve_asset("USDC");
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
-    let index = ctrl
-        .get_market_indexes_detailed(&assets)
-        .get(0)
-        .unwrap();
+    let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
 
     let ray = RAY;
     // Fresh market: indexes must be 1.0 RAY.
@@ -427,9 +424,7 @@ fn test_collateral_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let amount = t
-        .ctrl_client()
-        .get_collateral_amount(&account_id, &usdc);
+    let amount = t.ctrl_client().get_collateral_amount(&account_id, &usdc);
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -483,9 +478,7 @@ fn test_liquidation_collateral_available_happy() {
     t.borrow(ALICE, "ETH", 0.5);
 
     let account_id = t.resolve_account_id(ALICE);
-    let weighted = t
-        .ctrl_client()
-        .get_liquidation_collateral(&account_id);
+    let weighted = t.ctrl_client().get_liquidation_collateral(&account_id);
 
     // weighted_coll is in WAD USD: ~$9,600 * 10^18.
     let expected = 9_600.0;

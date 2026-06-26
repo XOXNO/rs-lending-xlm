@@ -17,8 +17,8 @@ use crate::cache::Cache;
 use crate::emode;
 use crate::events;
 use crate::external::pool::{
-    pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call,
-    pool_update_caps_call, pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
+    pool_add_rewards_call, pool_claim_revenue_call, pool_create_market_call, pool_update_caps_call,
+    pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
 use crate::oracle::policy::OraclePolicy;
@@ -215,10 +215,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     storage::renew_controller_instance(env);
     validation::require_asset_supported(env, &mut cache, asset);
     crate::helpers::emode_caps::validate_hub_caps_against_category_spokes(
-        env,
-        asset,
-        supply_cap,
-        borrow_cap,
+        env, asset, supply_cap, borrow_cap,
     );
     let pool_addr = cache.cached_pool_address();
     pool_update_caps_call(env, &pool_addr, asset, supply_cap, borrow_cap);

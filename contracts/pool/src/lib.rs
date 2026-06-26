@@ -41,9 +41,8 @@ use stellar_macros::only_owner;
 
 use utils::{
     apply_hub_caps, apply_liquidation_fee, apply_rate_model, authorize_token_transfer_from,
-    enforce_borrow_cap,
-    enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance, require_nonneg_amount,
-    require_positive_amount, require_wasm_receiver,
+    enforce_borrow_cap, enforce_supply_cap, now_ms, renew_market_keys, renew_pool_instance,
+    require_nonneg_amount, require_positive_amount, require_wasm_receiver,
 };
 
 fn load_synced_cache(env: &Env, asset: &Address) -> Cache {
@@ -96,6 +95,7 @@ fn load_position(env: &Env, action: &PoolAction) -> (Cache, Ray, i128) {
 /// requires sufficient reserves, enforces the borrow cap, adds the scaled debt,
 /// then rejects post-borrow utilization above the market's max.
 fn accrue_borrow(env: &Env, cache: &mut Cache, scaled: &mut Ray, amount: i128) {
+    require_positive_amount(env, amount);
     cache.require_reserves(amount);
     let scaled_debt = cache.calculate_scaled_borrow(amount);
     enforce_borrow_cap(env, cache, scaled_debt);
@@ -211,12 +211,7 @@ fn repay_one(
 /// Asserts the pool's loaned-token balance equals `expected`, mapping any
 /// mismatch to InvalidFlashloanRepay. Brackets the payout and the callback so a
 /// receiver cannot retain funds or alter the pool balance.
-fn verify_flash_repay(
-    env: &Env,
-    tok: &token::Client,
-    pool_addr: &Address,
-    expected: i128,
-) {
+fn verify_flash_repay(env: &Env, tok: &token::Client, pool_addr: &Address, expected: i128) {
     assert_with_error!(
         env,
         tok.balance(pool_addr) == expected,
@@ -470,13 +465,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         // CEI: snapshot + commit before external call.
         cache.save();
         cache.transfer_out(&caller, amount_to_send);
-        events::publish_strategy_fee(
-            &env,
-            asset.clone(),
-            amount,
-            fee,
-            amount_to_send,
-        );
+        events::publish_strategy_fee(&env, asset.clone(), amount, fee, amount_to_send);
         events::publish_market_state(&env, cache.market_snapshot());
         cache.strategy_mutation(scaled, amount, amount_to_send)
     }

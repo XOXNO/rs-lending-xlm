@@ -1,9 +1,9 @@
 //! Token-shape probing and asset-config bounds on the governance forwarders.
 
+use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, DEFAULT_TOLERANCE};
-use governance::op::{AdminOperation, CreatePoolArgs, ConfigureOracleArgs};
 
 // `validate_and_fetch_token_decimals` rejects SACs without a `symbol` (#6).
 #[test]
@@ -15,11 +15,14 @@ fn test_create_liquidity_pool_rejects_token_without_symbol() {
     let params = usdc_preset().params.to_market_params(&sac, 7);
     let config = usdc_preset().config.to_asset_config(&t.env, 7);
     gov.execute_immediate(&admin, &AdminOperation::ApproveToken(sac.clone()));
-    let result = match gov.try_execute_immediate(&admin, &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
-        asset: sac.clone(),
-        params,
-        config,
-    })) {
+    let result = match gov.try_execute_immediate(
+        &admin,
+        &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+            asset: sac.clone(),
+            params,
+            config,
+        }),
+    ) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
@@ -36,11 +39,14 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     let params = usdc_preset().params.to_market_params(&asset, 7);
     let config = usdc_preset().config.to_asset_config(&t.env, 7);
     gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset.clone()));
-    let result = match gov.try_execute_immediate(&admin, &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
-        asset: asset.clone(),
-        params,
-        config,
-    })) {
+    let result = match gov.try_execute_immediate(
+        &admin,
+        &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+            asset: asset.clone(),
+            params,
+            config,
+        }),
+    ) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
@@ -53,7 +59,8 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
 fn test_set_min_borrow_collateral_rejects_negative_floor() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
-    t.gov_client().execute_immediate(&admin, &AdminOperation::SetMinBorrowCollateralUsd(-1));
+    t.gov_client()
+        .execute_immediate(&admin, &AdminOperation::SetMinBorrowCollateralUsd(-1));
 }
 
 // `validate_risk_bounds` threshold above 100% (#113).
@@ -67,7 +74,8 @@ fn test_edit_asset_config_rejects_threshold_above_bps() {
     cfg.loan_to_value_bps = 5_000;
     cfg.liquidation_threshold_bps = 10_001;
     cfg.liquidation_bonus_bps = 0;
-    t.gov_client().execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+    t.gov_client()
+        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }
 
 // Configure-time bad first tolerance (#207).
@@ -83,8 +91,8 @@ fn test_configure_market_oracle_rejects_first_tolerance_below_min() {
         10,
         DEFAULT_TOLERANCE.last_upper_bps,
     );
-    t.gov_client().execute_immediate(&admin, &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-        asset,
-        cfg,
-    }));
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs { asset, cfg }),
+    );
 }

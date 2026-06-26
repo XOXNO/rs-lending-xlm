@@ -146,9 +146,7 @@ fn test_max_withdraw_prefers_full_close_over_dusty_partial() {
     let account_id = t.resolve_account_id(ALICE);
 
     let max = t.ctrl_client().max_withdraw(&account_id, &asset);
-    let balance = t
-        .ctrl_client()
-        .get_collateral_amount(&account_id, &asset);
+    let balance = t.ctrl_client().get_collateral_amount(&account_id, &asset);
     assert_eq!(max, balance, "full close is feasible, so max = balance");
 
     // Debt-free accounts may leave small collateral residue.
@@ -196,9 +194,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
     assert!(res.is_err(), "max + 3 must not be withdrawable");
 
     t.withdraw_raw(ALICE, "USDC", max);
-    let residue = t
-        .ctrl_client()
-        .get_collateral_amount(&account_id, &asset);
+    let residue = t.ctrl_client().get_collateral_amount(&account_id, &asset);
     assert!(
         residue > 0,
         "partial withdraw must leave pool-liquid residue, got {residue}"
@@ -274,9 +270,7 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
     let before = t.ctrl_client().get_market_index(&asset);
-    let balance_before = t
-        .ctrl_client()
-        .get_collateral_amount(&account_id, &asset);
+    let balance_before = t.ctrl_client().get_collateral_amount(&account_id, &asset);
 
     // Half a year with no oracle refresh and no keeper sync: prices are
     // stale, only view-side simulation can accrue.
@@ -289,9 +283,7 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
         "indexes must accrue in the view despite the stale oracle"
     );
 
-    let balance_after = t
-        .ctrl_client()
-        .get_collateral_amount(&account_id, &asset);
+    let balance_after = t.ctrl_client().get_collateral_amount(&account_id, &asset);
     assert!(
         balance_after > balance_before,
         "supplier balance must grow with simulated interest, got {balance_before} -> {balance_after}"
@@ -481,7 +473,10 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
     // Spoke usage now sits at the cap: headroom collapses and one more unit
     // trips the spoke borrow-cap gate the preview modeled.
     let after = t.ctrl_client().max_borrow(&account_id, &usdt);
-    assert!(after <= 1, "spoke headroom should be ~0 at the cap, got {after}");
+    assert!(
+        after <= 1,
+        "spoke headroom should be ~0 at the cap, got {after}"
+    );
     let res = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(res, errors::SPOKE_BORROW_CAP_REACHED);
 }

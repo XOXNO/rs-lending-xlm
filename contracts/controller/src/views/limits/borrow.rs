@@ -42,11 +42,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
         .cash
         .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
         .min(spoke_borrow_cap_headroom(
-            env,
-            &mut cache,
-            &account,
-            asset,
-            &market,
+            env, &mut cache, &account, asset, &market,
         ))
         .max(0);
     if hi <= 0 {
@@ -153,8 +149,8 @@ fn spoke_borrow_cap_headroom(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
-    let cap_scaled = Ray::from_asset(emode_cfg.borrow_cap, market.decimals)
-        .div_floor(env, market.borrow_index);
+    let cap_scaled =
+        Ray::from_asset(emode_cfg.borrow_cap, market.decimals).div_floor(env, market.borrow_index);
     let used_scaled = Ray::from(usage.borrowed_scaled_ray);
     if used_scaled >= cap_scaled {
         return 0;

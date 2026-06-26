@@ -94,8 +94,8 @@ fn spoke_supply_cap_headroom(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
-    let cap_scaled = Ray::from_asset(emode_cfg.supply_cap, market.decimals)
-        .div_floor(env, market.supply_index);
+    let cap_scaled =
+        Ray::from_asset(emode_cfg.supply_cap, market.decimals).div_floor(env, market.supply_index);
     let used_scaled = Ray::from(usage.supplied_scaled_ray);
     if used_scaled >= cap_scaled {
         return 0;

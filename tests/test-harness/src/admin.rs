@@ -77,17 +77,18 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().add_asset_to_e_mode_category(&EModeAssetArgs {
-            asset,
-            category_id,
-            can_collateral,
-            can_borrow,
-            ltv,
-            threshold,
-            bonus,
-            supply_cap: 0,
-            borrow_cap: 0,
-        });
+        self.ctrl_client()
+            .add_asset_to_e_mode_category(&EModeAssetArgs {
+                asset,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                supply_cap: 0,
+                borrow_cap: 0,
+            });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -102,17 +103,18 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
-            asset,
-            category_id,
-            can_collateral,
-            can_borrow,
-            ltv,
-            threshold,
-            bonus,
-            supply_cap: 0,
-            borrow_cap: 0,
-        });
+        self.ctrl_client()
+            .edit_asset_in_e_mode_category(&EModeAssetArgs {
+                asset,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                supply_cap: 0,
+                borrow_cap: 0,
+            });
     }
 
     pub fn remove_asset_from_e_mode(&self, asset_name: &str, category_id: u32) {
@@ -139,16 +141,17 @@ impl LendingTest {
         borrow_cap: i128,
     ) {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().edit_asset_in_e_mode_category(&EModeAssetArgs {
-            asset,
-            category_id,
-            can_collateral,
-            can_borrow,
-            ltv,
-            threshold,
-            bonus,
-            supply_cap,
-            borrow_cap,
-        });
+        self.ctrl_client()
+            .edit_asset_in_e_mode_category(&EModeAssetArgs {
+                asset,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                supply_cap,
+                borrow_cap,
+            });
     }
 }

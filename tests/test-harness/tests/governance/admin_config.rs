@@ -3,8 +3,8 @@
 
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
 use governance::op::{AdminOperation, UpgradePoolParamsArgs};
+use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
 
 // `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
@@ -37,11 +37,13 @@ fn test_set_position_limits_rejects_above_cap() {
     let admin = t.admin();
 
     // 10/10 is the documented ceiling and must be accepted.
-    t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::SetPositionLimits(controller::types::PositionLimits {
+    t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::SetPositionLimits(controller::types::PositionLimits {
             max_supply_positions: 10,
             max_borrow_positions: 10,
-        }));
+        }),
+    );
 
     // 11 on either side exceeds the budget-proven envelope.
     assert_invalid_position_limits(&t, 11, 10);
@@ -59,7 +61,9 @@ fn assert_invalid_position_limits(t: &LendingTest, supply: u32, borrow: u32) {
         max_supply_positions: supply,
         max_borrow_positions: borrow,
     };
-    let result = t.gov_client().try_execute_immediate(&admin, &AdminOperation::SetPositionLimits(limits));
+    let result = t
+        .gov_client()
+        .try_execute_immediate(&admin, &AdminOperation::SetPositionLimits(limits));
     let expected = soroban_sdk::Error::from_contract_error(errors::INVALID_POSITION_LIMITS);
     match result {
         Ok(_) => panic!(

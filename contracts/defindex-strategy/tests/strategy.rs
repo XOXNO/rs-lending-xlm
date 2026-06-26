@@ -379,13 +379,8 @@ fn harvest_requires_from_auth() {
     );
 
     // Deposit also fails without auth, confirming enforcement is active.
-    let blocked_deposit = s
-        .client()
-        .try_deposit(&UNIT, &attacker_chosen_from);
-    assert!(
-        blocked_deposit.is_err(),
-        "deposit must require `from` auth"
-    );
+    let blocked_deposit = s.client().try_deposit(&UNIT, &attacker_chosen_from);
+    assert!(blocked_deposit.is_err(), "deposit must require `from` auth");
 }
 
 // Direct controller supply into the strategy account increases the vault's
