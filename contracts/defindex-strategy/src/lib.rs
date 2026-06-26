@@ -4,7 +4,7 @@
 //! One WASM is deployed per underlying asset. Each vault (`from`) maps to one
 //! controller `account_id`; vaults do not share positions.
 //!
-//! - Balances come from `collateral_amount_for_token`.
+//! - Balances come from `get_collateral_amount`.
 //! - Full withdraw maps `amount == balance()` to controller amount `0`.
 //! - Supply clears stale vault-account mappings.
 //! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
