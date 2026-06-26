@@ -157,7 +157,7 @@ fn mem_attribution_client_new_is_free() {
     // One real CALL for contrast (callee wasm instance memory).
     let asset = t.markets.get("USDC").expect("market").asset.clone();
     let client = pool::LiquidityPoolClient::new(&env, &pool_addr);
-    let mem_call = mem_of(&env, || std::hint::black_box(client.reserves(&asset)));
+    let mem_call = mem_of(&env, || std::hint::black_box(client.get_reserves(&asset)));
 
     std::println!("\n========== Client::new cost ==========");
     std::println!("  1     x ::new()           mem = {mem_once} B");

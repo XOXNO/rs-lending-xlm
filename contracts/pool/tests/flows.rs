@@ -350,7 +350,7 @@ fn test_supply() {
         "position should have scaled amount"
     );
 
-    let supplied = client.supplied_amount(&t.asset);
+    let supplied = client.get_supplied_amount(&t.asset);
     assert!(supplied > 0, "supplied_amount should be positive");
 }
 #[test]
@@ -363,7 +363,7 @@ fn test_borrow() {
     let borrower = Address::generate(&t.env);
     let borrow_amount = 100_0000000i128;
 
-    let reserves_before = client.reserves(&t.asset);
+    let reserves_before = client.get_reserves(&t.asset);
     let updated = client
         .borrow(&borrower, &t.bor(0, borrow_amount))
         .get_unchecked(0);
@@ -373,7 +373,7 @@ fn test_borrow() {
         "borrow position should have debt"
     );
 
-    let reserves_after = client.reserves(&t.asset);
+    let reserves_after = client.get_reserves(&t.asset);
     assert!(
         reserves_after < reserves_before,
         "reserves should decrease after borrow"
@@ -681,7 +681,7 @@ fn test_flash_loan() {
 
     let tok = token::Client::new(&t.env, &t.asset);
     let pool_balance_before = tok.balance(&t.pool);
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
     client.flash_loan(
         &t.asset,
         &t.admin,
@@ -690,7 +690,7 @@ fn test_flash_loan() {
         &flash_fee,
         &Bytes::new(&t.env),
     );
-    let revenue_after = client.protocol_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&t.asset);
     let pool_balance_after = tok.balance(&t.pool);
 
     assert_eq!(pool_balance_after, pool_balance_before + flash_fee);
@@ -797,7 +797,7 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
     let tok = token::Client::new(&t.env, &t.asset);
 
     let balance_before = tok.balance(&t.pool);
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
     let state_before = t.state_snapshot();
 
     let result = client.try_flash_loan(
@@ -811,7 +811,7 @@ fn test_flash_loan_callback_failure_rolls_back_pool_state() {
 
     assert!(result.is_err(), "receiver that does not repay must fail");
     assert_eq!(tok.balance(&t.pool), balance_before);
-    assert_eq!(client.protocol_revenue(&t.asset), revenue_before);
+    assert_eq!(client.get_revenue(&t.asset), revenue_before);
     assert_pool_state_eq(&t.state_snapshot(), &state_before);
 }
 
@@ -952,7 +952,7 @@ fn test_seize_position_deposit_dust() {
 
     let updated = client.supply(&t.sup(0, 100_0000000i128)).get_unchecked(0);
 
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
     let seized = client.seize_position(&t.asset, &AccountPositionType::Deposit, &updated.position);
 
     assert_eq!(
@@ -960,7 +960,7 @@ fn test_seize_position_deposit_dust() {
         "position should be zeroed"
     );
 
-    let revenue_after = client.protocol_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&t.asset);
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase from absorbed dust"
@@ -982,7 +982,7 @@ fn test_claim_revenue() {
     // Sync indexes to accrue revenue.
     client.update_indexes(&t.asset);
 
-    let revenue = client.protocol_revenue(&t.asset);
+    let revenue = client.get_revenue(&t.asset);
     if revenue > 0 {
         let tok = token::Client::new(&t.env, &t.asset);
         let admin_balance_before = tok.balance(&t.admin);
@@ -1017,7 +1017,7 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
     t.edit_state(|s| s.cash = 100_000_000_000_000i128);
 
     let claimed = client.claim_revenue(&t.asset).actual_amount;
-    let remaining_revenue = client.protocol_revenue(&t.asset);
+    let remaining_revenue = client.get_revenue(&t.asset);
 
     assert!(
         claimed > 0,
@@ -1191,47 +1191,47 @@ fn test_views() {
     let t = TestSetup::new();
     let client = t.client();
 
-    let util = client.capital_utilisation(&t.asset);
+    let util = client.get_utilisation(&t.asset);
     assert_eq!(util, 0, "utilization should be zero initially");
 
     client.supply(&t.sup(0, 10_000_000_000i128));
 
-    let supplied = client.supplied_amount(&t.asset);
+    let supplied = client.get_supplied_amount(&t.asset);
     assert!(
         supplied > 0,
         "supplied_amount should be positive after supply"
     );
 
-    let reserves = client.reserves(&t.asset);
+    let reserves = client.get_reserves(&t.asset);
     assert!(reserves > 0, "reserves should be positive");
 
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 100_0000000i128));
 
-    let borrowed = client.borrowed_amount(&t.asset);
+    let borrowed = client.get_borrowed_amount(&t.asset);
     assert!(borrowed > 0, "borrowed_amount should be positive");
 
-    let util_after = client.capital_utilisation(&t.asset);
+    let util_after = client.get_utilisation(&t.asset);
     assert!(
         util_after > 0,
         "utilization should be positive after borrow"
     );
 
     assert!(
-        client.deposit_rate(&t.asset) >= 0,
+        client.get_deposit_rate(&t.asset) >= 0,
         "deposit rate view should be callable"
     );
     assert!(
-        client.borrow_rate(&t.asset) >= 0,
+        client.get_borrow_rate(&t.asset) >= 0,
         "borrow rate view should be callable"
     );
     assert!(
-        client.protocol_revenue(&t.asset) >= 0,
+        client.get_revenue(&t.asset) >= 0,
         "protocol revenue view should be callable"
     );
     t.advance_time(60);
     assert!(
-        client.delta_time(&t.asset) > 0,
+        client.get_delta_time(&t.asset) > 0,
         "delta_time should be positive"
     );
 }
@@ -1245,7 +1245,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
     let supply_amount = 10_000_000_000i128;
     let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
 
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
@@ -1267,7 +1267,7 @@ fn test_withdraw_liquidation_fee_accrues_to_revenue() {
         gross - fee,
         "user should receive gross minus protocol fee"
     );
-    let revenue_after = client.protocol_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&t.asset);
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase by fee"
@@ -1285,7 +1285,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
     let supply_amount = 10_000_000_000i128;
     let updated_pos = client.supply(&t.sup(0, supply_amount)).get_unchecked(0);
 
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
     let user = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let user_balance_before = tok.balance(&user);
@@ -1300,7 +1300,7 @@ fn test_withdraw_liquidation_with_zero_protocol_fee_is_no_op() {
         .get_unchecked(0);
 
     assert_eq!(tok.balance(&user) - user_balance_before, gross);
-    assert_eq!(client.protocol_revenue(&t.asset), revenue_before);
+    assert_eq!(client.get_revenue(&t.asset), revenue_before);
     assert_eq!(final_pos.actual_amount, gross);
 }
 
@@ -1424,7 +1424,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
     let caller = Address::generate(&t.env);
     let tok = token::Client::new(&t.env, &t.asset);
     let caller_before = tok.balance(&caller);
-    let revenue_before = client.protocol_revenue(&t.asset);
+    let revenue_before = client.get_revenue(&t.asset);
 
     let amount = 100_0000000i128;
     let fee = 1_0000000i128;
@@ -1442,7 +1442,7 @@ fn test_create_strategy_emits_position_and_transfers_net() {
         amount - fee,
         "caller receives net amount"
     );
-    let revenue_after = client.protocol_revenue(&t.asset);
+    let revenue_after = client.get_revenue(&t.asset);
     assert!(
         revenue_after > revenue_before,
         "protocol revenue should increase by fee"
@@ -1742,7 +1742,7 @@ fn test_bulk_get_indexes_matches_per_asset() {
     t.advance_time(86_400);
 
     let assets = soroban_sdk::vec![&t.env, t.asset.clone()];
-    let bulk = client.bulk_get_indexes(&assets);
+    let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 1, "one entry per requested asset");
 
     let now_ms = t.env.ledger().timestamp() * common::constants::MS_PER_SECOND;
@@ -1780,7 +1780,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
     t.advance_time(86_400);
 
     let assets = soroban_sdk::vec![&t.env, t.asset.clone(), asset_b.clone()];
-    let bulk = client.bulk_get_indexes(&assets);
+    let bulk = client.get_bulk_indexes(&assets);
     assert_eq!(bulk.len(), 2);
 
     let a = bulk.get_unchecked(0);
@@ -1811,7 +1811,7 @@ fn test_bulk_get_indexes_multi_asset_alignment() {
 #[test]
 fn test_bulk_get_indexes_empty_request() {
     let t = TestSetup::new();
-    let bulk = t.client().bulk_get_indexes(&soroban_sdk::Vec::new(&t.env));
+    let bulk = t.client().get_bulk_indexes(&soroban_sdk::Vec::new(&t.env));
     assert_eq!(bulk.len(), 0);
 }
 
@@ -1821,7 +1821,7 @@ fn test_bulk_get_indexes_unknown_asset_panics() {
     let t = TestSetup::new();
     let unknown = Address::generate(&t.env);
     let assets = soroban_sdk::vec![&t.env, unknown];
-    let result = t.client().try_bulk_get_indexes(&assets);
+    let result = t.client().try_get_bulk_indexes(&assets);
     assert!(result.is_err(), "unknown asset must fail the bulk read");
 }
 

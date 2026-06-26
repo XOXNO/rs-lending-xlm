@@ -1514,10 +1514,10 @@ mutating entrypoint is `#[only_owner]`** (owner = the controller, fixed in `__co
   (`:294`), `update_indexes` (`:299`), `add_rewards` (`:306`), `flash_loan` (`:330`),
   `create_strategy` (`:420`), `seize_position` (`:466`), `claim_revenue` (`:495`), `update_params`
   (`:519`), `update_caps` (`:531`), `upgrade` (`:540`) — **all carry `#[only_owner]`**.
-- The only **un-gated** entrypoints are **read-only views**: `capital_utilisation`, `reserves`,
-  `deposit_rate`, `borrow_rate`, `protocol_revenue`, `supplied_amount`, `borrowed_amount`,
-  `delta_time`, `get_sync_data`, `bulk_get_indexes` (`:545-581`). These return values; they mutate no
-  state. (`bulk_get_indexes` is the simulation the controller reads for index caching — read-only.)
+- The only **un-gated** entrypoints are **read-only views**: `get_utilisation`, `get_reserves`,
+  `get_deposit_rate`, `get_borrow_rate`, `get_revenue`, `get_supplied_amount`, `get_borrowed_amount`,
+  `get_delta_time`, `get_sync_data`, `get_bulk_indexes` (`:545-581`). These return values; they mutate no
+  state. (`get_bulk_indexes` is the simulation the controller reads for index caching — read-only.)
 
 `#[only_owner]` resolves `owner.require_auth()` where owner = the controller contract, satisfiable
 only when the controller itself is the invoker. An external address (EOA or contract) calling any

@@ -70,7 +70,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     // ~$1M USDC reserve without tripping `InsufficientCollateral`.
     t.supply(BOB, "ETH", 1000.0);
     let usdc = t.resolve_asset("USDC");
-    let res_raw = t.pool_client("USDC").reserves(&usdc);
+    let res_raw = t.pool_client("USDC").get_reserves(&usdc);
     assert!(
         res_raw > 0,
         "expected positive USDC reserves to drain; got {}",
@@ -79,7 +79,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     t.borrow_raw(BOB, "USDC", res_raw);
 
     // Confirm the precondition for the else branch: revenue > 0, reserves = 0.
-    let res_after_drain = t.pool_client("USDC").reserves(&usdc);
+    let res_after_drain = t.pool_client("USDC").get_reserves(&usdc);
     assert_eq!(
         res_after_drain, 0,
         "reserves must be zero to reach the else branch"
@@ -109,7 +109,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
 
     // Reserves stay zero (no transfer happened).
     assert_eq!(
-        t.pool_client("USDC").reserves(&usdc),
+        t.pool_client("USDC").get_reserves(&usdc),
         0,
         "reserves remain zero after a no-op claim"
     );

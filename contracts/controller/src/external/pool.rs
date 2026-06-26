@@ -115,7 +115,7 @@ pub(crate) fn fetch_pool_bulk_indexes(
     pool_addr: &Address,
     assets: &Vec<Address>,
 ) -> Vec<MarketIndexRaw> {
-    pool_interface::LiquidityPoolClient::new(env, pool_addr).bulk_get_indexes(assets)
+    pool_interface::LiquidityPoolClient::new(env, pool_addr).get_bulk_indexes(assets)
 }
 
 pub(crate) fn pool_update_params_call(

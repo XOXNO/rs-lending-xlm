@@ -26,10 +26,10 @@ fn pool_snapshot(t: &test_harness::LendingTest, asset: &str) -> PoolSnapshot {
     let asset_addr = t.resolve_asset(asset);
     let pc = t.pool_client(asset);
     PoolSnapshot {
-        supplied: pc.supplied_amount(&asset_addr),
-        borrowed: pc.borrowed_amount(&asset_addr),
-        reserves: pc.reserves(&asset_addr),
-        revenue: pc.protocol_revenue(&asset_addr),
+        supplied: pc.get_supplied_amount(&asset_addr),
+        borrowed: pc.get_borrowed_amount(&asset_addr),
+        reserves: pc.get_reserves(&asset_addr),
+        revenue: pc.get_revenue(&asset_addr),
         sum_user_supply: sum_supply(t, asset),
         sum_user_borrow: sum_borrow(t, asset),
     }

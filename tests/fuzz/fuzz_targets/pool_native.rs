@@ -284,7 +284,7 @@ fuzz_target!(|i: In| {
             1 => {
                 // Borrow against the live pool balance. Every other case
                 // deliberately overshoots reserves to exercise the rejection.
-                let reserves = pool.reserves(&asset).max(1);
+                let reserves = pool.get_reserves(&asset).max(1);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, reserves.min(10_000_000_000))
                 } else {
@@ -317,7 +317,7 @@ fuzz_target!(|i: In| {
                 // Withdraw from the live supply position. Half the time the
                 // request is valid; half the time it intentionally exceeds the
                 // current supply to keep the revert path alive.
-                let supplied = pool.supplied_amount(&asset).max(1);
+                let supplied = pool.get_supplied_amount(&asset).max(1);
                 let amount = if op_kind & 1 == 0 {
                     amount_from_raw(*price_raw, 1_000_000, supplied.min(10_000_000_000))
                 } else {
@@ -349,7 +349,7 @@ fuzz_target!(|i: In| {
             3 => {
                 // Repay the current borrow position. We keep this mostly
                 // successful so the borrow index and scaled debt path move.
-                let debt = pool.borrowed_amount(&asset).max(1);
+                let debt = pool.get_borrowed_amount(&asset).max(1);
                 let amount = amount_from_raw(*price_raw, 1_000_000, debt.min(10_000_000_000));
                 mint_to_pool(&env, &asset, &pool_addr, amount);
                 let result = flatten_contract_result(pool.try_repay(
@@ -505,14 +505,14 @@ fuzz_target!(|i: In| {
             10 => {
                 // Pure-view sweep — read-only functions shouldn't fail
                 // under fresh-pool state; assert cross-function invariants.
-                let util = pool.capital_utilisation(&asset);
-                let reserves = pool.reserves(&asset);
-                let deposit = pool.deposit_rate(&asset);
-                let borrow = pool.borrow_rate(&asset);
-                let rev = pool.protocol_revenue(&asset);
-                let supplied = pool.supplied_amount(&asset);
-                let borrowed = pool.borrowed_amount(&asset);
-                let _dt = pool.delta_time(&asset);
+                let util = pool.get_utilisation(&asset);
+                let reserves = pool.get_reserves(&asset);
+                let deposit = pool.get_deposit_rate(&asset);
+                let borrow = pool.get_borrow_rate(&asset);
+                let rev = pool.get_revenue(&asset);
+                let supplied = pool.get_supplied_amount(&asset);
+                let borrowed = pool.get_borrowed_amount(&asset);
+                let _dt = pool.get_delta_time(&asset);
                 let _sync = pool.get_sync_data(&asset);
 
                 assert!(util >= 0, "negative utilization: {}", util);

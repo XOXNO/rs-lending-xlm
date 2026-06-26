@@ -70,21 +70,21 @@ pub trait LiquidityPoolInterface {
     fn update_params(env: Env, asset: Address, model: InterestRateModel);
     fn update_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
-    fn capital_utilisation(env: Env, asset: Address) -> i128;
+    fn get_utilisation(env: Env, asset: Address) -> i128;
     /// Available reserves = accounted `cash` (asset decimals), not the live token
     /// balance, so direct donations cannot inflate it.
-    fn reserves(env: Env, asset: Address) -> i128;
-    fn deposit_rate(env: Env, asset: Address) -> i128;
-    fn borrow_rate(env: Env, asset: Address) -> i128;
-    fn protocol_revenue(env: Env, asset: Address) -> i128;
-    fn supplied_amount(env: Env, asset: Address) -> i128;
-    fn borrowed_amount(env: Env, asset: Address) -> i128;
-    fn delta_time(env: Env, asset: Address) -> u64;
+    fn get_reserves(env: Env, asset: Address) -> i128;
+    fn get_deposit_rate(env: Env, asset: Address) -> i128;
+    fn get_borrow_rate(env: Env, asset: Address) -> i128;
+    fn get_revenue(env: Env, asset: Address) -> i128;
+    fn get_supplied_amount(env: Env, asset: Address) -> i128;
+    fn get_borrowed_amount(env: Env, asset: Address) -> i128;
+    fn get_delta_time(env: Env, asset: Address) -> u64;
     /// Raw params and accounting state for one asset. Used for pool params
-    /// (decimals, utilization caps); index reads go through `bulk_get_indexes`.
+    /// (decimals, utilization caps); index reads go through `get_bulk_indexes`.
     fn get_sync_data(env: Env, asset: Address) -> PoolSyncData;
     /// Borrow/supply indexes accrued to the current ledger time for each asset,
     /// index-aligned with the request. One call replaces N per-asset reads for
     /// flows that only need indexes.
-    fn bulk_get_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
+    fn get_bulk_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw>;
 }

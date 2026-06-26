@@ -536,9 +536,9 @@ fn test_pool_solvency_invariant() {
 
         let eth = t.resolve_asset("ETH");
         let pool_client = t.pool_client("ETH");
-        let supplied = pool_client.supplied_amount(&eth); // RAY.
-        let borrowed = pool_client.borrowed_amount(&eth); // RAY.
-        let revenue = pool_client.protocol_revenue(&eth); // RAY.
+        let supplied = pool_client.get_supplied_amount(&eth); // RAY.
+        let borrowed = pool_client.get_borrowed_amount(&eth); // RAY.
+        let revenue = pool_client.get_revenue(&eth); // RAY.
 
         // Solvency: total supply >= total borrows. Supply includes protocol
         // revenue as scaled supply tokens.

@@ -4,7 +4,7 @@
 
 extern crate std;
 
-use defindex_strategy::{DeFindexStrategyError, Strategy, StrategyClient};
+use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient};
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
@@ -152,6 +152,23 @@ impl StrategyTest {
     fn usdc_balance(&self, of: &Address) -> i128 {
         soroban_sdk::token::Client::new(&self.t.env, &self.asset).balance(of)
     }
+
+    /// Live controller account id for `vault`, mirroring the strategy's read
+    /// path: the stored mapping only counts while the controller account exists.
+    fn live_account_id(&self, vault: &Address) -> u64 {
+        let env = &self.t.env;
+        let stored: u64 = env.as_contract(&self.client_address, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::VaultAccount(vault.clone()))
+                .unwrap_or(0)
+        });
+        if stored != 0 && self.t.account_exists(stored) {
+            stored
+        } else {
+            0
+        }
+    }
 }
 
 #[test]
@@ -168,8 +185,7 @@ fn test_deposit_reports_underlying_and_accrues_interest() {
     let reported = client.deposit(&(1_000 * UNIT), &s.vault);
     assert_eq!(reported, 1_000 * UNIT);
     assert_eq!(client.balance(&s.vault), reported);
-    assert!(client.lending_account_id(&s.vault) > 0);
-    assert!(client.has_lending_account(&s.vault));
+    assert!(s.live_account_id(&s.vault) > 0);
 
     s.t.advance_time_no_refresh(60 * 60 * 24 * 180);
     let grown = client.balance(&s.vault);
@@ -209,18 +225,17 @@ fn test_withdraw_pays_recipient_directly_and_terminal_exit_closes_account() {
     assert_eq!(s.usdc_balance(&sink), 300 * UNIT);
     assert_eq!(s.usdc_balance(&s.client_address), 0);
     assert_eq!(client.balance(&s.vault), remaining);
-    assert!(client.has_lending_account(&s.vault));
+    assert!(s.live_account_id(&s.vault) != 0);
 
-    let account_before = client.lending_account_id(&s.vault);
+    let account_before = s.live_account_id(&s.vault);
     let balance = client.balance(&s.vault);
     let left = client.withdraw(&balance, &s.vault, &sink);
     assert_eq!(left, 0);
     assert_eq!(client.balance(&s.vault), 0);
-    assert_eq!(client.lending_account_id(&s.vault), 0);
-    assert!(!client.has_lending_account(&s.vault));
+    assert_eq!(s.live_account_id(&s.vault), 0);
 
     client.deposit(&(500 * UNIT), &s.vault);
-    let account_after = client.lending_account_id(&s.vault);
+    let account_after = s.live_account_id(&s.vault);
     assert!(account_after > account_before);
     assert!(client.balance(&s.vault) > 499 * UNIT);
 }
@@ -233,8 +248,8 @@ fn test_two_vaults_have_isolated_lending_accounts() {
     s.client().deposit(&(1_000 * UNIT), &s.vault);
     s.client().deposit(&(1_000 * UNIT), &vault_b);
 
-    let id_a = s.client().lending_account_id(&s.vault);
-    let id_b = s.client().lending_account_id(&vault_b);
+    let id_a = s.live_account_id(&s.vault);
+    let id_b = s.live_account_id(&vault_b);
     assert!(id_a > 0);
     assert!(id_b > 0);
     assert_ne!(
@@ -256,9 +271,9 @@ fn test_two_vaults_have_isolated_lending_accounts() {
     let sink = Address::generate(&s.t.env);
     s.client().withdraw(&a, &s.vault, &sink);
     assert_eq!(s.client().balance(&s.vault), 0);
-    assert!(!s.client().has_lending_account(&s.vault));
+    assert_eq!(s.live_account_id(&s.vault), 0);
     assert!(
-        s.client().has_lending_account(&vault_b),
+        s.live_account_id(&vault_b) != 0,
         "closing vault A must not affect vault B's lending account"
     );
     assert!(s.client().balance(&vault_b) > 1_000 * UNIT);
@@ -269,7 +284,7 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
     let mut s = StrategyTest::new();
 
     s.client().deposit(&(1_000 * UNIT), &s.vault);
-    let account_before = s.client().lending_account_id(&s.vault);
+    let account_before = s.live_account_id(&s.vault);
 
     s.t.advance_time(60 * 60 * 24 * 30);
     let balance = s.client().balance(&s.vault);
@@ -278,15 +293,14 @@ fn test_supply_clears_stale_vault_mapping_after_full_withdraw() {
 
     // Read paths return 0 after controller account closure.
     assert_eq!(s.client().balance(&s.vault), 0);
-    assert_eq!(s.client().lending_account_id(&s.vault), 0);
-    assert!(!s.client().has_lending_account(&s.vault));
+    assert_eq!(s.live_account_id(&s.vault), 0);
 
     // Supply clears the stale mapping and opens a new controller account.
     s.client().deposit(&(500 * UNIT), &s.vault);
-    let account_after = s.client().lending_account_id(&s.vault);
+    let account_after = s.live_account_id(&s.vault);
     assert!(account_after > account_before);
     assert!(s.client().balance(&s.vault) > 499 * UNIT);
-    assert!(s.client().has_lending_account(&s.vault));
+    assert!(s.live_account_id(&s.vault) != 0);
 }
 
 #[test]
@@ -383,7 +397,7 @@ fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
     let client = s.client();
 
     client.deposit(&(1_000 * UNIT), &s.vault);
-    let account_id = client.lending_account_id(&s.vault);
+    let account_id = s.live_account_id(&s.vault);
     assert!(account_id > 0);
     let before = client.balance(&s.vault);
 
