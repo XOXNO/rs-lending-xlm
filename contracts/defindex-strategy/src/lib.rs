@@ -99,7 +99,7 @@ impl<'a> Ctx<'a> {
 
     fn collateral(&self, account_id: u64) -> i128 {
         self.controller
-            .collateral_amount_for_token(&account_id, &self.cfg.asset)
+            .get_collateral_amount(&account_id, &self.cfg.asset)
     }
 
     fn reconcile(&self, vault: &Address) -> u64 {

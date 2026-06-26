@@ -69,7 +69,7 @@ fn test_max_withdraw_unconstrained_closes_position() {
     let ctrl = t.ctrl_client();
 
     let max = ctrl.max_withdraw(&account_id, &asset);
-    let balance = ctrl.collateral_amount_for_token(&account_id, &asset);
+    let balance = ctrl.get_collateral_amount(&account_id, &asset);
     assert_eq!(max, balance, "unconstrained max must be the full balance");
 
     let withdrawals: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max)];
@@ -148,7 +148,7 @@ fn test_max_withdraw_prefers_full_close_over_dusty_partial() {
     let max = t.ctrl_client().max_withdraw(&account_id, &asset);
     let balance = t
         .ctrl_client()
-        .collateral_amount_for_token(&account_id, &asset);
+        .get_collateral_amount(&account_id, &asset);
     assert_eq!(max, balance, "full close is feasible, so max = balance");
 
     // Debt-free accounts may leave small collateral residue.
@@ -198,7 +198,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
     t.withdraw_raw(ALICE, "USDC", max);
     let residue = t
         .ctrl_client()
-        .collateral_amount_for_token(&account_id, &asset);
+        .get_collateral_amount(&account_id, &asset);
     assert!(
         residue > 0,
         "partial withdraw must leave pool-liquid residue, got {residue}"
@@ -276,7 +276,7 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
     let before = t.ctrl_client().get_market_index(&asset);
     let balance_before = t
         .ctrl_client()
-        .collateral_amount_for_token(&account_id, &asset);
+        .get_collateral_amount(&account_id, &asset);
 
     // Half a year with no oracle refresh and no keeper sync: prices are
     // stale, only view-side simulation can accrue.
@@ -291,7 +291,7 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
 
     let balance_after = t
         .ctrl_client()
-        .collateral_amount_for_token(&account_id, &asset);
+        .get_collateral_amount(&account_id, &asset);
     assert!(
         balance_after > balance_before,
         "supplier balance must grow with simulated interest, got {balance_before} -> {balance_after}"
@@ -302,13 +302,13 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
     t.set_price("USDC", 0);
     assert!(
         t.ctrl_client()
-            .try_total_collateral_in_usd(&account_id)
+            .try_get_total_collateral_usd(&account_id)
             .is_err(),
         "USD valuation must fail on a poisoned price"
     );
     assert_eq!(
         t.ctrl_client()
-            .try_collateral_amount_for_token(&account_id, &asset)
+            .try_get_collateral_amount(&account_id, &asset)
             .unwrap()
             .unwrap(),
         balance_after

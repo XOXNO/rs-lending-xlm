@@ -25,12 +25,12 @@ impl LendingTest {
 
     pub fn health_factor_raw(&self, user: &str) -> i128 {
         self.find_account_id(user)
-            .map(|account_id| self.ctrl_client().health_factor(&account_id))
+            .map(|account_id| self.ctrl_client().get_health_factor(&account_id))
             .unwrap_or(i128::MAX)
     }
 
     pub fn health_factor_for_raw(&self, _user: &str, account_id: u64) -> i128 {
-        self.ctrl_client().health_factor(&account_id)
+        self.ctrl_client().get_health_factor(&account_id)
     }
     // Token balances (wallet)
 
@@ -135,7 +135,7 @@ impl LendingTest {
 
     pub fn total_collateral_raw(&self, user: &str) -> i128 {
         self.find_account_id(user)
-            .map(|account_id| self.ctrl_client().total_collateral_in_usd(&account_id))
+            .map(|account_id| self.ctrl_client().get_total_collateral_usd(&account_id))
             .unwrap_or(0)
     }
 
@@ -145,7 +145,7 @@ impl LendingTest {
 
     pub fn total_debt_raw(&self, user: &str) -> i128 {
         self.find_account_id(user)
-            .map(|account_id| self.ctrl_client().total_borrow_in_usd(&account_id))
+            .map(|account_id| self.ctrl_client().get_total_borrow_usd(&account_id))
             .unwrap_or(0)
     }
     // Pool state
@@ -184,12 +184,12 @@ impl LendingTest {
 
     pub fn can_be_liquidated(&self, user: &str) -> bool {
         self.find_account_id(user)
-            .map(|account_id| self.ctrl_client().health_factor(&account_id) < WAD)
+            .map(|account_id| self.ctrl_client().get_health_factor(&account_id) < WAD)
             .unwrap_or(false)
     }
 
     pub fn can_be_liquidated_by_id(&self, account_id: u64) -> bool {
-        self.ctrl_client().health_factor(&account_id) < WAD
+        self.ctrl_client().get_health_factor(&account_id) < WAD
     }
     // Account info
 

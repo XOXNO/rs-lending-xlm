@@ -153,7 +153,7 @@ fn test_twap_degradation_emits_oracle_event_on_view() {
     let assets = soroban_sdk::Vec::from_array(&t.env, [usdc_asset]);
     let _ = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
 
@@ -220,7 +220,7 @@ fn test_twap_zero_records_falls_back_on_permissive_view() {
     let assets = vec![&t.env, usdc.clone()];
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert!(
@@ -245,7 +245,7 @@ fn test_twap_records_above_max_rejects_on_view() {
     });
 
     let assets = vec![&t.env, usdc];
-    let _ = t.ctrl_client().get_all_market_indexes_detailed(&assets);
+    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
 // PR-10: anchor spot read with `required=false` returns None when lastprice is missing.
@@ -262,7 +262,7 @@ fn test_dual_anchor_missing_spot_falls_back_to_primary_on_view() {
     let assets = vec![&t.env, usdc.clone()];
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert!(
