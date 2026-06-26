@@ -274,8 +274,8 @@ fn claim_revenue_satisfies_controller_summary_contract(e: Env, admin: Address, a
     );
 
     // Claimed amount is non-negative and never exceeds pre-call reserves: the
-    // solvency check gates the transfer at `cash`, and `reserves() == cash`.
-    let pre_reserves = crate::LiquidityPool::reserves(e.clone(), asset.clone());
+    // solvency check gates the transfer at `cash`, and `get_reserves() == cash`.
+    let pre_reserves = crate::LiquidityPool::get_reserves(e.clone(), asset.clone());
     let amount = crate::LiquidityPool::claim_revenue(e, asset).actual_amount;
     cvlr_assert!(amount >= 0);
     cvlr_assert!(amount <= pre_reserves);
@@ -299,7 +299,7 @@ fn flash_loan_satisfies_fee_domain(
         state(100 * RAY, 0, 0, e.ledger().timestamp()),
     );
 
-    let revenue_before = crate::LiquidityPool::protocol_revenue(e.clone(), asset.clone());
+    let revenue_before = crate::LiquidityPool::get_revenue(e.clone(), asset.clone());
     crate::LiquidityPool::flash_loan(
         e.clone(),
         asset.clone(),
@@ -309,7 +309,7 @@ fn flash_loan_satisfies_fee_domain(
         fee,
         Bytes::new(&e),
     );
-    let revenue_after = crate::LiquidityPool::protocol_revenue(e, asset);
+    let revenue_after = crate::LiquidityPool::get_revenue(e, asset);
 
     cvlr_assert!(revenue_after == revenue_before + fee);
     cvlr_satisfy!(true);
@@ -338,7 +338,7 @@ fn view_state(
     }
 }
 
-/// `reserves` is non-negative when `cash >= 0`.
+/// `get_reserves` is non-negative when `cash >= 0`.
 #[rule]
 fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
     cvlr_assume!(cash >= 0 && cash <= 1_000_000_000_000i128);
@@ -348,10 +348,10 @@ fn reserves_view_nonneg(e: Env, admin: Address, asset: Address, cash: i128) {
         asset.clone(),
         view_state(10 * RAY, 0, 0, RAY, RAY, cash, e.ledger().timestamp()),
     );
-    cvlr_assert!(crate::LiquidityPool::reserves(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_reserves(e, asset) >= 0);
 }
 
-/// `supplied_amount` is non-negative under valid state.
+/// `get_supplied_amount` is non-negative under valid state.
 #[rule]
 fn supplied_amount_view_nonneg(
     e: Env,
@@ -376,10 +376,10 @@ fn supplied_amount_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::supplied_amount(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, asset) >= 0);
 }
 
-/// `borrowed_amount` is non-negative under valid state.
+/// `get_borrowed_amount` is non-negative under valid state.
 #[rule]
 fn borrowed_amount_view_nonneg(
     e: Env,
@@ -404,10 +404,10 @@ fn borrowed_amount_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::borrowed_amount(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, asset) >= 0);
 }
 
-/// `protocol_revenue` is non-negative under valid state.
+/// `get_revenue` is non-negative under valid state.
 #[rule]
 fn protocol_revenue_view_nonneg(
     e: Env,
@@ -434,10 +434,10 @@ fn protocol_revenue_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::protocol_revenue(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_revenue(e, asset) >= 0);
 }
 
-/// `protocol_revenue <= supplied_amount` when `revenue_ray <= supplied_ray`.
+/// `get_revenue <= get_supplied_amount` when `revenue_ray <= supplied_ray`.
 #[rule]
 fn protocol_revenue_le_supplied_view(
     e: Env,
@@ -464,12 +464,12 @@ fn protocol_revenue_le_supplied_view(
             e.ledger().timestamp(),
         ),
     );
-    let revenue_units = crate::LiquidityPool::protocol_revenue(e.clone(), asset.clone());
-    let supplied_units = crate::LiquidityPool::supplied_amount(e, asset);
+    let revenue_units = crate::LiquidityPool::get_revenue(e.clone(), asset.clone());
+    let supplied_units = crate::LiquidityPool::get_supplied_amount(e, asset);
     cvlr_assert!(revenue_units <= supplied_units);
 }
 
-/// `capital_utilisation` is non-negative (upper bound not asserted).
+/// `get_utilisation` is non-negative (upper bound not asserted).
 #[rule]
 fn capital_utilisation_view_nonneg(
     e: Env,
@@ -498,7 +498,7 @@ fn capital_utilisation_view_nonneg(
             e.ledger().timestamp(),
         ),
     );
-    cvlr_assert!(crate::LiquidityPool::capital_utilisation(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_utilisation(e, asset) >= 0);
 }
 
 // Cap enforcement against the real `LiquidityPool` ops (mirrors
@@ -525,7 +525,7 @@ fn supply_respects_supply_cap(e: Env, admin: Address, asset: Address, amount: i1
 
     let _ = supply_first(&e, action(position(0), amount, asset.clone()), cap);
 
-    cvlr_assert!(crate::LiquidityPool::supplied_amount(e, asset) <= cap + 1);
+    cvlr_assert!(crate::LiquidityPool::get_supplied_amount(e, asset) <= cap + 1);
 }
 
 /// A successful borrow keeps total borrowed within a finite borrow cap.
@@ -554,7 +554,7 @@ fn borrow_respects_borrow_cap(
 
     let _ = borrow_first(&e, caller, action(position(0), amount, asset.clone()), cap);
 
-    cvlr_assert!(crate::LiquidityPool::borrowed_amount(e, asset) <= cap + 1);
+    cvlr_assert!(crate::LiquidityPool::get_borrowed_amount(e, asset) <= cap + 1);
 }
 
 /// A successful borrow never lends beyond reserves: post-borrow cash stays >= 0
@@ -585,5 +585,5 @@ fn borrow_within_reserves(
         i128::MAX,
     );
 
-    cvlr_assert!(crate::LiquidityPool::reserves(e, asset) >= 0);
+    cvlr_assert!(crate::LiquidityPool::get_reserves(e, asset) >= 0);
 }

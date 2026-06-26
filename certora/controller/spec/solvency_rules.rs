@@ -7,8 +7,8 @@ use soroban_sdk::{Address, Env, Map, Vec};
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
 use common::math::fp::{Ray, Wad};
 
-// Rules that read pool quantity views (`reserves`, `capital_utilisation`,
-// `supplied_amount`, `borrowed_amount`) or `get_sync_data` and asserted a relation
+// Rules that read pool quantity views (`get_reserves`, `get_utilisation`,
+// `get_supplied_amount`, `get_borrowed_amount`) or `get_sync_data` and asserted a relation
 // over them were removed: under the certora harness those resolve to independent
 // nondet summaries (shared/summaries/pool.rs), so the asserts either re-stated a
 // summary's own assume (tautology) or compared two unrelated nondet draws (not
