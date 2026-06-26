@@ -30,9 +30,10 @@ SHELL := /bin/bash
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-merged \
-        coverage-report coverage-report-controller coverage-report-pool coverage-report-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-strict \
-        wasm-size-check act-ci act-ci-dryrun mutants clean install-stellar-cli \
+        wasm-size-check act-ci act-ci-dryrun clean install-stellar-cli \
+        mutants mutants-math mutants-rates mutants-pool-interest mutants-pool \
+        mutants-oracle-policy mutants-controller-positions mutants-controller-strategies mutants-common \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -337,11 +338,6 @@ coverage-merged:
 	@echo "  $(COV_DIR)/merged.lcov.info"
 	@echo "  $(COV_DIR)/merged-report.md"
 
-coverage-report: coverage-report-merged
-coverage-report-controller: coverage-controller
-coverage-report-pool: coverage-pool
-coverage-report-merged: coverage-merged
-
 # ---------------------------------------------------------------------------
 # Code quality
 # ---------------------------------------------------------------------------
@@ -416,6 +412,18 @@ act-ci:
 # ---------------------------------------------------------------------------
 # Mutation testing
 # ---------------------------------------------------------------------------
+# Requires: cargo install --locked cargo-mutants
+# Config:   .cargo/mutants.toml (workspace-wide excludes)
+# Output:   mutants.out/ (gitignored)
+#
+# `mutants` is the broad sweep (common + controller helpers). The `mutants-*`
+# targets scope a single module so each invocation stays under ~10 min;
+# parallelise with MUTANTS_JOBS (defaults to 4 workers).
+
+MUTANTS_JOBS ?= 4
+# Test-harness integration tests can run long under accrual-loop mutations.
+# 120s separates infinite loops from slow test runs.
+MUTANTS_TIMEOUT ?= 120
 
 ## Run cargo-mutants on common/ + controller/src/helpers/.
 ## We deliberately exclude certora spec files and test scaffolding because they
@@ -434,6 +442,44 @@ mutants:
 		--exclude '**/tests/**' \
 		--exclude '**/certora/**' \
 		--jobs 1
+
+mutants-math:
+	cargo mutants --package common --file 'common/src/math/**' -j $(MUTANTS_JOBS)
+
+mutants-rates:
+	cargo mutants --package common --file 'common/src/rates.rs' -j $(MUTANTS_JOBS)
+
+mutants-pool-interest:
+	cargo mutants --package pool --file 'contracts/pool/src/interest.rs' -j $(MUTANTS_JOBS)
+
+mutants-pool:
+	cargo mutants --package pool \
+		--test-package pool --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-oracle-policy:
+	cargo mutants --package controller \
+		--file 'contracts/controller/src/oracle/policy.rs' \
+		--file 'contracts/controller/src/oracle/compose.rs' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-controller-positions:
+	cargo mutants --package controller --file 'contracts/controller/src/positions/**' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-controller-strategies:
+	cargo mutants --package controller --file 'contracts/controller/src/strategies/**' \
+		--test-package controller --test-package test-harness \
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
+		-j $(MUTANTS_JOBS)
+
+mutants-common:
+	cargo mutants --package common -j $(MUTANTS_JOBS)
 
 # ---------------------------------------------------------------------------
 # Clean
@@ -1199,10 +1245,18 @@ help:
 	@echo "  make coverage-controller  Coverage for controller/common via unit+harness"
 	@echo "  make coverage-pool        Coverage for pool via direct unit tests"
 	@echo "  make coverage-merged      Coverage merged across pool + controller + harness"
-	@echo "  make coverage-report      Generate merged LCOV + Markdown reports"
 	@echo "  make fmt                Format code"
 	@echo "  make clippy             Lint all targets with warnings denied"
 	@echo "  make clean              Clean artifacts"
+	@echo ""
+	@echo "Deep verification (security-critical paths):"
+	@echo "  make miri-all           Miri UB checks on pure-i128 math (common/pool/controller)"
+	@echo "  make fuzz               libFuzzer math primitives (FUZZ_TIME=60)"
+	@echo "  make fuzz-contract      libFuzzer contract-level flows (flow_e2e, pool_native, ...)"
+	@echo "  make proptest           proptest accounting invariants (PROPTEST_CASES=256)"
+	@echo "  make mutants            cargo-mutants sweep (common + controller helpers)"
+	@echo "  make mutants-pool       Scoped mutation run (also -math -rates -oracle-policy -controller-*)"
+	@echo "  make scout              Scout static analysis (scout-strict fails on incomplete reports)"
 	@echo ""
 	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
 	@echo "  make keygen                         Generate deployer key"
@@ -1292,56 +1346,5 @@ help:
 	@echo ""
 	@echo "Ledger signing (any command):"
 	@echo "    SIGNER=ledger make mainnet setupAll"
-
-# --- Mutation testing -----------------------------------------------------
-# Requires: cargo install --locked cargo-mutants
-# Config:   .cargo/mutants.toml (workspace-wide excludes)
-# Output:   mutants.out/ (gitignored)
-#
-# Per-target scope keeps each invocation under ~10 min. Parallelise with
-# MUTANTS_JOBS (defaults to 4 workers).
-
-MUTANTS_JOBS ?= 4
-# Test-harness integration tests can run long under accrual-loop mutations.
-# 120s separates infinite loops from slow test runs.
-MUTANTS_TIMEOUT ?= 120
-
-mutants-math:
-	cargo mutants --package common --file 'common/src/math/**' -j $(MUTANTS_JOBS)
-
-mutants-rates:
-	cargo mutants --package common --file 'common/src/rates.rs' -j $(MUTANTS_JOBS)
-
-mutants-pool-interest:
-	cargo mutants --package pool --file 'contracts/pool/src/interest.rs' -j $(MUTANTS_JOBS)
-
-mutants-pool:
-	cargo mutants --package pool \
-		--test-package pool --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
-
-mutants-oracle-policy:
-	cargo mutants --package controller \
-		--file 'contracts/controller/src/oracle/policy.rs' \
-		--file 'contracts/controller/src/oracle/compose.rs' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
-
-mutants-controller-positions:
-	cargo mutants --package controller --file 'contracts/controller/src/positions/**' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
-
-mutants-controller-strategies:
-	cargo mutants --package controller --file 'contracts/controller/src/strategies/**' \
-		--test-package controller --test-package test-harness \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) \
-		-j $(MUTANTS_JOBS)
-
-mutants-common:
-	cargo mutants --package common -j $(MUTANTS_JOBS)
 
 .DEFAULT_GOAL := help
