@@ -71,11 +71,14 @@ flow_governance() {
     view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
         --first_tolerance 200 --last_tolerance 500 >/dev/null
 
-    # Propose then cancel: state moves from Waiting to Unset.
+    # Propose then cancel: state moves from Waiting to Unset. Scheduled via the
+    # generic `propose(proposer, op: AdminOperation, salt)`. SetPositionLimits is a
+    # single-field variant, so the friendly enum form is
+    # {"SetPositionLimits": <PositionLimits>}.
     local op_cancel
-    op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose_set_position_limits \
+    op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --limits '{"max_supply_positions":6,"max_borrow_positions":6}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":6,"max_borrow_positions":6}}' \
         --salt "$GOV_SALT_CANCEL" | tr -d '"[:space:]')
     gov_assert_state gov_state_waiting "$op_cancel" Waiting
     inv gov_cancel "$ADMIN" "$GOVERNANCE" -- cancel \
@@ -84,9 +87,9 @@ flow_governance() {
 
     # Full lifecycle: propose -> await real delay -> execute (open, executor=None).
     local op_exec st args_f
-    op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose_set_position_limits \
+    op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --limits '{"max_supply_positions":8,"max_borrow_positions":8}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":8,"max_borrow_positions":8}}' \
         --salt "$GOV_SALT_EXEC" | tr -d '"[:space:]')
     st=$(gov_await_ready "$op_exec")
     if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
@@ -105,9 +108,9 @@ flow_governance() {
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"
 
     # Non-PROPOSER cannot schedule (#2000 before anything is queued).
-    xfail gov_propose_non_proposer 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- propose_set_position_limits \
+    xfail gov_propose_non_proposer 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- propose \
         --proposer "$ALICE_ADDR" \
-        --limits '{"max_supply_positions":5,"max_borrow_positions":5}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":5,"max_borrow_positions":5}}' \
         --salt "$GOV_SALT_DENY"
 
     # Owner-immediate emergency brake forwards to the governance-owned controller.
