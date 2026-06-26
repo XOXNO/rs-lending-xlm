@@ -436,6 +436,10 @@ mutants:
 		echo "  cargo install cargo-mutants --locked"; \
 		exit 1; \
 	}
+	# The harness loads target/wasm32v1-none/release/pool.wasm at setup
+	# (test-harness builder.rs); build it so the baseline phase does not panic
+	# on a clean checkout.
+	$(MAKE) build
 	cargo mutants --package common --package controller \
 		--file 'common/src/**/*.rs' \
 		--file 'contracts/controller/src/helpers/**/*.rs' \
