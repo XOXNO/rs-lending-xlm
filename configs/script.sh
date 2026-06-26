@@ -2222,7 +2222,7 @@ get_price() {
     local ctrl
     ctrl=$(get_controller)
     echo "=== Price for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
 
 get_market_config_view_cmd() {
@@ -2242,7 +2242,7 @@ get_index_cmd() {
     local ctrl
     ctrl=$(get_controller)
     echo "=== Index for ${market_name} (${asset_address}) ===" >&2
-    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "[\"$asset_address\"]"
+    invoke_view "$ctrl" get_market_indexes_detailed --assets "[\"$asset_address\"]"
 }
 
 get_emode_cmd() {
@@ -2258,7 +2258,7 @@ get_all_markets_cmd() {
     local ctrl
     ctrl=$(get_controller)
     echo "=== All markets (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_all_markets_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_markets_detailed --assets "$assets_json"
 }
 
 get_all_indexes_cmd() {
@@ -2267,7 +2267,7 @@ get_all_indexes_cmd() {
     local ctrl
     ctrl=$(get_controller)
     echo "=== All market indexes (${NETWORK}) ===" >&2
-    invoke_view "$ctrl" get_all_market_indexes_detailed --assets "$assets_json"
+    invoke_view "$ctrl" get_market_indexes_detailed --assets "$assets_json"
 }
 
 # ---------------------------------------------------------------------------
@@ -2278,7 +2278,7 @@ get_health_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" health_factor --account_id "$account_id"
+    invoke_view "$ctrl" get_health_factor --account_id "$account_id"
 }
 
 get_account_cmd() {
@@ -2295,35 +2295,35 @@ get_collateral_usd_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" total_collateral_in_usd --account_id "$account_id"
+    invoke_view "$ctrl" get_total_collateral_usd --account_id "$account_id"
 }
 
 get_borrow_usd_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" total_borrow_in_usd --account_id "$account_id"
+    invoke_view "$ctrl" get_total_borrow_usd --account_id "$account_id"
 }
 
 get_ltv_usd_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" ltv_collateral_in_usd --account_id "$account_id"
+    invoke_view "$ctrl" get_ltv_collateral_usd --account_id "$account_id"
 }
 
 get_liq_available_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" liquidation_collateral_available --account_id "$account_id"
+    invoke_view "$ctrl" get_liquidation_collateral --account_id "$account_id"
 }
 
 can_liquidate_cmd() {
     local account_id=$1
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" can_be_liquidated --account_id "$account_id"
+    invoke_view "$ctrl" is_liquidatable --account_id "$account_id"
 }
 
 get_collateral_cmd() {
@@ -2333,7 +2333,7 @@ get_collateral_cmd() {
     asset_address=$(require_market_address "$market_name")
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" collateral_amount_for_token --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_collateral_amount --account_id "$account_id" --asset "$asset_address"
 }
 
 get_borrow_cmd() {
@@ -2343,7 +2343,7 @@ get_borrow_cmd() {
     asset_address=$(require_market_address "$market_name")
     local ctrl
     ctrl=$(get_controller)
-    invoke_view "$ctrl" borrow_amount_for_token --account_id "$account_id" --asset "$asset_address"
+    invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --asset "$asset_address"
 }
 
 # ---------------------------------------------------------------------------
