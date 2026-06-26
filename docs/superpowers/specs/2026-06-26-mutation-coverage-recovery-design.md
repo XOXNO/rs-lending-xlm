@@ -58,8 +58,13 @@ invisible to mutation testing, so a future refactor could break them undetected.
 ## Solution — three tracks
 
 ### Track C — honest denominator
-- `.cargo/mutants.toml`: add `exclude_re` for the two provably-equivalent boundary mutants
-  (`Wad::min` `< → <=`, `Wad::max` `> → >=`).
+- `.cargo/mutants.toml`: add `exclude_re` for the provably-equivalent boundary mutants. All six are
+  unkillable because the equality case is pre-handled (or symmetric at zero):
+  - `Wad::min` `< → <=` (`fp.rs:232`), `Wad::max` `> → >=` (`fp.rs:240`).
+  - `rescale_half_up` / `rescale_floor` / `rescale_ceil` `> → >=` (`fp_core.rs:66/94/118`) — the
+    `from_decimals == to_decimals` early `return a` makes `>` vs `>=` unobservable.
+  - `mul_div_half_up_signed` `< → <=` (`fp_core.rs:46`) — at `product == 0` both rounding
+    directions truncate to `0`.
 - **Decision:** constants are **pinned with a test**, not suppressed. New `common/tests/constants.rs`
   asserts the derived values of `constants/shared.rs` and `constants/pool.rs` arithmetic (e.g.
   seconds-per-day, `MS_PER_SECOND` relationships). Kills the `* → +` / `* → /` mutants meaningfully
@@ -74,12 +79,13 @@ invisible to mutation testing, so a future refactor could break them undetected.
   `require_nonneg_amount`, `cap_is_enabled` truth table, `require_wasm_receiver`
   (registered contract address vs an account address).
 - `contracts/controller/src/helpers/utils.rs` → new co-located test module: `aggregate_payment_amount`
-  (negative / zero / withdraw-all sentinel / overflow), `push_unique_address` dedup.
-- `contracts/controller/src/helpers/emode_caps.rs` → co-located tests for the pure cap arithmetic
-  (`max_scaled_for_cap`, the `+` / comparison in `enforce_spoke_*_cap`) drivable without storage.
-- `common/math/fp_core.rs` → extend the existing `common/tests/math/fp_core.rs` with rescale
-  boundary cases (`rescale_half_up` / `rescale_floor` / `rescale_ceil` `> → >=` at the exact
-  remainder/scale boundary) to kill the 3 rescale mutants.
+  (negative / zero / withdraw-all sentinel / sums), `push_unique_address` dedup. `transfer_amount`
+  (SAC-dependent) is left to Track A.
+
+`emode_caps.rs`, `math.rs`, `risk_params.rs`, `account.rs`, the oracle provider wrappers, and
+`rates.rs` boundary mutants are **not** unit-tested here — they are `Cache` / storage / SAC / wasm
+dependent and are already exercised by harness e-mode, liquidation, borrow, and oracle flows. Track A
+is their coverage.
 
 ### Track A — scope the harness into the default target
 - **Decision:** extend the **main** `mutants` target with
