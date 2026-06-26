@@ -66,9 +66,9 @@ flow_defindex_strategy() {
     fi
     deploy_dfx_strategy || return 1
 
-    # Configured underlying + clean pre-deposit state.
+    # Configured underlying. The vault's lending-account lifecycle is not exposed
+    # by public strategy views, so the checks below are balance-based.
     assert_dfx_eq dfx_asset "$SAC_DFX" asset
-    assert_dfx_eq dfx_no_account_pre false has_lending_account --vault "$DAVE_ADDR"
 
     # Deposit guard: non-positive amount (#460 AmountNotPositive).
     xfail dfx_deposit_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- deposit \
@@ -80,8 +80,6 @@ flow_defindex_strategy() {
         --amount "$deposit" --from "$DAVE_ADDR" | tr -d '"') || return 1
     log "deposit reported balance = $reported"
     assert_dfx_uint_ge dfx_balance_post_deposit "$reported" balance --from "$DAVE_ADDR"
-    assert_dfx_uint_ge dfx_account_opened 1 lending_account_id --vault "$DAVE_ADDR"
-    assert_dfx_eq dfx_has_account true has_lending_account --vault "$DAVE_ADDR"
 
     # Harvest publishes price_per_share from the supply index (no auth, no debt).
     inv dfx_harvest "$DAVE" "$STRATEGY" -- harvest --from "$DAVE_ADDR" >/dev/null || return 1
@@ -95,26 +93,22 @@ flow_defindex_strategy() {
     xfail dfx_withdraw_no_pos 'Error\(Contract, #461\)' "$CAROL" "$STRATEGY" -- withdraw \
         --amount "$DFX_UNIT" --from "$CAROL_ADDR" --to "$CAROL_ADDR"
 
-    # Partial withdraw pays the recipient directly; balance drops, account stays.
+    # Partial withdraw pays the recipient directly; balance drops.
     local part=$((300 * DFX_UNIT))
     inv dfx_withdraw_partial "$DAVE" "$STRATEGY" -- withdraw \
         --amount "$part" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_uint_lt dfx_balance_post_partial "$reported" balance --from "$DAVE_ADDR"
-    assert_dfx_eq dfx_has_account_post_partial true has_lending_account --vault "$DAVE_ADDR"
 
     # Terminal exit: amount == balance maps to controller withdraw-all (0), which
-    # closes + deregisters the account; read paths report 0.
+    # closes + deregisters the account; balance reports 0.
     local remaining
     remaining=$(_dfx_view dfx_balance_pre_full balance --from "$DAVE_ADDR")
     inv dfx_withdraw_full "$DAVE" "$STRATEGY" -- withdraw \
         --amount "$remaining" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_eq dfx_balance_closed 0 balance --from "$DAVE_ADDR"
-    assert_dfx_eq dfx_account_closed 0 lending_account_id --vault "$DAVE_ADDR"
-    assert_dfx_eq dfx_no_account_post false has_lending_account --vault "$DAVE_ADDR"
 
-    # Re-deposit clears the stale vault mapping and opens a fresh account.
+    # Re-deposit after a full exit opens a fresh account; balance is positive again.
     inv dfx_redeposit "$DAVE" "$STRATEGY" -- deposit \
         --amount $((500 * DFX_UNIT)) --from "$DAVE_ADDR" >/dev/null || return 1
-    assert_dfx_uint_ge dfx_account_reopened 1 lending_account_id --vault "$DAVE_ADDR"
-    assert_dfx_eq dfx_has_account_reopened true has_lending_account --vault "$DAVE_ADDR"
+    assert_dfx_uint_ge dfx_balance_reopened 1 balance --from "$DAVE_ADDR"
 }
