@@ -1059,6 +1059,31 @@ fn test_claim_revenue_handles_partial_claim_when_reserves_are_lower_than_revenue
 }
 
 #[test]
+fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(t.asset.clone());
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.max_utilization_ray = RAY * 95 / 100;
+        t.env.storage().persistent().set(&key, &params);
+    });
+    t.edit_state(|state| {
+        state.supplied_ray = 100 * RAY;
+        state.borrowed_ray = 90 * RAY;
+        state.revenue_ray = 10 * RAY;
+        state.cash = 10_0000000i128;
+    });
+
+    let result = flatten_contract_result(client.try_claim_revenue(&t.asset));
+    assert_contract_error(
+        result,
+        common::errors::CollateralError::UtilizationAboveMax as u32,
+    );
+}
+
+#[test]
 fn test_claim_revenue_rejects_revenue_above_supplied() {
     let t = TestSetup::new();
     let client = t.client();

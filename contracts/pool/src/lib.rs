@@ -507,6 +507,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
         let amount_to_transfer = cache.burn_claimable_revenue();
 
+        utils::require_utilization_below_max(&env, &cache);
         utils::require_solvent_withdraw_state(&env, &cache);
         cache.debit_cash(amount_to_transfer);
 
