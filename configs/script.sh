@@ -51,6 +51,17 @@ else
     SOURCE_FLAG="--source $SIGNER"
 fi
 
+# Pin every stellar call to the RPC + passphrase from networks.json. These env
+# vars take precedence over the RPC the CLI would resolve from `--network`, so
+# the network name is still used for contract-alias resolution while the actual
+# endpoint comes from config. Point rpc_url at a reliable provider to avoid the
+# public RPC's transient TxBadSeq / read-after-write lag on long deploys. Falls
+# back to the CLI's built-in endpoint when rpc_url is absent.
+_cfg_rpc=$(jq -r ".\"$NETWORK\".rpc_url // empty" "$NETWORKS_FILE" 2>/dev/null)
+_cfg_pass=$(jq -r ".\"$NETWORK\".network_passphrase // empty" "$NETWORKS_FILE" 2>/dev/null)
+if [ -n "$_cfg_rpc" ]; then export STELLAR_RPC_URL="$_cfg_rpc"; fi
+if [ -n "$_cfg_pass" ]; then export STELLAR_NETWORK_PASSPHRASE="$_cfg_pass"; fi
+
 # ---------------------------------------------------------------------------
 # Config readers (using jq)
 # ---------------------------------------------------------------------------
@@ -546,6 +557,46 @@ parse_op_id() {
     printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
 }
 
+# Errors that guarantee the transaction never reached or was rejected by the
+# network BEFORE any state change — safe to retry without risking a double
+# submit. TxBadSeq is a stale-sequence rejection (the CLI refetches on retry);
+# the rest are pre-send connection failures. Ambiguous post-submission timeouts
+# are deliberately NOT listed so a tx that may have landed is never re-sent.
+RPC_RETRYABLE_RE='TxBadSeq|error sending request|tcp connect error|client error \(Connect\)|Connection refused|connection closed before message completed|dns error'
+STELLAR_TX_MAX_RETRIES=${STELLAR_TX_MAX_RETRIES:-4}
+STELLAR_TX_RETRY_DELAY=${STELLAR_TX_RETRY_DELAY:-4}
+
+# Run a stellar tx command, retrying only on safe-to-retry transient errors so a
+# flaky endpoint or a stale-sequence read does not abort a long deploy. The
+# underlying command's stdout is preserved verbatim (callers parse op ids and
+# returned addresses from it); diagnostics and errors are forwarded to stderr.
+retry_tx() {
+    local attempt=1 out rc errfile
+    errfile=$(mktemp)
+    while :; do
+        # `&& rc=0 || rc=$?` captures the command's real exit status while
+        # staying exempt from `set -e` (a bare assignment of a failing command
+        # substitution would abort the script before the error is inspected).
+        out=$("$@" 2>"$errfile") && rc=0 || rc=$?
+        if [ "$rc" -eq 0 ]; then
+            cat "$errfile" >&2
+            rm -f "$errfile"
+            printf '%s' "$out"
+            return 0
+        fi
+        if [ "$attempt" -lt "$STELLAR_TX_MAX_RETRIES" ] && grep -qiE "$RPC_RETRYABLE_RE" "$errfile"; then
+            echo "  transient RPC error (attempt ${attempt}/${STELLAR_TX_MAX_RETRIES}); retrying in ${STELLAR_TX_RETRY_DELAY}s..." >&2
+            sed 's/^/    | /' "$errfile" >&2
+            attempt=$(( attempt + 1 ))
+            sleep "$STELLAR_TX_RETRY_DELAY"
+            continue
+        fi
+        cat "$errfile" >&2
+        rm -f "$errfile"
+        return "$rc"
+    done
+}
+
 # Core scheduler: invoke the generic `propose(proposer, op, salt)` on governance
 # and record the controller op for replay through the generic `execute`.
 #   $1 controller_fn       controller thin-setter the op targets (for the record)
@@ -569,7 +620,7 @@ schedule_via_proposer() {
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
     local out
-    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -607,7 +658,7 @@ schedule_via_gov_self_proposer() {
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
     local out
-    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -674,9 +725,10 @@ op_state() {
 # ledger sequence + get_operation_ledger so mainnet-scale delays are supported.
 await_op_ready() {
     local op_id=$1
-    local started_at ready_ledger current state max_wait waited
+    local started_at ready_ledger current state max_wait waited unset_seen
     started_at=$(date +%s)
     max_wait=$(await_max_wait_seconds)
+    unset_seen=0
 
     while true; do
         state=$(op_state "$op_id")
@@ -703,7 +755,18 @@ await_op_ready() {
                 echo "  Op ${op_id} Waiting (ledger ${current:-?}/${ready_ledger:-?}, waited ${waited}s/${max_wait}s); sleeping ${AWAIT_POLL_SECONDS}s..." >&2
                 sleep "$AWAIT_POLL_SECONDS"
                 ;;
-            Unset) echo "ERROR: op ${op_id} is Unset (never scheduled or cancelled)." >&2; exit 1 ;;
+            Unset)
+                # A just-confirmed schedule can briefly read back Unset on a
+                # lagging RPC (read-after-write). Tolerate a few polls before
+                # treating it as a genuine never-scheduled / cancelled op.
+                unset_seen=$(( unset_seen + 1 ))
+                if [ "$unset_seen" -ge "${UNSET_MAX_POLLS:-6}" ]; then
+                    echo "ERROR: op ${op_id} is Unset (never scheduled or cancelled) after ${unset_seen} polls." >&2
+                    exit 1
+                fi
+                echo "  Op ${op_id} read Unset (RPC lag?); retry ${unset_seen}/${UNSET_MAX_POLLS:-6}, sleeping ${AWAIT_POLL_SECONDS}s..." >&2
+                sleep "$AWAIT_POLL_SECONDS"
+                ;;
             *) echo "ERROR: unexpected op state '${state}' for ${op_id}." >&2; exit 1 ;;
         esac
     done
@@ -726,7 +789,7 @@ execute_gov_self_op() {
     jq -c '.op' "$path" > "$op_file"
     # Open execution: a ready op already waited the full delay. Option<Address>
     # executor is passed as JSON null (None).
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute_self \
         --executor null \
         --op-file-path "$op_file" \
@@ -786,7 +849,7 @@ execute_op() {
     # Open execution: a ready op was already proposed, validated, and waited the
     # full delay, so triggering it is unprivileged. `Option<Address>` is passed
     # as JSON `null` (None); a bare address is not valid JSON for this arg.
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
         --executor null \
         --target "$target" \
@@ -890,10 +953,13 @@ add_emode_category() {
 
     echo "Adding E-Mode category ${category_id}: ${name}" >&2
 
-    # add_e_mode_category() — no args; risk params are per-asset.
+    # add_e_mode_category() — no on-chain args; risk params are per-asset.
+    # The salt is seeded with the config category id so that creating several
+    # categories in one setup run derives distinct timelock op ids (the call
+    # args stay []; a shared salt would collide on the second category).
     local args_json='[]'
     local salt
-    salt=$(gen_salt "add_e_mode_category" "$args_json")
+    salt=$(gen_salt "add_e_mode_category:${category_id}" "$args_json")
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1836,7 +1902,7 @@ configure_market_oracle() {
 
     echo "Scheduling market oracle config for ${market_name}..." >&2
     local out
-    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -1899,7 +1965,7 @@ edit_oracle_tolerance() {
 
     echo "Scheduling oracle tolerance edit for ${market_name} (first=${first} last=${last})..." >&2
     local out
-    out=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -2208,7 +2274,12 @@ show_info() {
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
-    echo "RedStone feeds: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE")"
+    # Markets that actually reference RedStone (as primary or anchor) in the
+    # market config. testnet wires RedStone through the shared adapter + symbol
+    # feed_ids, so this reflects real usage even when the optional per-feed
+    # contract registry below is empty.
+    echo "RedStone markets: $(jq -r '[.markets[] | select((.oracle.primary.tag == "RedStone") or (.oracle.anchor.tag == "Some" and (.oracle.anchor.values[0].tag // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    echo "RedStone feed registry: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE") per-feed contract(s)"
 }
 
 # ---------------------------------------------------------------------------

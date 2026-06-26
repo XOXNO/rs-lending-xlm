@@ -1,14 +1,14 @@
 {
   "testnet": {
-    "rpc_url": "https://soroban-testnet.stellar.org",
+    "rpc_url": "https://stellar-testnet-gateway.xoxno.com",
     "network_passphrase": "Test SDF Network ; September 2015",
     "timelock_min_delay_ledgers": 12,
-    "governance": "CDLIALLKIZ3S4PML3QKNE3BAZHWAOIYLJZAD26HBLNVVZ6ECRVVQ6BUX",
-    "controller": "CDTXPKJG7TDRUFPH7AXNIPSYD2IVPU2CYOQCIWCA3RGA5UOU4LNFZ37W",
+    "governance": "CDXSXXQYLIODKKS56LSAVEXL7TRRJLDTUFGXEJM4Z4BMHTPWEO6OZBVN",
+    "controller": "CAUPFS5V7FKPEI6KVL4KVGLVGYCS3K472NMFZB6NWPWJRNZYMR64RGDU",
     "aggregator": "CBAS56L66AUKYZB6KIXX6LYXM76OQXFBJ4A7ORITBIRUO5ZV7SOYRAK7",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
-    "pool_wasm_hash": "e95047f3eab5e7cd6d8eacbb3b01690765af0f7aa188a973433c1e503ebc5259",
-    "controller_wasm_hash": "a4235d6f28a37b70337881c8171d1c18fab2b003f49a517879ec0063f28c3c75",
+    "pool_wasm_hash": "105d52e0f692215ee351aef6aa520861c8d5bbb901bc5be3d2b36a626b27e5a2",
+    "controller_wasm_hash": "384f52a915372be810aac0ba8ff0a269ff91579cf431391de16d4212c00cf912",
     "ledger_index": 0,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -19,11 +19,11 @@
       "1": 1,
       "2": 2
     },
-    "pool": "CC264UKRU34OHGCPC2DJF7JD4S2MYE5TQBYE4H76R4XH3YG5ZLTKSKS6",
+    "pool": "CCQ5UQAFSYRWDJT6AMJXW3D3VGGWYWYMNIGDO5WRPURUQ5CQYZPWBXVN",
     "governance_wasm_hash": "1d6d1f6b503ebaae76a5e2123fb1acbfd34836c643815892eeb077c2b3fc02ce"
   },
   "mainnet": {
-    "rpc_url": "https://soroban-rpc.mainnet.stellar.gateway.fm",
+    "rpc_url": "https://stellar-gateway.xoxno.com",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
     "timelock_min_delay_ledgers": 34560,
     "governance": "",

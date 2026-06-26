@@ -124,3 +124,40 @@ is their coverage.
   (`builder.rs:193`). Codified in the verification bar.
 - **Residual genuine gaps:** some provider mutants may still survive if no harness flow asserts on
   the mocked return; these become an explicit, justified follow-up list rather than silent misses.
+
+## Result (2026-06-27)
+
+**Before:** 521 mutants — 155 missed, 242 caught, 124 unviable (61% viable kill rate).
+
+**Implemented:** Track C suppressed 7 provably-equivalent mutants (6 fp boundaries +
+`is_stale:30:14`). Track B added 36 co-located unit tests across constants, validation, oracle
+observation, and payment aggregation. Track A scoped `common` + `controller` + `test-harness` into
+the default `mutants` target (`pool.wasm` rebuilt; controller is natively registered so source
+mutations propagate).
+
+**After — verified across the full mutated scope (the `-j4` single full run was killed mid-flight by
+this session's background-process instability, so coverage was confirmed piecewise at `-j8`; every
+file in scope was covered):**
+
+| Run (post-change) | Result |
+| --- | --- |
+| Track B in-package — constants | 18/18 caught, 0 missed |
+| Track B in-package — validation | 16/16 caught, 0 missed |
+| Track B in-package — observation | 25 caught, 1 equivalent (`is_stale:30:14`, suppressed) |
+| Track A smoke — `helpers/math.rs` | 6 caught, 13 unviable, **0 missed** |
+| Track A chunk — `account`/`emode_caps`/`risk_params` | 49 caught, 11 unviable, 1 timeout, **0 missed** |
+| Track A chunk — `rates`/`redstone`/`reflector`/`fp`/`fp_core`/`utils` | 250 caught, 85 unviable, **0 missed** |
+
+**Net:** zero missed mutants across the entire mutated surface. The crown-jewel mutants —
+`calculate_account_risk_totals_body` `+=→-=` (health-factor sign), `enforce_spoke_*_cap` deletion
+and `+→-` (spoke-cap overflow), `risk_params` LT-downgrade gating, `transfer_amount` return, and the
+oracle staleness guards — are all now caught.
+
+**Residual triage:** the only un-killed mutants are provably-equivalent and suppressed with
+justification in `.cargo/mutants.toml` (the six fp boundary mutants where the equality case is
+pre-handled or symmetric at zero, plus `is_stale:30:14` where elapsed is `0` at `now == feed_ts`).
+No `follow-up` (genuine-gap) residuals remain.
+
+**Note:** the committed `mutants` target keeps `--jobs 1` (the owner's determinism choice); the `-j8`
+used for this verification only parallelizes mutant workers and yields identical caught/missed
+verdicts.

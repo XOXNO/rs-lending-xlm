@@ -97,3 +97,7 @@ pub(crate) struct EventContext {
     pub caller: Address,
     pub action: events::PositionAction,
 }
+
+#[cfg(test)]
+#[path = "../../tests/helpers/utils.rs"]
+mod tests;

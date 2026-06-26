@@ -36,4 +36,15 @@ exclude_globs = [
 exclude_re = [
     # `replace .* with Default::default()` on unit-returning fns.
     "replace .* -> \\(\\) with \\(\\)",
+
+    # Provably-equivalent boundary mutants (equality pre-handled or symmetric at 0):
+    "replace < with <= in Wad::min",
+    "replace > with >= in Wad::max",
+    "replace > with >= in rescale_half_up",
+    "replace > with >= in rescale_floor",
+    "replace > with >= in rescale_ceil",
+    "replace < with <= in mul_div_half_up_signed",
+    # `is_stale` first guard: at now == feed_ts elapsed is 0, never > max_stale,
+    # so `>` vs `>=` is unobservable. Col-anchored to spare the killable :30:48.
+    "observation.rs:30:14: replace > with >= in is_stale",
 ]

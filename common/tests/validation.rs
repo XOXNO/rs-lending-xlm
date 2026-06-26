@@ -86,3 +86,62 @@ fn cap_domain_rejects_decimals_above_ray() {
     // closed with AssetDecimalsTooHigh rather than panicking on subtraction.
     require_cap_within_asset_domain(&env, 100, RAY_DECIMALS + 1);
 }
+
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{contract, contractimpl, Address};
+
+#[contract]
+struct WasmReceiver;
+
+#[contractimpl]
+impl WasmReceiver {}
+
+#[test]
+fn require_positive_accepts_one() {
+    let env = Env::default();
+    require_positive_amount(&env, 1);
+}
+
+#[test]
+#[should_panic]
+fn require_positive_rejects_zero() {
+    let env = Env::default();
+    require_positive_amount(&env, 0);
+}
+
+#[test]
+fn require_nonneg_accepts_zero() {
+    let env = Env::default();
+    require_nonneg_amount(&env, 0);
+}
+
+#[test]
+#[should_panic]
+fn require_nonneg_rejects_negative() {
+    let env = Env::default();
+    require_nonneg_amount(&env, -1);
+}
+
+#[test]
+fn cap_is_enabled_truth_table() {
+    assert!(!cap_is_enabled(0));
+    assert!(!cap_is_enabled(-1));
+    assert!(!cap_is_enabled(i128::MAX));
+    assert!(cap_is_enabled(1));
+    assert!(cap_is_enabled(1_000_000));
+}
+
+#[test]
+fn require_wasm_receiver_accepts_contract() {
+    let env = Env::default();
+    let receiver = env.register(WasmReceiver, ());
+    require_wasm_receiver(&env, &receiver);
+}
+
+#[test]
+#[should_panic]
+fn require_wasm_receiver_rejects_account() {
+    let env = Env::default();
+    let account = Address::generate(&env);
+    require_wasm_receiver(&env, &account);
+}
