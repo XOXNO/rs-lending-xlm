@@ -60,41 +60,41 @@ assert_int_view_eq() {
 assert_hf_at_least() {
   local label="$1" acct="$2" min_wad="$3"
   local hf
-  hf=$(_view_int "$label" health_factor --account_id "$acct")
+  hf=$(_view_int "$label" get_health_factor --account_id "$acct")
   _uint_ge "$hf" "$min_wad" || _assert_fail "$label" "hf=$hf want >= $min_wad"
 }
 
 assert_hf_below_wad() {
   local label="$1" acct="$2"
   local hf
-  hf=$(_view_int "$label" health_factor --account_id "$acct")
+  hf=$(_view_int "$label" get_health_factor --account_id "$acct")
   _uint_lt "$hf" "$WAD" || _assert_fail "$label" "hf=$hf want < $WAD (liquidatable)"
 }
 
 assert_borrow_at_most() {
   local label="$1" acct="$2" asset="$3" max_raw="$4"
   local debt
-  debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
+  debt=$(_view_int "$label" get_borrow_amount --account_id "$acct" --asset "$asset")
   _uint_le "$debt" "$max_raw" || _assert_fail "$label" "borrow=$debt want <= $max_raw"
 }
 
 assert_borrow_at_least() {
   local label="$1" acct="$2" asset="$3" min_raw="$4"
   local debt
-  debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
+  debt=$(_view_int "$label" get_borrow_amount --account_id "$acct" --asset "$asset")
   _uint_ge "$debt" "$min_raw" || _assert_fail "$label" "borrow=$debt want >= $min_raw"
 }
 
 assert_borrow_decreased() {
   local label="$1" acct="$2" asset="$3" before_raw="$4"
   local debt
-  debt=$(_view_int "$label" borrow_amount_for_token --account_id "$acct" --asset "$asset")
+  debt=$(_view_int "$label" get_borrow_amount --account_id "$acct" --asset "$asset")
   _uint_lt "$debt" "$before_raw" || _assert_fail "$label" "borrow=$debt want < $before_raw"
 }
 
 assert_can_liquidated() {
   local label="$1" acct="$2" expected="$3"
-  assert_bool_view "$label" "$expected" can_be_liquidated --account_id "$acct"
+  assert_bool_view "$label" "$expected" is_liquidatable --account_id "$acct"
 }
 
 # Regex checks (not arithmetic) so i128::MAX-scale view values don't overflow

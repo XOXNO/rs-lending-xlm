@@ -146,7 +146,7 @@ fn test_get_all_markets_multiple() {
             t.resolve_asset("WBTC"),
         ],
     );
-    let markets = ctrl.get_all_markets_detailed(&assets);
+    let markets = ctrl.get_markets_detailed(&assets);
     assert_eq!(
         markets.len(),
         3,
@@ -162,7 +162,7 @@ fn test_get_all_markets_single() {
 
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC")]);
-    let markets = ctrl.get_all_markets_detailed(&assets);
+    let markets = ctrl.get_markets_detailed(&assets);
     assert_eq!(
         markets.len(),
         1,
@@ -182,7 +182,7 @@ fn test_get_pool_address_matches_market_view() {
     let pool = ctrl.get_pool_address();
     let assets =
         soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC"), t.resolve_asset("ETH")]);
-    for row in ctrl.get_all_markets_detailed(&assets).iter() {
+    for row in ctrl.get_markets_detailed(&assets).iter() {
         assert_eq!(row.pool_address, pool, "pool address must be global");
     }
     assert_eq!(t.get_pool_address("USDC"), pool);
@@ -307,8 +307,8 @@ fn test_liquidation_estimations_basic() {
     let account_id = t.resolve_account_id(ALICE);
     let ctrl = t.ctrl_client();
     let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
-    let estimate = ctrl.liquidation_estimations_detailed(&account_id, &payments);
-    let hf = ctrl.health_factor(&account_id);
+    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
+    let hf = ctrl.get_health_factor(&account_id);
 
     // HF must be < 1.0 WAD.
     let wad = WAD;
@@ -349,7 +349,7 @@ fn test_get_market_index_view() {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
     let index = ctrl
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
 
@@ -429,7 +429,7 @@ fn test_collateral_amount_for_token_happy() {
     let usdc = t.resolve_asset("USDC");
     let amount = t
         .ctrl_client()
-        .collateral_amount_for_token(&account_id, &usdc);
+        .get_collateral_amount(&account_id, &usdc);
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -455,7 +455,7 @@ fn test_borrow_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let eth = t.resolve_asset("ETH");
-    let amount = t.ctrl_client().borrow_amount_for_token(&account_id, &eth);
+    let amount = t.ctrl_client().get_borrow_amount(&account_id, &eth);
 
     // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
     let expected = 2i128 * 10_000_000;
@@ -485,7 +485,7 @@ fn test_liquidation_collateral_available_happy() {
     let account_id = t.resolve_account_id(ALICE);
     let weighted = t
         .ctrl_client()
-        .liquidation_collateral_available(&account_id);
+        .get_liquidation_collateral(&account_id);
 
     // weighted_coll is in WAD USD: ~$9,600 * 10^18.
     let expected = 9_600.0;
@@ -513,7 +513,7 @@ fn test_ltv_collateral_in_usd_happy() {
     t.supply(ALICE, "ETH", 1.0);
 
     let account_id = t.resolve_account_id(ALICE);
-    let ltv_wad = t.ctrl_client().ltv_collateral_in_usd(&account_id);
+    let ltv_wad = t.ctrl_client().get_ltv_collateral_usd(&account_id);
 
     let expected = 9_000.0;
     let ltv_usd = ltv_wad as f64 / WAD as f64;

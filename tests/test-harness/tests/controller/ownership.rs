@@ -71,7 +71,7 @@ fn test_pause_unpause_round_trip() {
 #[test]
 fn test_app_version_defaults_to_initial() {
     let t = fresh();
-    assert_eq!(t.ctrl_client().app_version(), 1);
+    assert_eq!(t.ctrl_client().get_app_version(), 1);
 }
 
 #[test]
@@ -79,9 +79,9 @@ fn test_migrate_bumps_version_when_strictly_greater() {
     let t = fresh();
     let ctrl = t.ctrl_client();
     ctrl.migrate(&2);
-    assert_eq!(ctrl.app_version(), 2);
+    assert_eq!(ctrl.get_app_version(), 2);
     ctrl.migrate(&5);
-    assert_eq!(ctrl.app_version(), 5);
+    assert_eq!(ctrl.get_app_version(), 5);
 }
 
 #[test]

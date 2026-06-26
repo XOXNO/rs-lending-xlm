@@ -454,7 +454,7 @@ fn test_multiply_emode_stablecoin() {
     assert!(borrow > 0.0, "should have USDT borrow in e-mode");
 
     // HF must be healthy with e-mode parameters.
-    let hf = ctrl.health_factor(&account_id);
+    let hf = ctrl.get_health_factor(&account_id);
     let hf_f64 = hf as f64 / (WAD as f64);
     assert!(hf_f64 >= 1.0, "e-mode HF should be >= 1.0, got {}", hf_f64);
 }

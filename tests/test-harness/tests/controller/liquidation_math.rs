@@ -15,7 +15,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
     let idx = ctrl
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     (idx.supply_index_ray, idx.borrow_index_ray)
@@ -100,8 +100,8 @@ fn test_bonus_formula_at_specific_hf_levels() {
     let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
     let estimate = t
         .ctrl_client()
-        .liquidation_estimations_detailed(&account_id, &payments);
-    let hf = t.ctrl_client().health_factor(&account_id);
+        .get_liquidation_estimate(&account_id, &payments);
+    let hf = t.ctrl_client().get_health_factor(&account_id);
 
     let hf_f64 = hf as f64 / WAD as f64;
     assert!(
@@ -139,8 +139,8 @@ fn test_deep_underwater_higher_bonus() {
     let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
     let light = t
         .ctrl_client()
-        .liquidation_estimations_detailed(&id_alice, &payments);
-    let hf_light = t.ctrl_client().health_factor(&id_alice);
+        .get_liquidation_estimate(&id_alice, &payments);
+    let hf_light = t.ctrl_client().get_health_factor(&id_alice);
     let hf_light_f64 = hf_light as f64 / WAD as f64;
     assert!(
         hf_light_f64 > 0.95 && hf_light_f64 < 1.0,
@@ -152,8 +152,8 @@ fn test_deep_underwater_higher_bonus() {
     t.set_price("USDC", usd_cents(68));
     let deep = t
         .ctrl_client()
-        .liquidation_estimations_detailed(&id_alice, &payments);
-    let hf_deep = t.ctrl_client().health_factor(&id_alice);
+        .get_liquidation_estimate(&id_alice, &payments);
+    let hf_deep = t.ctrl_client().get_health_factor(&id_alice);
     let hf_deep_f64 = hf_deep as f64 / WAD as f64;
     assert!(
         hf_deep_f64 > 0.85 && hf_deep_f64 < hf_light_f64,

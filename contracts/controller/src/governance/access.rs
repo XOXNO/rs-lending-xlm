@@ -109,7 +109,7 @@ impl Controller {
             .set(&ControllerKey::AppVersion, &new_version);
     }
 
-    pub fn app_version(env: Env) -> u32 {
+    pub fn get_app_version(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&ControllerKey::AppVersion)

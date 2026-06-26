@@ -139,7 +139,7 @@ pub fn capture_indexes(t: &LendingTest) -> [(i128, i128); 3] {
         assets.push_back(t.resolve_asset(asset));
         let v = t
             .ctrl_client()
-            .get_all_market_indexes_detailed(&assets)
+            .get_market_indexes_detailed(&assets)
             .get(0)
             .unwrap();
         out[i] = (v.supply_index_ray, v.borrow_index_ray);

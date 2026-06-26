@@ -147,7 +147,7 @@ flow_admin_upgrade() {
             --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
             --assets "$(pay_vec "$XLM_SAC" 1000000000)"
         local ver
-        ver=$(view app_version_view "$CONTROLLER" -- app_version | tr -d '"')
+        ver=$(view app_version_view "$CONTROLLER" -- get_app_version | tr -d '"')
         inv controller_migrate "$ADMIN" "$CONTROLLER" -- migrate --new_version $((ver + 1)) >/dev/null
         inv unpause_after_upgrade "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     fi

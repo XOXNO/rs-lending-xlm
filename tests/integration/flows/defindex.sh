@@ -2,7 +2,7 @@
 # controller. One strategy WASM is deployed per underlying asset; each vault
 # (an EOA here, standing in for a DeFindex vault) maps to one controller
 # account the strategy owns. Flows: deposit -> controller.supply, withdraw ->
-# controller.withdraw, balance -> collateral_amount_for_token, harvest ->
+# controller.withdraw, balance -> get_collateral_amount, harvest ->
 # price_per_share from the supply index.
 #
 # Venue-free (no aggregator/oracle pricing): the position is debt-free, so

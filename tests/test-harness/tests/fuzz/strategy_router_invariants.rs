@@ -32,7 +32,7 @@ proptest! {
 
         match result {
             Ok(account_id) => {
-                let hf = t.ctrl_client().health_factor(&account_id);
+                let hf = t.ctrl_client().get_health_factor(&account_id);
                 prop_assert!(hf >= WAD, "HF below 1 after multiply: {}", hf);
             }
             Err(_) => {

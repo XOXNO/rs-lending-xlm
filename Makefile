@@ -1152,7 +1152,7 @@ update-indexes:
 # Contract inspection (named-parameter escape hatches for ad-hoc calls)
 # ---------------------------------------------------------------------------
 
-## Invoke a controller function: make invoke FN=health_factor ARGS="--account_id 1"
+## Invoke a controller function: make invoke FN=get_health_factor ARGS="--account_id 1"
 invoke:
 	@CTRL=$$(stellar contract alias show $(CONTRACT) --network $(NETWORK) | tail -n1); \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) -- $(FN) $(ARGS)
@@ -1161,7 +1161,7 @@ invoke:
 invoke-id:
 	@stellar contract invoke --id $(CONTRACT_ID) $(SOURCE_FLAG) --network $(NETWORK) -- $(FN) $(ARGS)
 
-## Invoke a view function: make view FN=health_factor ARGS="--account_id 1"
+## Invoke a view function: make view FN=get_health_factor ARGS="--account_id 1"
 view:
 	@CTRL=$$(stellar contract alias show $(CONTRACT) --network $(NETWORK) | tail -n1); \
 	stellar contract invoke --id $$CTRL $(SOURCE_FLAG) --network $(NETWORK) --send=no -- $(FN) $(ARGS)

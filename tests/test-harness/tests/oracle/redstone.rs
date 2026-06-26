@@ -48,7 +48,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));
@@ -85,7 +85,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));
@@ -126,7 +126,7 @@ fn test_redstone_optional_anchor_read_failure_falls_back_for_view() {
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));
@@ -154,7 +154,7 @@ fn test_redstone_anchor_outside_second_tolerance_blocks_strict_view() {
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
     let view = t
         .ctrl_client()
-        .get_all_market_indexes_detailed(&assets)
+        .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));

@@ -162,7 +162,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
         let ctrl = t.ctrl_client();
         let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
         let index = ctrl
-            .get_all_market_indexes_detailed(&assets)
+            .get_market_indexes_detailed(&assets)
             .get(0)
             .unwrap();
         assert!(
@@ -484,11 +484,11 @@ fn test_chaos_keeper_revenue_lifecycle() {
     let usdc_assets = soroban_sdk::Vec::from_array(&t.env, [usdc_addr]);
     let eth_assets = soroban_sdk::Vec::from_array(&t.env, [eth_addr]);
     let usdc_index = ctrl
-        .get_all_market_indexes_detailed(&usdc_assets)
+        .get_market_indexes_detailed(&usdc_assets)
         .get(0)
         .unwrap();
     let eth_index = ctrl
-        .get_all_market_indexes_detailed(&eth_assets)
+        .get_market_indexes_detailed(&eth_assets)
         .get(0)
         .unwrap();
     assert!(
