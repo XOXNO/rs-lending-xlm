@@ -18,6 +18,14 @@
 #   make testnet upgradeAll         Upgrade pool template, controller, pools, then unpause
 #   make testnet setup              Deploy + configure markets/e-modes, then unpause
 #   make mainnet setup              Deploy + configure markets/e-modes, then unpause
+#   make testnet resume             Re-run configure/markets/e-modes/unpause (skips deploy)
+#
+# Mainnet bootstrap (avoid 48h-per-op waits): deploy with a 1-ledger delay, then
+# raise to the production delay once everything is configured (increase-only):
+#   DEPLOY_MIN_DELAY=1 make mainnet setup
+#   make mainnet updateDelay 34560
+#
+# Full runbook (markets / oracles / e-modes / roles / recovery): DEPLOYMENT.md
 #
 # Ledger signing:
 #   SIGNER=ledger make testnet deploy
@@ -93,6 +101,16 @@ POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
+
+# Pin the stellar CLI to the RPC + passphrase from networks.json. These env vars
+# take precedence over the endpoint the CLI resolves from --network (the network
+# name is still used for contract-alias resolution), so the reliable RPC set in
+# config drives uploads/deploys instead of the public default. Recipes inherit
+# them via `export`; configs/script.sh applies the same vars for its own calls.
+STELLAR_RPC_URL = $(shell jq -r '.["$(NETWORK)"].rpc_url // empty' $(CONFIG_DIR)/networks.json 2>/dev/null)
+STELLAR_NETWORK_PASSPHRASE = $(shell jq -r '.["$(NETWORK)"].network_passphrase // empty' $(CONFIG_DIR)/networks.json 2>/dev/null)
+export STELLAR_RPC_URL
+export STELLAR_NETWORK_PASSPHRASE
 
 # Stellar CLI source account flag
 ifeq ($(SIGNER),ledger)
@@ -977,6 +995,10 @@ _deploy: deploy-artifacts
 	@# 4. Deploy Governance with the deployer EOA as admin/owner.
 	@echo "4/6 Deploying Governance..."
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
+	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
+		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
+		echo "Bootstrap: DEPLOY_MIN_DELAY override = $$MIN_DELAY ledger(s). Deploy + setup run at this short delay; raise to the production value with 'make $(NETWORK) updateDelay <ledgers>' once configured (increase-only)."; \
+	fi; \
 	if [ -z "$$MIN_DELAY" ] || [ "$$MIN_DELAY" = "null" ]; then \
 		echo "timelock_min_delay_ledgers not configured for $(NETWORK) in $(CONFIG_DIR)/networks.json"; \
 		exit 1; \
@@ -1135,7 +1157,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow
 # Makefile-internal actions — handled directly by make targets, not forwarded
 # to configs/script.sh (they manipulate WASM artifacts and deploy pipelines).
 MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePoolTemplate upgradePools upgradeAll \
-                    deployFlashReceiver fundFlashReceiver testFlashReceiver setup
+                    deployFlashReceiver fundFlashReceiver testFlashReceiver setup resume
 
 ALL_ACTIONS := $(SIMPLE_ACTIONS) $(POSITIONAL_MARKET_ACTIONS) $(POSITIONAL_ID_ACTIONS) \
                $(POSITIONAL_ID_ASSET_ACTIONS) $(POSITIONAL_ACCOUNT_ACTIONS) \
@@ -1172,6 +1194,7 @@ define NETWORK_DISPATCH
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
 				testFlashReceiver)  $(MAKE) --no-print-directory test-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_LOAN_AMOUNT=$(FLASH_LOAN_AMOUNT) ;; \
 				setup)              $(MAKE) --no-print-directory _preflight-setup _deploy configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				resume)             $(MAKE) --no-print-directory _preflight-configure-controller configure-controller _setup-markets _unpause-after-setup _post-setup-status NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 			esac; \
 			exit 0 ;; \
 	esac; \
