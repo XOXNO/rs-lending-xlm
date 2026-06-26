@@ -890,10 +890,13 @@ add_emode_category() {
 
     echo "Adding E-Mode category ${category_id}: ${name}" >&2
 
-    # add_e_mode_category() — no args; risk params are per-asset.
+    # add_e_mode_category() — no on-chain args; risk params are per-asset.
+    # The salt is seeded with the config category id so that creating several
+    # categories in one setup run derives distinct timelock op ids (the call
+    # args stay []; a shared salt would collide on the second category).
     local args_json='[]'
     local salt
-    salt=$(gen_salt "add_e_mode_category" "$args_json")
+    salt=$(gen_salt "add_e_mode_category:${category_id}" "$args_json")
 
     local op_id
     op_id=$(schedule_via_proposer \
