@@ -44,4 +44,7 @@ exclude_re = [
     "replace > with >= in rescale_floor",
     "replace > with >= in rescale_ceil",
     "replace < with <= in mul_div_half_up_signed",
+    # `is_stale` first guard: at now == feed_ts elapsed is 0, never > max_stale,
+    # so `>` vs `>=` is unobservable. Col-anchored to spare the killable :30:48.
+    "observation.rs:30:14: replace > with >= in is_stale",
 ]
