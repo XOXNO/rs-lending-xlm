@@ -2274,7 +2274,12 @@ show_info() {
     echo "Reflector DEX: $(get_dex_oracle)"
     echo "Reflector FX:  $(get_fx_oracle)"
     echo "RedStone adapter: $(get_redstone_adapter)"
-    echo "RedStone feeds: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE")"
+    # Markets that actually reference RedStone (as primary or anchor) in the
+    # market config. testnet wires RedStone through the shared adapter + symbol
+    # feed_ids, so this reflects real usage even when the optional per-feed
+    # contract registry below is empty.
+    echo "RedStone markets: $(jq -r '[.markets[] | select((.oracle.primary.tag == "RedStone") or (.oracle.anchor.tag == "Some" and (.oracle.anchor.values[0].tag // "") == "RedStone")) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
+    echo "RedStone feed registry: $(jq -r --arg network "$NETWORK" '(.[$network].redstone_feeds // {}) | keys | length' "$NETWORKS_FILE") per-feed contract(s)"
 }
 
 # ---------------------------------------------------------------------------
