@@ -561,35 +561,35 @@ impl LiquidityPoolInterface for LiquidityPool {
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
-    fn capital_utilisation(env: Env, asset: Address) -> i128 {
+    fn get_utilisation(env: Env, asset: Address) -> i128 {
         views::capital_utilisation(&env, &asset)
     }
 
-    fn reserves(env: Env, asset: Address) -> i128 {
+    fn get_reserves(env: Env, asset: Address) -> i128 {
         views::reserves(&env, &asset)
     }
 
-    fn deposit_rate(env: Env, asset: Address) -> i128 {
+    fn get_deposit_rate(env: Env, asset: Address) -> i128 {
         views::deposit_rate(&env, &asset)
     }
 
-    fn borrow_rate(env: Env, asset: Address) -> i128 {
+    fn get_borrow_rate(env: Env, asset: Address) -> i128 {
         views::borrow_rate(&env, &asset)
     }
 
-    fn protocol_revenue(env: Env, asset: Address) -> i128 {
+    fn get_revenue(env: Env, asset: Address) -> i128 {
         views::protocol_revenue(&env, &asset)
     }
 
-    fn supplied_amount(env: Env, asset: Address) -> i128 {
+    fn get_supplied_amount(env: Env, asset: Address) -> i128 {
         views::supplied_amount(&env, &asset)
     }
 
-    fn borrowed_amount(env: Env, asset: Address) -> i128 {
+    fn get_borrowed_amount(env: Env, asset: Address) -> i128 {
         views::borrowed_amount(&env, &asset)
     }
 
-    fn delta_time(env: Env, asset: Address) -> u64 {
+    fn get_delta_time(env: Env, asset: Address) -> u64 {
         views::delta_time(&env, &asset)
     }
 
@@ -597,7 +597,7 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::load_sync_data(&env, &asset)
     }
 
-    fn bulk_get_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
+    fn get_bulk_indexes(env: Env, assets: Vec<Address>) -> Vec<MarketIndexRaw> {
         let now = now_ms(&env);
         let mut indexes: Vec<MarketIndexRaw> = Vec::new(&env);
         for asset in assets.iter() {

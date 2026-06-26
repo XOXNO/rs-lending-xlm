@@ -142,6 +142,6 @@ assert_market_status() {
 assert_pool_revenue_decreased() {
   local label="$1" asset="$2" before_raw="$3"
   local after
-  after=$(_view_pool_int "$label" protocol_revenue --asset "$asset")
+  after=$(_view_pool_int "$label" get_revenue --asset "$asset")
   { [ -n "$after" ] && [ "$after" -lt "$before_raw" ]; } || _assert_fail "$label" "pool_revenue=$after want < $before_raw after claim"
 }

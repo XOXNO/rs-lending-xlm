@@ -221,10 +221,10 @@ The pool stores no account ownership, oracle configuration, or e-mode state.
 `LiquidityPoolInterface` trait. Mutating: `supply`, `borrow`, `withdraw`,
 `repay`, `update_indexes`, `add_rewards`, `flash_loan`, `create_strategy`,
 `seize_position`, `claim_revenue`,
-`update_params`, `upgrade`. Read-only: `capital_utilisation`,
-`reserves`, `deposit_rate`, `borrow_rate`, `protocol_revenue`,
-`supplied_amount`, `borrowed_amount`, `delta_time`, `get_sync_data`,
-`bulk_get_sync_data`.
+`update_params`, `upgrade`. Read-only: `get_utilisation`,
+`get_reserves`, `get_deposit_rate`, `get_borrow_rate`, `get_revenue`,
+`get_supplied_amount`, `get_borrowed_amount`, `get_delta_time`, `get_sync_data`,
+`get_bulk_indexes`.
 
 ## 5. Account and Storage Model
 

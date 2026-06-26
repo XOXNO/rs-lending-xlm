@@ -152,33 +152,33 @@ impl LendingTest {
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).capital_utilisation(&asset);
+        let raw = self.pool_client(asset_name).get_utilisation(&asset);
         raw as f64 / RAY as f64
     }
 
     pub fn pool_reserves(&self, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).reserves(&asset);
+        let raw = self.pool_client(asset_name).get_reserves(&asset);
         i128_to_f64(raw, decimals)
     }
 
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).borrow_rate(&asset);
+        let raw = self.pool_client(asset_name).get_borrow_rate(&asset);
         raw as f64 / RAY as f64
     }
 
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).deposit_rate(&asset);
+        let raw = self.pool_client(asset_name).get_deposit_rate(&asset);
         raw as f64 / RAY as f64
     }
     // Revenue snapshots
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
-        self.pool_client(asset_name).protocol_revenue(&asset)
+        self.pool_client(asset_name).get_revenue(&asset)
     }
     // Liquidation status
 

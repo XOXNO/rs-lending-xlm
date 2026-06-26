@@ -91,12 +91,6 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    fn load(env: &'a Env) -> Self {
-        Self::try_load(env).unwrap_or_else(|_| {
-            soroban_sdk::panic_with_error!(env, DeFindexStrategyError::NotInitialized)
-        })
-    }
-
     fn collateral(&self, account_id: u64) -> i128 {
         self.controller
             .collateral_amount_for_token(&account_id, &self.cfg.asset)
@@ -164,16 +158,6 @@ impl Strategy {
                 pool: controller_client.get_pool_address(),
             },
         );
-    }
-
-    /// Live controller account id for `vault` (`0` if missing or removed).
-    pub fn lending_account_id(env: Env, vault: Address) -> u64 {
-        Ctx::load(&env).reconcile(&vault)
-    }
-
-    /// Whether `vault` has a live controller account.
-    pub fn has_lending_account(env: Env, vault: Address) -> bool {
-        Ctx::load(&env).reconcile(&vault) != 0
     }
 }
 
