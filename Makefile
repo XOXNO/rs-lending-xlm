@@ -1021,12 +1021,13 @@ _setup-markets:
 create-market:
 	@echo "Scheduling market create for $(ASSET) on $(NETWORK)..."
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK)); \
+	OP=$$(jq -nc --arg asset '$(ASSET_ADDRESS)' --argjson params '$(MARKET_PARAMS)' \
+		--argjson config '$(ASSET_CONFIG)' \
+		'{CreateLiquidityPool:{asset:$$asset, params:$$params, config:$$config}}'); \
 	stellar contract invoke --id $$GOV $(SOURCE_FLAG) --network $(NETWORK) \
-		-- propose_create_liquidity_pool \
+		-- propose \
 		--proposer $(SIGNER_ADDRESS) \
-		--asset $(ASSET_ADDRESS) \
-		--params '$(MARKET_PARAMS)' \
-		--config '$(ASSET_CONFIG)' \
+		--op "$$OP" \
 		--salt $$(printf '%s' "$(ASSET_ADDRESS)create_liquidity_pool" | shasum -a 256 | cut -c1-64)
 
 # ---------------------------------------------------------------------------
