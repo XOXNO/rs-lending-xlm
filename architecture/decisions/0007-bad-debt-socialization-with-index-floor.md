@@ -64,11 +64,16 @@ the debt and calls
 A severe single-step reduction is not emitted as a dedicated event; it is
 observable through the controller's emitted market-state snapshot.
 
-**Standalone path**: `clean_bad_debt(account_id)` is a `#[when_not_paused]`,
-`KEEPER`-only entrypoint (it also calls `require_not_flash_loaning`) for
-accounts whose bad-debt state needs to be applied outside a liquidation event;
-it reverts with `CollateralError::CannotCleanBadDebt` when the account is not
-socializable.
+**Standalone path**: `clean_bad_debt(caller, account_id)`
+(`contracts/controller/src/positions/liquidation.rs`) is a **permissionless**
+entrypoint for accounts whose bad-debt state needs to be applied outside a
+liquidation event. It requires only `caller.require_auth()` (to authenticate the
+submitter) plus `require_not_flash_loaning`; it is intentionally **not**
+`#[when_not_paused]`, so stranded bad debt can still be crystallized while a
+market is paused. Permissionlessness is safe because the call reverts with
+`CollateralError::CannotCleanBadDebt` unless `is_socializable_bad_debt` genuinely
+holds — a caller can only apply an already-realized loss, never manufacture one.
+Keepers are the expected callers but hold no privileged role on this entrypoint.
 
 ## Alternatives Considered
 
