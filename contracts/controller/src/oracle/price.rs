@@ -1,6 +1,4 @@
 //! Public price entry point (`token_price`).
-//!
-//! Cache-facing integration point for oracle price resolution.
 
 use common::errors::{GenericError, OracleError};
 use controller_interface::types::{MarketStatus, OracleSourceConfig, PriceFeedRaw};

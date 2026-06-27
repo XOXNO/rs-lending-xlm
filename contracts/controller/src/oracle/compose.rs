@@ -7,7 +7,7 @@ use soroban_sdk::{assert_with_error, panic_with_error};
 
 use super::observation::OracleObservation;
 use super::providers;
-use super::tolerance::{calculate_final_price, is_within_anchor};
+use super::tolerance::calculate_final_price;
 use crate::cache::Cache;
 
 pub struct ResolvedOracleComponents {
@@ -20,7 +20,6 @@ pub struct ResolvedOracleComponents {
 }
 
 impl ResolvedOracleComponents {
-    /// Maps primary and anchor prices to ABI fields.
     pub fn to_abi_prices(&self) -> (i128, i128) {
         let safe_price_wad = self.primary_price_wad.unwrap_or(self.final_price_wad);
         let aggregator_price_wad = self.anchor_price_wad.unwrap_or(self.final_price_wad);
@@ -35,8 +34,7 @@ pub(crate) fn resolve_components(
     let primary_max_stale = config
         .primary
         .max_stale_seconds(config.max_price_stale_seconds);
-    let primary = providers::read_source(cache, &config.primary, primary_max_stale, true)
-        .unwrap_or_else(|| panic_with_error!(cache.env(), OracleError::NoLastPrice));
+    let primary = providers::read_required_source(cache, &config.primary, primary_max_stale);
     validate_primary_freshness(cache, &primary, primary_max_stale);
 
     match config.strategy {
@@ -53,8 +51,7 @@ pub(crate) fn resolve_components(
                 return fallback_to_primary(cache, primary);
             };
             let anchor_max_stale = anchor_config.max_stale_seconds(config.max_price_stale_seconds);
-            let Some(anchor) =
-                providers::read_source(cache, anchor_config, anchor_max_stale, false)
+            let Some(anchor) = providers::read_source(cache, anchor_config, anchor_max_stale)
             else {
                 return fallback_to_primary(cache, primary);
             };
@@ -63,31 +60,13 @@ pub(crate) fn resolve_components(
                 return fallback_to_primary(cache, primary);
             }
 
-            let final_price = calculate_final_price(
+            let priced = calculate_final_price(
                 cache,
                 Some(anchor.price_wad),
                 Some(primary.price_wad),
                 &config.tolerance,
             );
-            let within_first = is_within_anchor(
-                cache.env(),
-                anchor.price_wad,
-                primary.price_wad,
-                config.tolerance.first_upper_ratio_bps,
-                config.tolerance.first_lower_ratio_bps,
-            );
-            // The second band is the wider `last` tolerance. Governance config
-            // validation enforces last > first at configure time, so the first
-            // band is a strict subset of the last; within_first therefore
-            // implies within_second.
-            let within_second = is_within_anchor(
-                cache.env(),
-                anchor.price_wad,
-                primary.price_wad,
-                config.tolerance.last_upper_ratio_bps,
-                config.tolerance.last_lower_ratio_bps,
-            );
-            let timestamp = if final_price == primary.price_wad {
+            let timestamp = if priced.price_wad == primary.price_wad {
                 primary.timestamp()
             } else {
                 core::cmp::min(primary.timestamp(), anchor.timestamp())
@@ -96,10 +75,10 @@ pub(crate) fn resolve_components(
             ResolvedOracleComponents {
                 primary_price_wad: Some(primary.price_wad),
                 anchor_price_wad: Some(anchor.price_wad),
-                final_price_wad: final_price,
+                final_price_wad: priced.price_wad,
                 timestamp,
-                within_first_tolerance: within_first,
-                within_second_tolerance: within_second,
+                within_first_tolerance: priced.within_first,
+                within_second_tolerance: priced.within_second,
             }
         }
     }

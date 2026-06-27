@@ -12,14 +12,19 @@ use crate::utils;
 
 pub struct Cache {
     pub env: Env,
+    // dimensional: Ray<Share(asset, supply)> total scaled supply.
     pub supplied: Ray,
+    // dimensional: Ray<Share(asset, debt)> total scaled debt.
     pub borrowed: Ray,
+    // dimensional: Ray<Share(asset, supply)> claimable protocol revenue.
     pub revenue: Ray,
+    // dimensional: Ray<Index(asset, debt)> and Ray<Index(asset, supply)>.
     pub borrow_index: Ray,
     pub supply_index: Ray,
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
+    // dimensional: Token(asset) tracked reserves; never Ray.
     pub cash: i128,
 }
 
@@ -84,6 +89,7 @@ impl Cache {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
         }
+        // dimensional: scaled shares times indexes become Ray<Token(asset)>.
         let total_borrowed = scaled_to_original(&self.env, self.borrowed, self.borrow_index);
         let total_supplied = scaled_to_original(&self.env, self.supplied, self.supply_index);
 
@@ -111,7 +117,7 @@ impl Cache {
         self.cash
     }
 
-    /// Adds `amount` to tracked cash, panicking on overflow.
+    /// Adds Token(asset) to tracked cash, panicking on overflow.
     pub fn credit_cash(&mut self, amount: i128) {
         self.cash = self
             .cash
@@ -119,7 +125,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
-    /// Subtracts `amount` from tracked cash, panicking on under/overflow.
+    /// Subtracts Token(asset) from tracked cash, panicking on under/overflow.
     pub fn debit_cash(&mut self, amount: i128) {
         self.cash = self
             .cash
@@ -127,7 +133,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
-    /// Transfers pool asset to `recipient`; zero and negative amounts are no-ops.
+    /// Transfers Token(asset) to `recipient`; zero and negative amounts are no-ops.
     pub fn transfer_out(&self, recipient: &soroban_sdk::Address, amount: i128) {
         if amount <= 0 {
             return;
@@ -138,12 +144,14 @@ impl Cache {
 
     /// Converts an asset amount into scaled supply shares at the current index.
     pub fn calculate_scaled_supply(&self, amount: i128) -> Ray {
+        // dimensional: Token(asset) / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.supply_index)
     }
 
     /// Converts an asset amount into scaled debt shares at the current index.
     pub fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
+        // dimensional: Token(asset) / Ray<Index(asset, debt)> -> Ray<Share(asset, debt)>.
         let amount_ray = Ray::from_asset(amount, self.params.asset_decimals);
         amount_ray.div(&self.env, self.borrow_index)
     }
@@ -184,6 +192,7 @@ impl Cache {
     /// Full-close floor rounding prevents over-crediting on the final scaled
     /// supply share.
     pub fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        // dimensional: returns Ray<Share(asset, supply)> burned and Token(asset) gross.
         let current_supply_actual = self.unscale_supply(pos_scaled);
         let current_supply_floor = self.unscale_supply_floor(pos_scaled);
         if amount >= current_supply_actual {
@@ -200,6 +209,7 @@ impl Cache {
 
     /// Burns claimable revenue shares, capped by live reserves and scaled revenue.
     pub fn burn_claimable_revenue(&mut self) -> i128 {
+        // dimensional: revenue is Ray<Share(asset, supply)>; transfer amount is Token(asset).
         let reserves = self.live_reserves();
         let treasury_actual = self.unscale_supply(self.revenue);
         let amount = reserves.min(treasury_actual);
@@ -209,9 +219,11 @@ impl Cache {
         let scaled_to_burn = if amount >= treasury_actual {
             self.revenue
         } else {
+            // dimensional: Token(asset) / Token(asset) -> Ray<1>.
             let ratio = Ray::from_fraction(&self.env, amount, treasury_actual);
             self.revenue.mul(&self.env, ratio)
         };
+        // dimensional: burn same Ray<Share(asset, supply)> from revenue and total supply.
         self.revenue.checked_sub_assign(&self.env, scaled_to_burn);
         self.supplied.checked_sub_assign(&self.env, scaled_to_burn);
         amount
@@ -221,6 +233,7 @@ impl Cache {
     ///
     /// Full-close uses ceiling rounding so repayment cannot leave indexed dust.
     pub fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
+        // dimensional: returns Ray<Share(asset, debt)> burned and Token(asset) refund.
         let current_debt_ceil = self.unscale_borrow_ceil(pos_scaled);
         if amount >= current_debt_ceil {
             (
@@ -261,14 +274,16 @@ impl Cache {
     pub fn position_mutation(&self, scaled: Ray, actual_amount: i128) -> PoolPositionMutation {
         PoolPositionMutation {
             position: ScaledPositionRaw {
+                // dimensional: Ray<Share(asset, side)> raw.
                 scaled_amount_ray: scaled.raw(),
             },
             market_index: self.market_index(),
+            // dimensional: Token(asset) actual amount.
             actual_amount,
         }
     }
 
-    /// Revenue claim mutation snapshot.
+    /// Revenue claim mutation snapshot; actual amount is Token(asset).
     pub fn amount_mutation(&self, actual_amount: i128) -> PoolAmountMutation {
         PoolAmountMutation { actual_amount }
     }
@@ -282,10 +297,13 @@ impl Cache {
     ) -> PoolStrategyMutation {
         PoolStrategyMutation {
             position: ScaledPositionRaw {
+                // dimensional: Ray<Share(asset, debt)> raw.
                 scaled_amount_ray: scaled.raw(),
             },
             market_index: self.market_index(),
+            // dimensional: Token(asset) borrowed amount before fee.
             actual_amount,
+            // dimensional: Token(asset) sent to caller after fee.
             amount_received,
         }
     }

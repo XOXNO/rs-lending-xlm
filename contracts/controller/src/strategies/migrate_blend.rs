@@ -99,8 +99,15 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     // Debt-opening flow: prices must be risk-increasing.
     let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
 
-    let (account_id, mut account) =
-        load_or_create_migration_account(env, caller, account_id, e_mode_category);
+    let (account_id, mut account) = helpers::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        e_mode_category,
+        PositionMode::Normal,
+        helpers::AccountGuard::Migrate,
+        &mut cache,
+    );
 
     // Reject duplicate debt entries (a duplicate would double-borrow and
     // double-repay the same asset).
@@ -117,9 +124,11 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     // Borrow before submit so the post-submit delta is only Blend's
     // over-repay refund.
     if !debt_caps.is_empty() {
+        // D{debt_asset.decimals}{Token(debt_asset)} snapshots isolate borrow/repay/refund deltas.
         let before_debt = snapshot_balances(env, &debt_asset_list(env, &debt_caps));
         for (debt_asset, max) in debt_caps.iter() {
             validation::require_positive_amount(env, max);
+            // D{debt_asset.decimals}{Token(debt_asset)} zero-fee cap equals received delta used to clear Blend debt.
             open_migration_borrow(env, &mut cache, &mut account, &debt_asset, max);
         }
         let repay_requests = build_repay_requests(env, &debt_caps);
@@ -137,6 +146,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
 
     // Sweep Blend collateral and supply, then re-supply controller collateral.
     if !withdraw_assets.is_empty() {
+        // D{asset.decimals}{Token(asset)} snapshots measure received collateral/supply sweeps.
         let before_withdraw = snapshot_balances(env, &withdraw_assets);
         let withdraw_requests = build_withdraw_requests(env, &collateral_assets, &supply_assets);
         // No controller-authed legs to pre-authorize: Blend's `submit` auth is
@@ -164,25 +174,6 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     .publish(env);
 
     account_id
-}
-
-fn load_or_create_migration_account(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    e_mode_category: u32,
-) -> (u64, Account) {
-    if account_id == 0 {
-        return helpers::create_account(env, caller, e_mode_category, PositionMode::Normal, None);
-    }
-    let account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
-    // Reject a conflicting non-zero e-mode arg for an existing account, matching
-    // supply()'s EModeMismatch guard (the stored category always governs).
-    if e_mode_category != 0 && e_mode_category != account.e_mode_category_id {
-        panic_with_error!(env, common::errors::EModeError::EModeMismatch);
-    }
-    (account_id, account)
 }
 
 /// Rejects duplicate debt entries (a duplicate would double-borrow and
@@ -315,6 +306,7 @@ fn deposit_withdrawn(
     for asset in withdraw_assets.iter() {
         let token = soroban_sdk::token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
+        // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
         let received = balance_delta(env, &token, prev);
         if received > 0 {
             deposits.push_back((asset, received));
@@ -342,6 +334,7 @@ fn reconcile_debt_refunds(
     for (debt_asset, _max) in debt_caps.iter() {
         let token = soroban_sdk::token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
+        // D{debt_asset.decimals}{Token(debt_asset)} Blend over-repay refund repays controller debt.
         let refund = balance_delta(env, &token, prev);
         if refund > 0 {
             let debt_pos = load_debt_position(env, account, &debt_asset);

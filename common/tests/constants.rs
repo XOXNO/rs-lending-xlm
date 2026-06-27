@@ -10,9 +10,15 @@ fn fixed_point_scales() {
 #[test]
 fn derived_usd_bounds() {
     // 1e9 * WAD
-    assert_eq!(MAX_REASONABLE_PRICE_WAD, 1_000_000_000_000_000_000_000_000_000);
+    assert_eq!(
+        MAX_REASONABLE_PRICE_WAD,
+        1_000_000_000_000_000_000_000_000_000
+    );
     // 5 * WAD
-    assert_eq!(DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, 5_000_000_000_000_000_000);
+    assert_eq!(
+        DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
+        5_000_000_000_000_000_000
+    );
 }
 
 #[test]

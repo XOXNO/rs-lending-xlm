@@ -38,6 +38,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     }
 
     let hub_borrow_cap = cache.cached_pool_sync_data(asset).params.borrow_cap;
+    // dimensional: all headrooms in this minimum are Token(asset).
     let mut hi = market
         .cash
         .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
@@ -68,6 +69,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
             hi = mid - 1;
         }
     }
+    // dimensional: max_borrow returns additional Token(asset) in asset-native units.
     lo
 }
 
@@ -121,6 +123,7 @@ fn hub_borrow_cap_headroom(env: &Env, market: &MarketLimitCtx, borrow_cap: i128)
     if !cap_is_enabled(borrow_cap) {
         return i128::MAX;
     }
+    // dimensional: borrowed Ray<Share(asset, debt)> converts to Token(asset).
     let current =
         scaled_to_original(env, market.borrowed, market.borrow_index).to_asset(market.decimals);
     (borrow_cap - current).max(0)
@@ -149,6 +152,7 @@ fn spoke_borrow_cap_headroom(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
+    // dimensional: spoke borrow cap and usage compare as Ray<Share(asset, debt)>.
     let cap_scaled =
         Ray::from_asset(emode_cfg.borrow_cap, market.decimals).div_floor(env, market.borrow_index);
     let used_scaled = Ray::from(usage.borrowed_scaled_ray);
@@ -178,6 +182,7 @@ fn borrow_ok(
         return false;
     }
 
+    // dimensional: borrow amount Token(asset) -> Ray<Share(asset, debt)> at borrow index.
     let new_scaled = Ray::from_asset(amount, market.decimals).div(env, market.borrow_index);
     let post_borrowed = market.borrowed + new_scaled;
 
@@ -195,6 +200,7 @@ fn borrow_ok(
 
     // Hub borrow cap on post-borrow pool debt.
     if cap_is_enabled(hub_borrow_cap) {
+        // dimensional: post_borrowed Ray<Share(asset, debt)> converts to Token(asset).
         let post_actual =
             scaled_to_original(env, post_borrowed, market.borrow_index).to_asset(market.decimals);
         if post_actual > hub_borrow_cap {

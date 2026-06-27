@@ -24,7 +24,7 @@ use crate::external::pool::fetch_pool_sync_data;
 use common::math::fp::Ray;
 
 use crate::helpers::emode_caps::{
-    empty_usage_map, validate_spoke_caps_against_hub, validate_spoke_caps_against_usage,
+    validate_spoke_caps_against_hub, validate_spoke_caps_against_usage,
 };
 use crate::{storage, Controller, ControllerArgs, ControllerClient};
 
@@ -33,19 +33,22 @@ impl Controller {
     #[only_owner]
     pub fn set_aggregator(env: Env, addr: Address) {
         storage::renew_controller_instance(&env);
-        set_aggregator(&env, addr);
+        storage::set_aggregator(&env, &addr);
+        UpdateAggregatorEvent { aggregator: addr }.publish(&env);
     }
 
     #[only_owner]
     pub fn set_accumulator(env: Env, addr: Address) {
         storage::renew_controller_instance(&env);
-        set_accumulator(&env, addr);
+        storage::set_accumulator(&env, &addr);
+        UpdateAccumulatorEvent { accumulator: addr }.publish(&env);
     }
 
     #[only_owner]
     pub fn set_liquidity_pool_template(env: Env, hash: BytesN<32>) {
         storage::renew_controller_instance(&env);
-        set_liquidity_pool_template(&env, hash);
+        storage::set_pool_template(&env, &hash);
+        UpdatePoolTemplateEvent { wasm_hash: hash }.publish(&env);
     }
 
     #[only_owner]
@@ -57,13 +60,23 @@ impl Controller {
     #[only_owner]
     pub fn set_position_limits(env: Env, limits: PositionLimits) {
         storage::renew_controller_instance(&env);
-        set_position_limits(&env, limits);
+        storage::set_position_limits(&env, &limits);
+        UpdatePositionLimitsEvent {
+            max_supply_positions: limits.max_supply_positions,
+            max_borrow_positions: limits.max_borrow_positions,
+        }
+        .publish(&env);
     }
 
     #[only_owner]
     pub fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
         storage::renew_controller_instance(&env);
-        set_min_borrow_collateral_usd(&env, floor_wad);
+        assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
+        storage::set_min_borrow_collateral_usd_wad(&env, floor_wad);
+        UpdateMinBorrowCollateralEvent {
+            min_borrow_collateral_usd_wad: floor_wad,
+        }
+        .publish(&env);
     }
 
     pub fn get_min_borrow_collateral_usd(env: Env) -> i128 {
@@ -85,35 +98,13 @@ impl Controller {
     #[only_owner]
     pub fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs) {
         storage::renew_controller_instance(&env);
-        add_asset_to_e_mode_category(
-            &env,
-            input.asset,
-            input.category_id,
-            input.can_collateral,
-            input.can_borrow,
-            input.ltv,
-            input.threshold,
-            input.bonus,
-            input.supply_cap,
-            input.borrow_cap,
-        );
+        add_asset_to_e_mode_category(&env, &input);
     }
 
     #[only_owner]
     pub fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs) {
         storage::renew_controller_instance(&env);
-        edit_asset_in_e_mode_category(
-            &env,
-            input.asset,
-            input.category_id,
-            input.can_collateral,
-            input.can_borrow,
-            input.ltv,
-            input.threshold,
-            input.bonus,
-            input.supply_cap,
-            input.borrow_cap,
-        );
+        edit_asset_in_e_mode_category(&env, &input);
     }
 
     #[only_owner]
@@ -139,12 +130,24 @@ impl Controller {
 
     #[only_owner]
     pub fn approve_blend_pool(env: Env, pool: Address) {
-        set_blend_pool_approval(&env, pool, true);
+        storage::renew_controller_instance(&env);
+        storage::set_blend_pool_approved(&env, &pool, true);
+        ApproveBlendPoolEvent {
+            pool,
+            approved: true,
+        }
+        .publish(&env);
     }
 
     #[only_owner]
     pub fn revoke_blend_pool(env: Env, pool: Address) {
-        set_blend_pool_approval(&env, pool, false);
+        storage::renew_controller_instance(&env);
+        storage::set_blend_pool_approved(&env, &pool, false);
+        ApproveBlendPoolEvent {
+            pool,
+            approved: false,
+        }
+        .publish(&env);
     }
 
     #[only_owner]
@@ -177,27 +180,6 @@ fn set_token_approval(env: &Env, token: Address, approved: bool) {
     .publish(env);
 }
 
-fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) {
-    storage::renew_controller_instance(env);
-    storage::set_blend_pool_approved(env, &pool, approved);
-    ApproveBlendPoolEvent { pool, approved }.publish(env);
-}
-
-pub fn set_aggregator(env: &Env, addr: Address) {
-    storage::set_aggregator(env, &addr);
-    UpdateAggregatorEvent { aggregator: addr }.publish(env);
-}
-
-pub fn set_accumulator(env: &Env, addr: Address) {
-    storage::set_accumulator(env, &addr);
-    UpdateAccumulatorEvent { accumulator: addr }.publish(env);
-}
-
-pub fn set_liquidity_pool_template(env: &Env, hash: BytesN<32>) {
-    storage::set_pool_template(env, &hash);
-    UpdatePoolTemplateEvent { wasm_hash: hash }.publish(env);
-}
-
 pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
     common::validation::validate_risk_bounds(
         env,
@@ -218,30 +200,12 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     .publish(env);
 }
 
-pub fn set_position_limits(env: &Env, limits: PositionLimits) {
-    storage::set_position_limits(env, &limits);
-    UpdatePositionLimitsEvent {
-        max_supply_positions: limits.max_supply_positions,
-        max_borrow_positions: limits.max_borrow_positions,
-    }
-    .publish(env);
-}
-
-pub fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
-    assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
-    storage::set_min_borrow_collateral_usd_wad(env, floor_wad);
-    UpdateMinBorrowCollateralEvent {
-        min_borrow_collateral_usd_wad: floor_wad,
-    }
-    .publish(env);
-}
-
 pub fn add_e_mode_category(env: &Env) -> u32 {
     let id = storage::increment_emode_category_id(env);
     let cat = EModeCategoryRaw {
         is_deprecated: false,
         assets: soroban_sdk::Map::new(env),
-        usage: empty_usage_map(env),
+        usage: soroban_sdk::Map::new(env),
     };
     storage::set_emode_category(env, id, &cat);
 
@@ -272,143 +236,145 @@ pub fn remove_e_mode_category(env: &Env, id: u32) {
     .publish(env);
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn add_asset_to_e_mode_category(
-    env: &Env,
-    asset: Address,
-    category_id: u32,
-    can_collateral: bool,
-    can_borrow: bool,
-    ltv: u32,
-    threshold: u32,
-    bonus: u32,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+pub fn add_asset_to_e_mode_category(env: &Env, args: &EModeAssetArgs) {
+    common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     assert_with_error!(
         env,
-        supply_cap >= 0 && borrow_cap >= 0,
+        args.supply_cap >= 0 && args.borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let cat = storage::get_emode_category(env, category_id);
+    let cat = storage::get_emode_category(env, args.category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
 
-    let mut market = storage::get_market_config(env, &asset);
+    let mut market = storage::get_market_config(env, &args.asset);
 
     assert_with_error!(
         env,
-        !cat.assets.contains_key(asset.clone()),
+        !cat.assets.contains_key(args.asset.clone()),
         EModeError::AssetAlreadyInEmode
     );
 
     let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &asset);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &args.asset);
     validate_spoke_caps_against_hub(
         env,
         hub.params.supply_cap,
         hub.params.borrow_cap,
-        supply_cap,
-        borrow_cap,
+        args.supply_cap,
+        args.borrow_cap,
     );
     // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
     // that would overflow it so a misconfig fails here, not at view time.
-    common::validation::require_cap_within_asset_domain(env, supply_cap, hub.params.asset_decimals);
-    common::validation::require_cap_within_asset_domain(env, borrow_cap, hub.params.asset_decimals);
+    common::validation::require_cap_within_asset_domain(
+        env,
+        args.supply_cap,
+        hub.params.asset_decimals,
+    );
+    common::validation::require_cap_within_asset_domain(
+        env,
+        args.borrow_cap,
+        hub.params.asset_decimals,
+    );
 
     let config = EModeAssetConfig {
-        is_collateralizable: can_collateral,
-        is_borrowable: can_borrow,
-        loan_to_value_bps: ltv,
-        liquidation_threshold_bps: threshold,
-        liquidation_bonus_bps: bonus,
-        supply_cap,
-        borrow_cap,
+        is_collateralizable: args.can_collateral,
+        is_borrowable: args.can_borrow,
+        loan_to_value_bps: args.ltv,
+        liquidation_threshold_bps: args.threshold,
+        liquidation_bonus_bps: args.bonus,
+        supply_cap: args.supply_cap,
+        borrow_cap: args.borrow_cap,
     };
-    storage::set_emode_asset(env, category_id, &asset, &config);
+    storage::set_emode_asset(env, args.category_id, &args.asset, &config);
 
-    if !market.asset_config.e_mode_categories.contains(category_id) {
-        market.asset_config.e_mode_categories.push_back(category_id);
-        storage::set_market_config(env, &asset, &market);
+    if !market
+        .asset_config
+        .e_mode_categories
+        .contains(args.category_id)
+    {
+        market
+            .asset_config
+            .e_mode_categories
+            .push_back(args.category_id);
+        storage::set_market_config(env, &args.asset, &market);
     }
 
     UpdateEModeAssetEvent {
-        asset,
+        asset: args.asset.clone(),
         config,
-        category_id,
+        category_id: args.category_id,
     }
     .publish(env);
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn edit_asset_in_e_mode_category(
-    env: &Env,
-    asset: Address,
-    category_id: u32,
-    can_collateral: bool,
-    can_borrow: bool,
-    ltv: u32,
-    threshold: u32,
-    bonus: u32,
-    supply_cap: i128,
-    borrow_cap: i128,
-) {
-    common::validation::validate_risk_bounds(env, ltv, threshold, bonus);
+pub fn edit_asset_in_e_mode_category(env: &Env, args: &EModeAssetArgs) {
+    common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     assert_with_error!(
         env,
-        supply_cap >= 0 && borrow_cap >= 0,
+        args.supply_cap >= 0 && args.borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let cat = storage::get_emode_category(env, category_id);
+    let cat = storage::get_emode_category(env, args.category_id);
     assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
     assert_with_error!(
         env,
-        cat.assets.contains_key(asset.clone()),
+        cat.assets.contains_key(args.asset.clone()),
         EModeError::AssetNotInEmode
     );
 
     let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &asset);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &args.asset);
     validate_spoke_caps_against_hub(
         env,
         hub.params.supply_cap,
         hub.params.borrow_cap,
-        supply_cap,
-        borrow_cap,
+        args.supply_cap,
+        args.borrow_cap,
     );
     // Spoke caps feed the same Ray::from_asset rescale as hub caps; reject any
     // that would overflow it so a misconfig fails here, not at view time.
-    common::validation::require_cap_within_asset_domain(env, supply_cap, hub.params.asset_decimals);
-    common::validation::require_cap_within_asset_domain(env, borrow_cap, hub.params.asset_decimals);
-    let usage = cat.usage.get(asset.clone()).unwrap_or(EModeSpokeUsageRaw {
-        supplied_scaled_ray: 0,
-        borrowed_scaled_ray: 0,
-    });
+    common::validation::require_cap_within_asset_domain(
+        env,
+        args.supply_cap,
+        hub.params.asset_decimals,
+    );
+    common::validation::require_cap_within_asset_domain(
+        env,
+        args.borrow_cap,
+        hub.params.asset_decimals,
+    );
+    let usage = cat
+        .usage
+        .get(args.asset.clone())
+        .unwrap_or(EModeSpokeUsageRaw {
+            supplied_scaled_ray: 0,
+            borrowed_scaled_ray: 0,
+        });
     validate_spoke_caps_against_usage(
         env,
         &usage,
-        supply_cap,
-        borrow_cap,
+        args.supply_cap,
+        args.borrow_cap,
         Ray::from(hub.state.supply_index_ray),
         Ray::from(hub.state.borrow_index_ray),
         hub.params.asset_decimals,
     );
 
     let config = EModeAssetConfig {
-        is_collateralizable: can_collateral,
-        is_borrowable: can_borrow,
-        loan_to_value_bps: ltv,
-        liquidation_threshold_bps: threshold,
-        liquidation_bonus_bps: bonus,
-        supply_cap,
-        borrow_cap,
+        is_collateralizable: args.can_collateral,
+        is_borrowable: args.can_borrow,
+        loan_to_value_bps: args.ltv,
+        liquidation_threshold_bps: args.threshold,
+        liquidation_bonus_bps: args.bonus,
+        supply_cap: args.supply_cap,
+        borrow_cap: args.borrow_cap,
     };
-    storage::set_emode_asset(env, category_id, &asset, &config);
+    storage::set_emode_asset(env, args.category_id, &args.asset, &config);
 
     UpdateEModeAssetEvent {
-        asset,
+        asset: args.asset.clone(),
         config,
-        category_id,
+        category_id: args.category_id,
     }
     .publish(env);
 }

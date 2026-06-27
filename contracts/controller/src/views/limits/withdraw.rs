@@ -50,6 +50,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
 
     // Full close first: any request at or above the half-up position value
     // resolves to it, and the pool pays the floor rounding.
+    // dimensional: full_request is max withdraw Token(asset) in asset-native units.
     let full_request =
         scaled_to_original(env, pos_scaled, market.supply_index).to_asset(market.decimals);
     if full_close_ok(env, &mut cache, &account, asset, &market, pos_scaled) {
@@ -90,6 +91,7 @@ fn usd_wad_to_token_cap(env: &Env, usd: Wad, feed: PriceFeed, decimals: u32) -> 
         WAD,
         feed.price.raw(),
     ))
+    // dimensional: output is Token(asset), floored to the asset's decimals.
     .to_token_floor(decimals)
 }
 
@@ -147,6 +149,7 @@ fn risk_partial_cap(
     let feed = cache.cached_price(asset);
     let ltv_ratio = position.loan_to_value.to_wad(env);
     let hf_ratio = position.liquidation_threshold.to_wad(env);
+    // dimensional: slack Wad<USD> / dimensionless risk ratio -> Token(asset) cap.
     let ltv_cap = if ltv_slack == 0 || ltv_ratio == Wad::ZERO {
         0
     } else {
@@ -281,10 +284,12 @@ fn partial_ok(
     amount: i128,
 ) -> bool {
     // resolve_withdrawal replica: shares burnt at the half-up conversion.
+    // dimensional: withdrawal amount Token(asset) -> Ray<Share(asset, supply)>.
     let scaled_w = Ray::from_asset(amount, market.decimals).div(env, market.supply_index);
     if scaled_w > pos_scaled {
         return false;
     }
+    // dimensional: remaining stays Ray<Share(asset, supply)> for account gates.
     let remaining = pos_scaled - scaled_w;
     let remaining_actual =
         scaled_to_original(env, remaining, market.supply_index).to_asset(market.decimals);

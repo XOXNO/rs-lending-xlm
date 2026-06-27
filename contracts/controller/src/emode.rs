@@ -42,25 +42,6 @@ pub fn effective_asset_config(
     asset_config
 }
 
-/// Returns the e-mode category from storage unless `e_mode_category_id` is zero.
-///
-/// Mutating flows should prefer [`Cache::cached_e_mode_category`] so the
-/// category is loaded once per transaction and shared with usage accounting.
-pub fn e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCategory> {
-    if e_mode_category_id == 0 {
-        return None;
-    }
-    Some((&storage::get_emode_category(env, e_mode_category_id)).into())
-}
-
-/// Returns a non-deprecated e-mode category unless `e_mode_category_id` is zero.
-/// Account creation uses this path; position flows should use `Cache`.
-pub fn active_e_mode_category(env: &Env, e_mode_category_id: u32) -> Option<EModeCategory> {
-    let category = e_mode_category(env, e_mode_category_id);
-    ensure_e_mode_not_deprecated(env, &category);
-    category
-}
-
 pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
     if let Some(cat) = category {
         assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);

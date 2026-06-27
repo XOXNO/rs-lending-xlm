@@ -141,11 +141,13 @@ fn merge_borrow_result(
         .map(|p| Ray::from(p.scaled_amount_ray))
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
+    // dimensional: scaled delta is Ray<Share(asset, borrow)>.
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
         let delta = position.scaled_amount - old_scaled;
         ctx.apply_borrow_after_pool(env, asset, delta, &result.market_index, asset_decimals);
     }
     cache.put_market_index(asset, &result.market_index);
+    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
         asset,

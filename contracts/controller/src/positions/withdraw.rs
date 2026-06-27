@@ -216,6 +216,7 @@ pub(crate) fn finish_withdrawal(
     let mut result_position = get_supply_position_or_panic(env, account, asset);
     let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
+    // dimensional: scaled delta is Ray<Share(asset, supply)>.
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
         let delta = old_scaled - result_position.scaled_amount;
         ctx.apply_withdraw_after_pool(env, asset, delta);
@@ -232,6 +233,7 @@ pub(crate) fn finish_withdrawal(
     update_or_remove_supply_position(account, asset, &result_position);
 
     cache.put_market_index(asset, &result.market_index);
+    // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, supply)>.
     cache.record_position_update(
         action,
         asset,

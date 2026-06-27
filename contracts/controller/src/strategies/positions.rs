@@ -43,6 +43,7 @@ pub(crate) fn open_strategy_borrow(
     asset: &Address,
     amount: i128,
 ) -> i128 {
+    // D{asset.decimals}{Token(asset)} debt opens for `amount`; return is net balance after Token(asset) fee.
     borrow::borrow_for_strategy(env, account, asset, amount, cache)
 }
 
@@ -54,6 +55,7 @@ pub(crate) fn open_migration_borrow(
     asset: &Address,
     amount: i128,
 ) -> i128 {
+    // D{asset.decimals}{Token(asset)} zero-fee migration borrow; debt amount equals received token delta.
     borrow::borrow_for_migration(env, account, asset, amount, cache)
 }
 
@@ -67,6 +69,7 @@ pub(crate) fn repay_debt_from_controller(
     let debt_pool_addr = cache.cached_pool_address();
     let debt_tok = soroban_sdk::token::Client::new(env, req.debt_token);
 
+    // D{debt_token.decimals}{Token(debt_token)} repay transfer and debt request use same token units.
     utils::transfer_amount(
         env,
         req.debt_token,
@@ -76,6 +79,7 @@ pub(crate) fn repay_debt_from_controller(
         GenericError::InternalError,
     );
 
+    // D{debt_token.decimals}{Token(debt_token)} post-repay positive delta is excess refund.
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
     repay::execute_repayment(
@@ -100,6 +104,7 @@ pub(crate) fn withdraw_collateral_to_controller(
     req: StrategyWithdraw<'_>,
 ) -> i128 {
     let token = soroban_sdk::token::Client::new(env, req.asset);
+    // D{asset.decimals}{Token(asset)} withdrawal result is measured from live balance delta.
     let balance_before = token.balance(&env.current_contract_address());
 
     withdraw::execute_withdrawal(
@@ -152,6 +157,7 @@ fn refund_controller_balance_delta(
     refund_to: &Address,
 ) {
     let token = soroban_sdk::token::Client::new(env, asset);
+    // D{asset.decimals}{Token(asset)} refund only the excess balance delta in same asset.
     let excess = balance_delta(env, &token, balance_before);
     if excess > 0 {
         token.transfer(&env.current_contract_address(), refund_to, &excess);

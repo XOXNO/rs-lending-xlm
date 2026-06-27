@@ -43,6 +43,7 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let market = MarketLimitCtx::load(&mut cache, asset);
     let hub_headroom = hub_supply_cap_headroom(env, &market, hub_supply_cap);
     let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, asset, &market);
+    // dimensional: max_supply returns additional Token(asset) in asset-native units.
     hub_headroom.min(spoke_headroom)
 }
 
@@ -51,12 +52,14 @@ fn hub_supply_cap_headroom(env: &Env, market: &MarketLimitCtx, supply_cap: i128)
     if !cap_is_enabled(supply_cap) {
         return i128::MAX;
     }
+    // dimensional: supply_cap is Token(asset); cap_ray/current are Ray<Token(asset)>.
     let cap_ray = Ray::from_asset(supply_cap, market.decimals);
     let current = market.supplied.mul(env, market.supply_index);
     if current >= cap_ray {
         return 0;
     }
 
+    // dimensional: candidate Token(asset) round-trips through Ray<Share(asset, supply)>.
     let mut candidate = (cap_ray - current).to_asset_floor(market.decimals);
     for _ in 0..8 {
         if candidate <= 0 {
@@ -94,6 +97,7 @@ fn spoke_supply_cap_headroom(
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
         });
+    // dimensional: spoke supply cap and usage compare as Ray<Share(asset, supply)>.
     let cap_scaled =
         Ray::from_asset(emode_cfg.supply_cap, market.decimals).div_floor(env, market.supply_index);
     let used_scaled = Ray::from(usage.supplied_scaled_ray);

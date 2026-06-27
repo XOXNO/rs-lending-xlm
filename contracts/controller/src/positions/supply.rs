@@ -10,7 +10,7 @@ use common::math::fp::Ray;
 use controller_interface::types::{
     Account, AccountPositionType, Payment, PoolSupplyEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
 use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
@@ -22,7 +22,7 @@ use crate::helpers;
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
 use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
-use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
+use crate::{helpers::utils, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
@@ -87,23 +87,15 @@ fn resolve_supply_account(
 ) -> (u64, Account) {
     validation::require_non_empty_payments(env, aggregated);
 
-    if account_id == 0 {
-        helpers::create_account(
-            env,
-            caller,
-            e_mode_category,
-            PositionMode::Normal,
-            Some(cache),
-        )
-    } else {
-        let account = storage::get_account(env, account_id);
-        // Zero is the unspecified sentinel; any non-zero value must match the
-        // account's stored mode.
-        if e_mode_category != 0 && e_mode_category != account.e_mode_category_id {
-            panic_with_error!(env, common::errors::EModeError::EModeMismatch);
-        }
-        (account_id, account)
-    }
+    helpers::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        e_mode_category,
+        PositionMode::Normal,
+        helpers::AccountGuard::Supply,
+        cache,
+    )
 }
 
 /// Applies deduped positive deposits to an account.
@@ -190,6 +182,7 @@ fn settle_deposit(
         // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
         if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+            // dimensional: both values are Ray<Share(asset, supply)>; supply adds usage.
             let delta = position.scaled_amount - old_scaled;
             ctx.apply_supply_after_pool(
                 env,

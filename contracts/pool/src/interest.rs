@@ -18,6 +18,7 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 
     let mut remaining = total_delta_ms;
     while remaining > 0 {
+        // dimensional: TimeMs chunk bounds Ray<RatePerMs> compounding.
         let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
         global_sync_step(env, cache, chunk);
         remaining = remaining.saturating_sub(chunk);
@@ -27,12 +28,15 @@ pub fn global_sync(env: &Env, cache: &mut Cache) {
 }
 
 fn global_sync_step(env: &Env, cache: &mut Cache, delta_ms: u64) {
+    // dimensional: Token/Token -> Ray<1>; rate * TimeMs -> Ray<1> interest factor.
     let util = cache.calculate_utilization();
     let borrow_rate = calculate_borrow_rate(env, util, &cache.params);
     let interest_factor = compound_interest(env, borrow_rate, delta_ms);
 
+    // dimensional: debt index scales by dimensionless compound factor.
     let new_borrow_index = update_borrow_index(env, cache.borrow_index, interest_factor);
 
+    // dimensional: rewards and fee are Ray<Token(asset)> produced by debt index growth.
     let (supplier_rewards, protocol_fee) = calculate_supplier_rewards(
         env,
         &cache.params,
@@ -64,13 +68,16 @@ pub fn add_protocol_revenue_ray(cache: &mut Cache, fee: Ray) {
     if cache.supplied == Ray::ZERO {
         return;
     }
+    // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
     let fee_scaled = fee.div(&cache.env, cache.supply_index);
+    // dimensional: protocol revenue is also included in total scaled supply.
     cache.revenue.checked_add_assign(&cache.env, fee_scaled);
     cache.supplied.checked_add_assign(&cache.env, fee_scaled);
 }
 
 /// Socializes uncollectable debt by reducing the supply index.
 pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
+    // dimensional: bad_debt and supplied * supply_index are Ray<Token(asset)>.
     let total_supplied_value = cache.supplied.mul(&cache.env, cache.supply_index);
 
     if total_supplied_value == Ray::ZERO {
@@ -82,8 +89,10 @@ pub fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     } else {
         bad_debt
     };
+    // dimensional: remaining supply value stays Ray<Token(asset)> after bad-debt write-down.
     let remaining = total_supplied_value - capped;
 
+    // dimensional: remaining / total_supplied_value is Ray<1>, scaling Ray<Index(asset, supply)>.
     let reduction_factor = remaining.div(&cache.env, total_supplied_value);
     let new_supply_index = cache.supply_index.mul(&cache.env, reduction_factor);
 

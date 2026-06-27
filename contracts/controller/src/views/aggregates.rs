@@ -29,6 +29,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
+        // dimensional: Ray<Share> * Ray<Index> * Wad<USD/asset> -> Wad<USD>.
         let value = helpers::position_value(
             env,
             position.scaled_amount,
@@ -38,6 +39,7 @@ pub fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         total_collateral += value;
     }
 
+    // dimensional: return is Wad<USD> raw (1e18) total collateral value.
     total_collateral.raw()
 }
 
@@ -62,6 +64,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);
 
+        // dimensional: Ray<DebtShare> * Ray<BorrowIndex> * Wad<USD/asset> -> Wad<USD>.
         let value = helpers::position_value(
             env,
             position.scaled_amount,
@@ -71,6 +74,7 @@ pub fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
         total_borrow += value;
     }
 
+    // dimensional: return is Wad<USD> raw (1e18) total borrow value.
     total_borrow.raw()
 }
 
@@ -84,5 +88,6 @@ pub fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     // calculate_ltv_collateral_wad.
     let priced_assets = account.supply_positions.keys();
     oracle::prefetch_redstone_feeds(&mut cache, &priced_assets);
+    // dimensional: return is Wad<USD> raw (1e18) LTV-weighted collateral value.
     helpers::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }

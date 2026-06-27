@@ -1,5 +1,15 @@
-//! Oracle price resolution for Reflector and RedStone sources.
-//! Reads produce USD WAD prices, timestamps, and decimals.
+//! # Oracle — USD price resolution for Reflector and RedStone sources.
+//!
+//! Each entrypoint sets a [`policy::OraclePolicy`] on the `Cache` that decides which
+//! degradations the flow tolerates; risk-increasing flows fail closed.
+//!
+//! Call trace: `token_price` (status/sanity gates + price cache) →
+//! `compose::resolve_components`, which calls `providers::read_source` for the primary
+//! (required) and, in dual-source markets, the anchor (optional) — each normalized via
+//! `observation` — then resolves the pair through `tolerance::calculate_final_price`. A
+//! quoted-base Reflector source reprices by recursing through `token_price` for the quote
+//! asset (`providers::reflector::resolve_usd_quote`). `price_components` exposes the same
+//! resolution to views without the gates.
 
 mod compose;
 mod observation;

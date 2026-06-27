@@ -60,6 +60,7 @@ tmp
 *_exit.txt
 uncommitted.diff
 claude-review.txt
+.jules
 
 # IDE
 .vscode/

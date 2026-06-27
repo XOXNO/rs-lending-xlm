@@ -8,6 +8,8 @@ pub const RAY_DECIMALS: u32 = 27;
 
 pub const WAD_DECIMALS: u32 = 18;
 
+pub const BPS_DECIMALS: u32 = 4;
+
 pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
 // Oracle-config price bounds.

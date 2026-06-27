@@ -11,6 +11,7 @@ pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Returns the per-millisecond borrow rate from the kinked utilization curve.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
+    // dimensional: utilization is Ray<1>; model slopes are Ray<RatePerYear>.
     let annual_rate = if utilization < params.mid_utilization {
         let contribution = utilization
             .mul(env, params.slope1)
@@ -65,8 +66,8 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
         return Ray::ONE;
     }
 
-    // x = rate_per_ms * time_ms, both in RAY. Intermediate promoted to I256
-    // to guard against overflow on extreme rate * delta_ms products.
+    // dimensional: Ray<RatePerMs> * TimeMs -> Ray<1> compound factor exponent.
+    // Intermediate promoted to I256 to guard against overflow on extreme products.
     let x = Ray::from({
         let r = I256::from_i128(env, rate.raw());
         let d = I256::from_i128(env, delta_ms as i128);
@@ -97,6 +98,7 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
 }
 
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
+    // dimensional: Ray<Index(asset, debt)> * Ray<1> -> Ray<Index(asset, debt)>.
     let new_index = old_index.mul(env, interest_factor);
     if new_index.raw() > MAX_BORROW_INDEX_RAY {
         return Ray::from(MAX_BORROW_INDEX_RAY);
@@ -110,12 +112,14 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
         return old_index;
     }
 
+    // dimensional: supplied * old_index and rewards_increase are Ray<Token(asset)>.
     let total_supplied_value = supplied.mul(env, old_index);
     // Guards the post-bad-debt path where `supplied * old_index` can round
     // to zero (supply_index at SUPPLY_INDEX_FLOOR with tiny scaled supply).
     if total_supplied_value == Ray::ZERO {
         return old_index;
     }
+    // dimensional: rewards / total supplied -> Ray<1>; index scales by that factor.
     let rewards_ratio = rewards_increase.div(env, total_supplied_value);
     let factor = Ray::ONE + rewards_ratio;
     old_index.mul(env, factor)
@@ -129,6 +133,7 @@ pub fn calculate_supplier_rewards(
     new_borrow_index: Ray,
     old_borrow_index: Ray,
 ) -> (Ray, Ray) {
+    // dimensional: borrowed is Ray<Share(asset, debt)>; indexes lift it to Ray<Token(asset)>.
     let old_total_debt = borrowed.mul(env, old_borrow_index);
     let new_total_debt = borrowed.mul(env, new_borrow_index);
 
@@ -150,6 +155,7 @@ pub fn utilization(env: &Env, borrowed: Ray, supplied: Ray) -> Ray {
 
 /// Converts scaled shares to underlying amount at `index`.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
+    // dimensional: Ray<Share(asset, side)> * Ray<Index(asset, side)> -> Ray<Token(asset)>.
     scaled.mul(env, index)
 }
 
@@ -237,6 +243,7 @@ pub(crate) fn simulate_update_indexes_body(
             && supply_index.raw() > SUPPLY_INDEX_FLOOR_RAW
             && supplied != Ray::ZERO
         {
+            // dimensional: Ray<Token(asset)> / Ray<Index(asset, supply)> -> Ray<Share(asset, supply)>.
             let fee_scaled = protocol_fee.div(env, supply_index);
             supplied = supplied.checked_add(env, fee_scaled);
         }

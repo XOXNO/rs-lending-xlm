@@ -95,6 +95,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
         .into();
 
+    // D{current_collateral.decimals}{Token(current_collateral)} withdrawal request to balance delta.
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
@@ -107,6 +108,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         },
     );
 
+    // D{current_collateral.decimals}{Token(current_collateral)} -> Token(new_collateral).
     let swapped_amount = swap_tokens(
         env,
         caller,
@@ -116,6 +118,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
         swap,
     );
 
+    // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
     let deposit_assets = soroban_sdk::vec![env, (new_collateral.clone(), swapped_amount)];
     supply::process_deposit(
         env,

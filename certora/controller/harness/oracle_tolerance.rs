@@ -5,41 +5,45 @@
 //! decision with a sound nondet bool while preserving the control-flow
 //! branches and panic conditions, leaving `oracle/tolerance.rs` untouched.
 
-use crate::constants::{
-    BPS, MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE,
-};
 use crate::types::OraclePriceFluctuation;
 use common::errors::{GenericError, OracleError};
-use common::math::fp_core;
 use cvlr::nondet::nondet;
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+use soroban_sdk::{panic_with_error, Env};
 
 use crate::cache::Cache;
+
+pub(crate) struct FinalPrice {
+    pub price_wad: i128,
+    pub within_first: bool,
+    pub within_second: bool,
+}
 
 pub(crate) fn calculate_final_price(
     cache: &Cache,
     aggregator: Option<i128>,
     safe: Option<i128>,
     tolerance: &OraclePriceFluctuation,
-) -> i128 {
+) -> FinalPrice {
     let env = cache.env();
     match (aggregator, safe) {
         (Some(agg_price), Some(safe_price)) => {
-            if is_within_anchor(
+            let within_first = is_within_anchor(
                 env,
                 agg_price,
                 safe_price,
                 tolerance.first_upper_ratio_bps,
                 tolerance.first_lower_ratio_bps,
-            ) {
-                safe_price
-            } else if is_within_anchor(
+            );
+            let within_second = is_within_anchor(
                 env,
                 agg_price,
                 safe_price,
                 tolerance.last_upper_ratio_bps,
                 tolerance.last_lower_ratio_bps,
-            ) {
+            );
+            let price_wad = if within_first {
+                safe_price
+            } else if within_second {
                 agg_price
                     .checked_add(safe_price)
                     .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
@@ -49,10 +53,23 @@ pub(crate) fn calculate_final_price(
                     panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
                 }
                 safe_price
+            };
+            FinalPrice {
+                price_wad,
+                within_first,
+                within_second,
             }
         }
-        (Some(agg_price), None) => agg_price,
-        (None, Some(safe_price)) => safe_price,
+        (Some(agg_price), None) => FinalPrice {
+            price_wad: agg_price,
+            within_first: false,
+            within_second: false,
+        },
+        (None, Some(safe_price)) => FinalPrice {
+            price_wad: safe_price,
+            within_first: false,
+            within_second: false,
+        },
         (None, None) => {
             panic_with_error!(env, OracleError::NoLastPrice);
         }
@@ -77,51 +94,4 @@ pub(crate) fn is_within_anchor(
         return false;
     }
     nondet()
-}
-
-/// i128 to u32 (checked). Used only at config time.
-pub(crate) fn bps_i128_to_u32(env: &Env, v: i128) -> u32 {
-    u32::try_from(v).unwrap_or_else(|_| panic_with_error!(env, GenericError::MathOverflow))
-}
-
-pub(crate) fn require_last_tolerance_gt_first(env: &Env, first: u32, last: u32) {
-    assert_with_error!(env, last > first, OracleError::BadAnchorTolerances);
-}
-
-pub(crate) fn calculate_tolerance_range(env: &Env, tolerance_bps: u32) -> (i128, i128) {
-    let tolerance = i128::from(tolerance_bps);
-    let upper_bound = BPS
-        .checked_add(tolerance)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let lower_bound = fp_core::mul_div_half_up(env, BPS, BPS, upper_bound);
-    (upper_bound, lower_bound)
-}
-
-pub(crate) fn validate_and_calculate_tolerances(
-    env: &Env,
-    first_tolerance: u32,
-    last_tolerance: u32,
-) -> OraclePriceFluctuation {
-    assert_with_error!(
-        env,
-        (MIN_FIRST_TOLERANCE..=MAX_FIRST_TOLERANCE).contains(&first_tolerance),
-        OracleError::BadFirstTolerance
-    );
-    assert_with_error!(
-        env,
-        (MIN_LAST_TOLERANCE..=MAX_LAST_TOLERANCE).contains(&last_tolerance),
-        OracleError::BadLastTolerance
-    );
-
-    require_last_tolerance_gt_first(env, first_tolerance, last_tolerance);
-
-    let (first_upper, first_lower) = calculate_tolerance_range(env, first_tolerance);
-    let (last_upper, last_lower) = calculate_tolerance_range(env, last_tolerance);
-
-    OraclePriceFluctuation {
-        first_upper_ratio_bps: bps_i128_to_u32(env, first_upper),
-        first_lower_ratio_bps: bps_i128_to_u32(env, first_lower),
-        last_upper_ratio_bps: bps_i128_to_u32(env, last_upper),
-        last_lower_ratio_bps: bps_i128_to_u32(env, last_lower),
-    }
 }

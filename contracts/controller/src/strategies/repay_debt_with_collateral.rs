@@ -84,6 +84,7 @@ pub fn process_repay_debt_with_collateral(
     let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
+    // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
     let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
@@ -96,6 +97,7 @@ pub fn process_repay_debt_with_collateral(
         },
     );
 
+    // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
     let debt_available = swap_or_net_collateral_to_debt(
         env,
         caller,

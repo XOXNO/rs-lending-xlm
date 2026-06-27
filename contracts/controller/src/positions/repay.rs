@@ -130,6 +130,7 @@ pub(crate) fn finish_repayment(
         .unwrap_or(Ray::ZERO);
     let position = DebtPosition::from(&result.position);
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        // dimensional: both values are Ray<Share(asset, debt)>; repay subtracts usage.
         let delta = old_scaled - position.scaled_amount;
         ctx.apply_repay_after_pool(env, asset, delta);
     }

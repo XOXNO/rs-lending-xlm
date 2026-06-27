@@ -4,7 +4,7 @@
 
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use controller_interface::types::{Account, PositionMode, StrategySwap};
+use controller_interface::types::{PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -116,12 +116,20 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         CollateralError::NotCollateral
     );
 
-    let (account_id, mut account) =
-        load_or_create_multiply_account(env, caller, account_id, e_mode_category, mode);
+    let (account_id, mut account) = helpers::load_or_create_account(
+        env,
+        caller,
+        account_id,
+        e_mode_category,
+        mode,
+        helpers::AccountGuard::Multiply,
+        &mut cache,
+    );
 
     let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
+    // D{debt_token.decimals}{Token(debt_token)} net borrow received after protocol fee.
     let amount_received = open_strategy_borrow(
         env,
         &mut cache,
@@ -130,10 +138,12 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         debt_to_flash_loan,
     );
 
+    // D{debt_token.decimals}{Token(debt_token)} net borrow plus same-token extra payment.
     let swap_amount_in = amount_received
         .checked_add(debt_extra)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
+    // D{debt_token.decimals}{Token(debt_token)} -> D{collateral_token.decimals}{Token(collateral_token)}.
     let swapped_collateral = swap_tokens(
         env,
         caller,
@@ -143,6 +153,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         swap,
     );
 
+    // D{collateral_token.decimals}{Token(collateral_token)} direct plus swapped collateral.
     let total_collateral = collateral_amount
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
@@ -198,6 +209,7 @@ fn collect_initial_multiply_payment(
                 Some(s) => s,
                 None => panic_with_error!(env, StrategyError::ConvertStepsRequired),
             };
+            // D{payment_token.decimals}{Token(payment_token)} -> Token(collateral_token).
             collateral_amount = swap_tokens(
                 env,
                 caller,
@@ -210,25 +222,6 @@ fn collect_initial_multiply_payment(
     }
 
     (collateral_amount, debt_extra)
-}
-
-fn load_or_create_multiply_account(
-    env: &Env,
-    caller: &Address,
-    account_id: u64,
-    e_mode_category: u32,
-    mode: PositionMode,
-) -> (u64, Account) {
-    if account_id == 0 {
-        // `create_account` returns the in-memory snapshot it wrote; no storage
-        // re-read is needed.
-        return helpers::create_account(env, caller, e_mode_category, mode, None);
-    }
-
-    let account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
-    assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
-    (account_id, account)
 }
 
 fn emit_multiply_initial_payment(

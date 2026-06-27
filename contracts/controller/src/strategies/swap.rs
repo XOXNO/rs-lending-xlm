@@ -22,7 +22,9 @@ pub(crate) mod aggregator {
 }
 
 struct SwapBalanceSnapshot {
+    // D{token_in.decimals}{Token(token_in)} controller balance before router call.
     token_in: i128,
+    // D{token_out.decimals}{Token(token_out)} controller balance before router call.
     token_out: i128,
 }
 
@@ -34,6 +36,7 @@ pub(crate) fn swap_tokens(
     token_out: &Address,
     swap: &StrategySwap,
 ) -> i128 {
+    // D{token_in.decimals}{Token(token_in)} -> D{token_out.decimals}{Token(token_out)}.
     let router_addr = storage::get_aggregator(env);
     let router = aggregator::AggregatorClient::new(env, &router_addr);
     let token_out_client = soroban_sdk::token::Client::new(env, token_out);
@@ -136,6 +139,7 @@ fn verify_router_input_spend(
         balance_after <= balance_before,
         GenericError::InternalError
     );
+    // D{token_in.decimals}{Token(token_in)} spent by router from controller balance.
     let actual_in_spent = balance_before - balance_after;
     assert_with_error!(
         env,
@@ -155,6 +159,7 @@ fn refund_router_underspend(
     let actual_spent = balance_before
         .checked_sub(balance_after)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    // D{token_in.decimals}{Token(token_in)} refund router underspend in same input token.
     let leftover = amount_in
         .checked_sub(actual_spent)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
@@ -168,6 +173,7 @@ fn verify_router_output(
     token_out_client: &soroban_sdk::token::Client,
     balance_before: i128,
 ) -> i128 {
+    // D{token_out.decimals}{Token(token_out)} verified router output by balance delta.
     let received = balance_delta(env, token_out_client, balance_before);
     assert_with_error!(env, received > 0, GenericError::InternalError);
     received

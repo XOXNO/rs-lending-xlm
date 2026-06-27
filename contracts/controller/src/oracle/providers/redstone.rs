@@ -1,49 +1,53 @@
-//! RedStone Price Feed provider.
+//! RedStone Price Feed provider: reads an adapter feed (transaction-cache warmed)
+//! into an `OracleObservation`. RedStone feeds are USD by construction.
 
-use common::errors::GenericError;
-use common::oracle::observation::{check_not_future_at, millis_to_seconds, u256_to_i128};
-use common::oracle::providers::redstone::RedStonePriceData;
+use common::oracle::providers::redstone::{
+    read_price_data_uncached, RedStonePriceData, RedStonePriceFeedClient,
+};
 use controller_interface::types::RedStoneSourceConfig;
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{Address, Env, String, Vec};
 
-use super::super::observation::{build_observation, OracleObservation};
 use crate::cache::Cache;
-
-mod client;
-
-pub(crate) use client::{read_price_data, read_price_data_bulk};
+use crate::oracle::observation::{redstone_observation_from_price_data, OracleObservation};
 
 pub(crate) fn read_redstone_source(
     cache: &mut Cache,
     config: &RedStoneSourceConfig,
-    required: bool,
 ) -> Option<OracleObservation> {
     let env = cache.env().clone();
-
-    let price_data = match read_price_data(cache, &config.contract, &config.feed_id) {
-        Some(price_data) => price_data,
-        _ if required => panic_with_error!(env, GenericError::InvalidTicker),
-        _ => return None,
-    };
-
-    Some(observation_from_price_data(
+    let price_data = read_price_data(cache, &config.contract, &config.feed_id)?;
+    Some(redstone_observation_from_price_data(
         &env,
         &price_data,
         config.decimals,
     ))
 }
 
-fn observation_from_price_data(
-    env: &Env,
-    price_data: &RedStonePriceData,
-    decimals: u32,
-) -> OracleObservation {
-    let package_ts = millis_to_seconds(price_data.package_timestamp);
-    let write_ts = millis_to_seconds(price_data.write_timestamp);
-    let now_secs = env.ledger().timestamp();
-    check_not_future_at(env, now_secs, package_ts);
-    check_not_future_at(env, now_secs, write_ts);
+/// Reads RedStone price data, returning `None` on provider failure.
+/// Uses and warms the transaction-local RedStone cache.
+fn read_price_data(
+    cache: &mut Cache,
+    contract: &Address,
+    feed_id: &String,
+) -> Option<RedStonePriceData> {
+    if let Some(data) = cache.get_redstone_prefetch(contract, feed_id) {
+        return Some(data);
+    }
+    let env = cache.env().clone();
+    let data = read_price_data_uncached(&env, contract, feed_id)?;
+    cache.set_redstone_prefetch(contract, feed_id, data.clone());
+    Some(data)
+}
 
-    let raw_price = u256_to_i128(env, &price_data.price);
-    build_observation(env, raw_price, decimals, write_ts, Some(package_ts))
+/// One cross-contract call for all feeds of one adapter. `None` on any failure
+/// or length mismatch; callers fall back to per-feed reads. Used by `prefetch`.
+pub(crate) fn read_price_data_bulk(
+    env: &Env,
+    contract: &Address,
+    feed_ids: &Vec<String>,
+) -> Option<Vec<RedStonePriceData>> {
+    match RedStonePriceFeedClient::new(env, contract).try_read_price_data(feed_ids) {
+        Ok(Ok(data)) if data.len() == feed_ids.len() => Some(data),
+        _ => None,
+    }
 }

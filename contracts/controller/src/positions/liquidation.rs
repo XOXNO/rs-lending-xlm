@@ -147,6 +147,7 @@ fn build_liquidation_plan(
         &account.supply_positions,
         &account.borrow_positions,
     );
+    // dimensional: totals are Wad<USD>; health_factor is Wad<1>.
     assert_with_error!(
         env,
         totals.health_factor < Wad::ONE,
@@ -194,6 +195,7 @@ fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
+        // dimensional: entry.amount is Token(asset); usd_wad stays plan bookkeeping.
         // All SAC transfers go through the wrapper so the harness can replace it.
         sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
 
@@ -226,6 +228,7 @@ fn apply_liquidation_seizures(
     // Build all seizure entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
+        // dimensional: amount and protocol_fee are Token(asset) units.
         let position: AccountPosition =
             (&validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone())))
                 .into();
@@ -312,6 +315,7 @@ fn execute_bad_debt_cleanup(
     total_debt_usd: i128,
     total_collateral_usd: i128,
 ) {
+    // dimensional: total_debt_usd/total_collateral_usd are Wad<USD>.raw.
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
         for (asset, position) in iter_typed_positions(&account.supply_positions) {
             ctx.apply_withdraw_after_pool(env, &asset, position.scaled_amount);

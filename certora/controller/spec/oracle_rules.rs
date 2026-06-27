@@ -100,7 +100,8 @@ fn first_band_price_within_inputs(
         Some(aggregator_price),
         Some(safe_price),
         &tolerance,
-    );
+    )
+    .price_wad;
 
     let min_price = if aggregator_price < safe_price {
         aggregator_price
@@ -154,7 +155,8 @@ fn second_band_price_within_inputs(
         Some(aggregator_price),
         Some(safe_price),
         &tolerance,
-    );
+    )
+    .price_wad;
 
     let min_price = if aggregator_price < safe_price {
         aggregator_price
@@ -206,7 +208,8 @@ fn beyond_band_price_within_inputs(
         Some(aggregator_price),
         Some(safe_price),
         &tolerance,
-    );
+    )
+    .price_wad;
 
     let min_price = if aggregator_price < safe_price {
         aggregator_price

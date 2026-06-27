@@ -21,6 +21,7 @@ use crate::validation;
 /// Aggregate position metrics for liquidation helpers.
 #[derive(Clone, Copy)]
 pub(crate) struct LiquidationSnapshot {
+    // dimensional: debt/collateral/weighted_coll are Wad<USD>; proportion/hf are Wad<1>.
     pub total_debt: Wad,
     pub total_collateral: Wad,
     pub weighted_coll: Wad,
@@ -31,12 +32,14 @@ pub(crate) struct LiquidationSnapshot {
 /// Liquidation bonus interpolation bounds (base and protocol-max).
 #[derive(Clone, Copy)]
 pub(crate) struct BonusBounds {
+    // dimensional: liquidation bonus bounds are Bps (denom 10_000).
     pub base: Bps,
     pub max: Bps,
 }
 
 /// Repayment legs after close-amount, excess-refund, and dust-residue caps.
 pub(crate) struct NormalizedRepaymentPlan {
+    // dimensional: repay_usd is Wad<USD>; bonus is Bps.
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
     pub repay_usd: Wad,
@@ -92,6 +95,7 @@ pub(crate) fn calculate_seizure_proportions(
     weighted_coll: Wad,
     cache: &mut Cache,
 ) -> (Wad, BonusBounds) {
+    // dimensional: weighted collateral Wad<USD> / collateral Wad<USD> -> Wad<1>.
     let proportion_seized = if total_collateral > Wad::ZERO {
         weighted_coll.div(env, total_collateral)
     } else {
@@ -143,6 +147,7 @@ pub(crate) fn calculate_repayment_amounts(
             payment_amount = actual_debt;
         }
 
+        // dimensional: repayment Token(asset) -> Wad<USD>.
         let payment_usd = feed.usd_value_wad(env, payment_amount);
 
         total_repaid_usd += payment_usd;
@@ -195,6 +200,7 @@ fn debt_close_amount(
     borrow_index: Ray,
     asset_decimals: u32,
 ) -> i128 {
+    // dimensional: debt share/index -> Ray<Token(asset)>; to_asset_ceil returns Token(asset).
     position
         .scaled_amount
         .mul(env, borrow_index)
@@ -218,6 +224,7 @@ pub(crate) fn calculate_liquidation_amounts(
 ) -> (Wad, Bps) {
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds);
 
+    // dimensional: both candidates are Wad<USD>; min preserves close amount units.
     let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
 
     (final_repayment_usd, bonus)
@@ -236,6 +243,7 @@ pub(crate) fn calculate_seized_collateral(
     }
 
     let one_plus_bonus = Wad::ONE + repayment.bonus.to_wad(env);
+    // dimensional: DebtRepaid<Wad<USD>> * (1 + bonus Bps) -> Seize<Wad<USD>>.
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
     for (asset, position) in iter_typed_positions(&account.supply_positions) {
@@ -247,6 +255,7 @@ pub(crate) fn calculate_seized_collateral(
         let asset_config = cache.cached_asset_config(&asset);
         let market_index = cache.cached_market_index(&asset);
 
+        // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
         let actual_ray = position.scaled_amount.mul(env, market_index.supply_index);
         let actual_amount_wad = actual_ray.to_wad();
         let asset_value = actual_amount_wad.mul(env, feed.price);
@@ -254,6 +263,7 @@ pub(crate) fn calculate_seized_collateral(
         let share = asset_value.div(env, total_collateral);
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
+        // dimensional: Seize<Wad<USD>> / Price<Wad<USD/token>> -> Token Wad, then Ray.
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
         let seizure_ray = seizure_amount_wad.to_ray();
 
@@ -329,7 +339,9 @@ pub(crate) fn process_excess_payment(
         if usd > remaining_excess_usd {
             // Floor each step: the refund returned to the payer cannot exceed
             // the exact pro-rata share; sub-ulp remainder stays as repayment.
+            // dimensional: excess Wad<USD> / entry Wad<USD> -> Wad<1>.
             let ratio = remaining_excess_usd.div_floor(env, usd);
+            // dimensional: Token(asset) * Wad<1> -> Token(asset).
             let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
                 .mul_floor(env, ratio)
                 .to_token_floor(entry.feed.asset_decimals);
@@ -337,6 +349,7 @@ pub(crate) fn process_excess_payment(
             let new_amount = entry.amount - refund_amount;
             // Recompute new_usd from new_amount * price; subtracting the excess
             // directly drifts the two precision paths and desyncs the RepayEntry pair.
+            // dimensional: Token(asset) * Wad<USD/token> -> Wad<USD>.
             let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
             let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
 
@@ -374,6 +387,7 @@ pub fn calculate_linear_bonus_with_target(
     max: Bps,
     target: Wad,
 ) -> Bps {
+    // dimensional: hf and target are Wad<1>; output Bps.
     if hf >= target {
         return base;
     }
@@ -460,8 +474,10 @@ fn calculate_post_liquidation_hf(
     debt_to_repay: Wad,
     bonus: Bps,
 ) -> Wad {
+    // dimensional: post HF = weighted collateral Wad<USD> / debt Wad<USD>.
     let one_plus_bonus = Bps::ONE + bonus;
 
+    // dimensional: Wad<1> * debt Wad<USD>, then Bps multiplier, stays Wad<USD>.
     let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
     let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
     let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_coll);
@@ -490,6 +506,7 @@ fn try_liquidation_at_target(
 
     let d_max = snap.total_collateral.div(env, one_plus_bonus);
 
+    // dimensional: denominator terms are Wad<1>; numerator below is Wad<USD>.
     let denom_term = snap.proportion_seized.mul(env, one_plus_bonus);
     if target_hf <= denom_term {
         return None;
@@ -501,6 +518,7 @@ fn try_liquidation_at_target(
         return Some(d_max.min(snap.total_debt));
     }
     let numerator = target_debt - snap.weighted_coll;
+    // dimensional: Wad<USD> / Wad<1> -> repayment Wad<USD>.
     let d_ideal = numerator.div(env, denominator);
 
     Some(d_ideal.min(d_max).min(snap.total_debt))
@@ -508,6 +526,7 @@ fn try_liquidation_at_target(
 
 /// Largest liquidation bonus that keeps seizure below account collateral.
 pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
+    // dimensional: proportion_seized is Wad<1>; cap is Bps.
     if proportion_seized <= Wad::ZERO {
         return Bps::from(0);
     }
@@ -536,6 +555,7 @@ pub(crate) fn get_account_bonus_params(
     let mut total_collateral = Wad::ZERO;
     let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
 
+    // dimensional: stores (collateral Wad<USD>.raw, bonus Bps.raw).
     for (asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&asset);
         let market_index = cache.cached_market_index(&asset);

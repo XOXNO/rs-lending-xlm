@@ -82,6 +82,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     let extra_assets = soroban_sdk::vec![env, existing_debt_token.clone(), new_debt_token.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
+    // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after protocol fee.
     let amount_received = open_strategy_borrow(
         env,
         &mut cache,
@@ -90,6 +91,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         new_debt_amount,
     );
 
+    // D{new_debt_token.decimals}{Token(new_debt_token)} -> Token(existing_debt_token).
     let swapped_amount = swap_tokens(
         env,
         caller,
@@ -99,6 +101,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         swap,
     );
 
+    // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays old debt position.
     repay_debt_from_controller(
         env,
         &mut account,

@@ -38,7 +38,7 @@ fn test_is_within_anchor_degenerate_anchor_is_out_of_band_no_panic() {
 fn test_calculate_final_price_anchor_only() {
     let env = Env::default();
     let cache = Cache::build(&env, OraclePolicy::View);
-    let price = calculate_final_price(&cache, Some(500), None, &sample_tolerance());
+    let price = calculate_final_price(&cache, Some(500), None, &sample_tolerance()).price_wad;
     assert_eq!(price, 500);
 }
 
@@ -48,7 +48,8 @@ fn test_calculate_final_price_first_band_risk_increasing_uses_midpoint() {
     let cache = Cache::build(&env, OraclePolicy::RiskIncreasing);
     let anchor = 100 * constants::WAD;
     let primary = 101 * constants::WAD;
-    let price = calculate_final_price(&cache, Some(anchor), Some(primary), &sample_tolerance());
+    let price =
+        calculate_final_price(&cache, Some(anchor), Some(primary), &sample_tolerance()).price_wad;
     assert_eq!(price, (anchor + primary) / 2);
 }
 
@@ -62,7 +63,8 @@ fn test_calculate_final_price_first_band_risk_decreasing_keeps_primary() {
         Some(100 * constants::WAD),
         Some(primary),
         &sample_tolerance(),
-    );
+    )
+    .price_wad;
     assert_eq!(price, primary);
 }
 
@@ -104,6 +106,7 @@ fn test_calculate_final_price_unsafe_deviation_risk_decreasing_keeps_primary() {
         last_lower_ratio_bps: 9_980,
     };
     let primary = 200 * constants::WAD;
-    let price = calculate_final_price(&cache, Some(100 * constants::WAD), Some(primary), &tight);
+    let price =
+        calculate_final_price(&cache, Some(100 * constants::WAD), Some(primary), &tight).price_wad;
     assert_eq!(price, primary);
 }

@@ -18,6 +18,7 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 /// and liquidation share proportions. Solvency gates use the directional
 /// variants below instead.
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
+    // dimensional: Ray<Share> * Ray<Index> -> Ray<Token> -> Wad<Token> -> Wad<USD>.
     let actual = scaled.mul(env, index);
     let actual_wad = actual.to_wad();
     actual_wad.mul(env, price)

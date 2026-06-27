@@ -169,10 +169,12 @@ pub fn create_liquidity_pool(
     );
 
     let pool_address = storage::get_pool(env);
+    // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
     pool_create_market_call(env, &pool_address, params);
 
     let mut asset_config = config.clone();
     asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
+    // dimensional: asset_decimals is AssetDecimals(asset) copied from pool params into oracle config.
     asset_config.asset_decimals = params.asset_decimals;
     let market = MarketConfig {
         status: MarketStatus::PendingOracle,
@@ -183,6 +185,7 @@ pub fn create_liquidity_pool(
 
     storage::renew_controller_instance(env);
 
+    // dimensional: event fields preserve raw Ray rate/utilization and Bps reserve-factor inputs.
     CreateMarketEvent {
         base_asset: asset.clone(),
         max_borrow_rate: params.max_borrow_rate_ray,
@@ -206,6 +209,7 @@ pub fn create_liquidity_pool(
 
 /// Updates hub supply/borrow caps on the central pool for one market.
 pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
+    // dimensional: supply_cap/borrow_cap are HubCap(asset, side) in Token(asset) base units.
     assert_with_error!(
         env,
         supply_cap >= 0 && borrow_cap >= 0,
@@ -232,8 +236,10 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     pool_update_indexes_call(env, &pool_addr, asset);
 
+    // dimensional: params carries Ray rates/utilization and Bps reserve factor.
     pool_update_params_call(env, &pool_addr, asset, params);
 
+    // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
         asset: asset.clone(),
         max_borrow_rate_ray: params.max_borrow_rate_ray,
@@ -259,6 +265,7 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
 
     let result = pool_claim_revenue_call(env, &pool_addr, asset);
     let amount = result.actual_amount;
+    // dimensional: amount is Token(asset) revenue in asset-native units.
 
     if amount > 0 {
         sac_transfer_call(
@@ -286,6 +293,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
 
 /// Transfers rewards into a pool and increases the supply index for suppliers.
 pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, cache: &mut Cache) {
+    // dimensional: amount is Token(asset) reward in asset-native units.
     validation::require_asset_supported(env, cache, asset);
     validation::require_positive_amount(env, amount);
 
@@ -360,6 +368,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             validation::expect_invariant(env, account.supply_positions.get(asset.clone()));
         let mut updated_pos = position;
 
+        // dimensional: raw risk params are Bps snapshots; scaled_amount_ray is unchanged.
         let cfg_lt = asset_config.liquidation_threshold.raw() as u32;
         let cfg_ltv = asset_config.loan_to_value.raw() as u32;
         let cfg_bonus = asset_config.liquidation_bonus.raw() as u32;
@@ -394,6 +403,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             &account.borrow_positions,
         )
         .health_factor;
+        // dimensional: hf and THRESHOLD_UPDATE_MIN_HF_RAW are WAD-scaled HealthFactor.
         assert_with_error!(
             env,
             hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW),

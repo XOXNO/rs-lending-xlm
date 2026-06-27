@@ -137,6 +137,7 @@ impl Controller {
     /// Accrued indexes; reads no oracle.
     pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
         let mut cache = Cache::new_view(&env);
+        // dimensional: MarketIndexRaw exposes Ray<Index(asset, supply|borrow)> raw values.
         MarketIndexRaw::from(&cache.cached_market_index(&asset))
     }
 }
@@ -144,6 +145,7 @@ impl Controller {
 pub fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
+        // dimensional: return is HealthFactor raw WAD; i128::MAX is no-debt/no-account sentinel.
         Some(account) => helpers::calculate_account_risk_totals(
             env,
             &mut cache,
@@ -157,6 +159,7 @@ pub fn health_factor(env: &Env, account_id: u64) -> i128 {
 }
 
 pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
+    // dimensional: raw WAD HealthFactor is compared to WAD-scaled 1.0.
     health_factor(env, account_id) < WAD
 }
 
@@ -172,6 +175,7 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
         .asset_config
         .asset_decimals;
 
+    // dimensional: scaled_amount * supply_index -> Token(asset), returned in asset decimals.
     position
         .scaled_amount
         .mul(env, market_index.supply_index)
@@ -190,6 +194,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
         .asset_config
         .asset_decimals;
 
+    // dimensional: scaled_amount * borrow_index -> Token(asset), returned in asset decimals.
     position
         .scaled_amount
         .mul(env, market_index.borrow_index)
@@ -212,6 +217,7 @@ pub fn get_account_positions(
         return (Map::new(env), Map::new(env));
     }
 
+    // dimensional: returned maps keep Ray<Share(asset, side)> raw scaled balances.
     (
         storage::get_supply_positions(env, account_id),
         storage::get_debt_positions(env, account_id),
@@ -229,6 +235,7 @@ pub fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
+    // dimensional: return is Wad<USD> raw (1e18) liquidation collateral.
     helpers::calculate_account_risk_totals(
         env,
         &mut cache,
@@ -254,6 +261,7 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
         // resolved per-row, so the view is safe on empty input.
         cache.cached_market_config(&asset);
         let pool_address = cache.cached_pool_address();
+        // dimensional: price_wad is Wad<USD/asset> raw.
         let final_price = token_price(&mut cache, &asset).price_wad;
         result.push_back(AssetExtendedConfigView {
             asset,
@@ -277,6 +285,7 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
         let components = price_components(&mut cache, &asset);
         let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
 
+        // dimensional: indexes are Ray<Index(asset, side)>; prices are Wad<USD/asset>.
         result.push_back(MarketIndexView {
             asset,
             supply_index_ray: index.supply_index.raw(),
@@ -300,10 +309,12 @@ pub fn liquidation_estimations_detailed(
     require_view_inputs_bound(env, debt_payments);
     let mut cache = Cache::new_view(env);
     let account = storage::get_account(env, account_id);
+    // dimensional: debt_payments are Token(debt_asset); result carries Token, Wad<USD>, and Bps.
     let result = execute_liquidation(env, &account, debt_payments, &mut cache);
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
+    // dimensional: seized collateral and protocol fees are Token(asset) amounts.
     for i in 0..result.seized.len() {
         let entry = validation::expect_invariant(env, result.seized.get(i));
         seized_collaterals.push_back(PaymentTuple {
@@ -317,6 +328,7 @@ pub fn liquidation_estimations_detailed(
     }
 
     let mut refunds_view = Vec::new(env);
+    // dimensional: refunds are Token(asset); max_payment_wad is Wad<USD>; bonus is Bps.
     for i in 0..result.refunds.len() {
         refunds_view.push_back(validation::expect_invariant(env, result.refunds.get(i)));
     }

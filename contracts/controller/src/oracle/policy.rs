@@ -1,6 +1,11 @@
 //! Per-entrypoint oracle failure policy.
 //! Each controller flow chooses one variant before reading prices.
 //! The variant decides which oracle failures the flow may tolerate.
+//!
+//! `RiskIncreasing` and `Liquidation` tolerate nothing (every `allows_*`
+//! returns false) so borrow and seizure accounting never read a degraded
+//! price. Any future variant defaults to that fail-closed behaviour until it
+//! is explicitly listed in a getter.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OraclePolicy {
@@ -11,82 +16,29 @@ pub enum OraclePolicy {
     View,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Allowances {
-    disabled_market: bool,
-    stale_source: bool,
-    unsafe_deviation: bool,
-    /// Missing anchor, stale anchor treated as unusable, or TWAP degradation to spot.
-    degraded_dual_source: bool,
-    /// Final price outside `[min, max]` sanity bounds is tolerated when
-    /// the policy also tolerates unsafe deviation.
-    sanity_violation: bool,
-}
-
-impl Allowances {
-    const fn for_policy(p: OraclePolicy) -> Self {
-        use OraclePolicy::*;
-        match p {
-            RiskIncreasing => Allowances {
-                disabled_market: false,
-                stale_source: false,
-                unsafe_deviation: false,
-                degraded_dual_source: false,
-                sanity_violation: false,
-            },
-            RiskDecreasing => Allowances {
-                disabled_market: false,
-                stale_source: true,
-                unsafe_deviation: true,
-                degraded_dual_source: true,
-                sanity_violation: true,
-            },
-            Repay => Allowances {
-                disabled_market: true,
-                stale_source: true,
-                unsafe_deviation: true,
-                degraded_dual_source: true,
-                sanity_violation: true,
-            },
-            // Rejects each loosening like RiskIncreasing so seizure accounting
-            // cannot read a degraded price; kept distinct for intent/auditing.
-            Liquidation => Allowances {
-                disabled_market: false,
-                stale_source: false,
-                unsafe_deviation: false,
-                degraded_dual_source: false,
-                sanity_violation: false,
-            },
-            View => Allowances {
-                disabled_market: true,
-                stale_source: true,
-                unsafe_deviation: true,
-                degraded_dual_source: true,
-                sanity_violation: true,
-            },
-        }
-    }
-}
-
 impl OraclePolicy {
     pub fn allows_disabled_market(self) -> bool {
-        Allowances::for_policy(self).disabled_market
+        matches!(self, Self::Repay | Self::View)
     }
 
     pub fn allows_stale_source(self) -> bool {
-        Allowances::for_policy(self).stale_source
+        matches!(self, Self::RiskDecreasing | Self::Repay | Self::View)
     }
 
+    /// Primary/anchor divergence beyond the last tolerance band.
     pub fn allows_unsafe_deviation(self) -> bool {
-        Allowances::for_policy(self).unsafe_deviation
+        matches!(self, Self::RiskDecreasing | Self::Repay | Self::View)
     }
 
+    /// Missing anchor, stale anchor treated as unusable, or TWAP degradation to spot.
     pub fn allows_degraded_dual_source(self) -> bool {
-        Allowances::for_policy(self).degraded_dual_source
+        matches!(self, Self::RiskDecreasing | Self::Repay | Self::View)
     }
 
+    /// Final price outside `[min, max]` sanity bounds; gated together with
+    /// `allows_unsafe_deviation`.
     pub fn allows_sanity_violation(self) -> bool {
-        Allowances::for_policy(self).sanity_violation
+        matches!(self, Self::RiskDecreasing | Self::Repay | Self::View)
     }
 
     pub const fn requires_blended_first_band(self) -> bool {

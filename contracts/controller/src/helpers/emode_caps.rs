@@ -9,7 +9,7 @@ use common::validation::cap_is_enabled;
 use controller_interface::types::{
     EModeAssetConfig, EModeCategory, EModeCategoryRaw, EModeSpokeUsageRaw, MarketIndexRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::storage;
 
@@ -153,6 +153,7 @@ fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     if !cap_is_enabled(cap) {
         return Ray::from(i128::MAX);
     }
+    // dimensional: Token(asset) cap -> Ray<Token(asset)> -> Ray<Share(asset, side)>.
     Ray::from_asset(cap, decimals).div_floor(env, index)
 }
 
@@ -265,8 +266,4 @@ pub fn validate_spoke_caps_against_hub(
             EModeError::SpokeCapExceedsHub
         );
     }
-}
-
-pub fn empty_usage_map(env: &Env) -> Map<Address, EModeSpokeUsageRaw> {
-    Map::new(env)
 }
