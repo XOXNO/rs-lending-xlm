@@ -196,17 +196,17 @@ fn apply_liquidation_repayments(
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
         // dimensional: entry.amount is Token(asset); usd_wad stays plan bookkeeping.
-        // All SAC transfers go through the wrapper so the harness can replace it.
-        sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
+        // The token is hub-independent, but the debt-position lookup is keyed by
+        // the full hub coordinate the liquidator named. All SAC transfers go
+        // through the wrapper so the harness can replace it.
+        sac_transfer_call(env, &entry.hub_asset.asset, liquidator, &pool_addr, &entry.amount);
 
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: entry.asset.clone(),
-        };
-        let position: DebtPosition =
-            (&validation::expect_invariant(env, account.borrow_positions.get(hub_asset.clone())))
-                .into();
-        actions.push_back(make_pool_action(&position, entry.amount, hub_asset));
+        let position: DebtPosition = (&validation::expect_invariant(
+            env,
+            account.borrow_positions.get(entry.hub_asset.clone()),
+        ))
+            .into();
+        actions.push_back(make_pool_action(&position, entry.amount, entry.hub_asset));
     }
     repay::settle_repay_actions(
         env,
@@ -228,16 +228,15 @@ fn apply_liquidation_seizures(
     // Build all seizure entries for one bulk pool call.
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        // dimensional: amount and protocol_fee are Token(asset) units.
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: entry.asset.clone(),
-        };
-        let position: AccountPosition =
-            (&validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone())))
-                .into();
+        // dimensional: amount and protocol_fee are Token(asset) units. The
+        // supply-position lookup is keyed by the seized position's full hub key.
+        let position: AccountPosition = (&validation::expect_invariant(
+            env,
+            account.supply_positions.get(entry.hub_asset.clone()),
+        ))
+            .into();
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(&position, entry.amount, hub_asset),
+            action: make_pool_action(&position, entry.amount, entry.hub_asset),
             protocol_fee: entry.protocol_fee,
         });
     }

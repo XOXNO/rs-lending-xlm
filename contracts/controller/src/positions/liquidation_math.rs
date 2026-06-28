@@ -156,7 +156,7 @@ pub(crate) fn calculate_repayment_amounts(
 
         total_repaid_usd += payment_usd;
         repaid_tokens.push_back(RepayEntry {
-            asset: hub_asset.asset,
+            hub_asset,
             amount: payment_amount,
             usd_wad: payment_usd.raw(),
             feed: (&feed).into(),
@@ -311,7 +311,7 @@ pub(crate) fn calculate_seized_collateral(
         };
 
         seized.push_back(SeizeEntry {
-            asset: hub_asset.asset,
+            hub_asset,
             amount: capped_amount,
             protocol_fee,
             feed: (&feed).into(),
@@ -361,13 +361,13 @@ pub(crate) fn process_excess_payment(
             let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
 
             refunds.push_back(PaymentTuple {
-                asset: entry.asset.clone(),
+                asset: entry.hub_asset.asset.clone(),
                 amount: refund_amount,
             });
             repaid_tokens.set(
                 current_index,
                 RepayEntry {
-                    asset: entry.asset,
+                    hub_asset: entry.hub_asset,
                     amount: new_amount,
                     usd_wad: new_usd.raw(),
                     feed: entry.feed,
@@ -377,7 +377,7 @@ pub(crate) fn process_excess_payment(
             remaining_excess_usd = Wad::ZERO;
         } else {
             refunds.push_back(PaymentTuple {
-                asset: entry.asset.clone(),
+                asset: entry.hub_asset.asset.clone(),
                 amount: entry.amount,
             });
             repaid_tokens.remove(current_index);

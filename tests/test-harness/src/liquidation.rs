@@ -32,6 +32,40 @@ impl LendingTest {
         ctrl.liquidate(&liquidator_addr, &account_id, &payments);
     }
 
+    /// Liquidate on a specific hub: mints the debt token to the liquidator and
+    /// repays `amount` of `debt_asset` keyed to `hub_id`, exercising the hub>0
+    /// liquidation plan path.
+    pub fn liquidate_on_hub(
+        &mut self,
+        hub_id: u32,
+        liquidator: &str,
+        target_user: &str,
+        debt_asset: &str,
+        amount: f64,
+    ) {
+        let decimals = self.resolve_market(debt_asset).decimals;
+        let raw_amount = amount_raw(amount, decimals);
+        let asset_addr = self.resolve_asset(debt_asset);
+
+        let liquidator_addr = self.get_or_create_user(liquidator);
+        let account_id = self.resolve_account_id(target_user);
+
+        self.resolve_market(debt_asset)
+            .token_admin
+            .mint(&liquidator_addr, &raw_amount);
+
+        let ctrl = self.ctrl_client();
+        let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
+        payments.push_back((
+            HubAssetKey {
+                hub_id,
+                asset: asset_addr,
+            },
+            raw_amount,
+        ));
+        ctrl.liquidate(&liquidator_addr, &account_id, &payments);
+    }
+
     /// Try liquidate -- returns Result.
     pub fn try_liquidate(
         &mut self,

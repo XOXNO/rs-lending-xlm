@@ -191,7 +191,7 @@ pub struct LiquidationEstimate {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub amount: i128,
     pub protocol_fee: i128,
     pub feed: crate::types::oracle::PriceFeedRaw,
@@ -201,7 +201,7 @@ pub struct SeizeEntry {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct RepayEntry {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub amount: i128,
     pub usd_wad: i128,
     pub feed: crate::types::oracle::PriceFeedRaw,

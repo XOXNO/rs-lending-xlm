@@ -328,11 +328,11 @@ pub fn liquidation_estimations_detailed(
     for i in 0..result.seized.len() {
         let entry = validation::expect_invariant(env, result.seized.get(i));
         seized_collaterals.push_back(PaymentTuple {
-            asset: entry.asset.clone(),
+            asset: entry.hub_asset.asset.clone(),
             amount: entry.amount,
         });
         protocol_fees.push_back(PaymentTuple {
-            asset: entry.asset,
+            asset: entry.hub_asset.asset,
             amount: entry.protocol_fee,
         });
     }

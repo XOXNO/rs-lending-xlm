@@ -7,13 +7,13 @@
 //! a hub's borrowable cash cannot be drawn by another hub.
 
 use controller::constants::RAY;
-use controller::types::{ControllerKey, DebtPositionRaw};
+use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw};
 use soroban_sdk::Map;
 use test_harness::{
-    amount_raw, usd, HubAssetKey, LendingTest, MarketPreset, DEFAULT_ASSET_CONFIG,
+    amount_raw, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset, DEFAULT_ASSET_CONFIG,
     DEFAULT_MARKET_PARAMS,
 };
-use test_harness::{eth_preset, ALICE, BOB, CAROL};
+use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
 const SECONDS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
@@ -27,6 +27,24 @@ fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_nam
             .storage()
             .persistent()
             .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
+            .and_then(|m| m.get(key))
+            .map(|p| p.scaled_amount_ray)
+            .unwrap_or(0)
+    })
+}
+
+/// Reads the account's scaled supply on `(hub_id, asset)`; `0` when the supply
+/// position is absent (fully seized positions are pruned from the map).
+fn supply_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_name: &str) -> i128 {
+    let asset = t.resolve_asset(asset_name);
+    let key = HubAssetKey { hub_id, asset };
+    t.env.as_contract(&t.controller_address(), || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&ControllerKey::SupplyPositions(
+                account_id,
+            ))
             .and_then(|m| m.get(key))
             .map(|p| p.scaled_amount_ray)
             .unwrap_or(0)
@@ -270,5 +288,94 @@ fn swap_debt_refinances_debt_across_hubs() {
     assert!(
         t.pool_state_on_hub(hub1, "USDC").borrowed_ray > 0,
         "hub-1 USDC market holds the refinanced borrow"
+    );
+}
+
+// 5. A hub-1 account can be liquidated: its debt is repaid and its collateral
+// seized, while a hub-0 market is left untouched. Guards the hub>0 liquidation
+// plan path that previously keyed the repay/seize lookups to `{0, asset}` and so
+// missed the real hub-1 positions, panicking `InternalError`.
+#[test]
+fn liquidation_repays_and_seizes_on_hub_one() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let hub1 = t.create_hub();
+    // List both markets on hub 1. USDC needs no seed (Alice's own supply funds
+    // the seizure); ETH is seeded so Alice can draw a borrow against it.
+    t.list_market_on_hub(hub1, "USDC", 0.0);
+    t.list_market_on_hub(hub1, "ETH", 100.0);
+
+    // Hub-0 isolation control: Bob is a pure USDC supplier on hub 0 whose market
+    // must not move when a hub-1 account is liquidated.
+    t.supply_on_hub(0, BOB, "USDC", 1_000.0);
+    let hub0_usdc_before = t.pool_state_on_hub(0, "USDC");
+
+    // Hub 1: Alice posts USDC collateral and borrows ETH, mirroring the canonical
+    // liquidatable USDC/ETH setup but entirely on hub 1.
+    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    t.assert_healthy(ALICE);
+
+    // Crash USDC so Alice's hub-1 position is liquidatable.
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+
+    let debt_before = borrow_scaled_on_hub(&t, alice, hub1, "ETH");
+    let collateral_before = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    assert!(
+        debt_before > 0 && collateral_before > 0,
+        "precondition: hub-1 debt and collateral exist"
+    );
+
+    // The liquidator repays 1 ETH ($2000) of hub-1 debt.
+    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+
+    // Repay leg hit the hub-1 debt key: scaled debt fell.
+    let debt_after = borrow_scaled_on_hub(&t, alice, hub1, "ETH");
+    assert!(
+        debt_after < debt_before,
+        "hub-1 ETH debt must be repaid: {} -> {}",
+        debt_before,
+        debt_after
+    );
+
+    // Seize leg hit the hub-1 supply key: scaled collateral fell and the
+    // liquidator actually received the seized USDC.
+    let collateral_after = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    assert!(
+        collateral_after < collateral_before,
+        "hub-1 USDC collateral must be seized: {} -> {}",
+        collateral_before,
+        collateral_after
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") > 0.0,
+        "liquidator must receive the seized hub-1 USDC collateral"
+    );
+
+    // Isolation: the hub-0 USDC market is untouched by a hub-1 liquidation.
+    let hub0_usdc_after = t.pool_state_on_hub(0, "USDC");
+    assert_eq!(
+        hub0_usdc_after.supplied_ray, hub0_usdc_before.supplied_ray,
+        "hub-0 USDC supplied is untouched"
+    );
+    assert_eq!(
+        hub0_usdc_after.borrowed_ray, hub0_usdc_before.borrowed_ray,
+        "hub-0 USDC borrowed is untouched"
+    );
+    assert_eq!(
+        hub0_usdc_after.cash, hub0_usdc_before.cash,
+        "hub-0 USDC cash is untouched"
+    );
+    assert_eq!(
+        hub0_usdc_after.supply_index_ray, hub0_usdc_before.supply_index_ray,
+        "hub-0 USDC supply index is untouched"
+    );
+    assert_eq!(
+        hub0_usdc_after.borrow_index_ray, hub0_usdc_before.borrow_index_ray,
+        "hub-0 USDC borrow index is untouched"
     );
 }
