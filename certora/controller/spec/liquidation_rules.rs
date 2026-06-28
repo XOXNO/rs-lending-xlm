@@ -108,11 +108,13 @@ fn bonus_bounded(
     // Real production bonus math (NOT the certora summary `calculate_linear_bonus`,
     // which would assume the very bounds asserted here). Proves the production
     // function keeps the bonus in [base, max] for any liquidation target.
+    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
     let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf_wad),
         Bps::from(base_bonus_bps),
         Bps::from(max_bonus_bps),
+        &curve,
         Wad::from(target_wad),
     );
 
@@ -238,8 +240,9 @@ fn ideal_repayment_targets_102(
         base: Bps::from(base_bonus_bps),
         max: Bps::from(max_bonus_bps),
     };
+    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
     let (ideal, bonus) =
-        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds);
+        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
 
     cvlr_assert!(ideal.raw() > 0);
     cvlr_assert!(ideal.raw() <= total_debt_wad);
@@ -262,11 +265,13 @@ fn liquidation_bonus_sanity(e: Env) {
     cvlr_assume!(max >= base && max <= BPS);
     cvlr_assume!(target > 0 && target <= 2 * WAD);
 
+    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
     let bonus = crate::positions::liquidation_math::calculate_linear_bonus_with_target(
         &e,
         Wad::from(hf),
         Bps::from(base),
         Bps::from(max),
+        &curve,
         Wad::from(target),
     );
     cvlr_satisfy!(bonus.raw() > 0);
@@ -293,7 +298,8 @@ fn estimate_liquidation_sanity(e: Env) {
         base: Bps::from(500),
         max: Bps::from(1000),
     };
+    let curve = crate::positions::liquidation_math::LiquidationCurve::from_config(None);
     let (ideal, _bonus) =
-        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds);
+        crate::positions::liquidation_math::estimate_liquidation_amount(&e, &snap, bounds, &curve);
     cvlr_satisfy!(ideal.raw() > 0);
 }

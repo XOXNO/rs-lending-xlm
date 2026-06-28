@@ -3,12 +3,15 @@
 //! Price math uses USD WAD. Pool-facing seizure and repayment entries use
 //! asset-native units.
 
-use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
+use crate::constants::{
+    BAD_DEBT_USD_THRESHOLD, BPS, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+    DEFAULT_LIQUIDATION_TARGET_HF_WAD, WAD,
+};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use controller_interface::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, LiquidationResult, PaymentTuple,
-    RepayEntry, SeizeEntry,
+    RepayEntry, SeizeEntry, SpokeConfig,
 };
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
@@ -170,6 +173,7 @@ pub(crate) fn normalize_repayment_plan(
     raw_payments: &Vec<HubPayment>,
     snap: &LiquidationSnapshot,
     bonus_bounds: BonusBounds,
+    curve: &LiquidationCurve,
     cache: &mut Cache,
 ) -> NormalizedRepaymentPlan {
     let mut refunds = Vec::new(env);
@@ -177,7 +181,7 @@ pub(crate) fn normalize_repayment_plan(
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
     let (max_debt_to_repay_usd, bonus) =
-        calculate_liquidation_amounts(env, snap, bonus_bounds, total_debt_payment_usd);
+        calculate_liquidation_amounts(env, snap, bonus_bounds, total_debt_payment_usd, curve);
 
     let mut final_repayment_tokens = repaid_tokens;
     if total_debt_payment_usd > max_debt_to_repay_usd {
@@ -222,8 +226,10 @@ pub(crate) fn calculate_liquidation_amounts(
     snap: &LiquidationSnapshot,
     bonus_bounds: BonusBounds,
     total_payment_usd: Wad,
+    curve: &LiquidationCurve,
 ) -> (Wad, Bps) {
-    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds);
+    let (ideal_repayment_usd, bonus) =
+        estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
     // dimensional: both candidates are Wad<USD>; min preserves close amount units.
     let final_repayment_usd = total_payment_usd.min(ideal_repayment_usd);
@@ -380,29 +386,106 @@ pub(crate) fn process_excess_payment(
     }
 }
 
-/// Interpolates liquidation bonus from base to max as HF falls below target.
+/// Resolved liquidation curve for an account's spoke. Absent or zero spoke
+/// fields fall back to the legacy defaults so spoke 0 reproduces today's math.
+pub(crate) struct LiquidationCurve {
+    target_hf: Wad,
+    // `None` keeps the legacy per-tier max-bonus point at `target / 2`.
+    hf_for_max_bonus: Option<Wad>,
+    bonus_factor: Bps,
+}
+
+impl LiquidationCurve {
+    /// Resolves the curve from the account's spoke; spoke 0 yields all defaults.
+    pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
+        Self::from_config(cache.cached_spoke(spoke_id).as_ref())
+    }
+
+    /// Builds the curve from an optional spoke config, applying defaults for
+    /// absent or zero fields.
+    pub(crate) fn from_config(cfg: Option<&SpokeConfig>) -> Self {
+        let target_raw = cfg
+            .map(|c| c.liquidation_target_hf_wad)
+            .filter(|v| *v != 0)
+            .unwrap_or(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+        let hf_for_max_bonus = cfg
+            .map(|c| c.hf_for_max_bonus_wad)
+            .filter(|v| *v != 0)
+            .map(Wad::from);
+        let factor_raw = cfg
+            .map(|c| c.liquidation_bonus_factor_bps)
+            .filter(|v| *v != 0)
+            .unwrap_or(DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS);
+        Self {
+            target_hf: Wad::from(target_raw),
+            hf_for_max_bonus,
+            bonus_factor: Bps::from(i128::from(factor_raw)),
+        }
+    }
+
+    /// Primary-tier target health factor.
+    fn primary_target(&self) -> Wad {
+        self.target_hf
+    }
+
+    /// Fallback-tier target: 0.01 WAD below the primary target.
+    fn fallback_target(&self) -> Wad {
+        self.target_hf - Wad::from(WAD / 100)
+    }
+
+    /// Linear bonus scale in `[0, 1]` as `hf` falls below `target`. The caller
+    /// guarantees `hf < target`.
+    fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
+        // dimensional: hf and target are Wad<1>; output Wad<1>.
+        let gap = target - hf;
+        match self.hf_for_max_bonus {
+            // Legacy default: max bonus at `hf == target / 2`. The integer
+            // doubling reproduces today's exact `2 * gap_wad` scale per tier.
+            None => gap.div(env, target).mul(env, Wad::from(2 * WAD)).min(Wad::ONE),
+            // Configured: scale reaches 1 once `hf <= hf_for_max_bonus`.
+            Some(hf_for_max_bonus) => {
+                if target <= hf_for_max_bonus {
+                    Wad::ONE
+                } else {
+                    gap.div(env, target - hf_for_max_bonus).min(Wad::ONE)
+                }
+            }
+        }
+    }
+
+    /// Scales a raw bonus increment by the configured factor. The default
+    /// factor (1.0x) returns the increment unchanged for byte-identical output.
+    fn apply_bonus_factor(&self, env: &Env, increment: i128) -> i128 {
+        if self.bonus_factor == Bps::ONE {
+            increment
+        } else {
+            self.bonus_factor.apply_to(env, increment)
+        }
+    }
+}
+
+/// Interpolates liquidation bonus from base to max as HF falls below target,
+/// following the account's resolved liquidation curve.
 pub fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
     base: Bps,
     max: Bps,
+    curve: &LiquidationCurve,
     target: Wad,
 ) -> Bps {
     // dimensional: hf and target are Wad<1>; output Bps.
     if hf >= target {
         return base;
     }
-    let gap_numerator = target - hf;
-    let gap_wad = gap_numerator.div(env, target);
-
-    let double_gap = gap_wad.mul(env, Wad::from(2 * WAD));
-    let scale = double_gap.min(Wad::ONE);
+    let scale = curve.bonus_scale(env, hf, target);
 
     let bonus_range = max - base;
     let bonus_increment = Wad::from(bonus_range.raw()).mul(env, scale).raw();
+    let scaled_increment = curve.apply_bonus_factor(env, bonus_increment);
     Bps::from(
         base.raw()
-            .checked_add(bonus_increment)
+            .checked_add(scaled_increment)
             .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
     )
 }
@@ -414,11 +497,17 @@ struct BaseTier {
     new_hf: Wad,
 }
 
-/// Primary tier: seize toward a 1.02 HF target and accept only when the result
-/// restores HF to at least one.
-fn primary_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Option<(Wad, Bps)> {
-    let target = Wad::from(1_020_000_000_000_000_000i128);
-    let bonus = calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target);
+/// Primary tier: seize toward the curve's target HF and accept only when the
+/// result restores HF to at least one.
+fn primary_tier(
+    env: &Env,
+    snap: &LiquidationSnapshot,
+    bounds: BonusBounds,
+    curve: &LiquidationCurve,
+) -> Option<(Wad, Bps)> {
+    let target = curve.primary_target();
+    let bonus =
+        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
     let d = try_liquidation_at_target(env, snap, bonus, target)?;
     if calculate_post_liquidation_hf(env, snap, d, bonus) >= Wad::ONE {
         Some((d, bonus))
@@ -427,10 +516,17 @@ fn primary_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> O
     }
 }
 
-/// Fallback tier: seize toward a 1.01 HF target without the HF-restored check.
-fn fallback_tier(env: &Env, snap: &LiquidationSnapshot, bounds: BonusBounds) -> Option<(Wad, Bps)> {
-    let target = Wad::from(WAD + WAD / 100);
-    let bonus = calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, target);
+/// Fallback tier: seize toward the curve's fallback HF target (0.01 below
+/// primary) without the HF-restored check.
+fn fallback_tier(
+    env: &Env,
+    snap: &LiquidationSnapshot,
+    bounds: BonusBounds,
+    curve: &LiquidationCurve,
+) -> Option<(Wad, Bps)> {
+    let target = curve.fallback_target();
+    let bonus =
+        calculate_linear_bonus_with_target(env, snap.hf, bounds.base, bounds.max, curve, target);
     try_liquidation_at_target(env, snap, bonus, target).map(|d| (d, bonus))
 }
 
@@ -453,13 +549,14 @@ pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
     bounds: BonusBounds,
+    curve: &LiquidationCurve,
 ) -> (Wad, Bps) {
-    if let Some(result) = primary_tier(env, snap, bounds) {
+    if let Some(result) = primary_tier(env, snap, bounds, curve) {
         return result;
     }
 
     // Fallback is evaluated before the base candidate to preserve math behavior.
-    let fallback = fallback_tier(env, snap, bounds);
+    let fallback = fallback_tier(env, snap, bounds, curve);
     let base = base_tier(env, snap, bounds);
 
     if base.new_hf < Wad::ONE && base.new_hf < snap.hf {

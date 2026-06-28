@@ -169,8 +169,9 @@ fn build_liquidation_plan(
         hf: totals.health_factor,
     };
 
+    let curve = LiquidationCurve::resolve(cache, account.spoke_id);
     let repayment =
-        normalize_repayment_plan(env, account, aggregated_debt, &snap, bonus_bounds, cache);
+        normalize_repayment_plan(env, account, aggregated_debt, &snap, bonus_bounds, &curve, cache);
 
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);

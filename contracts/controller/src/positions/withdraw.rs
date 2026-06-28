@@ -18,8 +18,8 @@ use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
 use crate::positions::{
-    finalize_position_flow, get_supply_position_or_panic, make_pool_action, AggregatedPayments,
-    HubPayment, PositionSides,
+    enforce_spoke_asset_flags, finalize_position_flow, get_supply_position_or_panic,
+    make_pool_action, AggregatedPayments, HubPayment, PositionSides,
 };
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -107,6 +107,8 @@ fn settle_withdraw(
 
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
+        // Paused blocks withdraw; frozen still allows it.
+        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, false);
         // `0` means withdraw all.
         let position = get_supply_position_or_panic(env, account, &hub_asset);
         let withdraw_amount = if amount == 0 {

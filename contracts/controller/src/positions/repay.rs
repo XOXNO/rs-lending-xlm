@@ -16,7 +16,9 @@ use crate::events;
 use crate::external::pool::pool_repay_call;
 use crate::helpers::update_or_remove_debt_position;
 use crate::helpers::utils::{self, EventContext};
-use crate::positions::{get_debt_position_or_panic, make_pool_action, HubPayment};
+use crate::positions::{
+    enforce_spoke_asset_flags, get_debt_position_or_panic, make_pool_action, HubPayment,
+};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.
@@ -73,6 +75,8 @@ fn settle_repay(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
+        // Paused blocks repay; frozen still allows it.
+        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, false);
         let position = get_debt_position_or_panic(env, account, &hub_asset);
         let amount_in = utils::transfer_amount(
             env,

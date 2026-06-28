@@ -202,6 +202,10 @@ pub enum EModeError {
     SpokeCapExceedsHub = 313,
     /// Spoke cap would fall below current category usage.
     SpokeCapBelowUsage = 314,
+    /// Spoke asset is paused: no supply/borrow/withdraw/repay.
+    SpokeAssetPaused = 315,
+    /// Spoke asset is frozen: no new supply/borrow (repay/withdraw allowed).
+    SpokeAssetFrozen = 316,
 }
 
 #[contracterror]

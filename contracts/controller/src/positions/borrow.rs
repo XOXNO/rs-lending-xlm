@@ -13,7 +13,10 @@ use controller_interface::types::{
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
 
-use super::{finalize_position_flow, AggregatedConfigs, AggregatedPayments, PositionSides};
+use super::{
+    enforce_spoke_asset_flags, finalize_position_flow, AggregatedConfigs, AggregatedPayments,
+    PositionSides,
+};
 use crate::cache::Cache;
 use crate::emode;
 use crate::events;
@@ -80,6 +83,8 @@ fn validate_borrow(
         validation::require_market_active(env, cache, &hub_asset.asset);
         let asset_config = configs.get(env, &hub_asset);
         emode::validate_spoke_asset(env, cache, account.spoke_id, &hub_asset.asset);
+        // Frozen blocks new borrow; paused blocks every verb.
+        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
 
         assert_with_error!(
             env,

@@ -5,12 +5,12 @@
 //! calls, post-checks, then `finalize_position_flow` (or `persist_account_positions`
 //! + `emit_account_updates` when a hook is needed, e.g. liquidation bad-debt).
 
-use common::errors::CollateralError;
+use common::errors::{CollateralError, EModeError};
 use controller_interface::types::{
     Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, HubAssetKey, PoolAction,
     ScaledPositionRaw,
 };
-use soroban_sdk::{panic_with_error, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::emode;
@@ -116,6 +116,25 @@ impl AggregatedConfigs {
     }
 }
 
+/// Enforces the active spoke's per-asset trading flags. `paused` blocks every
+/// verb; `frozen` blocks only new supply/borrow (`block_when_frozen`). No-op
+/// when the asset has no spoke entry (e.g. spoke 0), preserving global-market
+/// behavior.
+pub(crate) fn enforce_spoke_asset_flags(
+    env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+    block_when_frozen: bool,
+) {
+    if let Some(sa) = cache.cached_spoke_asset(spoke_id, hub_asset) {
+        assert_with_error!(env, !sa.paused, EModeError::SpokeAssetPaused);
+        if block_when_frozen {
+            assert_with_error!(env, !sa.frozen, EModeError::SpokeAssetFrozen);
+        }
+    }
+}
+
 /// Pure construction helper for the repeated `PoolAction` literal used in each
 /// bulk pool entry path. Preserves exact semantics and Into behavior.
 pub(crate) fn make_pool_action(
@@ -156,3 +175,7 @@ pub(crate) fn get_debt_position_or_panic(
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
         .into()
 }
+
+#[cfg(test)]
+#[path = "../../tests/positions/flags.rs"]
+mod tests;
