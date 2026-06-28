@@ -7,10 +7,10 @@
 
 use common::errors::CollateralError;
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, Payment, PoolAction,
+    Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, HubAssetKey, PoolAction,
     ScaledPositionRaw,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::emode;
@@ -25,8 +25,11 @@ pub mod repay;
 pub mod supply;
 pub mod withdraw;
 
-/// Deduped payment rows: one entry per asset with the summed amount for the call.
-pub(crate) type AggregatedPayments = Vec<Payment>;
+/// One re-keyed payment row: hub asset coordinate plus amount.
+pub(crate) type HubPayment = (HubAssetKey, i128);
+
+/// Deduped payment rows: one entry per hub asset with the summed amount for the call.
+pub(crate) type AggregatedPayments = Vec<HubPayment>;
 
 /// Which position maps to persist at the end of a flow.
 #[derive(Copy, Clone)]
@@ -88,7 +91,7 @@ pub(crate) fn finalize_position_flow(
 /// E-mode-adjusted configs resolved once per aggregated asset, shared by
 /// validation and pool execution. Stores the raw form (`Map` values must be
 /// contract types); `get` decodes per read.
-pub(crate) struct AggregatedConfigs(Map<Address, AssetConfigRaw>);
+pub(crate) struct AggregatedConfigs(Map<HubAssetKey, AssetConfigRaw>);
 
 impl AggregatedConfigs {
     /// Resolves the active e-mode category once and adjusts each aggregated asset.
@@ -99,17 +102,17 @@ impl AggregatedConfigs {
         cache: &mut Cache,
     ) -> Self {
         let e_mode = cache.active_e_mode_category(env, account.e_mode_category_id);
-        let mut configs: Map<Address, AssetConfigRaw> = Map::new(env);
-        for (asset, _) in aggregated.iter() {
-            let cfg = emode::effective_asset_config(env, account, &asset, cache, &e_mode);
-            configs.set(asset, (&cfg).into());
+        let mut configs: Map<HubAssetKey, AssetConfigRaw> = Map::new(env);
+        for (hub_asset, _) in aggregated.iter() {
+            let cfg = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &e_mode);
+            configs.set(hub_asset, (&cfg).into());
         }
         Self(configs)
     }
 
-    /// Config for an aggregated asset; `resolve` populated each key.
-    pub fn get(&self, env: &Env, asset: &Address) -> AssetConfig {
-        (&validation::expect_invariant(env, self.0.get(asset.clone()))).into()
+    /// Config for an aggregated hub asset; `resolve` populated each key.
+    pub fn get(&self, env: &Env, hub_asset: &HubAssetKey) -> AssetConfig {
+        (&validation::expect_invariant(env, self.0.get(hub_asset.clone()))).into()
     }
 }
 
@@ -118,12 +121,12 @@ impl AggregatedConfigs {
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
-    asset: Address,
+    hub_asset: HubAssetKey,
 ) -> PoolAction {
     PoolAction {
         position: position.into(),
         amount,
-        asset,
+        hub_asset,
     }
 }
 
@@ -133,11 +136,11 @@ pub(crate) fn make_pool_action(
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> AccountPosition {
     (&account
         .supply_positions
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
         .into()
 }
@@ -145,11 +148,11 @@ pub(crate) fn get_supply_position_or_panic(
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> DebtPosition {
     (&account
         .borrow_positions
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::PositionNotFound)))
         .into()
 }

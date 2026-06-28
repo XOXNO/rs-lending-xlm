@@ -7,7 +7,8 @@ use common::errors::EModeError;
 use common::math::fp::Ray;
 use common::validation::cap_is_enabled;
 use controller_interface::types::{
-    EModeAssetConfig, EModeCategory, EModeCategoryRaw, EModeSpokeUsageRaw, MarketIndexRaw,
+    EModeAssetConfig, EModeCategory, EModeCategoryRaw, EModeSpokeUsageRaw, HubAssetKey,
+    MarketIndexRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
@@ -46,41 +47,41 @@ impl EModeUsageContext {
         self.category.assets.get(asset.clone())
     }
 
-    pub(crate) fn spoke_usage(&self, asset: &Address) -> EModeSpokeUsageRaw {
+    pub(crate) fn spoke_usage(&self, hub_asset: &HubAssetKey) -> EModeSpokeUsageRaw {
         self.category
             .usage
-            .get(asset.clone())
+            .get(hub_asset.clone())
             .unwrap_or(EModeSpokeUsageRaw {
                 supplied_scaled_ray: 0,
                 borrowed_scaled_ray: 0,
             })
     }
 
-    fn set_usage(&mut self, asset: &Address, usage: EModeSpokeUsageRaw) {
+    fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: EModeSpokeUsageRaw) {
         if usage.supplied_scaled_ray == 0 && usage.borrowed_scaled_ray == 0 {
-            self.category.usage.remove(asset.clone());
+            self.category.usage.remove(hub_asset.clone());
         } else {
-            self.category.usage.set(asset.clone(), usage);
+            self.category.usage.set(hub_asset.clone(), usage);
         }
     }
 
-    fn has_usage_entry(&self, asset: &Address) -> bool {
-        self.category.usage.contains_key(asset.clone())
+    fn has_usage_entry(&self, hub_asset: &HubAssetKey) -> bool {
+        self.category.usage.contains_key(hub_asset.clone())
     }
 
     pub fn apply_supply_after_pool(
         &mut self,
         env: &Env,
-        asset: &Address,
+        hub_asset: &HubAssetKey,
         delta_scaled: Ray,
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.emode_asset(asset) {
+        let cfg = match self.emode_asset(&hub_asset.asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.spoke_usage(asset);
+        let mut usage = self.spoke_usage(hub_asset);
         enforce_spoke_supply_cap(
             env,
             &usage,
@@ -93,22 +94,22 @@ impl EModeUsageContext {
             .supplied_scaled_ray
             .checked_add(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        self.set_usage(asset, usage);
+        self.set_usage(hub_asset, usage);
     }
 
     pub fn apply_borrow_after_pool(
         &mut self,
         env: &Env,
-        asset: &Address,
+        hub_asset: &HubAssetKey,
         delta_scaled: Ray,
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.emode_asset(asset) {
+        let cfg = match self.emode_asset(&hub_asset.asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.spoke_usage(asset);
+        let mut usage = self.spoke_usage(hub_asset);
         enforce_spoke_borrow_cap(
             env,
             &usage,
@@ -121,31 +122,36 @@ impl EModeUsageContext {
             .borrowed_scaled_ray
             .checked_add(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        self.set_usage(asset, usage);
+        self.set_usage(hub_asset, usage);
     }
 
-    pub fn apply_withdraw_after_pool(&mut self, env: &Env, asset: &Address, delta_scaled: Ray) {
-        if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
+    pub fn apply_withdraw_after_pool(
+        &mut self,
+        env: &Env,
+        hub_asset: &HubAssetKey,
+        delta_scaled: Ray,
+    ) {
+        if delta_scaled == Ray::ZERO || !self.has_usage_entry(hub_asset) {
             return;
         }
-        let mut usage = self.spoke_usage(asset);
+        let mut usage = self.spoke_usage(hub_asset);
         usage.supplied_scaled_ray = usage
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        self.set_usage(asset, usage);
+        self.set_usage(hub_asset, usage);
     }
 
-    pub fn apply_repay_after_pool(&mut self, env: &Env, asset: &Address, delta_scaled: Ray) {
-        if delta_scaled == Ray::ZERO || !self.has_usage_entry(asset) {
+    pub fn apply_repay_after_pool(&mut self, env: &Env, hub_asset: &HubAssetKey, delta_scaled: Ray) {
+        if delta_scaled == Ray::ZERO || !self.has_usage_entry(hub_asset) {
             return;
         }
-        let mut usage = self.spoke_usage(asset);
+        let mut usage = self.spoke_usage(hub_asset);
         usage.borrowed_scaled_ray = usage
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
             .unwrap_or_else(|| panic_with_error!(env, common::errors::GenericError::MathOverflow));
-        self.set_usage(asset, usage);
+        self.set_usage(hub_asset, usage);
     }
 }
 

@@ -34,8 +34,12 @@ pub(crate) fn prefetch_strategy_oracles(
     account: &Account,
     extra_assets: &Vec<Address>,
 ) {
-    let mut priced_assets: Vec<Address> = account.supply_positions.keys();
-    priced_assets.append(&account.borrow_positions.keys());
+    let env = cache.env().clone();
+    let mut priced_assets = crate::helpers::position_assets(&env, &account.supply_positions.keys());
+    priced_assets.append(&crate::helpers::position_assets(
+        &env,
+        &account.borrow_positions.keys(),
+    ));
     for asset in extra_assets.iter() {
         utils::push_unique_address(&mut priced_assets, asset.clone());
     }

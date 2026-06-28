@@ -1,6 +1,8 @@
 use crate::types::oracle::MarketOracleConfig;
 use common::math::fp::{Bps, Ray};
-use common::types::pool::{AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw};
+use common::types::pool::{
+    AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
+};
 use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
@@ -118,8 +120,8 @@ pub struct AccountMeta {
 pub struct EModeCategoryRaw {
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
-    /// Per-asset scaled-share totals for accounts in this spoke.
-    pub usage: Map<Address, EModeSpokeUsageRaw>,
+    /// Per-position scaled-share totals for accounts in this spoke.
+    pub usage: Map<HubAssetKey, EModeSpokeUsageRaw>,
 }
 
 /// Typed e-mode category used when applying overrides; only `is_deprecated`
@@ -128,7 +130,7 @@ pub struct EModeCategoryRaw {
 pub struct EModeCategory {
     pub is_deprecated: bool,
     pub assets: Map<Address, EModeAssetConfig>,
-    pub usage: Map<Address, EModeSpokeUsageRaw>,
+    pub usage: Map<HubAssetKey, EModeSpokeUsageRaw>,
 }
 
 impl From<&EModeCategoryRaw> for EModeCategory {
@@ -297,10 +299,10 @@ pub struct Account {
     /// Active e-mode category; zero means no e-mode.
     pub e_mode_category_id: u32,
     pub mode: PositionMode,
-    /// Collateral positions keyed by asset.
-    pub supply_positions: Map<Address, AccountPositionRaw>,
-    /// Debt positions keyed by asset.
-    pub borrow_positions: Map<Address, DebtPositionRaw>,
+    /// Collateral positions keyed by hub asset.
+    pub supply_positions: Map<HubAssetKey, AccountPositionRaw>,
+    /// Debt positions keyed by hub asset.
+    pub borrow_positions: Map<HubAssetKey, DebtPositionRaw>,
 }
 
 impl Account {
@@ -317,11 +319,11 @@ impl Account {
     /// carry the risk params that HF/LTV/liquidation math reads.
     pub fn get_or_create_supply_position(
         &self,
-        asset: &Address,
+        hub_asset: &HubAssetKey,
         config: &AssetConfig,
     ) -> AccountPosition {
         self.supply_positions
-            .get(asset.clone())
+            .get(hub_asset.clone())
             .map(|raw| AccountPosition::from(&raw))
             .unwrap_or(AccountPosition {
                 scaled_amount: Ray::ZERO,
@@ -333,9 +335,9 @@ impl Account {
 
     /// Existing debt position for `asset` or a fresh zero one. Debt positions
     /// carry only the scaled share — risk params live on collateral.
-    pub fn get_or_create_debt_position(&self, asset: &Address) -> DebtPosition {
+    pub fn get_or_create_debt_position(&self, hub_asset: &HubAssetKey) -> DebtPosition {
         self.borrow_positions
-            .get(asset.clone())
+            .get(hub_asset.clone())
             .map(|raw| DebtPosition::from(&raw))
             .unwrap_or(DebtPosition {
                 scaled_amount: Ray::ZERO,
@@ -508,9 +510,13 @@ mod tests {
             liquidation_bonus_bps: 0,
             loan_to_value_bps: 0,
         };
-        account
-            .supply_positions
-            .set(Address::generate(&env), position.clone());
+        account.supply_positions.set(
+            HubAssetKey {
+                hub_id: 0,
+                asset: Address::generate(&env),
+            },
+            position.clone(),
+        );
         assert!(!account.is_empty());
     }
 
@@ -518,17 +524,22 @@ mod tests {
     fn test_get_or_create_position_returns_existing() {
         let env = Env::default();
         let mut account = empty_account(&env, account_meta(&env, 0));
-        let asset = Address::generate(&env);
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
         let stored = AccountPositionRaw {
             scaled_amount_ray: 42 * common::constants::RAY,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,
             loan_to_value_bps: 7_500,
         };
-        account.supply_positions.set(asset.clone(), stored.clone());
+        account
+            .supply_positions
+            .set(hub_asset.clone(), stored.clone());
 
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
-        let got = account.get_or_create_supply_position(&asset, &cfg);
+        let got = account.get_or_create_supply_position(&hub_asset, &cfg);
         assert_eq!(got.scaled_amount.raw(), stored.scaled_amount_ray);
     }
 
@@ -537,9 +548,12 @@ mod tests {
         let env = Env::default();
         let account = empty_account(&env, account_meta(&env, 0));
         let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
-        let asset = Address::generate(&env);
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
 
-        let fresh = account.get_or_create_supply_position(&asset, &cfg);
+        let fresh = account.get_or_create_supply_position(&hub_asset, &cfg);
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
         assert_eq!(fresh.loan_to_value, cfg.loan_to_value);
         assert_eq!(fresh.liquidation_threshold, cfg.liquidation_threshold);
@@ -550,10 +564,13 @@ mod tests {
     fn test_get_or_create_debt_position_is_scaled_only() {
         let env = Env::default();
         let account = empty_account(&env, account_meta(&env, 0));
-        let asset = Address::generate(&env);
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
 
         // Debt positions carry only the scaled share — no risk params.
-        let fresh = account.get_or_create_debt_position(&asset);
+        let fresh = account.get_or_create_debt_position(&hub_asset);
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
     }
 }

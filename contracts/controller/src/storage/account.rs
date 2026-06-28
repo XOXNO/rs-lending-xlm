@@ -7,14 +7,14 @@ use super::renew_user_key;
 use common::errors::GenericError;
 use controller_interface::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
-    DebtPositionRaw,
+    DebtPositionRaw, HubAssetKey,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Map};
+use soroban_sdk::{panic_with_error, Env, Map};
 
 pub(crate) fn account_from_parts(
     meta: AccountMeta,
-    supply_positions: Map<Address, AccountPositionRaw>,
-    borrow_positions: Map<Address, DebtPositionRaw>,
+    supply_positions: Map<HubAssetKey, AccountPositionRaw>,
+    borrow_positions: Map<HubAssetKey, DebtPositionRaw>,
 ) -> Account {
     Account {
         owner: meta.owner,
@@ -42,30 +42,37 @@ pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     renew_user_key(env, &key);
 }
 
-pub(crate) fn get_supply_positions(env: &Env, account_id: u64) -> Map<Address, AccountPositionRaw> {
+pub(crate) fn get_supply_positions(
+    env: &Env,
+    account_id: u64,
+) -> Map<HubAssetKey, AccountPositionRaw> {
     env.storage()
         .persistent()
-        .get::<_, Map<Address, AccountPositionRaw>>(&ControllerKey::SupplyPositions(account_id))
+        .get::<_, Map<HubAssetKey, AccountPositionRaw>>(&ControllerKey::SupplyPositions(account_id))
         .unwrap_or_else(|| Map::new(env))
 }
 
-pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<Address, DebtPositionRaw> {
+pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
     env.storage()
         .persistent()
-        .get::<_, Map<Address, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
+        .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
         .unwrap_or_else(|| Map::new(env))
 }
 
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
-    map: &Map<Address, AccountPositionRaw>,
+    map: &Map<HubAssetKey, AccountPositionRaw>,
 ) {
     write_side_map(env, &ControllerKey::SupplyPositions(account_id), map);
     renew_user_account(env, account_id);
 }
 
-pub(crate) fn set_debt_positions(env: &Env, account_id: u64, map: &Map<Address, DebtPositionRaw>) {
+pub(crate) fn set_debt_positions(
+    env: &Env,
+    account_id: u64,
+    map: &Map<HubAssetKey, DebtPositionRaw>,
+) {
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
     renew_user_account(env, account_id);
 }
@@ -75,7 +82,7 @@ fn write_side_map<
 >(
     env: &Env,
     key: &ControllerKey,
-    map: &Map<Address, V>,
+    map: &Map<HubAssetKey, V>,
 ) {
     let persistent = env.storage().persistent();
     if map.is_empty() {
@@ -88,39 +95,39 @@ fn write_side_map<
 pub(crate) fn try_get_supply_position(
     env: &Env,
     account_id: u64,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> Option<AccountPosition> {
     get_supply_positions(env, account_id)
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .map(|raw| AccountPosition::from(&raw))
 }
 
 pub(crate) fn try_get_debt_position(
     env: &Env,
     account_id: u64,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> Option<DebtPosition> {
     get_debt_positions(env, account_id)
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .map(|raw| DebtPosition::from(&raw))
 }
 
 // Lifts each entry to `AccountPosition` so call sites read typed fields
 // instead of `Ray::from(position.scaled_amount_ray)`.
 pub(crate) fn iter_typed_positions(
-    map: &Map<Address, AccountPositionRaw>,
-) -> impl Iterator<Item = (Address, AccountPosition)> + '_ {
+    map: &Map<HubAssetKey, AccountPositionRaw>,
+) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {
     map.iter()
-        .map(|(addr, raw)| (addr, AccountPosition::from(&raw)))
+        .map(|(key, raw)| (key, AccountPosition::from(&raw)))
 }
 
 // Debt-side counterpart of `iter_typed_positions`; debt positions carry only
 // the scaled share.
 pub(crate) fn iter_debt_positions(
-    map: &Map<Address, DebtPositionRaw>,
-) -> impl Iterator<Item = (Address, DebtPosition)> + '_ {
+    map: &Map<HubAssetKey, DebtPositionRaw>,
+) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {
     map.iter()
-        .map(|(addr, raw)| (addr, DebtPosition::from(&raw)))
+        .map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {

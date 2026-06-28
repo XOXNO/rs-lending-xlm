@@ -3,7 +3,9 @@
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
 use common::validation::cap_is_enabled;
-use controller_interface::types::{Account, DebtPositionRaw, EModeSpokeUsageRaw, MarketStatus};
+use controller_interface::types::{
+    Account, DebtPositionRaw, EModeSpokeUsageRaw, HubAssetKey, MarketStatus,
+};
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
@@ -26,8 +28,12 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
         return 0;
     }
 
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
     let mut cache = Cache::new_view(env);
-    if !account_can_borrow_asset(env, &mut cache, &account, asset) {
+    if !account_can_borrow_asset(env, &mut cache, &account, &hub_asset) {
         return 0;
     }
 
@@ -43,7 +49,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
         .cash
         .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
         .min(spoke_borrow_cap_headroom(
-            env, &mut cache, &account, asset, &market,
+            env, &mut cache, &account, &hub_asset, &market,
         ))
         .max(0);
     if hi <= 0 {
@@ -59,7 +65,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
             env,
             &mut cache,
             &account,
-            asset,
+            &hub_asset,
             &market,
             hub_borrow_cap,
             mid,
@@ -80,7 +86,7 @@ fn account_can_borrow_asset(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
 ) -> bool {
     let category = cache.cached_e_mode_category(account.e_mode_category_id);
     if let Some(cat) = &category {
@@ -90,18 +96,18 @@ fn account_can_borrow_asset(
         }
     }
 
-    let config = emode::effective_asset_config(env, account, asset, cache, &category);
+    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &category);
     if !config.can_borrow() {
         return false;
     }
     if account.e_mode_category_id > 0 {
-        let market = cache.cached_market_config(asset);
+        let market = cache.cached_market_config(&hub_asset.asset);
         if !market
             .asset_config
             .e_mode_categories
             .contains(account.e_mode_category_id)
             || cache
-                .cached_emode_asset(account.e_mode_category_id, asset)
+                .cached_emode_asset(account.e_mode_category_id, &hub_asset.asset)
                 .is_none()
         {
             return false;
@@ -109,7 +115,7 @@ fn account_can_borrow_asset(
     }
 
     // Borrow-position limit: a new borrowed asset needs a free slot.
-    if !account.borrow_positions.contains_key(asset.clone())
+    if !account.borrow_positions.contains_key(hub_asset.clone())
         && account.borrow_positions.len() >= storage::get_position_limits(env).max_borrow_positions
     {
         return false;
@@ -134,20 +140,21 @@ fn spoke_borrow_cap_headroom(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
 ) -> i128 {
     if account.e_mode_category_id == 0 {
         return i128::MAX;
     }
-    let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, asset) else {
+    let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, &hub_asset.asset)
+    else {
         return i128::MAX;
     };
     if !cap_is_enabled(emode_cfg.borrow_cap) {
         return i128::MAX;
     }
     let usage = cache
-        .cached_emode_spoke_usage(account.e_mode_category_id, asset)
+        .cached_emode_spoke_usage(account.e_mode_category_id, hub_asset)
         .unwrap_or(EModeSpokeUsageRaw {
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,
@@ -170,7 +177,7 @@ fn borrow_ok(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     market: &MarketLimitCtx,
     hub_borrow_cap: i128,
     amount: i128,
@@ -210,10 +217,12 @@ fn borrow_ok(
 
     // Spoke borrow cap on post-borrow scaled usage.
     if account.e_mode_category_id > 0 {
-        if let Some(emode_cfg) = cache.cached_emode_asset(account.e_mode_category_id, asset) {
+        if let Some(emode_cfg) =
+            cache.cached_emode_asset(account.e_mode_category_id, &hub_asset.asset)
+        {
             if cap_is_enabled(emode_cfg.borrow_cap) {
                 let usage = cache
-                    .cached_emode_spoke_usage(account.e_mode_category_id, asset)
+                    .cached_emode_spoke_usage(account.e_mode_category_id, hub_asset)
                     .unwrap_or(EModeSpokeUsageRaw {
                         supplied_scaled_ray: 0,
                         borrowed_scaled_ray: 0,
@@ -232,11 +241,11 @@ fn borrow_ok(
     let mut adjusted = account.clone();
     let existing = adjusted
         .borrow_positions
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .map(|r| Ray::from(r.scaled_amount_ray))
         .unwrap_or(Ray::ZERO);
     adjusted.borrow_positions.set(
-        asset.clone(),
+        hub_asset.clone(),
         DebtPositionRaw {
             scaled_amount_ray: (existing + new_scaled).raw(),
         },

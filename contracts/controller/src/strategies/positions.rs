@@ -4,7 +4,7 @@
 //! must reach `strategy_finalize` before the transaction ends when debt is opened.
 
 use common::errors::GenericError;
-use controller_interface::types::{Account, AccountPosition, DebtPosition};
+use controller_interface::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::cache::Cache;
@@ -128,9 +128,9 @@ pub(crate) fn execute_withdraw_all(
     destination: &Address,
     cache: &mut Cache,
 ) {
-    let deposit_keys: Vec<Address> = account.supply_positions.keys();
-    for asset in deposit_keys.iter() {
-        if let Some(pos) = account.supply_positions.get(asset.clone()) {
+    let deposit_keys: Vec<HubAssetKey> = account.supply_positions.keys();
+    for hub_asset in deposit_keys.iter() {
+        if let Some(pos) = account.supply_positions.get(hub_asset.clone()) {
             let pos: AccountPosition = (&pos).into();
             withdraw::execute_withdrawal(
                 env,
@@ -140,7 +140,7 @@ pub(crate) fn execute_withdraw_all(
                     action: events::PositionAction::CloseWd,
                 },
                 WithdrawalRequest {
-                    asset: &asset,
+                    asset: &hub_asset.asset,
                     amount: WITHDRAW_ALL_SENTINEL,
                     position: &pos,
                 },

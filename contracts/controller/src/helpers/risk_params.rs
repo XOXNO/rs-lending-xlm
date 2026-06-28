@@ -2,8 +2,10 @@
 //! supply positions from the effective (e-mode aware) market config.
 
 use common::math::fp::{Bps, Wad};
-use controller_interface::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig};
-use soroban_sdk::{Address, Env, Map};
+use controller_interface::types::{
+    Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey,
+};
+use soroban_sdk::{Env, Map};
 
 use crate::cache::Cache;
 use crate::emode;
@@ -18,7 +20,7 @@ pub fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
     effective_config: &AssetConfig,
 ) {
@@ -28,40 +30,40 @@ pub fn refresh_supply_risk_params(
         env,
         cache,
         account,
-        asset,
+        hub_asset,
         position,
         effective_config.liquidation_threshold,
     );
 }
 
-/// Resolves e-mode-adjusted config for `asset`, then refreshes `position`.
+/// Resolves e-mode-adjusted config for `hub_asset`, then refreshes `position`.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
     // Views modeling exits must not reject only because governance deprecated
     // a category or removed an asset from it.
     let e_mode = match cache.cached_e_mode_category(account.e_mode_category_id) {
         Some(category) => {
-            if category.is_deprecated || category.assets.get(asset.clone()).is_none() {
+            if category.is_deprecated || category.assets.get(hub_asset.asset.clone()).is_none() {
                 return;
             }
             Some(category)
         }
         None => None,
     };
-    let config = emode::effective_asset_config(env, account, asset, cache, &e_mode);
-    refresh_supply_risk_params(env, cache, account, asset, position, &config);
+    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &e_mode);
+    refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 
 fn apply_liquidation_threshold(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
     new_lt: Bps,
 ) {
@@ -76,7 +78,7 @@ fn apply_liquidation_threshold(
         return;
     }
 
-    let supply_positions = supply_positions_with(account, asset, position, new_lt);
+    let supply_positions = supply_positions_with(account, hub_asset, position, new_lt);
     let hf =
         calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
             .health_factor;
@@ -87,13 +89,13 @@ fn apply_liquidation_threshold(
 
 fn supply_positions_with(
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
     new_lt: Bps,
-) -> Map<Address, AccountPositionRaw> {
+) -> Map<HubAssetKey, AccountPositionRaw> {
     let mut supply_positions = account.supply_positions.clone();
     let mut hypothetical = *position;
     hypothetical.liquidation_threshold = new_lt;
-    supply_positions.set(asset.clone(), (&hypothetical).into());
+    supply_positions.set(hub_asset.clone(), (&hypothetical).into());
     supply_positions
 }

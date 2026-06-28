@@ -3,15 +3,16 @@
 //! Pure helpers with no policy or storage side effects.
 
 use common::errors::GenericError;
-use controller_interface::types::Payment;
+use controller_interface::types::HubAssetKey;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::events;
 use crate::external::sac::sac_transfer_call;
+use crate::positions::HubPayment;
 use crate::validation;
 
-/// Deduplicates by asset and sums amounts; panics on zero or negative entries.
-pub fn aggregate_positive_payments(env: &Env, payments: &Vec<Payment>) -> Vec<Payment> {
+/// Deduplicates by hub asset and sums amounts; panics on zero or negative entries.
+pub fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec<HubPayment> {
     aggregate_payments(env, payments, false)
 }
 
@@ -38,35 +39,39 @@ pub fn transfer_amount(
 
 pub fn aggregate_payments(
     env: &Env,
-    payments: &Vec<Payment>,
+    payments: &Vec<HubPayment>,
     zero_is_withdraw_all: bool,
-) -> Vec<Payment> {
+) -> Vec<HubPayment> {
     if payments.len() == 1 {
         // Single-payment fast path: skip the dedup machinery but still enforce
         // the positive-amount gate (and withdraw-all sentinel) the loop applies.
-        let (asset, amount) = payments.get_unchecked(0);
+        let (hub_asset, amount) = payments.get_unchecked(0);
         let amount = aggregate_payment_amount(env, None, amount, zero_is_withdraw_all);
         let mut result = Vec::new(env);
-        result.push_back((asset, amount));
+        result.push_back((hub_asset, amount));
         return result;
     }
-    let mut order: Vec<Address> = Vec::new(env);
-    let mut totals: Map<Address, i128> = Map::new(env);
+    let mut order: Vec<HubAssetKey> = Vec::new(env);
+    let mut totals: Map<HubAssetKey, i128> = Map::new(env);
 
-    for (asset, amount) in payments {
-        let next =
-            aggregate_payment_amount(env, totals.get(asset.clone()), amount, zero_is_withdraw_all);
+    for (hub_asset, amount) in payments {
+        let next = aggregate_payment_amount(
+            env,
+            totals.get(hub_asset.clone()),
+            amount,
+            zero_is_withdraw_all,
+        );
 
-        if !totals.contains_key(asset.clone()) {
-            order.push_back(asset.clone());
+        if !totals.contains_key(hub_asset.clone()) {
+            order.push_back(hub_asset.clone());
         }
-        totals.set(asset, next);
+        totals.set(hub_asset, next);
     }
 
     let mut result = Vec::new(env);
-    for asset in order {
-        let amount = validation::expect_invariant(env, totals.get(asset.clone()));
-        result.push_back((asset, amount));
+    for hub_asset in order {
+        let amount = validation::expect_invariant(env, totals.get(hub_asset.clone()));
+        result.push_back((hub_asset, amount));
     }
 
     result

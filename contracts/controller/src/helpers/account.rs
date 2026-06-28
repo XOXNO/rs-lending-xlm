@@ -6,7 +6,7 @@
 use common::errors::{EModeError, GenericError};
 use common::math::fp::Ray;
 use controller_interface::types::{
-    Account, AccountMeta, AccountPosition, DebtPosition, PositionMode,
+    Account, AccountMeta, AccountPosition, DebtPosition, HubAssetKey, PositionMode,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
@@ -113,14 +113,16 @@ pub fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
 /// Upserts collateral position or removes it when the scaled supply share is zero.
 pub fn update_or_remove_supply_position(
     account: &mut Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
 ) -> bool {
     if position.scaled_amount == Ray::ZERO {
-        account.supply_positions.remove(asset.clone());
+        account.supply_positions.remove(hub_asset.clone());
         true
     } else {
-        account.supply_positions.set(asset.clone(), position.into());
+        account
+            .supply_positions
+            .set(hub_asset.clone(), position.into());
         false
     }
 }
@@ -128,14 +130,16 @@ pub fn update_or_remove_supply_position(
 /// Upserts debt position or removes it when the scaled debt share is zero.
 pub fn update_or_remove_debt_position(
     account: &mut Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &DebtPosition,
 ) -> bool {
     if position.scaled_amount == Ray::ZERO {
-        account.borrow_positions.remove(asset.clone());
+        account.borrow_positions.remove(hub_asset.clone());
         true
     } else {
-        account.borrow_positions.set(asset.clone(), position.into());
+        account
+            .borrow_positions
+            .set(hub_asset.clone(), position.into());
         false
     }
 }

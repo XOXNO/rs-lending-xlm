@@ -10,8 +10,8 @@ use crate::events::{
 use common::errors::EModeError;
 use controller_interface::types::{
     Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, EModeCategory,
-    EModeSpokeUsageRaw, MarketConfig, MarketIndex, MarketIndexRaw, PoolSyncData, PriceFeed,
-    PriceFeedRaw,
+    EModeSpokeUsageRaw, HubAssetKey, MarketConfig, MarketIndex, MarketIndexRaw, PoolSyncData,
+    PriceFeed, PriceFeedRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
@@ -296,13 +296,15 @@ impl Cache {
     pub fn cached_emode_spoke_usage(
         &mut self,
         category_id: u32,
-        asset: &Address,
+        hub_asset: &HubAssetKey,
     ) -> Option<EModeSpokeUsageRaw> {
         if category_id == 0 {
             return None;
         }
         self.ensure_emode_loaded(category_id);
-        self.emode_usage.as_ref().map(|ctx| ctx.spoke_usage(asset))
+        self.emode_usage
+            .as_ref()
+            .map(|ctx| ctx.spoke_usage(hub_asset))
     }
 
     pub(crate) fn emode_usage_mut(&mut self, category_id: u32) -> Option<&mut EModeUsageContext> {

@@ -4,8 +4,10 @@
 use common::errors::*;
 use common::math::fp::Wad;
 pub use common::validation::{require_positive_amount, require_wasm_receiver};
-use controller_interface::types::{Account, AccountPositionType, MarketStatus, Payment};
+use controller_interface::types::{Account, AccountPositionType, HubAssetKey, MarketStatus};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+
+use crate::positions::AggregatedPayments;
 
 use crate::{cache::Cache, helpers, storage};
 
@@ -94,7 +96,7 @@ pub fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
     position_type: AccountPositionType,
-    aggregated: &Vec<Payment>,
+    aggregated: &AggregatedPayments,
 ) {
     let limits = storage::get_position_limits(env);
 
@@ -107,17 +109,17 @@ pub fn validate_bulk_position_limits(
         }
     };
 
-    let mut seen: Map<Address, bool> = Map::new(env);
+    let mut seen: Map<HubAssetKey, bool> = Map::new(env);
     let mut new_positions_count: u32 = 0;
-    for (asset, _) in aggregated.iter() {
-        if seen.contains_key(asset.clone()) {
+    for (hub_asset, _) in aggregated.iter() {
+        if seen.contains_key(hub_asset.clone()) {
             continue;
         }
-        seen.set(asset.clone(), true);
+        seen.set(hub_asset.clone(), true);
 
         let already_present = match position_type {
-            AccountPositionType::Deposit => account.supply_positions.contains_key(asset),
-            AccountPositionType::Borrow => account.borrow_positions.contains_key(asset),
+            AccountPositionType::Deposit => account.supply_positions.contains_key(hub_asset),
+            AccountPositionType::Borrow => account.borrow_positions.contains_key(hub_asset),
         };
         if !already_present {
             new_positions_count += 1;

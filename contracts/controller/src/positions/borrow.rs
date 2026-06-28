@@ -8,7 +8,7 @@
 use common::errors::CollateralError;
 use common::math::fp::Ray;
 use controller_interface::types::{
-    Account, AccountPositionType, DebtPosition, Payment, PoolBorrowEntry, PoolPositionMutation,
+    Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Vec};
 use stellar_macros::when_not_paused;
@@ -19,20 +19,20 @@ use crate::emode;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::update_or_remove_debt_position;
-use crate::positions::make_pool_action;
+use crate::positions::{make_pool_action, HubPayment};
 use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>) {
+    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>) {
         process_borrow(&env, &caller, account_id, &borrows);
     }
 }
 
 /// Borrows one or more assets; LTV and health validation run post-pool so the
 /// valuation reuses the market indexes the borrow itself wrote into the cache.
-pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<Payment>) {
+pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<HubPayment>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -76,10 +76,10 @@ fn validate_borrow(
         AccountPositionType::Borrow,
         aggregated,
     );
-    for (asset, _) in aggregated {
-        validation::require_market_active(env, cache, &asset);
-        let asset_config = configs.get(env, &asset);
-        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &asset);
+    for (hub_asset, _) in aggregated {
+        validation::require_market_active(env, cache, &hub_asset.asset);
+        let asset_config = configs.get(env, &hub_asset);
+        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &hub_asset.asset);
 
         assert_with_error!(
             env,
@@ -100,22 +100,22 @@ fn settle_borrow(
     // Build the whole batch's entries, make ONE pool call, then merge results
     // input-ordered in one cross-contract frame.
     let mut entries: Vec<PoolBorrowEntry> = Vec::new(env);
-    for (asset, amount) in aggregated {
-        let borrow_position = account.get_or_create_debt_position(&asset);
+    for (hub_asset, amount) in aggregated {
+        let borrow_position = account.get_or_create_debt_position(&hub_asset);
         entries.push_back(PoolBorrowEntry {
-            action: make_pool_action(&borrow_position, amount, asset.clone()),
+            action: make_pool_action(&borrow_position, amount, hub_asset.clone()),
         });
     }
     let pool_addr = cache.cached_pool_address();
     let results = pool_borrow_call(env, &pool_addr, caller, &entries);
 
     for (i, entry) in entries.iter().enumerate() {
-        let asset_config = configs.get(env, &entry.action.asset);
+        let asset_config = configs.get(env, &entry.action.hub_asset);
         let result = validation::expect_invariant(env, results.get(i as u32));
         merge_borrow_result(
             env,
             account,
-            &entry.action.asset,
+            &entry.action.hub_asset,
             events::PositionAction::Borrow,
             &result,
             asset_config.asset_decimals,
@@ -128,7 +128,7 @@ fn settle_borrow(
 fn merge_borrow_result(
     env: &Env,
     account: &mut Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     action: events::PositionAction,
     result: &PoolPositionMutation,
     asset_decimals: u32,
@@ -136,25 +136,25 @@ fn merge_borrow_result(
 ) {
     let old_scaled = account
         .borrow_positions
-        .get(asset.clone())
+        .get(hub_asset.clone())
         .map(|p| Ray::from(p.scaled_amount_ray))
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
     // dimensional: scaled delta is Ray<Share(asset, borrow)>.
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
         let delta = position.scaled_amount - old_scaled;
-        ctx.apply_borrow_after_pool(env, asset, delta, &result.market_index, asset_decimals);
+        ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     }
-    cache.put_market_index(asset, &result.market_index);
+    cache.put_market_index(&hub_asset.asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
-        asset,
+        &hub_asset.asset,
         result.market_index.borrow_index_ray,
         result.actual_amount,
         &position,
     );
-    update_or_remove_debt_position(account, asset, &position);
+    update_or_remove_debt_position(account, hub_asset, &position);
 }
 
 /// Creates strategy debt in the pool through the shared borrow gates and
@@ -209,19 +209,23 @@ fn borrow_strategy_inner(
     fee_override: Option<i128>,
     event_action: events::PositionAction,
 ) -> i128 {
+    let hub_debt = HubAssetKey {
+        hub_id: 0,
+        asset: debt_token.clone(),
+    };
     let mut payments: AggregatedPayments = Vec::new(env);
-    payments.push_back((debt_token.clone(), amount));
+    payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);
     let configs = AggregatedConfigs::resolve(env, account, &aggregated, cache);
     validate_borrow(env, account, &aggregated, &configs, cache);
 
-    let debt_config = configs.get(env, debt_token);
+    let debt_config = configs.get(env, &hub_debt);
     let flash_fee =
         fee_override.unwrap_or_else(|| debt_config.flashloan_fee.flash_loan_fee_on(env, amount));
-    let borrow_position = account.get_or_create_debt_position(debt_token);
+    let borrow_position = account.get_or_create_debt_position(&hub_debt);
 
     let pool_addr = cache.cached_pool_address();
-    let pool_action = make_pool_action(&borrow_position, amount, debt_token.clone());
+    let pool_action = make_pool_action(&borrow_position, amount, hub_debt.clone());
     let result = pool_create_strategy_call(
         env,
         &pool_addr,
@@ -233,7 +237,7 @@ fn borrow_strategy_inner(
     merge_borrow_result(
         env,
         account,
-        debt_token,
+        &hub_debt,
         event_action,
         &mutation,
         debt_config.asset_decimals,

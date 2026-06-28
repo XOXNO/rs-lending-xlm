@@ -4,7 +4,7 @@
 
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
-use controller_interface::types::{PositionMode, StrategySwap};
+use controller_interface::types::{HubAssetKey, PositionMode, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -157,7 +157,11 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         .checked_add(swapped_collateral)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
 
-    let deposit_assets = soroban_sdk::vec![env, (collateral_token.clone(), total_collateral)];
+    let collateral_hub = HubAssetKey {
+        hub_id: 0,
+        asset: collateral_token.clone(),
+    };
+    let deposit_assets = soroban_sdk::vec![env, (collateral_hub, total_collateral)];
 
     supply::process_deposit(
         env,

@@ -4,7 +4,7 @@
 //! → withdraw → swap/net → repay → [close] → `strategy_finalize`.
 
 use common::errors::CollateralError;
-use controller_interface::types::{Account, AccountPosition, DebtPosition, StrategySwap};
+use controller_interface::types::{Account, AccountPosition, DebtPosition, HubAssetKey, StrategySwap};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -131,11 +131,17 @@ fn load_repay_with_collateral_positions(
 ) -> (AccountPosition, DebtPosition) {
     let collateral_pos = account
         .supply_positions
-        .get(collateral_token.clone())
+        .get(HubAssetKey {
+            hub_id: 0,
+            asset: collateral_token.clone(),
+        })
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound));
     let debt_pos = account
         .borrow_positions
-        .get(debt_token.clone())
+        .get(HubAssetKey {
+            hub_id: 0,
+            asset: debt_token.clone(),
+        })
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
 
     ((&collateral_pos).into(), (&debt_pos).into())

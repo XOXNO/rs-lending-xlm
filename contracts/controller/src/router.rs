@@ -347,11 +347,12 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 
-    for asset in assets.iter() {
-        validation::require_asset_supported(env, cache, &asset);
+    for hub_asset in assets.iter() {
+        validation::require_asset_supported(env, cache, &hub_asset.asset);
 
-        let mut asset_config = cache.cached_asset_config(&asset);
-        let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, &asset);
+        let mut asset_config = cache.cached_asset_config(&hub_asset.asset);
+        let asset_emode_config =
+            cache.cached_emode_asset(account.e_mode_category_id, &hub_asset.asset);
         emode::apply_e_mode_to_asset_config(
             env,
             &mut asset_config,
@@ -360,7 +361,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         );
 
         let position =
-            validation::expect_invariant(env, account.supply_positions.get(asset.clone()));
+            validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated_pos = position;
 
         // dimensional: raw risk params are Bps snapshots; scaled_amount_ray is unchanged.
@@ -375,13 +376,13 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         }
 
         let updated = AccountPosition::from(&updated_pos);
-        helpers::update_or_remove_supply_position(&mut account, &asset, &updated);
+        helpers::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 
         // amount = 0: parameter change only, no deposit or withdraw.
-        let market_index = cache.cached_market_index(&asset);
+        let market_index = cache.cached_market_index(&hub_asset.asset);
         cache.record_position_update(
             events::PositionAction::ParamUpd,
-            &asset,
+            &hub_asset.asset,
             market_index.supply_index.raw(),
             0,
             &updated,

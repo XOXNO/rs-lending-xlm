@@ -12,8 +12,8 @@ use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
     AssetConfigRaw, EModeAssetArgs, EModeAssetConfig, EModeCategoryRaw, EModeSpokeUsageRaw,
-    MarketOracleConfig, MarketStatus, OraclePriceFluctuation, OracleSourceConfig, PositionLimits,
-    ReflectorBase,
+    HubAssetKey, MarketOracleConfig, MarketStatus, OraclePriceFluctuation, OracleSourceConfig,
+    PositionLimits, ReflectorBase,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
@@ -345,7 +345,10 @@ pub fn edit_asset_in_e_mode_category(env: &Env, args: &EModeAssetArgs) {
     );
     let usage = cat
         .usage
-        .get(args.asset.clone())
+        .get(HubAssetKey {
+            hub_id: 0,
+            asset: args.asset.clone(),
+        })
         .unwrap_or(EModeSpokeUsageRaw {
             supplied_scaled_ray: 0,
             borrowed_scaled_ray: 0,

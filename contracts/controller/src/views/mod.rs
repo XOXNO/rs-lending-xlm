@@ -6,8 +6,8 @@ use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use common::errors::GenericError;
 use controller_interface::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, Payment,
-    PaymentTuple,
+    EModeCategoryRaw, HubAssetKey, LiquidationEstimate, MarketConfig, MarketIndexRaw,
+    MarketIndexView, PaymentTuple,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Map, Vec};
 
@@ -24,7 +24,7 @@ pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collatera
 
 use crate::cache::Cache;
 use crate::oracle::{price_components, token_price};
-use crate::positions::liquidation::execute_liquidation;
+use crate::positions::{liquidation::execute_liquidation, HubPayment};
 use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
 
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
@@ -65,8 +65,8 @@ impl Controller {
         env: Env,
         account_id: u64,
     ) -> (
-        Map<Address, AccountPositionRaw>,
-        Map<Address, DebtPositionRaw>,
+        Map<HubAssetKey, AccountPositionRaw>,
+        Map<HubAssetKey, DebtPositionRaw>,
     ) {
         get_account_positions(&env, account_id)
     }
@@ -104,7 +104,7 @@ impl Controller {
     pub fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<(HubAssetKey, i128)>,
     ) -> LiquidationEstimate {
         liquidation_estimations_detailed(&env, account_id, &debt_payments)
     }
@@ -164,7 +164,11 @@ pub fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
 }
 
 pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_supply_position(env, account_id, asset) {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let position = match storage::try_get_supply_position(env, account_id, &hub_asset) {
         Some(position) => position,
         None => return 0,
     };
@@ -183,7 +187,11 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 }
 
 pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let position = match storage::try_get_debt_position(env, account_id, asset) {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let position = match storage::try_get_debt_position(env, account_id, &hub_asset) {
         Some(position) => position,
         None => return 0,
     };
@@ -210,8 +218,8 @@ pub fn get_account_positions(
     env: &Env,
     account_id: u64,
 ) -> (
-    Map<Address, AccountPositionRaw>,
-    Map<Address, DebtPositionRaw>,
+    Map<HubAssetKey, AccountPositionRaw>,
+    Map<HubAssetKey, DebtPositionRaw>,
 ) {
     if !account_exists(env, account_id) {
         return (Map::new(env), Map::new(env));
@@ -302,7 +310,7 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
 pub fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
-    debt_payments: &Vec<Payment>,
+    debt_payments: &Vec<HubPayment>,
 ) -> LiquidationEstimate {
     require_view_inputs_bound(env, debt_payments);
     let mut cache = Cache::new_view(env);

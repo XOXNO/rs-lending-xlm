@@ -7,7 +7,7 @@
 //! repay and withdraw submits so balance deltas do not alias.
 
 use common::errors::GenericError;
-use controller_interface::types::{Account, DebtPosition, PositionMode};
+use controller_interface::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, symbol_short, Address, Env, IntoVal, Map,
@@ -301,14 +301,14 @@ fn deposit_withdrawn(
     withdraw_assets: &Vec<Address>,
     before: &Map<Address, i128>,
 ) {
-    let mut deposits: Vec<(Address, i128)> = Vec::new(env);
+    let mut deposits: Vec<(HubAssetKey, i128)> = Vec::new(env);
     for asset in withdraw_assets.iter() {
         let token = soroban_sdk::token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
         // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
         let received = balance_delta(env, &token, prev);
         if received > 0 {
-            deposits.push_back((asset, received));
+            deposits.push_back((HubAssetKey { hub_id: 0, asset }, received));
         }
     }
     if !deposits.is_empty() {
@@ -356,7 +356,10 @@ fn reconcile_debt_refunds(
 fn load_debt_position(env: &Env, account: &Account, debt_asset: &Address) -> DebtPosition {
     let raw = account
         .borrow_positions
-        .get(debt_asset.clone())
+        .get(HubAssetKey {
+            hub_id: 0,
+            asset: debt_asset.clone(),
+        })
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     DebtPosition::from(&raw)
 }

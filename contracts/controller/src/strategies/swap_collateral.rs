@@ -4,7 +4,9 @@
 //! prefetch → withdraw → swap → deposit → `strategy_finalize`.
 
 use common::errors::{CollateralError, GenericError};
-use controller_interface::types::{Account, AccountPosition, AccountPositionType, StrategySwap};
+use controller_interface::types::{
+    Account, AccountPosition, AccountPositionType, HubAssetKey, StrategySwap,
+};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
@@ -83,9 +85,13 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     let extra_assets = soroban_sdk::vec![env, current_collateral.clone(), new_collateral.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
+    let current_hub = HubAssetKey {
+        hub_id: 0,
+        asset: current_collateral.clone(),
+    };
     let current_pos: AccountPosition = (&account
         .supply_positions
-        .get(current_collateral.clone())
+        .get(current_hub.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound)))
         .into();
 
@@ -113,7 +119,11 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     );
 
     // D{new_collateral.decimals}{Token(new_collateral)} deposited as replacement collateral.
-    let deposit_assets = soroban_sdk::vec![env, (new_collateral.clone(), swapped_amount)];
+    let new_hub = HubAssetKey {
+        hub_id: 0,
+        asset: new_collateral.clone(),
+    };
+    let deposit_assets = soroban_sdk::vec![env, (new_hub, swapped_amount)];
     supply::process_deposit(
         env,
         &env.current_contract_address(),
@@ -138,11 +148,12 @@ pub(crate) fn validate_swap_new_collateral_preflight(
 
     assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
 
-    if !account
-        .supply_positions
-        .contains_key(new_collateral.clone())
-    {
-        let new_assets = soroban_sdk::vec![env, (new_collateral.clone(), 0i128)];
+    let new_hub = HubAssetKey {
+        hub_id: 0,
+        asset: new_collateral.clone(),
+    };
+    if !account.supply_positions.contains_key(new_hub.clone()) {
+        let new_assets = soroban_sdk::vec![env, (new_hub, 0i128)];
         validation::validate_bulk_position_limits(
             env,
             account,

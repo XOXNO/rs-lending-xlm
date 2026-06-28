@@ -7,14 +7,15 @@ use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use controller_interface::types::{
-    Account, AccountPositionRaw, DebtPosition, LiquidationResult, Payment, PaymentTuple,
+    Account, AccountPositionRaw, DebtPosition, HubAssetKey, LiquidationResult, PaymentTuple,
     RepayEntry, SeizeEntry,
 };
-use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use crate::cache::Cache;
 use crate::helpers;
 use crate::helpers::utils;
+use crate::positions::HubPayment;
 use crate::storage::iter_typed_positions;
 use crate::validation;
 
@@ -109,7 +110,7 @@ pub(crate) fn calculate_seizure_proportions(
 
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
-    raw_payments: &Vec<Payment>,
+    raw_payments: &Vec<HubPayment>,
     account: &Account,
     refunds: &mut Vec<PaymentTuple>,
     cache: &mut Cache,
@@ -120,13 +121,13 @@ pub(crate) fn calculate_repayment_amounts(
     let merged = utils::aggregate_positive_payments(env, raw_payments);
 
     for i in 0..merged.len() {
-        let (asset, amount) = validation::expect_invariant(env, merged.get(i));
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
+        let (hub_asset, amount) = validation::expect_invariant(env, merged.get(i));
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset.asset);
 
         let position: DebtPosition = (&account
             .borrow_positions
-            .get(asset.clone())
+            .get(hub_asset.clone())
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
             .into();
 
@@ -141,7 +142,7 @@ pub(crate) fn calculate_repayment_amounts(
         if payment_amount > actual_debt {
             let excess = payment_amount - actual_debt;
             refunds.push_back(PaymentTuple {
-                asset: asset.clone(),
+                asset: hub_asset.asset.clone(),
                 amount: excess,
             });
             payment_amount = actual_debt;
@@ -152,7 +153,7 @@ pub(crate) fn calculate_repayment_amounts(
 
         total_repaid_usd += payment_usd;
         repaid_tokens.push_back(RepayEntry {
-            asset,
+            asset: hub_asset.asset,
             amount: payment_amount,
             usd_wad: payment_usd.raw(),
             feed: (&feed).into(),
@@ -166,7 +167,7 @@ pub(crate) fn calculate_repayment_amounts(
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
-    raw_payments: &Vec<Payment>,
+    raw_payments: &Vec<HubPayment>,
     snap: &LiquidationSnapshot,
     bonus_bounds: BonusBounds,
     cache: &mut Cache,
@@ -246,14 +247,14 @@ pub(crate) fn calculate_seized_collateral(
     // dimensional: DebtRepaid<Wad<USD>> * (1 + bonus Bps) -> Seize<Wad<USD>>.
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
-    for (asset, position) in iter_typed_positions(&account.supply_positions) {
-        let feed = cache.cached_price(&asset);
+    for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
+        let feed = cache.cached_price(&hub_asset.asset);
         if feed.price.raw() == 0 {
             continue;
         }
 
-        let asset_config = cache.cached_asset_config(&asset);
-        let market_index = cache.cached_market_index(&asset);
+        let asset_config = cache.cached_asset_config(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset.asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
         let actual_ray = position.scaled_amount.mul(env, market_index.supply_index);
@@ -304,7 +305,7 @@ pub(crate) fn calculate_seized_collateral(
         };
 
         seized.push_back(SeizeEntry {
-            asset,
+            asset: hub_asset.asset,
             amount: capped_amount,
             protocol_fee,
             feed: (&feed).into(),
@@ -547,7 +548,7 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
-    supply_positions: &Map<Address, AccountPositionRaw>,
+    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     proportion_seized: Wad,
 ) -> BonusBounds {
     let max = max_bonus_for_threshold(env, proportion_seized);
@@ -556,9 +557,9 @@ pub(crate) fn get_account_bonus_params(
     let mut asset_values: Vec<(i128, i128)> = Vec::new(env);
 
     // dimensional: stores (collateral Wad<USD>.raw, bonus Bps.raw).
-    for (asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
+    for (hub_asset, position) in iter_typed_positions(supply_positions) {
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset.asset);
 
         let value = helpers::position_value(
             env,

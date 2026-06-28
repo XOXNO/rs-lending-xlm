@@ -9,8 +9,8 @@ pub use admin::{ControllerAdmin, ControllerAdminClient};
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 use types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView,
-    PositionMode,
+    EModeCategoryRaw, HubAssetKey, LiquidationEstimate, MarketConfig, MarketIndexRaw,
+    MarketIndexView, PositionMode,
 };
 
 #[contractclient(name = "ControllerClient")]
@@ -22,11 +22,11 @@ pub trait ControllerInterface {
         caller: Address,
         account_id: u64,
         e_mode_category: u32,
-        assets: Vec<(Address, i128)>,
+        assets: Vec<(HubAssetKey, i128)>,
     ) -> u64;
 
     /// Borrows assets after collateral, health-factor, cap, and oracle checks.
-    fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(Address, i128)>);
+    fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>);
 
     /// Withdraws collateral and rejects post-state LTV or health-factor
     /// violations. Tokens go to `to` when provided, else to `caller`; returns
@@ -36,19 +36,19 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        withdrawals: Vec<(Address, i128)>,
+        withdrawals: Vec<(HubAssetKey, i128)>,
         to: Option<Address>,
-    ) -> Vec<(Address, i128)>;
+    ) -> Vec<(HubAssetKey, i128)>;
 
     /// Repays debt for an account; account ownership is not required.
-    fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(Address, i128)>);
+    fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>);
 
     /// Liquidates an underwater account and refunds payments above the close amount.
     fn liquidate(
         env: Env,
         liquidator: Address,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<(HubAssetKey, i128)>,
     );
 
     /// Opens or adjusts a leveraged position through an opaque aggregator route.
@@ -152,8 +152,8 @@ pub trait ControllerInterface {
         env: Env,
         account_id: u64,
     ) -> (
-        Map<Address, AccountPositionRaw>,
-        Map<Address, DebtPositionRaw>,
+        Map<HubAssetKey, AccountPositionRaw>,
+        Map<HubAssetKey, DebtPositionRaw>,
     );
 
     /// Returns whether `account_id` still has controller metadata on-chain.
@@ -188,7 +188,7 @@ pub trait ControllerInterface {
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<(HubAssetKey, i128)>,
     ) -> LiquidationEstimate;
 
     /// Returns total collateral value available for liquidation, in USD WAD.

@@ -9,7 +9,7 @@ use crate::events::CleanBadDebtEvent;
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Wad;
 use controller_interface::types::{
-    Account, AccountPosition, AccountPositionType, DebtPosition, LiquidationResult, Payment,
+    Account, AccountPosition, AccountPositionType, DebtPosition, HubAssetKey, LiquidationResult,
     PoolAction, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Vec};
@@ -20,7 +20,7 @@ use crate::cache::Cache;
 use crate::events;
 use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
-use crate::positions::make_pool_action;
+use crate::positions::{make_pool_action, HubPayment};
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{
     helpers::{self, utils},
@@ -33,7 +33,7 @@ impl Controller {
         env: Env,
         liquidator: Address,
         account_id: u64,
-        debt_payments: Vec<(Address, i128)>,
+        debt_payments: Vec<(HubAssetKey, i128)>,
     ) {
         process_liquidation(&env, &liquidator, account_id, &debt_payments);
     }
@@ -51,7 +51,7 @@ pub fn process_liquidation(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
-    debt_payments: &Vec<Payment>,
+    debt_payments: &Vec<HubPayment>,
 ) {
     liquidator.require_auth();
     validation::require_not_flash_loaning(env);
@@ -112,8 +112,8 @@ fn validate_liquidation_inputs(
         GenericError::AccountNotInMarket
     );
 
-    for (asset, _) in aggregated.iter() {
-        validation::require_asset_supported(env, cache, &asset);
+    for (hub_asset, _) in aggregated.iter() {
+        validation::require_asset_supported(env, cache, &hub_asset.asset);
     }
 }
 
@@ -122,7 +122,7 @@ fn validate_liquidation_inputs(
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<Payment>,
+    aggregated_debt: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationResult {
     build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
@@ -131,7 +131,7 @@ pub(crate) fn execute_liquidation(
 fn build_liquidation_plan(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<Payment>,
+    aggregated_debt: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
     // One totals pass feeds both the HF gate and the snapshot. A debt-free
@@ -198,14 +198,14 @@ fn apply_liquidation_repayments(
         // All SAC transfers go through the wrapper so the harness can replace it.
         sac_transfer_call(env, &entry.asset, liquidator, &pool_addr, &entry.amount);
 
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: entry.asset.clone(),
+        };
         let position: DebtPosition =
-            (&validation::expect_invariant(env, account.borrow_positions.get(entry.asset.clone())))
+            (&validation::expect_invariant(env, account.borrow_positions.get(hub_asset.clone())))
                 .into();
-        actions.push_back(make_pool_action(
-            &position,
-            entry.amount,
-            entry.asset.clone(),
-        ));
+        actions.push_back(make_pool_action(&position, entry.amount, hub_asset));
     }
     repay::settle_repay_actions(
         env,
@@ -228,11 +228,15 @@ fn apply_liquidation_seizures(
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
         // dimensional: amount and protocol_fee are Token(asset) units.
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: entry.asset.clone(),
+        };
         let position: AccountPosition =
-            (&validation::expect_invariant(env, account.supply_positions.get(entry.asset.clone())))
+            (&validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone())))
                 .into();
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(&position, entry.amount, entry.asset.clone()),
+            action: make_pool_action(&position, entry.amount, hub_asset),
             protocol_fee: entry.protocol_fee,
         });
     }
@@ -316,30 +320,30 @@ fn execute_bad_debt_cleanup(
 ) {
     // dimensional: total_debt_usd/total_collateral_usd are Wad<USD>.raw.
     if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
-        for (asset, position) in iter_typed_positions(&account.supply_positions) {
-            ctx.apply_withdraw_after_pool(env, &asset, position.scaled_amount);
+        for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
+            ctx.apply_withdraw_after_pool(env, &hub_asset, position.scaled_amount);
         }
-        for (asset, position) in iter_debt_positions(&account.borrow_positions) {
-            ctx.apply_repay_after_pool(env, &asset, position.scaled_amount);
+        for (hub_asset, position) in iter_debt_positions(&account.borrow_positions) {
+            ctx.apply_repay_after_pool(env, &hub_asset, position.scaled_amount);
         }
     }
 
-    for (asset, position) in iter_typed_positions(&account.supply_positions) {
+    for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         seize_pool_position(
             env,
             cache,
             AccountPositionType::Deposit,
-            &asset,
+            &hub_asset.asset,
             (&position).into(),
         );
     }
 
-    for (asset, position) in iter_debt_positions(&account.borrow_positions) {
+    for (hub_asset, position) in iter_debt_positions(&account.borrow_positions) {
         seize_pool_position(
             env,
             cache,
             AccountPositionType::Borrow,
-            &asset,
+            &hub_asset.asset,
             (&position).into(),
         );
     }
