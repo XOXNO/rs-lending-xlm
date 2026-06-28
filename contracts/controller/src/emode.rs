@@ -25,25 +25,11 @@ pub fn resolve_spoke_asset_config(
 }
 
 /// Risk config for the account's spoke, projected to [`AssetConfig`]. Reads
-/// `SpokeAsset(spoke_id, hub_asset)` directly with no overlay onto spoke 0.
+/// `SpokeAsset(spoke_id, hub_asset)` directly with no overlay onto spoke 0. A
+/// deactivated spoke retains its stored `SpokeAsset` entry, so the read still
+/// succeeds; a position on spoke S always reads spoke S (no spoke-0 fallback).
 pub fn effective_asset_config(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> AssetConfig {
     (&resolve_spoke_asset_config(env, spoke_id, hub_asset)).into()
-}
-
-/// Effective risk config on the account's spoke, falling back to the base
-/// spoke-0 config when the named spoke is deprecated or no longer lists the
-/// asset. Used by threshold fan-out, where a deprecated/removed spoke keeps the
-/// asset re-stamped from its base listing rather than reverting.
-pub fn effective_or_base_asset_config(
-    env: &Env,
-    cache: &mut Cache,
-    spoke_id: u32,
-    hub_asset: &HubAssetKey,
-) -> AssetConfig {
-    let use_spoke = spoke_id != 0
-        && matches!(cache.cached_spoke(spoke_id), Some(s) if !s.is_deprecated)
-        && cache.cached_spoke_asset(spoke_id, hub_asset).is_some();
-    effective_asset_config(env, if use_spoke { spoke_id } else { 0 }, hub_asset)
 }
 
 pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {

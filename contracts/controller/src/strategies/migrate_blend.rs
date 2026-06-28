@@ -32,6 +32,8 @@ use crate::{helpers, storage, validation, Controller, ControllerArgs, Controller
 pub struct MigrateBlendParams {
     pub account_id: u64,
     pub spoke_id: u32,
+    /// Hub on which every controller-side position (debt and supply) is opened.
+    pub hub_id: u32,
     pub blend_pool: Address,
     pub collateral_assets: Vec<Address>,
     pub supply_assets: Vec<Address>,
@@ -48,6 +50,7 @@ impl Controller {
         caller: Address,
         account_id: u64,
         spoke_id: u32,
+        hub_id: u32,
         blend_pool: Address,
         collateral_assets: Vec<Address>,
         supply_assets: Vec<Address>,
@@ -59,6 +62,7 @@ impl Controller {
             MigrateBlendParams {
                 account_id,
                 spoke_id,
+                hub_id,
                 blend_pool,
                 collateral_assets,
                 supply_assets,
@@ -75,6 +79,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     let MigrateBlendParams {
         account_id,
         spoke_id,
+        hub_id,
         blend_pool,
         collateral_assets,
         supply_assets,
@@ -128,7 +133,11 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         for (debt_asset, max) in debt_caps.iter() {
             validation::require_positive_amount(env, max);
             // D{debt_asset.decimals}{Token(debt_asset)} zero-fee cap equals received delta used to clear Blend debt.
-            open_migration_borrow(env, &mut cache, &mut account, &debt_asset, max);
+            let hub_debt = HubAssetKey {
+                hub_id,
+                asset: debt_asset,
+            };
+            open_migration_borrow(env, &mut cache, &mut account, &hub_debt, max);
         }
         let repay_requests = build_repay_requests(env, &debt_caps);
         authorize_repay_pulls(env, &blend_pool, &debt_caps);
@@ -138,6 +147,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
             &mut account,
             &mut cache,
             caller,
+            hub_id,
             &debt_caps,
             &before_debt,
         );
@@ -156,6 +166,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
             env,
             &mut account,
             &mut cache,
+            hub_id,
             &withdraw_assets,
             &before_withdraw,
         );
@@ -298,6 +309,7 @@ fn deposit_withdrawn(
     env: &Env,
     account: &mut Account,
     cache: &mut Cache,
+    hub_id: u32,
     withdraw_assets: &Vec<Address>,
     before: &Map<Address, i128>,
 ) {
@@ -308,9 +320,9 @@ fn deposit_withdrawn(
         // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
         let received = balance_delta(env, &token, prev);
         if received > 0 {
-            // Migration opens controller positions on hub 0; the source asset
-            // list names Blend-side tokens, not hub coordinates.
-            deposits.push_back((helpers::utils::hub0(&asset), received));
+            // Migration opens controller positions on the caller-supplied `hub_id`;
+            // the source asset list names Blend-side tokens, not hub coordinates.
+            deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
     }
     if !deposits.is_empty() {
@@ -329,6 +341,7 @@ fn reconcile_debt_refunds(
     account: &mut Account,
     cache: &mut Cache,
     caller: &Address,
+    hub_id: u32,
     debt_caps: &Vec<(Address, i128)>,
     before: &Map<Address, i128>,
 ) {
@@ -338,8 +351,11 @@ fn reconcile_debt_refunds(
         // D{debt_asset.decimals}{Token(debt_asset)} Blend over-repay refund repays controller debt.
         let refund = balance_delta(env, &token, prev);
         if refund > 0 {
-            let debt_pos = load_debt_position(env, account, &debt_asset);
-            let hub_debt = helpers::utils::hub0(&debt_asset);
+            let hub_debt = HubAssetKey {
+                hub_id,
+                asset: debt_asset.clone(),
+            };
+            let debt_pos = load_debt_position(env, account, &hub_debt);
             repay_debt_from_controller(
                 env,
                 account,
@@ -356,11 +372,10 @@ fn reconcile_debt_refunds(
     }
 }
 
-fn load_debt_position(env: &Env, account: &Account, debt_asset: &Address) -> DebtPosition {
-    // Migration borrows are opened on hub 0; the Blend debt list names tokens.
+fn load_debt_position(env: &Env, account: &Account, hub_debt: &HubAssetKey) -> DebtPosition {
     let raw = account
         .borrow_positions
-        .get(helpers::utils::hub0(debt_asset))
+        .get(hub_debt.clone())
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     DebtPosition::from(&raw)
 }

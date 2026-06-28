@@ -4,24 +4,20 @@ use common::math::fp::Ray;
 use common::rates::scaled_to_original;
 use common::validation::cap_is_enabled;
 use controller_interface::types::{Account, HubAssetKey, SpokeUsageRaw};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::Env;
 
 use crate::cache::Cache;
 use crate::storage;
 
 use super::MarketLimitCtx;
 
-pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
+pub fn max_supply(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
     // Inactive: not listed, or listed without a token-rooted oracle.
-    if storage::get_spoke_asset(env, 0, &hub_asset).is_none()
-        || storage::get_asset_oracle(env, asset).is_none()
+    if storage::get_spoke_asset(env, 0, hub_asset).is_none()
+        || storage::get_asset_oracle(env, &hub_asset.asset).is_none()
     {
         return 0;
     }
@@ -31,20 +27,16 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     };
     let mut cache = Cache::new_view(env);
     // Collateralizability is read from the base (spoke 0) config, as before.
-    if !cache.cached_asset_config(&hub_asset).can_supply() {
+    if !cache.cached_asset_config(hub_asset).can_supply() {
         return 0;
     }
-    if account.spoke_id > 0
-        && cache
-            .cached_spoke_asset(account.spoke_id, &hub_asset)
-            .is_none()
-    {
+    if account.spoke_id > 0 && cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
         return 0;
     }
-    let hub_supply_cap = cache.cached_pool_sync_data(&hub_asset).params.supply_cap;
-    let market = MarketLimitCtx::load(&mut cache, asset);
+    let hub_supply_cap = cache.cached_pool_sync_data(hub_asset).params.supply_cap;
+    let market = MarketLimitCtx::load(&mut cache, hub_asset);
     let hub_headroom = hub_supply_cap_headroom(env, &market, hub_supply_cap);
-    let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, &hub_asset, &market);
+    let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, hub_asset, &market);
     // dimensional: max_supply returns additional Token(asset) in asset-native units.
     hub_headroom.min(spoke_headroom)
 }

@@ -116,15 +116,6 @@ impl Cache {
         (&spoke_asset).into()
     }
 
-    /// Active spoke for this transaction, or 0 when no account is loaded
-    /// (views). Spoke 0 resolves oracles to the token-rooted base.
-    pub(crate) fn active_spoke_id(&self) -> u32 {
-        self.emode_usage
-            .as_ref()
-            .map(|ctx| ctx.spoke_id())
-            .unwrap_or(0)
-    }
-
     /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
     /// `OracleNotConfigured` when absent. Absence is the pending/disabled gate:
     /// price resolution reverts for any asset with no `AssetOracle` entry.
@@ -133,22 +124,11 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
     }
 
-    /// Oracle config for `asset`: a `Some` per-spoke override on the active
-    /// spoke wins; otherwise the token-rooted `AssetOracle` base. Spoke 0 (no
-    /// account) always takes the base, so default pricing is unchanged.
+    /// Oracle config for `asset`: the token-rooted `AssetOracle` base. Pricing is
+    /// hub-independent and keyed by the bare asset; there is no per-spoke override
+    /// resolution in this path (a hub-correct override would require the asset's
+    /// real hub, which the token-rooted price path does not carry).
     pub(crate) fn resolve_oracle_config(&mut self, asset: &Address) -> MarketOracleConfig {
-        let spoke_id = self.active_spoke_id();
-        if spoke_id != 0 {
-            let hub_asset = HubAssetKey {
-                hub_id: 0,
-                asset: asset.clone(),
-            };
-            if let Some(spoke_asset) = self.cached_spoke_asset(spoke_id, &hub_asset) {
-                if let Some(override_config) = spoke_asset.oracle_override.as_ref() {
-                    return override_config.clone();
-                }
-            }
-        }
         self.cached_asset_oracle(asset)
     }
 

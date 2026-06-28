@@ -100,14 +100,16 @@ pub trait ControllerInterface {
 
     /// Migrates a Blend V2 position (collateral, non-collateral supply, and
     /// debt) into the controller in one transaction at zero flash-loan fee.
-    /// `account_id == 0` creates a fresh account. Collateral/supply are swept
-    /// with withdraw-all semantics; each `(debt_asset, max)` bounds the zero-fee
+    /// `account_id == 0` creates a fresh account. The controller-side positions
+    /// it opens are all on `hub_id`. Collateral/supply are swept with
+    /// withdraw-all semantics; each `(debt_asset, max)` bounds the zero-fee
     /// borrow used to clear that Blend debt. Returns the account id.
     fn migrate_from_blend(
         env: Env,
         caller: Address,
         account_id: u64,
         spoke_id: u32,
+        hub_id: u32,
         blend_pool: Address,
         collateral_assets: Vec<Address>,
         supply_assets: Vec<Address>,
@@ -159,11 +161,11 @@ pub trait ControllerInterface {
     /// Returns total borrow value in USD WAD.
     fn get_total_borrow_usd(env: Env, account_id: u64) -> i128;
 
-    /// Returns current underlying collateral amount for one asset.
-    fn get_collateral_amount(env: Env, account_id: u64, asset: Address) -> i128;
+    /// Returns current underlying collateral amount for one hub-asset.
+    fn get_collateral_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns current underlying debt amount for one asset.
-    fn get_borrow_amount(env: Env, account_id: u64, asset: Address) -> i128;
+    /// Returns current underlying debt amount for one hub-asset.
+    fn get_borrow_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
     /// Returns raw scaled supply and debt maps for an account.
     fn get_account_positions(
@@ -187,9 +189,9 @@ pub trait ControllerInterface {
     /// Returns account mode and spoke attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
-    /// Returns the per-spoke risk listing for `asset` on `spoke_id` (spoke 0 is
-    /// the general base listing). Panics `AssetNotSupported` when not listed.
-    fn get_spoke_asset(env: Env, spoke_id: u32, asset: Address) -> SpokeAssetConfig;
+    /// Returns the per-spoke risk listing for `hub_asset` on `spoke_id` (spoke 0
+    /// is the general base listing). Panics `AssetNotSupported` when not listed.
+    fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 
     /// Returns spoke config by id.
     fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig;
@@ -197,11 +199,12 @@ pub trait ControllerInterface {
     /// Returns the central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;
 
-    /// Returns config and oracle data for each requested market.
-    fn get_markets_detailed(env: Env, assets: Vec<Address>) -> Vec<AssetExtendedConfigView>;
+    /// Returns config and oracle data for each requested hub-asset market.
+    fn get_markets_detailed(env: Env, hub_assets: Vec<HubAssetKey>)
+        -> Vec<AssetExtendedConfigView>;
 
-    /// Returns indexes and price components for each requested market.
-    fn get_market_indexes_detailed(env: Env, assets: Vec<Address>) -> Vec<MarketIndexView>;
+    /// Returns indexes and price components for each requested hub-asset market.
+    fn get_market_indexes_detailed(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 
     /// Estimates liquidation seize, repay, refund, and bonus data.
     fn get_liquidation_estimate(
@@ -216,22 +219,22 @@ pub trait ControllerInterface {
     /// Returns collateral value counted toward LTV, in USD WAD.
     fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128;
 
-    /// Returns the largest `withdraw` amount of `asset` currently executable
+    /// Returns the largest `withdraw` amount of `hub_asset` currently executable
     /// for `account_id` (position, pool cash, max-utilization cap, LTV/HF
     /// gates, dust floor); `0` while paused.
-    fn max_withdraw(env: Env, account_id: u64, asset: Address) -> i128;
+    fn max_withdraw(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns remaining supply-cap headroom for `account_id` and `asset` in asset
-    /// units; `i128::MAX` when uncapped, `0` while paused or market not active.
-    fn max_supply(env: Env, account_id: u64, asset: Address) -> i128;
+    /// Returns remaining supply-cap headroom for `account_id` and `hub_asset` in
+    /// asset units; `i128::MAX` when uncapped, `0` while paused or market not active.
+    fn max_supply(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
-    /// Returns the largest `borrow` amount of `asset` currently executable for
+    /// Returns the largest `borrow` amount of `hub_asset` currently executable for
     /// `account_id` (pool liquidity, max-utilization, borrow cap, LTV/HF
     /// gates); `0` while paused, on an inactive/non-borrowable
     /// market, or when the asset is structurally not borrowable for the account.
-    fn max_borrow(env: Env, account_id: u64, asset: Address) -> i128;
+    fn max_borrow(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128;
 
     /// Returns supply/borrow indexes accrued to the current ledger timestamp;
     /// reads no oracle.
-    fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw;
+    fn get_market_index(env: Env, hub_asset: HubAssetKey) -> MarketIndexRaw;
 }

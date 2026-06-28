@@ -20,7 +20,6 @@ use soroban_sdk::{
 use stellar_macros::only_owner;
 
 use crate::external::pool::fetch_pool_sync_data;
-use crate::helpers::utils::hub0;
 use common::math::fp::Ray;
 
 use crate::helpers::emode_caps::{
@@ -108,9 +107,9 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn remove_asset_from_spoke(env: Env, asset: Address, spoke_id: u32) {
+    pub fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32) {
         storage::renew_controller_instance(&env);
-        remove_asset_from_spoke(&env, asset, spoke_id);
+        remove_asset_from_spoke(&env, hub_asset, spoke_id);
     }
 
     #[only_owner]
@@ -151,9 +150,9 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig) {
+    pub fn set_market_oracle_config(env: Env, hub_asset: HubAssetKey, config: MarketOracleConfig) {
         storage::renew_controller_instance(&env);
-        set_market_oracle_config(&env, asset, config);
+        set_market_oracle_config(&env, hub_asset, config);
     }
 
     #[only_owner]
@@ -198,11 +197,11 @@ pub fn create_hub(env: &Env) -> u32 {
     id
 }
 
-/// Gates use of a hub. Every hub — including hub 0, seeded active in the
-/// constructor — must resolve to an active `Hub` registry entry; an unknown or
-/// deactivated hub reverts `HubNotActive`. No hub is special-cased. Wired into
-/// market creation (`create_liquidity_pool`) and the supply/borrow validate
-/// paths via `validation::require_hub_active`.
+/// Gates use of a hub. Every hub must resolve to an active `Hub` registry entry;
+/// an unknown or deactivated hub reverts `HubNotActive`. No hub is seeded, so
+/// hub 0 (and any uncreated id) reverts — there is no implicit default hub.
+/// Wired into market creation (`create_liquidity_pool`) and the supply/borrow
+/// validate paths via `validation::require_hub_active`.
 pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
     let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
     assert_with_error!(env, active, GenericError::HubNotActive);
@@ -255,10 +254,11 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
 
     let hub_asset = HubAssetKey {
-        hub_id: 0,
+        hub_id: args.hub_id,
         asset: args.asset.clone(),
     };
-    // The asset must be listed (base `SpokeAsset(0)`) before a named spoke lists it.
+    // The asset must be listed (base `SpokeAsset(0, hub_asset)`) on its hub before
+    // a named spoke lists it.
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
@@ -325,7 +325,7 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let spoke = storage::get_spoke(env, args.spoke_id);
     assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
     let hub_asset = HubAssetKey {
-        hub_id: 0,
+        hub_id: args.hub_id,
         asset: args.asset.clone(),
     };
     assert_with_error!(
@@ -389,11 +389,7 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     .publish(env);
 }
 
-pub fn remove_asset_from_spoke(env: &Env, asset: Address, spoke_id: u32) {
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
+pub fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),
@@ -402,18 +398,19 @@ pub fn remove_asset_from_spoke(env: &Env, asset: Address, spoke_id: u32) {
 
     storage::remove_spoke_asset(env, spoke_id, &hub_asset);
 
-    RemoveSpokeAssetEvent { asset, spoke_id }.publish(env);
+    RemoveSpokeAssetEvent {
+        asset: hub_asset.asset,
+        spoke_id,
+    }
+    .publish(env);
 }
 
 /// Activates a listed asset by writing its token-rooted `AssetOracle` entry.
 /// Re-running it replaces the oracle config; presence of the entry is the
 /// "active" signal that price resolution and `require_market_active` read.
-pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOracleConfig) {
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
-    // Only a listed asset (base `SpokeAsset(0)`) can be activated.
+pub fn set_market_oracle_config(env: &Env, hub_asset: HubAssetKey, mut config: MarketOracleConfig) {
+    let asset = &hub_asset.asset;
+    // Only a listed `(hub, asset)` (base `SpokeAsset(0, hub_asset)`) can be activated.
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
@@ -431,24 +428,24 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
 
     // Re-assert quote-market USD/active invariant at execution time.
     // Timelock delay can make the proposed quote market stale.
-    require_quote_markets_active_usd(env, &asset, &config);
+    require_quote_markets_active_usd(env, asset, &config);
 
     // Test markets register pools with preset decimals that may diverge from
     // the live token probe; keep the pool-registered value authoritative.
     if cfg!(feature = "testing") {
         let pool_addr = storage::get_pool(env);
-        let hub_asset = hub0(&asset);
         let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &hub_asset).params.asset_decimals;
         if pool_decimals != 0 {
             config.asset_decimals = pool_decimals;
         }
     }
 
-    storage::set_asset_oracle(env, &asset, &config);
+    // The oracle is token-rooted (hub-independent), keyed by the bare asset.
+    storage::set_asset_oracle(env, asset, &config);
 
     UpdateAssetOracleEvent {
         asset: asset.clone(),
-        oracle: EventOracleProvider::from_oracle(env, &asset, &config),
+        oracle: EventOracleProvider::from_oracle(env, asset, &config),
     }
     .publish(env);
 }

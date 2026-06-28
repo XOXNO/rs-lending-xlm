@@ -16,15 +16,6 @@ pub fn aggregate_positive_payments(env: &Env, payments: &Vec<HubPayment>) -> Vec
     aggregate_payments(env, payments, false)
 }
 
-/// Hub-0 coordinate for a token-rooted `asset`. Single-asset ABI paths address
-/// the pool's hub-aware per-asset surface through the general hub.
-pub fn hub0(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    }
-}
-
 /// Appends `addr` to `out` if absent (order-preserving dedup).
 pub fn push_unique_address(out: &mut Vec<Address>, addr: Address) {
     if !out.contains(addr.clone()) {

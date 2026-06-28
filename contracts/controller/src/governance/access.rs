@@ -6,7 +6,7 @@
 //! governance remain callable while paused.
 
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, HubConfig, PositionLimits, SpokeConfig};
+use controller_interface::types::{ControllerKey, PositionLimits, SpokeConfig};
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env};
 use stellar_access::{access_control, ownable};
 use stellar_macros::only_owner;
@@ -89,11 +89,10 @@ impl Controller {
             },
         );
 
-        // Hub 0 is a regular registered hub, seeded active here exactly as spoke
-        // 0 is. Every hub — including 0 — is gated uniformly by the registry; no
-        // hub is implicit or special-cased. Reserved id 0 never collides with
-        // `create_hub`, which starts hubs at 1.
-        storage::set_hub(&env, 0, &HubConfig { is_active: true });
+        // No hub is seeded. A fresh controller has zero hubs; the deployer must
+        // `create_hub` (ids start at 1) before any `create_liquidity_pool`. With
+        // no hub seeded, `require_hub_active(0)` reverts `HubNotActive`, so there
+        // is no implicit default hub.
 
         env.storage()
             .instance()

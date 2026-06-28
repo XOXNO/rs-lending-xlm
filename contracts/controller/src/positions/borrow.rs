@@ -200,19 +200,20 @@ pub fn borrow_for_strategy(
     )
 }
 
-/// Zero-fee strategy borrow used by Blend migration. Migration opens controller
-/// debt on hub 0. Other strategy borrows defer solvency to `strategy_finalize`.
+/// Zero-fee strategy borrow used by Blend migration. The caller supplies the
+/// explicit `hub_debt` coordinate. Other strategy borrows defer solvency to
+/// `strategy_finalize`.
 pub fn borrow_for_migration(
     env: &Env,
     account: &mut Account,
-    debt_token: &Address,
+    hub_debt: &HubAssetKey,
     amount: i128,
     cache: &mut Cache,
 ) -> i128 {
     borrow_strategy_inner(
         env,
         account,
-        &utils::hub0(debt_token),
+        hub_debt,
         amount,
         cache,
         Some(0),

@@ -6,8 +6,8 @@ fn new_controller(env: &Env) -> Address {
     env.register(Controller, (admin,))
 }
 
-// `create_hub` ids start at 1 (hub 0 is seeded in the constructor) and each
-// created hub is active on return.
+// `create_hub` ids start at 1 (the constructor seeds no hub) and each created
+// hub is active on return.
 #[test]
 fn create_hub_assigns_increasing_ids_and_marks_active() {
     let env = Env::default();
@@ -22,14 +22,16 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     });
 }
 
-// Hub 0 is a regular registered hub, seeded active in the constructor exactly
-// like every higher id — no implicit/always-active special case.
+// No hub is seeded, so hub 0 is not a registered hub: `require_hub_active(0)`
+// reverts `HubNotActive` (#43) exactly like any uncreated id. There is no
+// implicit default hub.
 #[test]
-fn require_hub_active_passes_for_registered_hub_zero() {
+#[should_panic(expected = "Error(Contract, #43)")]
+fn require_hub_active_rejects_unseeded_hub_zero() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        assert!(storage::get_hub(&env, 0).is_some_and(|hub| hub.is_active));
+        assert!(storage::get_hub(&env, 0).is_none());
         require_hub_active(&env, 0);
     });
 }

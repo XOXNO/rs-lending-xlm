@@ -29,7 +29,7 @@ pub(crate) mod tolerance;
 #[path = "../../../../certora/controller/harness/oracle_tolerance.rs"]
 pub(crate) mod tolerance;
 
-use soroban_sdk::Address;
+use controller_interface::types::HubAssetKey;
 
 use crate::cache::Cache;
 
@@ -42,13 +42,13 @@ pub(crate) use tolerance::calculate_final_price;
 pub(crate) use prefetch::prefetch_redstone_feeds;
 pub use price::token_price;
 
-pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
-    // Reject unlisted assets with `AssetNotSupported`; `resolve_oracle_config`
+pub fn price_components(cache: &mut Cache, hub_asset: &HubAssetKey) -> ResolvedOracleComponents {
+    // Reject unlisted `(hub, asset)` with `AssetNotSupported`; `resolve_oracle_config`
     // then panics `OracleNotConfigured` for a listed-but-pending/disabled asset.
-    // The price is token-rooted (hub-independent), so listing on the general hub
-    // is the supported gate.
+    // The listed-gate uses the real hub from the key; the price itself is
+    // token-rooted (hub-independent) and keyed by the bare asset.
     let env = cache.env().clone();
-    crate::validation::require_asset_supported(&env, cache, &crate::helpers::utils::hub0(asset));
-    let configs = cache.resolve_oracle_config(asset);
+    crate::validation::require_asset_supported(&env, cache, hub_asset);
+    let configs = cache.resolve_oracle_config(&hub_asset.asset);
     compose::resolve_components(cache, &configs)
 }

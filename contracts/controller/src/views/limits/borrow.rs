@@ -4,53 +4,49 @@ use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
 use common::validation::cap_is_enabled;
 use controller_interface::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::Env;
 
 use crate::cache::Cache;
 use crate::{emode, storage};
 
 use super::{account_gates_ok, MarketLimitCtx};
 
-/// Largest executable `borrow` amount for `asset` and `account_id`.
+/// Largest executable `borrow` amount for `hub_asset` and `account_id`.
 ///
 /// Returns `0` when paused, inactive, non-borrowable, structurally blocked,
 /// or limited by pool liquidity, utilization, caps, LTV, or health factor.
-pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
+pub fn max_borrow(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
     // Inactive: not listed, or listed without a token-rooted oracle.
-    if storage::get_spoke_asset(env, 0, &hub_asset).is_none()
-        || storage::get_asset_oracle(env, asset).is_none()
+    if storage::get_spoke_asset(env, 0, hub_asset).is_none()
+        || storage::get_asset_oracle(env, &hub_asset.asset).is_none()
     {
         return 0;
     }
 
     let mut cache = Cache::new_view(env);
-    if !account_can_borrow_asset(env, &mut cache, &account, &hub_asset) {
+    if !account_can_borrow_asset(env, &mut cache, &account, hub_asset) {
         return 0;
     }
 
-    let market = MarketLimitCtx::load(&mut cache, asset);
+    let market = MarketLimitCtx::load(&mut cache, hub_asset);
     // No supplied liquidity means no borrowable cash and undefined utilization.
     if market.supplied == Ray::ZERO {
         return 0;
     }
 
-    let hub_borrow_cap = cache.cached_pool_sync_data(&hub_asset).params.borrow_cap;
+    let hub_borrow_cap = cache.cached_pool_sync_data(hub_asset).params.borrow_cap;
     // dimensional: all headrooms in this minimum are Token(asset).
     let mut hi = market
         .cash
         .min(hub_borrow_cap_headroom(env, &market, hub_borrow_cap))
         .min(spoke_borrow_cap_headroom(
-            env, &mut cache, &account, &hub_asset, &market,
+            env, &mut cache, &account, hub_asset, &market,
         ))
         .max(0);
     if hi <= 0 {
@@ -66,7 +62,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
             env,
             &mut cache,
             &account,
-            &hub_asset,
+            hub_asset,
             &market,
             hub_borrow_cap,
             mid,

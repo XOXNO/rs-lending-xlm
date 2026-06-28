@@ -65,9 +65,9 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
-/// Isolated-liquidity hub registry entry. Hub 0 is the implicit default and is
-/// never stored; ids from 1 up are created on demand and gate the
-/// (hub, asset) markets and positions adopted in a later phase.
+/// Isolated-liquidity hub registry entry. There is no implicit default hub:
+/// every hub is created on demand by `create_hub` (ids from 1 up) and gates the
+/// `(hub, asset)` markets and positions keyed under it.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct HubConfig {
@@ -120,11 +120,12 @@ pub struct SpokeAssetConfig {
 }
 
 /// Input for `add_asset_to_spoke` / `edit_asset_in_spoke`: the target
-/// (`asset`, `spoke_id`) plus the spoke risk parameters. Bundles what were
-/// positional entrypoint arguments so governance forwards one value.
+/// (`hub_id`, `asset`, `spoke_id`) plus the spoke risk parameters. Bundles what
+/// were positional entrypoint arguments so governance forwards one value.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
+    pub hub_id: u32,
     pub asset: Address,
     pub spoke_id: u32,
     pub can_collateral: bool,

@@ -7,7 +7,7 @@ use common::math::fp_core;
 use common::rates::scaled_to_original;
 use controller_interface::types::PriceFeed;
 use controller_interface::types::{Account, AccountPosition, HubAssetKey};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::Env;
 
 use crate::cache::Cache;
 use crate::{helpers, storage};
@@ -17,13 +17,9 @@ use super::{account_gates_ok, MarketLimitCtx};
 /// Stroop walks before falling back to binary search on the residual range.
 const PARTIAL_SETTLE_STEPS: u32 = 24;
 
-pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
+pub fn max_withdraw(env: &Env, account_id: u64, hub_asset: &HubAssetKey) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
-    };
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
     };
     let Some(position_raw) = account.supply_positions.get(hub_asset.clone()) else {
         return 0;
@@ -41,7 +37,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
             env,
             &mut cache,
             &account,
-            &hub_asset,
+            hub_asset,
             &mut position,
         );
         account
@@ -49,7 +45,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
             .set(hub_asset.clone(), (&position).into());
     }
 
-    let market = MarketLimitCtx::load(&mut cache, asset);
+    let market = MarketLimitCtx::load(&mut cache, hub_asset);
     let pos_scaled = position.scaled_amount;
 
     // Full close first: any request at or above the half-up position value
@@ -57,7 +53,7 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
     // dimensional: full_request is max withdraw Token(asset) in asset-native units.
     let full_request =
         scaled_to_original(env, pos_scaled, market.supply_index).to_asset(market.decimals);
-    if full_close_ok(env, &mut cache, &account, &hub_asset, &market, pos_scaled) {
+    if full_close_ok(env, &mut cache, &account, hub_asset, &market, pos_scaled) {
         return full_request;
     }
 
@@ -70,13 +66,13 @@ pub fn max_withdraw(env: &Env, account_id: u64, asset: &Address) -> i128 {
         env,
         &mut cache,
         &account,
-        asset,
+        hub_asset,
         &position,
         &market,
         full_request,
     );
     settle_partial_max(
-        env, &mut cache, &account, &hub_asset, &market, pos_scaled, candidate, ceiling,
+        env, &mut cache, &account, hub_asset, &market, pos_scaled, candidate, ceiling,
     )
 }
 
@@ -104,7 +100,7 @@ fn analytical_partial_cap(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
     market: &MarketLimitCtx,
     full_request: i128,
@@ -117,7 +113,7 @@ fn analytical_partial_cap(
         env,
         cache,
         account,
-        asset,
+        hub_asset,
         position,
         market,
         full_request,
@@ -129,7 +125,7 @@ fn risk_partial_cap(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: &AccountPosition,
     market: &MarketLimitCtx,
     full_request: i128,
@@ -150,7 +146,7 @@ fn risk_partial_cap(
         return 0;
     }
 
-    let feed = cache.cached_price(asset);
+    let feed = cache.cached_price(&hub_asset.asset);
     let ltv_ratio = position.loan_to_value.to_wad(env);
     let hf_ratio = position.liquidation_threshold.to_wad(env);
     // dimensional: slack Wad<USD> / dimensionless risk ratio -> Token(asset) cap.

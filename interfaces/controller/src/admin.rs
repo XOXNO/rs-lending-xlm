@@ -18,12 +18,12 @@ pub trait ControllerAdmin {
     fn remove_spoke(env: Env, id: u32);
     fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs);
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs);
-    fn remove_asset_from_spoke(env: Env, asset: Address, spoke_id: u32);
+    fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
     fn approve_token(env: Env, token: Address);
     fn revoke_token(env: Env, token: Address);
     fn approve_blend_pool(env: Env, pool: Address);
     fn revoke_blend_pool(env: Env, pool: Address);
-    fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig);
+    fn set_market_oracle_config(env: Env, hub_asset: HubAssetKey, config: MarketOracleConfig);
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
     fn disable_token_oracle(env: Env, asset: Address);
     fn set_position_manager(env: Env, manager: Address, is_active: bool);
@@ -44,5 +44,5 @@ pub trait ControllerAdmin {
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
     /// Per-spoke risk listing read-back (spoke 0 is the general base listing).
-    fn get_spoke_asset(env: Env, spoke_id: u32, asset: Address) -> SpokeAssetConfig;
+    fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig;
 }

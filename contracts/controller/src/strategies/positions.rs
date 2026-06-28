@@ -52,11 +52,11 @@ pub(crate) fn open_migration_borrow(
     env: &Env,
     cache: &mut Cache,
     account: &mut Account,
-    asset: &Address,
+    hub_debt: &HubAssetKey,
     amount: i128,
 ) -> i128 {
     // D{asset.decimals}{Token(asset)} zero-fee migration borrow; debt amount equals received token delta.
-    borrow::borrow_for_migration(env, account, asset, amount, cache)
+    borrow::borrow_for_migration(env, account, hub_debt, amount, cache)
 }
 
 pub(crate) fn repay_debt_from_controller(

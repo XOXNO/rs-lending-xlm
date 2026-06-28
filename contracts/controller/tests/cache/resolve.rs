@@ -36,45 +36,12 @@ fn resolve_default_returns_asset_oracle_base() {
         assert_eq!(storage::get_asset_oracle(&env, &asset), Some(base.clone()));
 
         let mut cache = Cache::new_view(&env);
-        assert_eq!(cache.active_spoke_id(), 0);
         assert_eq!(cache.resolve_oracle_config(&asset), base);
     });
 }
 
-// A `Some` per-spoke override on the active spoke wins over the base.
-#[test]
-fn resolve_spoke_override_wins_over_base() {
-    let env = Env::default();
-    let admin = Address::generate(&env);
-    let contract_id = env.register(Controller, (admin,));
-    let asset = Address::generate(&env);
-    let spoke_id = 1u32;
-
-    env.as_contract(&contract_id, || {
-        let base = MarketOracleConfig::pending_for(asset.clone(), 7);
-        let override_config = MarketOracleConfig::pending_for(asset.clone(), 9);
-        assert_ne!(override_config, base);
-        storage::set_asset_oracle(&env, &asset, &base);
-
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        };
-        storage::set_spoke_asset(
-            &env,
-            spoke_id,
-            &hub_asset,
-            &spoke_asset_with_override(MarketOracleConfigOption::Some(override_config.clone())),
-        );
-
-        let mut cache = Cache::new_view(&env);
-        cache.ensure_spoke_loaded(spoke_id);
-        assert_eq!(cache.active_spoke_id(), spoke_id);
-        assert_eq!(cache.resolve_oracle_config(&asset), override_config);
-    });
-}
-
-// A spoke whose asset carries no override falls back to the AssetOracle base.
+// Pricing is token-rooted: a spoke-asset listing never diverts oracle resolution
+// from the token's `AssetOracle` base, regardless of the listing's contents.
 #[test]
 fn resolve_spoke_without_override_falls_back_to_base() {
     let env = Env::default();

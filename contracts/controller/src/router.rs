@@ -406,8 +406,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     for hub_asset in assets.iter() {
         validation::require_asset_supported(env, cache, &hub_asset);
 
-        let asset_config =
-            emode::effective_or_base_asset_config(env, cache, account.spoke_id, &hub_asset);
+        let asset_config = emode::effective_asset_config(env, account.spoke_id, &hub_asset);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
