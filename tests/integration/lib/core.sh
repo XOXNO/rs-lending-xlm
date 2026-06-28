@@ -41,3 +41,27 @@ record() {
 run_summary() {
     awk -F'\t' 'NR>1 {c[$4]++} END {for (k in c) printf "  %s: %d\n", k, c[k]}' "$ACTIONS_TSV" >&2
 }
+
+# Abort the run loudly when a must-succeed setup step (a deploy / id capture)
+# exhausts its retries. Records a gate-visible FAIL row and exits so the EXIT
+# trap still renders report.md — far clearer than letting the empty variable
+# trip a downstream `set -u` reference with a cryptic "unbound variable" abort.
+#   die <label> <message>
+die() {
+    local label="$1" msg="$2"
+    log "FATAL [$label]: $msg"
+    record "$label" FAIL fatal "" "" "" "" "" "$msg"
+    exit 1
+}
+
+# True when the argument is a well-formed Stellar contract/strkey id (C… 56
+# chars). A captured deploy id that fails this is empty or garbled — never a
+# usable contract address — so callers die loudly instead of pressing on.
+#   is_contract_id <value>
+is_contract_id() { [[ "$1" =~ ^C[A-Z2-7]{55}$ ]]; }
+
+# True when the argument is a 64-hex wasm/tx hash (what `stellar contract
+# upload` lands on stdout). A captured upload hash that fails this is empty or
+# truncated, so callers die loudly rather than wiring a bogus hash downstream.
+#   is_wasm_hash <value>
+is_wasm_hash() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }

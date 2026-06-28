@@ -47,8 +47,8 @@ issue_sac() {
         # Deploy, retrying transient submission failures (TxBadSeq, RPC 5xx).
         # A failed deploy is NOT a resume — deriving the id and pressing on
         # would leave every later mint hitting "Contract not found".
-        for attempt in 1 2 3 4 5; do
-            [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 3 ))
+        for attempt in $(seq 1 "$DEPLOY_MAX_ATTEMPTS"); do
+            [ "$attempt" -gt 1 ] && backoff_sleep "$attempt" 3 15
             if stellar contract asset deploy --asset "$asset" --source "$ADMIN" \
                 --network "$NETWORK" >"$out_f" 2>"$err_f"; then
                 hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -58,9 +58,8 @@ issue_sac() {
             sac_live "$sac" && break
         done
         if ! sac_wait_live "$sac"; then
-            record "issue_sac_$code" FAIL "asset_deploy" "" "" "" "" "" \
-                "SAC not live after deploy: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
-            return 1
+            die "issue_sac_$code" \
+                "SAC $code not live after $DEPLOY_MAX_ATTEMPTS deploy attempts: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
         fi
         record "issue_sac_$code" ok "asset_deploy" "${hash:-}" "" "" "" "" "$sac"
     fi
@@ -75,8 +74,8 @@ trustline() {
     local label="trust_${code}_${wallet%%_e2e*}"
     local err_f="$LOG_DIR/$label.err"
     local attempt
-    for attempt in 1 2 3; do
-        [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
+    for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
+        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
         if stellar tx new change-trust --source-account "$wallet" --line "$code:$issuer" \
             --network "$NETWORK" >"$LOG_DIR/$label.out" 2>"$err_f"; then
             local hash
@@ -88,7 +87,7 @@ trustline() {
         # change-trust to an already-established line re-submits harmlessly, so
         # resubmitting is always safe. A deterministic failure recurs and falls
         # through to FAIL on the final attempt.
-        if [ "$attempt" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE" "$err_f"; then
+        if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && grep -qE "$RPC_TRANSIENT_RE" "$err_f"; then
             record "$label" retry "change_trust" "" "" "" "" "" "transient rpc failure; retrying"
             continue
         fi

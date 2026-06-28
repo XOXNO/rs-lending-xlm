@@ -27,7 +27,7 @@ deploy_protocol() {
         local hash txh
         hash=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        [ -z "$hash" ] && { log "pool upload failed: $(tail -3 "$err_f")"; return 1; }
+        is_wasm_hash "$hash" || die upload_pool_wasm "pool wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
@@ -38,16 +38,17 @@ deploy_protocol() {
         local ctrl txh
         ctrl=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        [ -z "$ctrl" ] && { log "controller deploy failed: $(tail -3 "$err_f")"; return 1; }
+        is_contract_id "$ctrl" || die deploy_controller "controller deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
         save_state CONTROLLER "$ctrl"
         record deploy_controller ok deploy "$txh" "" "" "" "" "$ctrl"
         log "controller = $ctrl"
     fi
     if [ -z "${POOL:-}" ]; then
-        inv set_pool_template "$ADMIN" "$CONTROLLER" -- set_liquidity_pool_template --hash "$POOL_HASH" >/dev/null
+        inv set_pool_template "$ADMIN" "$CONTROLLER" -- set_liquidity_pool_template --hash "$POOL_HASH" >/dev/null \
+            || die set_pool_template "set_liquidity_pool_template failed after $INV_MAX_ATTEMPTS attempts"
         local pool
         pool=$(inv deploy_pool "$ADMIN" "$CONTROLLER" -- deploy_pool | tr -d '"\n')
-        [ -z "$pool" ] && return 1
+        is_contract_id "$pool" || die deploy_pool "central pool deploy produced no id after $INV_MAX_ATTEMPTS attempts"
         save_state POOL "$pool"
         log "central pool = $pool"
     fi
@@ -65,7 +66,7 @@ deploy_protocol() {
         local recv txh
         recv=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        [ -z "$recv" ] && { log "flash receiver deploy failed: $(tail -3 "$err_f")"; return 1; }
+        is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
         save_state FLASH_RECEIVER "$recv"
         record deploy_flash_receiver ok deploy "$txh" "" "" "" "" "$recv"
     fi
@@ -85,7 +86,7 @@ deploy_protocol() {
         local gov txh
         gov=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        [ -z "$gov" ] && { log "governance deploy failed: $(tail -3 "$err_f")"; return 1; }
+        is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
         save_state GOVERNANCE "$gov"
         record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
         log "governance = $gov"
@@ -99,7 +100,7 @@ deploy_protocol() {
         local chash txh
         chash=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
-        [ -z "$chash" ] && { log "controller upload failed: $(tail -3 "$err_f")"; return 1; }
+        is_wasm_hash "$chash" || die upload_controller_wasm "controller wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail -3 "$err_f" | tr '\n\t' '  ')"
         save_state CTRL_HASH "$chash"
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi
@@ -109,7 +110,7 @@ deploy_protocol() {
         local gc
         gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
             --wasm_hash "$CTRL_HASH" | tr -d '"\n')
-        [ -z "$gc" ] && return 1
+        is_contract_id "$gc" || die deploy_gov_controller "governance-owned controller deploy produced no id after $INV_MAX_ATTEMPTS attempts"
         save_state GOV_CONTROLLER "$gc"
         log "governance-owned controller = $gc"
     fi
@@ -185,8 +186,7 @@ oracle_cfg_mock_single() {
     local sac="$1"
     jq -nc --arg mock "$MOCK" --arg sac "$sac" '{
         max_price_stale_seconds: 3600,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
+        tolerance_bps: 500,
         strategy: 0,
         primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
         anchor: "None",
@@ -202,8 +202,7 @@ oracle_cfg_mock_dual() {
     local sac="$1" feed="$2"
     jq -nc --arg mock "$MOCK" --arg mockrs "$MOCKRS" --arg sac "$sac" --arg feed "$feed" '{
         max_price_stale_seconds: 3600,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
+        tolerance_bps: 500,
         strategy: 1,
         primary: {Reflector: {contract: $mock, asset: {Stellar: $sac}, read_mode: {Twap: 3}}},
         anchor: {Some: {RedStone: {contract: $mockrs, feed_id: $feed, max_stale_seconds: 3600}}},
@@ -218,14 +217,43 @@ oracle_cfg_reflector() {
     local sym="$1" min_wad="$2" max_wad="$3"
     jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" '{
         max_price_stale_seconds: 3600,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
+        tolerance_bps: 500,
         strategy: 0,
         primary: {Reflector: {contract: $orc, asset: {Symbol: $sym}, read_mode: {Twap: 3}}},
         anchor: "None",
         min_sanity_price_wad: $min,
         max_sanity_price_wad: $max
     }'
+}
+
+# True when asset already has a base spoke-0 listing on hub 0 — i.e.
+# create_liquidity_pool already ran (it writes that listing as its last step and
+# panics AssetAlreadySupported on a repeat). Lets create_market skip the
+# non-idempotent create step when resuming a run interrupted after the pool was
+# made but before the market was fully activated.
+#   market_listing_exists <sac-id>
+market_listing_exists() {
+    stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
+        --send=no -- get_spoke_asset --spoke_id 0 --asset "$1" >/dev/null 2>&1
+}
+
+# Confirms a just-created market's base spoke-0 listing is visible AND active
+# (collateral/borrow enabled) before the flow relies on it — the create ->
+# oracle -> activate writes can lag the RPC read replica the next supply/borrow
+# simulates against, surfacing as a spurious AssetNotSupported. Mirrors
+# sac_wait_live: poll get_spoke_asset until is_borrowable reads true, bounded.
+# Returns non-zero if never active (caller dies loudly).
+#   market_wait_listed <sac-id>
+market_wait_listed() {
+    local sac="$1" probe got
+    for probe in $(seq 1 8); do
+        got=$(stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
+            --send=no -- get_spoke_asset --spoke_id 0 --asset "$sac" 2>/dev/null \
+            | jq -r '.is_borrowable // empty' 2>/dev/null)
+        [ "$got" = "true" ] && return 0
+        sleep $(( probe * 2 ))
+    done
+    return 1
 }
 
 # Full market bring-up on hub 0. Active config flags come from asset_config_json
@@ -237,12 +265,26 @@ create_market() {
     local name="$1" sac="$2" decimals="$3" oracle_json="$4" active_cfg="$5"
     local done_var="MKT_${name}_DONE"
     if [ -n "${!done_var:-}" ]; then return 0; fi
+    # This is a validated, must-succeed sequence whose steps each read state the
+    # immediately-prior step wrote (approve→create→oracle→activate). Under heavy
+    # testnet read-after-write lag a lagging RPC replica surfaces that as a
+    # spurious contract error (e.g. #35 TokenNotApproved right after approve);
+    # re-simulate contract errors with backoff until the prior write propagates.
+    local INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
     local params pending
     params=$(market_params_json "$sac" "$decimals")
     pending=$(jq -c '.is_collateralizable=false | .is_borrowable=false' <<<"$active_cfg")
     inv "approve_token_$name" "$ADMIN" "$CONTROLLER" -- approve_token --token "$sac" >/dev/null || return 1
-    inv "create_market_$name" "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
-        --hub_id 0 --asset "$sac" --params "$params" --config "$pending" >/dev/null || return 1
+    # Idempotent create: on a resumed run the listing may already exist (the pool
+    # was made but the market not yet flagged DONE). Re-calling create_liquidity_pool
+    # would panic AssetAlreadySupported (#…) and exhaust the retry budget, so skip
+    # the create when the listing is already present and proceed to oracle+activate.
+    if market_listing_exists "$sac"; then
+        record "create_market_$name" ok create_liquidity_pool "" "" "" "" "" "listing already exists (resume); skipping create"
+    else
+        inv "create_market_$name" "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
+            --hub_id 0 --asset "$sac" --params "$params" --config "$pending" >/dev/null || return 1
+    fi
     # Production split: governance resolves the input oracle config (probes the
     # live oracle for decimals/resolution/base + computes the tolerance bands)
     # into a fully-resolved MarketOracleConfig; the controller's owner-only
@@ -261,6 +303,10 @@ create_market() {
     bonus=$(jq -r '.liquidation_bonus_bps' <<<"$active_cfg")
     inv "activate_$name" "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$sac" 0 true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
+    # Confirm the listing is visible + active before later supply/borrow rely on
+    # it; tolerates read-after-write lag, dies loudly if the market never lands.
+    market_wait_listed "$sac" \
+        || die "confirm_market_$name" "market $name base spoke-0 listing not active after create -> oracle -> activate (read replica lag exhausted)"
     save_state "$done_var" 1
 }
 
