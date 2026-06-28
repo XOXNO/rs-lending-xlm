@@ -308,7 +308,9 @@ fn deposit_withdrawn(
         // D{asset.decimals}{Token(asset)} positive delta becomes controller supply deposit.
         let received = balance_delta(env, &token, prev);
         if received > 0 {
-            deposits.push_back((HubAssetKey { hub_id: 0, asset }, received));
+            // Migration opens controller positions on hub 0; the source asset
+            // list names Blend-side tokens, not hub coordinates.
+            deposits.push_back((helpers::utils::hub0(&asset), received));
         }
     }
     if !deposits.is_empty() {
@@ -337,13 +339,14 @@ fn reconcile_debt_refunds(
         let refund = balance_delta(env, &token, prev);
         if refund > 0 {
             let debt_pos = load_debt_position(env, account, &debt_asset);
+            let hub_debt = helpers::utils::hub0(&debt_asset);
             repay_debt_from_controller(
                 env,
                 account,
                 cache,
                 caller,
                 StrategyRepay {
-                    debt_token: &debt_asset,
+                    debt: &hub_debt,
                     debt_available: refund,
                     debt_pos: &debt_pos,
                     action: events::PositionAction::Migrate,
@@ -354,12 +357,10 @@ fn reconcile_debt_refunds(
 }
 
 fn load_debt_position(env: &Env, account: &Account, debt_asset: &Address) -> DebtPosition {
+    // Migration borrows are opened on hub 0; the Blend debt list names tokens.
     let raw = account
         .borrow_positions
-        .get(HubAssetKey {
-            hub_id: 0,
-            asset: debt_asset.clone(),
-        })
+        .get(helpers::utils::hub0(debt_asset))
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     DebtPosition::from(&raw)
 }

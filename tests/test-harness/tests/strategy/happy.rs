@@ -1,6 +1,6 @@
 use controller::constants::WAD;
 use test_harness::{
-    apply_flash_fee, build_aggregator_swap, eth_preset, usdc_preset, usdt_stable_preset,
+    apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
     wbtc_preset, LendingTest, ALICE, BOB, STABLECOIN_EMODE,
 };
 
@@ -435,9 +435,9 @@ fn test_multiply_emode_stablecoin() {
         &caller,
         &0u64, // create new account
         &1u32, // e_mode_category = 1
-        &collateral_addr,
+        &hub_asset(collateral_addr.clone()),
         &1000_0000000i128, // borrow 1000 USDT
-        &debt_addr,
+        &hub_asset(debt_addr.clone()),
         &controller::types::PositionMode::Multiply, // mode = Multiply
         &steps,
         &None, // initial_payment

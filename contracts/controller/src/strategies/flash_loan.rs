@@ -6,12 +6,12 @@
 use crate::events::FlashLoanEvent;
 use common::errors::FlashLoanError;
 use common::math::fp::Bps;
+use controller_interface::types::HubAssetKey;
 use soroban_sdk::{assert_with_error, contractimpl, Address, Bytes, Env};
 use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::external::pool::pool_flash_loan_call;
-use crate::helpers::utils::hub0;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -20,7 +20,7 @@ impl Controller {
     pub fn flash_loan(
         env: Env,
         caller: Address,
-        asset: Address,
+        asset: HubAssetKey,
         amount: i128,
         receiver: Address,
         data: Bytes,
@@ -32,7 +32,7 @@ impl Controller {
 pub fn process_flash_loan(
     env: &Env,
     caller: &Address,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     amount: i128,
     receiver: &Address,
     data: &Bytes,
@@ -41,13 +41,13 @@ pub fn process_flash_loan(
 
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, amount);
+    validation::require_hub_active(env, hub_asset.hub_id);
 
     let mut cache = Cache::new(env);
-    let hub_asset = hub0(asset);
-    validation::require_market_active(env, &mut cache, &hub_asset);
+    validation::require_market_active(env, &mut cache, hub_asset);
 
     // Flash-loan eligibility and fee live on the pool market params.
-    let params = cache.cached_pool_sync_data(&hub_asset).params;
+    let params = cache.cached_pool_sync_data(hub_asset).params;
     assert_with_error!(
         env,
         params.is_flashloanable,
@@ -60,11 +60,11 @@ pub fn process_flash_loan(
 
     // Reentrancy guard.
     storage::with_flash_guard(env, || {
-        pool_flash_loan_call(env, &pool_addr, &hub_asset, caller, receiver, amount, fee, data);
+        pool_flash_loan_call(env, &pool_addr, hub_asset, caller, receiver, amount, fee, data);
     });
 
     FlashLoanEvent {
-        asset: asset.clone(),
+        asset: hub_asset.asset.clone(),
         receiver: receiver.clone(),
         caller: caller.clone(),
         amount,

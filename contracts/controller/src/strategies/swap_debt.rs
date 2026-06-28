@@ -19,9 +19,9 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 /// Parameters for `process_swap_debt`.
 pub struct SwapDebtParams<'a> {
     pub account_id: u64,
-    pub existing_debt_token: &'a Address,
+    pub existing_debt: &'a HubAssetKey,
     pub new_debt_amount: i128,
-    pub new_debt_token: &'a Address,
+    pub new_debt: &'a HubAssetKey,
     pub swap: &'a StrategySwap,
 }
 
@@ -32,9 +32,9 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        existing_debt_token: Address,
+        existing_debt: HubAssetKey,
         amount: i128,
-        new_debt_token: Address,
+        new_debt: HubAssetKey,
         swap: Bytes,
     ) {
         process_swap_debt(
@@ -42,9 +42,9 @@ impl Controller {
             &caller,
             SwapDebtParams {
                 account_id,
-                existing_debt_token: &existing_debt_token,
+                existing_debt: &existing_debt,
                 new_debt_amount: amount,
-                new_debt_token: &new_debt_token,
+                new_debt: &new_debt,
                 swap: &swap,
             },
         );
@@ -54,20 +54,26 @@ impl Controller {
 pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
-        existing_debt_token,
+        existing_debt,
         new_debt_amount,
-        new_debt_token,
+        new_debt,
         swap,
     } = params;
 
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // Full-coordinate compare so the same token may refinance across hubs; only
+    // an identical `(hub, asset)` debt is rejected.
     assert_with_error!(
         env,
-        existing_debt_token != new_debt_token,
+        existing_debt != new_debt,
         GenericError::AssetsAreTheSame
     );
+
+    // The repay leg settles on `existing_debt`'s hub; the borrow leg gates
+    // `new_debt`'s hub through the shared borrow path.
+    validation::require_hub_active(env, existing_debt.hub_id);
 
     let mut account = storage::get_account(env, account_id);
     crate::helpers::require_owner_or_delegate(env, account_id, caller);
@@ -76,29 +82,32 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 
     validation::require_positive_amount(env, new_debt_amount);
 
-    let existing_pos = load_existing_debt_position(env, &account, existing_debt_token);
+    let existing_pos = load_existing_debt_position(env, &account, existing_debt);
 
-    let extra_assets = soroban_sdk::vec![env, existing_debt_token.clone(), new_debt_token.clone()];
+    let extra_assets =
+        soroban_sdk::vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
-    // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after protocol fee.
-    let amount_received = open_strategy_borrow(
-        env,
-        &mut cache,
-        &mut account,
-        new_debt_token,
-        new_debt_amount,
-    );
+    // D{new_debt_token.decimals}{Token(new_debt_token)} net borrow received after
+    // protocol fee on `new_debt`'s hub market.
+    let amount_received =
+        open_strategy_borrow(env, &mut cache, &mut account, new_debt, new_debt_amount);
 
-    // D{new_debt_token.decimals}{Token(new_debt_token)} -> Token(existing_debt_token).
-    let swapped_amount = swap_tokens(
-        env,
-        caller,
-        new_debt_token,
-        amount_received,
-        existing_debt_token,
-        swap,
-    );
+    // Same underlying token (cross-hub refinance) needs no swap; otherwise route
+    // the borrowed token into the existing debt token.
+    let repay_amount = if new_debt.asset == existing_debt.asset {
+        amount_received
+    } else {
+        // D{new_debt_token.decimals}{Token(new_debt_token)} -> Token(existing_debt_token).
+        swap_tokens(
+            env,
+            caller,
+            &new_debt.asset,
+            amount_received,
+            &existing_debt.asset,
+            swap,
+        )
+    };
 
     // D{existing_debt_token.decimals}{Token(existing_debt_token)} repays old debt position.
     repay_debt_from_controller(
@@ -107,8 +116,8 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
         &mut cache,
         caller,
         StrategyRepay {
-            debt_token: existing_debt_token,
-            debt_available: swapped_amount,
+            debt: existing_debt,
+            debt_available: repay_amount,
             debt_pos: &existing_pos,
             action: events::PositionAction::SwDebtR,
         },
@@ -120,15 +129,11 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
 fn load_existing_debt_position(
     env: &Env,
     account: &Account,
-    existing_debt_token: &Address,
+    existing_debt: &HubAssetKey,
 ) -> DebtPosition {
-    let hub_debt = HubAssetKey {
-        hub_id: 0,
-        asset: existing_debt_token.clone(),
-    };
     let raw = account
         .borrow_positions
-        .get(hub_debt)
+        .get(existing_debt.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
     DebtPosition::from(&raw)
 }

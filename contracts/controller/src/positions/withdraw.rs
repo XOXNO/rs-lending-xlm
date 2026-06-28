@@ -39,7 +39,7 @@ pub(crate) enum SpokeRefresh {
 
 /// Per-call withdrawal inputs that travel together through the pipeline.
 pub(crate) struct WithdrawalRequest<'a> {
-    pub asset: &'a Address,
+    pub hub_asset: &'a HubAssetKey,
     pub amount: i128,
     pub position: &'a AccountPosition,
 }
@@ -247,13 +247,9 @@ pub fn execute_withdrawal(
     cache: &mut Cache,
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: req.asset.clone(),
-    };
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     entries.push_back(PoolWithdrawEntry {
-        action: make_pool_action(req.position, req.amount, hub_asset),
+        action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),
         protocol_fee: 0,
     });
     let results = settle_withdraw_entries(env, account, &caller, false, action, &entries, cache);

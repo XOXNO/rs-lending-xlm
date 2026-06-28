@@ -65,23 +65,25 @@ pub trait ControllerInterface {
         caller: Address,
         account_id: u64,
         spoke_id: u32,
-        collateral_token: Address,
+        collateral: HubAssetKey,
         debt_to_flash_loan: i128,
-        debt_token: Address,
+        debt: HubAssetKey,
         mode: PositionMode,
         swap: Bytes,
-        initial_payment: Option<(Address, i128)>,
+        initial_payment: Option<(HubAssetKey, i128)>,
         convert_swap: Option<Bytes>,
     ) -> u64;
 
     /// Swaps an existing debt asset into a new debt asset through the aggregator.
+    /// `existing_debt` and `new_debt` may sit on different hubs, refinancing the
+    /// debt from one hub to another.
     fn swap_debt(
         env: Env,
         caller: Address,
         account_id: u64,
-        existing_debt_token: Address,
+        existing_debt: HubAssetKey,
         amount: i128,
-        new_debt_token: Address,
+        new_debt: HubAssetKey,
         swap: Bytes,
     );
 
@@ -90,9 +92,9 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        current_collateral: Address,
+        current: HubAssetKey,
         amount: i128,
-        new_collateral: Address,
+        new: HubAssetKey,
         swap: Bytes,
     );
 
@@ -117,9 +119,9 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        collateral_token: Address,
+        collateral: HubAssetKey,
         collateral_amount: i128,
-        debt_token: Address,
+        debt: HubAssetKey,
         swap: Bytes,
         close_position: bool,
     );
@@ -128,7 +130,7 @@ pub trait ControllerInterface {
     fn flash_loan(
         env: Env,
         caller: Address,
-        asset: Address,
+        asset: HubAssetKey,
         amount: i128,
         receiver: Address,
         data: Bytes,

@@ -181,9 +181,9 @@ fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount()
     let zero = ctrl.try_repay_debt_with_collateral(
         &caller,
         &account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &0i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -192,9 +192,9 @@ fn test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount()
     let negative = ctrl.try_repay_debt_with_collateral(
         &caller,
         &account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &-1i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -442,9 +442,9 @@ fn test_swap_debt_wrong_account_owner() {
     let result = ctrl.try_swap_debt(
         &bob_addr,
         &alice_account_id,
-        &existing_addr,
+        &hub_asset(existing_addr.clone()),
         &10_0000000i128,
-        &new_addr,
+        &hub_asset(new_addr.clone()),
         &steps,
     );
     // Flatten Result<Result<(), Error>, InvokeError> so the code can assert.
@@ -482,9 +482,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_swap_debt(
             &alice,
             &account_id,
-            &eth,
+            &hub_asset(eth.clone()),
             &10_0000000i128,
-            &wbtc,
+            &hub_asset(wbtc.clone()),
             &steps,
         ),
     );
@@ -493,9 +493,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_swap_collateral(
             &alice,
             &account_id,
-            &usdc,
+            &hub_asset(usdc.clone()),
             &1_0000000i128,
-            &wbtc,
+            &hub_asset(wbtc.clone()),
             &steps,
         ),
     );
@@ -504,9 +504,9 @@ fn test_strategy_entrypoints_reject_missing_owner_auth() {
         ctrl.set_auths(&no_auths).try_repay_debt_with_collateral(
             &alice,
             &account_id,
-            &usdc,
+            &hub_asset(usdc.clone()),
             &1_0000000i128,
-            &eth,
+            &hub_asset(eth.clone()),
             &steps,
             &false,
         ),
@@ -532,9 +532,9 @@ fn test_repay_debt_with_collateral_wrong_account_owner() {
     let result = t.ctrl_client().try_repay_debt_with_collateral(
         &bob,
         &alice_account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1000_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -557,9 +557,9 @@ fn test_repay_debt_with_collateral_nonexistent_account() {
     let result = t.ctrl_client().try_repay_debt_with_collateral(
         &caller,
         &missing_account_id,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1000_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &steps,
         &false,
     );
@@ -590,9 +590,9 @@ fn test_swap_collateral_wrong_account_owner() {
     let result = ctrl.try_swap_collateral(
         &bob_addr,
         &alice_account_id,
-        &current_addr,
+        &hub_asset(current_addr.clone()),
         &1000_0000000i128,
-        &new_addr,
+        &hub_asset(new_addr.clone()),
         &steps,
     );
     let flat: Result<(), soroban_sdk::Error> = match result {

@@ -23,7 +23,7 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 /// Per-asset repayment inputs after the payer's transfer has been measured.
 pub(crate) struct RepaymentRequest<'a> {
-    pub asset: &'a Address,
+    pub hub_asset: &'a HubAssetKey,
     pub position: &'a DebtPosition,
     pub amount: i128,
 }
@@ -160,12 +160,8 @@ pub fn execute_repayment(
 ) -> PoolPositionMutation {
     let EventContext { caller, action } = ctx;
 
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: req.asset.clone(),
-    };
     let mut actions: Vec<PoolAction> = Vec::new(env);
-    actions.push_back(make_pool_action(req.position, req.amount, hub_asset));
+    actions.push_back(make_pool_action(req.position, req.amount, req.hub_asset.clone()));
     let results = settle_repay_actions(env, account, &caller, action, &actions, cache);
     validation::expect_invariant(env, results.get(0))
 }

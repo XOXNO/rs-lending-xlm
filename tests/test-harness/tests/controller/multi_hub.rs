@@ -7,12 +7,31 @@
 //! a hub's borrowable cash cannot be drawn by another hub.
 
 use controller::constants::RAY;
+use controller::types::{ControllerKey, DebtPositionRaw};
+use soroban_sdk::Map;
 use test_harness::{
-    amount_raw, usd, LendingTest, MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
+    amount_raw, usd, HubAssetKey, LendingTest, MarketPreset, DEFAULT_ASSET_CONFIG,
+    DEFAULT_MARKET_PARAMS,
 };
 use test_harness::{eth_preset, ALICE, BOB, CAROL};
 
 const SECONDS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
+
+/// Reads the account's scaled debt on `(hub_id, asset)`; `0` when the borrow
+/// position is absent (fully repaid positions are pruned from the map).
+fn borrow_scaled_on_hub(t: &LendingTest, account_id: u64, hub_id: u32, asset_name: &str) -> i128 {
+    let asset = t.resolve_asset(asset_name);
+    let key = HubAssetKey { hub_id, asset };
+    t.env.as_contract(&t.controller_address(), || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(account_id))
+            .and_then(|m| m.get(key))
+            .map(|p| p.scaled_amount_ray)
+            .unwrap_or(0)
+    })
+}
 
 /// USDC market with no seeded liquidity, so utilization is driven purely by the
 /// test's own supplies and borrows.
@@ -175,5 +194,81 @@ fn borrow_cannot_cross_hub_cash() {
     assert!(
         result.is_err(),
         "hub-0 borrow exceeding hub-0 cash must revert despite hub-1 liquidity"
+    );
+}
+
+// 4. swap_debt refinances a USDC debt from hub 0 to hub 1 (cross-hub). The
+// borrow leg settles on hub 1, the repay leg on hub 0; same underlying token so
+// the strategy nets without an aggregator swap.
+#[test]
+fn swap_debt_refinances_debt_across_hubs() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_no_seed())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    let hub1 = t.create_hub();
+    // Hub 1 USDC must hold cash for the refinancing borrow.
+    t.list_market_on_hub(hub1, "USDC", 100_000.0);
+
+    // Hub 0: Alice self-collateralizes USDC and opens a USDC debt.
+    let account_id = t.supply_on_hub(0, ALICE, "USDC", 1_000.0);
+    t.borrow_on_hub(0, ALICE, account_id, "USDC", 300.0);
+
+    assert!(
+        borrow_scaled_on_hub(&t, account_id, 0, "USDC") > 0,
+        "precondition: hub-0 USDC debt exists"
+    );
+    assert_eq!(
+        borrow_scaled_on_hub(&t, account_id, hub1, "USDC"),
+        0,
+        "precondition: no hub-1 USDC debt yet"
+    );
+
+    // Refinance: borrow USDC on hub 1, repay the hub-0 USDC debt. A small buffer
+    // above the 300 debt absorbs the flash fee; the over-repay is refunded.
+    let usdc = t.resolve_asset("USDC");
+    let existing_debt = HubAssetKey {
+        hub_id: 0,
+        asset: usdc.clone(),
+    };
+    let new_debt = HubAssetKey {
+        hub_id: hub1,
+        asset: usdc.clone(),
+    };
+    let caller = t.get_or_create_user(ALICE);
+    // Same-token net path never executes the swap; the payload is inert.
+    let steps = t.mock_swap_steps("USDC", "USDC", usd(1));
+    let new_debt_raw = amount_raw(305.0, 7);
+    t.ctrl_client().swap_debt(
+        &caller,
+        &account_id,
+        &existing_debt,
+        &new_debt_raw,
+        &new_debt,
+        &steps,
+    );
+
+    // The debt moved hubs: hub-0 USDC debt is cleared, hub-1 USDC debt carries it.
+    assert_eq!(
+        borrow_scaled_on_hub(&t, account_id, 0, "USDC"),
+        0,
+        "hub-0 USDC debt is fully repaid by the refinance"
+    );
+    assert!(
+        borrow_scaled_on_hub(&t, account_id, hub1, "USDC") > 0,
+        "hub-1 USDC debt now carries the refinanced position"
+    );
+
+    // The two markets reflect the move: hub-0 borrowed drains to zero, hub-1
+    // borrowed becomes non-zero.
+    assert_eq!(
+        t.pool_state_on_hub(0, "USDC").borrowed_ray,
+        0,
+        "hub-0 USDC market has no borrows after the refinance"
+    );
+    assert!(
+        t.pool_state_on_hub(hub1, "USDC").borrowed_ray > 0,
+        "hub-1 USDC market holds the refinanced borrow"
     );
 }

@@ -19,9 +19,9 @@ use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 /// Parameters for `process_repay_debt_with_collateral`.
 pub struct RepayWithCollateralParams<'a> {
     pub account_id: u64,
-    pub collateral_token: &'a Address,
+    pub collateral: &'a HubAssetKey,
     pub collateral_amount: i128,
-    pub debt_token: &'a Address,
+    pub debt: &'a HubAssetKey,
     pub swap: &'a StrategySwap,
     pub close_position: bool,
 }
@@ -33,9 +33,9 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        collateral_token: Address,
+        collateral: HubAssetKey,
         collateral_amount: i128,
-        debt_token: Address,
+        debt: HubAssetKey,
         swap: Bytes,
         close_position: bool,
     ) {
@@ -44,9 +44,9 @@ impl Controller {
             &caller,
             RepayWithCollateralParams {
                 account_id,
-                collateral_token: &collateral_token,
+                collateral: &collateral,
                 collateral_amount,
-                debt_token: &debt_token,
+                debt: &debt,
                 swap: &swap,
                 close_position,
             },
@@ -61,9 +61,9 @@ pub fn process_repay_debt_with_collateral(
 ) {
     let RepayWithCollateralParams {
         account_id,
-        collateral_token,
+        collateral,
         collateral_amount,
-        debt_token,
+        debt,
         swap,
         close_position,
     } = params;
@@ -72,15 +72,20 @@ pub fn process_repay_debt_with_collateral(
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, collateral_amount);
 
+    // The withdraw and repay legs settle on their own hubs; neither path gates
+    // hub membership, so assert it here.
+    validation::require_hub_active(env, collateral.hub_id);
+    validation::require_hub_active(env, debt.hub_id);
+
     let mut account = storage::get_account(env, account_id);
     crate::helpers::require_owner_or_delegate(env, account_id, caller);
 
     let mut cache = Cache::new(env);
 
     let (collateral_pos, debt_pos) =
-        load_repay_with_collateral_positions(env, &account, collateral_token, debt_token);
+        load_repay_with_collateral_positions(env, &account, collateral, debt);
 
-    let extra_assets = soroban_sdk::vec![env, collateral_token.clone(), debt_token.clone()];
+    let extra_assets = soroban_sdk::vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_oracles(&mut cache, &account, &extra_assets);
 
     // D{collateral_token.decimals}{Token(collateral_token)} requested withdrawal to live balance delta.
@@ -89,7 +94,7 @@ pub fn process_repay_debt_with_collateral(
         &mut account,
         &mut cache,
         StrategyWithdraw {
-            asset: collateral_token,
+            hub_asset: collateral,
             amount: collateral_amount,
             position: &collateral_pos,
             action: events::PositionAction::RpColWd,
@@ -97,21 +102,15 @@ pub fn process_repay_debt_with_collateral(
     );
 
     // D{collateral_token.decimals}{Token(collateral_token)} -> Token(debt_token), unless same asset.
-    let debt_available = swap_or_net_collateral_to_debt(
-        env,
-        caller,
-        collateral_token,
-        debt_token,
-        actual_withdrawn,
-        swap,
-    );
+    let debt_available =
+        swap_or_net_collateral_to_debt(env, caller, collateral, debt, actual_withdrawn, swap);
     repay_debt_from_controller(
         env,
         &mut account,
         &mut cache,
         caller,
         StrategyRepay {
-            debt_token,
+            debt,
             debt_available,
             debt_pos: &debt_pos,
             action: events::PositionAction::RpColR,
@@ -126,22 +125,16 @@ pub fn process_repay_debt_with_collateral(
 fn load_repay_with_collateral_positions(
     env: &Env,
     account: &Account,
-    collateral_token: &Address,
-    debt_token: &Address,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
 ) -> (AccountPosition, DebtPosition) {
     let collateral_pos = account
         .supply_positions
-        .get(HubAssetKey {
-            hub_id: 0,
-            asset: collateral_token.clone(),
-        })
+        .get(collateral.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::CollateralPositionNotFound));
     let debt_pos = account
         .borrow_positions
-        .get(HubAssetKey {
-            hub_id: 0,
-            asset: debt_token.clone(),
-        })
+        .get(debt.clone())
         .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound));
 
     ((&collateral_pos).into(), (&debt_pos).into())
@@ -150,21 +143,21 @@ fn load_repay_with_collateral_positions(
 fn swap_or_net_collateral_to_debt(
     env: &Env,
     caller: &Address,
-    collateral_token: &Address,
-    debt_token: &Address,
+    collateral: &HubAssetKey,
+    debt: &HubAssetKey,
     collateral_amount: i128,
     swap: &StrategySwap,
 ) -> i128 {
-    if collateral_token == debt_token {
+    if collateral.asset == debt.asset {
         return collateral_amount;
     }
 
     swap_tokens(
         env,
         caller,
-        collateral_token,
+        &collateral.asset,
         collateral_amount,
-        debt_token,
+        &debt.asset,
         swap,
     )
 }

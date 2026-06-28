@@ -5,8 +5,8 @@ use soroban_sdk::token;
 use soroban_sdk::Address;
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, tokens, usd,
-    usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
+    tokens, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
 };
 
 use crate::helpers::build_swap_steps;
@@ -310,12 +310,12 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
         &alice,
         &0u64,
         &0u32,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((wbtc, 100_000i128)),
+        &Some((hub_asset(wbtc), 100_000i128)),
         &None, // <- key: no convert_steps for third-token payment
     );
     assert_contract_error(flatten(result), errors::CONVERT_STEPS_REQUIRED);
@@ -347,9 +347,9 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         &alice,
         &account_id,
         &0u32,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Long, // mismatch
         &steps,
         &None,
@@ -511,12 +511,12 @@ fn test_multiply_with_collateral_token_initial_payment() {
         &alice,
         &0u64,
         &0u32,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1_0000000i128, // 1 ETH flash debt
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps,
-        &Some((usdc.clone(), 500_0000000i128)), // 500 USDC initial payment
+        &Some((hub_asset(usdc.clone()), 500_0000000i128)), // 500 USDC initial payment
         &None,
     );
 
@@ -590,12 +590,12 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
         &alice,
         &0u64,
         &0u32,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &main_steps,
-        &Some((wbtc, 10_000_000i128)),
+        &Some((hub_asset(wbtc), 10_000_000i128)),
         &Some(convert_steps),
     );
 
@@ -745,9 +745,9 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         &bob,
         &alice_account, // Bob points at Alice's account_id
         &0u32,
-        &usdc,
+        &hub_asset(usdc.clone()),
         &1_0000000i128,
-        &eth,
+        &hub_asset(eth.clone()),
         &controller::types::PositionMode::Multiply,
         &steps2,
         &None,

@@ -180,19 +180,19 @@ fn merge_borrow_result(
     update_or_remove_debt_position(account, hub_asset, &position);
 }
 
-/// Creates strategy debt in the pool through the shared borrow gates and
-/// returns the asset amount received by the controller.
+/// Creates strategy debt on `hub_debt`'s market through the shared borrow gates
+/// and returns the asset amount received by the controller.
 pub fn borrow_for_strategy(
     env: &Env,
     account: &mut Account,
-    debt_token: &Address,
+    hub_debt: &HubAssetKey,
     amount: i128,
     cache: &mut Cache,
 ) -> i128 {
     borrow_strategy_inner(
         env,
         account,
-        debt_token,
+        hub_debt,
         amount,
         cache,
         None,
@@ -200,8 +200,8 @@ pub fn borrow_for_strategy(
     )
 }
 
-/// Zero-fee strategy borrow used by Blend migration.
-/// Other strategy borrows defer solvency to `strategy_finalize`.
+/// Zero-fee strategy borrow used by Blend migration. Migration opens controller
+/// debt on hub 0. Other strategy borrows defer solvency to `strategy_finalize`.
 pub fn borrow_for_migration(
     env: &Env,
     account: &mut Account,
@@ -212,7 +212,7 @@ pub fn borrow_for_migration(
     borrow_strategy_inner(
         env,
         account,
-        debt_token,
+        &utils::hub0(debt_token),
         amount,
         cache,
         Some(0),
@@ -226,16 +226,13 @@ pub fn borrow_for_migration(
 fn borrow_strategy_inner(
     env: &Env,
     account: &mut Account,
-    debt_token: &Address,
+    hub_debt: &HubAssetKey,
     amount: i128,
     cache: &mut Cache,
     fee_override: Option<i128>,
     event_action: events::PositionAction,
 ) -> i128 {
-    let hub_debt = HubAssetKey {
-        hub_id: 0,
-        asset: debt_token.clone(),
-    };
+    let hub_debt = hub_debt.clone();
     let mut payments: AggregatedPayments = Vec::new(env);
     payments.push_back((hub_debt.clone(), amount));
     let aggregated = utils::aggregate_positive_payments(env, &payments);

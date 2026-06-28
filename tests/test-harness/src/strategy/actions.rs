@@ -1,7 +1,7 @@
 use controller::types::{PositionMode, StrategySwap};
 
 use crate::core::{AccountEntry, LendingTest};
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset};
 use crate::strategy::swap::mock_swap_payload_xdr;
 
 impl LendingTest {
@@ -47,17 +47,17 @@ impl LendingTest {
         let debt_decimals = self.resolve_market(debt_asset).decimals;
         let raw_debt = f64_to_i128(debt_amount, debt_decimals);
         let caller_addr = self.get_or_create_user(user);
-        let collateral_addr = self.resolve_asset(collateral_asset);
-        let debt_addr = self.resolve_asset(debt_asset);
+        let collateral = hub_asset(self.resolve_asset(collateral_asset));
+        let debt = hub_asset(self.resolve_asset(debt_asset));
 
         let ctrl = self.ctrl_client();
         let account_id = ctrl.multiply(
             &caller_addr,
             &0u64,
             &0u32,
-            &collateral_addr,
+            &collateral,
             &raw_debt,
-            &debt_addr,
+            &debt,
             &mode,
             steps,
             &None,
@@ -92,17 +92,17 @@ impl LendingTest {
         let debt_decimals = self.resolve_market(debt_asset).decimals;
         let raw_debt = f64_to_i128(debt_amount, debt_decimals);
         let caller_addr = self.get_or_create_user(user);
-        let collateral_addr = self.resolve_asset(collateral_asset);
-        let debt_addr = self.resolve_asset(debt_asset);
+        let collateral = hub_asset(self.resolve_asset(collateral_asset));
+        let debt = hub_asset(self.resolve_asset(debt_asset));
 
         let ctrl = self.ctrl_client();
         match ctrl.try_multiply(
             &caller_addr,
             &0u64,
             &category,
-            &collateral_addr,
+            &collateral,
             &raw_debt,
-            &debt_addr,
+            &debt,
             &mode,
             steps,
             &None,
@@ -156,13 +156,13 @@ impl LendingTest {
     ) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
-        let existing_addr = self.resolve_asset(existing_debt);
-        let new_addr = self.resolve_asset(new_debt);
+        let existing = hub_asset(self.resolve_asset(existing_debt));
+        let new = hub_asset(self.resolve_asset(new_debt));
         let decimals = self.resolve_market(new_debt).decimals;
         let raw = f64_to_i128(new_amount, decimals);
 
         self.ctrl_client()
-            .swap_debt(&addr, &account_id, &existing_addr, &raw, &new_addr, steps);
+            .swap_debt(&addr, &account_id, &existing, &raw, &new, steps);
     }
 
     pub fn try_swap_debt(
@@ -175,17 +175,17 @@ impl LendingTest {
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
-        let existing_addr = self.resolve_asset(existing_debt);
-        let new_addr = self.resolve_asset(new_debt);
+        let existing = hub_asset(self.resolve_asset(existing_debt));
+        let new = hub_asset(self.resolve_asset(new_debt));
         let decimals = self.resolve_market(new_debt).decimals;
         let raw = f64_to_i128(new_amount, decimals);
 
         match self.ctrl_client().try_swap_debt(
             &addr,
             &account_id,
-            &existing_addr,
+            &existing,
             &raw,
-            &new_addr,
+            &new,
             steps,
         ) {
             Ok(Ok(())) => Ok(()),
@@ -204,17 +204,17 @@ impl LendingTest {
     ) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
-        let current_addr = self.resolve_asset(current_collateral);
-        let new_addr = self.resolve_asset(new_collateral);
+        let current = hub_asset(self.resolve_asset(current_collateral));
+        let new = hub_asset(self.resolve_asset(new_collateral));
         let decimals = self.resolve_market(current_collateral).decimals;
         let raw = f64_to_i128(amount, decimals);
 
         self.ctrl_client().swap_collateral(
             &addr,
             &account_id,
-            &current_addr,
+            &current,
             &raw,
-            &new_addr,
+            &new,
             steps,
         );
     }
@@ -229,17 +229,17 @@ impl LendingTest {
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
-        let current_addr = self.resolve_asset(current_collateral);
-        let new_addr = self.resolve_asset(new_collateral);
+        let current = hub_asset(self.resolve_asset(current_collateral));
+        let new = hub_asset(self.resolve_asset(new_collateral));
         let decimals = self.resolve_market(current_collateral).decimals;
         let raw = f64_to_i128(amount, decimals);
 
         match self.ctrl_client().try_swap_collateral(
             &addr,
             &account_id,
-            &current_addr,
+            &current,
             &raw,
-            &new_addr,
+            &new,
             steps,
         ) {
             Ok(Ok(())) => Ok(()),
@@ -259,17 +259,17 @@ impl LendingTest {
     ) {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
-        let collateral_addr = self.resolve_asset(collateral_asset);
-        let debt_addr = self.resolve_asset(debt_asset);
+        let collateral = hub_asset(self.resolve_asset(collateral_asset));
+        let debt = hub_asset(self.resolve_asset(debt_asset));
         let decimals = self.resolve_market(collateral_asset).decimals;
         let raw = f64_to_i128(collateral_amount, decimals);
 
         self.ctrl_client().repay_debt_with_collateral(
             &addr,
             &account_id,
-            &collateral_addr,
+            &collateral,
             &raw,
-            &debt_addr,
+            &debt,
             steps,
             &close_position,
         );
@@ -286,17 +286,17 @@ impl LendingTest {
     ) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         let addr = self.users.get(user).unwrap().address.clone();
-        let collateral_addr = self.resolve_asset(collateral_asset);
-        let debt_addr = self.resolve_asset(debt_asset);
+        let collateral = hub_asset(self.resolve_asset(collateral_asset));
+        let debt = hub_asset(self.resolve_asset(debt_asset));
         let decimals = self.resolve_market(collateral_asset).decimals;
         let raw = f64_to_i128(collateral_amount, decimals);
 
         match self.ctrl_client().try_repay_debt_with_collateral(
             &addr,
             &account_id,
-            &collateral_addr,
+            &collateral,
             &raw,
-            &debt_addr,
+            &debt,
             steps,
             &close_position,
         ) {
