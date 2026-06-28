@@ -47,7 +47,13 @@ deploy_protocol() {
         inv set_pool_template "$ADMIN" "$CONTROLLER" -- set_liquidity_pool_template --hash "$POOL_HASH" >/dev/null \
             || die set_pool_template "set_liquidity_pool_template failed after $INV_MAX_ATTEMPTS attempts"
         local pool
-        pool=$(inv deploy_pool "$ADMIN" "$CONTROLLER" -- deploy_pool | tr -d '"\n')
+        # deploy_pool reads the template set_pool_template just wrote; a lagging
+        # RPC replica that has not synced that write panics TemplateNotSet (#26).
+        # The write committed, so re-simulate the contract error with backoff
+        # until the replica catches up (same read-after-write handling as
+        # create_market) — a genuinely unset template recurs and dies below.
+        pool=$(INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #26\)' \
+            inv deploy_pool "$ADMIN" "$CONTROLLER" -- deploy_pool | tr -d '"\n')
         is_contract_id "$pool" || die deploy_pool "central pool deploy produced no id after $INV_MAX_ATTEMPTS attempts"
         save_state POOL "$pool"
         log "central pool = $pool"

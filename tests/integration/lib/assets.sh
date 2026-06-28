@@ -105,6 +105,16 @@ trustline() {
 #   mint_to <sac-id> <CODE> <to-G-address> <amount>
 mint_to() {
     local sac="$1" code="$2" to="$3" amount="$4"
+    # Idempotent under resume: skip when the holder already holds at least this
+    # mint's amount — a re-run of an interrupted setup would otherwise double the
+    # balance and burn a fee. balance() is empty/0 on a fresh holder, so first
+    # runs still mint; _uint_ge (from assert.sh) compares without 64-bit overflow.
+    local bal
+    bal=$(balance "$sac" "$to" 2>/dev/null)
+    if [[ "$bal" =~ ^[0-9]+$ ]] && _uint_ge "$bal" "$amount"; then
+        record "mint_${code}_to_${to:0:6}" ok mint "" "" "" "" "" "holder already funded (resume); skipping mint"
+        return 0
+    fi
     INV_TRANSIENT_CONTRACT_RE='trustline entry is missing' \
         inv "mint_${code}_to_${to:0:6}" "$ADMIN" "$sac" -- mint --to "$to" --amount "$amount" >/dev/null
 }
