@@ -24,6 +24,30 @@ fn sample_raw_params(env: &Env) -> MarketParamsRaw {
 }
 
 #[test]
+fn test_hub_asset_key_equal_when_hub_and_asset_match() {
+    let env = Env::default();
+    let a = asset(&env);
+    let lhs = HubAssetKey {
+        hub_id: 0,
+        asset: a.clone(),
+    };
+    let rhs = HubAssetKey { hub_id: 0, asset: a };
+    assert_eq!(lhs, rhs);
+}
+
+#[test]
+fn test_hub_asset_key_unequal_when_hub_id_differs() {
+    let env = Env::default();
+    let a = asset(&env);
+    let lhs = HubAssetKey {
+        hub_id: 0,
+        asset: a.clone(),
+    };
+    let rhs = HubAssetKey { hub_id: 1, asset: a };
+    assert_ne!(lhs, rhs);
+}
+
+#[test]
 fn test_market_params_raw_typed_roundtrip() {
     let env = Env::default();
     let raw = sample_raw_params(&env);

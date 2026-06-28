@@ -403,7 +403,18 @@ pub struct PoolSyncData {
     pub state: PoolStateRaw,
 }
 
-/// Persistent storage keys of the central pool, keyed by market asset.
+/// Coordinate addressing one asset's liquidity within a specific hub.
+///
+/// `hub_id` namespaces isolated liquidity; the same `asset` on two hubs is two
+/// independent markets that never net or cross-socialize.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubAssetKey {
+    pub hub_id: u32,
+    pub asset: Address,
+}
+
+/// Persistent storage keys of the central pool, keyed by hub-asset coordinate.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
