@@ -247,6 +247,7 @@ impl LendingTestBuilder {
             let pool_address_val = gov.execute_immediate(
                 &admin,
                 &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+                    hub_id: 0,
                     asset: asset_address.clone(),
                     params: market_params,
                     config: asset_config,

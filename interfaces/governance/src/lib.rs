@@ -42,6 +42,7 @@ pub struct RemoveAssetFromSpokeArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct CreatePoolArgs {
+    pub hub_id: u32,
     pub asset: Address,
     pub params: MarketParamsRaw,
     pub config: SpokeAssetConfig,

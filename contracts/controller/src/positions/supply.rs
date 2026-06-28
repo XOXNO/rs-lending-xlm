@@ -128,7 +128,8 @@ fn validate_deposit(
     );
 
     for (hub_asset, _) in aggregated {
-        validation::require_market_active(env, cache, &hub_asset.asset);
+        validation::require_hub_active(env, hub_asset.hub_id);
+        validation::require_market_active(env, cache, &hub_asset);
 
         let asset_config = configs.get(env, &hub_asset);
 

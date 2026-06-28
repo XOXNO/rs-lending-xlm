@@ -23,6 +23,7 @@ mod liquidation_mixed_decimal;
 mod liquidation_ratchet;
 mod max_utilization;
 mod min_borrow_collateral;
+mod multi_hub;
 mod ownership;
 mod repay;
 

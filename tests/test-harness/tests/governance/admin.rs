@@ -18,6 +18,7 @@ fn test_create_liquidity_pool_rejects_token_without_symbol() {
     let result = match gov.try_execute_immediate(
         &admin,
         &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+            hub_id: 0,
             asset: sac.clone(),
             params,
             config,
@@ -42,6 +43,7 @@ fn test_create_liquidity_pool_rejects_unregistered_token() {
     let result = match gov.try_execute_immediate(
         &admin,
         &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+            hub_id: 0,
             asset: asset.clone(),
             params,
             config,

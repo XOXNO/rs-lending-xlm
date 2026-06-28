@@ -239,7 +239,7 @@ fn test_set_market_oracle_config_activates_pending_market() {
     let params = usdc_preset().params.to_market_params(&asset, 7);
     let config = usdc_preset().config.to_asset_config(&t.env, 7);
     ctrl.approve_token(&asset);
-    ctrl.create_liquidity_pool(&asset, &params, &config);
+    ctrl.create_liquidity_pool(&0u32, &asset, &params, &config);
     assert!(
         !t.market_is_active(&asset),
         "market must start in PendingOracle"
@@ -404,7 +404,7 @@ fn test_create_liquidity_pool_uniqueness() {
 
     // USDC was already initialized by the builder.
     // Calling create_liquidity_pool again should fail with AssetAlreadySupported.
-    let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
@@ -431,7 +431,7 @@ fn test_market_initialization_cascade() {
 
     // 1. Create the liquidity pool with no oracle; the call succeeds and
     //    leaves the market in PendingOracle.
-    ctrl.create_liquidity_pool(&asset, &params, &config);
+    ctrl.create_liquidity_pool(&0u32, &asset, &params, &config);
 
     // Confirm the market is pending (no oracle yet).
     assert!(

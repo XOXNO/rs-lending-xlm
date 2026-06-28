@@ -113,7 +113,7 @@ fn validate_liquidation_inputs(
     );
 
     for (hub_asset, _) in aggregated.iter() {
-        validation::require_asset_supported(env, cache, &hub_asset.asset);
+        validation::require_asset_supported(env, cache, &hub_asset);
     }
 }
 

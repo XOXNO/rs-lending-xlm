@@ -266,7 +266,7 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
         let asset = validation::expect_invariant(env, assets.get(i));
         // Panics on unsupported assets; pool address is resolved per-row, so the
         // view is safe on empty input.
-        validation::require_asset_supported(env, &mut cache, &asset);
+        validation::require_asset_supported(env, &mut cache, &hub0(&asset));
         let pool_address = cache.cached_pool_address();
         // dimensional: price_wad is Wad<USD/asset> raw.
         let final_price = token_price(&mut cache, &asset).price_wad;

@@ -11,6 +11,10 @@ use crate::positions::AggregatedPayments;
 
 use crate::{cache::Cache, helpers, storage};
 
+/// Hub-active gate, defined in `governance::config` beside the hub lifecycle and
+/// surfaced here so position flows call it alongside the other `require_*` gates.
+pub(crate) use crate::governance::config::require_hub_active;
+
 /// Unwraps a controller-built value or panics with `InternalError`.
 /// Missing values indicate corrupted storage or caller logic bugs after checks.
 #[inline]
@@ -18,28 +22,25 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// A listed/supported asset is one with a base listing `SpokeAsset(0, asset)`.
-/// Panics `AssetNotSupported` otherwise.
-pub fn require_asset_supported(env: &Env, _cache: &mut Cache, asset: &Address) {
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
+/// A listed/supported asset has a base listing `SpokeAsset(0, hub_asset)` on its
+/// own hub. Panics `AssetNotSupported` otherwise.
+pub fn require_asset_supported(env: &Env, _cache: &mut Cache, hub_asset: &HubAssetKey) {
     assert_with_error!(
         env,
-        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
+        storage::get_spoke_asset(env, 0, hub_asset).is_some(),
         GenericError::AssetNotSupported
     );
 }
 
 /// An active asset is supported and has a token-rooted `AssetOracle` entry;
-/// oracle absence is the pending/disabled signal. Panics `PairNotActive` when
-/// supported but not yet (or no longer) oracle-configured.
-pub fn require_market_active(env: &Env, cache: &mut Cache, asset: &Address) {
-    require_asset_supported(env, cache, asset);
+/// oracle absence is the pending/disabled signal. The oracle is keyed by token
+/// (hub-independent), so the check reads `AssetOracle(hub_asset.asset)`. Panics
+/// `PairNotActive` when supported but not yet (or no longer) oracle-configured.
+pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetKey) {
+    require_asset_supported(env, cache, hub_asset);
     assert_with_error!(
         env,
-        storage::get_asset_oracle(env, asset).is_some(),
+        storage::get_asset_oracle(env, &hub_asset.asset).is_some(),
         GenericError::PairNotActive
     );
 }

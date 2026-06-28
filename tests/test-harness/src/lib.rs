@@ -11,6 +11,7 @@ mod flash_loan;
 pub mod helpers;
 mod keeper;
 mod liquidation;
+mod multi_hub;
 pub mod oracle;
 pub mod prelude;
 pub mod presets;

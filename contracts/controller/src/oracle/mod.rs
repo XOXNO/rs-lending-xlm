@@ -45,8 +45,10 @@ pub use price::token_price;
 pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
     // Reject unlisted assets with `AssetNotSupported`; `resolve_oracle_config`
     // then panics `OracleNotConfigured` for a listed-but-pending/disabled asset.
+    // The price is token-rooted (hub-independent), so listing on the general hub
+    // is the supported gate.
     let env = cache.env().clone();
-    crate::validation::require_asset_supported(&env, cache, asset);
+    crate::validation::require_asset_supported(&env, cache, &crate::helpers::utils::hub0(asset));
     let configs = cache.resolve_oracle_config(asset);
     compose::resolve_components(cache, &configs)
 }

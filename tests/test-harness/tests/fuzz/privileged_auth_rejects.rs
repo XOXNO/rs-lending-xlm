@@ -209,7 +209,7 @@ proptest! {
                 borrow_cap: 0,
                 oracle_override: controller::types::MarketOracleConfigOption::None,
             };
-            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&usdc, &params, &config)
+            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&0u32, &usdc, &params, &config)
         }).unwrap();
 
         let empty_assets: SVec<Address> = SVec::new(&env);

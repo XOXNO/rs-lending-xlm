@@ -71,11 +71,12 @@ impl Controller {
     #[only_owner]
     pub fn create_liquidity_pool(
         env: Env,
+        hub_id: u32,
         asset: Address,
         params: MarketParamsRaw,
         config: SpokeAssetConfig,
     ) -> Address {
-        create_liquidity_pool(&env, &asset, &params, &config)
+        create_liquidity_pool(&env, hub_id, &asset, &params, &config)
     }
 
     #[only_owner]
@@ -137,23 +138,26 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
     for asset in assets {
         // Unlisted assets must still fail with AssetNotSupported; the shared
         // pool address carries no per-asset existence check.
-        validation::require_asset_supported(env, cache, &asset);
+        validation::require_asset_supported(env, cache, &utils::hub0(&asset));
         pool_update_indexes_call(env, &pool_addr, &utils::hub0(&asset));
     }
 }
 
-/// Lists the asset on the general spoke 0 and registers its market on the
-/// central pool. The asset stays inactive (unpriceable) until
-/// `set_market_oracle_config` writes its `AssetOracle` entry. Consumes the
-/// token approval.
+/// Lists the asset on the general spoke 0 of `hub_id` and registers its market
+/// on the central pool under that hub. The asset stays inactive (unpriceable)
+/// until `set_market_oracle_config` writes its token-rooted `AssetOracle` entry.
+/// Consumes the token approval.
 pub fn create_liquidity_pool(
     env: &Env,
+    hub_id: u32,
     asset: &Address,
     params: &MarketParamsRaw,
     config: &SpokeAssetConfig,
 ) -> Address {
+    validation::require_hub_active(env, hub_id);
+
     let hub_asset = HubAssetKey {
-        hub_id: 0,
+        hub_id,
         asset: asset.clone(),
     };
     assert_with_error!(
@@ -170,10 +174,9 @@ pub fn create_liquidity_pool(
 
     let pool_address = storage::get_pool(env);
     // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
-    // Hub 0 (general hub) hosts every current listing; Task 2.3 threads a real hub id.
-    pool_create_market_call(env, &pool_address, 0, params);
+    pool_create_market_call(env, &pool_address, hub_id, params);
 
-    // The general spoke 0 holds every listed asset's base risk config.
+    // The general spoke 0 holds every listed (hub, asset)'s base risk config.
     storage::set_spoke_asset(env, 0, &hub_asset, config);
 
     storage::renew_controller_instance(env);
@@ -210,7 +213,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     );
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
-    validation::require_asset_supported(env, &mut cache, asset);
+    validation::require_asset_supported(env, &mut cache, &utils::hub0(asset));
     // The forward invariant (spoke cap <= hub cap) is enforced when each spoke
     // asset is configured. Spoke listings are not enumerable from an asset, so
     // the reverse check at cap-update time is dropped; at runtime the hub gate
@@ -224,7 +227,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
 
-    validation::require_asset_supported(env, &mut cache, asset);
+    validation::require_asset_supported(env, &mut cache, &utils::hub0(asset));
 
     let pool_addr = cache.cached_pool_address();
 
@@ -251,7 +254,7 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 }
 
 fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Cache) -> i128 {
-    validation::require_asset_supported(env, cache, asset);
+    validation::require_asset_supported(env, cache, &utils::hub0(asset));
 
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
@@ -289,7 +292,7 @@ pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sd
 /// Transfers rewards into a pool and increases the supply index for suppliers.
 pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, cache: &mut Cache) {
     // dimensional: amount is Token(asset) reward in asset-native units.
-    validation::require_asset_supported(env, cache, asset);
+    validation::require_asset_supported(env, cache, &utils::hub0(asset));
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
@@ -347,7 +350,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let assets = account.supply_positions.keys();
 
     for hub_asset in assets.iter() {
-        validation::require_asset_supported(env, cache, &hub_asset.asset);
+        validation::require_asset_supported(env, cache, &hub_asset);
 
         let asset_config =
             emode::effective_or_base_asset_config(env, cache, account.spoke_id, &hub_asset);

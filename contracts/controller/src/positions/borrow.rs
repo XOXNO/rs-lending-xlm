@@ -80,7 +80,8 @@ fn validate_borrow(
         aggregated,
     );
     for (hub_asset, _) in aggregated {
-        validation::require_market_active(env, cache, &hub_asset.asset);
+        validation::require_hub_active(env, hub_asset.hub_id);
+        validation::require_market_active(env, cache, &hub_asset);
         let asset_config = configs.get(env, &hub_asset);
         emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.

@@ -190,9 +190,8 @@ pub fn create_hub(env: &Env) -> u32 {
 
 /// Gates use of a hub. Hub 0 is the implicit default and is always active
 /// without a registry read; any higher id must resolve to an active `Hub`
-/// entry. Consumed by the (hub, asset) market and position flows in a later
-/// phase, hence currently uncalled outside tests.
-#[allow(dead_code)] // Wired into market/position flows in a later phase.
+/// entry. Wired into market creation (`create_liquidity_pool`) and the
+/// supply/borrow validate paths via `validation::require_hub_active`.
 pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
     if hub_id == 0 {
         return;

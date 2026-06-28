@@ -43,9 +43,9 @@ pub fn process_flash_loan(
     validation::require_positive_amount(env, amount);
 
     let mut cache = Cache::new(env);
-    validation::require_market_active(env, &mut cache, asset);
-
     let hub_asset = hub0(asset);
+    validation::require_market_active(env, &mut cache, &hub_asset);
+
     // Flash-loan eligibility and fee live on the pool market params.
     let params = cache.cached_pool_sync_data(&hub_asset).params;
     assert_with_error!(

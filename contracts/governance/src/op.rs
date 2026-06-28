@@ -238,6 +238,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "create_liquidity_pool"),
                 vec![
                     env,
+                    args.hub_id.into_val(env),
                     args.asset.clone().into_val(env),
                     args.params.clone().into_val(env),
                     args.config.clone().into_val(env),

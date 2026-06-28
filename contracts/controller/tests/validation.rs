@@ -45,7 +45,7 @@ fn require_asset_supported_passes_for_listed_asset() {
     env.as_contract(&contract, || {
         list_on_spoke_zero(&env, &asset);
         let mut cache = Cache::new_view(&env);
-        require_asset_supported(&env, &mut cache, &asset);
+        require_asset_supported(&env, &mut cache, &hub(&asset));
     });
 }
 
@@ -57,7 +57,7 @@ fn require_asset_supported_panics_for_unlisted_asset() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut cache = Cache::new_view(&env);
-        require_asset_supported(&env, &mut cache, &asset);
+        require_asset_supported(&env, &mut cache, &hub(&asset));
     });
 }
 
@@ -71,7 +71,7 @@ fn require_market_active_passes_with_oracle() {
         let oracle: MarketOracleConfig = MarketOracleConfig::pending_for(asset.clone(), 7);
         storage::set_asset_oracle(&env, &asset, &oracle);
         let mut cache = Cache::new_view(&env);
-        require_market_active(&env, &mut cache, &asset);
+        require_market_active(&env, &mut cache, &hub(&asset));
     });
 }
 
@@ -85,7 +85,7 @@ fn require_market_active_panics_without_oracle() {
         // Listed but no `AssetOracle` entry: pending/disabled -> PairNotActive.
         list_on_spoke_zero(&env, &asset);
         let mut cache = Cache::new_view(&env);
-        require_market_active(&env, &mut cache, &asset);
+        require_market_active(&env, &mut cache, &hub(&asset));
     });
 }
 

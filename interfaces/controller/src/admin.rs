@@ -27,6 +27,7 @@ pub trait ControllerAdmin {
     fn disable_token_oracle(env: Env, asset: Address);
     fn create_liquidity_pool(
         env: Env,
+        hub_id: u32,
         asset: Address,
         params: MarketParamsRaw,
         config: SpokeAssetConfig,

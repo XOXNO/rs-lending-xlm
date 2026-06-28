@@ -83,7 +83,7 @@ fn test_create_liquidity_pool_panics_before_deploy_pool() {
     let params = preset.params.to_market_params(&asset, preset.decimals);
     let config = preset.config.to_asset_config(&env, preset.decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
