@@ -225,7 +225,12 @@ view() {
             cat "$out_f"
             return 0
         fi
-        [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && grep -qE "$RPC_TRANSIENT_RE|$DEPLOY_PROPAGATION_RE" "$err_f" && continue
+        # Views are read-only and only called where success is expected (revert-
+        # expecting checks use `xfail`/`assert_*`). A failure here is transient:
+        # an rpc/propagation error, or a state-propagation revert where the
+        # queried node hasn't yet seen a just-submitted price/position change
+        # (cross-node lag). Retry any failure up to the attempt cap.
+        [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && continue
         break
     done
     record "$label" FAIL "$fn" "" "" "" "" "" "view failed: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
