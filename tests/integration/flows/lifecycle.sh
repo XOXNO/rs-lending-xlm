@@ -60,7 +60,7 @@ flow_seed_liquidity() {
     usdc_left=$(balance "$USDC_SAC" "$ADMIN_ADDR")
     [ -z "$usdc_left" ] || [ "$usdc_left" -le 0 ] && { log "no USDC to seed"; return 1; }
     acct=$(inv seed_supply "$ADMIN" "$CONTROLLER" -- supply \
-        --caller "$ADMIN_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$ADMIN_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 20000000000 "$USDC_SAC" "$usdc_left")" | tr -d '"') || return 1
     save_state ADMIN_ACCT "$acct"
     save_state SEEDED 1
@@ -71,7 +71,7 @@ flow_lifecycle() {
     # Create account: single-asset supply (XLM).
     local acct
     acct=$(inv supply_create "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$ALICE_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 10000000000)" | tr -d '"')
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
@@ -79,7 +79,7 @@ flow_lifecycle() {
     # Bulk supply: two assets in one tx.
     local usdc_half=$(( $(balance "$USDC_SAC" "$ALICE_ADDR") / 2 ))
     inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id "$acct" --e_mode_category 0 \
+        --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
 
     # Views.
@@ -96,10 +96,10 @@ flow_lifecycle() {
     # Borrow: single, then bulk (two assets in one tx).
     inv borrow_single "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$USDC_SAC" 200000000)" >/dev/null
+        --borrows "$(pay_vec "$USDC_SAC" 200000000)" --to null >/dev/null
     inv borrow_bulk "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$USDC_SAC" 150000000 "$XLM_SAC" 1000000000)" >/dev/null
+        --borrows "$(pay_vec "$USDC_SAC" 150000000 "$XLM_SAC" 1000000000)" --to null >/dev/null
     local borrow_usd
     borrow_usd=$(_view_int borrow_usd_alice get_total_borrow_usd --account_id "$acct")
     if [ -z "$borrow_usd" ] || [ "$borrow_usd" -le 0 ]; then
@@ -120,14 +120,14 @@ flow_lifecycle() {
 
     # Guard reverts: zero amount, over-LTV borrow, paused-state behavior is in admin flow.
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id "$acct" --e_mode_category 0 \
+        --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 0)"
     # Over-LTV but under pool liquidity — a larger ask hits the pool's
     # InsufficientLiquidity (#112) before the controller's LTV check (#100),
     # so borrow XLM (deep seeded liquidity) just above the LTV headroom.
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$XLM_SAC" 25000000000)"
+        --borrows "$(pay_vec "$XLM_SAC" 25000000000)" --to null
     # Over-LTV withdraw guard (#100). Simulate-only (xfail_sim): a single XLM-only
     # withdrawal is not over-LTV when ALICE also holds USDC collateral, and live
     # oracle drift makes any fixed size unreliable — a real send that unexpectedly
@@ -137,7 +137,7 @@ flow_lifecycle() {
     # (validation.rs InsufficientCollateral) reverts deterministically at any price.
     xfail_sim withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)"
+        --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null
 
     # Repay: partial single, then full bulk (overpay refunds; XLM debt small).
     local usdc_debt_pre_partial
@@ -165,7 +165,7 @@ flow_lifecycle() {
     leg_borrow_again() {
         inv borrow_again "$ALICE" "$CONTROLLER" -- borrow \
             --caller "$ALICE_ADDR" --account_id "$acct" \
-            --borrows "$(pay_vec "$USDC_SAC" 120000000)" >/dev/null
+            --borrows "$(pay_vec "$USDC_SAC" 120000000)" --to null >/dev/null
         local debt_after_borrow
         debt_after_borrow=$(view debt_usdc_alice "$CONTROLLER" -- get_borrow_amount \
             --account_id "$acct" --asset "$USDC_SAC" | tr -d '"')
@@ -185,7 +185,7 @@ flow_lifecycle() {
     # Withdraw: partial, then full close (removes the account).
     inv withdraw_partial "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$XLM_SAC" 5000000000)" >/dev/null
+        --withdrawals "$(pay_vec "$XLM_SAC" 5000000000)" --to null >/dev/null
     inv renew_account "$ALICE" "$CONTROLLER" -- renew_account \
         --caller "$ALICE_ADDR" --account_id "$acct" >/dev/null
     local xlm_coll usdc_coll
@@ -198,7 +198,7 @@ flow_lifecycle() {
     leg_withdraw_full_bulk() {
         inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \
             --caller "$ALICE_ADDR" --account_id "$acct" \
-            --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" >/dev/null
+            --withdrawals "$(pay_vec "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null >/dev/null
     }
     retry_leg leg_withdraw_full_bulk
 }

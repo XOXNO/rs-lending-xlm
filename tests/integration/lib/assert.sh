@@ -113,30 +113,16 @@ assert_int_view_nonneg() {
   [[ "$v" =~ ^[0-9]+$ ]] || _assert_fail "$label" "got '$v' want non-negative int"
 }
 
-# Parses get_market_config and asserts a single asset_config BPS field.
+# Reads the base spoke-0 listing (SpokeAssetConfig) for an asset and asserts a
+# single top-level BPS field (loan_to_value_bps / liquidation_threshold_bps /
+# liquidation_bonus_bps).
 #   assert_market_field <label> <asset> <jq-field> <expected>
 assert_market_field() {
   local label="$1" asset="$2" field="$3" expected="$4"
   local got
-  got=$(view "$label" "$CONTROLLER" -- get_market_config --asset "$asset" \
-    | jq -r ".asset_config.${field}")
-  [ "$got" = "$expected" ] || _assert_fail "$label" "asset_config.$field=$got want $expected"
-}
-
-# Asserts the market status. MarketStatus is a discriminant enum, so the CLI
-# renders `.status` as the integer code (PendingOracle=0, Active=1, Disabled=2);
-# the name is mapped here so callers stay readable.
-assert_market_status() {
-  local label="$1" asset="$2" want="$3" want_code
-  case "$want" in
-    PendingOracle) want_code=0 ;;
-    Active)        want_code=1 ;;
-    Disabled)      want_code=2 ;;
-    *)             want_code="$want" ;;
-  esac
-  local got
-  got=$(view "$label" "$CONTROLLER" -- get_market_config --asset "$asset" | jq -r '.status')
-  [ "$got" = "$want_code" ] || _assert_fail "$label" "status=$got want $want ($want_code)"
+  got=$(view "$label" "$CONTROLLER" -- get_spoke_asset --spoke_id 0 --asset "$asset" \
+    | jq -r ".${field}")
+  [ "$got" = "$expected" ] || _assert_fail "$label" "spoke_asset.$field=$got want $expected"
 }
 
 assert_pool_revenue_decreased() {

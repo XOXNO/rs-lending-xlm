@@ -40,10 +40,10 @@ flow_stress_setup() {
     for i in 10 11 12 13 14; do args1+=" $(stress_sac $i) $((200000 * STRESS_UNIT))"; done
     for i in 15 16 17 18 19; do args2+=" $(stress_sac $i) $((200000 * STRESS_UNIT))"; done
     inv stress_seed_liq_1 "$CAROL" "$CONTROLLER" -- supply \
-        --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$CAROL_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec $args1)" >/dev/null || return 1
     inv stress_seed_liq_2 "$CAROL" "$CONTROLLER" -- supply \
-        --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$CAROL_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec $args2)" >/dev/null || return 1
     save_state STRESS_SETUP_DONE 1
 }
@@ -57,7 +57,7 @@ flow_stress_supply_frontier() {
         args=""
         for i in $(seq 0 $((k - 1))); do args+=" $(stress_sac $i) $((10000 * STRESS_UNIT))"; done
         sim_probe "probe_supply_${k}assets" "$DAVE" "$CONTROLLER" -- supply \
-            --caller "$DAVE_ADDR" --account_id 0 --e_mode_category 0 \
+            --caller "$DAVE_ADDR" --account_id 0 --spoke_id 0 \
             --assets "$(pay_vec $args)"
         [ "$PROBE_STATUS" = exceeded ] && { log "supply frontier: $k distinct assets exceeds"; break; }
     done
@@ -77,14 +77,14 @@ flow_stress_borrow_frontier() {
     if [ -z "${!acct_var:-}" ]; then
         for i in $(seq 0 $(( colls > 5 ? 4 : colls - 1 ))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
         acct=$(inv "stress_supply_${mode}_base" "$DAVE" "$CONTROLLER" -- supply \
-            --caller "$DAVE_ADDR" --account_id 0 --e_mode_category 0 \
+            --caller "$DAVE_ADDR" --account_id 0 --spoke_id 0 \
             --assets "$(pay_vec $args)" | tr -d '"') || return 1
         save_state "$acct_var" "$acct"
         if [ "$colls" -gt 5 ]; then
             args=""
             for i in $(seq 5 $((colls - 1))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
             inv "stress_supply_${mode}_rest" "$DAVE" "$CONTROLLER" -- supply \
-                --caller "$DAVE_ADDR" --account_id "$acct" --e_mode_category 0 \
+                --caller "$DAVE_ADDR" --account_id "$acct" --spoke_id 0 \
                 --assets "$(pay_vec $args)" >/dev/null
         fi
     fi
@@ -95,7 +95,7 @@ flow_stress_borrow_frontier() {
         for i in $(seq 10 $((9 + k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         sim_probe "probe_borrow_${mode}_$((colls + k))feeds" "$DAVE" "$CONTROLLER" -- borrow \
             --caller "$DAVE_ADDR" --account_id "$acct" \
-            --borrows "$(pay_vec $args)"
+            --borrows "$(pay_vec $args)" --to null
         if [ "$PROBE_STATUS" = ok ]; then
             best_k=$k
         elif [ "$PROBE_STATUS" = exceeded ]; then
@@ -111,10 +111,10 @@ flow_stress_borrow_frontier() {
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         inv "stress_borrow_${mode}_proof" "$DAVE" "$CONTROLLER" -- borrow \
             --caller "$DAVE_ADDR" --account_id "$acct" \
-            --borrows "$(pay_vec $args)" >/dev/null
+            --borrows "$(pay_vec $args)" --to null >/dev/null
         sim_probe "probe_withdraw_${mode}_maxfeeds" "$DAVE" "$CONTROLLER" -- withdraw \
             --caller "$DAVE_ADDR" --account_id "$acct" \
-            --withdrawals "$(pay_vec "$(stress_sac 0)" $((1000 * STRESS_UNIT)))"
+            --withdrawals "$(pay_vec "$(stress_sac 0)" $((1000 * STRESS_UNIT)))" --to null
         args=""
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1100 * STRESS_UNIT))"; done
         inv "stress_repay_${mode}_reset" "$DAVE" "$CONTROLLER" -- repay \
@@ -152,11 +152,11 @@ flow_stress_liq_frontier() {
             args=""
             for i in $(seq 0 $((k - 1))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
             acct=$(inv "liqf_supply_${k}coll" "$DAVE" "$CONTROLLER" -- supply \
-                --caller "$DAVE_ADDR" --account_id 0 --e_mode_category 0 \
+                --caller "$DAVE_ADDR" --account_id 0 --spoke_id 0 \
                 --assets "$(pay_vec $args)" | tr -d '"') || continue
             inv "liqf_borrow_${k}coll" "$DAVE" "$CONTROLLER" -- borrow \
                 --caller "$DAVE_ADDR" --account_id "$acct" \
-                --borrows "$(pay_vec "$(stress_sac 19)" $((k * 600 * STRESS_UNIT)))" >/dev/null || continue
+                --borrows "$(pay_vec "$(stress_sac 19)" $((k * 600 * STRESS_UNIT)))" --to null >/dev/null || continue
             save_state "$var" "$acct"
         fi
     done

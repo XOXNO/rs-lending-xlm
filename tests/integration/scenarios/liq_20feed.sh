@@ -42,11 +42,11 @@ ACCT=""
 if [ -z "${LIQ20_ACCT:-}" ]; then
     sim_probe probe_borrow_20feed_dual "$DAVE" "$CONTROLLER" -- borrow \
         --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
-        --borrows "$(pay_vec $BORROW_ARGS)"
+        --borrows "$(pay_vec $BORROW_ARGS)" --to null
     if [ "$PROBE_STATUS" = ok ]; then
         inv liq20_borrow_10debts "$DAVE" "$CONTROLLER" -- borrow \
             --caller "$DAVE_ADDR" --account_id "$DAVE_ACCT" \
-            --borrows "$(pay_vec $BORROW_ARGS)" >/dev/null || exit 1
+            --borrows "$(pay_vec $BORROW_ARGS)" --to null >/dev/null || exit 1
         save_state LIQ20_ACCT "$DAVE_ACCT"
         save_state LIQ20_CRASH_WAD "$((WAD / 10 * 6))"   # HF = 0.6*0.75/0.5 = 0.9
     else
@@ -54,17 +54,17 @@ if [ -z "${LIQ20_ACCT:-}" ]; then
         args=""
         for i in $(seq 0 4); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         acct=$(inv liq20b_supply_5coll "$DAVE" "$CONTROLLER" -- supply \
-            --caller "$DAVE_ADDR" --account_id 0 --e_mode_category 0 \
+            --caller "$DAVE_ADDR" --account_id 0 --spoke_id 0 \
             --assets "$(pay_vec $args)" | tr -d '"') || exit 1
         args=""
         for i in $(seq 10 19); do args+=" $(stress_sac $i) $((300 * STRESS_UNIT))"; done
         inv liq20b_borrow_10debts "$DAVE" "$CONTROLLER" -- borrow \
             --caller "$DAVE_ADDR" --account_id "$acct" \
-            --borrows "$(pay_vec $args)" >/dev/null || exit 1
+            --borrows "$(pay_vec $args)" --to null >/dev/null || exit 1
         args=""
         for i in $(seq 5 9); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         inv liq20b_supply_5more "$DAVE" "$CONTROLLER" -- supply \
-            --caller "$DAVE_ADDR" --account_id "$acct" --e_mode_category 0 \
+            --caller "$DAVE_ADDR" --account_id "$acct" --spoke_id 0 \
             --assets "$(pay_vec $args)" >/dev/null || exit 1
         save_state LIQ20_ACCT "$acct"
         save_state LIQ20_CRASH_WAD "$((WAD / 10 * 4))"   # HF = 0.4*0.75*10000/3000 = 1.0- -> 0.4 gives exactly 1.0; use deeper crash below

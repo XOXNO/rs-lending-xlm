@@ -38,7 +38,7 @@ flow_liq_setup() {
     # (the issuer cannot hold a trustline to its own asset, so the admin
     # never holds LIQ tokens itself).
     inv liq_seed_liquidity "$CAROL" "$CONTROLLER" -- supply \
-        --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$CAROL_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_LIQB" $((50000 * LIQ_UNIT)) "$SAC_LIQD" $((50000 * LIQ_UNIT)) "$SAC_LIQF" $((50000 * LIQ_UNIT)))" >/dev/null || return 1
     save_state LIQ_SETUP_DONE 1
 }
@@ -48,11 +48,11 @@ flow_liq_single() {
     phase liq_single
     local acct
     acct=$(inv liq1_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_LIQA" $((1000 * LIQ_UNIT)))" | tr -d '"')
     inv liq1_borrow "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))" >/dev/null
+        --borrows "$(pay_vec "$SAC_LIQB" $((600 * LIQ_UNIT)))" --to null >/dev/null
 
     # Healthy-account guards.
     assert_can_liquidated liq1_can_liq_pre "$acct" false
@@ -108,11 +108,11 @@ flow_liq_bulk() {
     phase liq_bulk
     local acct
     acct=$(inv liq2_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_LIQC" $((800 * LIQ_UNIT)) "$SAC_LIQA" $((1143 * LIQ_UNIT)))" | tr -d '"')
     inv liq2_borrow_bulk "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQB" $((500 * LIQ_UNIT)) "$SAC_LIQD" $((500 * LIQ_UNIT)))" >/dev/null
+        --borrows "$(pay_vec "$SAC_LIQB" $((500 * LIQ_UNIT)) "$SAC_LIQD" $((500 * LIQ_UNIT)))" --to null >/dev/null
 
     # Crash both collaterals 30%; LIQA moves from 0.70 to 0.49.
     set_mock_price "$SAC_LIQC" $((WAD / 10 * 7)) liq2_crash_c
@@ -135,23 +135,23 @@ flow_liq_emode() {
     phase liq_emode
     if [ -z "${EMODE_ID:-}" ]; then
         local emode_id
-        emode_id=$(inv emode_add_category "$ADMIN" "$CONTROLLER" -- add_e_mode_category | tr -d '"')
+        emode_id=$(inv emode_add_category "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
         save_state EMODE_ID "$emode_id"
-        inv emode_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-            --input "$(emode_args "$SAC_LIQE" "$emode_id" true false 9500 9700 200)" >/dev/null
-        inv emode_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-            --input "$(emode_args "$SAC_LIQF" "$emode_id" false true 9500 9700 200)" >/dev/null
+        inv emode_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+            --input "$(spoke_args "$SAC_LIQE" "$emode_id" true false 9500 9700 200)" >/dev/null
+        inv emode_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+            --input "$(spoke_args "$SAC_LIQF" "$emode_id" false true 9500 9700 200)" >/dev/null
     fi
-    view emode_view "$CONTROLLER" -- get_e_mode_category --category_id "$EMODE_ID" >/dev/null
+    view emode_view "$CONTROLLER" -- get_spoke --spoke_id "$EMODE_ID" >/dev/null
 
     local acct
     acct=$(inv liq3_supply_emode "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category "$EMODE_ID" \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$EMODE_ID" \
         --assets "$(pay_vec "$SAC_LIQE" $((1000 * LIQ_UNIT)))" | tr -d '"')
     # 92% LTV borrow — only possible inside the e-mode category (asset LTV is 70%).
     inv liq3_borrow_emode "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQF" $((920 * LIQ_UNIT)))" >/dev/null
+        --borrows "$(pay_vec "$SAC_LIQF" $((920 * LIQ_UNIT)))" --to null >/dev/null
     # 6% price drop puts HF under 1 at the 97% e-mode threshold.
     set_mock_price "$SAC_LIQE" $((WAD / 100 * 94)) liq3_crash
     assert_hf_below_wad liq3_hf "$acct"
@@ -173,11 +173,11 @@ flow_clean_bad_debt() {
         --caller "$ADMIN_ADDR" --account_id "${LIQ2_ACCT:-1}"
     local acct
     acct=$(inv cbd_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_LIQC" $((30 * LIQ_UNIT)))" | tr -d '"')
     inv cbd_borrow "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$SAC_LIQB" $((12 * LIQ_UNIT)))" >/dev/null
+        --borrows "$(pay_vec "$SAC_LIQB" $((12 * LIQ_UNIT)))" --to null >/dev/null
     # LIQC is at $0.70 → 30 units = $21 collateral, $12 debt. Crash to $0.15:
     # collateral $4.50 ≤ $5 threshold and debt > collateral → socializable.
     set_mock_price "$SAC_LIQC" $((WAD / 100 * 15)) cbd_crash
@@ -210,31 +210,31 @@ flow_caps() {
         create_market CAPC "$SAC_CAPC" 7 "$(oracle_cfg_mock_single "$SAC_CAPC")" "$(asset_config_json 7000 7500 800)"
         # Carol seeds CAP liquidity so the borrow-cap test has cash to draw.
         inv cap_seed "$CAROL" "$CONTROLLER" -- supply \
-            --caller "$CAROL_ADDR" --account_id 0 --e_mode_category 0 \
+            --caller "$CAROL_ADDR" --account_id 0 --spoke_id 0 \
             --assets "$(pay_vec "$SAC_CAP" $((20000 * LIQ_UNIT)))" >/dev/null || return 1
         save_state CAP_SETUP_DONE 1
     fi
 
     # Supply cap: tighten below supply, breach, reset to disabled.
     inv cap_supply_tighten "$ADMIN" "$CONTROLLER" -- update_pool_caps \
-        --asset "$SAC_CAP" --supply_cap 1 --borrow_cap 0 >/dev/null
+        --hub_asset "$(hub_key "$SAC_CAP")" --supply_cap 1 --borrow_cap 0 >/dev/null
     xfail cap_supply_breach 'Error\(Contract, #105\)' "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_CAP" $((1000 * LIQ_UNIT)))"
     inv cap_supply_reset "$ADMIN" "$CONTROLLER" -- update_pool_caps \
-        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 0 >/dev/null
+        --hub_asset "$(hub_key "$SAC_CAP")" --supply_cap 0 --borrow_cap 0 >/dev/null
 
     # Borrow cap: BOB supplies stable CAPC collateral, then a CAP borrow above the
     # cap reverts (#106). The tiny borrow stays well within LTV so #106, not #100.
     local cap_acct
     cap_acct=$(inv cap_coll_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$SAC_CAPC" $((3000 * LIQ_UNIT)))" | tr -d '"') || return 1
     inv cap_borrow_tighten "$ADMIN" "$CONTROLLER" -- update_pool_caps \
-        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 1 >/dev/null
+        --hub_asset "$(hub_key "$SAC_CAP")" --supply_cap 0 --borrow_cap 1 >/dev/null
     xfail cap_borrow_breach 'Error\(Contract, #106\)' "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$cap_acct" \
-        --borrows "$(pay_vec "$SAC_CAP" $((10 * LIQ_UNIT)))"
+        --borrows "$(pay_vec "$SAC_CAP" $((10 * LIQ_UNIT)))" --to null
     inv cap_borrow_reset "$ADMIN" "$CONTROLLER" -- update_pool_caps \
-        --asset "$SAC_CAP" --supply_cap 0 --borrow_cap 0 >/dev/null
+        --hub_asset "$(hub_key "$SAC_CAP")" --supply_cap 0 --borrow_cap 0 >/dev/null
 }

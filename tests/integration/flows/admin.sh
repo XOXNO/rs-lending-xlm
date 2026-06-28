@@ -13,7 +13,7 @@ flow_admin() {
     # Pause gate: supply during pause reverts EnforcedPause (#1000).
     inv admin_pause "$ADMIN" "$CONTROLLER" -- pause >/dev/null
     xfail paused_supply 'Error\(Contract, #1000\)' "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$ALICE_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 1000000000)"
     inv admin_unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     xfail unpause_when_live 'Error\(Contract, #1001\)' "$ADMIN" "$CONTROLLER" -- unpause
@@ -28,16 +28,18 @@ flow_admin() {
     # Market param + asset config edits on EURC (idle real market: edits here
     # disturb nothing else, and it is disabled at the end of this flow).
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
-        --asset "$EURC_SAC" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals) | .reserve_factor_bps=1500')" >/dev/null
-    inv edit_asset_config_admin "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$EURC_SAC" --cfg "$(asset_config_json 6500 7000 900)" >/dev/null
+        --hub_asset "$(hub_key "$EURC_SAC")" --params "$(market_params_json "$EURC_SAC" 7 | jq -c 'del(.asset_id, .asset_decimals, .supply_cap, .borrow_cap, .is_flashloanable, .flashloan_fee_bps) | .reserve_factor_bps=1500')" >/dev/null
+    # edit_asset_in_spoke on the base spoke 0 is the canonical per-asset risk edit
+    # (replaces the removed edit_asset_config).
+    inv edit_asset_config_admin "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$EURC_SAC" 0 true true 6500 7000 900)" >/dev/null
     # Read-back: the edit must land (LTV / threshold / bonus parsed from storage).
     assert_market_field market_cfg_ltv "$EURC_SAC" loan_to_value_bps 6500
     assert_market_field market_cfg_thr "$EURC_SAC" liquidation_threshold_bps 7000
     assert_market_field market_cfg_bonus "$EURC_SAC" liquidation_bonus_bps 900
     # validate_risk_bounds: threshold must exceed LTV (#113 when ltv >= threshold).
-    xfail asset_cfg_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- edit_asset_config \
-        --asset "$EURC_SAC" --cfg "$(asset_config_json 9000 7000 900)"
+    xfail asset_cfg_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$EURC_SAC" 0 true true 9000 7000 900)"
 
     # Oracle tolerance: governance resolves the BPS inputs into the 4 ratio bands
     # (resolve_oracle_tolerance view), then the owner-only setter stores them.
@@ -53,9 +55,9 @@ flow_admin() {
 
     # Keeper ops (permissionless; caller must sign).
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
-        --caller "$ADMIN_ADDR" --assets "[\"$XLM_SAC\",\"$USDC_SAC\",\"$EURC_SAC\"]" >/dev/null
+        --caller "$ADMIN_ADDR" --assets "$(hub_vec "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
     inv update_indexes "$ALICE" "$CONTROLLER" -- update_indexes \
-        --caller "$ALICE_ADDR" --assets "[\"$XLM_SAC\"]" >/dev/null
+        --caller "$ALICE_ADDR" --assets "$(hub_vec "$XLM_SAC")" >/dev/null
     # update_account_threshold (update positions risk): recompute thresholds for the
     # admin seed account. Gated (no `|| true`) — a failure is a suite failure.
     inv update_account_threshold "$ADMIN" "$CONTROLLER" -- update_account_threshold \
@@ -72,30 +74,30 @@ flow_admin() {
     inv add_rewards "$ADMIN" "$CONTROLLER" -- add_rewards \
         --caller "$ADMIN_ADDR" --rewards "$(pay_vec "$USDC_SAC" 10000000)" >/dev/null
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
-        --caller "$ADMIN_ADDR" --assets "[\"$USDC_SAC\"]" >/dev/null
+        --caller "$ADMIN_ADDR" --assets "$(hub_vec "$USDC_SAC")" >/dev/null
     assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
     inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
-        --caller "$ALICE_ADDR" --assets "[\"$USDC_SAC\"]" >/dev/null
+        --caller "$ALICE_ADDR" --assets "$(hub_vec "$USDC_SAC")" >/dev/null
     view pool_rates_view "$POOL" -- get_borrow_rate --asset "$USDC_SAC" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --asset "$USDC_SAC" >/dev/null
 
-    # E-mode admin lifecycle on a throwaway category (asset ops use idle EURC).
-    # Risk params are per-asset, so category creation takes no args and bound
+    # Spoke admin lifecycle on a throwaway spoke (asset ops use idle EURC, which is
+    # already listed on the base spoke 0). Spoke creation takes no args; risk-bound
     # validation happens when an asset joins.
     local tmp_cat
-    tmp_cat=$(inv emode_tmp_add "$ADMIN" "$CONTROLLER" -- add_e_mode_category | tr -d '"')
-    inv emode_tmp_add_asset "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-        --input "$(emode_args "$EURC_SAC" "$tmp_cat" true true 8000 8500 300)" >/dev/null
-    # validate_risk_bounds on e-mode assets (#113 when ltv >= threshold).
-    xfail emode_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_asset_to_e_mode_category \
-        --input "$(emode_args "$EURC_SAC" "$tmp_cat" true true 8600 8500 300)"
-    inv emode_tmp_edit_asset "$ADMIN" "$CONTROLLER" -- edit_asset_in_e_mode_category \
-        --input "$(emode_args "$EURC_SAC" "$tmp_cat" true false 8100 8600 250)" >/dev/null
-    inv emode_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_e_mode \
-        --asset "$EURC_SAC" --category_id "$tmp_cat" >/dev/null
-    inv emode_tmp_deprecate "$ADMIN" "$CONTROLLER" -- remove_e_mode_category --id "$tmp_cat" >/dev/null
+    tmp_cat=$(inv emode_tmp_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
+    inv emode_tmp_add_asset "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true true 8000 8500 300)" >/dev/null
+    # validate_risk_bounds on spoke assets (#113 when ltv >= threshold).
+    xfail emode_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true true 8600 8500 300)"
+    inv emode_tmp_edit_asset "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$EURC_SAC" "$tmp_cat" true false 8100 8600 250)" >/dev/null
+    inv emode_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
+        --asset "$EURC_SAC" --spoke_id "$tmp_cat" >/dev/null
+    inv emode_tmp_deprecate "$ADMIN" "$CONTROLLER" -- remove_spoke --id "$tmp_cat" >/dev/null
     xfail emode_deprecated_supply 'Error\(Contract, #301\)' "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category "$tmp_cat" \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$tmp_cat" \
         --assets "$(pay_vec "$XLM_SAC" 1000000000)"
 
     # min_borrow_collateral_usd floor (update limits): set -> read-back -> blocks a
@@ -103,26 +105,26 @@ flow_admin() {
     # The reset always runs (no `set -e`), so a stale floor never leaks to later flows.
     local bob_minb_acct
     bob_minb_acct=$(inv minb_supply "$BOB" "$CONTROLLER" -- supply \
-        --caller "$BOB_ADDR" --account_id 0 --e_mode_category 0 \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id 0 \
         --assets "$(pay_vec "$XLM_SAC" 5000000000)" | tr -d '"')
     inv minb_set_high "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
         --floor_wad 1000000000000000000000000000000000 >/dev/null
     assert_int_view_eq minb_read_high 1000000000000000000000000000000000 get_min_borrow_collateral_usd
     xfail minb_borrow_blocked 'Error\(Contract, #126\)' "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$bob_minb_acct" \
-        --borrows "$(pay_vec "$USDC_SAC" 1000000)"
+        --borrows "$(pay_vec "$USDC_SAC" 1000000)" --to null
     inv minb_reset "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd --floor_wad 0 >/dev/null
     assert_int_view_eq minb_read_zero 0 get_min_borrow_collateral_usd
     xfail minb_negative 'Error\(Contract, #116\)' "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
         --floor_wad=-1
 
-    # Oracle circuit-breaker: owner disables a market (Active -> Disabled);
-    # re-disable rejects (#12 PairNotActive). disable_token_oracle is owner-only,
-    # so a non-owner caller can't satisfy the owner's require_auth() and the CLI
-    # reports a missing signing key (same owner-guard shape as oracle_tol_owner_guard).
+    # Oracle circuit-breaker: owner disables a market (clears its oracle config);
+    # re-disable rejects (#12 PairNotActive), which proves the first disable landed
+    # (market status is no longer a discrete view). disable_token_oracle is
+    # owner-only, so a non-owner caller can't satisfy the owner's require_auth() and
+    # the CLI reports a missing signing key (same shape as oracle_tol_owner_guard).
     inv disable_oracle "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
         --asset "$EURC_SAC" >/dev/null
-    assert_market_status disable_status "$EURC_SAC" Disabled
     xfail disable_non_active 'Error\(Contract, #12\)' "$ADMIN" "$CONTROLLER" -- disable_token_oracle \
         --asset "$EURC_SAC"
     xfail disable_non_owner 'Missing signing key' "$ALICE" "$CONTROLLER" -- disable_token_oracle \
@@ -147,7 +149,7 @@ flow_admin_upgrade() {
         inv controller_upgrade "$ADMIN" "$CONTROLLER" -- upgrade --new_wasm_hash "$ctrl_hash" >/dev/null
         # upgrade() pauses the protocol; user operations revert until unpause.
         xfail upgraded_paused_gate 'Error\(Contract, #1000\)' "$ALICE" "$CONTROLLER" -- supply \
-            --caller "$ALICE_ADDR" --account_id 0 --e_mode_category 0 \
+            --caller "$ALICE_ADDR" --account_id 0 --spoke_id 0 \
             --assets "$(pay_vec "$XLM_SAC" 1000000000)"
         local ver
         ver=$(view app_version_view "$CONTROLLER" -- get_app_version | tr -d '"')
