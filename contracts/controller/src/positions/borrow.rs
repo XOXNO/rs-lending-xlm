@@ -79,7 +79,7 @@ fn validate_borrow(
     for (hub_asset, _) in aggregated {
         validation::require_market_active(env, cache, &hub_asset.asset);
         let asset_config = configs.get(env, &hub_asset);
-        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &hub_asset.asset);
+        emode::validate_spoke_asset(env, cache, account.spoke_id, &hub_asset.asset);
 
         assert_with_error!(
             env,
@@ -141,7 +141,7 @@ fn merge_borrow_result(
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
     // dimensional: scaled delta is Ray<Share(asset, borrow)>.
-    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
         let delta = position.scaled_amount - old_scaled;
         ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
     }

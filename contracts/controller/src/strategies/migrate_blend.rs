@@ -31,7 +31,7 @@ use crate::{helpers, storage, validation, Controller, ControllerArgs, Controller
 /// Parameters for `process_migrate_blend`.
 pub struct MigrateBlendParams {
     pub account_id: u64,
-    pub e_mode_category: u32,
+    pub spoke_id: u32,
     pub blend_pool: Address,
     pub collateral_assets: Vec<Address>,
     pub supply_assets: Vec<Address>,
@@ -47,7 +47,7 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         blend_pool: Address,
         collateral_assets: Vec<Address>,
         supply_assets: Vec<Address>,
@@ -58,7 +58,7 @@ impl Controller {
             &caller,
             MigrateBlendParams {
                 account_id,
-                e_mode_category,
+                spoke_id,
                 blend_pool,
                 collateral_assets,
                 supply_assets,
@@ -74,7 +74,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
 
     let MigrateBlendParams {
         account_id,
-        e_mode_category,
+        spoke_id,
         blend_pool,
         collateral_assets,
         supply_assets,
@@ -102,7 +102,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
         env,
         caller,
         account_id,
-        e_mode_category,
+        spoke_id,
         PositionMode::Normal,
         helpers::AccountGuard::Migrate,
         &mut cache,

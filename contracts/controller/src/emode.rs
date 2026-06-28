@@ -1,23 +1,23 @@
-//! E-mode risk-parameter overrides for correlated asset categories.
-//! Applies active category overrides to market asset configs.
+//! Spoke risk-parameter overrides for correlated asset spokes.
+//! Applies active spoke overrides to market asset configs.
 
 use common::errors::EModeError;
 use common::math::fp::Bps;
-use controller_interface::types::{Account, AssetConfig, EModeAssetConfig, EModeCategory};
+use controller_interface::types::{Account, AssetConfig, HubAssetKey, SpokeAssetConfig, SpokeConfig};
 use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::cache::Cache;
 use crate::storage;
 
-/// Applies active e-mode flags to per-asset risk parameters.
-pub fn apply_e_mode_to_asset_config(
+/// Applies active spoke flags to per-asset risk parameters.
+pub fn apply_spoke_to_asset_config(
     _env: &Env,
     asset_config: &mut AssetConfig,
-    category: &Option<EModeCategory>,
-    asset_emode_config: Option<EModeAssetConfig>,
+    spoke: &Option<SpokeConfig>,
+    asset_spoke_config: Option<SpokeAssetConfig>,
 ) {
-    if let (Some(cat), Some(aec)) = (category, asset_emode_config) {
-        if cat.is_deprecated {
+    if let (Some(spoke), Some(aec)) = (spoke, asset_spoke_config) {
+        if spoke.is_deprecated {
             return;
         }
         asset_config.is_collateralizable = aec.is_collateralizable;
@@ -28,33 +28,36 @@ pub fn apply_e_mode_to_asset_config(
     }
 }
 
-/// Returns market asset config after applicable e-mode overrides.
+/// Returns market asset config after applicable spoke overrides.
 pub fn effective_asset_config(
     env: &Env,
     account: &Account,
     asset: &Address,
     cache: &mut Cache,
-    category: &Option<EModeCategory>,
+    spoke: &Option<SpokeConfig>,
 ) -> AssetConfig {
     let mut asset_config = cache.cached_asset_config(asset);
-    let asset_emode_config = cache.cached_emode_asset(account.e_mode_category_id, asset);
-    apply_e_mode_to_asset_config(env, &mut asset_config, category, asset_emode_config);
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let asset_spoke_config = cache.cached_spoke_asset(account.spoke_id, &hub_asset);
+    apply_spoke_to_asset_config(env, &mut asset_config, spoke, asset_spoke_config);
     asset_config
 }
 
-pub fn ensure_e_mode_not_deprecated(env: &Env, category: &Option<EModeCategory>) {
-    if let Some(cat) = category {
-        assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
+pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
+    if let Some(spoke) = spoke {
+        assert_with_error!(
+            env,
+            !spoke.is_deprecated,
+            EModeError::EModeCategoryDeprecated
+        );
     }
 }
 
-pub fn validate_e_mode_asset(
-    env: &Env,
-    cache: &mut Cache,
-    e_mode_category_id: u32,
-    asset: &Address,
-) {
-    if e_mode_category_id == 0 {
+pub fn validate_spoke_asset(env: &Env, cache: &mut Cache, spoke_id: u32, asset: &Address) {
+    if spoke_id == 0 {
         return;
     }
     let market = match cache.market_configs.get(asset.clone()) {
@@ -67,17 +70,16 @@ pub fn validate_e_mode_asset(
     };
     assert_with_error!(
         env,
-        market
-            .asset_config
-            .e_mode_categories
-            .contains(e_mode_category_id),
+        market.asset_config.e_mode_categories.contains(spoke_id),
         EModeError::EModeCategoryNotFound
     );
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
     assert_with_error!(
         env,
-        cache
-            .cached_emode_asset(e_mode_category_id, asset)
-            .is_some(),
+        cache.cached_spoke_asset(spoke_id, &hub_asset).is_some(),
         EModeError::EModeCategoryNotFound
     );
 }

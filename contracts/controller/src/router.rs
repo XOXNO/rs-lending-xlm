@@ -213,7 +213,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
     validation::require_asset_supported(env, &mut cache, asset);
-    crate::helpers::emode_caps::validate_hub_caps_against_category_spokes(
+    crate::helpers::emode_caps::validate_hub_caps_against_spoke_assets(
         env, asset, supply_cap, borrow_cap,
     );
     let pool_addr = cache.cached_pool_address();
@@ -343,7 +343,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     storage::renew_user_account(env, account_id);
 
-    let e_mode_category = cache.cached_e_mode_category(meta.e_mode_category_id);
+    let spoke = cache.cached_spoke(meta.spoke_id);
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 
@@ -351,14 +351,8 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         validation::require_asset_supported(env, cache, &hub_asset.asset);
 
         let mut asset_config = cache.cached_asset_config(&hub_asset.asset);
-        let asset_emode_config =
-            cache.cached_emode_asset(account.e_mode_category_id, &hub_asset.asset);
-        emode::apply_e_mode_to_asset_config(
-            env,
-            &mut asset_config,
-            &e_mode_category,
-            asset_emode_config,
-        );
+        let asset_spoke_config = cache.cached_spoke_asset(account.spoke_id, &hub_asset);
+        emode::apply_spoke_to_asset_config(env, &mut asset_config, &spoke, asset_spoke_config);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));

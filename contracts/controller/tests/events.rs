@@ -1,8 +1,9 @@
 use super::*;
 use controller_interface::types::{
-    AssetConfigRaw, EModeAssetConfig, MarketConfig, MarketOracleConfig, MarketStatus,
+    AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketOracleConfigOption, MarketStatus,
     OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
     OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorBase, ReflectorSourceConfig,
+    SpokeAssetConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, vec, BytesN, Vec};
@@ -116,12 +117,12 @@ fn event_pricing_method_eq_and_from() {
 }
 
 #[test]
-fn event_account_attributes_from_account_meta_emode() {
+fn event_account_attributes_from_account_meta_spoke() {
     let env = Env::default();
     let owner = dummy_address(&env);
     let meta = AccountMeta {
         owner: owner.clone(),
-        e_mode_category_id: 3,
+        spoke_id: 3,
         mode: PositionMode::Long,
     };
     let attrs = EventAccountAttributes::from(&meta);
@@ -299,32 +300,36 @@ fn emit_helpers_publish_without_panicking() {
         }
         .publish(&env);
 
-        UpdateEModeCategoryEvent {
-            category: EventEModeCategory {
-                category_id: 1,
+        UpdateSpokeEvent {
+            spoke: EventSpoke {
+                spoke_id: 1,
                 is_deprecated: false,
             },
         }
         .publish(&env);
 
-        UpdateEModeAssetEvent {
+        UpdateSpokeAssetEvent {
             asset: asset.clone(),
-            config: EModeAssetConfig {
+            config: SpokeAssetConfig {
                 is_collateralizable: true,
                 is_borrowable: true,
+                paused: false,
+                frozen: false,
                 loan_to_value_bps: 9000,
                 liquidation_threshold_bps: 9500,
                 liquidation_bonus_bps: 200,
+                liquidation_fees_bps: 0,
                 supply_cap: 0,
                 borrow_cap: 0,
+                oracle_override: MarketOracleConfigOption::None,
             },
-            category_id: 1,
+            spoke_id: 1,
         }
         .publish(&env);
 
-        RemoveEModeAssetEvent {
+        RemoveSpokeAssetEvent {
             asset: asset.clone(),
-            category_id: 1,
+            spoke_id: 1,
         }
         .publish(&env);
 

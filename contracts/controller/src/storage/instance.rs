@@ -196,10 +196,10 @@ pub(crate) fn set_position_limits(env: &Env, limits: &PositionLimits) {
         .set(&ControllerKey::PositionLimits, limits);
 }
 
-pub(crate) fn get_last_emode_category_id(env: &Env) -> u32 {
+pub(crate) fn get_last_spoke_id(env: &Env) -> u32 {
     env.storage()
         .instance()
-        .get(&ControllerKey::LastEModeCategoryId)
+        .get(&ControllerKey::LastSpokeId)
         .unwrap_or(0u32)
 }
 
@@ -216,14 +216,14 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
         .set(&ControllerKey::MinBorrowCollateralUsd, &floor_wad);
 }
 
-pub(crate) fn increment_emode_category_id(env: &Env) -> u32 {
-    let current = get_last_emode_category_id(env);
+pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
+    let current = get_last_spoke_id(env);
     let next = current
         .checked_add(1)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
     env.storage()
         .instance()
-        .set(&ControllerKey::LastEModeCategoryId, &next);
+        .set(&ControllerKey::LastSpokeId, &next);
     next
 }
 

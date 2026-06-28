@@ -9,14 +9,14 @@ use crate::events::{
 };
 use common::errors::EModeError;
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, EModeAssetConfig, EModeCategory,
-    EModeSpokeUsageRaw, HubAssetKey, MarketConfig, MarketIndex, MarketIndexRaw, PoolSyncData,
-    PriceFeed, PriceFeedRaw,
+    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, MarketConfig, MarketIndex,
+    MarketIndexRaw, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
 use crate::external::pool::{fetch_pool_bulk_indexes, fetch_pool_sync_data};
-use crate::helpers::EModeUsageContext;
+use crate::helpers::SpokeUsageContext;
 use crate::oracle::token_price;
 use crate::storage;
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -36,8 +36,8 @@ pub struct Cache {
     market_indexes: Map<Address, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<Address, PoolSyncData>,
-    /// One loaded category per tx: spoke configs, usage totals, and cap writes.
-    emode_usage: Option<EModeUsageContext>,
+    /// One loaded spoke per tx: usage buffer and cap writes.
+    emode_usage: Option<SpokeUsageContext>,
     deposit_updates: Vec<EventDepositDelta>,
     borrow_updates: Vec<EventBorrowDelta>,
 
@@ -247,75 +247,76 @@ impl Cache {
         data
     }
 
-    /// Loads the account's e-mode category once per transaction when first needed.
-    pub(crate) fn ensure_emode_loaded(&mut self, category_id: u32) {
-        if category_id == 0 {
+    /// Loads the account's spoke once per transaction when first needed.
+    pub(crate) fn ensure_spoke_loaded(&mut self, spoke_id: u32) {
+        if spoke_id == 0 {
             return;
         }
         if let Some(ctx) = &self.emode_usage {
             assert_with_error!(
                 &self.env,
-                ctx.category_id() == category_id,
+                ctx.spoke_id() == spoke_id,
                 EModeError::EModeMismatch
             );
             return;
         }
-        self.emode_usage = EModeUsageContext::load(&self.env, category_id);
+        self.emode_usage = SpokeUsageContext::load(&self.env, spoke_id);
     }
 
-    pub fn cached_emode_asset(
+    pub fn cached_spoke_asset(
         &mut self,
-        category_id: u32,
-        asset: &Address,
-    ) -> Option<EModeAssetConfig> {
-        if category_id == 0 {
-            return None;
-        }
-        self.ensure_emode_loaded(category_id);
-        self.emode_usage
-            .as_ref()
-            .and_then(|ctx| ctx.emode_asset(asset))
-    }
-
-    pub fn cached_e_mode_category(&mut self, category_id: u32) -> Option<EModeCategory> {
-        if category_id == 0 {
-            return None;
-        }
-        self.ensure_emode_loaded(category_id);
-        self.emode_usage
-            .as_ref()
-            .map(EModeUsageContext::as_category)
-    }
-
-    pub fn active_e_mode_category(&mut self, env: &Env, category_id: u32) -> Option<EModeCategory> {
-        let category = self.cached_e_mode_category(category_id)?;
-        crate::emode::ensure_e_mode_not_deprecated(env, &Some(category.clone()));
-        Some(category)
-    }
-
-    pub fn cached_emode_spoke_usage(
-        &mut self,
-        category_id: u32,
+        spoke_id: u32,
         hub_asset: &HubAssetKey,
-    ) -> Option<EModeSpokeUsageRaw> {
-        if category_id == 0 {
+    ) -> Option<SpokeAssetConfig> {
+        if spoke_id == 0 {
             return None;
         }
-        self.ensure_emode_loaded(category_id);
+        self.ensure_spoke_loaded(spoke_id);
+        let env = self.env.clone();
         self.emode_usage
             .as_ref()
-            .map(|ctx| ctx.spoke_usage(hub_asset))
+            .and_then(|ctx| ctx.spoke_asset(&env, hub_asset))
     }
 
-    pub(crate) fn emode_usage_mut(&mut self, category_id: u32) -> Option<&mut EModeUsageContext> {
-        if category_id == 0 {
+    pub fn cached_spoke(&mut self, spoke_id: u32) -> Option<SpokeConfig> {
+        if spoke_id == 0 {
             return None;
         }
-        self.ensure_emode_loaded(category_id);
+        self.ensure_spoke_loaded(spoke_id);
+        let env = self.env.clone();
+        self.emode_usage.as_ref().map(|ctx| ctx.as_spoke(&env))
+    }
+
+    pub fn active_spoke(&mut self, env: &Env, spoke_id: u32) -> Option<SpokeConfig> {
+        let spoke = self.cached_spoke(spoke_id)?;
+        crate::emode::ensure_spoke_not_deprecated(env, &Some(spoke.clone()));
+        Some(spoke)
+    }
+
+    pub fn cached_spoke_usage(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
+    ) -> Option<SpokeUsageRaw> {
+        if spoke_id == 0 {
+            return None;
+        }
+        self.ensure_spoke_loaded(spoke_id);
+        let env = self.env.clone();
+        self.emode_usage
+            .as_mut()
+            .map(|ctx| ctx.spoke_usage(&env, hub_asset))
+    }
+
+    pub(crate) fn spoke_usage_mut(&mut self, spoke_id: u32) -> Option<&mut SpokeUsageContext> {
+        if spoke_id == 0 {
+            return None;
+        }
+        self.ensure_spoke_loaded(spoke_id);
         self.emode_usage.as_mut()
     }
 
-    pub(crate) fn persist_emode_usage(&self) {
+    pub(crate) fn persist_spoke_usage(&self) {
         if let Some(ctx) = &self.emode_usage {
             ctx.persist(&self.env);
         }

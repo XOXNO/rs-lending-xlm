@@ -1,9 +1,9 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use controller_interface::types::{
-    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition, EModeAssetConfig,
-    EModeCategoryRaw, MarketConfig, OracleAssetRef, OraclePriceFluctuation, OracleProviderKind,
-    OracleReadMode, OracleSourceConfig, OracleStrategy, PositionMode, ReflectorBase,
+    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition, MarketConfig,
+    OracleAssetRef, OraclePriceFluctuation, OracleProviderKind, OracleReadMode, OracleSourceConfig,
+    OracleStrategy, PositionMode, ReflectorBase, SpokeAssetConfig, SpokeConfig,
 };
 
 #[contracttype]
@@ -60,26 +60,18 @@ impl From<OracleStrategy> for EventPricingMethod {
 /// Account attributes, vec-encoded inside the batch position event.
 ///
 /// Field order is wire ABI; do not reorder:
-/// `[owner, e_mode_category_id, mode]`.
+/// `[owner, spoke_id, mode]`.
 pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
 impl From<&Account> for EventAccountAttributes {
     fn from(value: &Account) -> Self {
-        Self(
-            value.owner.clone(),
-            value.e_mode_category_id,
-            value.mode.into(),
-        )
+        Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }
 }
 
 impl From<&AccountMeta> for EventAccountAttributes {
     fn from(value: &AccountMeta) -> Self {
-        Self(
-            value.owner.clone(),
-            value.e_mode_category_id,
-            value.mode.into(),
-        )
+        Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }
 }
 
@@ -409,43 +401,43 @@ pub struct UpdateAssetOracleEvent {
     pub oracle: EventOracleProvider,
 }
 
-/// E-mode category snapshot emitted after category changes.
+/// Spoke snapshot emitted after spoke changes.
 /// Risk parameters are per-asset values.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EventEModeCategory {
-    pub category_id: u32,
+pub struct EventSpoke {
+    pub spoke_id: u32,
     pub is_deprecated: bool,
 }
 
-impl EventEModeCategory {
-    pub fn new(category_id: u32, category: &EModeCategoryRaw) -> Self {
+impl EventSpoke {
+    pub fn new(spoke_id: u32, spoke: &SpokeConfig) -> Self {
         Self {
-            category_id,
-            is_deprecated: category.is_deprecated,
+            spoke_id,
+            is_deprecated: spoke.is_deprecated,
         }
     }
 }
 
-#[contractevent(topics = ["config", "emode_category"])]
+#[contractevent(topics = ["config", "spoke"])]
 #[derive(Clone, Debug)]
-pub struct UpdateEModeCategoryEvent {
-    pub category: EventEModeCategory,
+pub struct UpdateSpokeEvent {
+    pub spoke: EventSpoke,
 }
 
-#[contractevent(topics = ["config", "emode_asset"])]
+#[contractevent(topics = ["config", "spoke_asset"])]
 #[derive(Clone, Debug)]
-pub struct UpdateEModeAssetEvent {
+pub struct UpdateSpokeAssetEvent {
     pub asset: Address,
-    pub config: EModeAssetConfig,
-    pub category_id: u32,
+    pub config: SpokeAssetConfig,
+    pub spoke_id: u32,
 }
 
-#[contractevent(topics = ["config", "remove_emode_asset"])]
+#[contractevent(topics = ["config", "remove_spoke_asset"])]
 #[derive(Clone, Debug)]
-pub struct RemoveEModeAssetEvent {
+pub struct RemoveSpokeAssetEvent {
     pub asset: Address,
-    pub category_id: u32,
+    pub spoke_id: u32,
 }
 
 #[contractevent(topics = ["debt", "bad_debt"])]

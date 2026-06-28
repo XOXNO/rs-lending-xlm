@@ -1,4 +1,4 @@
-use crate::types::oracle::MarketOracleConfig;
+use crate::types::oracle::{MarketOracleConfig, MarketOracleConfigOption};
 use common::math::fp::{Bps, Ray};
 use common::types::pool::{
     AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
@@ -92,92 +92,64 @@ impl From<&AssetConfig> for AssetConfigRaw {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
-    pub e_mode_category_id: u32,
+    pub spoke_id: u32,
     pub mode: PositionMode,
 }
 
 impl AccountAttributes {
-    pub fn has_emode(&self) -> bool {
-        self.e_mode_category_id > 0
+    pub fn has_spoke(&self) -> bool {
+        self.spoke_id > 0
     }
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
-    /// Account owner authorized for supply, borrow, withdraw, and strategies.
     pub owner: Address,
-    /// Active e-mode category; zero means no e-mode.
-    pub e_mode_category_id: u32,
+    pub spoke_id: u32,
     pub mode: PositionMode,
 }
 
-/// Persistent e-mode category definition. Risk parameters live per-asset on
-/// each [`EModeAssetConfig`]; a category only groups assets and tracks
-/// deprecation.
+/// Persistent spoke definition. Spoke assets and per-asset usage totals live in
+/// discrete storage keys; this record only tracks deprecation and the
+/// (currently inert) liquidation-curve parameters.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EModeCategoryRaw {
+pub struct SpokeConfig {
     pub is_deprecated: bool,
-    pub assets: Map<Address, EModeAssetConfig>,
-    /// Per-position scaled-share totals for accounts in this spoke.
-    pub usage: Map<HubAssetKey, EModeSpokeUsageRaw>,
+    pub liquidation_target_hf_wad: i128,
+    pub hf_for_max_bonus_wad: i128,
+    pub liquidation_bonus_factor_bps: u32,
 }
 
-/// Typed e-mode category used when applying overrides; only `is_deprecated`
-/// gates the override, so this mirrors the raw record.
-#[derive(Clone, Debug)]
-pub struct EModeCategory {
-    pub is_deprecated: bool,
-    pub assets: Map<Address, EModeAssetConfig>,
-    pub usage: Map<HubAssetKey, EModeSpokeUsageRaw>,
-}
-
-impl From<&EModeCategoryRaw> for EModeCategory {
-    fn from(r: &EModeCategoryRaw) -> Self {
-        Self {
-            is_deprecated: r.is_deprecated,
-            assets: r.assets.clone(),
-            usage: r.usage.clone(),
-        }
-    }
-}
-
-impl From<&EModeCategory> for EModeCategoryRaw {
-    fn from(t: &EModeCategory) -> Self {
-        Self {
-            is_deprecated: t.is_deprecated,
-            assets: t.assets.clone(),
-            usage: t.usage.clone(),
-        }
-    }
-}
-
-/// Per-asset e-mode configuration: collateral/borrow flags plus the risk
-/// parameters applied while the owning category is active. `*_bps` fields use
-/// basis points.
+/// Per-asset spoke configuration: collateral/borrow flags plus the risk
+/// parameters applied while the owning spoke is active. `*_bps` fields use
+/// basis points. `paused`, `frozen`, `liquidation_fees_bps`, and
+/// `oracle_override` are reserved for later phases and read by nothing yet.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EModeAssetConfig {
+pub struct SpokeAssetConfig {
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
+    pub paused: bool,
+    pub frozen: bool,
     pub loan_to_value_bps: u32,
     pub liquidation_threshold_bps: u32,
     pub liquidation_bonus_bps: u32,
-    /// Spoke supply cap in asset-native units; zero disables.
+    pub liquidation_fees_bps: u32,
     pub supply_cap: i128,
-    /// Spoke borrow cap in asset-native units; zero disables.
     pub borrow_cap: i128,
+    pub oracle_override: MarketOracleConfigOption,
 }
 
-/// Input for `add_asset_to_e_mode_category` / `edit_asset_in_e_mode_category`:
-/// the target (`asset`, `category_id`) plus the spoke risk parameters. Bundles
-/// what were positional entrypoint arguments so governance forwards one value.
+/// Input for `add_asset_to_spoke` / `edit_asset_in_spoke`: the target
+/// (`asset`, `spoke_id`) plus the spoke risk parameters. Bundles what were
+/// positional entrypoint arguments so governance forwards one value.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct EModeAssetArgs {
+pub struct SpokeAssetArgs {
     pub asset: Address,
-    pub category_id: u32,
+    pub spoke_id: u32,
     pub can_collateral: bool,
     pub can_borrow: bool,
     pub ltv: u32,
@@ -187,10 +159,10 @@ pub struct EModeAssetArgs {
     pub borrow_cap: i128,
 }
 
-/// Running scaled-share totals for one asset within an e-mode spoke.
+/// Running scaled-share totals for one asset within a spoke.
 #[contracttype]
 #[derive(Clone, Debug, Default)]
-pub struct EModeSpokeUsageRaw {
+pub struct SpokeUsageRaw {
     pub supplied_scaled_ray: i128,
     pub borrowed_scaled_ray: i128,
 }
@@ -296,8 +268,8 @@ pub struct MarketConfig {
 pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
     pub owner: Address,
-    /// Active e-mode category; zero means no e-mode.
-    pub e_mode_category_id: u32,
+    /// Active spoke; zero means no spoke.
+    pub spoke_id: u32,
     pub mode: PositionMode,
     /// Collateral positions keyed by hub asset.
     pub supply_positions: Map<HubAssetKey, AccountPositionRaw>,
@@ -310,8 +282,8 @@ impl Account {
         AccountAttributes::from(self)
     }
 
-    pub fn has_emode(&self) -> bool {
-        self.e_mode_category_id > 0
+    pub fn has_spoke(&self) -> bool {
+        self.spoke_id > 0
     }
 
     /// Existing collateral position for `asset` (decoded to typed form) or a
@@ -352,7 +324,7 @@ impl Account {
 impl From<&Account> for AccountAttributes {
     fn from(account: &Account) -> Self {
         AccountAttributes {
-            e_mode_category_id: account.e_mode_category_id,
+            spoke_id: account.spoke_id,
             mode: account.mode,
         }
     }
@@ -361,7 +333,7 @@ impl From<&Account> for AccountAttributes {
 impl From<&AccountMeta> for AccountAttributes {
     fn from(account: &AccountMeta) -> Self {
         AccountAttributes {
-            e_mode_category_id: account.e_mode_category_id,
+            spoke_id: account.spoke_id,
             mode: account.mode,
         }
     }
@@ -419,41 +391,47 @@ mod tests {
         assert!(cfg.has_emode());
     }
 
-    fn emode_category_raw(env: &Env) -> EModeCategoryRaw {
-        let mut assets: Map<Address, EModeAssetConfig> = Map::new(env);
-        assets.set(
-            Address::generate(env),
-            EModeAssetConfig {
-                is_collateralizable: true,
-                is_borrowable: true,
-                loan_to_value_bps: 9_000,
-                liquidation_threshold_bps: 9_300,
-                liquidation_bonus_bps: 300,
-                supply_cap: 0,
-                borrow_cap: 0,
-            },
-        );
-        EModeCategoryRaw {
+    fn spoke_config() -> SpokeConfig {
+        SpokeConfig {
             is_deprecated: false,
-            assets,
-            usage: Map::new(env),
+            liquidation_target_hf_wad: 0,
+            hf_for_max_bonus_wad: 0,
+            liquidation_bonus_factor_bps: 0,
+        }
+    }
+
+    fn spoke_asset_config() -> SpokeAssetConfig {
+        SpokeAssetConfig {
+            is_collateralizable: true,
+            is_borrowable: true,
+            paused: false,
+            frozen: false,
+            loan_to_value_bps: 9_000,
+            liquidation_threshold_bps: 9_300,
+            liquidation_bonus_bps: 300,
+            liquidation_fees_bps: 0,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
     #[test]
-    fn test_emode_category_raw_typed_roundtrip() {
-        let env = Env::default();
-        let raw = emode_category_raw(&env);
-        let typed = EModeCategory::from(&raw);
-        let back = EModeCategoryRaw::from(&typed);
-        assert_eq!(back.is_deprecated, raw.is_deprecated);
-        assert_eq!(back.assets.len(), raw.assets.len());
+    fn test_spoke_config_and_asset_config_build() {
+        let spoke = spoke_config();
+        assert!(!spoke.is_deprecated);
+
+        let asset = spoke_asset_config();
+        assert!(asset.is_collateralizable);
+        assert!(asset.is_borrowable);
+        assert_eq!(asset.loan_to_value_bps, 9_000);
+        assert!(asset.oracle_override.as_ref().is_none());
     }
 
-    fn account_meta(env: &Env, category: u32) -> AccountMeta {
+    fn account_meta(env: &Env, spoke_id: u32) -> AccountMeta {
         AccountMeta {
             owner: Address::generate(env),
-            e_mode_category_id: category,
+            spoke_id,
             mode: PositionMode::Normal,
         }
     }
@@ -461,7 +439,7 @@ mod tests {
     fn empty_account(env: &Env, meta: AccountMeta) -> Account {
         Account {
             owner: meta.owner,
-            e_mode_category_id: meta.e_mode_category_id,
+            spoke_id: meta.spoke_id,
             mode: meta.mode,
             supply_positions: Map::new(env),
             borrow_positions: Map::new(env),
@@ -476,26 +454,26 @@ mod tests {
         let account = empty_account(&env, meta);
         let from_account = AccountAttributes::from(&account);
         assert_eq!(from_meta, from_account);
-        assert!(from_account.has_emode());
-        assert_eq!(from_account.e_mode_category_id, 4);
+        assert!(from_account.has_spoke());
+        assert_eq!(from_account.spoke_id, 4);
     }
 
     #[test]
-    fn test_account_attributes_no_emode_without_category() {
+    fn test_account_attributes_no_spoke_without_id() {
         let env = Env::default();
         let attrs = AccountAttributes::from(&account_meta(&env, 0));
-        assert!(!attrs.has_emode());
+        assert!(!attrs.has_spoke());
     }
 
     #[test]
-    fn test_account_has_emode_and_attributes() {
+    fn test_account_has_spoke_and_attributes() {
         let env = Env::default();
         let normal = empty_account(&env, account_meta(&env, 0));
-        assert!(!normal.has_emode());
-        assert_eq!(normal.attributes().e_mode_category_id, 0);
+        assert!(!normal.has_spoke());
+        assert_eq!(normal.attributes().spoke_id, 0);
 
-        let emode = empty_account(&env, account_meta(&env, 1));
-        assert!(emode.has_emode());
+        let spoked = empty_account(&env, account_meta(&env, 1));
+        assert!(spoked.has_spoke());
     }
 
     #[test]
@@ -588,13 +566,20 @@ pub enum ControllerKey {
     Accumulator,
     AccountNonce,
     PositionLimits,
-    LastEModeCategoryId,
-    Market(Address),
-    AccountMeta(u64),
-    SupplyPositions(u64),
-    BorrowPositions(u64),
-    EModeCategory(u32),
     AppVersion,
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     MinBorrowCollateralUsd,
+    LastSpokeId,
+    LastHubId,
+    Hub(u32),
+    AssetOracle(Address),
+    Spoke(u32),
+    SpokeAsset(u32, HubAssetKey),
+    SpokeUsage(u32, HubAssetKey),
+    PositionManager(Address),
+    AccountMeta(u64),
+    Delegates(u64),
+    SupplyPositions(u64),
+    BorrowPositions(u64),
+    Market(Address),
 }

@@ -1,5 +1,5 @@
 //! Refreshes LTV, liquidation bonus and (gated) liquidation threshold on
-//! supply positions from the effective (e-mode aware) market config.
+//! supply positions from the effective (spoke-aware) market config.
 
 use common::math::fp::{Bps, Wad};
 use controller_interface::types::{
@@ -36,7 +36,7 @@ pub fn refresh_supply_risk_params(
     );
 }
 
-/// Resolves e-mode-adjusted config for `hub_asset`, then refreshes `position`.
+/// Resolves spoke-adjusted config for `hub_asset`, then refreshes `position`.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -44,18 +44,20 @@ pub fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    // Views modeling exits must not reject only because governance deprecated
-    // a category or removed an asset from it.
-    let e_mode = match cache.cached_e_mode_category(account.e_mode_category_id) {
-        Some(category) => {
-            if category.is_deprecated || category.assets.get(hub_asset.asset.clone()).is_none() {
+    // Views modeling exits must not reject only because governance deprecated a
+    // spoke or removed an asset from it.
+    let spoke = match cache.cached_spoke(account.spoke_id) {
+        Some(spoke) => {
+            if spoke.is_deprecated
+                || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none()
+            {
                 return;
             }
-            Some(category)
+            Some(spoke)
         }
         None => None,
     };
-    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &e_mode);
+    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &spoke);
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 

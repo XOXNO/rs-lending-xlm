@@ -46,7 +46,7 @@ fn account_with(env: &Env, supply: Option<&Address>, borrow: Option<&Address>) -
         owner: Address::generate(env),
         supply_positions,
         borrow_positions,
-        e_mode_category_id: 0,
+        spoke_id: 0,
         mode: PositionMode::Normal,
     }
 }

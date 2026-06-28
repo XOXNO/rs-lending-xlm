@@ -29,10 +29,10 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         assets: Vec<(HubAssetKey, i128)>,
     ) -> u64 {
-        process_supply(&env, &caller, account_id, e_mode_category, &assets)
+        process_supply(&env, &caller, account_id, spoke_id, &assets)
     }
 }
 
@@ -44,7 +44,7 @@ pub fn process_supply(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    e_mode_category: u32,
+    spoke_id: u32,
     assets: &Vec<HubPayment>,
 ) -> u64 {
     caller.require_auth();
@@ -56,7 +56,7 @@ pub fn process_supply(
         env,
         caller,
         account_id,
-        e_mode_category,
+        spoke_id,
         &aggregated,
         &mut cache,
     );
@@ -79,7 +79,7 @@ fn resolve_supply_account(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    e_mode_category: u32,
+    spoke_id: u32,
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) -> (u64, Account) {
@@ -89,7 +89,7 @@ fn resolve_supply_account(
         env,
         caller,
         account_id,
-        e_mode_category,
+        spoke_id,
         PositionMode::Normal,
         helpers::AccountGuard::Supply,
         cache,
@@ -129,7 +129,7 @@ fn validate_deposit(
 
         let asset_config = configs.get(env, &hub_asset);
 
-        emode::validate_e_mode_asset(env, cache, account.e_mode_category_id, &hub_asset.asset);
+        emode::validate_spoke_asset(env, cache, account.spoke_id, &hub_asset.asset);
 
         assert_with_error!(
             env,
@@ -179,7 +179,7 @@ fn settle_deposit(
         // Merge ONLY the scaled share back; the pool does not echo collateral
         // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-        if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+        if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
             // dimensional: both values are Ray<Share(asset, supply)>; supply adds usage.
             let delta = position.scaled_amount - old_scaled;
             ctx.apply_supply_after_pool(

@@ -1,19 +1,18 @@
-//! Owner- and role-gated configuration for markets, oracles, e-mode, caps,
+//! Owner- and role-gated configuration for markets, oracles, spokes, caps,
 //! aggregator, accumulator, approved tokens, and pool templates.
 
 use crate::events::{
-    ApproveBlendPoolEvent, ApproveTokenEvent, EventEModeCategory, EventOracleProvider,
-    OracleDisabledEvent, RemoveEModeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent,
-    UpdateAssetConfigEvent, UpdateAssetOracleEvent, UpdateEModeAssetEvent,
-    UpdateEModeCategoryEvent, UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent,
-    UpdatePositionLimitsEvent,
+    ApproveBlendPoolEvent, ApproveTokenEvent, EventOracleProvider, EventSpoke, OracleDisabledEvent,
+    RemoveSpokeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
+    UpdateAssetOracleEvent, UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent,
+    UpdatePositionLimitsEvent, UpdateSpokeAssetEvent, UpdateSpokeEvent,
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    AssetConfigRaw, EModeAssetArgs, EModeAssetConfig, EModeCategoryRaw, EModeSpokeUsageRaw,
-    HubAssetKey, MarketOracleConfig, MarketStatus, OraclePriceFluctuation, OracleSourceConfig,
-    PositionLimits, ReflectorBase,
+    AssetConfigRaw, HubAssetKey, MarketOracleConfig, MarketOracleConfigOption, MarketStatus,
+    OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase, SpokeAssetArgs,
+    SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
@@ -84,33 +83,33 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn add_e_mode_category(env: Env) -> u32 {
+    pub fn add_spoke(env: Env) -> u32 {
         storage::renew_controller_instance(&env);
-        add_e_mode_category(&env)
+        add_spoke(&env)
     }
 
     #[only_owner]
-    pub fn remove_e_mode_category(env: Env, id: u32) {
+    pub fn remove_spoke(env: Env, id: u32) {
         storage::renew_controller_instance(&env);
-        remove_e_mode_category(&env, id);
+        remove_spoke(&env, id);
     }
 
     #[only_owner]
-    pub fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs) {
+    pub fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs) {
         storage::renew_controller_instance(&env);
-        add_asset_to_e_mode_category(&env, &input);
+        add_asset_to_spoke(&env, &input);
     }
 
     #[only_owner]
-    pub fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs) {
+    pub fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs) {
         storage::renew_controller_instance(&env);
-        edit_asset_in_e_mode_category(&env, &input);
+        edit_asset_in_spoke(&env, &input);
     }
 
     #[only_owner]
-    pub fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32) {
+    pub fn remove_asset_from_spoke(env: Env, asset: Address, spoke_id: u32) {
         storage::renew_controller_instance(&env);
-        remove_asset_from_e_mode(&env, asset, category_id);
+        remove_asset_from_spoke(&env, asset, spoke_id);
     }
 
     #[only_owner]
@@ -200,57 +199,61 @@ pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfig
     .publish(env);
 }
 
-pub fn add_e_mode_category(env: &Env) -> u32 {
-    let id = storage::increment_emode_category_id(env);
-    let cat = EModeCategoryRaw {
+pub fn add_spoke(env: &Env) -> u32 {
+    let id = storage::increment_spoke_id(env);
+    // The liquidation-curve fields default to zero; they stay inert until a
+    // later phase reads them.
+    let spoke = SpokeConfig {
         is_deprecated: false,
-        assets: soroban_sdk::Map::new(env),
-        usage: soroban_sdk::Map::new(env),
+        liquidation_target_hf_wad: 0,
+        hf_for_max_bonus_wad: 0,
+        liquidation_bonus_factor_bps: 0,
     };
-    storage::set_emode_category(env, id, &cat);
+    storage::set_spoke(env, id, &spoke);
 
-    UpdateEModeCategoryEvent {
-        category: EventEModeCategory::new(id, &cat),
+    UpdateSpokeEvent {
+        spoke: EventSpoke::new(id, &spoke),
     }
     .publish(env);
 
     id
 }
 
-pub fn remove_e_mode_category(env: &Env, id: u32) {
-    let mut cat = storage::get_emode_category(env, id);
-    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
-    cat.is_deprecated = true;
+pub fn remove_spoke(env: &Env, id: u32) {
+    let mut spoke = storage::get_spoke(env, id);
+    assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
+    // Deprecation gates every spoke read (overlay, `active_spoke`, asset edits).
+    // Discrete `SpokeAsset` keys are not enumerable, so member assets and their
+    // market backlinks are left in place; the deprecation flag keeps them
+    // unreachable.
+    spoke.is_deprecated = true;
+    storage::set_spoke(env, id, &spoke);
 
-    let members = cat.assets.clone();
-    cat.assets = soroban_sdk::Map::new(env);
-    storage::set_emode_category(env, id, &cat);
-
-    for asset in members.keys() {
-        remove_emode_category_from_market_config(env, &asset, id);
-    }
-
-    UpdateEModeCategoryEvent {
-        category: EventEModeCategory::new(id, &cat),
+    UpdateSpokeEvent {
+        spoke: EventSpoke::new(id, &spoke),
     }
     .publish(env);
 }
 
-pub fn add_asset_to_e_mode_category(env: &Env, args: &EModeAssetArgs) {
+pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     assert_with_error!(
         env,
         args.supply_cap >= 0 && args.borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let cat = storage::get_emode_category(env, args.category_id);
-    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
+    let spoke = storage::get_spoke(env, args.spoke_id);
+    assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
 
     let mut market = storage::get_market_config(env, &args.asset);
 
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: args.asset.clone(),
+    };
     assert_with_error!(
         env,
-        !cat.assets.contains_key(args.asset.clone()),
+        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
         EModeError::AssetAlreadyInEmode
     );
 
@@ -276,49 +279,50 @@ pub fn add_asset_to_e_mode_category(env: &Env, args: &EModeAssetArgs) {
         hub.params.asset_decimals,
     );
 
-    let config = EModeAssetConfig {
+    let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
+        paused: false,
+        frozen: false,
         loan_to_value_bps: args.ltv,
         liquidation_threshold_bps: args.threshold,
         liquidation_bonus_bps: args.bonus,
+        liquidation_fees_bps: 0,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
+        oracle_override: MarketOracleConfigOption::None,
     };
-    storage::set_emode_asset(env, args.category_id, &args.asset, &config);
+    storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
 
-    if !market
-        .asset_config
-        .e_mode_categories
-        .contains(args.category_id)
-    {
-        market
-            .asset_config
-            .e_mode_categories
-            .push_back(args.category_id);
+    if !market.asset_config.e_mode_categories.contains(args.spoke_id) {
+        market.asset_config.e_mode_categories.push_back(args.spoke_id);
         storage::set_market_config(env, &args.asset, &market);
     }
 
-    UpdateEModeAssetEvent {
+    UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
         config,
-        category_id: args.category_id,
+        spoke_id: args.spoke_id,
     }
     .publish(env);
 }
 
-pub fn edit_asset_in_e_mode_category(env: &Env, args: &EModeAssetArgs) {
+pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     common::validation::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     assert_with_error!(
         env,
         args.supply_cap >= 0 && args.borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let cat = storage::get_emode_category(env, args.category_id);
-    assert_with_error!(env, !cat.is_deprecated, EModeError::EModeCategoryDeprecated);
+    let spoke = storage::get_spoke(env, args.spoke_id);
+    assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: args.asset.clone(),
+    };
     assert_with_error!(
         env,
-        cat.assets.contains_key(args.asset.clone()),
+        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
         EModeError::AssetNotInEmode
     );
 
@@ -343,16 +347,7 @@ pub fn edit_asset_in_e_mode_category(env: &Env, args: &EModeAssetArgs) {
         args.borrow_cap,
         hub.params.asset_decimals,
     );
-    let usage = cat
-        .usage
-        .get(HubAssetKey {
-            hub_id: 0,
-            asset: args.asset.clone(),
-        })
-        .unwrap_or(EModeSpokeUsageRaw {
-            supplied_scaled_ray: 0,
-            borrowed_scaled_ray: 0,
-        });
+    let usage = storage::get_spoke_usage(env, args.spoke_id, &hub_asset).unwrap_or_default();
     validate_spoke_caps_against_usage(
         env,
         &usage,
@@ -363,37 +358,45 @@ pub fn edit_asset_in_e_mode_category(env: &Env, args: &EModeAssetArgs) {
         hub.params.asset_decimals,
     );
 
-    let config = EModeAssetConfig {
+    let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
+        paused: false,
+        frozen: false,
         loan_to_value_bps: args.ltv,
         liquidation_threshold_bps: args.threshold,
         liquidation_bonus_bps: args.bonus,
+        liquidation_fees_bps: 0,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
+        oracle_override: MarketOracleConfigOption::None,
     };
-    storage::set_emode_asset(env, args.category_id, &args.asset, &config);
+    storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
 
-    UpdateEModeAssetEvent {
+    UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
         config,
-        category_id: args.category_id,
+        spoke_id: args.spoke_id,
     }
     .publish(env);
 }
 
-pub fn remove_asset_from_e_mode(env: &Env, asset: Address, category_id: u32) {
+pub fn remove_asset_from_spoke(env: &Env, asset: Address, spoke_id: u32) {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
     assert_with_error!(
         env,
-        storage::get_emode_asset(env, category_id, &asset).is_some(),
+        storage::get_spoke_asset(env, spoke_id, &hub_asset).is_some(),
         EModeError::AssetNotInEmode
     );
 
-    storage::remove_emode_asset(env, category_id, &asset);
+    storage::remove_spoke_asset(env, spoke_id, &hub_asset);
 
-    remove_emode_category_from_market_config(env, &asset, category_id);
+    remove_spoke_from_market_config(env, &asset, spoke_id);
 
-    RemoveEModeAssetEvent { asset, category_id }.publish(env);
+    RemoveSpokeAssetEvent { asset, spoke_id }.publish(env);
 }
 
 pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOracleConfig) {
@@ -504,13 +507,13 @@ pub fn disable_token_oracle(env: &Env, asset: Address) {
     OracleDisabledEvent { asset }.publish(env);
 }
 
-fn remove_emode_category_from_market_config(env: &Env, asset: &Address, category_id: u32) {
+fn remove_spoke_from_market_config(env: &Env, asset: &Address, spoke_id: u32) {
     if let Some(mut market) = storage::try_get_market_config(env, asset) {
         if let Some(idx) = market
             .asset_config
             .e_mode_categories
             .iter()
-            .position(|id| id == category_id)
+            .position(|id| id == spoke_id)
         {
             market.asset_config.e_mode_categories.remove(idx as u32);
             storage::set_market_config(env, asset, &market);

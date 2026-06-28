@@ -1,6 +1,6 @@
 use crate::types::{
-    AssetConfigRaw, EModeAssetArgs, MarketConfig, MarketOracleConfig, OraclePriceFluctuation,
-    PositionLimits,
+    AssetConfigRaw, MarketConfig, MarketOracleConfig, OraclePriceFluctuation, PositionLimits,
+    SpokeAssetArgs,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
@@ -14,11 +14,11 @@ pub trait ControllerAdmin {
     fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw);
     fn set_position_limits(env: Env, limits: PositionLimits);
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
-    fn add_e_mode_category(env: Env) -> u32;
-    fn remove_e_mode_category(env: Env, id: u32);
-    fn add_asset_to_e_mode_category(env: Env, input: EModeAssetArgs);
-    fn edit_asset_in_e_mode_category(env: Env, input: EModeAssetArgs);
-    fn remove_asset_from_e_mode(env: Env, asset: Address, category_id: u32);
+    fn add_spoke(env: Env) -> u32;
+    fn remove_spoke(env: Env, id: u32);
+    fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs);
+    fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs);
+    fn remove_asset_from_spoke(env: Env, asset: Address, spoke_id: u32);
     fn approve_token(env: Env, token: Address);
     fn revoke_token(env: Env, token: Address);
     fn approve_blend_pool(env: Env, pool: Address);

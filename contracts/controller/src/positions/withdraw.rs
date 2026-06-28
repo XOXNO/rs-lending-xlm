@@ -7,7 +7,7 @@
 
 use common::math::fp::Ray;
 use controller_interface::types::{
-    Account, AccountPosition, EModeCategory, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry,
+    Account, AccountPosition, HubAssetKey, PoolPositionMutation, PoolWithdrawEntry, SpokeConfig,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -29,12 +29,12 @@ pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 /// Per-asset decision for refreshing supply risk params during withdraw.
 ///
 /// - `Frozen`: keep existing risk params.
-/// - `None`: refresh from current config with no e-mode category.
-/// - `From`: refresh from the given active e-mode category.
-pub(crate) enum EModeRefresh {
+/// - `None`: refresh from current config with no spoke.
+/// - `From`: refresh from the given active spoke.
+pub(crate) enum SpokeRefresh {
     Frozen,
     None,
-    From(EModeCategory),
+    From(SpokeConfig),
 }
 
 /// Per-call withdrawal inputs that travel together through the pipeline.
@@ -150,30 +150,26 @@ pub(crate) fn settle_withdraw_entries(
 ) -> Vec<PoolPositionMutation> {
     let pool_addr = cache.cached_pool_address();
     let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
-    // Resolve the category once, then decide per asset whether active
-    // membership still applies.
-    let e_mode_category = if is_liquidation {
+    // Resolve the spoke once, then decide per asset whether active membership
+    // still applies.
+    let spoke = if is_liquidation {
         None
     } else {
-        cache.cached_e_mode_category(account.e_mode_category_id)
+        cache.cached_spoke(account.spoke_id)
     };
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
-        let refresh_e_mode = if is_liquidation {
-            EModeRefresh::Frozen
+        let refresh_spoke = if is_liquidation {
+            SpokeRefresh::Frozen
         } else {
-            withdraw_refresh_e_mode_for_asset(
-                account,
-                &entry.action.hub_asset.asset,
-                &e_mode_category,
-            )
+            withdraw_refresh_spoke_for_asset(cache, account, &entry.action.hub_asset, &spoke)
         };
         finish_withdrawal(
             env,
             account,
             action,
             &entry.action.hub_asset,
-            &refresh_e_mode,
+            &refresh_spoke,
             &result,
             cache,
         );
@@ -181,33 +177,34 @@ pub(crate) fn settle_withdraw_entries(
     results
 }
 
-fn withdraw_refresh_e_mode_for_asset(
+fn withdraw_refresh_spoke_for_asset(
+    cache: &mut Cache,
     account: &Account,
-    asset: &Address,
-    e_mode_category: &Option<EModeCategory>,
-) -> EModeRefresh {
-    if account.e_mode_category_id == 0 {
-        return EModeRefresh::None;
+    hub_asset: &HubAssetKey,
+    spoke: &Option<SpokeConfig>,
+) -> SpokeRefresh {
+    if account.spoke_id == 0 {
+        return SpokeRefresh::None;
     }
 
-    let Some(category) = e_mode_category else {
-        return EModeRefresh::Frozen;
+    let Some(spoke) = spoke else {
+        return SpokeRefresh::Frozen;
     };
-    if category.is_deprecated || category.assets.get(asset.clone()).is_none() {
-        return EModeRefresh::Frozen;
+    if spoke.is_deprecated || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+        return SpokeRefresh::Frozen;
     }
 
-    EModeRefresh::From(category.clone())
+    SpokeRefresh::From(spoke.clone())
 }
 
-/// `refresh_e_mode` refreshes risk params from current config or keeps them
-/// frozen for liquidation, deprecated categories, and removed e-mode members.
+/// `refresh_spoke` refreshes risk params from current config or keeps them
+/// frozen for liquidation, deprecated spokes, and removed spoke members.
 pub(crate) fn finish_withdrawal(
     env: &Env,
     account: &mut Account,
     action: events::PositionAction,
     hub_asset: &HubAssetKey,
-    refresh_e_mode: &EModeRefresh,
+    refresh_spoke: &SpokeRefresh,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -215,17 +212,17 @@ pub(crate) fn finish_withdrawal(
     let old_scaled = result_position.scaled_amount;
     result_position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
     // dimensional: scaled delta is Ray<Share(asset, supply)>.
-    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
         let delta = old_scaled - result_position.scaled_amount;
         ctx.apply_withdraw_after_pool(env, hub_asset, delta);
     }
-    let refresh_category = match refresh_e_mode {
-        EModeRefresh::Frozen => None,
-        EModeRefresh::None => Some(None),
-        EModeRefresh::From(category) => Some(Some(category.clone())),
+    let refresh_spoke = match refresh_spoke {
+        SpokeRefresh::Frozen => None,
+        SpokeRefresh::None => Some(None),
+        SpokeRefresh::From(spoke) => Some(Some(spoke.clone())),
     };
-    if let Some(category) = &refresh_category {
-        let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, category);
+    if let Some(spoke) = &refresh_spoke {
+        let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, spoke);
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);

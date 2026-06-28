@@ -18,7 +18,7 @@ use crate::{positions::supply, storage, validation, Controller, ControllerArgs, 
 /// Parameters for `process_multiply`.
 pub struct MultiplyParams<'a> {
     pub account_id: u64,
-    pub e_mode_category: u32,
+    pub spoke_id: u32,
     pub collateral_token: &'a Address,
     pub debt_to_flash_loan: i128,
     pub debt_token: &'a Address,
@@ -35,7 +35,7 @@ impl Controller {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         collateral_token: Address,
         debt_to_flash_loan: i128,
         debt_token: Address,
@@ -49,7 +49,7 @@ impl Controller {
             &caller,
             MultiplyParams {
                 account_id,
-                e_mode_category,
+                spoke_id,
                 collateral_token: &collateral_token,
                 debt_to_flash_loan,
                 debt_token: &debt_token,
@@ -68,7 +68,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
 
     let MultiplyParams {
         account_id,
-        e_mode_category,
+        spoke_id,
         collateral_token,
         debt_to_flash_loan,
         debt_token,
@@ -119,7 +119,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
         env,
         caller,
         account_id,
-        e_mode_category,
+        spoke_id,
         mode,
         helpers::AccountGuard::Multiply,
         &mut cache,

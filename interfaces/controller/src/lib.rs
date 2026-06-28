@@ -8,9 +8,8 @@ pub use admin::{ControllerAdmin, ControllerAdminClient};
 
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 use types::{
-    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, HubAssetKey, LiquidationEstimate, MarketConfig, MarketIndexRaw,
-    MarketIndexView, PositionMode,
+    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
+    LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, PositionMode, SpokeConfig,
 };
 
 #[contractclient(name = "ControllerClient")]
@@ -21,7 +20,7 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         assets: Vec<(HubAssetKey, i128)>,
     ) -> u64;
 
@@ -56,7 +55,7 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         collateral_token: Address,
         debt_to_flash_loan: i128,
         debt_token: Address,
@@ -97,7 +96,7 @@ pub trait ControllerInterface {
         env: Env,
         caller: Address,
         account_id: u64,
-        e_mode_category: u32,
+        spoke_id: u32,
         blend_pool: Address,
         collateral_assets: Vec<Address>,
         supply_assets: Vec<Address>,
@@ -166,14 +165,14 @@ pub trait ControllerInterface {
     /// Instance-level minimum LTV-weighted collateral USD WAD while debt exists.
     fn get_min_borrow_collateral_usd(env: Env) -> i128;
 
-    /// Returns account mode and e-mode attributes.
+    /// Returns account mode and spoke attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
     /// Returns market config for `asset`.
     fn get_market_config(env: Env, asset: Address) -> MarketConfig;
 
-    /// Returns e-mode category config by id.
-    fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw;
+    /// Returns spoke config by id.
+    fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig;
 
     /// Returns the central liquidity pool shared by every listed market.
     fn get_pool_address(env: Env) -> Address;

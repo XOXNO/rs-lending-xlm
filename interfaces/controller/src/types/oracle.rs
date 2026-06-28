@@ -201,6 +201,26 @@ pub struct MarketOracleConfig {
     pub max_sanity_price_wad: i128,
 }
 
+/// Optional per-spoke oracle override. Soroban contract types cannot embed
+/// `Option<MarketOracleConfig>` directly, so this mirrors the
+/// `OracleSourceConfigOption` enum pattern used for `MarketOracleConfig.anchor`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum MarketOracleConfigOption {
+    None,
+    Some(MarketOracleConfig),
+}
+
+impl MarketOracleConfigOption {
+    pub fn as_ref(&self) -> Option<&MarketOracleConfig> {
+        match self {
+            Self::None => None,
+            Self::Some(config) => Some(config),
+        }
+    }
+}
+
 impl MarketOracleConfig {
     pub fn pending_for(asset: Address, decimals: u32) -> Self {
         Self {

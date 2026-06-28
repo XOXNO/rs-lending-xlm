@@ -1,7 +1,7 @@
 //! Account storage layout (meta + per-side position maps).
 //!
 //! Supply and borrow maps are split so one-sided flows touch only one side key.
-//! `AccountMeta` stores owner, e-mode, and account mode.
+//! `AccountMeta` stores owner, spoke, and account mode.
 
 use super::renew_user_key;
 use common::errors::GenericError;
@@ -18,7 +18,7 @@ pub(crate) fn account_from_parts(
 ) -> Account {
     Account {
         owner: meta.owner,
-        e_mode_category_id: meta.e_mode_category_id,
+        spoke_id: meta.spoke_id,
         mode: meta.mode,
         supply_positions,
         borrow_positions,

@@ -83,28 +83,28 @@ pub(crate) fn finalize_position_flow(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    cache.persist_emode_usage();
+    cache.persist_spoke_usage();
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
     cache.emit_position_batch(account_id, account);
 }
 
-/// E-mode-adjusted configs resolved once per aggregated asset, shared by
+/// Spoke-adjusted configs resolved once per aggregated asset, shared by
 /// validation and pool execution. Stores the raw form (`Map` values must be
 /// contract types); `get` decodes per read.
 pub(crate) struct AggregatedConfigs(Map<HubAssetKey, AssetConfigRaw>);
 
 impl AggregatedConfigs {
-    /// Resolves the active e-mode category once and adjusts each aggregated asset.
+    /// Resolves the active spoke once and adjusts each aggregated asset.
     pub fn resolve(
         env: &Env,
         account: &Account,
         aggregated: &AggregatedPayments,
         cache: &mut Cache,
     ) -> Self {
-        let e_mode = cache.active_e_mode_category(env, account.e_mode_category_id);
+        let spoke = cache.active_spoke(env, account.spoke_id);
         let mut configs: Map<HubAssetKey, AssetConfigRaw> = Map::new(env);
         for (hub_asset, _) in aggregated.iter() {
-            let cfg = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &e_mode);
+            let cfg = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &spoke);
             configs.set(hub_asset, (&cfg).into());
         }
         Self(configs)

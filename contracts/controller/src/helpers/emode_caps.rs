@@ -1,72 +1,90 @@
-//! E-mode spoke cap enforcement and usage accounting.
+//! Spoke cap enforcement and usage accounting.
 //!
 //! Hub caps are enforced inside the pool. Spoke caps are checked in scaled
-//! space after the pool returns post-accrual indexes.
+//! space after the pool returns post-accrual indexes. Per-asset usage totals
+//! live in discrete `SpokeUsage` keys; this context buffers the entries it
+//! touches for one transaction and flushes them on `persist`.
 
 use common::errors::EModeError;
 use common::math::fp::Ray;
 use common::validation::cap_is_enabled;
 use controller_interface::types::{
-    EModeAssetConfig, EModeCategory, EModeCategoryRaw, EModeSpokeUsageRaw, HubAssetKey,
-    MarketIndexRaw,
+    HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
 use crate::storage;
 
-/// Tracks in-memory spoke usage for one transaction.
-pub(crate) struct EModeUsageContext {
-    category_id: u32,
-    category: EModeCategoryRaw,
+/// Buffers spoke usage entries touched during one transaction.
+///
+/// `usage` is a transaction-scoped working buffer (not storage). Entries are
+/// lazily loaded from discrete `SpokeUsage` keys on first touch and flushed by
+/// `persist`.
+pub(crate) struct SpokeUsageContext {
+    spoke_id: u32,
+    usage: Map<HubAssetKey, SpokeUsageRaw>,
 }
 
-impl EModeUsageContext {
-    pub fn load(env: &Env, category_id: u32) -> Option<Self> {
-        if category_id == 0 {
+impl SpokeUsageContext {
+    pub fn load(env: &Env, spoke_id: u32) -> Option<Self> {
+        if spoke_id == 0 {
             return None;
         }
         Some(Self {
-            category_id,
-            category: storage::get_emode_category(env, category_id),
+            spoke_id,
+            usage: Map::new(env),
         })
     }
 
     pub fn persist(&self, env: &Env) {
-        storage::set_emode_category(env, self.category_id, &self.category);
-    }
-
-    pub(crate) fn category_id(&self) -> u32 {
-        self.category_id
-    }
-
-    pub(crate) fn as_category(&self) -> EModeCategory {
-        (&self.category).into()
-    }
-
-    pub(crate) fn emode_asset(&self, asset: &Address) -> Option<EModeAssetConfig> {
-        self.category.assets.get(asset.clone())
-    }
-
-    pub(crate) fn spoke_usage(&self, hub_asset: &HubAssetKey) -> EModeSpokeUsageRaw {
-        self.category
-            .usage
-            .get(hub_asset.clone())
-            .unwrap_or(EModeSpokeUsageRaw {
-                supplied_scaled_ray: 0,
-                borrowed_scaled_ray: 0,
-            })
-    }
-
-    fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: EModeSpokeUsageRaw) {
-        if usage.supplied_scaled_ray == 0 && usage.borrowed_scaled_ray == 0 {
-            self.category.usage.remove(hub_asset.clone());
-        } else {
-            self.category.usage.set(hub_asset.clone(), usage);
+        for (hub_asset, usage) in self.usage.iter() {
+            storage::set_spoke_usage(env, self.spoke_id, &hub_asset, &usage);
         }
     }
 
-    fn has_usage_entry(&self, hub_asset: &HubAssetKey) -> bool {
-        self.category.usage.contains_key(hub_asset.clone())
+    pub(crate) fn spoke_id(&self) -> u32 {
+        self.spoke_id
+    }
+
+    pub(crate) fn as_spoke(&self, env: &Env) -> SpokeConfig {
+        storage::get_spoke(env, self.spoke_id)
+    }
+
+    pub(crate) fn spoke_asset(
+        &self,
+        env: &Env,
+        hub_asset: &HubAssetKey,
+    ) -> Option<SpokeAssetConfig> {
+        storage::get_spoke_asset(env, self.spoke_id, hub_asset)
+    }
+
+    /// Buffered usage for `hub_asset`, lazily loaded from storage (default zero).
+    pub(crate) fn spoke_usage(&mut self, env: &Env, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
+        if let Some(usage) = self.usage.get(hub_asset.clone()) {
+            return usage;
+        }
+        let loaded = storage::get_spoke_usage(env, self.spoke_id, hub_asset).unwrap_or_default();
+        self.usage.set(hub_asset.clone(), loaded.clone());
+        loaded
+    }
+
+    /// Buffered usage only when an entry already exists (buffer or storage).
+    /// Withdraw/repay decrement existing usage but must not create new entries.
+    fn spoke_usage_if_present(
+        &mut self,
+        env: &Env,
+        hub_asset: &HubAssetKey,
+    ) -> Option<SpokeUsageRaw> {
+        if let Some(usage) = self.usage.get(hub_asset.clone()) {
+            return Some(usage);
+        }
+        let loaded = storage::get_spoke_usage(env, self.spoke_id, hub_asset)?;
+        self.usage.set(hub_asset.clone(), loaded.clone());
+        Some(loaded)
+    }
+
+    fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: SpokeUsageRaw) {
+        self.usage.set(hub_asset.clone(), usage);
     }
 
     pub fn apply_supply_after_pool(
@@ -77,11 +95,11 @@ impl EModeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.emode_asset(&hub_asset.asset) {
+        let cfg = match self.spoke_asset(env, hub_asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.spoke_usage(hub_asset);
+        let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_supply_cap(
             env,
             &usage,
@@ -105,11 +123,11 @@ impl EModeUsageContext {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cfg = match self.emode_asset(&hub_asset.asset) {
+        let cfg = match self.spoke_asset(env, hub_asset) {
             Some(c) => c,
             None => return,
         };
-        let mut usage = self.spoke_usage(hub_asset);
+        let mut usage = self.spoke_usage(env, hub_asset);
         enforce_spoke_borrow_cap(
             env,
             &usage,
@@ -131,10 +149,12 @@ impl EModeUsageContext {
         hub_asset: &HubAssetKey,
         delta_scaled: Ray,
     ) {
-        if delta_scaled == Ray::ZERO || !self.has_usage_entry(hub_asset) {
+        if delta_scaled == Ray::ZERO {
             return;
         }
-        let mut usage = self.spoke_usage(hub_asset);
+        let Some(mut usage) = self.spoke_usage_if_present(env, hub_asset) else {
+            return;
+        };
         usage.supplied_scaled_ray = usage
             .supplied_scaled_ray
             .checked_sub(delta_scaled.raw())
@@ -143,10 +163,12 @@ impl EModeUsageContext {
     }
 
     pub fn apply_repay_after_pool(&mut self, env: &Env, hub_asset: &HubAssetKey, delta_scaled: Ray) {
-        if delta_scaled == Ray::ZERO || !self.has_usage_entry(hub_asset) {
+        if delta_scaled == Ray::ZERO {
             return;
         }
-        let mut usage = self.spoke_usage(hub_asset);
+        let Some(mut usage) = self.spoke_usage_if_present(env, hub_asset) else {
+            return;
+        };
         usage.borrowed_scaled_ray = usage
             .borrowed_scaled_ray
             .checked_sub(delta_scaled.raw())
@@ -165,7 +187,7 @@ fn max_scaled_for_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
 
 fn enforce_spoke_supply_cap(
     env: &Env,
-    usage: &EModeSpokeUsageRaw,
+    usage: &SpokeUsageRaw,
     delta_scaled: Ray,
     supply_index: Ray,
     cap: i128,
@@ -185,7 +207,7 @@ fn enforce_spoke_supply_cap(
 
 fn enforce_spoke_borrow_cap(
     env: &Env,
-    usage: &EModeSpokeUsageRaw,
+    usage: &SpokeUsageRaw,
     delta_scaled: Ray,
     borrow_index: Ray,
     cap: i128,
@@ -204,15 +226,19 @@ fn enforce_spoke_borrow_cap(
 }
 
 /// Rejects hub caps that would sit below an asset's configured spoke caps.
-pub fn validate_hub_caps_against_category_spokes(
+pub fn validate_hub_caps_against_spoke_assets(
     env: &Env,
     asset: &Address,
     hub_supply_cap: i128,
     hub_borrow_cap: i128,
 ) {
     let market = storage::get_market_config(env, asset);
-    for category_id in market.asset_config.e_mode_categories.iter() {
-        if let Some(cfg) = storage::get_emode_asset(env, category_id, asset) {
+    for spoke_id in market.asset_config.e_mode_categories.iter() {
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: asset.clone(),
+        };
+        if let Some(cfg) = storage::get_spoke_asset(env, spoke_id, &hub_asset) {
             validate_spoke_caps_against_hub(
                 env,
                 hub_supply_cap,
@@ -226,7 +252,7 @@ pub fn validate_hub_caps_against_category_spokes(
 
 pub fn validate_spoke_caps_against_usage(
     env: &Env,
-    usage: &EModeSpokeUsageRaw,
+    usage: &SpokeUsageRaw,
     supply_cap: i128,
     borrow_cap: i128,
     supply_index: Ray,

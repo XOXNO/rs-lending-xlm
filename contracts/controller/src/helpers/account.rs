@@ -15,21 +15,21 @@ use crate::storage;
 
 /// Creates account metadata and returns an empty in-memory account snapshot.
 ///
-/// When `cache` is provided, e-mode deprecation is checked via the transaction
+/// When `cache` is provided, spoke deprecation is checked via the transaction
 /// cache so a later `AggregatedConfigs::resolve` does not re-read storage.
 pub fn create_account(
     env: &Env,
     owner: &Address,
-    e_mode_category: u32,
+    spoke_id: u32,
     mode: PositionMode,
     cache: &mut Cache,
 ) -> (u64, Account) {
-    cache.active_e_mode_category(env, e_mode_category);
+    cache.active_spoke(env, spoke_id);
 
     let account_id = storage::increment_account_nonce(env);
     let account = Account {
         owner: owner.clone(),
-        e_mode_category_id: e_mode_category,
+        spoke_id,
         mode,
         supply_positions: Map::new(env),
         borrow_positions: Map::new(env),
@@ -39,7 +39,7 @@ pub fn create_account(
         account_id,
         &AccountMeta {
             owner: owner.clone(),
-            e_mode_category_id: e_mode_category,
+            spoke_id,
             mode,
         },
     );
@@ -50,11 +50,11 @@ pub fn create_account(
 /// Existing-account guard applied by `load_or_create_account`, named for the
 /// entrypoint whose check shape it encodes.
 pub enum AccountGuard {
-    /// Third-party supply: no owner check; a non-zero e-mode arg must match the
-    /// stored category.
+    /// Third-party supply: no owner check; a non-zero spoke arg must match the
+    /// stored spoke.
     Supply,
-    /// Blend migration: caller must own the account; a non-zero e-mode arg must
-    /// match the stored category.
+    /// Blend migration: caller must own the account; a non-zero spoke arg must
+    /// match the stored spoke.
     Migrate,
     /// Multiply strategy: caller must own the account; the stored position mode
     /// must equal `mode`.
@@ -69,20 +69,20 @@ pub fn load_or_create_account(
     env: &Env,
     caller: &Address,
     account_id: u64,
-    e_mode_category: u32,
+    spoke_id: u32,
     mode: PositionMode,
     guard: AccountGuard,
     cache: &mut Cache,
 ) -> (u64, Account) {
     if account_id == 0 {
-        return create_account(env, caller, e_mode_category, mode, cache);
+        return create_account(env, caller, spoke_id, mode, cache);
     }
     let account = storage::get_account(env, account_id);
     match guard {
-        AccountGuard::Supply => require_emode_match(env, &account, e_mode_category),
+        AccountGuard::Supply => require_spoke_match(env, &account, spoke_id),
         AccountGuard::Migrate => {
             crate::validation::require_account_owner_match(env, &account, caller);
-            require_emode_match(env, &account, e_mode_category);
+            require_spoke_match(env, &account, spoke_id);
         }
         AccountGuard::Multiply => {
             crate::validation::require_account_owner_match(env, &account, caller);
@@ -92,10 +92,10 @@ pub fn load_or_create_account(
     (account_id, account)
 }
 
-/// Rejects a non-zero e-mode arg that conflicts with the stored category.
-/// Zero is the unspecified sentinel; the stored category always governs.
-fn require_emode_match(env: &Env, account: &Account, e_mode_category: u32) {
-    if e_mode_category != 0 && e_mode_category != account.e_mode_category_id {
+/// Rejects a non-zero spoke arg that conflicts with the stored spoke.
+/// Zero is the unspecified sentinel; the stored spoke always governs.
+fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
+    if spoke_id != 0 && spoke_id != account.spoke_id {
         panic_with_error!(env, EModeError::EModeMismatch);
     }
 }

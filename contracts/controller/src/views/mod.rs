@@ -5,9 +5,8 @@
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use common::errors::GenericError;
 use controller_interface::types::{
-    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw,
-    EModeCategoryRaw, HubAssetKey, LiquidationEstimate, MarketConfig, MarketIndexRaw,
-    MarketIndexView, PaymentTuple,
+    AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
+    LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeConfig,
 };
 use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Map, Vec};
 
@@ -84,8 +83,8 @@ impl Controller {
         storage::get_market_config(&env, &asset)
     }
 
-    pub fn get_e_mode_category(env: Env, category_id: u32) -> EModeCategoryRaw {
-        storage::get_emode_category(&env, category_id)
+    pub fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig {
+        storage::get_spoke(&env, spoke_id)
     }
 
     /// Central liquidity pool for all markets; reads instance storage only.

@@ -82,7 +82,7 @@ pub fn process_liquidation(
         &account.borrow_positions,
     );
 
-    cache.persist_emode_usage();
+    cache.persist_spoke_usage();
     persist_account_positions(env, account_id, &account, PositionSides::BOTH, false);
 
     // Reuse the post-liquidation account snapshot for bad-debt cleanup.
@@ -319,7 +319,7 @@ fn execute_bad_debt_cleanup(
     total_collateral_usd: i128,
 ) {
     // dimensional: total_debt_usd/total_collateral_usd are Wad<USD>.raw.
-    if let Some(ctx) = cache.emode_usage_mut(account.e_mode_category_id) {
+    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
         for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
             ctx.apply_withdraw_after_pool(env, &hub_asset, position.scaled_amount);
         }
@@ -348,7 +348,7 @@ fn execute_bad_debt_cleanup(
         );
     }
 
-    cache.persist_emode_usage();
+    cache.persist_spoke_usage();
 
     CleanBadDebtEvent {
         account_id,
