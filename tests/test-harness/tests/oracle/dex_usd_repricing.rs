@@ -179,7 +179,15 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
-    let stale = t.ctrl_client().get_market_config(&xlm).oracle_config;
+    let stale = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::MarketOracleConfig>(
+                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
+            )
+            .unwrap()
+    });
 
     // During the timelock delay the quote market is disabled.
     t.ctrl_client().disable_token_oracle(&usdc);
@@ -208,7 +216,15 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
         &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
-    let resolved = t.ctrl_client().get_market_config(&xlm).oracle_config;
+    let resolved = t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::MarketOracleConfig>(
+                &controller::types::ControllerKey::AssetOracle(xlm.clone()),
+            )
+            .unwrap()
+    });
 
     // USDC stays Active+USD: replaying the resolved config still applies.
     t.ctrl_client().set_market_oracle_config(&xlm, &resolved);

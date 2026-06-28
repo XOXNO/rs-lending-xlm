@@ -202,12 +202,12 @@ fn test_liquidation_collateral_extraction_via_averaging() {
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller, || {
-        let key = controller::types::ControllerKey::Market(asset.clone());
-        let mut market: controller::types::MarketConfig =
+        let key = controller::types::ControllerKey::AssetOracle(asset.clone());
+        let mut oracle: controller::types::MarketOracleConfig =
             t.env.storage().persistent().get(&key).unwrap();
-        market.oracle_config.min_sanity_price_wad = min_wad;
-        market.oracle_config.max_sanity_price_wad = max_wad;
-        t.env.storage().persistent().set(&key, &market);
+        oracle.min_sanity_price_wad = min_wad;
+        oracle.max_sanity_price_wad = max_wad;
+        t.env.storage().persistent().set(&key, &oracle);
     });
 }
 

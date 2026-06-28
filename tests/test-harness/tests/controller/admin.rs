@@ -1,5 +1,5 @@
 use common::errors::{EModeError, GenericError};
-use controller::types::{ControllerKey, EModeCategoryRaw};
+use controller::types::{ControllerKey, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
 use test_harness::{hub_asset, HubAssetKey, assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
@@ -110,7 +110,7 @@ fn test_deploy_pool_panics_on_second_call() {
 //      b) ALICE opens an account in that category (still active);
 //      c) admin removes (deprecates) the category;
 //      d) ALICE attempts a fresh supply on the same account -- supply
-//         calls `active_e_mode_category(env, account.e_mode_category_id)`,
+//         calls `active_e_mode_category(env, account.spoke_id)`,
 //         which panics with EModeCategoryDeprecated (#301).
 //
 //    The account is created via the harness storage shim while the category
@@ -137,7 +137,7 @@ fn test_supply_panics_on_deprecated_emode_category() {
             .persistent()
             .get(&ControllerKey::AccountMeta(account_id))
             .expect("account meta must exist");
-        meta.e_mode_category_id
+        meta.spoke_id
     });
     assert_eq!(stored_id, 1, "account must be in e-mode category 1");
 
@@ -146,11 +146,11 @@ fn test_supply_panics_on_deprecated_emode_category() {
 
     // Confirm the category is flagged deprecated in storage.
     let deprecated: bool = t.env.as_contract(&t.controller_address(), || {
-        let cat: EModeCategoryRaw = t
+        let cat: SpokeConfig = t
             .env
             .storage()
             .persistent()
-            .get(&ControllerKey::EModeCategory(1))
+            .get(&ControllerKey::Spoke(1))
             .expect("category must still exist (only flagged)");
         cat.is_deprecated
     });

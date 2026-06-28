@@ -404,7 +404,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     );
 
     // The controller now stores exactly the view's resolved config.
-    let stored = t.ctrl_client().get_market_config(&asset).oracle_config;
+    let stored = t.market_oracle_config(&asset);
     assert_eq!(stored, resolved);
 }
 
@@ -459,10 +459,6 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
         governance_interface::OperationState::Done
     );
 
-    let stored = t
-        .ctrl_client()
-        .get_market_config(&asset)
-        .oracle_config
-        .tolerance;
+    let stored = t.market_oracle_config(&asset).tolerance;
     assert_eq!(stored, resolved);
 }

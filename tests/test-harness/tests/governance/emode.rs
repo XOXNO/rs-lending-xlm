@@ -3,7 +3,7 @@
 //! Risk parameters are per-asset, so bound validation happens when an asset
 //! joins a category, not at category creation.
 
-use governance::op::{AdminOperation, EModeAssetArgs, PoolCapsArgs};
+use governance::op::{AdminOperation, SpokeAssetArgs, PoolCapsArgs};
 use soroban_sdk::{BytesN, Env, TryFromVal};
 use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest};
 
@@ -15,7 +15,7 @@ fn add_category(t: &LendingTest) -> u32 {
     let admin = t.admin();
     let val = t
         .gov_client()
-        .execute_immediate(&admin, &AdminOperation::AddEModeCategory);
+        .execute_immediate(&admin, &AdminOperation::AddSpoke);
     u32::try_from_val(&t.env, &val).unwrap()
 }
 
@@ -28,9 +28,9 @@ fn try_add_asset(
     bonus: u32,
 ) -> Result<(), soroban_sdk::Error> {
     let admin = t.admin();
-    let args = EModeAssetArgs {
+    let args = SpokeAssetArgs {
         asset: asset.clone(),
-        category_id,
+        spoke_id: category_id,
         can_collateral: true,
         can_borrow: true,
         ltv,
@@ -41,7 +41,7 @@ fn try_add_asset(
     };
     match t
         .gov_client()
-        .try_execute_immediate(&admin, &AdminOperation::AddAssetToEModeCategory(args))
+        .try_execute_immediate(&admin, &AdminOperation::AddAssetToSpoke(args))
     {
         Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -66,8 +66,7 @@ fn test_emode_accepts_valid_asset_bounds() {
     let usdc = t.resolve_asset("USDC");
     try_add_asset(&t, &usdc, id, 8000, 8500, 200).expect("valid asset should be accepted");
 
-    let cat = t.ctrl_client().get_e_mode_category(&id);
-    let cfg = cat.assets.get(usdc).expect("USDC must be registered");
+    let cfg = t.ctrl_client().get_spoke_asset(&id, &usdc);
     assert_eq!(cfg.loan_to_value_bps, 8000);
     assert_eq!(cfg.liquidation_threshold_bps, 8500);
     assert_eq!(cfg.liquidation_bonus_bps, 200);
@@ -87,9 +86,9 @@ fn test_emode_add_asset_via_gov_forwarder() {
     let admin = t.admin();
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: id,
+            spoke_id: id,
             can_collateral: true,
             can_borrow: true,
             ltv: 8000,
@@ -100,10 +99,9 @@ fn test_emode_add_asset_via_gov_forwarder() {
         }),
     );
 
-    let cat = t.ctrl_client().get_e_mode_category(&id);
     assert!(
-        cat.assets.contains_key(usdc),
-        "USDC must be registered in the forwarded category"
+        t.ctrl_client().try_get_spoke_asset(&id, &usdc).is_ok(),
+        "USDC must be registered in the forwarded spoke"
     );
 }
 
@@ -124,9 +122,9 @@ fn test_emode_rejects_spoke_supply_cap_above_hub() {
 
     let result = match t.gov_client().try_execute_immediate(
         &admin,
-        &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: id,
+            spoke_id: id,
             can_collateral: true,
             can_borrow: true,
             ltv: 8_000,
@@ -142,8 +140,14 @@ fn test_emode_rejects_spoke_supply_cap_above_hub() {
     assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
 }
 
+// Phase 1 removed the governance hub-vs-spoke pre-check
+// (`validate_proposed_hub_caps_against_spokes`): spokes are no longer
+// enumerable from the asset, so proposing a hub cap below an existing spoke cap
+// is now accepted at propose time. This mirrors the controller, whose
+// `update_pool_caps` also no longer enumerates spokes. The enforced direction
+// stays the forward `add_asset_to_spoke` spoke<=hub check.
 #[test]
-fn test_update_pool_caps_rejects_hub_below_spoke_via_governance() {
+fn test_update_pool_caps_no_longer_pre_checks_spokes_via_governance() {
     let hub_cap = 10_000 * UNIT;
     let spoke_cap = 2_000 * UNIT;
     let t = LendingTest::new()
@@ -157,9 +161,9 @@ fn test_update_pool_caps_rejects_hub_below_spoke_via_governance() {
     let admin = t.admin();
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: id,
+            spoke_id: id,
             can_collateral: true,
             can_borrow: true,
             ltv: 8_000,
@@ -170,7 +174,8 @@ fn test_update_pool_caps_rejects_hub_below_spoke_via_governance() {
         }),
     );
 
-    let result = match t.gov_client().try_propose(
+    // The proposal is now scheduled without rejection.
+    t.gov_client().propose(
         &admin,
         &AdminOperation::UpdatePoolCaps(PoolCapsArgs {
             asset: usdc.clone(),
@@ -178,9 +183,5 @@ fn test_update_pool_caps_rejects_hub_below_spoke_via_governance() {
             borrow_cap: 0,
         }),
         &salt(&t.env, 7),
-    ) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+    );
 }

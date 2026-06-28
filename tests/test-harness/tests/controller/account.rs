@@ -12,7 +12,7 @@ fn test_create_normal_account() {
     assert!(account_id > 0, "account_id should be non-zero");
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.e_mode_category_id, 0);
+    assert_eq!(attrs.spoke_id, 0);
     assert_eq!(attrs.mode, controller::types::PositionMode::Normal);
 }
 // 2. test_create_emode_account
@@ -31,7 +31,7 @@ fn test_create_emode_account() {
     assert!(account_id > 0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.e_mode_category_id, 1);
+    assert_eq!(attrs.spoke_id, 1);
 }
 // 3. test_create_account_full_custom
 
@@ -45,7 +45,7 @@ fn test_create_account_full_custom() {
 
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(attrs.mode, controller::types::PositionMode::Multiply);
-    assert_eq!(attrs.e_mode_category_id, 0);
+    assert_eq!(attrs.spoke_id, 0);
 }
 // 4. test_remove_empty_account
 

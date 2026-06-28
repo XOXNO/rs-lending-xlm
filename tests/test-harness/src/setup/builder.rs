@@ -2,7 +2,7 @@ extern crate std;
 
 use std::collections::HashMap;
 
-use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs};
+use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
@@ -237,7 +237,11 @@ impl LendingTestBuilder {
                 .clone();
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
 
-            let market_params = pm.params.to_market_params(&asset_address, pm.decimals);
+            let mut market_params = pm.params.to_market_params(&asset_address, pm.decimals);
+            // Flash-loan eligibility/fee live on the pool `MarketParamsRaw` in the
+            // spoke model; thread them from the asset-config preset the test set.
+            market_params.is_flashloanable = pm.config.is_flashloanable;
+            market_params.flashloan_fee_bps = pm.config.flashloan_fee_bps;
             let asset_config = pm.config.to_asset_config(&env, pm.decimals);
             gov.execute_immediate(&admin, &AdminOperation::ApproveToken(asset_address.clone()));
             let pool_address_val = gov.execute_immediate(
@@ -295,10 +299,10 @@ impl LendingTestBuilder {
         }
 
         for emode in &self.pending_emodes {
-            let id_val = gov.execute_immediate(&admin, &AdminOperation::AddEModeCategory);
+            let id_val = gov.execute_immediate(&admin, &AdminOperation::AddSpoke);
             let _id: u32 = u32::try_from_val(&env, &id_val).unwrap();
 
-            // Assets in a builder category share the preset's risk params; tests
+            // Assets in a builder spoke share the preset's risk params; tests
             // that need per-asset divergence use `t.add_asset_to_e_mode(..)`.
             for (asset_name, can_collateral, can_borrow) in &emode.assets {
                 let asset_addr = markets
@@ -313,9 +317,9 @@ impl LendingTestBuilder {
                     .clone();
                 gov.execute_immediate(
                     &admin,
-                    &AdminOperation::AddAssetToEModeCategory(EModeAssetArgs {
+                    &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
                         asset: asset_addr.clone(),
-                        category_id: emode.category_id,
+                        spoke_id: emode.category_id,
                         can_collateral: *can_collateral,
                         can_borrow: *can_borrow,
                         ltv: emode.preset.ltv,

@@ -125,8 +125,7 @@ fn resolve_market_oracle(
     cfg: &MarketOracleConfigInput,
 ) -> controller_interface::types::MarketOracleConfig {
     let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
-    let controller = storage::get_controller(env);
-    validate::oracle_probe::validate_market_oracle_sources(env, &controller, asset, cfg, tolerance)
+    validate::oracle_probe::validate_market_oracle_sources(env, asset, cfg, tolerance)
 }
 
 #[contractimpl]

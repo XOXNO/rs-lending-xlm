@@ -588,13 +588,12 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
         let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&asset);
-        // Liquidation fee is a market-level parameter sourced from the current
-        // asset config (mirrors production `asset_config.liquidation_fees`),
-        // not a per-position field.
+        // Liquidation fee is a market-level parameter sourced from the general
+        // spoke 0 base listing (mirrors production, which reads the same
+        // `SpokeAsset(0)` config), not a per-position field.
         let liq_fees_bps = t
             .ctrl_client()
-            .get_market_config(&asset)
-            .asset_config
+            .get_spoke_asset(&0u32, &asset)
             .liquidation_fees_bps;
         out.push(RefCollateralPosition {
             asset_id: i as u32,

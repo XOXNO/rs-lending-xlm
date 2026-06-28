@@ -1,4 +1,4 @@
-use controller::types::{AccountMeta, ControllerKey, EModeCategoryRaw, PositionMode};
+use controller::types::{AccountMeta, ControllerKey, PositionMode, SpokeConfig};
 
 use crate::core::{AccountEntry, LendingTest};
 
@@ -48,13 +48,13 @@ impl LendingTest {
 
         self.env.as_contract(&self.controller, || {
             if e_mode_category > 0 {
-                let category = self
+                let spoke = self
                     .env
                     .storage()
                     .persistent()
-                    .get::<_, EModeCategoryRaw>(&ControllerKey::EModeCategory(e_mode_category))
-                    .expect("e-mode category must exist");
-                assert!(!category.is_deprecated, "e-mode category is deprecated");
+                    .get::<_, SpokeConfig>(&ControllerKey::Spoke(e_mode_category))
+                    .expect("spoke must exist");
+                assert!(!spoke.is_deprecated, "spoke is deprecated");
             }
 
             let current = self
@@ -73,7 +73,7 @@ impl LendingTest {
                 &ControllerKey::AccountMeta(next),
                 &AccountMeta {
                     owner,
-                    e_mode_category_id: e_mode_category,
+                    spoke_id: e_mode_category,
                     mode,
                 },
             );

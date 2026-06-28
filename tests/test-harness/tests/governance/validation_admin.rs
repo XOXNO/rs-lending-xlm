@@ -112,7 +112,7 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
+    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &asset);
     // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
     cfg.loan_to_value_bps = 8000;
     cfg.liquidation_threshold_bps = 9500;
@@ -129,7 +129,7 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_market_config(&asset).asset_config;
+    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &asset);
     cfg.loan_to_value_bps = 4000;
     cfg.liquidation_threshold_bps = 5000;
     cfg.liquidation_bonus_bps = 5000;

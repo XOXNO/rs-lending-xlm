@@ -47,10 +47,6 @@ fn test_tolerance_config_accepts_valid_bounds() {
     let expected = t.gov_iface_client().resolve_oracle_tolerance(&500);
     try_tolerance(&t, &asset, 500).expect("valid tolerance should be accepted");
 
-    let stored = t
-        .ctrl_client()
-        .get_market_config(&asset)
-        .oracle_config
-        .tolerance;
+    let stored = t.market_oracle_config(&asset).tolerance;
     assert_eq!(stored, expected);
 }

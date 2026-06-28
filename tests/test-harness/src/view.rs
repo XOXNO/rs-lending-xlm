@@ -12,6 +12,22 @@ pub enum PositionType {
     Borrow,
 }
 
+/// Harness-level aggregate of an asset's base configuration. In the spoke model
+/// risk parameters live on the general spoke 0 (`SpokeAssetConfig`) while
+/// flash-loan eligibility/fee and decimals live on the pool `MarketParamsRaw`;
+/// this view stitches both so tests read a single config object.
+pub struct AssetConfigView {
+    pub loan_to_value_bps: u32,
+    pub liquidation_threshold_bps: u32,
+    pub liquidation_bonus_bps: u32,
+    pub liquidation_fees_bps: u32,
+    pub is_collateralizable: bool,
+    pub is_borrowable: bool,
+    pub is_flashloanable: bool,
+    pub flashloan_fee_bps: u32,
+    pub asset_decimals: u32,
+}
+
 impl LendingTest {
     // Health factor
 
@@ -210,13 +226,51 @@ impl LendingTest {
         accounts
     }
 
-    pub fn get_asset_config(&self, asset_name: &str) -> controller::types::AssetConfigRaw {
+    pub fn get_asset_config(&self, asset_name: &str) -> AssetConfigView {
         let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().get_market_config(&asset).asset_config
+        let spoke = self.ctrl_client().get_spoke_asset(&0u32, &asset);
+        let params = self.pool_client(asset_name).get_sync_data(&asset).params;
+        AssetConfigView {
+            loan_to_value_bps: spoke.loan_to_value_bps,
+            liquidation_threshold_bps: spoke.liquidation_threshold_bps,
+            liquidation_bonus_bps: spoke.liquidation_bonus_bps,
+            liquidation_fees_bps: spoke.liquidation_fees_bps,
+            is_collateralizable: spoke.is_collateralizable,
+            is_borrowable: spoke.is_borrowable,
+            is_flashloanable: params.is_flashloanable,
+            flashloan_fee_bps: params.flashloan_fee_bps,
+            asset_decimals: params.asset_decimals,
+        }
     }
 
     pub fn get_pool_address(&self, _asset_name: &str) -> soroban_sdk::Address {
         self.ctrl_client().get_pool_address()
+    }
+
+    /// True when `asset` is active — i.e. its token-rooted `AssetOracle` entry
+    /// exists. Absence is the pending/disabled signal in the spoke model (the
+    /// former `MarketStatus::{PendingOracle,Disabled}` both map to inactive).
+    pub fn market_is_active(&self, asset: &soroban_sdk::Address) -> bool {
+        self.env.as_contract(&self.controller, || {
+            self.env
+                .storage()
+                .persistent()
+                .has(&ControllerKey::AssetOracle(asset.clone()))
+        })
+    }
+
+    /// Reads the resolved `MarketOracleConfig` persisted for an active market.
+    pub fn market_oracle_config(
+        &self,
+        asset: &soroban_sdk::Address,
+    ) -> controller::types::MarketOracleConfig {
+        self.env.as_contract(&self.controller, || {
+            self.env
+                .storage()
+                .persistent()
+                .get(&ControllerKey::AssetOracle(asset.clone()))
+                .expect("market oracle config must exist")
+        })
     }
 
     pub fn get_position_limits(&self) -> controller::types::PositionLimits {

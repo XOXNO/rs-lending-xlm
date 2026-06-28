@@ -32,7 +32,7 @@
 
 extern crate std;
 
-use controller::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use test_harness::{
     eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest, ALICE,
 };
@@ -49,12 +49,12 @@ fn mem_of<R>(env: &soroban_sdk::Env, f: impl FnOnce() -> R) -> u64 {
 fn set_primary_twap(t: &LendingTest, asset_name: &str, records: u32) {
     let asset = t.markets.get(asset_name).expect("market").asset.clone();
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(asset.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut src) = market.oracle_config.primary {
+        let key = ControllerKey::AssetOracle(asset.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        if let OracleSourceConfig::Reflector(ref mut src) = oracle.primary {
             src.read_mode = OracleReadMode::Twap(records);
         }
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 }
 

@@ -1,5 +1,5 @@
 use controller::types::{
-    ControllerKey, MarketConfig, OracleSourceConfig, OracleSourceConfigOption,
+    ControllerKey, MarketOracleConfig, OracleSourceConfig, OracleSourceConfigOption,
 };
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
@@ -106,16 +106,16 @@ fn test_redstone_anchor_read_failure_reverts_view() {
     t.configure_market_oracle(&asset, &cfg);
 
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(asset.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        market.oracle_config.anchor = match market.oracle_config.anchor {
+        let key = ControllerKey::AssetOracle(asset.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        oracle.anchor = match oracle.anchor {
             OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(mut config)) => {
                 config.feed_id = String::from_str(&t.env, "MISSING");
                 OracleSourceConfigOption::Some(OracleSourceConfig::RedStone(config))
             }
             _ => panic!("expected redstone anchor"),
         };
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);

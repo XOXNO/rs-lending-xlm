@@ -4,7 +4,7 @@ mod multiply;
 mod rejections;
 mod swap;
 
-use controller::types::{ControllerKey, MarketConfig};
+use controller::types::{ControllerKey, SpokeAssetConfig};
 use soroban_sdk::token;
 use soroban_sdk::Bytes;
 use test_harness::{hub_asset, HubAssetKey,

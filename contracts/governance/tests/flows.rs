@@ -332,19 +332,19 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
     let (admin, _, gov) = register_governance(&env);
     let asset = Address::generate(&env);
 
-    let cfg = controller_interface::types::AssetConfigRaw {
+    let cfg = controller_interface::types::SpokeAssetConfig {
+        is_collateralizable: true,
+        is_borrowable: true,
+        paused: false,
+        frozen: false,
         loan_to_value_bps: 9_000,
         // Threshold below LTV is invalid.
         liquidation_threshold_bps: 8_000,
         liquidation_bonus_bps: 500,
         liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-        e_mode_categories: soroban_sdk::Vec::new(&env),
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: controller_interface::types::MarketOracleConfigOption::None,
     };
     gov.execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }

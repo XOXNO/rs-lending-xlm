@@ -165,7 +165,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
     assert!(matches!(attrs[0], ScVal::Address(_)), "attrs.owner");
     assert!(
         matches!(attrs[1], ScVal::U32(_)),
-        "attrs.e_mode_category_id"
+        "attrs.spoke_id"
     );
     assert!(matches!(attrs[2], ScVal::U32(_)), "attrs.mode");
     let deposits = as_vec(&data[2]);
@@ -274,7 +274,7 @@ fn test_liquidation_emits_many_events() {
 #[test]
 fn test_add_emode_emits_events() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    t.ctrl_client().add_e_mode_category();
+    t.ctrl_client().add_spoke();
     let count = t.env.events().all().events().len();
     assert!(count > 0, "add_e_mode should emit events, got {}", count);
 }

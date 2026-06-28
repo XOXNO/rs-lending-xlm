@@ -91,31 +91,29 @@ impl LendingTest {
     pub fn set_oracle_single_spot(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::Market(asset.clone());
-            let mut market: controller::types::MarketConfig =
+            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
+            let mut oracle: controller::types::MarketOracleConfig =
                 self.env.storage().persistent().get(&key).unwrap();
-            market.oracle_config.strategy = OracleStrategy::Single;
-            market.oracle_config.primary =
-                source_with_read_mode(&market.oracle_config.primary, OracleReadMode::Spot);
-            market.oracle_config.anchor = OracleSourceConfigOption::None;
-            self.env.storage().persistent().set(&key, &market);
+            oracle.strategy = OracleStrategy::Single;
+            oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Spot);
+            oracle.anchor = OracleSourceConfigOption::None;
+            self.env.storage().persistent().set(&key, &oracle);
         });
     }
 
     pub fn set_oracle_primary_anchor(&self, asset_name: &str) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::Market(asset.clone());
-            let mut market: controller::types::MarketConfig =
+            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
+            let mut oracle: controller::types::MarketOracleConfig =
                 self.env.storage().persistent().get(&key).unwrap();
-            market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
-            market.oracle_config.primary =
-                source_with_read_mode(&market.oracle_config.primary, OracleReadMode::Twap(3));
-            market.oracle_config.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
-                &market.oracle_config.primary,
+            oracle.strategy = OracleStrategy::PrimaryWithAnchor;
+            oracle.primary = source_with_read_mode(&oracle.primary, OracleReadMode::Twap(3));
+            oracle.anchor = OracleSourceConfigOption::Some(source_with_read_mode(
+                &oracle.primary,
                 OracleReadMode::Spot,
             ));
-            self.env.storage().persistent().set(&key, &market);
+            self.env.storage().persistent().set(&key, &oracle);
         });
     }
 
@@ -128,18 +126,18 @@ impl LendingTest {
     pub fn set_dual_oracle_dex_anchor(&self, asset_name: &str, dex_oracle: Address) {
         let asset = self.resolve_asset(asset_name);
         self.env.as_contract(&self.controller, || {
-            let key = controller::types::ControllerKey::Market(asset.clone());
-            let mut market: controller::types::MarketConfig =
+            let key = controller::types::ControllerKey::AssetOracle(asset.clone());
+            let mut oracle: controller::types::MarketOracleConfig =
                 self.env.storage().persistent().get(&key).unwrap();
-            market.oracle_config.strategy = OracleStrategy::PrimaryWithAnchor;
-            market.oracle_config.primary = match market.oracle_config.primary {
+            oracle.strategy = OracleStrategy::PrimaryWithAnchor;
+            oracle.primary = match oracle.primary {
                 OracleSourceConfig::Reflector(mut source) => {
                     source.read_mode = OracleReadMode::Twap(3);
                     OracleSourceConfig::Reflector(source)
                 }
                 source => source,
             };
-            market.oracle_config.anchor = OracleSourceConfigOption::Some(
+            oracle.anchor = OracleSourceConfigOption::Some(
                 OracleSourceConfig::Reflector(ReflectorSourceConfig {
                     contract: dex_oracle,
                     asset: OracleAssetRef::Stellar(asset.clone()),
@@ -149,7 +147,7 @@ impl LendingTest {
                     base: ReflectorBase::Usd,
                 }),
             );
-            self.env.storage().persistent().set(&key, &market);
+            self.env.storage().persistent().set(&key, &oracle);
         });
     }
 }

@@ -264,7 +264,7 @@ fn test_multiply_reuses_emode_account_with_zero_category() {
 
     let attrs = t.ctrl_client().get_account_attributes(&account_id);
     assert_eq!(
-        attrs.e_mode_category_id, 1,
+        attrs.spoke_id, 1,
         "zero e_mode_category must reuse the account's stored e-mode category"
     );
     assert!(
@@ -374,9 +374,9 @@ fn test_multiply_emode_wrong_category_debt() {
         &None, // convert_steps
     );
 
-    // ETH is not in e-mode category 1. `token_e_mode_config` surfaces
-    // `EModeCategoryNotFound` (300) when the asset is unregistered.
-    assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
+    // ETH is not listed on the account's spoke, so the spoke model rejects the
+    // leg with AssetNotSupported (1).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_SUPPORTED);
 }
 // E-mode account in the stablecoin category, but collateral is ETH (not in
 // category).
@@ -421,9 +421,9 @@ fn test_multiply_emode_wrong_category_collateral() {
         &None, // convert_steps
     );
 
-    // ETH is not in the e-mode category, so `token_e_mode_config` rejects
-    // with EMODE_CATEGORY_NOT_FOUND (300).
-    assert_contract_error(flatten(result), errors::EMODE_CATEGORY_NOT_FOUND);
+    // ETH is not listed on the account's spoke, so the spoke model rejects the
+    // collateral leg with AssetNotSupported (1).
+    assert_contract_error(flatten(result), errors::ASSET_NOT_SUPPORTED);
 }
 #[test]
 fn test_multiply_rejects_normal_mode() {

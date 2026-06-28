@@ -136,7 +136,7 @@ fn test_supply_with_emode_category() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let attrs = t.get_account_attributes(ALICE);
-    assert_eq!(attrs.e_mode_category_id, 1);
+    assert_eq!(attrs.spoke_id, 1);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);
     t.assert_supply_near(ALICE, "USDC", 10_000.0, 1.0);
     assert!(
@@ -302,9 +302,11 @@ fn test_supply_emode_rejects_non_category_asset() {
 
     t.create_emode_account(ALICE, 1);
 
-    // Supplying ETH to an e-mode stablecoin account must fail.
+    // Supplying ETH to an e-mode stablecoin account must fail: ETH is not
+    // listed on the account's spoke, so the spoke model rejects it as
+    // AssetNotSupported.
     let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
 }
 // 15. test_supply_raw_precision
 

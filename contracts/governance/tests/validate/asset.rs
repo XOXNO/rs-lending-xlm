@@ -1,20 +1,22 @@
 use super::*;
 use common::constants::RAY;
+use controller_interface::types::MarketOracleConfigOption;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Env, Vec};
+use soroban_sdk::Env;
 
-fn sample_asset_config(env: &Env) -> AssetConfigRaw {
-    AssetConfigRaw {
+fn sample_asset_config() -> SpokeAssetConfig {
+    SpokeAssetConfig {
+        is_collateralizable: true,
+        is_borrowable: true,
+        paused: false,
+        frozen: false,
         loan_to_value_bps: 7_500,
         liquidation_threshold_bps: 8_000,
         liquidation_bonus_bps: 500,
         liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-        e_mode_categories: Vec::new(env),
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: MarketOracleConfigOption::None,
     }
 }
 
@@ -54,15 +56,6 @@ fn test_validate_hub_caps_rejects_negative_supply_cap() {
 
 #[test]
 #[should_panic]
-fn test_validate_asset_config_rejects_flashloan_fee_above_cap() {
-    let env = Env::default();
-    let mut cfg = sample_asset_config(&env);
-    cfg.flashloan_fee_bps = (MAX_FLASHLOAN_FEE_BPS + 1) as u32;
-    validate_asset_config(&env, &cfg);
-}
-
-#[test]
-#[should_panic]
 fn test_validate_position_limits_rejects_zero() {
     let env = Env::default();
     validate_position_limits(
@@ -94,7 +87,7 @@ fn test_validate_market_creation_rejects_wrong_asset_id() {
     let asset = Address::generate(&env);
     let other = Address::generate(&env);
     let params = sample_market_params(&other, 7);
-    let cfg = sample_asset_config(&env);
+    let cfg = sample_asset_config();
     validate_market_creation(&env, &asset, &params, &cfg, 7);
 }
 
@@ -104,6 +97,6 @@ fn test_validate_market_creation_rejects_decimals_out_of_range() {
     let env = Env::default();
     let asset = Address::generate(&env);
     let params = sample_market_params(&asset, MAX_ASSET_DECIMALS + 1);
-    let cfg = sample_asset_config(&env);
+    let cfg = sample_asset_config();
     validate_market_creation(&env, &asset, &params, &cfg, MAX_ASSET_DECIMALS + 1);
 }

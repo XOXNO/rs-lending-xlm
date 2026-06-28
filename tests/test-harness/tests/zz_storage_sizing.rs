@@ -79,12 +79,12 @@ fn print_storage_sizes() {
     // --- AccountMeta ---
     let meta = AccountMeta {
         owner: Address::generate(&env),
-        e_mode_category_id: 0,
+        spoke_id: 0,
         mode: PositionMode::Normal,
     };
     let meta_emode = AccountMeta {
         owner: Address::generate(&env),
-        e_mode_category_id: 3,
+        spoke_id: 3,
         mode: PositionMode::Long,
     };
     sizes(

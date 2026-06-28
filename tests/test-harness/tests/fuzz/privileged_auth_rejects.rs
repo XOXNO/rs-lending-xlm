@@ -1,5 +1,5 @@
 use crate::config::config;
-use controller::types::EModeAssetArgs;
+use controller::types::SpokeAssetArgs;
 use controller::types::InterestRateModel;
 use governance_interface::AdminOperation;
 use proptest::prelude::*;
@@ -22,22 +22,6 @@ where
             "CRITICAL: {} passed auth gate with contract error {:?}",
             label, contract_err
         )),
-    }
-}
-
-fn sample_asset_config(env: &soroban_sdk::Env) -> controller::types::AssetConfigRaw {
-    controller::types::AssetConfigRaw {
-        loan_to_value_bps: 7500,
-        liquidation_threshold_bps: 8000,
-        liquidation_bonus_bps: 500,
-        liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
-        e_mode_categories: soroban_sdk::Vec::new(env),
     }
 }
 
@@ -103,7 +87,6 @@ proptest! {
         let env = t.env.clone();
         let ctrl = t.ctrl_client();
         let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
-        let cfg = sample_asset_config(&env);
         let oracle_cfg = sample_oracle_cfg(&t);
         let limits = sample_position_limits();
         let usdc = t.resolve_asset("USDC");
@@ -123,25 +106,22 @@ proptest! {
         expect_rejected("set_liquidity_pool_template", || {
             ctrl.set_auths(&no_auths).try_set_liquidity_pool_template(&dummy_bytes_n(&env, seed))
         }).unwrap();
-        expect_rejected("edit_asset_config", || {
-            ctrl.set_auths(&no_auths).try_edit_asset_config(&usdc, &cfg)
-        }).unwrap();
         expect_rejected("set_position_limits", || {
             ctrl.set_auths(&no_auths).try_set_position_limits(&limits)
         }).unwrap();
         let _ = (max_supply, max_borrow);
 
-        expect_rejected("add_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_add_e_mode_category()
+        expect_rejected("add_spoke", || {
+            ctrl.set_auths(&no_auths).try_add_spoke()
         }).unwrap();
         expect_rejected("remove_e_mode_category", || {
-            ctrl.set_auths(&no_auths).try_remove_e_mode_category(&category_id)
+            ctrl.set_auths(&no_auths).try_remove_spoke(&category_id)
         }).unwrap();
-        expect_rejected("add_asset_to_e_mode_category", || {
+        expect_rejected("add_asset_to_spoke", || {
             ctrl.set_auths(&no_auths)
-                .try_add_asset_to_e_mode_category(&EModeAssetArgs {
+                .try_add_asset_to_spoke(&SpokeAssetArgs {
                     asset: usdc.clone(),
-                    category_id,
+                    spoke_id: category_id,
                     can_collateral,
                     can_borrow,
                     ltv,
@@ -151,11 +131,11 @@ proptest! {
                     borrow_cap: 0,
                 })
         }).unwrap();
-        expect_rejected("edit_asset_in_e_mode_category", || {
+        expect_rejected("edit_asset_in_spoke", || {
             ctrl.set_auths(&no_auths)
-                .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+                .try_edit_asset_in_spoke(&SpokeAssetArgs {
                     asset: usdc.clone(),
-                    category_id,
+                    spoke_id: category_id,
                     can_collateral,
                     can_borrow,
                     ltv,
@@ -166,7 +146,7 @@ proptest! {
                 })
         }).unwrap();
         expect_rejected("remove_asset_from_e_mode", || {
-            ctrl.set_auths(&no_auths).try_remove_asset_from_e_mode(&usdc, &category_id)
+            ctrl.set_auths(&no_auths).try_remove_asset_from_spoke(&usdc, &category_id)
         }).unwrap();
         expect_rejected("approve_token", || {
             ctrl.set_auths(&no_auths).try_approve_token(&usdc)
@@ -215,7 +195,21 @@ proptest! {
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };
-            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&usdc, &params, &cfg)
+            // Auth is rejected before the config is read; any shape suffices.
+            let config = controller::types::SpokeAssetConfig {
+                is_collateralizable: true,
+                is_borrowable: true,
+                paused: false,
+                frozen: false,
+                loan_to_value_bps: 7500,
+                liquidation_threshold_bps: 8000,
+                liquidation_bonus_bps: 500,
+                liquidation_fees_bps: 100,
+                supply_cap: 0,
+                borrow_cap: 0,
+                oracle_override: controller::types::MarketOracleConfigOption::None,
+            };
+            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&usdc, &params, &config)
         }).unwrap();
 
         let empty_assets: SVec<Address> = SVec::new(&env);

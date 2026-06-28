@@ -1,4 +1,4 @@
-use controller::types::EModeAssetArgs;
+use controller::types::SpokeAssetArgs;
 use test_harness::{hub_asset,
     assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
@@ -20,7 +20,7 @@ fn test_emode_category_creation() {
     assert!(account_id > 0, "should create e-mode account");
     let attrs = t.get_account_attributes(ALICE);
     assert_eq!(
-        attrs.e_mode_category_id, 1,
+        attrs.spoke_id, 1,
         "account should be in e-mode category 1"
     );
 }
@@ -111,7 +111,7 @@ fn test_emode_rejects_non_category_supply() {
 
     // Supplying ETH must fail because ETH is outside the e-mode category.
     let result = t.try_supply(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
 }
 // 6. test_emode_rejects_non_category_borrow
 
@@ -129,7 +129,7 @@ fn test_emode_rejects_non_category_borrow() {
 
     // Borrowing ETH must fail because ETH is outside the e-mode category.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
 }
 // 7. test_emode_deprecated_blocks_new_accounts
 
@@ -261,7 +261,7 @@ fn test_emode_remove_asset_from_category() {
     t.supply(ALICE, "USDC", 10_000.0);
 
     let result = t.try_borrow(ALICE, "USDT", 5_000.0);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
 }
 // 13. test_emode_liquidation_uses_emode_bonus
 
@@ -358,7 +358,7 @@ fn test_emode_deprecated_category_operations_rejected() {
     t.remove_e_mode_category(1);
 
     // 1. Trying to remove/deprecate the category again must fail.
-    let remove_result = t.ctrl_client().try_remove_e_mode_category(&1u32);
+    let remove_result = t.ctrl_client().try_remove_spoke(&1u32);
     let flat_remove: Result<(), soroban_sdk::Error> = match remove_result {
         Ok(Ok(_)) => panic!("expected contract error, got Ok"),
         Ok(Err(err)) => Err(err.into()),
@@ -370,9 +370,9 @@ fn test_emode_deprecated_category_operations_rejected() {
     let asset_address = t.resolve_asset("USDC");
     let edit_asset_result = t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: asset_address.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_000,
@@ -624,7 +624,7 @@ fn test_removed_emode_collateral_asset_blocks_new_supply_but_existing_withdraw_w
     t.remove_asset_from_e_mode("USDC", 1);
 
     let add_more = t.try_supply(ALICE, "USDC", 1.0);
-    assert_contract_error(add_more, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(add_more, errors::ASSET_NOT_SUPPORTED);
 
     // Removing the asset from the category must block new supply, but the
     // existing collateral position keeps its e-mode snapshot.
@@ -652,7 +652,7 @@ fn test_removed_emode_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     t.remove_asset_from_e_mode("USDT", 1);
 
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
-    assert_contract_error(borrow_more, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(borrow_more, errors::ASSET_NOT_SUPPORTED);
 
     let debt_before = t.borrow_balance(ALICE, "USDT");
     let repay = t.try_repay(ALICE, "USDT", 500.0);
@@ -738,7 +738,7 @@ fn test_emode_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
 }
 
-// Defense-in-depth (AAVE-D-028): the controller's own edit_asset_in_e_mode_category
+// Defense-in-depth (AAVE-D-028): the controller's own edit_asset_in_spoke
 // rejects an edit that would invert the LTV<threshold gap or breach the
 // seizure ceiling, even on a direct call that bypasses the governance
 // contract's validation. A collateral position inherits its ltv and threshold
@@ -756,9 +756,9 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     // ltv >= threshold must reject (the borrow-buffer invariant).
     let inverted = t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 8_500,
@@ -778,9 +778,9 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     // reject: 9_500 * (10_000 + 600) = 1.007e8 > 1e8.
     let unsafe_bonus = t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_400,
@@ -798,8 +798,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
 
     // A valid edit still succeeds and the stored asset keeps threshold > ltv.
     t.edit_asset_in_e_mode("USDC", 1, true, true, 9_000, 9_300, 200);
-    let cat = t.ctrl_client().get_e_mode_category(&1u32);
-    let cfg = cat.assets.get(usdc).expect("USDC registered");
+    let cfg = t.ctrl_client().get_spoke_asset(&1u32, &usdc);
     assert_eq!(cfg.loan_to_value_bps, 9_000);
     assert_eq!(cfg.liquidation_threshold_bps, 9_300);
     assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
@@ -863,9 +862,9 @@ fn test_emode_spoke_supply_cap_enforced_below_hub() {
 
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -900,9 +899,9 @@ fn test_emode_spoke_borrow_cap_enforced_below_hub() {
 
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdt.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -922,20 +921,30 @@ fn test_emode_spoke_borrow_cap_enforced_below_hub() {
 
 fn emode_supply_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
-    let cat = t.ctrl_client().get_e_mode_category(&category_id);
-    cat.usage
-        .get(hub_asset(asset))
-        .map(|u| u.supplied_scaled_ray)
-        .unwrap_or(0)
+    t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::SpokeUsageRaw>(
+                &controller::types::ControllerKey::SpokeUsage(category_id, hub_asset(asset)),
+            )
+            .map(|u| u.supplied_scaled_ray)
+            .unwrap_or(0)
+    })
 }
 
 fn emode_borrow_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
-    let cat = t.ctrl_client().get_e_mode_category(&category_id);
-    cat.usage
-        .get(hub_asset(asset))
-        .map(|u| u.borrowed_scaled_ray)
-        .unwrap_or(0)
+    t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .get::<_, controller::types::SpokeUsageRaw>(
+                &controller::types::ControllerKey::SpokeUsage(category_id, hub_asset(asset)),
+            )
+            .map(|u| u.borrowed_scaled_ray)
+            .unwrap_or(0)
+    })
 }
 
 #[test]
@@ -1010,9 +1019,9 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
 
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1027,9 +1036,9 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
 
     let result = match t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1044,8 +1053,12 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
     assert_contract_error(result, errors::SPOKE_CAP_BELOW_USAGE);
 }
 
+// Phase 1 removed hub-vs-spoke enumeration validation from `update_pool_caps`:
+// spokes are no longer reachable from the hub, so lowering the hub cap below an
+// existing spoke cap is accepted. The enforced direction is the forward
+// `add_asset_to_spoke`/`edit_asset_in_spoke` spoke<=hub check.
 #[test]
-fn test_update_pool_caps_rejects_hub_below_spoke() {
+fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
     let hub_cap = 10_000 * UNIT;
     let spoke_cap = 2_000 * UNIT;
     let t = LendingTest::new()
@@ -1059,9 +1072,9 @@ fn test_update_pool_caps_rejects_hub_below_spoke() {
 
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1071,14 +1084,9 @@ fn test_update_pool_caps_rejects_hub_below_spoke() {
             borrow_cap: 0,
         });
 
-    let result = match t
-        .ctrl_client()
-        .try_update_pool_caps(&usdc, &(500 * UNIT), &0i128)
-    {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+    // No reverse hub-vs-spoke validation remains; the call succeeds.
+    t.ctrl_client()
+        .update_pool_caps(&usdc, &(500 * UNIT), &0i128);
 }
 
 #[test]
@@ -1096,9 +1104,9 @@ fn test_max_supply_respects_spoke_cap_headroom() {
 
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1140,9 +1148,9 @@ fn test_emode_spoke_borrow_cap_above_hub_rejected() {
     let usdc = t.resolve_asset("USDC");
     let result = match t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1177,9 +1185,9 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
 
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdt.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1195,9 +1203,9 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
 
     let result = match t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdt.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1229,9 +1237,9 @@ fn test_emode_spoke_cap_above_from_asset_domain_rejected() {
     let overflowing_cap = 2_000_000_000_000_000_000_000i128;
     let result = match t
         .ctrl_client()
-        .try_edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .try_edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1263,9 +1271,9 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
 
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1323,9 +1331,9 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
 
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdt.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1361,13 +1369,11 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
     );
 }
 
-// `update_pool_caps` must validate the proposed hub cap against EVERY e-mode
-// category the asset belongs to, not just the first. USDC sits in two
-// categories: a lowering hub cap clears category 1's spoke cap but violates
-// category 2's, so the validator's loop must iterate past the passing category
-// to reject on the second (`validate_hub_caps_against_category_spokes`).
+// Phase 1 removed hub-vs-spoke enumeration from `update_pool_caps`: USDC sits in
+// two spokes, but the hub can no longer enumerate them, so a hub cap below an
+// existing spoke cap is accepted rather than rejected.
 #[test]
-fn test_update_pool_caps_validates_every_category_spoke() {
+fn test_update_pool_caps_no_longer_enumerates_spokes() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market_params("USDC", |params| {
@@ -1382,9 +1388,9 @@ fn test_update_pool_caps_validates_every_category_spoke() {
     let usdc = t.resolve_asset("USDC");
     // Category 1 spoke cap below the proposed hub (will pass the check)...
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 1,
+            spoke_id: 1,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1395,9 +1401,9 @@ fn test_update_pool_caps_validates_every_category_spoke() {
         });
     // ...category 2 spoke cap above it (will fail on the second iteration).
     t.ctrl_client()
-        .edit_asset_in_e_mode_category(&EModeAssetArgs {
+        .edit_asset_in_spoke(&SpokeAssetArgs {
             asset: usdc.clone(),
-            category_id: 2,
+            spoke_id: 2,
             can_collateral: true,
             can_borrow: true,
             ltv: 9_700,
@@ -1407,19 +1413,12 @@ fn test_update_pool_caps_validates_every_category_spoke() {
             borrow_cap: 0,
         });
 
-    // A hub supply cap of 1000 clears category 1's 800 but violates category 2's
-    // 1500 — the loop must reach the second category to reject.
-    let result = match t
-        .ctrl_client()
-        .try_update_pool_caps(&usdc, &(1_000 * UNIT), &0i128)
-    {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
-    assert_contract_error(result, errors::SPOKE_CAP_EXCEEDS_HUB);
+    // A hub supply cap of 1000 sits below category 2's 1500 spoke cap, but with
+    // no hub-side enumeration the call now succeeds.
+    t.ctrl_client()
+        .update_pool_caps(&usdc, &(1_000 * UNIT), &0i128);
 
-    // A hub cap that clears BOTH spoke caps succeeds, confirming the loop's
-    // pass path over multiple categories.
+    // A hub cap that clears both spoke caps also succeeds.
     t.ctrl_client()
         .update_pool_caps(&usdc, &(2_000 * UNIT), &0i128);
 }

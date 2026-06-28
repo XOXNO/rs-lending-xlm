@@ -240,27 +240,25 @@ fn test_set_market_oracle_config_activates_pending_market() {
     let config = usdc_preset().config.to_asset_config(&t.env, 7);
     ctrl.approve_token(&asset);
     ctrl.create_liquidity_pool(&asset, &params, &config);
-    assert_eq!(
-        (ctrl.get_market_config(&asset).status as u32),
-        0,
+    assert!(
+        !t.market_is_active(&asset),
         "market must start in PendingOracle"
     );
 
     let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
     ctrl.set_market_oracle_config(&asset, &oracle_cfg);
 
-    let market = ctrl.get_market_config(&asset);
-    match market.oracle_config.primary {
+    let oracle = t.market_oracle_config(&asset);
+    match oracle.primary {
         controller::types::OracleSourceConfig::Reflector(source) => {
             assert_eq!(source.contract, t.mock_reflector);
             assert_eq!(source.read_mode, controller::types::OracleReadMode::Twap(3));
         }
         _ => panic!("expected Reflector primary source"),
     }
-    assert_eq!(market.oracle_config.max_price_stale_seconds, 900);
-    assert_eq!(
-        (market.status as u32),
-        1,
+    assert_eq!(oracle.max_price_stale_seconds, 900);
+    assert!(
+        t.market_is_active(&asset),
         "market should be Active after oracle config",
     );
 }
@@ -325,9 +323,9 @@ fn test_set_oracle_tolerance_overwrites_bands() {
     let tolerance = bands_300_600();
     ctrl.set_oracle_tolerance(&asset, &tolerance);
 
-    let market = ctrl.get_market_config(&asset);
+    let oracle = t.market_oracle_config(&asset);
     assert_eq!(
-        market.oracle_config.tolerance, tolerance,
+        oracle.tolerance, tolerance,
         "tolerance bands must be overwritten in storage"
     );
 }
@@ -345,7 +343,9 @@ fn test_set_oracle_tolerance_rejects_unknown_asset() {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
-    assert_contract_error(mapped, errors::ASSET_NOT_SUPPORTED);
+    // set_oracle_tolerance updates the asset's `AssetOracle` entry; an unknown
+    // asset has none, so it reverts PairNotActive in the spoke model.
+    assert_contract_error(mapped, errors::PAIR_NOT_ACTIVE);
 }
 // 10. test_permissionless_keeper_ops
 
@@ -387,11 +387,9 @@ fn test_disable_token_oracle_owner_only() {
     let asset = t.resolve_market("USDC").asset.clone();
 
     ctrl.disable_token_oracle(&asset);
-    let after_disable = ctrl.get_market_config(&asset);
-    assert_eq!(
-        (after_disable.status as u32),
-        2,
-        "disable_token_oracle must move market to Disabled (=2)",
+    assert!(
+        !t.market_is_active(&asset),
+        "disable_token_oracle must deactivate the market (its AssetOracle entry is removed)",
     );
 }
 // 14. test_create_liquidity_pool_uniqueness
@@ -435,11 +433,9 @@ fn test_market_initialization_cascade() {
     //    leaves the market in PendingOracle.
     ctrl.create_liquidity_pool(&asset, &params, &config);
 
-    // Confirm the market is pending (PendingOracle = 0).
-    let m = ctrl.get_market_config(&asset);
-    assert_eq!(
-        (m.status as u32),
-        0,
+    // Confirm the market is pending (no oracle yet).
+    assert!(
+        !t.market_is_active(&asset),
         "market should be in PendingOracle status"
     );
 
@@ -452,7 +448,6 @@ fn test_market_initialization_cascade() {
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     t.configure_market_oracle(&asset, &reflector_cfg);
 
-    // 3. Confirm the market is Active (Active = 1).
-    let m = ctrl.get_market_config(&asset);
-    assert_eq!((m.status as u32), 1, "market should be in Active status");
+    // 3. Confirm the market is Active (its AssetOracle entry now exists).
+    assert!(t.market_is_active(&asset), "market should be in Active status");
 }

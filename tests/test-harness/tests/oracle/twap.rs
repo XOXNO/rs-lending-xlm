@@ -1,4 +1,4 @@
-use controller::types::{ControllerKey, MarketConfig, OracleReadMode, OracleSourceConfig};
+use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use soroban_sdk::vec;
 use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE};
 
@@ -143,12 +143,12 @@ fn test_twap_zero_records_reverts_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(usdc.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut source) = market.oracle_config.primary {
+        let key = ControllerKey::AssetOracle(usdc.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
             source.read_mode = OracleReadMode::Twap(0);
         }
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
     let assets = vec![&t.env, usdc];
@@ -162,12 +162,12 @@ fn test_twap_records_above_max_rejects_on_view() {
     let t = LendingTest::new().dual_source_two_asset();
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller, || {
-        let key = ControllerKey::Market(usdc.clone());
-        let mut market: MarketConfig = t.env.storage().persistent().get(&key).unwrap();
-        if let OracleSourceConfig::Reflector(ref mut source) = market.oracle_config.primary {
+        let key = ControllerKey::AssetOracle(usdc.clone());
+        let mut oracle: MarketOracleConfig = t.env.storage().persistent().get(&key).unwrap();
+        if let OracleSourceConfig::Reflector(ref mut source) = oracle.primary {
             source.read_mode = OracleReadMode::Twap(13);
         }
-        t.env.storage().persistent().set(&key, &market);
+        t.env.storage().persistent().set(&key, &oracle);
     });
 
     let assets = vec![&t.env, usdc];

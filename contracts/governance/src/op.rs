@@ -5,8 +5,8 @@ use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EModeAssetArgs, EditToleranceArgs,
-    PoolCapsArgs, RemoveAssetFromEModeArgs, RoleArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    AdminOperation, ConfigureOracleArgs, CreatePoolArgs, EditToleranceArgs, PoolCapsArgs,
+    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Vec<Val>, DelayTier) {
@@ -96,10 +96,23 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
         }
         AdminOperation::EditAssetConfig(asset, cfg) => {
             validate::asset::validate_asset_config(env, cfg);
+            // The general spoke 0 holds the base risk listing; editing it is the
+            // canonical path for the asset's base config.
+            let args = SpokeAssetArgs {
+                asset: asset.clone(),
+                spoke_id: 0,
+                can_collateral: cfg.is_collateralizable,
+                can_borrow: cfg.is_borrowable,
+                ltv: cfg.loan_to_value_bps,
+                threshold: cfg.liquidation_threshold_bps,
+                bonus: cfg.liquidation_bonus_bps,
+                supply_cap: cfg.supply_cap,
+                borrow_cap: cfg.borrow_cap,
+            };
             (
                 storage::get_controller(env),
-                Symbol::new(env, "edit_asset_config"),
-                vec![env, asset.clone().into_val(env), cfg.clone().into_val(env)],
+                Symbol::new(env, "edit_asset_in_spoke"),
+                vec![env, args.into_val(env)],
                 DelayTier::Standard,
             )
         }
@@ -121,50 +134,45 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::AddEModeCategory => (
+        AdminOperation::AddSpoke => (
             storage::get_controller(env),
-            Symbol::new(env, "add_e_mode_category"),
+            Symbol::new(env, "add_spoke"),
             vec![env],
             DelayTier::Standard,
         ),
-        AdminOperation::RemoveEModeCategory(id) => (
+        AdminOperation::RemoveSpoke(id) => (
             storage::get_controller(env),
-            Symbol::new(env, "remove_e_mode_category"),
+            Symbol::new(env, "remove_spoke"),
             vec![env, id.into_val(env)],
             DelayTier::Standard,
         ),
-        AdminOperation::AddAssetToEModeCategory(args) => {
+        AdminOperation::AddAssetToSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
-                Symbol::new(env, "add_asset_to_e_mode_category"),
+                Symbol::new(env, "add_asset_to_spoke"),
                 vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }
-        AdminOperation::EditAssetInEModeCategory(args) => {
+        AdminOperation::EditAssetInSpoke(args) => {
             validate::asset::validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
             validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
             (
                 storage::get_controller(env),
-                Symbol::new(env, "edit_asset_in_e_mode_category"),
+                Symbol::new(env, "edit_asset_in_spoke"),
                 vec![env, args.clone().into_val(env)],
                 DelayTier::Standard,
             )
         }
         AdminOperation::UpdatePoolCaps(args) => {
             validate::asset::validate_hub_caps(env, args.supply_cap, args.borrow_cap);
-            let controller = storage::get_controller(env);
-            validate::asset::validate_proposed_hub_caps_against_spokes(
-                env,
-                &controller,
-                &args.asset,
-                args.supply_cap,
-                args.borrow_cap,
-            );
+            // The controller re-checks each spoke cap against the hub cap at
+            // `add_asset_to_spoke`/`edit_asset_in_spoke`, and spokes are no longer
+            // enumerable from the asset, so no governance pre-check is needed.
             (
-                controller,
+                storage::get_controller(env),
                 Symbol::new(env, "update_pool_caps"),
                 vec![
                     env,
@@ -175,13 +183,13 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::RemoveAssetFromEMode(args) => (
+        AdminOperation::RemoveAssetFromSpoke(args) => (
             storage::get_controller(env),
-            Symbol::new(env, "remove_asset_from_e_mode"),
+            Symbol::new(env, "remove_asset_from_spoke"),
             vec![
                 env,
                 args.asset.clone().into_val(env),
-                args.category_id.into_val(env),
+                args.spoke_id.into_val(env),
             ],
             DelayTier::Standard,
         ),
@@ -303,7 +311,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
-                &controller,
                 &args.asset,
                 &args.cfg,
                 tolerance,

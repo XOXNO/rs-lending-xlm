@@ -50,18 +50,16 @@ fn test_swap_debt_health_factor_guard_after_swap() {
 
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller_address(), || {
-        let mut market: MarketConfig = t
+        let key = ControllerKey::SpokeAsset(0, hub_asset(usdc.clone()));
+        let mut config: SpokeAssetConfig = t
             .env
             .storage()
             .persistent()
-            .get(&ControllerKey::Market(usdc.clone()))
-            .expect("USDC market should exist");
-        market.asset_config.loan_to_value_bps = 9000;
-        market.asset_config.liquidation_threshold_bps = 5000;
-        t.env
-            .storage()
-            .persistent()
-            .set(&ControllerKey::Market(usdc.clone()), &market);
+            .get(&key)
+            .expect("USDC spoke listing should exist");
+        config.loan_to_value_bps = 9000;
+        config.liquidation_threshold_bps = 5000;
+        t.env.storage().persistent().set(&key, &config);
     });
 
     t.supply(ALICE, "USDC", 100_000.0);
@@ -118,17 +116,15 @@ fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
 
     let eth = t.resolve_asset("ETH");
     t.env.as_contract(&t.controller_address(), || {
-        let mut market: MarketConfig = t
+        let key = ControllerKey::SpokeAsset(0, hub_asset(eth.clone()));
+        let mut config: SpokeAssetConfig = t
             .env
             .storage()
             .persistent()
-            .get(&ControllerKey::Market(eth.clone()))
-            .expect("ETH market should exist");
-        market.asset_config.is_borrowable = false;
-        t.env
-            .storage()
-            .persistent()
-            .set(&ControllerKey::Market(eth.clone()), &market);
+            .get(&key)
+            .expect("ETH spoke listing should exist");
+        config.is_borrowable = false;
+        t.env.storage().persistent().set(&key, &config);
     });
 
     t.fund_router("ETH", 1.0);
@@ -300,10 +296,11 @@ fn test_swap_debt_emode_wrong_category() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    // Try to swap USDT debt to ETH: ETH is not in the e-mode category.
+    // Try to swap USDT debt to ETH: ETH is not listed on the account's spoke,
+    // so the spoke model rejects it with AssetNotSupported (1).
     let steps = build_swap_steps(&t, "ETH", "USDT", 5000_0000000);
     let result = t.try_swap_debt(ALICE, "USDT", 5_000.0, "ETH", &steps);
-    assert_contract_error(result, errors::EMODE_CATEGORY_NOT_FOUND);
+    assert_contract_error(result, errors::ASSET_NOT_SUPPORTED);
 }
 // Swap collateral edge cases
 

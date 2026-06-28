@@ -14,7 +14,7 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
 
-    let mut config = t.ctrl_client().get_market_config(&asset).asset_config;
+    let mut config = t.ctrl_client().get_spoke_asset(&0u32, &asset);
     config.loan_to_value_bps = 8000;
     config.liquidation_threshold_bps = 8000; // Equal to LTV.
 

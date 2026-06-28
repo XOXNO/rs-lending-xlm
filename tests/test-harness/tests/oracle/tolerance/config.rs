@@ -97,18 +97,22 @@ fn test_edit_asset_in_e_mode_category() {
     // Edit: set can_borrow=false.
     t.edit_asset_in_e_mode("USDC", 1, true, false, 9700, 9800, 200);
 
-    // Verify the update by reading storage.
+    // Verify the update by reading storage. Spoke asset configs are discrete
+    // `SpokeAsset(spoke_id, hub_asset)` keys in the spoke model.
     let usdc_asset = t.resolve_market("USDC").asset.clone();
-    let config: Option<controller::types::EModeAssetConfig> =
+    let config: Option<controller::types::SpokeAssetConfig> =
         t.env.as_contract(&t.controller, || {
-            let cat: Option<controller::types::EModeCategoryRaw> = t
-                .env
-                .storage()
-                .persistent()
-                .get(&controller::types::ControllerKey::EModeCategory(1));
-            cat.and_then(|c| c.assets.get(usdc_asset))
+            t.env.storage().persistent().get(
+                &controller::types::ControllerKey::SpokeAsset(
+                    1,
+                    controller::types::HubAssetKey {
+                        hub_id: 0,
+                        asset: usdc_asset,
+                    },
+                ),
+            )
         });
-    let config = config.expect("emode asset config should exist");
+    let config = config.expect("spoke asset config should exist");
     assert!(
         config.is_collateralizable,
         "should still be collateralizable"

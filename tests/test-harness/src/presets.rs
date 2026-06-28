@@ -170,24 +170,27 @@ pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
 // Conversion helpers (preset -> contract types)
 
 impl AssetConfigPreset {
+    /// Build the general-spoke (spoke 0) base risk listing for market creation.
+    /// Flash-loan eligibility/fee and decimals live on `MarketParamsRaw`, so the
+    /// builder threads `is_flashloanable`/`flashloan_fee_bps` there separately;
+    /// general-spoke caps are disabled (hub caps live on `MarketParamsRaw`).
     pub fn to_asset_config(
         &self,
-        env: &soroban_sdk::Env,
-        decimals: u32,
-    ) -> controller::types::AssetConfigRaw {
-        controller::types::AssetConfigRaw {
+        _env: &soroban_sdk::Env,
+        _decimals: u32,
+    ) -> controller::types::SpokeAssetConfig {
+        controller::types::SpokeAssetConfig {
+            is_collateralizable: self.is_collateralizable,
+            is_borrowable: self.is_borrowable,
+            paused: false,
+            frozen: false,
             loan_to_value_bps: self.loan_to_value_bps,
             liquidation_threshold_bps: self.liquidation_threshold_bps,
             liquidation_bonus_bps: self.liquidation_bonus_bps,
             liquidation_fees_bps: self.liquidation_fees_bps,
-            is_collateralizable: self.is_collateralizable,
-            is_borrowable: self.is_borrowable,
-            is_flashloanable: self.is_flashloanable,
-            flashloan_fee_bps: self.flashloan_fee_bps,
-            asset_decimals: decimals,
-            // Memberships are populated via `add_asset_to_e_mode_category`,
-            // never at preset → market construction time.
-            e_mode_categories: soroban_sdk::Vec::new(env),
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: controller::types::MarketOracleConfigOption::None,
         }
     }
 }

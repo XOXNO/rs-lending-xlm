@@ -7,12 +7,12 @@ use test_harness::{hub_asset, HubAssetKey, usdc_preset, usdt_stable_preset, EMod
 #[test]
 fn test_edit_asset_config_persists_flashloan_fee_at_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let ctrl = t.ctrl_client();
-    let mut cfg = ctrl.get_market_config(&asset).asset_config;
-    cfg.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS as u32;
-    ctrl.edit_asset_config(&asset, &cfg);
-    let updated = ctrl.get_market_config(&asset).asset_config;
+    // Flash-loan fee lives on the pool `MarketParamsRaw`; the harness
+    // `edit_asset_config` helper writes it through to pool storage.
+    t.edit_asset_config("USDC", |c| {
+        c.flashloan_fee_bps = MAX_FLASHLOAN_FEE_BPS as u32;
+    });
+    let updated = t.get_asset_config("USDC");
     assert_eq!(updated.flashloan_fee_bps, MAX_FLASHLOAN_FEE_BPS as u32);
 }
 // emode.rs:95 -- EModeCategoryDeprecated rejection on user supply path

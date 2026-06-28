@@ -10,19 +10,19 @@
 
 use common::types::{InterestRateModel, MarketParamsRaw};
 use controller_interface::types::{
-    AssetConfigRaw, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
-    PositionLimits,
+    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, PositionLimits,
+    SpokeAssetConfig,
 };
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
 
 pub use stellar_governance::timelock::OperationState as GovernanceOperationState;
 
-/// E-mode asset input forwarded verbatim to the controller's
-/// `add_asset_to_e_mode_category` / `edit_asset_in_e_mode_category` entrypoints.
-/// Defined in `controller-interface` (the call's owner) and re-exported here so
-/// `AdminOperation` keeps a single source of truth.
-pub use controller_interface::types::EModeAssetArgs;
+/// Spoke asset input forwarded verbatim to the controller's `add_asset_to_spoke`
+/// / `edit_asset_in_spoke` entrypoints. Defined in `controller-interface` (the
+/// call's owner) and re-exported here so `AdminOperation` keeps a single source
+/// of truth.
+pub use controller_interface::types::SpokeAssetArgs;
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -34,9 +34,9 @@ pub struct PoolCapsArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct RemoveAssetFromEModeArgs {
+pub struct RemoveAssetFromSpokeArgs {
     pub asset: Address,
-    pub category_id: u32,
+    pub spoke_id: u32,
 }
 
 #[contracttype]
@@ -44,7 +44,7 @@ pub struct RemoveAssetFromEModeArgs {
 pub struct CreatePoolArgs {
     pub asset: Address,
     pub params: MarketParamsRaw,
-    pub config: AssetConfigRaw,
+    pub config: SpokeAssetConfig,
 }
 
 #[contracttype]
@@ -84,20 +84,24 @@ pub struct RoleArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+// `#[contracttype]` enums cannot box variants (Soroban has no `Box` codec); the
+// `CreateLiquidityPool`/`EditAssetConfig` variants carry the large
+// `SpokeAssetConfig`. Mirrors the allow on `MarketOracleConfigOption`.
+#[allow(clippy::large_enum_variant)]
 pub enum AdminOperation {
     // Controller target
     SetAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
-    EditAssetConfig(Address, AssetConfigRaw),
+    EditAssetConfig(Address, SpokeAssetConfig),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
-    AddEModeCategory,
-    RemoveEModeCategory(u32),
-    AddAssetToEModeCategory(EModeAssetArgs),
-    EditAssetInEModeCategory(EModeAssetArgs),
+    AddSpoke,
+    RemoveSpoke(u32),
+    AddAssetToSpoke(SpokeAssetArgs),
+    EditAssetInSpoke(SpokeAssetArgs),
     UpdatePoolCaps(PoolCapsArgs),
-    RemoveAssetFromEMode(RemoveAssetFromEModeArgs),
+    RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs),
     ApproveToken(Address),
     RevokeToken(Address),
     ApproveBlendPool(Address),
