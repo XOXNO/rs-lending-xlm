@@ -271,6 +271,7 @@ fn add_asset_enforces_valid_bounds(
     crate::governance::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
+            hub_id: 0,
             asset: asset.clone(),
             spoke_id: category_id,
             can_collateral: true,
@@ -302,6 +303,7 @@ fn edit_asset_enforces_valid_bounds(
     crate::governance::config::edit_asset_in_spoke(
         &e,
         &SpokeAssetArgs {
+            hub_id: 0,
             asset: asset.clone(),
             spoke_id: category_id,
             can_collateral: true,
@@ -352,6 +354,7 @@ fn emode_add_asset_to_deprecated_category(e: Env, asset: Address, category_id: u
     crate::governance::config::add_asset_to_spoke(
         &e,
         &SpokeAssetArgs {
+            hub_id: 0,
             asset,
             spoke_id: category_id,
             can_collateral: true,
