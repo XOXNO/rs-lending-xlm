@@ -41,7 +41,7 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     {
         return 0;
     }
-    let hub_supply_cap = cache.cached_pool_sync_data(asset).params.supply_cap;
+    let hub_supply_cap = cache.cached_pool_sync_data(&hub_asset).params.supply_cap;
     let market = MarketLimitCtx::load(&mut cache, asset);
     let hub_headroom = hub_supply_cap_headroom(env, &market, hub_supply_cap);
     let spoke_headroom = spoke_supply_cap_headroom(env, &mut cache, &account, &hub_asset, &market);

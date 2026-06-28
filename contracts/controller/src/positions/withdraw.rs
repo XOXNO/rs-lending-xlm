@@ -226,7 +226,7 @@ pub(crate) fn finish_withdrawal(
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);
 
-    cache.put_market_index(&hub_asset.asset, &result.market_index);
+    cache.put_market_index(hub_asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, supply)>.
     cache.record_position_update(
         action,

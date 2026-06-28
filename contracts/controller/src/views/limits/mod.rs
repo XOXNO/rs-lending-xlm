@@ -13,6 +13,7 @@ use controller_interface::types::Account;
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
+use crate::helpers::utils::hub0;
 use crate::{helpers, storage};
 
 mod borrow;
@@ -40,8 +41,9 @@ struct MarketLimitCtx {
 
 impl MarketLimitCtx {
     fn load(cache: &mut Cache, asset: &Address) -> Self {
-        let index = cache.cached_market_index(asset);
-        let sync = cache.cached_pool_sync_data(asset);
+        let hub_asset = hub0(asset);
+        let index = cache.cached_market_index(&hub_asset);
+        let sync = cache.cached_pool_sync_data(&hub_asset);
         Self {
             supplied: Ray::from(sync.state.supplied_ray),
             borrowed: Ray::from(sync.state.borrowed_ray),

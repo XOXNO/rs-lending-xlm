@@ -139,7 +139,7 @@ pub(crate) fn finish_repayment(
     }
     update_or_remove_debt_position(account, hub_asset, &position);
 
-    cache.put_market_index(&hub_asset.asset, &result.market_index);
+    cache.put_market_index(hub_asset, &result.market_index);
     cache.record_debt_position_update(
         action,
         &hub_asset.asset,

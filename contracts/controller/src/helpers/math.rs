@@ -60,12 +60,12 @@ pub fn calculate_ltv_collateral_wad(
     cache: &mut Cache,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> Wad {
-    cache.prefetch_market_indexes(&position_assets(env, &supply_positions.keys()));
+    cache.prefetch_market_indexes(&supply_positions.keys());
 
     let mut ltv = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         // Floor the whole chain: borrowing capacity cannot round upward.
         let value = position_value_floor(
@@ -133,14 +133,14 @@ fn calculate_account_risk_totals_body(
     priced_keys.append(&borrow_positions.keys());
     let priced_assets = position_assets(env, &priced_keys);
     oracle::prefetch_redstone_feeds(cache, &priced_assets);
-    cache.prefetch_market_indexes(&priced_assets);
+    cache.prefetch_market_indexes(&priced_keys);
 
     let mut total_collateral = Wad::ZERO;
     let mut ltv_collateral = Wad::ZERO;
     let mut weighted_coll = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         // Neutral valuation feeds proportions and socialization; the floored
         // chain feeds the borrow-capacity and health-factor gates so no
@@ -166,7 +166,7 @@ fn calculate_account_risk_totals_body(
     let mut total_debt = Wad::ZERO;
     for (hub_asset, position) in iter_debt_positions(borrow_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         // Ceil the whole chain: owed value cannot round downward.
         total_debt += position_value_ceil(

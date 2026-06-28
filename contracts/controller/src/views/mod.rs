@@ -23,6 +23,7 @@ mod limits;
 pub use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
 
 use crate::cache::Cache;
+use crate::helpers::utils::hub0;
 use crate::oracle::{price_components, token_price};
 use crate::positions::{liquidation::execute_liquidation, HubPayment};
 use crate::{helpers, storage, validation, Controller, ControllerArgs, ControllerClient};
@@ -140,7 +141,7 @@ impl Controller {
     pub fn get_market_index(env: Env, asset: Address) -> MarketIndexRaw {
         let mut cache = Cache::new_view(&env);
         // dimensional: MarketIndexRaw exposes Ray<Index(asset, supply|borrow)> raw values.
-        MarketIndexRaw::from(&cache.cached_market_index(&asset))
+        MarketIndexRaw::from(&cache.cached_market_index(&hub0(&asset)))
     }
 }
 
@@ -176,8 +177,8 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
     };
 
     let mut cache = Cache::new_view(env);
-    let market_index = cache.cached_market_index(asset);
-    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
+    let market_index = cache.cached_market_index(&hub_asset);
+    let decimals = cache.cached_pool_sync_data(&hub_asset).params.asset_decimals;
 
     // dimensional: scaled_amount * supply_index -> Token(asset), returned in asset decimals.
     position
@@ -197,8 +198,8 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
     };
 
     let mut cache = Cache::new_view(env);
-    let market_index = cache.cached_market_index(asset);
-    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
+    let market_index = cache.cached_market_index(&hub_asset);
+    let decimals = cache.cached_pool_sync_data(&hub_asset).params.asset_decimals;
 
     // dimensional: scaled_amount * borrow_index -> Token(asset), returned in asset decimals.
     position
@@ -282,12 +283,17 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<MarketIndexView> {
     require_view_inputs_bound(env, assets);
     let mut cache = Cache::new_view(env);
-    cache.prefetch_market_indexes(assets);
+    let mut hub_assets: Vec<HubAssetKey> = Vec::new(env);
+    for asset in assets.iter() {
+        hub_assets.push_back(hub0(&asset));
+    }
+    cache.prefetch_market_indexes(&hub_assets);
     let mut result = Vec::new(env);
 
     for i in 0..assets.len() {
         let asset = validation::expect_invariant(env, assets.get(i));
-        let index = cache.cached_market_index(&asset);
+        let hub_asset = validation::expect_invariant(env, hub_assets.get(i));
+        let index = cache.cached_market_index(&hub_asset);
         let components = price_components(&mut cache, &asset);
         let (safe_price_wad, aggregator_price_wad) = components.to_abi_prices();
 

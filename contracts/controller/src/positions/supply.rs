@@ -203,7 +203,7 @@ fn settle_deposit(
 
         // Cache the pool-returned index so post-action valuation reads it
         // instead of asking the pool again.
-        cache.put_market_index(&hub_asset.asset, &result.market_index);
+        cache.put_market_index(hub_asset, &result.market_index);
 
         // Emit with the exact supply index the pool used, not a re-read.
         cache.record_position_update(

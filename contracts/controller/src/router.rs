@@ -138,7 +138,7 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
         // Unlisted assets must still fail with AssetNotSupported; the shared
         // pool address carries no per-asset existence check.
         validation::require_asset_supported(env, cache, &asset);
-        pool_update_indexes_call(env, &pool_addr, &asset);
+        pool_update_indexes_call(env, &pool_addr, &utils::hub0(&asset));
     }
 }
 
@@ -170,7 +170,8 @@ pub fn create_liquidity_pool(
 
     let pool_address = storage::get_pool(env);
     // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
-    pool_create_market_call(env, &pool_address, params);
+    // Hub 0 (general hub) hosts every current listing; Task 2.3 threads a real hub id.
+    pool_create_market_call(env, &pool_address, 0, params);
 
     // The general spoke 0 holds every listed asset's base risk config.
     storage::set_spoke_asset(env, 0, &hub_asset, config);
@@ -215,7 +216,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     // the reverse check at cap-update time is dropped; at runtime the hub gate
     // (pool) and spoke gate bind independently, the tighter one winning.
     let pool_addr = cache.cached_pool_address();
-    pool_update_caps_call(env, &pool_addr, asset, supply_cap, borrow_cap);
+    pool_update_caps_call(env, &pool_addr, &utils::hub0(asset), supply_cap, borrow_cap);
 }
 
 /// Accrues pool indexes before replacing the market's interest-rate model.
@@ -227,10 +228,11 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
 
     let pool_addr = cache.cached_pool_address();
 
-    pool_update_indexes_call(env, &pool_addr, asset);
+    let hub_asset = utils::hub0(asset);
+    pool_update_indexes_call(env, &pool_addr, &hub_asset);
 
     // dimensional: params carries Ray rates/utilization and Bps reserve factor.
-    pool_update_params_call(env, &pool_addr, asset, params);
+    pool_update_params_call(env, &pool_addr, &hub_asset, params);
 
     // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
@@ -256,7 +258,7 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
 
     let pool_addr = cache.cached_pool_address();
 
-    let result = pool_claim_revenue_call(env, &pool_addr, asset);
+    let result = pool_claim_revenue_call(env, &pool_addr, &utils::hub0(asset));
     let amount = result.actual_amount;
     // dimensional: amount is Token(asset) revenue in asset-native units.
 
@@ -301,7 +303,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
         GenericError::AmountMustBePositive,
     );
 
-    pool_add_rewards_call(env, &pool_addr, asset, amount);
+    pool_add_rewards_call(env, &pool_addr, &utils::hub0(asset), amount);
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i128)>) {
@@ -369,7 +371,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         helpers::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 
         // amount = 0: parameter change only, no deposit or withdraw.
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
         cache.record_position_update(
             events::PositionAction::ParamUpd,
             &hub_asset.asset,

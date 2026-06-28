@@ -19,6 +19,7 @@ use soroban_sdk::{
 use stellar_macros::only_owner;
 
 use crate::external::pool::fetch_pool_sync_data;
+use crate::helpers::utils::hub0;
 use common::math::fp::Ray;
 
 use crate::helpers::emode_caps::{
@@ -263,7 +264,7 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     );
 
     let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &args.asset);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
     validate_spoke_caps_against_hub(
         env,
         hub.params.supply_cap,
@@ -327,7 +328,7 @@ pub fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     );
 
     let pool_addr = storage::get_pool(env);
-    let hub = fetch_pool_sync_data(env, &pool_addr, &args.asset);
+    let hub = fetch_pool_sync_data(env, &pool_addr, &hub_asset);
     validate_spoke_caps_against_hub(
         env,
         hub.params.supply_cap,
@@ -429,7 +430,8 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
     // the live token probe; keep the pool-registered value authoritative.
     if cfg!(feature = "testing") {
         let pool_addr = storage::get_pool(env);
-        let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &asset).params.asset_decimals;
+        let hub_asset = hub0(&asset);
+        let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &hub_asset).params.asset_decimals;
         if pool_decimals != 0 {
             config.asset_decimals = pool_decimals;
         }

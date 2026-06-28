@@ -126,7 +126,7 @@ pub(crate) fn calculate_repayment_amounts(
     for i in 0..merged.len() {
         let (hub_asset, amount) = validation::expect_invariant(env, merged.get(i));
         let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         let position: DebtPosition = (&account
             .borrow_positions
@@ -260,7 +260,7 @@ pub(crate) fn calculate_seized_collateral(
         }
 
         let asset_config = cache.cached_asset_config(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.
         let actual_ray = position.scaled_amount.mul(env, market_index.supply_index);
@@ -656,7 +656,7 @@ pub(crate) fn get_account_bonus_params(
     // dimensional: stores (collateral Wad<USD>.raw, bonus Bps.raw).
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
 
         let value = helpers::position_value(
             env,

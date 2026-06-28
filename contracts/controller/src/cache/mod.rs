@@ -32,9 +32,9 @@ pub struct Cache {
     /// Borrow/supply indexes, populated only from the pool: either returned by a
     /// pool mutation (`put_market_index`) or bulk-read via `bulk_get_indexes`.
     /// The controller never simulates indexes itself.
-    market_indexes: Map<Address, MarketIndexRaw>,
+    market_indexes: Map<HubAssetKey, MarketIndexRaw>,
     pool_address: Option<Address>,
-    pool_sync_data: Map<Address, PoolSyncData>,
+    pool_sync_data: Map<HubAssetKey, PoolSyncData>,
     /// One loaded spoke per tx: usage buffer and cap writes.
     emode_usage: Option<SpokeUsageContext>,
     deposit_updates: Vec<EventDepositDelta>,
@@ -166,56 +166,52 @@ impl Cache {
 
     /// Caches an index the pool returned from a mutation (`PoolPositionMutation.
     /// market_index`). Lets the post-action valuation skip a redundant pool read
-    /// for the touched asset.
-    pub fn put_market_index(&mut self, asset: &Address, index: &MarketIndexRaw) {
-        self.market_indexes.set(asset.clone(), index.clone());
+    /// for the touched hub-asset.
+    pub fn put_market_index(&mut self, hub_asset: &HubAssetKey, index: &MarketIndexRaw) {
+        self.market_indexes.set(hub_asset.clone(), index.clone());
     }
 
     /// Certora stub: lazy per-asset reads preserve semantics.
     #[cfg(feature = "certora")]
-    pub fn prefetch_market_indexes(&mut self, _assets: &Vec<Address>) {}
+    pub fn prefetch_market_indexes(&mut self, _hub_assets: &Vec<HubAssetKey>) {}
 
-    /// Seeds `market_indexes` for listed, uncached assets.
-    /// Skips duplicates and assets already loaded in this transaction.
+    /// Seeds `market_indexes` for listed, uncached hub-assets.
+    /// Skips duplicates and markets already loaded in this transaction.
     #[cfg(not(feature = "certora"))]
-    pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
-        let mut missing: Vec<Address> = Vec::new(&self.env);
-        for asset in assets.iter() {
-            let hub_asset = HubAssetKey {
-                hub_id: 0,
-                asset: asset.clone(),
-            };
-            if self.market_indexes.contains_key(asset.clone())
-                || missing.first_index_of(asset.clone()).is_some()
+    pub fn prefetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
+        let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
+        for hub_asset in hub_assets.iter() {
+            if self.market_indexes.contains_key(hub_asset.clone())
+                || missing.first_index_of(hub_asset.clone()).is_some()
                 || storage::get_spoke_asset(&self.env, 0, &hub_asset).is_none()
             {
                 continue;
             }
-            missing.push_back(asset);
+            missing.push_back(hub_asset);
         }
         if missing.is_empty() {
             return;
         }
         let pool_addr = self.cached_pool_address();
         let indexes = fetch_pool_bulk_indexes(&self.env, &pool_addr, &missing);
-        for (i, asset) in missing.iter().enumerate() {
+        for (i, hub_asset) in missing.iter().enumerate() {
             self.market_indexes
-                .set(asset, indexes.get_unchecked(i as u32));
+                .set(hub_asset, indexes.get_unchecked(i as u32));
         }
     }
 
-    /// Returns the pool-sourced index for `asset`. On a cache miss the pool is
+    /// Returns the pool-sourced index for `hub_asset`. On a cache miss the pool is
     /// asked for it (single-asset `bulk_get_indexes`); the controller never
     /// simulates accrual itself.
-    pub fn cached_market_index(&mut self, asset: &Address) -> MarketIndex {
-        if let Some(index) = self.market_indexes.get(asset.clone()) {
+    pub fn cached_market_index(&mut self, hub_asset: &HubAssetKey) -> MarketIndex {
+        if let Some(index) = self.market_indexes.get(hub_asset.clone()) {
             return (&index).into();
         }
         let pool_addr = self.cached_pool_address();
         let mut request = Vec::new(&self.env);
-        request.push_back(asset.clone());
+        request.push_back(hub_asset.clone());
         let index = fetch_pool_bulk_indexes(&self.env, &pool_addr, &request).get_unchecked(0);
-        self.market_indexes.set(asset.clone(), index.clone());
+        self.market_indexes.set(hub_asset.clone(), index.clone());
         (&index).into()
     }
 
@@ -268,13 +264,13 @@ impl Cache {
         self.borrow_updates = Vec::new(&self.env);
     }
 
-    pub fn cached_pool_sync_data(&mut self, asset: &Address) -> PoolSyncData {
-        if let Some(data) = self.pool_sync_data.get(asset.clone()) {
+    pub fn cached_pool_sync_data(&mut self, hub_asset: &HubAssetKey) -> PoolSyncData {
+        if let Some(data) = self.pool_sync_data.get(hub_asset.clone()) {
             return data;
         }
         let pool_addr = self.cached_pool_address();
-        let data = fetch_pool_sync_data(&self.env, &pool_addr, asset);
-        self.pool_sync_data.set(asset.clone(), data.clone());
+        let data = fetch_pool_sync_data(&self.env, &pool_addr, hub_asset);
+        self.pool_sync_data.set(hub_asset.clone(), data.clone());
         data
     }
 

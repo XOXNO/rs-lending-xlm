@@ -151,7 +151,7 @@ fn merge_borrow_result(
             ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
         }
     }
-    cache.put_market_index(&hub_asset.asset, &result.market_index);
+    cache.put_market_index(hub_asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
     cache.record_debt_position_update(
         action,
@@ -227,7 +227,7 @@ fn borrow_strategy_inner(
 
     // Flash-loan parameters live on the pool market params, not the spoke config.
     let flash_fee = fee_override.unwrap_or_else(|| {
-        let fee_bps = cache.cached_pool_sync_data(debt_token).params.flashloan_fee_bps;
+        let fee_bps = cache.cached_pool_sync_data(&hub_debt).params.flashloan_fee_bps;
         Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount)
     });
     let borrow_position = account.get_or_create_debt_position(&hub_debt);

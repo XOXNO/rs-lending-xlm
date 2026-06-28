@@ -44,7 +44,7 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
         return 0;
     }
 
-    let hub_borrow_cap = cache.cached_pool_sync_data(asset).params.borrow_cap;
+    let hub_borrow_cap = cache.cached_pool_sync_data(&hub_asset).params.borrow_cap;
     // dimensional: all headrooms in this minimum are Token(asset).
     let mut hi = market
         .cash

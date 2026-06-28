@@ -334,7 +334,7 @@ fn execute_bad_debt_cleanup(
             env,
             cache,
             AccountPositionType::Deposit,
-            &hub_asset.asset,
+            &hub_asset,
             (&position).into(),
         );
     }
@@ -344,7 +344,7 @@ fn execute_bad_debt_cleanup(
             env,
             cache,
             AccountPositionType::Borrow,
-            &hub_asset.asset,
+            &hub_asset,
             (&position).into(),
         );
     }
@@ -365,9 +365,9 @@ fn seize_pool_position(
     env: &Env,
     cache: &mut Cache,
     side: AccountPositionType,
-    asset: &Address,
+    hub_asset: &HubAssetKey,
     position: ScaledPositionRaw,
 ) {
     let pool_addr = cache.cached_pool_address();
-    pool_seize_position_call(env, &pool_addr, asset, side, position);
+    pool_seize_position_call(env, &pool_addr, hub_asset, side, position);
 }

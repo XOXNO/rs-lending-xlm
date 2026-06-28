@@ -11,6 +11,7 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::external::pool::pool_flash_loan_call;
+use crate::helpers::utils::hub0;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -44,8 +45,9 @@ pub fn process_flash_loan(
     let mut cache = Cache::new(env);
     validation::require_market_active(env, &mut cache, asset);
 
+    let hub_asset = hub0(asset);
     // Flash-loan eligibility and fee live on the pool market params.
-    let params = cache.cached_pool_sync_data(asset).params;
+    let params = cache.cached_pool_sync_data(&hub_asset).params;
     assert_with_error!(
         env,
         params.is_flashloanable,
@@ -58,7 +60,7 @@ pub fn process_flash_loan(
 
     // Reentrancy guard.
     storage::with_flash_guard(env, || {
-        pool_flash_loan_call(env, &pool_addr, asset, caller, receiver, amount, fee, data);
+        pool_flash_loan_call(env, &pool_addr, &hub_asset, caller, receiver, amount, fee, data);
     });
 
     FlashLoanEvent {
