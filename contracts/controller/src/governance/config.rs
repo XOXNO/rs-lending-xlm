@@ -198,14 +198,12 @@ pub fn create_hub(env: &Env) -> u32 {
     id
 }
 
-/// Gates use of a hub. Hub 0 is the implicit default and is always active
-/// without a registry read; any higher id must resolve to an active `Hub`
-/// entry. Wired into market creation (`create_liquidity_pool`) and the
-/// supply/borrow validate paths via `validation::require_hub_active`.
+/// Gates use of a hub. Every hub — including hub 0, seeded active in the
+/// constructor — must resolve to an active `Hub` registry entry; an unknown or
+/// deactivated hub reverts `HubNotActive`. No hub is special-cased. Wired into
+/// market creation (`create_liquidity_pool`) and the supply/borrow validate
+/// paths via `validation::require_hub_active`.
 pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
-    if hub_id == 0 {
-        return;
-    }
     let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
     assert_with_error!(env, active, GenericError::HubNotActive);
 }
