@@ -8,10 +8,41 @@
 #   live in the signed envelope's SorobanTransactionData; fetched post-send
 #   via RPC getTransaction and decoded with `stellar xdr`.
 
-# Infra-level transients (gateway 5xx, request timeouts, connection resets) carry
-# no on-ledger effect and are always safe to resubmit — distinct from a contract
-# revert, which is deterministic. Shared by the inv / xfail / trustline retry loops.
-RPC_TRANSIENT_RE='rejected .?50[0-9]|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable'
+# Infra-level transients (gateway 5xx, request timeouts, connection resets,
+# sequence-number races) carry no on-ledger effect and are always safe to
+# resubmit — distinct from a contract revert, which is deterministic. A
+# TxBadSeq is rejected before apply (the source account's sequence read lagged
+# a just-landed tx), so re-submitting re-fetches the sequence and lands clean.
+# Shared by the inv / xfail / trustline retry loops.
+RPC_TRANSIENT_RE='rejected .?50[0-9]|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
+
+# A just-deployed contract can lag the RPC read replica the next invoke
+# simulates against: the instance entry reads as missing ("Contract not found"
+# / "non-existing value for contract instance"). The deploy already committed,
+# so re-simulating with backoff lands once the replica catches up — a genuinely
+# absent contract recurs and falls through to FAIL on the final attempt.
+DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
+
+# Runs a raw `stellar contract deploy/upload` command up to 5x, retrying the
+# transients testnet throws around contract installation: a deploy racing its
+# own wasm upload (Storage,MissingValue / "Wasm does not exist"), TxBadSeq, and
+# RPC 5xx. The contract id / wasm hash lands on stdout (captured to out_f);
+# success requires a non-empty stdout. Re-running is safe — an already-uploaded
+# wasm re-uploads idempotently and a fresh deploy simply gets a new id.
+#   run_deploy <out_f> <err_f> -- <stellar ...>
+run_deploy() {
+    local out_f="$1" err_f="$2"; shift 2
+    [ "$1" = "--" ] && shift
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 3 ))
+        if "$@" >"$out_f" 2>"$err_f" && [ -s "$out_f" ]; then
+            return 0
+        fi
+        grep -qE "$RPC_TRANSIENT_RE|Wasm does not exist|Storage, MissingValue" "$err_f" || break
+    done
+    return 1
+}
 
 # Fetch declared resource usage for a sent tx hash.
 # Sets: RES_INSTR RES_READ RES_WRITE RES_FEE
@@ -43,7 +74,7 @@ inv() {
     local fn="$1"
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     local attempt
-    for attempt in 1 2 3; do
+    for attempt in 1 2 3 4 5; do
         [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 5 ))
         log "inv [$label] $fn"
         if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
@@ -60,9 +91,28 @@ inv() {
             cat "$out_f"
             return 0
         fi
-        # Transient RPC/gateway failure (5xx, timeout, connection reset) at
-        # simulate or send: no on-ledger effect, resubmit.
-        if [ "$attempt" -lt 3 ] \
+        # Opt-in: a contract error the CALLER marks as a state-propagation
+        # transient via INV_TRANSIENT_CONTRACT_RE (e.g. a just-established
+        # classic trustline not yet visible to the mint's simulate → SAC #13).
+        # The prerequisite tx already committed, so re-simulating with backoff
+        # lands once the read replica catches up. Unset by default → no effect.
+        if [ "$attempt" -lt 5 ] \
+            && [ -n "${INV_TRANSIENT_CONTRACT_RE:-}" ] \
+            && grep -qE "$INV_TRANSIENT_CONTRACT_RE" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "transient contract state; resimulating"
+            continue
+        fi
+        # A freshly-deployed contract not yet visible to this invoke's simulate.
+        # The deploy committed; re-simulate with backoff until the replica syncs.
+        if [ "$attempt" -lt 5 ] \
+            && grep -qE "$DEPLOY_PROPAGATION_RE" "$err_f" \
+            && ! grep -q "Error(Contract" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "freshly-deployed contract not yet visible; resimulating"
+            continue
+        fi
+        # Transient RPC/gateway failure (5xx, timeout, connection reset, bad
+        # sequence) at simulate or send: no on-ledger effect, resubmit.
+        if [ "$attempt" -lt 5 ] \
             && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure; retrying"
@@ -74,7 +124,7 @@ inv() {
         # Shows as Trapped or ResourceLimitExceeded with no contract error.
         # Re-simulate and resend; a deterministic failure recurs and falls
         # through to FAIL on the final attempt.
-        if [ "$attempt" -lt 3 ] \
+        if [ "$attempt" -lt 5 ] \
             && grep -q "Signing transaction" "$err_f" \
             && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then

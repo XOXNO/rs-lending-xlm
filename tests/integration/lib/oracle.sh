@@ -9,8 +9,8 @@
 deploy_mock_reflector() {
     if [ -n "${MOCK:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mock.out" err_f="$LOG_DIR/deploy_mock.err"
-    stellar contract deploy --wasm "$WASM_DIR/mock_oracle.wasm" \
-        --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_oracle.wasm" \
+        --source "$ADMIN" --network "$NETWORK"
     local mock hash
     mock=$(tr -d '"\n' < "$out_f")
     hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -24,8 +24,8 @@ deploy_mock_reflector() {
 deploy_mock_redstone() {
     if [ -n "${MOCKRS:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mockrs.out" err_f="$LOG_DIR/deploy_mockrs.err"
-    stellar contract deploy --wasm "$WASM_DIR/mock_redstone.wasm" \
-        --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_redstone.wasm" \
+        --source "$ADMIN" --network "$NETWORK"
     local mock hash
     mock=$(tr -d '"\n' < "$out_f")
     hash=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')

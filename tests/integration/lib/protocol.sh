@@ -22,8 +22,8 @@ deploy_protocol() {
     fi
     if [ -z "${POOL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_pool.out" err_f="$LOG_DIR/upload_pool.err"
-        stellar contract upload --wasm "$WASM_DIR/pool.wasm" \
-            --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+        run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/pool.wasm" \
+            --source "$ADMIN" --network "$NETWORK"
         local hash txh
         hash=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -33,8 +33,8 @@ deploy_protocol() {
     fi
     if [ -z "${CONTROLLER:-}" ]; then
         local out_f="$LOG_DIR/deploy_controller.out" err_f="$LOG_DIR/deploy_controller.err"
-        stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \
-            --source "$ADMIN" --network "$NETWORK" -- --admin "$ADMIN_ADDR" >"$out_f" 2>"$err_f"
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \
+            --source "$ADMIN" --network "$NETWORK" -- --admin "$ADMIN_ADDR"
         local ctrl txh
         ctrl=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -60,8 +60,8 @@ deploy_protocol() {
     fi
     if [ -z "${FLASH_RECEIVER:-}" ]; then
         local out_f="$LOG_DIR/deploy_flashrecv.out" err_f="$LOG_DIR/deploy_flashrecv.err"
-        stellar contract deploy --wasm "$WASM_DIR/flash_loan_receiver.wasm" \
-            --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_loan_receiver.wasm" \
+            --source "$ADMIN" --network "$NETWORK"
         local recv txh
         recv=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -79,9 +79,9 @@ deploy_protocol() {
     # EOA admin so propose/execute/cancel/pause run without a separate signer.
     if [ -z "${GOVERNANCE:-}" ]; then
         local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
-        stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
             --source "$ADMIN" --network "$NETWORK" \
-            -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY" >"$out_f" 2>"$err_f"
+            -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY"
         local gov txh
         gov=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
@@ -94,8 +94,8 @@ deploy_protocol() {
     # the same bytes the EOA controller runs keeps the resolver probe faithful.
     if [ -z "${CTRL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_controller.out" err_f="$LOG_DIR/upload_controller.err"
-        stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
-            --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f"
+        run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
+            --source "$ADMIN" --network "$NETWORK"
         local chash txh
         chash=$(tr -d '"\n' < "$out_f")
         txh=$(grep -oE 'Signing transaction: [0-9a-f]{64}' "$err_f" | tail -1 | awk '{print $3}')
