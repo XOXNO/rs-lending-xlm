@@ -531,7 +531,7 @@ fn test_pool_solvency_invariant() {
     for month in 1..=12 {
         t.advance_and_sync(days(30));
 
-        let eth = t.resolve_asset("ETH");
+        let eth = hub_asset(t.resolve_asset("ETH"));
         let pool_client = t.pool_client("ETH");
         let supplied = pool_client.get_supplied_amount(&eth); // RAY.
         let borrowed = pool_client.get_borrowed_amount(&eth); // RAY.

@@ -34,7 +34,8 @@ extern crate std;
 
 use controller::types::{ControllerKey, MarketOracleConfig, OracleReadMode, OracleSourceConfig};
 use test_harness::{
-    eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest, ALICE,
+    eth_preset, hub_asset, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset, LendingTest,
+    ALICE,
 };
 
 fn mem_of<R>(env: &soroban_sdk::Env, f: impl FnOnce() -> R) -> u64 {
@@ -156,8 +157,9 @@ fn mem_attribution_client_new_is_free() {
     });
     // One real CALL for contrast (callee wasm instance memory).
     let asset = t.markets.get("USDC").expect("market").asset.clone();
+    let key = hub_asset(asset);
     let client = pool::LiquidityPoolClient::new(&env, &pool_addr);
-    let mem_call = mem_of(&env, || std::hint::black_box(client.get_reserves(&asset)));
+    let mem_call = mem_of(&env, || std::hint::black_box(client.get_reserves(&key)));
 
     std::println!("\n========== Client::new cost ==========");
     std::println!("  1     x ::new()           mem = {mem_once} B");

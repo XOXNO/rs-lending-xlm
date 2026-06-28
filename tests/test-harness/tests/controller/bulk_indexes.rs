@@ -10,7 +10,7 @@ use common::rates::simulate_update_indexes;
 use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB};
 
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
@@ -41,7 +41,8 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
 
     for (i, asset) in [usdc, eth].iter().enumerate() {
         let pool = t.resolve_market_by_asset(asset).pool.clone();
-        let sync = pool::LiquidityPoolClient::new(&t.env, &pool).get_sync_data(asset);
+        let sync =
+            pool::LiquidityPoolClient::new(&t.env, &pool).get_sync_data(&hub_asset(asset.clone()));
         let expected = MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &sync));
         let view = views.get_unchecked(i as u32);
 

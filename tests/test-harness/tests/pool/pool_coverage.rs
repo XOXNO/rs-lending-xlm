@@ -1,4 +1,4 @@
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB};
 
 #[test]
 fn test_pool_claim_revenue_burns_supplied_ray_coverage() {
@@ -96,7 +96,7 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
     // Reserves are near zero. Ensure accrued revenue exceeds reserves.
     let rev = t.snapshot_revenue("USDC");
     let usdc = t.resolve_asset("USDC");
-    let res_raw = t.pool_client("USDC").get_reserves(&usdc);
+    let res_raw = t.pool_client("USDC").get_reserves(&hub_asset(usdc));
     assert!(
         rev > res_raw,
         "Revenue {} must be > reserves {} to hit proportional burn",

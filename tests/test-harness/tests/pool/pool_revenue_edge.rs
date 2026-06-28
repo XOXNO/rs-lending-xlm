@@ -1,5 +1,5 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
 };
 // 1. add_rewards on a market drained back to zero suppliers
 
@@ -69,7 +69,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     // ETH ($2M of collateral at the preset price) so he can borrow the full
     // ~$1M USDC reserve without tripping `InsufficientCollateral`.
     t.supply(BOB, "ETH", 1000.0);
-    let usdc = t.resolve_asset("USDC");
+    let usdc = hub_asset(t.resolve_asset("USDC"));
     let res_raw = t.pool_client("USDC").get_reserves(&usdc);
     assert!(
         res_raw > 0,

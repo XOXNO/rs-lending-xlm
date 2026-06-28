@@ -130,7 +130,8 @@ impl LendingTest {
 
         if let Some(scaled_amount_ray) = scaled_ray {
             let pool = self.resolve_market_by_asset(asset).pool.clone();
-            let sync = pool::LiquidityPoolClient::new(&self.env, &pool).get_sync_data(asset);
+            let sync = pool::LiquidityPoolClient::new(&self.env, &pool)
+                .get_sync_data(&hub_asset(asset.clone()));
             let index = match position_type {
                 AccountPositionType::Deposit => sync.state.supply_index_ray,
                 AccountPositionType::Borrow => sync.state.borrow_index_ray,
@@ -168,33 +169,33 @@ impl LendingTest {
 
     pub fn pool_utilization(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_utilisation(&asset);
+        let raw = self.pool_client(asset_name).get_utilisation(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
     pub fn pool_reserves(&self, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_reserves(&asset);
+        let raw = self.pool_client(asset_name).get_reserves(&hub_asset(asset));
         i128_to_f64(raw, decimals)
     }
 
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_borrow_rate(&asset);
+        let raw = self.pool_client(asset_name).get_borrow_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
-        let raw = self.pool_client(asset_name).get_deposit_rate(&asset);
+        let raw = self.pool_client(asset_name).get_deposit_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
     // Revenue snapshots
 
     pub fn snapshot_revenue(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
-        self.pool_client(asset_name).get_revenue(&asset)
+        self.pool_client(asset_name).get_revenue(&hub_asset(asset))
     }
     // Liquidation status
 
@@ -229,7 +230,7 @@ impl LendingTest {
     pub fn get_asset_config(&self, asset_name: &str) -> AssetConfigView {
         let asset = self.resolve_asset(asset_name);
         let spoke = self.ctrl_client().get_spoke_asset(&0u32, &asset);
-        let params = self.pool_client(asset_name).get_sync_data(&asset).params;
+        let params = self.pool_client(asset_name).get_sync_data(&hub_asset(asset)).params;
         AssetConfigView {
             loan_to_value_bps: spoke.loan_to_value_bps,
             liquidation_threshold_bps: spoke.liquidation_threshold_bps,

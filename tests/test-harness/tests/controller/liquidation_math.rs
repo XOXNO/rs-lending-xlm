@@ -279,7 +279,7 @@ fn test_bad_debt_index_decrease_exact() {
     // Capture total supplied value before bad debt.
     let eth = t.resolve_asset("ETH");
     let pool_client = t.pool_client("ETH");
-    let supplied_before = pool_client.get_supplied_amount(&eth); // RAY.
+    let supplied_before = pool_client.get_supplied_amount(&hub_asset(eth)); // RAY.
     let (si_before, _) = get_indexes(&t, "ETH");
 
     // Crash USDC -> bad debt.

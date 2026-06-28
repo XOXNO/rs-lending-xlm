@@ -4,7 +4,8 @@ use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{token, Address, Bytes, IntoVal, Val, Vec};
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, days, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE,
+    BOB,
 };
 
 fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
@@ -24,7 +25,7 @@ fn flash_guard_cleared(t: &LendingTest) -> bool {
 
 fn pool_reserves(t: &LendingTest, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
-    t.pool_client(asset_name).get_reserves(&asset)
+    t.pool_client(asset_name).get_reserves(&hub_asset(asset))
 }
 
 fn receiver_data(t: &LendingTest, mode: FlashLoanMode) -> Bytes {
