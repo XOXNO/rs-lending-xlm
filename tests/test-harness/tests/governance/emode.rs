@@ -5,7 +5,7 @@
 
 use governance::op::{AdminOperation, SpokeAssetArgs, PoolCapsArgs};
 use soroban_sdk::{BytesN, Env, TryFromVal};
-use test_harness::{assert_contract_error, errors, eth_preset, usdc_preset, LendingTest};
+use test_harness::{assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest};
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::<32>::from_array(env, &[byte; 32])
@@ -178,7 +178,7 @@ fn test_update_pool_caps_no_longer_pre_checks_spokes_via_governance() {
     t.gov_client().propose(
         &admin,
         &AdminOperation::UpdatePoolCaps(PoolCapsArgs {
-            asset: usdc.clone(),
+            hub_asset: hub_asset(usdc.clone()),
             supply_cap: 500 * UNIT,
             borrow_cap: 0,
         }),

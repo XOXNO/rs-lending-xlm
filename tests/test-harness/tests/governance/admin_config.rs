@@ -4,7 +4,7 @@
 use controller::constants::RAY;
 use controller::types::InterestRateModel;
 use governance::op::{AdminOperation, UpgradePoolParamsArgs};
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
+use test_harness::{assert_contract_error, errors, hub_asset, usdc_preset, LendingTest};
 
 // `validate_risk_bounds` rejects threshold == LTV (#113).
 #[test]
@@ -99,7 +99,7 @@ fn test_upgrade_pool_params_rejects_max_borrow_rate_above_cap() {
     let result = gov.try_execute_immediate(
         &admin,
         &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
-            asset,
+            hub_asset: hub_asset(asset),
             params: InterestRateModel {
                 max_borrow_rate_ray: 2 * RAY + 1,
                 base_borrow_rate_ray: RAY / 100,

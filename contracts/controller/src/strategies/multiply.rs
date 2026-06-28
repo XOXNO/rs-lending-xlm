@@ -110,7 +110,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     // Strategy borrows are risk-increasing.
     let mut cache = Cache::new(env);
 
-    let collateral_config = cache.cached_asset_config(&collateral.asset);
+    let collateral_config = cache.cached_asset_config(collateral);
     assert_with_error!(
         env,
         collateral_config.can_supply(),

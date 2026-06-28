@@ -5,7 +5,7 @@ use governance_interface::AdminOperation;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec as SVec};
-use test_harness::LendingTest;
+use test_harness::{hub_asset, HubAssetKey, LendingTest};
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where
@@ -175,7 +175,7 @@ proptest! {
             reserve_factor_bps: 0,
         };
         expect_rejected("upgrade_liquidity_pool_params", || {
-            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&usdc, &zero_model)
+            ctrl.set_auths(&no_auths).try_upgrade_liquidity_pool_params(&hub_asset(usdc.clone()), &zero_model)
         }).unwrap();
         expect_rejected("create_liquidity_pool", || {
             let params = controller::types::MarketParamsRaw {
@@ -212,7 +212,7 @@ proptest! {
             ctrl.set_auths(&no_auths).try_create_liquidity_pool(&0u32, &usdc, &params, &config)
         }).unwrap();
 
-        let empty_assets: SVec<Address> = SVec::new(&env);
+        let empty_assets: SVec<HubAssetKey> = SVec::new(&env);
         let empty_ids: SVec<u64> = SVec::new(&env);
 
         expect_rejected("update_indexes (caller auth)", || {
@@ -229,7 +229,7 @@ proptest! {
             ctrl.set_auths(&no_auths).try_claim_revenue(&random_addr, &empty_assets)
         }).unwrap();
         expect_rejected("add_rewards (caller auth)", || {
-            let rewards: SVec<(Address, i128)> = SVec::new(&env);
+            let rewards: SVec<(HubAssetKey, i128)> = SVec::new(&env);
             ctrl.set_auths(&no_auths).try_add_rewards(&random_addr, &rewards)
         }).unwrap();
         expect_rejected("set_market_oracle_config", || {

@@ -1,5 +1,6 @@
 use crate::types::{
-    MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs, SpokeAssetConfig,
+    HubAssetKey, MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs,
+    SpokeAssetConfig,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
@@ -33,8 +34,8 @@ pub trait ControllerAdmin {
         params: MarketParamsRaw,
         config: SpokeAssetConfig,
     ) -> Address;
-    fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel);
-    fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
+    fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
+    fn update_pool_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128);
     fn deploy_pool(env: Env) -> Address;
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
     fn pause(env: Env);

@@ -259,7 +259,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let asset_config = cache.cached_asset_config(&hub_asset.asset);
+        let asset_config = cache.cached_asset_config(&hub_asset);
         let market_index = cache.cached_market_index(&hub_asset);
 
         // dimensional: supply share/index -> Token(asset) -> Wad<USD>; share is Wad<1>.

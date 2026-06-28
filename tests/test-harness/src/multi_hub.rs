@@ -72,6 +72,61 @@ impl LendingTest {
         });
     }
 
+    /// Lists an already-registered market on `hub_id` (> 0) with an explicit
+    /// `liquidation_fees_bps`, overriding the hub-0 base. Used to prove the
+    /// liquidation seizure resolves the protocol fee from the position's own hub.
+    pub fn list_market_on_hub_with_fees(
+        &mut self,
+        hub_id: u32,
+        asset_name: &str,
+        initial_liquidity: f64,
+        liquidation_fees_bps: u32,
+    ) {
+        let market = self.resolve_market(asset_name);
+        let asset = market.asset.clone();
+        let pool = market.pool.clone();
+        let decimals = market.decimals;
+
+        let params: MarketParamsRaw = self.env.as_contract(&pool, || {
+            self.env
+                .storage()
+                .persistent()
+                .get(&PoolKey::Params(hub_asset(asset.clone())))
+                .expect("hub-0 params must exist")
+        });
+        let mut config: SpokeAssetConfig = self.ctrl_client().get_spoke_asset(&0u32, &asset);
+        config.liquidation_fees_bps = liquidation_fees_bps;
+
+        let gov = self.gov_client();
+        gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
+        gov.execute_immediate(
+            &self.admin,
+            &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+                hub_id,
+                asset: asset.clone(),
+                params,
+                config,
+            }),
+        );
+
+        let liquidity = f64_to_i128(initial_liquidity, decimals);
+        token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
+        self.env.as_contract(&pool, || {
+            let key = PoolKey::State(HubAssetKey {
+                hub_id,
+                asset: asset.clone(),
+            });
+            let mut state: PoolStateRaw = self
+                .env
+                .storage()
+                .persistent()
+                .get(&key)
+                .expect("hub market state exists after create_market");
+            state.cash += liquidity;
+            self.env.storage().persistent().set(&key, &state);
+        });
+    }
+
     /// Supplies `amount` of `asset_name` on `hub_id`. Mints to the user, creates
     /// the account on first call, registers it, and returns the account id.
     pub fn supply_on_hub(
@@ -169,8 +224,8 @@ impl LendingTest {
         }
     }
 
-    /// Accrues a single hub market's indexes via the pool's hub-aware
-    /// `update_indexes` (the controller keeper verb only reaches hub 0).
+    /// Accrues a single hub market's indexes by calling the pool's hub-aware
+    /// `update_indexes` directly, bypassing the controller keeper verb.
     pub fn accrue_on_hub(&self, hub_id: u32, asset_name: &str) {
         let market = self.resolve_market(asset_name);
         let pool = market.pool.clone();
@@ -179,6 +234,33 @@ impl LendingTest {
             asset: market.asset.clone(),
         };
         pool::LiquidityPoolClient::new(&self.env, &pool).update_indexes(&hub_asset);
+    }
+
+    /// Accrues each `(hub_id, asset)` market's indexes through the controller's
+    /// hub-aware `update_indexes` keeper verb (the production keeper path).
+    pub fn update_indexes_on_hub(&self, hub_id: u32, asset_names: &[&str]) {
+        let mut hub_assets = Vec::new(&self.env);
+        for name in asset_names {
+            hub_assets.push_back(HubAssetKey {
+                hub_id,
+                asset: self.resolve_asset(name),
+            });
+        }
+        self.ctrl_client().update_indexes(&self.keeper, &hub_assets);
+    }
+
+    /// Claims protocol revenue for a single `(hub_id, asset)` market through the
+    /// controller's hub-aware `claim_revenue` verb; returns the claimed amount.
+    pub fn claim_revenue_on_hub(&self, hub_id: u32, asset_name: &str) -> i128 {
+        let hub_asset = HubAssetKey {
+            hub_id,
+            asset: self.resolve_asset(asset_name),
+        };
+        let assets = vec![&self.env, hub_asset];
+        self.ctrl_client()
+            .claim_revenue(&self.admin, &assets)
+            .get(0)
+            .unwrap()
     }
 
     /// Reads the raw pool `State` for `(hub_id, asset_name)`.

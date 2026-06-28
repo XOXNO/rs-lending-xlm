@@ -7,7 +7,7 @@ use controller::types::{
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
     DEFAULT_TOLERANCE,
 };
 
@@ -168,7 +168,7 @@ fn test_upgrade_liquidity_pool_params_alias() {
     let rate_before = t.pool_borrow_rate("USDC");
 
     ctrl.upgrade_liquidity_pool_params(
-        &asset,
+        &hub_asset(asset.clone()),
         &InterestRateModel {
             max_borrow_rate_ray: RAY * 2,
             base_borrow_rate_ray: RAY * 2 / 100,
@@ -356,7 +356,7 @@ fn test_permissionless_keeper_ops() {
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_market("USDC").asset.clone())];
     t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may update_indexes");
@@ -371,7 +371,7 @@ fn test_permissionless_revenue_ops() {
 
     let ctrl = t.ctrl_client();
     let asset = t.resolve_market("USDC").asset.clone();
-    let assets = soroban_sdk::vec![&t.env, asset];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(asset)];
     t.env.mock_all_auths();
     let result = ctrl.try_claim_revenue(&bob_addr, &assets);
     assert!(result.is_ok(), "any signed caller may claim_revenue");

@@ -64,6 +64,7 @@ fn usdc_no_seed() -> MarketPreset {
     }
 }
 
+
 // 1. The same asset on two hubs keeps independent indices, totals, and cash.
 #[test]
 fn hubs_keep_independent_state_and_indices() {
@@ -377,5 +378,152 @@ fn liquidation_repays_and_seizes_on_hub_one() {
     assert_eq!(
         hub0_usdc_after.borrow_index_ray, hub0_usdc_before.borrow_index_ray,
         "hub-0 USDC borrow index is untouched"
+    );
+}
+
+// 6. MEDIUM-1: a hub-1 collateral whose hub-0 base listing is absent can still be
+// seized. After delisting USDC from hub 0 (its token-rooted oracle and the hub-1
+// market persist), the seizure must resolve the config under the position's hub.
+// Before the fix the lookup keys `(hub_id: 0, asset)`, which is now absent, so
+// the liquidation DoS-panics `AssetNotSupported`.
+#[test]
+fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let hub1 = t.create_hub();
+    // USDC is the collateral on hub 1; ETH is the debt (seeded for the borrow).
+    t.list_market_on_hub(hub1, "USDC", 0.0);
+    t.list_market_on_hub(hub1, "ETH", 100.0);
+
+    // Alice posts USDC collateral and borrows ETH on hub 1.
+    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    t.assert_healthy(ALICE);
+
+    // Delist USDC from hub 0's base spoke, leaving only the hub-1 listing. The
+    // token-rooted oracle and the hub-1 market are untouched.
+    t.ctrl_client()
+        .remove_asset_from_spoke(&t.resolve_asset("USDC"), &0u32);
+
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+
+    let collateral_before = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    assert!(
+        collateral_before > 0,
+        "precondition: hub-1 collateral exists"
+    );
+
+    // Before the fix the seizure resolves USDC under (hub 0, USDC) -- now absent
+    // -- and DoS-panics `AssetNotSupported`. After the fix it reads hub 1.
+    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+
+    let collateral_after = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    assert!(
+        collateral_after < collateral_before,
+        "hub-1 collateral must be seized: {} -> {}",
+        collateral_before,
+        collateral_after
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") > 0.0,
+        "liquidator must receive the seized hub-1 collateral"
+    );
+}
+
+// 7. MEDIUM-1: the seizure protocol fee is resolved from the collateral's own
+// hub, not hub 0. Hub-0 USDC charges 0% and hub-1 USDC charges 20%, so the
+// hub-1 seizure accrues a claimable fee only when the right hub config is read.
+#[test]
+fn liquidation_charges_seized_collateral_hub_fee() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market_config("USDC", |c| c.liquidation_fees_bps = 0)
+        .build();
+
+    let hub1 = t.create_hub();
+    // Hub-1 USDC carries a 20% liquidation fee; hub-0 USDC carries 0%.
+    t.list_market_on_hub_with_fees(hub1, "USDC", 0.0, 2_000);
+    t.list_market_on_hub(hub1, "ETH", 1_000.0);
+
+    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    t.assert_healthy(ALICE);
+
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+
+    // No time advances, so the only protocol revenue the hub-1 USDC market can
+    // accrue is the liquidation fee on the seized collateral.
+    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+
+    let hub1_fee = t.claim_revenue_on_hub(hub1, "USDC");
+    assert!(
+        hub1_fee > 0,
+        "hub-1 USDC seizure must accrue the hub-1 fee (20%), not hub-0's 0%: got {}",
+        hub1_fee
+    );
+}
+
+// 8. MEDIUM-2: the keeper index-update and revenue-claim verbs serve hub>0
+// markets. Both forced the hub-0 coordinate before the fix, so a hub-1 market's
+// index could never be accrued through the controller and its protocol revenue
+// was unclaimable.
+#[test]
+fn keeper_and_revenue_serve_hub_one_markets() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_no_seed())
+        .with_market(eth_preset())
+        .with_min_borrow_collateral_disabled()
+        .build();
+
+    let hub1 = t.create_hub();
+    t.list_market_on_hub(hub1, "USDC", 0.0);
+    t.list_market_on_hub(hub1, "ETH", 0.0);
+
+    // A real USDC supplier on hub 1 funds the borrow and keeps the market solvent.
+    t.supply_on_hub(hub1, BOB, "USDC", 100_000.0);
+
+    // Drive hub-1 USDC utilization: Alice posts ETH and borrows USDC on hub 1.
+    let alice = t.supply_on_hub(hub1, ALICE, "ETH", 10.0); // $20,000 collateral
+    t.borrow_on_hub(hub1, ALICE, alice, "USDC", 10_000.0);
+
+    assert_eq!(
+        t.pool_state_on_hub(hub1, "USDC").borrow_index_ray,
+        RAY,
+        "hub-1 USDC index starts at RAY"
+    );
+
+    t.advance_time(SECONDS_PER_YEAR);
+
+    // The controller keeper verb accrues the hub-1 index (hub-aware).
+    t.update_indexes_on_hub(hub1, &["USDC"]);
+
+    assert!(
+        t.pool_state_on_hub(hub1, "USDC").borrow_index_ray > RAY,
+        "controller update_indexes must accrue the hub-1 USDC index"
+    );
+    assert_eq!(
+        t.pool_state_on_hub(0, "USDC").borrow_index_ray,
+        RAY,
+        "hub-0 USDC index is untouched by a hub-1 keeper update"
+    );
+
+    // The controller revenue verb claims the hub-1 reserve revenue (hub-aware).
+    let claimed = t.claim_revenue_on_hub(hub1, "USDC");
+    assert!(
+        claimed > 0,
+        "hub-1 USDC protocol revenue must be claimable through the controller: got {}",
+        claimed
+    );
+    // Isolation: the hub-0 USDC market accrued nothing to claim.
+    assert_eq!(
+        t.claim_revenue_on_hub(0, "USDC"),
+        0,
+        "hub-0 USDC has no revenue to claim"
     );
 }

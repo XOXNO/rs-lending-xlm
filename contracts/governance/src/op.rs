@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, GenericError, OracleError};
-use soroban_sdk::{assert_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::timelock::{validate_delay_update, DelayTier};
 use crate::{storage, validate};
@@ -182,7 +182,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "update_pool_caps"),
                 vec![
                     env,
-                    args.asset.clone().into_val(env),
+                    args.hub_asset.clone().into_val(env),
                     args.supply_cap.into_val(env),
                     args.borrow_cap.into_val(env),
                 ],
@@ -253,7 +253,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "upgrade_liquidity_pool_params"),
                 vec![
                     env,
-                    args.asset.clone().into_val(env),
+                    args.hub_asset.clone().into_val(env),
                     args.params.clone().into_val(env),
                 ],
                 DelayTier::Standard,
@@ -377,7 +377,9 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::TransferGovOwnership(args) => {
             crate::access::apply_transfer_ownership(env, &args.new_owner, args.live_until_ledger);
         }
-        _ => panic!("Not a governance self-operation"),
+        // Unreachable in practice: `execute_self` asserts the resolved target is
+        // the governance contract, which only the self-operations above satisfy.
+        _ => panic_with_error!(env, GenericError::InternalError),
     }
 }
 

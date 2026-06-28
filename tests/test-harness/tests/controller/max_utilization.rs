@@ -173,7 +173,7 @@ fn test_update_params_rejects_max_below_optimal() {
     let asset = t.resolve_asset("USDC");
     let result = t
         .ctrl_client()
-        .try_upgrade_liquidity_pool_params(&asset, &model);
+        .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -198,7 +198,7 @@ fn test_update_params_rejects_max_above_one() {
     let asset = t.resolve_asset("USDC");
     let result = t
         .ctrl_client()
-        .try_upgrade_liquidity_pool_params(&asset, &model);
+        .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

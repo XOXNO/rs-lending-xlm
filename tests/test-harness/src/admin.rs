@@ -81,7 +81,7 @@ impl LendingTest {
     pub fn upgrade_pool_params(&self, asset_name: &str, params: InterestRateModel) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
-            .upgrade_liquidity_pool_params(&asset, &params);
+            .upgrade_liquidity_pool_params(&hub_asset(asset), &params);
     }
     // E-mode management
 

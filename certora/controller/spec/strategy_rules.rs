@@ -197,7 +197,7 @@ fn multiply_requires_collateralizable(
     cvlr_assume!((1..=3).contains(&mode));
 
     let mut cache = crate::cache::Cache::new(&e);
-    let config = cache.cached_asset_config(&collateral_token);
+    let config = cache.cached_asset_config(&hub0(collateral_token.clone()));
     cvlr_assume!(!config.is_collateralizable);
 
     crate::spec::compat::multiply_minimal(
@@ -526,7 +526,8 @@ fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
 /// claim_revenue returns a non-negative amount.
 #[rule]
 fn claim_revenue_transfers_to_accumulator(e: Env, caller: Address, asset: Address) {
-    let amounts = crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, asset]);
+    let amounts =
+        crate::Controller::claim_revenue(e.clone(), caller, soroban_sdk::vec![&e, hub0(asset)]);
     let amount = amounts.get(0).unwrap();
 
     cvlr_assert!(amount >= 0);

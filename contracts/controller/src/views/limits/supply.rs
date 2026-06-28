@@ -31,7 +31,7 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     };
     let mut cache = Cache::new_view(env);
     // Collateralizability is read from the base (spoke 0) config, as before.
-    if !cache.cached_asset_config(asset).can_supply() {
+    if !cache.cached_asset_config(&hub_asset).can_supply() {
         return 0;
     }
     if account.spoke_id > 0

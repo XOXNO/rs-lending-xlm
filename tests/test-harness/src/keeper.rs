@@ -1,27 +1,29 @@
 use soroban_sdk::Vec;
 
 use crate::context::LendingTest;
+use crate::helpers::hub_asset;
 
 impl LendingTest {
     // Index management
 
-    /// Update indexes for specific markets (uses internal keeper).
+    /// Update indexes for specific markets on hub 0 (uses internal keeper).
     pub fn update_indexes_for(&self, assets: &[&str]) {
-        let mut addrs = Vec::new(&self.env);
+        let mut hub_assets = Vec::new(&self.env);
         for name in assets {
-            addrs.push_back(self.resolve_asset(name));
+            hub_assets.push_back(hub_asset(self.resolve_asset(name)));
         }
-        self.ctrl_client().update_indexes(&self.keeper, &addrs);
+        self.ctrl_client().update_indexes(&self.keeper, &hub_assets);
     }
 
-    /// Try update indexes -- returns Result.
+    /// Try update indexes on hub 0 -- returns Result.
     pub fn try_update_indexes_for(&self, assets: &[&str]) -> Result<(), soroban_sdk::Error> {
-        let mut addrs = Vec::new(&self.env);
+        let mut hub_assets = Vec::new(&self.env);
         for name in assets {
-            addrs.push_back(self.resolve_asset(name));
+            hub_assets.push_back(hub_asset(self.resolve_asset(name)));
         }
         crate::ops::internal::map_try_ok_unit(
-            self.ctrl_client().try_update_indexes(&self.keeper, &addrs),
+            self.ctrl_client()
+                .try_update_indexes(&self.keeper, &hub_assets),
         )
     }
     // Bad debt cleanup

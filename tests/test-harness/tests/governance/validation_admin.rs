@@ -8,7 +8,7 @@ use controller::types::{
 };
 use governance::op::{AdminOperation, ConfigureOracleArgs, UpgradePoolParamsArgs};
 use soroban_sdk::{String, Symbol};
-use test_harness::{usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+use test_harness::{hub_asset, usdc_preset, LendingTest, DEFAULT_TOLERANCE};
 
 // `InterestRateModel::verify` invariants, driven via
 // `upgrade_liquidity_pool_params`, which validates before forwarding.
@@ -38,7 +38,10 @@ fn test_validate_irm_rejects_negative_base_rate() {
     irm.base_borrow_rate_ray = -1;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
@@ -53,7 +56,10 @@ fn test_validate_irm_rejects_zero_mid_utilization() {
     irm.mid_utilization_ray = 0;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
@@ -68,7 +74,10 @@ fn test_validate_irm_rejects_optimal_not_above_mid() {
     irm.optimal_utilization_ray = irm.mid_utilization_ray;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
@@ -83,7 +92,10 @@ fn test_validate_irm_rejects_optimal_at_or_above_ray() {
     irm.optimal_utilization_ray = RAY;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 
@@ -98,7 +110,10 @@ fn test_validate_irm_rejects_reserve_factor_at_bps() {
     irm.reserve_factor_bps = BPS as u32;
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs { asset, params: irm }),
+        &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+            hub_asset: hub_asset(asset),
+            params: irm,
+        }),
     );
 }
 

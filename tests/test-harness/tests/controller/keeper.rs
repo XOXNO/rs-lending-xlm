@@ -421,7 +421,7 @@ fn test_permissionless_keeper_endpoints() {
     let bob_addr = t.get_or_create_user(BOB);
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::vec![&t.env, t.resolve_market("USDC").asset.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_market("USDC").asset.clone())];
 
     t.env.mock_all_auths();
     let result = ctrl.try_update_indexes(&bob_addr, &assets);

@@ -1086,7 +1086,7 @@ fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
 
     // No reverse hub-vs-spoke validation remains; the call succeeds.
     t.ctrl_client()
-        .update_pool_caps(&usdc, &(500 * UNIT), &0i128);
+        .update_pool_caps(&hub_asset(usdc.clone()), &(500 * UNIT), &0i128);
 }
 
 #[test]
@@ -1416,9 +1416,9 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // A hub supply cap of 1000 sits below category 2's 1500 spoke cap, but with
     // no hub-side enumeration the call now succeeds.
     t.ctrl_client()
-        .update_pool_caps(&usdc, &(1_000 * UNIT), &0i128);
+        .update_pool_caps(&hub_asset(usdc.clone()), &(1_000 * UNIT), &0i128);
 
     // A hub cap that clears both spoke caps also succeeds.
     t.ctrl_client()
-        .update_pool_caps(&usdc, &(2_000 * UNIT), &0i128);
+        .update_pool_caps(&hub_asset(usdc.clone()), &(2_000 * UNIT), &0i128);
 }

@@ -32,7 +32,7 @@ const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn update_indexes(env: Env, caller: Address, assets: Vec<Address>) {
+    pub fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
 
@@ -93,13 +93,17 @@ impl Controller {
     }
 
     #[only_owner]
-    pub fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel) {
-        upgrade_liquidity_pool_params(&env, &asset, &params);
+    pub fn upgrade_liquidity_pool_params(
+        env: Env,
+        hub_asset: HubAssetKey,
+        params: InterestRateModel,
+    ) {
+        upgrade_liquidity_pool_params(&env, &hub_asset, &params);
     }
 
     #[only_owner]
-    pub fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128) {
-        update_pool_caps(&env, &asset, supply_cap, borrow_cap);
+    pub fn update_pool_caps(env: Env, hub_asset: HubAssetKey, supply_cap: i128, borrow_cap: i128) {
+        update_pool_caps(&env, &hub_asset, supply_cap, borrow_cap);
     }
 
     #[only_owner]
@@ -110,14 +114,14 @@ impl Controller {
     }
 
     #[when_not_paused]
-    pub fn claim_revenue(env: Env, caller: Address, assets: Vec<Address>) -> Vec<i128> {
+    pub fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
         claim_revenue(&env, assets)
     }
 
     #[when_not_paused]
-    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(Address, i128)>) {
+    pub fn add_rewards(env: Env, caller: Address, rewards: Vec<(HubAssetKey, i128)>) {
         caller.require_auth();
         // Instance TTL is renewed by `Cache::new` inside `add_rewards_batch`.
         validation::require_not_flash_loaning(&env);
@@ -146,13 +150,13 @@ impl Controller {
 }
 
 // Pool sync results become the canonical market-state batch for indexers.
-fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
+fn sync_market_indexes(env: &Env, cache: &mut Cache, hub_assets: &Vec<HubAssetKey>) {
     let pool_addr = cache.cached_pool_address();
-    for asset in assets {
-        // Unlisted assets must still fail with AssetNotSupported; the shared
-        // pool address carries no per-asset existence check.
-        validation::require_asset_supported(env, cache, &utils::hub0(&asset));
-        pool_update_indexes_call(env, &pool_addr, &utils::hub0(&asset));
+    for hub_asset in hub_assets {
+        // Unlisted markets must still fail with AssetNotSupported; the shared
+        // pool address carries no per-(hub, asset) existence check.
+        validation::require_asset_supported(env, cache, &hub_asset);
+        pool_update_indexes_call(env, &pool_addr, &hub_asset);
     }
 }
 
@@ -216,8 +220,9 @@ pub fn create_liquidity_pool(
     pool_address
 }
 
-/// Updates hub supply/borrow caps on the central pool for one market.
-pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
+/// Updates hub supply/borrow caps on the central pool for one `(hub_id, asset)`
+/// market.
+pub fn update_pool_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, borrow_cap: i128) {
     // dimensional: supply_cap/borrow_cap are HubCap(asset, side) in Token(asset) base units.
     assert_with_error!(
         env,
@@ -226,33 +231,36 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     );
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
-    validation::require_asset_supported(env, &mut cache, &utils::hub0(asset));
+    validation::require_asset_supported(env, &mut cache, hub_asset);
     // The forward invariant (spoke cap <= hub cap) is enforced when each spoke
     // asset is configured. Spoke listings are not enumerable from an asset, so
     // the reverse check at cap-update time is dropped; at runtime the hub gate
     // (pool) and spoke gate bind independently, the tighter one winning.
     let pool_addr = cache.cached_pool_address();
-    pool_update_caps_call(env, &pool_addr, &utils::hub0(asset), supply_cap, borrow_cap);
+    pool_update_caps_call(env, &pool_addr, hub_asset, supply_cap, borrow_cap);
 }
 
 /// Accrues pool indexes before replacing the market's interest-rate model.
-pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
+pub fn upgrade_liquidity_pool_params(
+    env: &Env,
+    hub_asset: &HubAssetKey,
+    params: &InterestRateModel,
+) {
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
 
-    validation::require_asset_supported(env, &mut cache, &utils::hub0(asset));
+    validation::require_asset_supported(env, &mut cache, hub_asset);
 
     let pool_addr = cache.cached_pool_address();
 
-    let hub_asset = utils::hub0(asset);
-    pool_update_indexes_call(env, &pool_addr, &hub_asset);
+    pool_update_indexes_call(env, &pool_addr, hub_asset);
 
     // dimensional: params carries Ray rates/utilization and Bps reserve factor.
-    pool_update_params_call(env, &pool_addr, &hub_asset, params);
+    pool_update_params_call(env, &pool_addr, hub_asset, params);
 
     // dimensional: event fields mirror the raw Ray and Bps governance update.
     UpdateMarketParamsEvent {
-        asset: asset.clone(),
+        asset: hub_asset.asset.clone(),
         max_borrow_rate_ray: params.max_borrow_rate_ray,
         base_borrow_rate_ray: params.base_borrow_rate_ray,
         slope1_ray: params.slope1_ray,
@@ -266,22 +274,26 @@ pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &Intere
     .publish(env);
 }
 
-fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Cache) -> i128 {
-    validation::require_asset_supported(env, cache, &utils::hub0(asset));
+fn claim_revenue_for_asset_with_cache(
+    env: &Env,
+    hub_asset: &HubAssetKey,
+    cache: &mut Cache,
+) -> i128 {
+    validation::require_asset_supported(env, cache, hub_asset);
 
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
     let pool_addr = cache.cached_pool_address();
 
-    let result = pool_claim_revenue_call(env, &pool_addr, &utils::hub0(asset));
+    let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
     let amount = result.actual_amount;
     // dimensional: amount is Token(asset) revenue in asset-native units.
 
     if amount > 0 {
         sac_transfer_call(
             env,
-            asset,
+            &hub_asset.asset,
             &env.current_contract_address(),
             &accumulator,
             &amount,
@@ -292,40 +304,49 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
 }
 
 /// Claims protocol revenue per market and forwards SAC balances to the accumulator.
-pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
+pub fn claim_revenue(
+    env: &Env,
+    hub_assets: soroban_sdk::Vec<HubAssetKey>,
+) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
     let mut cache = Cache::new(env);
-    for asset in assets.iter() {
-        let amount = claim_revenue_for_asset_with_cache(env, &asset, &mut cache);
+    for hub_asset in hub_assets.iter() {
+        let amount = claim_revenue_for_asset_with_cache(env, &hub_asset, &mut cache);
         results.push_back(amount);
     }
     results
 }
 
 /// Transfers rewards into a pool and increases the supply index for suppliers.
-pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, cache: &mut Cache) {
+pub fn add_reward(
+    env: &Env,
+    caller: &Address,
+    hub_asset: &HubAssetKey,
+    amount: i128,
+    cache: &mut Cache,
+) {
     // dimensional: amount is Token(asset) reward in asset-native units.
-    validation::require_asset_supported(env, cache, &utils::hub0(asset));
+    validation::require_asset_supported(env, cache, hub_asset);
     validation::require_positive_amount(env, amount);
 
     let pool_addr = cache.cached_pool_address();
 
     utils::transfer_amount(
         env,
-        asset,
+        &hub_asset.asset,
         caller,
         &pool_addr,
         amount,
         GenericError::AmountMustBePositive,
     );
 
-    pool_add_rewards_call(env, &pool_addr, &utils::hub0(asset), amount);
+    pool_add_rewards_call(env, &pool_addr, hub_asset, amount);
 }
 
-pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i128)>) {
+pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(HubAssetKey, i128)>) {
     let mut cache = Cache::new(env);
-    for (asset, amount) in rewards.iter() {
-        add_reward(env, caller, &asset, amount, &mut cache);
+    for (hub_asset, amount) in rewards.iter() {
+        add_reward(env, caller, &hub_asset, amount, &mut cache);
     }
 }
 

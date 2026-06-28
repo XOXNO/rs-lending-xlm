@@ -104,16 +104,14 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    /// Base (general-spoke) risk config for `asset` under `SpokeAsset(0, asset)`.
-    /// The general spoke 0 is every listed asset's base listing, so this is the
-    /// non-spoke-adjusted config that liquidation and strategy paths read.
-    /// Panics `AssetNotSupported` when the asset is not listed.
-    pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        };
-        let spoke_asset = storage::get_spoke_asset(&self.env, 0, &hub_asset)
+    /// Base (general-spoke) risk config for `hub_asset` under
+    /// `SpokeAsset(0, hub_asset)`. The general spoke 0 is every listed
+    /// `(hub_id, asset)`'s base listing, so this is the non-spoke-adjusted config
+    /// that liquidation and strategy paths read. Callers must pass the position's
+    /// real hub so liquidation fees and thresholds resolve to that hub's listing.
+    /// Panics `AssetNotSupported` when the `(hub_id, asset)` is not listed.
+    pub fn cached_asset_config(&mut self, hub_asset: &HubAssetKey) -> AssetConfig {
+        let spoke_asset = storage::get_spoke_asset(&self.env, 0, hub_asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported));
         (&spoke_asset).into()
     }

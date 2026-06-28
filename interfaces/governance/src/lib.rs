@@ -10,8 +10,8 @@
 
 use common::types::{InterestRateModel, MarketParamsRaw};
 use controller_interface::types::{
-    MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation, PositionLimits,
-    SpokeAssetConfig,
+    HubAssetKey, MarketOracleConfig, MarketOracleConfigInput, OraclePriceFluctuation,
+    PositionLimits, SpokeAssetConfig,
 };
 use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
@@ -27,7 +27,7 @@ pub use controller_interface::types::SpokeAssetArgs;
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolCapsArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub supply_cap: i128,
     pub borrow_cap: i128,
 }
@@ -51,7 +51,7 @@ pub struct CreatePoolArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct UpgradePoolParamsArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub params: InterestRateModel,
 }
 
