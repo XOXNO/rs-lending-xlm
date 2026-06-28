@@ -23,6 +23,10 @@ pub struct MarketParamsRaw {
     pub supply_cap: i128,
     /// Hub borrow cap in asset-native units; zero or `i128::MAX` disables.
     pub borrow_cap: i128,
+    /// Flash-loan eligibility; inert until Phase 2 wires the gate.
+    pub is_flashloanable: bool,
+    /// Flash-loan fee in bps; inert until Phase 2 wires the gate.
+    pub flashloan_fee_bps: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
@@ -90,6 +94,8 @@ pub struct MarketParams {
     pub reserve_factor: Bps,
     pub supply_cap: i128,
     pub borrow_cap: i128,
+    pub is_flashloanable: bool,
+    pub flashloan_fee_bps: u32,
     pub asset_id: Address,
     pub asset_decimals: u32,
 }
@@ -108,6 +114,8 @@ impl From<&MarketParamsRaw> for MarketParams {
             reserve_factor: Bps::from(i128::from(r.reserve_factor_bps)),
             supply_cap: r.supply_cap,
             borrow_cap: r.borrow_cap,
+            is_flashloanable: r.is_flashloanable,
+            flashloan_fee_bps: r.flashloan_fee_bps,
             asset_id: r.asset_id.clone(),
             asset_decimals: r.asset_decimals,
         }
@@ -128,6 +136,8 @@ impl From<&MarketParams> for MarketParamsRaw {
             reserve_factor_bps: t.reserve_factor.raw() as u32,
             supply_cap: t.supply_cap,
             borrow_cap: t.borrow_cap,
+            is_flashloanable: t.is_flashloanable,
+            flashloan_fee_bps: t.flashloan_fee_bps,
             asset_id: t.asset_id.clone(),
             asset_decimals: t.asset_decimals,
         }
@@ -345,8 +355,8 @@ impl From<&MarketIndex> for MarketIndexRaw {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketStateSnapshot {
-    /// Pool asset whose state was updated.
-    pub asset: Address,
+    /// Hub-asset coordinate whose state was updated.
+    pub hub_asset: HubAssetKey,
     /// Millisecond timestamp used for the accrual checkpoint.
     pub timestamp: u64,
     /// Supply index after accrual, in RAY.
@@ -418,11 +428,11 @@ pub struct HubAssetKey {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
-    Params(Address),
-    State(Address),
+    Params(HubAssetKey),
+    State(HubAssetKey),
 }
 
-/// Asset-scoped mutation payload for the central pool ABI.
+/// Hub-asset-scoped mutation payload for the central pool ABI.
 ///
 /// The funds counterparty (receiver/payer) is carried by endpoint arguments,
 /// shared by each entry in a bulk call.
@@ -431,7 +441,7 @@ pub enum PoolKey {
 pub struct PoolAction {
     pub position: ScaledPositionRaw,
     pub amount: i128,
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
 }
 
 /// One asset of a bulk pool `supply`.

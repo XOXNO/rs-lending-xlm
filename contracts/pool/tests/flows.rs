@@ -2,7 +2,15 @@ extern crate std;
 
 use super::*;
 use common::constants::{BPS, MS_PER_SECOND, RAY};
-use common::types::ScaledPositionRaw;
+use common::types::{HubAssetKey, ScaledPositionRaw};
+
+/// Phase 0 markets all live on hub 0.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env};
@@ -123,6 +131,8 @@ fn market_params(asset: &Address) -> MarketParamsRaw {
         reserve_factor_bps: 1000,
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: asset.clone(),
         asset_decimals: 7,
     }
@@ -159,7 +169,7 @@ impl TestSetup {
 
         // Seed `cash` to the minted reserve balance; pool liquidity uses `cash`.
         env.as_contract(&pool_address, || {
-            let key = PoolKey::State(asset_address.clone());
+            let key = PoolKey::State(hub(&asset_address));
             let mut state: PoolStateRaw = env.storage().persistent().get(&key).unwrap();
             state.cash = 100_000_000_000_000i128;
             env.storage().persistent().set(&key, &state);
@@ -185,7 +195,7 @@ impl TestSetup {
         PoolAction {
             position: ScaledPositionRaw { scaled_amount_ray },
             amount,
-            asset: asset.clone(),
+            hub_asset: hub(asset),
         }
     }
 
@@ -256,7 +266,7 @@ impl TestSetup {
         token::StellarAssetClient::new(&self.env, &asset)
             .mint(&self.pool, &100_000_000_000_000i128);
         self.env.as_contract(&self.pool, || {
-            let key = PoolKey::State(asset.clone());
+            let key = PoolKey::State(hub(&asset));
             let mut state: PoolStateRaw = self.env.storage().persistent().get(&key).unwrap();
             state.cash = 100_000_000_000_000i128;
             self.env.storage().persistent().set(&key, &state);
@@ -279,7 +289,7 @@ impl TestSetup {
 
     fn edit_state(&self, edit: impl FnOnce(&mut PoolStateRaw)) {
         self.env.as_contract(&self.pool, || {
-            let key = PoolKey::State(self.asset.clone());
+            let key = PoolKey::State(hub(&self.asset));
             let mut state: PoolStateRaw = self.env.storage().persistent().get(&key).unwrap();
             edit(&mut state);
             self.env.storage().persistent().set(&key, &state);
@@ -291,7 +301,7 @@ impl TestSetup {
             self.env
                 .storage()
                 .persistent()
-                .get(&PoolKey::State(asset.clone()))
+                .get(&PoolKey::State(hub(asset)))
                 .unwrap()
         })
     }
@@ -530,7 +540,7 @@ fn test_borrow_above_max_utilization_panics() {
     });
     // Tighten the cap to 50 %.
     t.env.as_contract(&t.pool, || {
-        let key = PoolKey::Params(t.asset.clone());
+        let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
         params.max_utilization_ray = RAY / 2;
         t.env.storage().persistent().set(&key, &params);
@@ -1064,7 +1074,7 @@ fn test_claim_revenue_rejects_utilization_above_max_after_revenue_burn() {
     let client = t.client();
 
     t.env.as_contract(&t.pool, || {
-        let key = PoolKey::Params(t.asset.clone());
+        let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
         params.max_utilization_ray = RAY * 95 / 100;
         t.env.storage().persistent().set(&key, &params);
@@ -2082,7 +2092,7 @@ fn test_bulk_supply_cap_violation_reverts_whole_batch() {
 // the default params use for accounting tests.
 fn set_max_utilization(t: &TestSetup, max_utilization_ray: i128) {
     t.env.as_contract(&t.pool, || {
-        let key = PoolKey::Params(t.asset.clone());
+        let key = PoolKey::Params(hub(&t.asset));
         let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
         params.max_utilization_ray = max_utilization_ray;
         t.env.storage().persistent().set(&key, &params);

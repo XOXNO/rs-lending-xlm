@@ -4,9 +4,17 @@ use super::*;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
+
+/// Phase 0 markets all live on hub 0.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -34,6 +42,8 @@ impl TestSetup {
             reserve_factor_bps: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
+            is_flashloanable: false,
+            flashloan_fee_bps: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -55,8 +65,8 @@ impl TestSetup {
         self.env
             .storage()
             .persistent()
-            .set(&PoolKey::State(self.asset.clone()), &state);
-        Cache::load(&self.env, &self.asset)
+            .set(&PoolKey::State(hub(&self.asset)), &state);
+        Cache::load(&self.env, &hub(&self.asset))
     }
 }
 
@@ -203,7 +213,7 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
             .env
             .storage()
             .persistent()
-            .get(&PoolKey::Params(t.asset.clone()))
+            .get(&PoolKey::Params(hub(&t.asset)))
             .unwrap();
         let sync = PoolSyncData {
             params,

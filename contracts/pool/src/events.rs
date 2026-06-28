@@ -22,7 +22,7 @@ pub struct PoolMarketStateEvent(
 impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     fn from(s: &MarketStateSnapshot) -> Self {
         Self(
-            s.asset.clone(),
+            s.hub_asset.asset.clone(),
             s.timestamp,
             s.supply_index_ray,
             s.borrow_index_ray,

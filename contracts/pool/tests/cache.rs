@@ -4,8 +4,17 @@ use super::*;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
+use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
+
+/// Phase 0 markets all live on hub 0.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -34,6 +43,8 @@ impl TestSetup {
             reserve_factor_bps: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
+            is_flashloanable: false,
+            flashloan_fee_bps: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -62,8 +73,8 @@ fn test_load_panics_when_state_is_missing() {
         t.env
             .storage()
             .persistent()
-            .remove(&PoolKey::State(t.asset.clone()));
-        let _ = Cache::load(&t.env, &t.asset);
+            .remove(&PoolKey::State(hub(&t.asset)));
+        let _ = Cache::load(&t.env, &hub(&t.asset));
     });
 }
 
@@ -82,6 +93,7 @@ fn test_calculate_utilization_returns_zero_when_supply_index_zeroes_total_supply
             last_timestamp: 0,
             current_timestamp: 1_000_000,
             params: (&t.params).into(),
+            hub_asset: hub(&t.asset),
             cash: 0,
         };
 
@@ -108,6 +120,7 @@ fn cache_with(
         last_timestamp: 0,
         current_timestamp: 1_000_000,
         params: params.into(),
+        hub_asset: hub(&params.asset_id),
         cash: 0,
     }
 }

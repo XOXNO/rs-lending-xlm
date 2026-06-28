@@ -3,9 +3,17 @@ extern crate std;
 use crate::test_support::init_ledger;
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-use common::types::{MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
+use common::types::{HubAssetKey, MarketParamsRaw, PoolAction, PoolSupplyEntry, ScaledPositionRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, vec, Address, Env};
+
+/// Phase 0 markets all live on hub 0.
+fn hub(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 struct TestSetup {
     env: Env,
@@ -35,6 +43,8 @@ impl TestSetup {
             reserve_factor_bps: 1_000,
             supply_cap: 0,
             borrow_cap: 0,
+            is_flashloanable: false,
+            flashloan_fee_bps: 0,
             asset_id: asset.clone(),
             asset_decimals: 7,
         };
@@ -63,7 +73,7 @@ fn make_action(position_scaled: i128, amount: i128, asset: &Address) -> PoolActi
             scaled_amount_ray: position_scaled,
         },
         amount,
-        asset: asset.clone(),
+        hub_asset: hub(asset),
     }
 }
 

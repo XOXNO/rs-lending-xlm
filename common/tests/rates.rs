@@ -16,6 +16,8 @@ fn make_test_params() -> MarketParams {
         reserve_factor: Bps::from(1000),                // 10%
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: soroban_sdk::Address::from_str(
             &Env::default(),
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -264,6 +266,8 @@ fn test_simulate_update_indexes_nonzero_delta_accrues() {
         reserve_factor_bps: 1_000,
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: soroban_sdk::Address::from_str(
             &env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
@@ -316,6 +320,8 @@ fn test_simulate_update_indexes_multi_year_exceeds_single_shot() {
         reserve_factor_bps: 1_000,
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: soroban_sdk::Address::from_str(
             &env,
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",

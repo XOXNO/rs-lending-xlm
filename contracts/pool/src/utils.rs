@@ -3,7 +3,7 @@ use common::constants::{
 };
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
-use common::types::{InterestRateModel, MarketParamsRaw, PoolKey};
+use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolKey};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, IntoVal, Symbol, Vec};
 
@@ -29,15 +29,15 @@ pub(crate) fn now_ms(env: &Env) -> u64 {
 }
 
 /// Renews TTLs for market params/state entries. Both keys must exist.
-pub(crate) fn renew_market_keys(env: &Env, asset: &Address) {
+pub(crate) fn renew_market_keys(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();
     storage.extend_ttl(
-        &PoolKey::Params(asset.clone()),
+        &PoolKey::Params(hub_asset.clone()),
         TTL_THRESHOLD_SHARED,
         TTL_BUMP_SHARED,
     );
     storage.extend_ttl(
-        &PoolKey::State(asset.clone()),
+        &PoolKey::State(hub_asset.clone()),
         TTL_THRESHOLD_SHARED,
         TTL_BUMP_SHARED,
     );
@@ -75,8 +75,8 @@ pub(crate) fn enforce_borrow_cap(env: &Env, cache: &Cache, scaled_delta: Ray) {
     );
 }
 
-pub(crate) fn apply_rate_model(env: &Env, asset: &Address, m: &InterestRateModel) {
-    let key = PoolKey::Params(asset.clone());
+pub(crate) fn apply_rate_model(env: &Env, hub_asset: &HubAssetKey, m: &InterestRateModel) {
+    let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
         .storage()
         .persistent()
@@ -96,13 +96,13 @@ pub(crate) fn apply_rate_model(env: &Env, asset: &Address, m: &InterestRateModel
     env.storage().persistent().set(&key, &params);
 }
 
-pub(crate) fn apply_hub_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap: i128) {
+pub(crate) fn apply_hub_caps(env: &Env, hub_asset: &HubAssetKey, supply_cap: i128, borrow_cap: i128) {
     assert_with_error!(
         env,
         supply_cap >= 0 && borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let key = PoolKey::Params(asset.clone());
+    let key = PoolKey::Params(hub_asset.clone());
     let mut params: MarketParamsRaw = env
         .storage()
         .persistent()

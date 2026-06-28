@@ -2,11 +2,11 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
 use common::types::{
-    MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot, PoolAmountMutation,
-    PoolKey, PoolPositionMutation, PoolState, PoolStateRaw, PoolStrategyMutation,
-    ScaledPositionRaw,
+    HubAssetKey, MarketIndexRaw, MarketParams, MarketParamsRaw, MarketStateSnapshot,
+    PoolAmountMutation, PoolKey, PoolPositionMutation, PoolState, PoolStateRaw,
+    PoolStrategyMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::utils;
 
@@ -24,28 +24,30 @@ pub struct Cache {
     pub last_timestamp: u64,
     pub current_timestamp: u64,
     pub params: MarketParams,
+    /// Hub-asset coordinate this cache was loaded from; used as the storage key.
+    pub hub_asset: HubAssetKey,
     // dimensional: Token(asset) tracked reserves; never Ray.
     pub cash: i128,
 }
 
 impl Cache {
-    /// Loads the market's params and mutable interest state for `asset` from
+    /// Loads the market's params and mutable interest state for `hub_asset` from
     /// persistent storage. Panics with PoolNotInitialized if either record is
     /// absent.
-    pub fn load(env: &Env, asset: &Address) -> Self {
+    pub fn load(env: &Env, hub_asset: &HubAssetKey) -> Self {
         let params: MarketParamsRaw = env
             .storage()
             .persistent()
-            .get(&PoolKey::Params(asset.clone()))
+            .get(&PoolKey::Params(hub_asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
 
         let raw_state: PoolStateRaw = env
             .storage()
             .persistent()
-            .get(&PoolKey::State(asset.clone()))
+            .get(&PoolKey::State(hub_asset.clone()))
             .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized));
         // Renew after successful loads; `extend_ttl` requires existing keys.
-        utils::renew_market_keys(env, asset);
+        utils::renew_market_keys(env, hub_asset);
         let state = PoolState::from(&raw_state);
         let market_params = MarketParams::from(&params);
         let timestamp = utils::now_ms(env);
@@ -60,6 +62,7 @@ impl Cache {
             last_timestamp: state.last_timestamp,
             current_timestamp: timestamp,
             params: market_params,
+            hub_asset: hub_asset.clone(),
             cash: state.cash,
         }
     }
@@ -80,7 +83,7 @@ impl Cache {
         self.env
             .storage()
             .persistent()
-            .set(&PoolKey::State(self.params.asset_id.clone()), &state);
+            .set(&PoolKey::State(self.hub_asset.clone()), &state);
     }
 
     /// Current utilization = total_borrowed_value / total_supplied_value (RAY).
@@ -258,7 +261,7 @@ impl Cache {
     /// Snapshot emitted to indexers after each pool state mutation.
     pub fn market_snapshot(&self) -> MarketStateSnapshot {
         MarketStateSnapshot {
-            asset: self.params.asset_id.clone(),
+            hub_asset: self.hub_asset.clone(),
             timestamp: self.current_timestamp,
             supply_index_ray: self.supply_index.raw(),
             borrow_index_ray: self.borrow_index.raw(),
