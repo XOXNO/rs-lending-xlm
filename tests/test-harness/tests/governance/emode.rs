@@ -5,7 +5,7 @@
 
 use governance::op::{AdminOperation, SpokeAssetArgs, PoolCapsArgs};
 use soroban_sdk::{BytesN, Env, TryFromVal};
-use test_harness::{assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest};
+use test_harness::{HARNESS_HUB, assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest};
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::<32>::from_array(env, &[byte; 32])
@@ -29,6 +29,7 @@ fn try_add_asset(
 ) -> Result<(), soroban_sdk::Error> {
     let admin = t.admin();
     let args = SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
         asset: asset.clone(),
         spoke_id: category_id,
         can_collateral: true,
@@ -66,7 +67,7 @@ fn test_emode_accepts_valid_asset_bounds() {
     let usdc = t.resolve_asset("USDC");
     try_add_asset(&t, &usdc, id, 8000, 8500, 200).expect("valid asset should be accepted");
 
-    let cfg = t.ctrl_client().get_spoke_asset(&id, &usdc);
+    let cfg = t.ctrl_client().get_spoke_asset(&id, &hub_asset(usdc.clone()));
     assert_eq!(cfg.loan_to_value_bps, 8000);
     assert_eq!(cfg.liquidation_threshold_bps, 8500);
     assert_eq!(cfg.liquidation_bonus_bps, 200);
@@ -87,6 +88,7 @@ fn test_emode_add_asset_via_gov_forwarder() {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
             can_collateral: true,
@@ -100,7 +102,7 @@ fn test_emode_add_asset_via_gov_forwarder() {
     );
 
     assert!(
-        t.ctrl_client().try_get_spoke_asset(&id, &usdc).is_ok(),
+        t.ctrl_client().try_get_spoke_asset(&id, &hub_asset(usdc.clone())).is_ok(),
         "USDC must be registered in the forwarded spoke"
     );
 }
@@ -123,6 +125,7 @@ fn test_emode_rejects_spoke_supply_cap_above_hub() {
     let result = match t.gov_client().try_execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
             can_collateral: true,
@@ -162,6 +165,7 @@ fn test_update_pool_caps_no_longer_pre_checks_spokes_via_governance() {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: id,
             can_collateral: true,

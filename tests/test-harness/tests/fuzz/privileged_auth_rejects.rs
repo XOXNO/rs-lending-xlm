@@ -5,7 +5,7 @@ use governance_interface::AdminOperation;
 use proptest::prelude::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Vec as SVec};
-use test_harness::{hub_asset, HubAssetKey, LendingTest};
+use test_harness::{HARNESS_HUB, hub_asset, HubAssetKey, LendingTest};
 
 fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
 where
@@ -120,6 +120,7 @@ proptest! {
         expect_rejected("add_asset_to_spoke", || {
             ctrl.set_auths(&no_auths)
                 .try_add_asset_to_spoke(&SpokeAssetArgs {
+                    hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
                     spoke_id: category_id,
                     can_collateral,
@@ -134,6 +135,7 @@ proptest! {
         expect_rejected("edit_asset_in_spoke", || {
             ctrl.set_auths(&no_auths)
                 .try_edit_asset_in_spoke(&SpokeAssetArgs {
+                    hub_id: HARNESS_HUB,
                     asset: usdc.clone(),
                     spoke_id: category_id,
                     can_collateral,
@@ -146,7 +148,8 @@ proptest! {
                 })
         }).unwrap();
         expect_rejected("remove_asset_from_e_mode", || {
-            ctrl.set_auths(&no_auths).try_remove_asset_from_spoke(&usdc, &category_id)
+            ctrl.set_auths(&no_auths)
+                .try_remove_asset_from_spoke(&hub_asset(usdc.clone()), &category_id)
         }).unwrap();
         expect_rejected("approve_token", || {
             ctrl.set_auths(&no_auths).try_approve_token(&usdc)
@@ -209,7 +212,7 @@ proptest! {
                 borrow_cap: 0,
                 oracle_override: controller::types::MarketOracleConfigOption::None,
             };
-            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&0u32, &usdc, &params, &config)
+            ctrl.set_auths(&no_auths).try_create_liquidity_pool(&HARNESS_HUB, &usdc, &params, &config)
         }).unwrap();
 
         let empty_assets: SVec<HubAssetKey> = SVec::new(&env);
@@ -233,7 +236,7 @@ proptest! {
             ctrl.set_auths(&no_auths).try_add_rewards(&random_addr, &rewards)
         }).unwrap();
         expect_rejected("set_market_oracle_config", || {
-            ctrl.set_auths(&no_auths).try_set_market_oracle_config(&usdc, &oracle_cfg)
+            ctrl.set_auths(&no_auths).try_set_market_oracle_config(&hub_asset(usdc.clone()), &oracle_cfg)
         }).unwrap();
         expect_rejected("set_oracle_tolerance", || {
             let tolerance = sample_tolerance();

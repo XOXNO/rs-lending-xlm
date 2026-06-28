@@ -3,7 +3,7 @@ use controller::types::{
 };
 use soroban_sdk::{Address, String};
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
+use test_harness::{hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE};
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
@@ -40,7 +40,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let view = t
         .ctrl_client()
         .get_market_indexes_detailed(&assets)
@@ -75,7 +75,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let view = t
         .ctrl_client()
         .get_market_indexes_detailed(&assets)
@@ -118,7 +118,7 @@ fn test_redstone_anchor_read_failure_reverts_view() {
         t.env.storage().persistent().set(&key, &oracle);
     });
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
@@ -142,7 +142,7 @@ fn test_redstone_anchor_outside_tolerance_reverts_view() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 

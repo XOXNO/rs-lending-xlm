@@ -14,11 +14,11 @@ fn test_edit_asset_config_rejects_threshold_lte_ltv() {
     let asset = t.resolve_market("USDC").asset.clone();
     let gov = t.gov_client();
 
-    let mut config = t.ctrl_client().get_spoke_asset(&0u32, &asset);
+    let mut config = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
     config.loan_to_value_bps = 8000;
     config.liquidation_threshold_bps = 8000; // Equal to LTV.
 
-    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, config));
+    let result = gov.try_execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), config));
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

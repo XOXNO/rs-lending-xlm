@@ -1,5 +1,5 @@
 use controller::constants::RAY;
-use test_harness::{
+use test_harness::{hub_asset, 
     days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
     LIQUIDATOR,
 };
@@ -160,7 +160,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
     for asset in &["USDC", "ETH", "WBTC"] {
         let asset_addr = t.resolve_asset(asset);
         let ctrl = t.ctrl_client();
-        let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+        let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
         let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
         assert!(
             index.supply_index_ray >= RAY,
@@ -478,8 +478,8 @@ fn test_chaos_keeper_revenue_lifecycle() {
     let usdc_addr = t.resolve_asset("USDC");
     let eth_addr = t.resolve_asset("ETH");
     let ctrl = t.ctrl_client();
-    let usdc_assets = soroban_sdk::Vec::from_array(&t.env, [usdc_addr]);
-    let eth_assets = soroban_sdk::Vec::from_array(&t.env, [eth_addr]);
+    let usdc_assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(usdc_addr)]);
+    let eth_assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(eth_addr)]);
     let usdc_index = ctrl
         .get_market_indexes_detailed(&usdc_assets)
         .get(0)

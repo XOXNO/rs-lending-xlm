@@ -19,7 +19,7 @@ fn test_max_supply_uncapped_returns_max() {
 
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), i128::MAX);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(asset.clone())), i128::MAX);
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn test_max_supply_tracks_cap_headroom_and_is_executable() {
 
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
-    let headroom = t.ctrl_client().max_supply(&account_id, &asset);
+    let headroom = t.ctrl_client().max_supply(&account_id, &hub_asset(asset.clone()));
     assert!(
         headroom > 1_499 * UNIT && headroom <= 1_500 * UNIT,
         "headroom should be ~1500 USDC, got {headroom}"
@@ -40,7 +40,7 @@ fn test_max_supply_tracks_cap_headroom_and_is_executable() {
 
     // The preview executes; one more unit trips the cap.
     t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(asset.clone())), 0);
     let res = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::SUPPLY_CAP_REACHED);
 }
@@ -53,9 +53,9 @@ fn test_max_supply_zero_when_paused() {
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
     t.pause();
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(asset.clone())), 0);
     t.unpause();
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &asset), i128::MAX);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(asset.clone())), i128::MAX);
 }
 
 #[test]
@@ -68,8 +68,8 @@ fn test_max_withdraw_unconstrained_closes_position() {
     let alice = t.get_or_create_user(ALICE);
     let ctrl = t.ctrl_client();
 
-    let max = ctrl.max_withdraw(&account_id, &asset);
-    let balance = ctrl.get_collateral_amount(&account_id, &asset);
+    let max = ctrl.max_withdraw(&account_id, &hub_asset(asset.clone()));
+    let balance = ctrl.get_collateral_amount(&account_id, &hub_asset(asset.clone()));
     assert_eq!(max, balance, "unconstrained max must be the full balance");
 
     let withdrawals: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max)];
@@ -102,7 +102,7 @@ fn test_max_withdraw_bounded_by_utilization_and_executable() {
     let account_id = t.resolve_account_id(ALICE);
 
     // Headroom to the 85 % cap: 1000 - 800/0.85 ≈ 58.82 USDC.
-    let max = t.ctrl_client().max_withdraw(&account_id, &asset);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
     assert!(
         max > 58 * UNIT && max < 59 * UNIT,
         "expected ~58.8 USDC headroom, got {max}"
@@ -123,7 +123,7 @@ fn test_max_withdraw_bounded_by_utilization_and_executable() {
 
     // The preview itself executes.
     t.withdraw_raw(ALICE, "USDC", max);
-    let after = t.ctrl_client().max_withdraw(&account_id, &asset);
+    let after = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
     assert!(after <= 1, "pool sits at the cap, got {after}");
 }
 
@@ -145,8 +145,8 @@ fn test_max_withdraw_prefers_full_close_over_dusty_partial() {
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    let max = t.ctrl_client().max_withdraw(&account_id, &asset);
-    let balance = t.ctrl_client().get_collateral_amount(&account_id, &asset);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
+    let balance = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(asset.clone()));
     assert_eq!(max, balance, "full close is feasible, so max = balance");
 
     // Debt-free accounts may leave small collateral residue.
@@ -174,7 +174,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    let max = t.ctrl_client().max_withdraw(&account_id, &asset);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
     assert!(
         max > 189 * UNIT && max < 200 * UNIT,
         "expected a large partial below full balance, got {max}"
@@ -194,7 +194,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
     assert!(res.is_err(), "max + 3 must not be withdrawable");
 
     t.withdraw_raw(ALICE, "USDC", max);
-    let residue = t.ctrl_client().get_collateral_amount(&account_id, &asset);
+    let residue = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(asset.clone()));
     assert!(
         residue > 0,
         "partial withdraw must leave pool-liquid residue, got {residue}"
@@ -216,7 +216,7 @@ fn test_max_withdraw_with_debt_respects_ltv() {
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    let max = t.ctrl_client().max_withdraw(&account_id, &asset);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
     let expected = 53_333_333_333_i128; // 5333.3333333 USDC
     assert!(
         (max - expected).abs() < UNIT / 100,
@@ -249,11 +249,11 @@ fn test_max_withdraw_available_when_paused_zero_when_absent() {
     let account_id = t.resolve_account_id(ALICE);
 
     t.pause();
-    assert!(t.ctrl_client().max_withdraw(&account_id, &asset) > 0);
+    assert!(t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone())) > 0);
     t.unpause();
 
     // Unknown account and unlisted position degrade to zero, not panic.
-    assert_eq!(t.ctrl_client().max_withdraw(&9_999u64, &asset), 0);
+    assert_eq!(t.ctrl_client().max_withdraw(&9_999u64, &hub_asset(asset.clone())), 0);
 }
 
 #[test]
@@ -269,21 +269,21 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
 
     let asset = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
-    let before = t.ctrl_client().get_market_index(&asset);
-    let balance_before = t.ctrl_client().get_collateral_amount(&account_id, &asset);
+    let before = t.ctrl_client().get_market_index(&hub_asset(asset.clone()));
+    let balance_before = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(asset.clone()));
 
     // Half a year with no oracle refresh and no keeper sync: prices are
     // stale, only view-side simulation can accrue.
     t.advance_time_no_refresh(60 * 60 * 24 * 180);
 
-    let after = t.ctrl_client().get_market_index(&asset);
+    let after = t.ctrl_client().get_market_index(&hub_asset(asset.clone()));
     assert!(
         after.borrow_index_ray > before.borrow_index_ray
             && after.supply_index_ray > before.supply_index_ray,
         "indexes must accrue in the view despite the stale oracle"
     );
 
-    let balance_after = t.ctrl_client().get_collateral_amount(&account_id, &asset);
+    let balance_after = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(asset.clone()));
     assert!(
         balance_after > balance_before,
         "supplier balance must grow with simulated interest, got {balance_before} -> {balance_after}"
@@ -300,12 +300,12 @@ fn test_get_market_index_and_balance_views_survive_oracle_outage() {
     );
     assert_eq!(
         t.ctrl_client()
-            .try_get_collateral_amount(&account_id, &asset)
+            .try_get_collateral_amount(&account_id, &hub_asset(asset.clone()))
             .unwrap()
             .unwrap(),
         balance_after
     );
-    assert!(t.ctrl_client().try_get_market_index(&asset).is_ok());
+    assert!(t.ctrl_client().try_get_market_index(&hub_asset(asset.clone())).is_ok());
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn test_max_withdraw_full_close_stays_price_free_for_debt_free_account() {
     // With the price poisoned, the debt-free full-close preview still
     // resolves: it needs no oracle.
     t.set_price("USDC", 0);
-    let max = t.ctrl_client().max_withdraw(&account_id, &asset);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(asset.clone()));
     assert!(max >= 500 * UNIT - 1, "full balance expected, got {max}");
 }
 
@@ -335,11 +335,11 @@ fn test_max_borrow_zero_when_paused() {
     let usdc = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    assert!(t.ctrl_client().max_borrow(&account_id, &usdc) > 0);
+    assert!(t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone())) > 0);
     t.pause();
-    assert_eq!(t.ctrl_client().max_borrow(&account_id, &usdc), 0);
+    assert_eq!(t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone())), 0);
     t.unpause();
-    assert!(t.ctrl_client().max_borrow(&account_id, &usdc) > 0);
+    assert!(t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone())) > 0);
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
     let usdc = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    let max = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let max = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone()));
     assert!(
         max > 0,
         "ETH collateral should allow a USDC borrow, got {max}"
@@ -367,7 +367,7 @@ fn test_max_borrow_bounded_by_ltv_and_executable() {
 
     // Headroom collapses and one more unit trips the LTV gate the preview
     // modeled, so the preview never overstated.
-    let after = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let after = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone()));
     assert!(
         after <= UNIT,
         "headroom should be ~0 after borrowing max, got {after}"
@@ -396,7 +396,7 @@ fn test_max_borrow_bounded_by_hub_borrow_cap_and_executable() {
     let account_id = t.resolve_account_id(ALICE);
 
     // Headroom is the full 2_000 USDC cap (pool starts with zero borrows).
-    let max = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let max = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone()));
     assert!(
         max > 1_999 * UNIT && max <= 2_000 * UNIT,
         "expected ~2000 USDC hub-cap headroom, got {max}"
@@ -407,7 +407,7 @@ fn test_max_borrow_bounded_by_hub_borrow_cap_and_executable() {
 
     // The pool now sits at the cap: headroom collapses and one more unit trips
     // the borrow-cap gate the preview modeled.
-    let after = t.ctrl_client().max_borrow(&account_id, &usdc);
+    let after = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdc.clone()));
     assert!(after <= 1, "headroom should be ~0 at the cap, got {after}");
     let res = t.try_borrow(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::BORROW_CAP_REACHED);
@@ -461,7 +461,7 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
     let account_id = t.resolve_account_id(ALICE);
 
     // Headroom is the full 500 USDT spoke cap (no USDT borrowed yet).
-    let max = t.ctrl_client().max_borrow(&account_id, &usdt);
+    let max = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone()));
     assert!(
         max > 499 * UNIT && max <= 500 * UNIT,
         "expected ~500 USDT spoke-cap headroom, got {max}"
@@ -472,7 +472,7 @@ fn test_max_borrow_bounded_by_spoke_borrow_cap_and_executable() {
 
     // Spoke usage now sits at the cap: headroom collapses and one more unit
     // trips the spoke borrow-cap gate the preview modeled.
-    let after = t.ctrl_client().max_borrow(&account_id, &usdt);
+    let after = t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone()));
     assert!(
         after <= 1,
         "spoke headroom should be ~0 at the cap, got {after}"
@@ -518,7 +518,7 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
     let account_id = t.resolve_account_id(ALICE);
 
     // ~600 USDC of spoke headroom remains (1_000 cap − 400 supplied).
-    let headroom = t.ctrl_client().max_supply(&account_id, &usdc);
+    let headroom = t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone()));
     assert!(
         headroom > 599 * UNIT && headroom <= 600 * UNIT,
         "expected ~600 USDC spoke headroom, got {headroom}"
@@ -526,7 +526,7 @@ fn test_max_supply_bounded_by_spoke_supply_cap_and_executable() {
 
     // The preview executes; one more unit trips the spoke supply cap.
     t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &usdc), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone())), 0);
     let res = t.try_supply(ALICE, "USDC", 1.0);
     assert_contract_error(res, errors::SPOKE_SUPPLY_CAP_REACHED);
 }
@@ -553,7 +553,7 @@ fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
     let usdc = t.resolve_asset("USDC");
     let account_id = t.resolve_account_id(ALICE);
 
-    let max = t.ctrl_client().max_withdraw(&account_id, &usdc);
+    let max = t.ctrl_client().max_withdraw(&account_id, &hub_asset(usdc.clone()));
     let expected = 7_216_494_845_i128; // ~721.65 USDC at the 97% e-mode LTV.
     assert!(
         (max - expected).abs() < UNIT,

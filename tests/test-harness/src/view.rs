@@ -229,7 +229,9 @@ impl LendingTest {
 
     pub fn get_asset_config(&self, asset_name: &str) -> AssetConfigView {
         let asset = self.resolve_asset(asset_name);
-        let spoke = self.ctrl_client().get_spoke_asset(&0u32, &asset);
+        let spoke = self
+            .ctrl_client()
+            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
         let params = self.pool_client(asset_name).get_sync_data(&hub_asset(asset)).params;
         AssetConfigView {
             loan_to_value_bps: spoke.loan_to_value_bps,

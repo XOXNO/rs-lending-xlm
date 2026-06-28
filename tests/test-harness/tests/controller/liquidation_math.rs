@@ -13,7 +13,7 @@ use test_harness::{hub_asset, eth_preset, usd_cents, usdc_preset, LendingTest, A
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
     (idx.supply_index_ray, idx.borrow_index_ray)
 }

@@ -7,7 +7,7 @@ use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
-use crate::helpers::{f64_to_i128, hub_asset};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB};
 use crate::presets::{
     AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
 };
@@ -228,6 +228,16 @@ impl LendingTestBuilder {
         let mock_reflector_client =
             crate::mock_reflector::MockReflectorClient::new(&env, &mock_reflector_address);
 
+        // There is no hub 0: a fresh controller has zero hubs. Create the base
+        // harness hub (returns id 1) before listing any market so every
+        // `hub_asset(..)` coordinate resolves to a real, registered hub.
+        let base_hub_val = gov.execute_immediate(&admin, &AdminOperation::CreateHub);
+        let base_hub: u32 = u32::try_from_val(&env, &base_hub_val).unwrap();
+        assert_eq!(
+            base_hub, HARNESS_HUB,
+            "the base setup hub must be the harness hub id"
+        );
+
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
@@ -247,7 +257,7 @@ impl LendingTestBuilder {
             let pool_address_val = gov.execute_immediate(
                 &admin,
                 &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
-                    hub_id: 0,
+                    hub_id: HARNESS_HUB,
                     asset: asset_address.clone(),
                     params: market_params,
                     config: asset_config,
@@ -270,7 +280,7 @@ impl LendingTestBuilder {
                 gov.execute_immediate(
                     &admin,
                     &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                        asset: asset_address.clone(),
+                        hub_asset: hub_asset(asset_address.clone()),
                         cfg: oracle_input,
                     }),
                 );
@@ -319,6 +329,7 @@ impl LendingTestBuilder {
                 gov.execute_immediate(
                     &admin,
                     &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+                        hub_id: HARNESS_HUB,
                         asset: asset_addr.clone(),
                         spoke_id: emode.category_id,
                         can_collateral: *can_collateral,

@@ -2,7 +2,7 @@ use controller::types::{InterestRateModel, SpokeAssetArgs};
 use soroban_sdk::Address;
 
 use crate::context::LendingTest;
-use crate::helpers::hub_asset;
+use crate::helpers::{hub_asset, HARNESS_HUB};
 use crate::view::AssetConfigView;
 
 impl LendingTest {
@@ -42,6 +42,7 @@ impl LendingTest {
         f(&mut config);
 
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: asset.clone(),
             spoke_id: 0,
             can_collateral: config.is_collateralizable,
@@ -102,6 +103,7 @@ impl LendingTest {
     ) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().add_asset_to_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset,
             spoke_id: category_id,
             can_collateral,
@@ -127,6 +129,7 @@ impl LendingTest {
     ) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset,
             spoke_id: category_id,
             can_collateral,
@@ -142,7 +145,7 @@ impl LendingTest {
     pub fn remove_asset_from_e_mode(&self, asset_name: &str, category_id: u32) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client()
-            .remove_asset_from_spoke(&asset, &category_id);
+            .remove_asset_from_spoke(&hub_asset(asset), &category_id);
     }
 
     /// Edit a spoke asset with explicit spoke supply/borrow caps. Mirrors
@@ -164,6 +167,7 @@ impl LendingTest {
     ) {
         let asset = self.resolve_asset(asset_name);
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset,
             spoke_id: category_id,
             can_collateral,

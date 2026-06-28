@@ -1,5 +1,5 @@
 use soroban_sdk::token;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{HARNESS_HUB, eth_preset, usdc_preset, LendingTest, ALICE};
 
 fn create_asset_contract(t: &LendingTest) -> soroban_sdk::Address {
     t.env
@@ -81,7 +81,7 @@ fn test_create_liquidity_pool_rejects_asset_id_mismatch() {
         .to_market_params(&wrong_asset, decimals);
     let config = usdc_preset().config.to_asset_config(&t.env, decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(err) => Err(err.expect("expected contract error")),
     };
@@ -107,7 +107,7 @@ fn test_create_liquidity_pool_rejects_asset_decimals_mismatch() {
         .to_market_params(&asset, mismatched_decimals);
     let config = usdc_preset().config.to_asset_config(&t.env, decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(err) => Err(err.expect("expected contract error")),
     };

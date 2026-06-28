@@ -1,5 +1,5 @@
 use controller::types::SpokeAssetArgs;
-use test_harness::{hub_asset,
+use test_harness::{HARNESS_HUB, hub_asset,
     assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
@@ -371,6 +371,7 @@ fn test_emode_deprecated_category_operations_rejected() {
     let edit_asset_result = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: asset_address.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -597,12 +598,12 @@ fn test_deprecated_emode_views_block_new_borrow_but_preserve_exit_preview() {
     t.remove_e_mode_category(1);
 
     assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &usdt),
+        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())),
         0,
         "deprecated e-mode must preview no additional borrow capacity"
     );
     assert!(
-        t.ctrl_client().max_withdraw(&account_id, &usdc)
+        t.ctrl_client().max_withdraw(&account_id, &hub_asset(usdc.clone()))
             >= f64_to_i128(4_000.0, t.resolve_market("USDC").decimals),
         "deprecated e-mode must preview exits using the stored position params, not base fallback"
     );
@@ -757,6 +758,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let inverted = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -779,6 +781,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
     let unsafe_bonus = t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -798,7 +801,7 @@ fn test_edit_asset_in_e_mode_rejects_inverted_or_unsafe_bounds() {
 
     // A valid edit still succeeds and the stored asset keeps threshold > ltv.
     t.edit_asset_in_e_mode("USDC", 1, true, true, 9_000, 9_300, 200);
-    let cfg = t.ctrl_client().get_spoke_asset(&1u32, &usdc);
+    let cfg = t.ctrl_client().get_spoke_asset(&1u32, &hub_asset(usdc.clone()));
     assert_eq!(cfg.loan_to_value_bps, 9_000);
     assert_eq!(cfg.liquidation_threshold_bps, 9_300);
     assert!(cfg.liquidation_threshold_bps > cfg.loan_to_value_bps);
@@ -863,6 +866,7 @@ fn test_emode_spoke_supply_cap_enforced_below_hub() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -900,6 +904,7 @@ fn test_emode_spoke_borrow_cap_enforced_below_hub() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1020,6 +1025,7 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1037,6 +1043,7 @@ fn test_edit_emode_rejects_supply_cap_below_usage() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1073,6 +1080,7 @@ fn test_update_pool_caps_allows_hub_below_spoke_no_enumeration() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1105,6 +1113,7 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1120,14 +1129,14 @@ fn test_max_supply_respects_spoke_cap_headroom() {
     t.supply(ALICE, "USDC", 500.0);
 
     let account_id = t.resolve_account_id(ALICE);
-    let headroom = t.ctrl_client().max_supply(&account_id, &usdc);
+    let headroom = t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone()));
     assert!(
         headroom > 400 * UNIT && headroom <= 500 * UNIT,
         "spoke headroom should be ~500 USDC, got {headroom}"
     );
 
     t.supply_raw(ALICE, "USDC", headroom);
-    assert_eq!(t.ctrl_client().max_supply(&account_id, &usdc), 0);
+    assert_eq!(t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone())), 0);
 }
 
 // Borrow-side twin of `test_update_pool_caps_rejects_hub_below_spoke`: a spoke
@@ -1149,6 +1158,7 @@ fn test_emode_spoke_borrow_cap_above_hub_rejected() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1186,6 +1196,7 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1204,6 +1215,7 @@ fn test_edit_emode_rejects_borrow_cap_below_usage() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1238,6 +1250,7 @@ fn test_emode_spoke_cap_above_from_asset_domain_rejected() {
     let result = match t
         .ctrl_client()
         .try_edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1272,6 +1285,7 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1289,7 +1303,7 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
     // Fill to the spoke cap: headroom collapses and one more unit reverts.
     t.supply(ALICE, "USDC", 1_000.0);
     assert!(
-        t.ctrl_client().max_supply(&account_id, &usdc) <= 1,
+        t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone())) <= 1,
         "headroom must collapse at the spoke cap"
     );
     assert_contract_error(
@@ -1299,7 +1313,7 @@ fn test_emode_spoke_supply_cap_headroom_restored_after_withdraw() {
 
     // Withdraw frees usage; headroom is restored and a re-supply executes.
     t.withdraw(ALICE, "USDC", 400.0);
-    let restored = t.ctrl_client().max_supply(&account_id, &usdc);
+    let restored = t.ctrl_client().max_supply(&account_id, &hub_asset(usdc.clone()));
     assert!(
         restored > 390 * UNIT && restored <= 400 * UNIT,
         "headroom should restore to ~400 USDC after withdraw, got {restored}"
@@ -1332,6 +1346,7 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
     let usdt = t.resolve_asset("USDT");
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdt.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1352,14 +1367,14 @@ fn test_emode_spoke_borrow_cap_tightens_as_interest_accrues() {
 
     let account_id = t.resolve_account_id(ALICE);
     assert!(
-        t.ctrl_client().max_borrow(&account_id, &usdt) <= 1,
+        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())) <= 1,
         "headroom must be ~0 right at the cap"
     );
 
     t.advance_time(60 * 60 * 24 * 365);
 
     assert_eq!(
-        t.ctrl_client().max_borrow(&account_id, &usdt),
+        t.ctrl_client().max_borrow(&account_id, &hub_asset(usdt.clone())),
         0,
         "accrued debt must push the e-mode position past the fixed spoke cap"
     );
@@ -1389,6 +1404,7 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // Category 1 spoke cap below the proposed hub (will pass the check)...
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 1,
             can_collateral: true,
@@ -1402,6 +1418,7 @@ fn test_update_pool_caps_no_longer_enumerates_spokes() {
     // ...category 2 spoke cap above it (will fail on the second iteration).
     t.ctrl_client()
         .edit_asset_in_spoke(&SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
             asset: usdc.clone(),
             spoke_id: 2,
             can_collateral: true,

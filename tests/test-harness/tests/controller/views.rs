@@ -141,9 +141,9 @@ fn test_get_all_markets_multiple() {
     let assets = soroban_sdk::Vec::from_array(
         &t.env,
         [
-            t.resolve_asset("USDC"),
-            t.resolve_asset("ETH"),
-            t.resolve_asset("WBTC"),
+            hub_asset(t.resolve_asset("USDC")),
+            hub_asset(t.resolve_asset("ETH")),
+            hub_asset(t.resolve_asset("WBTC")),
         ],
     );
     let markets = ctrl.get_markets_detailed(&assets);
@@ -161,7 +161,7 @@ fn test_get_all_markets_single() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC")]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(t.resolve_asset("USDC"))]);
     let markets = ctrl.get_markets_detailed(&assets);
     assert_eq!(
         markets.len(),
@@ -180,8 +180,13 @@ fn test_get_pool_address_matches_market_view() {
 
     let ctrl = t.ctrl_client();
     let pool = ctrl.get_pool_address();
-    let assets =
-        soroban_sdk::Vec::from_array(&t.env, [t.resolve_asset("USDC"), t.resolve_asset("ETH")]);
+    let assets = soroban_sdk::Vec::from_array(
+        &t.env,
+        [
+            hub_asset(t.resolve_asset("USDC")),
+            hub_asset(t.resolve_asset("ETH")),
+        ],
+    );
     for row in ctrl.get_markets_detailed(&assets).iter() {
         assert_eq!(row.pool_address, pool, "pool address must be global");
     }
@@ -239,7 +244,7 @@ fn test_get_emode_category_view() {
 
     let ctrl = t.ctrl_client();
     let usdc = t.resolve_asset("USDC");
-    let cfg = ctrl.get_spoke_asset(&1u32, &usdc);
+    let cfg = ctrl.get_spoke_asset(&1u32, &hub_asset(usdc.clone()));
 
     // STABLECOIN_EMODE: ltv=9700, threshold=9800, bonus=200 (per-asset).
     assert_eq!(cfg.loan_to_value_bps, 9700, "emode ltv should be 9700");
@@ -343,7 +348,7 @@ fn test_get_market_index_view() {
 
     let asset = t.resolve_asset("USDC");
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
     let index = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
 
     let ray = RAY;
@@ -420,7 +425,7 @@ fn test_collateral_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let amount = t.ctrl_client().get_collateral_amount(&account_id, &usdc);
+    let amount = t.ctrl_client().get_collateral_amount(&account_id, &hub_asset(usdc.clone()));
 
     // USDC has 7 decimals: 10_000 USDC == 10_000 * 10^7 raw units.
     let expected = 10_000i128 * 10_000_000;
@@ -446,7 +451,7 @@ fn test_borrow_amount_for_token_happy() {
 
     let account_id = t.resolve_account_id(ALICE);
     let eth = t.resolve_asset("ETH");
-    let amount = t.ctrl_client().get_borrow_amount(&account_id, &eth);
+    let amount = t.ctrl_client().get_borrow_amount(&account_id, &hub_asset(eth.clone()));
 
     // ETH has 7 decimals: 2 ETH == 2 * 10^7 raw units.
     let expected = 2i128 * 10_000_000;

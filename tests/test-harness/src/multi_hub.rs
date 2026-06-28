@@ -1,6 +1,6 @@
 //! Multi-hub test helpers.
 //!
-//! Existing single-hub helpers default every operation to hub 0; these add the
+//! Existing single-hub helpers operate on the base harness hub; these add the
 //! `hub_id`-parameterized variants used by the isolation suite: creating a hub,
 //! listing an already-registered asset on a second hub, supplying/borrowing on a
 //! specific `(hub_id, asset)`, and reading a hub-scoped pool `State`.
@@ -14,7 +14,9 @@ use crate::core::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset};
 
 impl LendingTest {
-    /// Creates a new hub through governance and returns its id (ids start at 1).
+    /// Creates a new hub through governance and returns its id. Hub ids start at
+    /// 1; the base setup already owns the harness hub, so the first extra hub
+    /// created here is 2.
     pub fn create_hub(&self) -> u32 {
         let id_val = self
             .gov_client()
@@ -22,24 +24,27 @@ impl LendingTest {
         u32::try_from_val(&self.env, &id_val).expect("create_hub returns a hub id")
     }
 
-    /// Lists an already-registered market's asset on `hub_id` (> 0), reusing the
-    /// hub-0 base params/config and seeding `initial_liquidity` of cash. The
-    /// asset oracle is token-rooted, so the hub-0 listing already configured it.
+    /// Lists an already-registered market's asset on `hub_id` (distinct from the
+    /// base harness hub), reusing the base hub's params/config and seeding
+    /// `initial_liquidity` of cash. The asset oracle is token-rooted, so the base
+    /// hub listing already configured it.
     pub fn list_market_on_hub(&mut self, hub_id: u32, asset_name: &str, initial_liquidity: f64) {
         let market = self.resolve_market(asset_name);
         let asset = market.asset.clone();
         let pool = market.pool.clone();
         let decimals = market.decimals;
 
-        // Reuse the hub-0 base params/config so the new hub market is valid.
+        // Reuse the base hub's params/config so the new hub market is valid.
         let params: MarketParamsRaw = self.env.as_contract(&pool, || {
             self.env
                 .storage()
                 .persistent()
                 .get(&PoolKey::Params(hub_asset(asset.clone())))
-                .expect("hub-0 params must exist")
+                .expect("base hub params must exist")
         });
-        let config: SpokeAssetConfig = self.ctrl_client().get_spoke_asset(&0u32, &asset);
+        let config: SpokeAssetConfig = self
+            .ctrl_client()
+            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
 
         let gov = self.gov_client();
         gov.execute_immediate(&self.admin, &AdminOperation::ApproveToken(asset.clone()));
@@ -53,7 +58,7 @@ impl LendingTest {
             }),
         );
 
-        // Seed cash directly, mirroring the builder's hub-0 liquidity seed.
+        // Seed cash directly, mirroring the builder's base hub liquidity seed.
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
         self.env.as_contract(&pool, || {
@@ -72,9 +77,10 @@ impl LendingTest {
         });
     }
 
-    /// Lists an already-registered market on `hub_id` (> 0) with an explicit
-    /// `liquidation_fees_bps`, overriding the hub-0 base. Used to prove the
-    /// liquidation seizure resolves the protocol fee from the position's own hub.
+    /// Lists an already-registered market on `hub_id` (distinct from the base
+    /// harness hub) with an explicit `liquidation_fees_bps`, overriding the base
+    /// hub config. Used to prove the liquidation seizure resolves the protocol
+    /// fee from the position's own hub.
     pub fn list_market_on_hub_with_fees(
         &mut self,
         hub_id: u32,
@@ -92,9 +98,11 @@ impl LendingTest {
                 .storage()
                 .persistent()
                 .get(&PoolKey::Params(hub_asset(asset.clone())))
-                .expect("hub-0 params must exist")
+                .expect("base hub params must exist")
         });
-        let mut config: SpokeAssetConfig = self.ctrl_client().get_spoke_asset(&0u32, &asset);
+        let mut config: SpokeAssetConfig = self
+            .ctrl_client()
+            .get_spoke_asset(&0u32, &hub_asset(asset.clone()));
         config.liquidation_fees_bps = liquidation_fees_bps;
 
         let gov = self.gov_client();

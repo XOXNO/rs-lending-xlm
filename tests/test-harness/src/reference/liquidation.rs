@@ -595,7 +595,7 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
         // `SpokeAsset(0)` config), not a per-position field.
         let liq_fees_bps = t
             .ctrl_client()
-            .get_spoke_asset(&0u32, &asset)
+            .get_spoke_asset(&0u32, &hub_asset(asset.clone()))
             .liquidation_fees_bps;
         out.push(RefCollateralPosition {
             asset_id: i as u32,

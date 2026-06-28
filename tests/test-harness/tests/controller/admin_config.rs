@@ -6,7 +6,7 @@ use controller::types::{
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-use test_harness::{
+use test_harness::{HARNESS_HUB, 
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
     DEFAULT_TOLERANCE,
 };
@@ -239,14 +239,14 @@ fn test_set_market_oracle_config_activates_pending_market() {
     let params = usdc_preset().params.to_market_params(&asset, 7);
     let config = usdc_preset().config.to_asset_config(&t.env, 7);
     ctrl.approve_token(&asset);
-    ctrl.create_liquidity_pool(&0u32, &asset, &params, &config);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config);
     assert!(
         !t.market_is_active(&asset),
         "market must start in PendingOracle"
     );
 
     let oracle_cfg = resolved_reflector_primary_anchor_config(&t.mock_reflector, &asset);
-    ctrl.set_market_oracle_config(&asset, &oracle_cfg);
+    ctrl.set_market_oracle_config(&hub_asset(asset.clone()), &oracle_cfg);
 
     let oracle = t.market_oracle_config(&asset);
     match oracle.primary {
@@ -272,7 +272,7 @@ fn test_set_market_oracle_config_rejects_unknown_asset() {
     let unknown = Address::generate(&t.env);
     let result = t
         .ctrl_client()
-        .try_set_market_oracle_config(&unknown, &oracle_cfg);
+        .try_set_market_oracle_config(&hub_asset(unknown.clone()), &oracle_cfg);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -404,7 +404,7 @@ fn test_create_liquidity_pool_uniqueness() {
 
     // USDC was already initialized by the builder.
     // Calling create_liquidity_pool again should fail with AssetAlreadySupported.
-    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error")),
     };
@@ -431,7 +431,7 @@ fn test_market_initialization_cascade() {
 
     // 1. Create the liquidity pool with no oracle; the call succeeds and
     //    leaves the market in PendingOracle.
-    ctrl.create_liquidity_pool(&0u32, &asset, &params, &config);
+    ctrl.create_liquidity_pool(&HARNESS_HUB, &asset, &params, &config);
 
     // Confirm the market is pending (no oracle yet).
     assert!(

@@ -49,6 +49,7 @@ pub enum DeFindexStrategyError {
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
+    pub hub_id: u32,
     pub asset: Address,
     pub controller: Address,
     pub pool: Address,
@@ -95,10 +96,19 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// The (hub, asset) this strategy is bound to. There is no default hub; the
+    /// hub is fixed at construction and carried in `Config`.
+    fn hub_asset(&self) -> HubAssetKey {
+        HubAssetKey {
+            hub_id: self.cfg.hub_id,
+            asset: self.cfg.asset.clone(),
+        }
+    }
+
     fn collateral(&self, account_id: u64) -> i128 {
         // dimensional: controller reports live Token(asset), not scaled shares.
         self.controller
-            .get_collateral_amount(&account_id, &self.cfg.asset)
+            .get_collateral_amount(&account_id, &self.hub_asset())
     }
 
     fn reconcile(&self, vault: &Address) -> u64 {
@@ -118,7 +128,7 @@ impl<'a> Ctx<'a> {
         // dimensional: supply index is D27{Token(asset)/Share(asset, supply)}.
         let supply_index_ray = self
             .controller
-            .get_market_index(&self.cfg.asset)
+            .get_market_index(&self.hub_asset())
             .supply_index_ray;
         // dimensional: D27{Token/Share} / D15{1} = D12{Token/Share}.
         supply_index_ray
@@ -128,16 +138,7 @@ impl<'a> Ctx<'a> {
 
     fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
         // dimensional: payment preserves D{AssetDecimals(asset)}{Token(asset)}.
-        vec![
-            self.env,
-            (
-                HubAssetKey {
-                    hub_id: 0,
-                    asset: self.cfg.asset.clone(),
-                },
-                amount,
-            ),
-        ]
+        vec![self.env, (self.hub_asset(), amount)]
     }
 
     fn authorize_supply_to_pool(&self, amount: i128) {
@@ -158,7 +159,8 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
-    /// `init_args = [controller]`. `asset` must be a listed market.
+    /// `init_args = [controller, hub_id]`. `asset` must be a listed market on
+    /// `hub_id`. There is no default hub; the strategy is bound to one hub here.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args.get(0).unwrap_or_else(|| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
@@ -166,13 +168,24 @@ impl Strategy {
         let controller = Address::try_from_val(&env, &controller_val).unwrap_or_else(|_| {
             soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
         });
+        let hub_id_val = init_args.get(1).unwrap_or_else(|| {
+            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
+        });
+        let hub_id = u32::try_from_val(&env, &hub_id_val).unwrap_or_else(|_| {
+            soroban_sdk::panic_with_error!(&env, DeFindexStrategyError::NotInitialized)
+        });
 
         let controller_client = ControllerClient::new(&env, &controller);
-        // Validate the asset is a listed market; reverts if no market exists.
-        controller_client.get_market_index(&asset);
+        let hub_asset = HubAssetKey {
+            hub_id,
+            asset: asset.clone(),
+        };
+        // Validate the asset is a listed market on this hub; reverts otherwise.
+        controller_client.get_market_index(&hub_asset);
         env.storage().instance().set(
             &DataKey::Config,
             &Config {
+                hub_id,
                 asset,
                 controller,
                 pool: controller_client.get_pool_address(),

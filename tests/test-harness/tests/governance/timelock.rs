@@ -18,7 +18,7 @@ use governance_interface::{
 };
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
-use test_harness::{
+use test_harness::{hub_asset, 
     assert_contract_error, errors, reflector_single_spot_config, usdc_preset, LendingTest,
     DEFAULT_TOLERANCE,
 };
@@ -369,7 +369,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
     let id = gov.propose(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset: asset.clone(),
+            hub_asset: hub_asset(asset.clone()),
             cfg,
         }),
         &s,
@@ -392,7 +392,7 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
         &Symbol::new(&t.env, SET_MARKET_ORACLE_CONFIG),
         &soroban_sdk::vec![
             &t.env,
-            asset.clone().into_val(&t.env),
+            hub_asset(asset.clone()).into_val(&t.env),
             resolved.clone().into_val(&t.env),
         ],
         &salt(&t.env, 0),

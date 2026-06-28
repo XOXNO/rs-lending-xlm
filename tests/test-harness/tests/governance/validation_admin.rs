@@ -127,13 +127,13 @@ fn test_validate_asset_config_rejects_excessive_liq_bonus() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &asset);
+    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
     // 95% threshold * (1 + 10% bonus) = 104.5% > 100%.
     cfg.loan_to_value_bps = 8000;
     cfg.liquidation_threshold_bps = 9500;
     cfg.liquidation_bonus_bps = 1000;
     t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
 }
 
 // A large bonus is permitted when the threshold leaves room:
@@ -144,12 +144,12 @@ fn test_validate_asset_config_accepts_high_bonus_low_threshold() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &asset);
+    let mut cfg = t.ctrl_client().get_spoke_asset(&0u32, &hub_asset(asset.clone()));
     cfg.loan_to_value_bps = 4000;
     cfg.liquidation_threshold_bps = 5000;
     cfg.liquidation_bonus_bps = 5000;
     t.gov_client()
-        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+        .execute_immediate(&admin, &AdminOperation::EditAssetConfig(hub_asset(asset), cfg));
 }
 
 // `configure_market_oracle` error paths against the live mock reflector.
@@ -175,7 +175,7 @@ fn configure_usdc(t: &LendingTest, cfg: &MarketOracleConfigInput) {
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset,
+            hub_asset: hub_asset(asset),
             cfg: cfg.clone(),
         }),
     );

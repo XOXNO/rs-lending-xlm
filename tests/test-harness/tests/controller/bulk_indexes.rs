@@ -35,7 +35,7 @@ fn test_detailed_indexes_view_matches_pool_simulation() {
     let eth = t.resolve_asset("ETH");
     let now_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
 
-    let assets = soroban_sdk::vec![&t.env, usdc.clone(), eth.clone()];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(usdc.clone()), hub_asset(eth.clone())];
     let views = t.ctrl_client().get_market_indexes_detailed(&assets);
     assert_eq!(views.len(), 2);
 
@@ -69,7 +69,7 @@ fn test_index_view_with_unlisted_asset_still_fails() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let unlisted = soroban_sdk::Address::generate(&t.env);
-    let assets = soroban_sdk::vec![&t.env, t.resolve_asset("USDC"), unlisted];
+    let assets = soroban_sdk::vec![&t.env, hub_asset(t.resolve_asset("USDC")), hub_asset(unlisted)];
     let result = t.ctrl_client().try_get_market_indexes_detailed(&assets);
     assert!(result.is_err(), "unlisted asset must still fail the view");
 }

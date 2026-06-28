@@ -69,7 +69,7 @@ impl LendingTest {
         self.gov_client().execute_immediate(
             &self.admin,
             &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-                asset: asset.clone(),
+                hub_asset: crate::helpers::hub_asset(asset.clone()),
                 cfg: input.clone(),
             }),
         );

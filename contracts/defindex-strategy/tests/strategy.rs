@@ -8,7 +8,7 @@ use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
-use test_harness::{hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB};
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
 const PPS_SCALAR: i128 = 1_000_000_000_000;
@@ -111,7 +111,11 @@ impl StrategyTest {
         t.borrow(BOB, "USDC", 400.0);
 
         let asset = t.resolve_asset("USDC");
-        let init_args: Vec<Val> = vec![&t.env, t.controller.clone().into_val(&t.env)];
+        let init_args: Vec<Val> = vec![
+            &t.env,
+            t.controller.clone().into_val(&t.env),
+            HARNESS_HUB.into_val(&t.env),
+        ];
         let client_address = t.env.register(Strategy, (asset.clone(), init_args));
 
         let vault = Address::generate(&t.env);
@@ -135,7 +139,7 @@ impl StrategyTest {
         let index = self
             .t
             .ctrl_client()
-            .get_market_index(&self.asset)
+            .get_market_index(&hub_asset(self.asset.clone()))
             .supply_index_ray;
         pps_from_supply_index(index)
     }

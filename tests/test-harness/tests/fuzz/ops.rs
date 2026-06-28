@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 use soroban_sdk::Vec;
-use test_harness::{LendingTest, ALICE, BOB, LIQUIDATOR};
+use test_harness::{hub_asset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 pub const ASSETS: [&str; 3] = ["USDC", "ETH", "WBTC"];
 pub const USERS: [&str; 2] = [ALICE, BOB];
@@ -136,7 +136,7 @@ pub fn capture_indexes(t: &LendingTest) -> [(i128, i128); 3] {
     let mut out = [(0i128, 0i128); 3];
     for (i, asset) in ASSETS.iter().enumerate() {
         let mut assets = Vec::new(&t.env);
-        assets.push_back(t.resolve_asset(asset));
+        assets.push_back(hub_asset(t.resolve_asset(asset)));
         let v = t
             .ctrl_client()
             .get_market_indexes_detailed(&assets)

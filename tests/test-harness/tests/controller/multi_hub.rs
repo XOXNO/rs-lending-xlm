@@ -1,7 +1,7 @@
 //! Multi-hub isolation keystone.
 //!
 //! Proves the core invariant of the multi-hub design: markets created on
-//! distinct hubs are fully partitioned. The same asset listed on hub 0 and hub 1
+//! distinct hubs are fully partitioned. The same asset listed on hub 1 and hub 2
 //! has independent pool `State` (indices, totals, cash); positions never net
 //! across hubs; bad-debt socialization on one hub does not touch the other; and
 //! a hub's borrowable cash cannot be drawn by another hub.
@@ -10,8 +10,8 @@ use controller::constants::RAY;
 use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw};
 use soroban_sdk::Map;
 use test_harness::{
-    amount_raw, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset, DEFAULT_ASSET_CONFIG,
-    DEFAULT_MARKET_PARAMS,
+    amount_raw, hub_asset, usd, usd_cents, HubAssetKey, LendingTest, MarketPreset, HARNESS_HUB,
+    DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
 };
 use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
@@ -73,64 +73,67 @@ fn hubs_keep_independent_state_and_indices() {
         .with_min_borrow_collateral_disabled()
         .build();
 
-    let hub1 = t.create_hub();
-    assert_eq!(hub1, 1, "first created hub id is 1 (hub 0 is the default)");
+    let hub2 = t.create_hub();
+    assert_eq!(
+        hub2, 2,
+        "the base setup owns hub 1 (HARNESS_HUB); the first test-created hub is 2"
+    );
 
-    // List USDC on hub 1 as well; hub 0 already holds it from the builder.
-    t.list_market_on_hub(hub1, "USDC", 0.0);
+    // List USDC on hub 2 as well; hub 1 already holds it from the builder.
+    t.list_market_on_hub(hub2, "USDC", 0.0);
 
-    // Hub 0: Alice self-collateralizes USDC and borrows against it.
-    let a = t.supply_on_hub(0, ALICE, "USDC", 1_000.0);
-    t.borrow_on_hub(0, ALICE, a, "USDC", 500.0);
+    // Hub 1: Alice self-collateralizes USDC and borrows against it.
+    let a = t.supply_on_hub(HARNESS_HUB, ALICE, "USDC", 1_000.0);
+    t.borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 500.0);
 
-    // Hub 1: Bob does the same, on the hub-1 USDC market.
-    let b = t.supply_on_hub(hub1, BOB, "USDC", 1_000.0);
-    t.borrow_on_hub(hub1, BOB, b, "USDC", 500.0);
+    // Hub 2: Bob does the same, on the hub-2 USDC market.
+    let b = t.supply_on_hub(hub2, BOB, "USDC", 1_000.0);
+    t.borrow_on_hub(hub2, BOB, b, "USDC", 500.0);
 
-    let s0 = t.pool_state_on_hub(0, "USDC");
-    let s1 = t.pool_state_on_hub(hub1, "USDC");
+    let s0 = t.pool_state_on_hub(HARNESS_HUB, "USDC");
+    let s1 = t.pool_state_on_hub(hub2, "USDC");
 
     // Two distinct, non-empty markets exist for the same token.
     assert!(s0.borrowed_ray > 0 && s1.borrowed_ray > 0);
-    assert_eq!(s0.borrow_index_ray, RAY, "hub-0 index starts at RAY");
-    assert_eq!(s1.borrow_index_ray, RAY, "hub-1 index starts at RAY");
+    assert_eq!(s0.borrow_index_ray, RAY, "hub-1 index starts at RAY");
+    assert_eq!(s1.borrow_index_ray, RAY, "hub-2 index starts at RAY");
 
-    // No netting: a hub-0 supply must not move hub-1's State at all.
-    t.supply_on_hub(0, ALICE, "USDC", 250.0);
-    let s1_after_hub0_op = t.pool_state_on_hub(hub1, "USDC");
-    assert_eq!(s1_after_hub0_op.supplied_ray, s1.supplied_ray);
-    assert_eq!(s1_after_hub0_op.borrowed_ray, s1.borrowed_ray);
-    assert_eq!(s1_after_hub0_op.cash, s1.cash);
-    assert_eq!(s1_after_hub0_op.supply_index_ray, s1.supply_index_ray);
+    // No netting: a hub-1 supply must not move hub-2's State at all.
+    t.supply_on_hub(HARNESS_HUB, ALICE, "USDC", 250.0);
+    let s1_after_hub1_op = t.pool_state_on_hub(hub2, "USDC");
+    assert_eq!(s1_after_hub1_op.supplied_ray, s1.supplied_ray);
+    assert_eq!(s1_after_hub1_op.borrowed_ray, s1.borrowed_ray);
+    assert_eq!(s1_after_hub1_op.cash, s1.cash);
+    assert_eq!(s1_after_hub1_op.supply_index_ray, s1.supply_index_ray);
 
-    // Independent evolution: accrue ONLY hub 0 after a year. Hub 0's index moves;
-    // hub 1's index is untouched because nothing accrued it.
+    // Independent evolution: accrue ONLY hub 1 after a year. Hub 1's index moves;
+    // hub 2's index is untouched because nothing accrued it.
     t.advance_time(SECONDS_PER_YEAR);
     t.update_indexes_for(&["USDC"]);
 
-    let s0_accrued = t.pool_state_on_hub(0, "USDC");
-    let s1_idle = t.pool_state_on_hub(hub1, "USDC");
+    let s0_accrued = t.pool_state_on_hub(HARNESS_HUB, "USDC");
+    let s1_idle = t.pool_state_on_hub(hub2, "USDC");
     assert!(
         s0_accrued.borrow_index_ray > RAY,
-        "hub-0 borrow index accrued: {}",
+        "hub-1 borrow index accrued: {}",
         s0_accrued.borrow_index_ray
     );
     assert_eq!(
         s1_idle.borrow_index_ray, RAY,
-        "hub-1 borrow index is untouched by hub-0 accrual"
+        "hub-2 borrow index is untouched by hub-1 accrual"
     );
 
-    // Hub 1 accrues only when its own market is touched.
-    t.accrue_on_hub(hub1, "USDC");
-    let s1_accrued = t.pool_state_on_hub(hub1, "USDC");
+    // Hub 2 accrues only when its own market is touched.
+    t.accrue_on_hub(hub2, "USDC");
+    let s1_accrued = t.pool_state_on_hub(hub2, "USDC");
     assert!(
         s1_accrued.borrow_index_ray > RAY,
-        "hub-1 borrow index accrues independently: {}",
+        "hub-2 borrow index accrues independently: {}",
         s1_accrued.borrow_index_ray
     );
 }
 
-// 2. Bad-debt socialization on hub 0 writes down only hub 0's supply index.
+// 2. Bad-debt socialization on hub 1 writes down only hub 1's supply index.
 #[test]
 fn bad_debt_is_isolated_to_its_hub() {
     let mut t = LendingTest::new()
@@ -139,41 +142,41 @@ fn bad_debt_is_isolated_to_its_hub() {
         .with_min_borrow_collateral_disabled()
         .build();
 
-    let hub1 = t.create_hub();
-    t.list_market_on_hub(hub1, "USDC", 0.0);
+    let hub2 = t.create_hub();
+    t.list_market_on_hub(hub2, "USDC", 0.0);
 
-    // Hub 1 has its own USDC suppliers who must be left untouched.
-    t.supply_on_hub(hub1, CAROL, "USDC", 1_000.0);
+    // Hub 2 has its own USDC suppliers who must be left untouched.
+    t.supply_on_hub(hub2, CAROL, "USDC", 1_000.0);
 
-    // Hub 0: Bob supplies the USDC that will absorb the loss; Alice posts a tiny
+    // Hub 1: Bob supplies the USDC that will absorb the loss; Alice posts a tiny
     // ETH collateral and borrows USDC.
-    t.supply_on_hub(0, BOB, "USDC", 1_000.0);
-    let a = t.supply_on_hub(0, ALICE, "ETH", 0.002); // ~$4 collateral
-    t.borrow_on_hub(0, ALICE, a, "USDC", 2.0); // $2 debt, HF healthy
+    t.supply_on_hub(HARNESS_HUB, BOB, "USDC", 1_000.0);
+    let a = t.supply_on_hub(HARNESS_HUB, ALICE, "ETH", 0.002); // ~$4 collateral
+    t.borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 2.0); // $2 debt, HF healthy
 
-    let si0_before = t.pool_state_on_hub(0, "USDC").supply_index_ray;
-    let si1_before = t.pool_state_on_hub(hub1, "USDC").supply_index_ray;
+    let si0_before = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index_ray;
+    let si1_before = t.pool_state_on_hub(hub2, "USDC").supply_index_ray;
 
     // Crash ETH so Alice's collateral falls below the $5 bad-debt threshold.
     t.set_price("ETH", usd(1));
     t.clean_bad_debt_by_id(a);
 
-    let si0_after = t.pool_state_on_hub(0, "USDC").supply_index_ray;
-    let si1_after = t.pool_state_on_hub(hub1, "USDC").supply_index_ray;
+    let si0_after = t.pool_state_on_hub(HARNESS_HUB, "USDC").supply_index_ray;
+    let si1_after = t.pool_state_on_hub(hub2, "USDC").supply_index_ray;
 
     assert!(
         si0_after < si0_before,
-        "hub-0 USDC supply index is written down by socialized bad debt: {} -> {}",
+        "hub-1 USDC supply index is written down by socialized bad debt: {} -> {}",
         si0_before,
         si0_after
     );
     assert_eq!(
         si1_after, si1_before,
-        "hub-1 USDC supply index is untouched by hub-0 bad debt"
+        "hub-2 USDC supply index is untouched by hub-1 bad debt"
     );
 }
 
-// 3. A hub-0 borrow cannot draw on hub-1's cash.
+// 3. A hub-1 borrow cannot draw on hub-2's cash.
 #[test]
 fn borrow_cannot_cross_hub_cash() {
     let mut t = LendingTest::new()
@@ -182,42 +185,42 @@ fn borrow_cannot_cross_hub_cash() {
         .with_min_borrow_collateral_disabled()
         .build();
 
-    let hub1 = t.create_hub();
-    // Hub 1 USDC holds ample cash that the hub-0 borrow must NOT be able to reach.
-    t.list_market_on_hub(hub1, "USDC", 100_000.0);
+    let hub2 = t.create_hub();
+    // Hub 2 USDC holds ample cash that the hub-1 borrow must NOT be able to reach.
+    t.list_market_on_hub(hub2, "USDC", 100_000.0);
 
-    // Hub 0 USDC has only a thin slice of cash.
-    t.supply_on_hub(0, BOB, "USDC", 100.0);
+    // Hub 1 USDC has only a thin slice of cash.
+    t.supply_on_hub(HARNESS_HUB, BOB, "USDC", 100.0);
 
-    // Alice posts ample ETH collateral on hub 0 so the health factor is not the
+    // Alice posts ample ETH collateral on hub 1 so the health factor is not the
     // binding constraint.
-    let a = t.supply_on_hub(0, ALICE, "ETH", 10.0); // $20,000 collateral
+    let a = t.supply_on_hub(HARNESS_HUB, ALICE, "ETH", 10.0); // $20,000 collateral
 
-    // Control: a borrow within hub-0 cash succeeds, proving HF and collateral are fine.
-    t.borrow_on_hub(0, ALICE, a, "USDC", 50.0);
+    // Control: a borrow within hub-1 cash succeeds, proving HF and collateral are fine.
+    t.borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 50.0);
 
-    // The contested borrow size: more than hub-0 holds, less than hub-1 holds.
+    // The contested borrow size: more than hub-1 holds, less than hub-2 holds.
     let attempt_raw = amount_raw(1_000.0, 7);
-    let hub0_cash = t.pool_state_on_hub(0, "USDC").cash;
-    let hub1_cash = t.pool_state_on_hub(hub1, "USDC").cash;
+    let hub1_cash = t.pool_state_on_hub(HARNESS_HUB, "USDC").cash;
+    let hub2_cash = t.pool_state_on_hub(hub2, "USDC").cash;
     assert!(
-        hub0_cash < attempt_raw && hub1_cash >= attempt_raw,
-        "hub 0 holds less than the attempt ({}) while hub 1 holds at least it ({})",
-        hub0_cash,
-        hub1_cash
+        hub1_cash < attempt_raw && hub2_cash >= attempt_raw,
+        "hub 1 holds less than the attempt ({}) while hub 2 holds at least it ({})",
+        hub1_cash,
+        hub2_cash
     );
 
-    // A borrow that exceeds hub-0 cash reverts even though hub 1 holds far more,
+    // A borrow that exceeds hub-1 cash reverts even though hub 2 holds far more,
     // and even though the collateral easily covers it.
-    let result = t.try_borrow_on_hub(0, ALICE, a, "USDC", 1_000.0);
+    let result = t.try_borrow_on_hub(HARNESS_HUB, ALICE, a, "USDC", 1_000.0);
     assert!(
         result.is_err(),
-        "hub-0 borrow exceeding hub-0 cash must revert despite hub-1 liquidity"
+        "hub-1 borrow exceeding hub-1 cash must revert despite hub-2 liquidity"
     );
 }
 
-// 4. swap_debt refinances a USDC debt from hub 0 to hub 1 (cross-hub). The
-// borrow leg settles on hub 1, the repay leg on hub 0; same underlying token so
+// 4. swap_debt refinances a USDC debt from hub 1 to hub 2 (cross-hub). The
+// borrow leg settles on hub 2, the repay leg on hub 1; same underlying token so
 // the strategy nets without an aggregator swap.
 #[test]
 fn swap_debt_refinances_debt_across_hubs() {
@@ -226,33 +229,33 @@ fn swap_debt_refinances_debt_across_hubs() {
         .with_min_borrow_collateral_disabled()
         .build();
 
-    let hub1 = t.create_hub();
-    // Hub 1 USDC must hold cash for the refinancing borrow.
-    t.list_market_on_hub(hub1, "USDC", 100_000.0);
+    let hub2 = t.create_hub();
+    // Hub 2 USDC must hold cash for the refinancing borrow.
+    t.list_market_on_hub(hub2, "USDC", 100_000.0);
 
-    // Hub 0: Alice self-collateralizes USDC and opens a USDC debt.
-    let account_id = t.supply_on_hub(0, ALICE, "USDC", 1_000.0);
-    t.borrow_on_hub(0, ALICE, account_id, "USDC", 300.0);
+    // Hub 1: Alice self-collateralizes USDC and opens a USDC debt.
+    let account_id = t.supply_on_hub(HARNESS_HUB, ALICE, "USDC", 1_000.0);
+    t.borrow_on_hub(HARNESS_HUB, ALICE, account_id, "USDC", 300.0);
 
     assert!(
-        borrow_scaled_on_hub(&t, account_id, 0, "USDC") > 0,
-        "precondition: hub-0 USDC debt exists"
+        borrow_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC") > 0,
+        "precondition: hub-1 USDC debt exists"
     );
     assert_eq!(
-        borrow_scaled_on_hub(&t, account_id, hub1, "USDC"),
+        borrow_scaled_on_hub(&t, account_id, hub2, "USDC"),
         0,
-        "precondition: no hub-1 USDC debt yet"
+        "precondition: no hub-2 USDC debt yet"
     );
 
-    // Refinance: borrow USDC on hub 1, repay the hub-0 USDC debt. A small buffer
+    // Refinance: borrow USDC on hub 2, repay the hub-1 USDC debt. A small buffer
     // above the 300 debt absorbs the flash fee; the over-repay is refunded.
     let usdc = t.resolve_asset("USDC");
     let existing_debt = HubAssetKey {
-        hub_id: 0,
+        hub_id: HARNESS_HUB,
         asset: usdc.clone(),
     };
     let new_debt = HubAssetKey {
-        hub_id: hub1,
+        hub_id: hub2,
         asset: usdc.clone(),
     };
     let caller = t.get_or_create_user(ALICE);
@@ -268,34 +271,34 @@ fn swap_debt_refinances_debt_across_hubs() {
         &steps,
     );
 
-    // The debt moved hubs: hub-0 USDC debt is cleared, hub-1 USDC debt carries it.
+    // The debt moved hubs: hub-1 USDC debt is cleared, hub-2 USDC debt carries it.
     assert_eq!(
-        borrow_scaled_on_hub(&t, account_id, 0, "USDC"),
+        borrow_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC"),
         0,
-        "hub-0 USDC debt is fully repaid by the refinance"
+        "hub-1 USDC debt is fully repaid by the refinance"
     );
     assert!(
-        borrow_scaled_on_hub(&t, account_id, hub1, "USDC") > 0,
-        "hub-1 USDC debt now carries the refinanced position"
+        borrow_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
+        "hub-2 USDC debt now carries the refinanced position"
     );
 
-    // The two markets reflect the move: hub-0 borrowed drains to zero, hub-1
+    // The two markets reflect the move: hub-1 borrowed drains to zero, hub-2
     // borrowed becomes non-zero.
     assert_eq!(
-        t.pool_state_on_hub(0, "USDC").borrowed_ray,
+        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrowed_ray,
         0,
-        "hub-0 USDC market has no borrows after the refinance"
+        "hub-1 USDC market has no borrows after the refinance"
     );
     assert!(
-        t.pool_state_on_hub(hub1, "USDC").borrowed_ray > 0,
-        "hub-1 USDC market holds the refinanced borrow"
+        t.pool_state_on_hub(hub2, "USDC").borrowed_ray > 0,
+        "hub-2 USDC market holds the refinanced borrow"
     );
 }
 
-// 5. A hub-1 account can be liquidated: its debt is repaid and its collateral
-// seized, while a hub-0 market is left untouched. Guards the hub>0 liquidation
+// 5. A hub-2 account can be liquidated: its debt is repaid and its collateral
+// seized, while a hub-1 market is left untouched. Guards the hub>0 liquidation
 // plan path that previously keyed the repay/seize lookups to `{0, asset}` and so
-// missed the real hub-1 positions, panicking `InternalError`.
+// missed the real hub-2 positions, panicking `InternalError`.
 #[test]
 fn liquidation_repays_and_seizes_on_hub_one() {
     let mut t = LendingTest::new()
@@ -303,86 +306,86 @@ fn liquidation_repays_and_seizes_on_hub_one() {
         .with_market(eth_preset())
         .build();
 
-    let hub1 = t.create_hub();
-    // List both markets on hub 1. USDC needs no seed (Alice's own supply funds
+    let hub2 = t.create_hub();
+    // List both markets on hub 2. USDC needs no seed (Alice's own supply funds
     // the seizure); ETH is seeded so Alice can draw a borrow against it.
-    t.list_market_on_hub(hub1, "USDC", 0.0);
-    t.list_market_on_hub(hub1, "ETH", 100.0);
+    t.list_market_on_hub(hub2, "USDC", 0.0);
+    t.list_market_on_hub(hub2, "ETH", 100.0);
 
-    // Hub-0 isolation control: Bob is a pure USDC supplier on hub 0 whose market
-    // must not move when a hub-1 account is liquidated.
-    t.supply_on_hub(0, BOB, "USDC", 1_000.0);
-    let hub0_usdc_before = t.pool_state_on_hub(0, "USDC");
+    // Hub-1 isolation control: Bob is a pure USDC supplier on hub 1 whose market
+    // must not move when a hub-2 account is liquidated.
+    t.supply_on_hub(HARNESS_HUB, BOB, "USDC", 1_000.0);
+    let hub1_usdc_before = t.pool_state_on_hub(HARNESS_HUB, "USDC");
 
-    // Hub 1: Alice posts USDC collateral and borrows ETH, mirroring the canonical
-    // liquidatable USDC/ETH setup but entirely on hub 1.
-    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
-    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    // Hub 2: Alice posts USDC collateral and borrows ETH, mirroring the canonical
+    // liquidatable USDC/ETH setup but entirely on hub 2.
+    let alice = t.supply_on_hub(hub2, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub2, ALICE, alice, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Crash USDC so Alice's hub-1 position is liquidatable.
+    // Crash USDC so Alice's hub-2 position is liquidatable.
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    let debt_before = borrow_scaled_on_hub(&t, alice, hub1, "ETH");
-    let collateral_before = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    let debt_before = borrow_scaled_on_hub(&t, alice, hub2, "ETH");
+    let collateral_before = supply_scaled_on_hub(&t, alice, hub2, "USDC");
     assert!(
         debt_before > 0 && collateral_before > 0,
-        "precondition: hub-1 debt and collateral exist"
+        "precondition: hub-2 debt and collateral exist"
     );
 
-    // The liquidator repays 1 ETH ($2000) of hub-1 debt.
-    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+    // The liquidator repays 1 ETH ($2000) of hub-2 debt.
+    t.liquidate_on_hub(hub2, LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    // Repay leg hit the hub-1 debt key: scaled debt fell.
-    let debt_after = borrow_scaled_on_hub(&t, alice, hub1, "ETH");
+    // Repay leg hit the hub-2 debt key: scaled debt fell.
+    let debt_after = borrow_scaled_on_hub(&t, alice, hub2, "ETH");
     assert!(
         debt_after < debt_before,
-        "hub-1 ETH debt must be repaid: {} -> {}",
+        "hub-2 ETH debt must be repaid: {} -> {}",
         debt_before,
         debt_after
     );
 
-    // Seize leg hit the hub-1 supply key: scaled collateral fell and the
+    // Seize leg hit the hub-2 supply key: scaled collateral fell and the
     // liquidator actually received the seized USDC.
-    let collateral_after = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    let collateral_after = supply_scaled_on_hub(&t, alice, hub2, "USDC");
     assert!(
         collateral_after < collateral_before,
-        "hub-1 USDC collateral must be seized: {} -> {}",
+        "hub-2 USDC collateral must be seized: {} -> {}",
         collateral_before,
         collateral_after
     );
     assert!(
         t.token_balance(LIQUIDATOR, "USDC") > 0.0,
-        "liquidator must receive the seized hub-1 USDC collateral"
+        "liquidator must receive the seized hub-2 USDC collateral"
     );
 
-    // Isolation: the hub-0 USDC market is untouched by a hub-1 liquidation.
-    let hub0_usdc_after = t.pool_state_on_hub(0, "USDC");
+    // Isolation: the hub-1 USDC market is untouched by a hub-2 liquidation.
+    let hub1_usdc_after = t.pool_state_on_hub(HARNESS_HUB, "USDC");
     assert_eq!(
-        hub0_usdc_after.supplied_ray, hub0_usdc_before.supplied_ray,
-        "hub-0 USDC supplied is untouched"
+        hub1_usdc_after.supplied_ray, hub1_usdc_before.supplied_ray,
+        "hub-1 USDC supplied is untouched"
     );
     assert_eq!(
-        hub0_usdc_after.borrowed_ray, hub0_usdc_before.borrowed_ray,
-        "hub-0 USDC borrowed is untouched"
+        hub1_usdc_after.borrowed_ray, hub1_usdc_before.borrowed_ray,
+        "hub-1 USDC borrowed is untouched"
     );
     assert_eq!(
-        hub0_usdc_after.cash, hub0_usdc_before.cash,
-        "hub-0 USDC cash is untouched"
+        hub1_usdc_after.cash, hub1_usdc_before.cash,
+        "hub-1 USDC cash is untouched"
     );
     assert_eq!(
-        hub0_usdc_after.supply_index_ray, hub0_usdc_before.supply_index_ray,
-        "hub-0 USDC supply index is untouched"
+        hub1_usdc_after.supply_index_ray, hub1_usdc_before.supply_index_ray,
+        "hub-1 USDC supply index is untouched"
     );
     assert_eq!(
-        hub0_usdc_after.borrow_index_ray, hub0_usdc_before.borrow_index_ray,
-        "hub-0 USDC borrow index is untouched"
+        hub1_usdc_after.borrow_index_ray, hub1_usdc_before.borrow_index_ray,
+        "hub-1 USDC borrow index is untouched"
     );
 }
 
-// 6. MEDIUM-1: a hub-1 collateral whose hub-0 base listing is absent can still be
-// seized. After delisting USDC from hub 0 (its token-rooted oracle and the hub-1
+// 6. MEDIUM-1: a hub-2 collateral whose hub-1 base listing is absent can still be
+// seized. After delisting USDC from hub 1 (its token-rooted oracle and the hub-2
 // market persist), the seizure must resolve the config under the position's hub.
 // Before the fix the lookup keys `(hub_id: 0, asset)`, which is now absent, so
 // the liquidation DoS-panics `AssetNotSupported`.
@@ -393,50 +396,50 @@ fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
         .with_market(eth_preset())
         .build();
 
-    let hub1 = t.create_hub();
-    // USDC is the collateral on hub 1; ETH is the debt (seeded for the borrow).
-    t.list_market_on_hub(hub1, "USDC", 0.0);
-    t.list_market_on_hub(hub1, "ETH", 100.0);
+    let hub2 = t.create_hub();
+    // USDC is the collateral on hub 2; ETH is the debt (seeded for the borrow).
+    t.list_market_on_hub(hub2, "USDC", 0.0);
+    t.list_market_on_hub(hub2, "ETH", 100.0);
 
-    // Alice posts USDC collateral and borrows ETH on hub 1.
-    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
-    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    // Alice posts USDC collateral and borrows ETH on hub 2.
+    let alice = t.supply_on_hub(hub2, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub2, ALICE, alice, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
-    // Delist USDC from hub 0's base spoke, leaving only the hub-1 listing. The
-    // token-rooted oracle and the hub-1 market are untouched.
+    // Delist USDC from hub 1's base spoke, leaving only the hub-2 listing. The
+    // token-rooted oracle and the hub-2 market are untouched.
     t.ctrl_client()
-        .remove_asset_from_spoke(&t.resolve_asset("USDC"), &0u32);
+        .remove_asset_from_spoke(&hub_asset(t.resolve_asset("USDC")), &0u32);
 
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    let collateral_before = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    let collateral_before = supply_scaled_on_hub(&t, alice, hub2, "USDC");
     assert!(
         collateral_before > 0,
-        "precondition: hub-1 collateral exists"
+        "precondition: hub-2 collateral exists"
     );
 
-    // Before the fix the seizure resolves USDC under (hub 0, USDC) -- now absent
-    // -- and DoS-panics `AssetNotSupported`. After the fix it reads hub 1.
-    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+    // Before the fix the seizure resolves USDC under (hub 1, USDC) -- now absent
+    // -- and DoS-panics `AssetNotSupported`. After the fix it reads hub 2.
+    t.liquidate_on_hub(hub2, LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let collateral_after = supply_scaled_on_hub(&t, alice, hub1, "USDC");
+    let collateral_after = supply_scaled_on_hub(&t, alice, hub2, "USDC");
     assert!(
         collateral_after < collateral_before,
-        "hub-1 collateral must be seized: {} -> {}",
+        "hub-2 collateral must be seized: {} -> {}",
         collateral_before,
         collateral_after
     );
     assert!(
         t.token_balance(LIQUIDATOR, "USDC") > 0.0,
-        "liquidator must receive the seized hub-1 collateral"
+        "liquidator must receive the seized hub-2 collateral"
     );
 }
 
 // 7. MEDIUM-1: the seizure protocol fee is resolved from the collateral's own
-// hub, not hub 0. Hub-0 USDC charges 0% and hub-1 USDC charges 20%, so the
-// hub-1 seizure accrues a claimable fee only when the right hub config is read.
+// hub, not hub 1. Hub-1 USDC charges 0% and hub-2 USDC charges 20%, so the
+// hub-2 seizure accrues a claimable fee only when the right hub config is read.
 #[test]
 fn liquidation_charges_seized_collateral_hub_fee() {
     let mut t = LendingTest::new()
@@ -445,32 +448,32 @@ fn liquidation_charges_seized_collateral_hub_fee() {
         .with_market_config("USDC", |c| c.liquidation_fees_bps = 0)
         .build();
 
-    let hub1 = t.create_hub();
-    // Hub-1 USDC carries a 20% liquidation fee; hub-0 USDC carries 0%.
-    t.list_market_on_hub_with_fees(hub1, "USDC", 0.0, 2_000);
-    t.list_market_on_hub(hub1, "ETH", 1_000.0);
+    let hub2 = t.create_hub();
+    // Hub-2 USDC carries a 20% liquidation fee; hub-1 USDC carries 0%.
+    t.list_market_on_hub_with_fees(hub2, "USDC", 0.0, 2_000);
+    t.list_market_on_hub(hub2, "ETH", 1_000.0);
 
-    let alice = t.supply_on_hub(hub1, ALICE, "USDC", 10_000.0);
-    t.borrow_on_hub(hub1, ALICE, alice, "ETH", 3.0);
+    let alice = t.supply_on_hub(hub2, ALICE, "USDC", 10_000.0);
+    t.borrow_on_hub(hub2, ALICE, alice, "ETH", 3.0);
     t.assert_healthy(ALICE);
 
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    // No time advances, so the only protocol revenue the hub-1 USDC market can
+    // No time advances, so the only protocol revenue the hub-2 USDC market can
     // accrue is the liquidation fee on the seized collateral.
-    t.liquidate_on_hub(hub1, LIQUIDATOR, ALICE, "ETH", 1.0);
+    t.liquidate_on_hub(hub2, LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let hub1_fee = t.claim_revenue_on_hub(hub1, "USDC");
+    let hub2_fee = t.claim_revenue_on_hub(hub2, "USDC");
     assert!(
-        hub1_fee > 0,
-        "hub-1 USDC seizure must accrue the hub-1 fee (20%), not hub-0's 0%: got {}",
-        hub1_fee
+        hub2_fee > 0,
+        "hub-2 USDC seizure must accrue the hub-2 fee (20%), not hub-1's 0%: got {}",
+        hub2_fee
     );
 }
 
 // 8. MEDIUM-2: the keeper index-update and revenue-claim verbs serve hub>0
-// markets. Both forced the hub-0 coordinate before the fix, so a hub-1 market's
+// markets. Both forced the hub-1 coordinate before the fix, so a hub-2 market's
 // index could never be accrued through the controller and its protocol revenue
 // was unclaimable.
 #[test]
@@ -481,49 +484,49 @@ fn keeper_and_revenue_serve_hub_one_markets() {
         .with_min_borrow_collateral_disabled()
         .build();
 
-    let hub1 = t.create_hub();
-    t.list_market_on_hub(hub1, "USDC", 0.0);
-    t.list_market_on_hub(hub1, "ETH", 0.0);
+    let hub2 = t.create_hub();
+    t.list_market_on_hub(hub2, "USDC", 0.0);
+    t.list_market_on_hub(hub2, "ETH", 0.0);
 
-    // A real USDC supplier on hub 1 funds the borrow and keeps the market solvent.
-    t.supply_on_hub(hub1, BOB, "USDC", 100_000.0);
+    // A real USDC supplier on hub 2 funds the borrow and keeps the market solvent.
+    t.supply_on_hub(hub2, BOB, "USDC", 100_000.0);
 
-    // Drive hub-1 USDC utilization: Alice posts ETH and borrows USDC on hub 1.
-    let alice = t.supply_on_hub(hub1, ALICE, "ETH", 10.0); // $20,000 collateral
-    t.borrow_on_hub(hub1, ALICE, alice, "USDC", 10_000.0);
+    // Drive hub-2 USDC utilization: Alice posts ETH and borrows USDC on hub 2.
+    let alice = t.supply_on_hub(hub2, ALICE, "ETH", 10.0); // $20,000 collateral
+    t.borrow_on_hub(hub2, ALICE, alice, "USDC", 10_000.0);
 
     assert_eq!(
-        t.pool_state_on_hub(hub1, "USDC").borrow_index_ray,
+        t.pool_state_on_hub(hub2, "USDC").borrow_index_ray,
         RAY,
-        "hub-1 USDC index starts at RAY"
+        "hub-2 USDC index starts at RAY"
     );
 
     t.advance_time(SECONDS_PER_YEAR);
 
-    // The controller keeper verb accrues the hub-1 index (hub-aware).
-    t.update_indexes_on_hub(hub1, &["USDC"]);
+    // The controller keeper verb accrues the hub-2 index (hub-aware).
+    t.update_indexes_on_hub(hub2, &["USDC"]);
 
     assert!(
-        t.pool_state_on_hub(hub1, "USDC").borrow_index_ray > RAY,
-        "controller update_indexes must accrue the hub-1 USDC index"
+        t.pool_state_on_hub(hub2, "USDC").borrow_index_ray > RAY,
+        "controller update_indexes must accrue the hub-2 USDC index"
     );
     assert_eq!(
-        t.pool_state_on_hub(0, "USDC").borrow_index_ray,
+        t.pool_state_on_hub(HARNESS_HUB, "USDC").borrow_index_ray,
         RAY,
-        "hub-0 USDC index is untouched by a hub-1 keeper update"
+        "hub-1 USDC index is untouched by a hub-2 keeper update"
     );
 
-    // The controller revenue verb claims the hub-1 reserve revenue (hub-aware).
-    let claimed = t.claim_revenue_on_hub(hub1, "USDC");
+    // The controller revenue verb claims the hub-2 reserve revenue (hub-aware).
+    let claimed = t.claim_revenue_on_hub(hub2, "USDC");
     assert!(
         claimed > 0,
-        "hub-1 USDC protocol revenue must be claimable through the controller: got {}",
+        "hub-2 USDC protocol revenue must be claimable through the controller: got {}",
         claimed
     );
-    // Isolation: the hub-0 USDC market accrued nothing to claim.
+    // Isolation: the hub-1 USDC market accrued nothing to claim.
     assert_eq!(
-        t.claim_revenue_on_hub(0, "USDC"),
+        t.claim_revenue_on_hub(HARNESS_HUB, "USDC"),
         0,
-        "hub-0 USDC has no revenue to claim"
+        "hub-1 USDC has no revenue to claim"
     );
 }

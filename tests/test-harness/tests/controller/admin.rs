@@ -71,6 +71,10 @@ fn test_create_liquidity_pool_panics_before_deploy_pool() {
 
     ctrl.unpause();
 
+    // Register a hub so the mandatory hub-active check passes and the
+    // missing-pool check becomes the next step under test.
+    let hub = ctrl.create_hub();
+
     // A real SAC token satisfies the decimals + symbol + allow-list probes
     // inside `create_liquidity_pool` so the missing-pool check is the next
     // step.
@@ -83,7 +87,7 @@ fn test_create_liquidity_pool_panics_before_deploy_pool() {
     let params = preset.params.to_market_params(&asset, preset.decimals);
     let config = preset.config.to_asset_config(&env, preset.decimals);
 
-    let result = match ctrl.try_create_liquidity_pool(&0u32, &asset, &params, &config) {
+    let result = match ctrl.try_create_liquidity_pool(&hub, &asset, &params, &config) {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };

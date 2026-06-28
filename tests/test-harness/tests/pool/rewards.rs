@@ -1,5 +1,5 @@
 use controller::constants::RAY;
-use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE};
+use test_harness::{hub_asset, days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE};
 // Rigorous add_rewards tests: verify the supply index math.
 //
 // Formula: new_index = old_index * (1 + rewards / total_supplied_value),
@@ -15,7 +15,7 @@ use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB, CAROL
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
     let asset_addr = t.resolve_asset(asset);
     let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [asset_addr]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
     let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
     (idx.supply_index_ray, idx.borrow_index_ray)
 }
