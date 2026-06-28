@@ -168,7 +168,8 @@ impl Strategy {
         });
 
         let controller_client = ControllerClient::new(&env, &controller);
-        controller_client.get_market_config(&asset);
+        // Validate the asset is a listed market; reverts if no market exists.
+        controller_client.get_market_index(&asset);
         env.storage().instance().set(
             &DataKey::Config,
             &Config {
