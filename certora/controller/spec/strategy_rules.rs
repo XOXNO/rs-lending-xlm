@@ -5,7 +5,12 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::BAD_DEBT_USD_THRESHOLD;
-use crate::types::{AccountPositionType, StrategySwap};
+use crate::types::{AccountPositionType, HubAssetKey, StrategySwap};
+
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub0(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
 
 /// Successful multiply creates deposit and borrow positions with scaled amount > 0.
 #[rule]
@@ -237,9 +242,9 @@ fn swap_debt_conserves_debt_value(
         e.clone(),
         caller,
         account_id,
-        existing_debt_token.clone(),
+        hub0(existing_debt_token.clone()),
         new_debt_amount,
-        new_debt_token.clone(),
+        hub0(new_debt_token.clone()),
         steps,
     );
 
@@ -276,9 +281,9 @@ fn swap_debt_rejects_same_token(
         e.clone(),
         caller,
         account_id,
-        token.clone(),
+        hub0(token.clone()),
         new_debt_amount,
-        token.clone(),
+        hub0(token.clone()),
         steps,
     );
 
@@ -313,9 +318,9 @@ fn swap_collateral_conserves_collateral(
         e.clone(),
         caller,
         account_id,
-        current_collateral.clone(),
+        hub0(current_collateral.clone()),
         from_amount,
-        new_collateral.clone(),
+        hub0(new_collateral.clone()),
         steps,
     );
 
@@ -356,9 +361,9 @@ fn swap_collateral_rejects_same_token(
         e.clone(),
         caller,
         account_id,
-        token.clone(),
+        hub0(token.clone()),
         from_amount,
-        token.clone(),
+        hub0(token.clone()),
         steps,
     );
 
@@ -570,9 +575,9 @@ fn swap_debt_sanity(
         e,
         caller,
         account_id,
-        existing_debt_token,
+        hub0(existing_debt_token),
         new_debt_amount,
-        new_debt_token,
+        hub0(new_debt_token),
         steps,
     );
     cvlr_satisfy!(true);
@@ -595,9 +600,9 @@ fn swap_collateral_sanity(
         e,
         caller,
         account_id,
-        current_collateral,
+        hub0(current_collateral),
         from_amount,
-        new_collateral,
+        hub0(new_collateral),
         steps,
     );
     cvlr_satisfy!(true);

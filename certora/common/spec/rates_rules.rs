@@ -23,6 +23,8 @@ fn valid_params(asset: Address) -> MarketParams {
         reserve_factor: Bps::from(1_000),
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: asset,
         asset_decimals: 7,
     }

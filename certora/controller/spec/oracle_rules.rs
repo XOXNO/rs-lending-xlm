@@ -7,56 +7,35 @@ use soroban_sdk::{Address, Env};
 
 use crate::constants::{MAX_TOLERANCE, MIN_TOLERANCE, WAD};
 use crate::types::{
-    AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
-    OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
-    OracleStrategy, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
+    MarketOracleConfig, OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
+    OracleSourceConfigOption, OracleStrategy, PriceFeedRaw, ReflectorBase, ReflectorSourceConfig,
 };
 
 const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
 
-/// Seeds a pinned `MarketConfig` directly into the cache, bypassing storage reads.
-fn pinned_market_config(
-    env: &Env,
-    asset: &Address,
-    _pool: &Address,
-    oracle: Address,
-    status: MarketStatus,
-) -> MarketConfig {
-    MarketConfig {
-        status,
-        asset_config: AssetConfigRaw {
-            loan_to_value_bps: 7_500,
-            liquidation_threshold_bps: 8_000,
-            liquidation_bonus_bps: 500,
-            liquidation_fees_bps: 100,
-            is_collateralizable: true,
-            is_borrowable: true,
-            e_mode_categories: soroban_sdk::Vec::new(env),
-
-            is_flashloanable: true,
-            flashloan_fee_bps: 9,
-            asset_decimals: 7,
+/// Active token-rooted `MarketOracleConfig` (Single strategy, Reflector USD
+/// primary). The market "status" is no longer a tri-state enum: an asset is
+/// active iff an `AssetOracle(asset)` entry like this one exists.
+fn pinned_oracle_config(asset: &Address, oracle: Address) -> MarketOracleConfig {
+    MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            upper_ratio_bps: 10_200,
+            lower_ratio_bps: 9_800,
         },
-        oracle_config: MarketOracleConfig {
-            asset_decimals: 7,
-            max_price_stale_seconds: 900,
-            tolerance: OraclePriceFluctuation {
-                upper_ratio_bps: 10_200,
-                lower_ratio_bps: 9_800,
-            },
-            strategy: OracleStrategy::Single,
-            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-                contract: oracle,
-                asset: OracleAssetRef::Stellar(asset.clone()),
-                read_mode: OracleReadMode::Spot,
-                decimals: 14,
-                resolution_seconds: 300,
-                base: ReflectorBase::Usd,
-            }),
-            anchor: OracleSourceConfigOption::None,
-            min_sanity_price_wad: 0,
-            max_sanity_price_wad: 0,
-        },
+        strategy: OracleStrategy::Single,
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle,
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Spot,
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        anchor: OracleSourceConfigOption::None,
+        min_sanity_price_wad: 0,
+        max_sanity_price_wad: 0,
     }
 }
 
@@ -165,12 +144,12 @@ fn oracle_tolerance_sanity(e: Env) {
     cvlr_satisfy!(final_price > 0);
 }
 
-/// `token_price` can return a positive feed under Active + Single configuration.
+/// `token_price` can return a positive feed under an active (configured) +
+/// Single oracle. Activeness is now the presence of an `AssetOracle` entry.
 #[rule]
-fn price_cache_sanity(e: Env, asset: Address, pool: Address, oracle: Address) {
+fn price_cache_sanity(e: Env, asset: Address, oracle: Address) {
     let mut cache = crate::cache::Cache::new(&e);
-    let market = pinned_market_config(&e, &asset, &pool, oracle, MarketStatus::Active);
-    cache.market_configs.set(asset.clone(), market);
+    crate::storage::set_asset_oracle(&e, &asset, &pinned_oracle_config(&asset, oracle));
 
     let feed = crate::oracle::token_price(&mut cache, &asset);
     cvlr_satisfy!(feed.price_wad > 0);

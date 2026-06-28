@@ -5,7 +5,13 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::types::HubAssetKey;
 use common::math::fp::{Ray, Wad};
+
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub0(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
 
 // Rules that read pool quantity views (`get_reserves`, `get_utilisation`,
 // `get_supplied_amount`, `get_borrowed_amount`) or `get_sync_data` and asserted a relation
@@ -42,10 +48,10 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
     );
 
     let mut total_debt = Wad::ZERO;
-    for asset in post_account.borrow_positions.keys() {
-        let position = post_account.borrow_positions.get(asset.clone()).unwrap();
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
+    for hub_asset in post_account.borrow_positions.keys() {
+        let position = post_account.borrow_positions.get(hub_asset.clone()).unwrap();
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             &e,
             Ray::from(position.scaled_amount_ray),
@@ -66,7 +72,7 @@ fn supply_rejects_zero_amount(e: Env, caller: Address, e_mode_category: u32) {
     let zero_amount: i128 = 0;
 
     let mut assets = Vec::new(&e);
-    assets.push_back((asset, zero_amount));
+    assets.push_back((hub0(asset), zero_amount));
 
     crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
 
@@ -81,9 +87,9 @@ fn borrow_rejects_zero_amount(e: Env, caller: Address) {
     let zero_amount: i128 = 0;
 
     let mut borrows = Vec::new(&e);
-    borrows.push_back((asset, zero_amount));
+    borrows.push_back((hub0(asset), zero_amount));
 
-    crate::Controller::borrow(e.clone(), caller, account_id, borrows);
+    crate::Controller::borrow(e.clone(), caller, account_id, borrows, None);
 
     cvlr_satisfy!(false);
 }
@@ -96,7 +102,7 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
     let zero_amount: i128 = 0;
 
     let mut payments = Vec::new(&e);
-    payments.push_back((asset, zero_amount));
+    payments.push_back((hub0(asset), zero_amount));
 
     crate::Controller::repay(e.clone(), caller, account_id, payments);
 
@@ -137,7 +143,7 @@ fn supply_position_limit_enforced(
     .is_none());
 
     let mut assets = Vec::new(&e);
-    assets.push_back((new_asset, amount));
+    assets.push_back((hub0(new_asset), amount));
 
     crate::Controller::supply(e.clone(), caller, account_id, e_mode_category, assets);
 
@@ -171,9 +177,9 @@ fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, a
     .is_none());
 
     let mut borrows = Vec::new(&e);
-    borrows.push_back((new_asset, amount));
+    borrows.push_back((hub0(new_asset), amount));
 
-    crate::Controller::borrow(e.clone(), caller, account_id, borrows);
+    crate::Controller::borrow(e.clone(), caller, account_id, borrows, None);
 
     cvlr_satisfy!(false);
 }
@@ -189,7 +195,7 @@ fn solvency_sanity_supply(
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0);
     let mut assets = Vec::new(&e);
-    assets.push_back((asset, amount));
+    assets.push_back((hub0(asset), amount));
     crate::Controller::supply(e, caller, account_id, e_mode_category, assets);
     cvlr_satisfy!(true);
 }
@@ -199,8 +205,8 @@ fn solvency_sanity_borrow(e: Env, caller: Address, asset: Address, amount: i128)
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0);
     let mut borrows = Vec::new(&e);
-    borrows.push_back((asset, amount));
-    crate::Controller::borrow(e, caller, account_id, borrows);
+    borrows.push_back((hub0(asset), amount));
+    crate::Controller::borrow(e, caller, account_id, borrows, None);
     cvlr_satisfy!(true);
 }
 
@@ -209,7 +215,7 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0);
     let mut payments = Vec::new(&e);
-    payments.push_back((asset, amount));
+    payments.push_back((hub0(asset), amount));
     crate::Controller::repay(e, caller, account_id, payments);
     cvlr_satisfy!(true);
 }
@@ -219,8 +225,9 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
 fn index_cache_single_snapshot(e: Env, asset: Address) {
     let mut cache = crate::cache::Cache::new(&e);
 
-    let index1 = cache.cached_market_index(&asset);
-    let index2 = cache.cached_market_index(&asset);
+    let hub_asset = hub0(asset);
+    let index1 = cache.cached_market_index(&hub_asset);
+    let index2 = cache.cached_market_index(&hub_asset);
 
     cvlr_assert!(index1.supply_index.raw() == index2.supply_index.raw());
     cvlr_assert!(index1.borrow_index.raw() == index2.borrow_index.raw());
@@ -315,7 +322,7 @@ fn compound_interest_no_wrap(e: Env) {
 #[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {
     let mut cache = crate::cache::Cache::new(&e);
-    let index = cache.cached_market_index(&asset);
+    let index = cache.cached_market_index(&hub0(asset));
     cvlr_satisfy!(index.supply_index.raw() >= RAY);
 }
 

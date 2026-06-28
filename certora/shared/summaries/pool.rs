@@ -247,6 +247,8 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
             reserve_factor_bps,
             supply_cap,
             borrow_cap,
+            is_flashloanable: false,
+            flashloan_fee_bps: 0,
             asset_id,
             asset_decimals,
         },

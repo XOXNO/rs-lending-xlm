@@ -5,16 +5,25 @@ use soroban_sdk::{Address, Env};
 
 use crate::constants::WAD;
 use crate::spec::health_ghost;
+use crate::types::HubAssetKey;
 use common::math::fp::{Bps, Ray, Wad};
+
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub0(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    }
+}
 
 /// Sums borrow-side USD WAD by iterating `borrow_positions` without the summarised aggregate.
 fn inline_total_borrow_wad(env: &Env, cache: &mut crate::cache::Cache, account_id: u64) -> Wad {
     let account = crate::storage::get_account(env, account_id);
     let mut total = Wad::ZERO;
-    for asset in account.borrow_positions.keys() {
-        let position = account.borrow_positions.get(asset.clone()).unwrap();
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
+    for hub_asset in account.borrow_positions.keys() {
+        let position = account.borrow_positions.get(hub_asset.clone()).unwrap();
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             env,
             Ray::from(position.scaled_amount_ray),
@@ -34,10 +43,10 @@ fn inline_weighted_collateral_wad(
 ) -> Wad {
     let account = crate::storage::get_account(env, account_id);
     let mut weighted = Wad::ZERO;
-    for asset in account.supply_positions.keys() {
-        let position = account.supply_positions.get(asset.clone()).unwrap();
-        let feed = cache.cached_price(&asset);
-        let market_index = cache.cached_market_index(&asset);
+    for hub_asset in account.supply_positions.keys() {
+        let position = account.supply_positions.get(hub_asset.clone()).unwrap();
+        let feed = cache.cached_price(&hub_asset.asset);
+        let market_index = cache.cached_market_index(&hub_asset);
         let value = crate::helpers::position_value(
             env,
             Ray::from(position.scaled_amount_ray),
@@ -162,7 +171,7 @@ fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let account = crate::storage::get_account(env, account_id);
     account
         .supply_positions
-        .get(asset.clone())
+        .get(hub0(asset))
         .map(|p| p.scaled_amount_ray)
         .unwrap_or(0)
 }
@@ -172,7 +181,7 @@ fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let account = crate::storage::get_account(env, account_id);
     account
         .borrow_positions
-        .get(asset.clone())
+        .get(hub0(asset))
         .map(|p| p.scaled_amount_ray)
         .unwrap_or(0)
 }
@@ -193,8 +202,8 @@ fn borrow_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount: 
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
-            || pre_account.supply_positions.contains_key(reserve.clone())
-            || pre_account.borrow_positions.contains_key(reserve.clone())
+            || pre_account.supply_positions.contains_key(hub0(&reserve))
+            || pre_account.borrow_positions.contains_key(hub0(&reserve))
     );
     let pre_coll = scaled_supply_at(&e, account_id, &reserve);
     let pre_debt = scaled_borrow_at(&e, account_id, &reserve);
@@ -230,8 +239,8 @@ fn withdraw_safe_or_health_gated(e: Env, caller: Address, asset: Address, amount
     let reserve = cvlr_soroban::nondet_address();
     cvlr_assume!(
         reserve == asset
-            || pre_account.supply_positions.contains_key(reserve.clone())
-            || pre_account.borrow_positions.contains_key(reserve.clone())
+            || pre_account.supply_positions.contains_key(hub0(&reserve))
+            || pre_account.borrow_positions.contains_key(hub0(&reserve))
     );
     let pre_coll = scaled_supply_at(&e, account_id, &reserve);
     let pre_debt = scaled_borrow_at(&e, account_id, &reserve);

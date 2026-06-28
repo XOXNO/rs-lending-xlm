@@ -57,6 +57,8 @@ fn nondet_valid_params(e: &Env) -> MarketParams {
         reserve_factor: common::math::fp::Bps::from(i128::from(reserve_factor_bps)),
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id,
         asset_decimals,
     }

@@ -24,6 +24,8 @@ fn boundary_test_params(env: &Env) -> MarketParams {
         reserve_factor: Bps::from(1000),
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: env.current_contract_address(),
         asset_decimals: 7,
     }

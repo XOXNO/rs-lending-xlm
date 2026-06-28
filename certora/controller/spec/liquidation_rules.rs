@@ -4,7 +4,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::constants::{BPS, WAD};
-use crate::types::AccountPositionType;
+use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
 
@@ -30,8 +30,14 @@ fn liquidation_strictly_decreases_debt_for_repaid_asset(
     let scaled_debt_before = borrow_pre.unwrap().scaled_amount_ray;
     cvlr_assume!(scaled_debt_before > 0);
 
-    let mut payments: Vec<(Address, i128)> = Vec::new(&e);
-    payments.push_back((debt_asset.clone(), debt_amount));
+    let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    payments.push_back((
+        HubAssetKey {
+            hub_id: 0,
+            asset: debt_asset.clone(),
+        },
+        debt_amount,
+    ));
 
     crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
 
@@ -72,8 +78,14 @@ fn liquidation_strictly_decreases_collateral_for_seized_asset(
     cvlr_assume!(borrow_pre.is_some());
     cvlr_assume!(borrow_pre.unwrap().scaled_amount_ray > 0);
 
-    let mut payments: Vec<(Address, i128)> = Vec::new(&e);
-    payments.push_back((debt_asset, debt_amount));
+    let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    payments.push_back((
+        HubAssetKey {
+            hub_id: 0,
+            asset: debt_asset,
+        },
+        debt_amount,
+    ));
 
     crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
 

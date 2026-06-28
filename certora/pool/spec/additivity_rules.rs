@@ -3,7 +3,12 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::RAY;
-use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::types::{HubAssetKey, MarketParamsRaw, PoolKey, PoolStateRaw};
+
+/// Hub-0 coordinate for `asset`; the spec models the single default hub.
+fn hub(asset: Address) -> HubAssetKey {
+    HubAssetKey { hub_id: 0, asset }
+}
 
 fn params(asset: Address) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -18,6 +23,8 @@ fn params(asset: Address) -> MarketParamsRaw {
         reserve_factor_bps: 1_000,
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: asset,
         asset_decimals: 7,
     }
@@ -27,9 +34,9 @@ fn seed(env: &Env, admin: Address, asset: Address) {
     crate::LiquidityPool::__constructor(env.clone(), admin);
     env.storage()
         .persistent()
-        .set(&PoolKey::Params(asset.clone()), &params(asset.clone()));
+        .set(&PoolKey::Params(hub(asset.clone())), &params(asset.clone()));
     env.storage().persistent().set(
-        &PoolKey::State(asset),
+        &PoolKey::State(hub(asset)),
         &PoolStateRaw {
             supplied_ray: 100 * RAY,
             borrowed_ray: 25 * RAY,
@@ -54,7 +61,7 @@ fn supply_split_scaled_amount_bounded_by_single(
     cvlr_assume!((0..=1_000_000_000_000i128).contains(&y));
     seed(&e, admin, asset.clone());
 
-    let cache = crate::cache::Cache::load(&e, &asset);
+    let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     let split = cache.calculate_scaled_supply(x) + cache.calculate_scaled_supply(y);
     let single = cache.calculate_scaled_supply(x + y);
 
@@ -73,7 +80,7 @@ fn borrow_split_scaled_amount_bounded_by_single(
     cvlr_assume!((0..=1_000_000_000_000i128).contains(&y));
     seed(&e, admin, asset.clone());
 
-    let cache = crate::cache::Cache::load(&e, &asset);
+    let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     let split = cache.calculate_scaled_borrow(x) + cache.calculate_scaled_borrow(y);
     let single = cache.calculate_scaled_borrow(x + y);
 
@@ -90,7 +97,7 @@ fn supply_withdraw_roundtrip_scaled_no_profit(
     cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
     seed(&e, admin, asset.clone());
 
-    let cache = crate::cache::Cache::load(&e, &asset);
+    let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     let scaled = cache.calculate_scaled_supply(amount);
     let recovered = cache.unscale_supply(scaled);
 
@@ -102,7 +109,7 @@ fn borrow_repay_roundtrip_scaled_no_profit(e: Env, admin: Address, asset: Addres
     cvlr_assume!(amount > 0 && amount <= 1_000_000_000_000i128);
     seed(&e, admin, asset.clone());
 
-    let cache = crate::cache::Cache::load(&e, &asset);
+    let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     let scaled = cache.calculate_scaled_borrow(amount);
     let recovered = cache.unscale_borrow(scaled);
 
@@ -112,6 +119,6 @@ fn borrow_repay_roundtrip_scaled_no_profit(e: Env, admin: Address, asset: Addres
 #[rule]
 fn pool_additivity_reachability(e: Env, admin: Address, asset: Address) {
     seed(&e, admin, asset.clone());
-    let cache = crate::cache::Cache::load(&e, &asset);
+    let cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     cvlr_satisfy!(cache.supplied.raw() > 0);
 }
