@@ -12,6 +12,7 @@ pub trait ControllerAdmin {
     fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
     fn set_position_limits(env: Env, limits: PositionLimits);
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
+    fn create_hub(env: Env) -> u32;
     fn add_spoke(env: Env) -> u32;
     fn remove_spoke(env: Env, id: u32);
     fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs);

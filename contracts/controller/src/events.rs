@@ -513,6 +513,12 @@ pub struct OracleDisabledEvent {
     pub asset: Address,
 }
 
+#[contractevent(topics = ["config", "hub"])]
+#[derive(Clone, Debug)]
+pub struct CreateHubEvent {
+    pub hub_id: u32,
+}
+
 #[cfg(test)]
 #[path = "../tests/events.rs"]
 mod tests;

@@ -134,6 +134,12 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
+        AdminOperation::CreateHub => (
+            storage::get_controller(env),
+            Symbol::new(env, "create_hub"),
+            vec![env],
+            DelayTier::Standard,
+        ),
         AdminOperation::AddSpoke => (
             storage::get_controller(env),
             Symbol::new(env, "add_spoke"),

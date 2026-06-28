@@ -96,6 +96,7 @@ pub enum AdminOperation {
     EditAssetConfig(Address, SpokeAssetConfig),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
+    CreateHub,
     AddSpoke,
     RemoveSpoke(u32),
     AddAssetToSpoke(SpokeAssetArgs),

@@ -65,6 +65,15 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
+/// Isolated-liquidity hub registry entry. Hub 0 is the implicit default and is
+/// never stored; ids from 1 up are created on demand and gate the
+/// (hub, asset) markets and positions adopted in a later phase.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct HubConfig {
+    pub is_active: bool,
+}
+
 /// Persistent spoke definition. Spoke assets and per-asset usage totals live in
 /// discrete storage keys; this record only tracks deprecation and the
 /// (currently inert) liquidation-curve parameters.

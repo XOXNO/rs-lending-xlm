@@ -68,6 +68,8 @@ pub enum GenericError {
     InvalidRole = 41,
     /// Migration source pool is not on the governance Blend-pool allowlist.
     BlendPoolNotApproved = 42,
+    /// Target hub id is not a registered, active hub.
+    HubNotActive = 43,
 }
 
 #[contracterror]

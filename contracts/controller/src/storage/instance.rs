@@ -5,7 +5,7 @@
 
 use crate::constants;
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, MarketOracleConfig, PositionLimits};
+use controller_interface::types::{ControllerKey, HubConfig, MarketOracleConfig, PositionLimits};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Cap on outstanding (approved but not yet consumed) token approvals.
@@ -253,6 +253,37 @@ pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
         .instance()
         .set(&ControllerKey::LastSpokeId, &next);
     next
+}
+
+pub(crate) fn get_last_hub_id(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&ControllerKey::LastHubId)
+        .unwrap_or(0u32)
+}
+
+pub(crate) fn increment_hub_id(env: &Env) -> u32 {
+    let current = get_last_hub_id(env);
+    let next = current
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage()
+        .instance()
+        .set(&ControllerKey::LastHubId, &next);
+    next
+}
+
+/// Reads a hub registry entry. Hub 0 is the implicit default and is never
+/// stored, so this returns `None` for it; `require_hub_active` treats that
+/// absence as always-active.
+pub(crate) fn get_hub(env: &Env, hub_id: u32) -> Option<HubConfig> {
+    env.storage().instance().get(&ControllerKey::Hub(hub_id))
+}
+
+pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
+    env.storage()
+        .instance()
+        .set(&ControllerKey::Hub(hub_id), config);
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {

@@ -2,15 +2,15 @@
 //! aggregator, accumulator, approved tokens, and pool templates.
 
 use crate::events::{
-    ApproveBlendPoolEvent, ApproveTokenEvent, EventOracleProvider, EventSpoke, OracleDisabledEvent,
-    RemoveSpokeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetOracleEvent,
-    UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
-    UpdateSpokeAssetEvent, UpdateSpokeEvent,
+    ApproveBlendPoolEvent, ApproveTokenEvent, CreateHubEvent, EventOracleProvider, EventSpoke,
+    OracleDisabledEvent, RemoveSpokeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent,
+    UpdateAssetOracleEvent, UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent,
+    UpdatePositionLimitsEvent, UpdateSpokeAssetEvent, UpdateSpokeEvent,
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    HubAssetKey, MarketOracleConfig, MarketOracleConfigOption, OraclePriceFluctuation,
+    HubAssetKey, HubConfig, MarketOracleConfig, MarketOracleConfigOption, OraclePriceFluctuation,
     OracleSourceConfig, PositionLimits, ReflectorBase, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::{
@@ -73,6 +73,12 @@ impl Controller {
 
     pub fn get_min_borrow_collateral_usd(env: Env) -> i128 {
         storage::get_min_borrow_collateral_usd_wad(&env)
+    }
+
+    #[only_owner]
+    pub fn create_hub(env: Env) -> u32 {
+        storage::renew_controller_instance(&env);
+        create_hub(&env)
     }
 
     #[only_owner]
@@ -170,6 +176,28 @@ fn set_token_approval(env: &Env, token: Address, approved: bool) {
         approved,
     }
     .publish(env);
+}
+
+pub fn create_hub(env: &Env) -> u32 {
+    let id = storage::increment_hub_id(env);
+    storage::set_hub(env, id, &HubConfig { is_active: true });
+
+    CreateHubEvent { hub_id: id }.publish(env);
+
+    id
+}
+
+/// Gates use of a hub. Hub 0 is the implicit default and is always active
+/// without a registry read; any higher id must resolve to an active `Hub`
+/// entry. Consumed by the (hub, asset) market and position flows in a later
+/// phase, hence currently uncalled outside tests.
+#[allow(dead_code)] // Wired into market/position flows in a later phase.
+pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
+    if hub_id == 0 {
+        return;
+    }
+    let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
+    assert_with_error!(env, active, GenericError::HubNotActive);
 }
 
 pub fn add_spoke(env: &Env) -> u32 {
@@ -478,3 +506,7 @@ pub fn disable_token_oracle(env: &Env, asset: Address) {
     storage::remove_asset_oracle(env, &asset);
     OracleDisabledEvent { asset }.publish(env);
 }
+
+#[cfg(test)]
+#[path = "../../tests/governance/config.rs"]
+mod tests;
