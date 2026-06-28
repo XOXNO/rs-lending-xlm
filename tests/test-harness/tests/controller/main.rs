@@ -5,7 +5,6 @@ extern crate std;
 mod account;
 mod admin;
 mod admin_config;
-mod audit_pocs;
 mod bad_debt_index;
 mod borrow;
 mod bulk_indexes;
