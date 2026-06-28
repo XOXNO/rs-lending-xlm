@@ -25,6 +25,7 @@ pub trait ControllerAdmin {
     fn set_market_oracle_config(env: Env, asset: Address, config: MarketOracleConfig);
     fn set_oracle_tolerance(env: Env, asset: Address, tolerance: OraclePriceFluctuation);
     fn disable_token_oracle(env: Env, asset: Address);
+    fn set_position_manager(env: Env, manager: Address, is_active: bool);
     fn create_liquidity_pool(
         env: Env,
         hub_id: u32,

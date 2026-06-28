@@ -129,6 +129,14 @@ pub trait ControllerInterface {
     /// Renews TTL for account storage keys after owner authorization.
     fn renew_account(env: Env, caller: Address, account_id: u64);
 
+    /// Owner-only: opts `delegate` into acting on `account_id` for owner-gated
+    /// verbs. Effective only while `delegate` is also a registered, active
+    /// position manager. Idempotent.
+    fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
+
+    /// Owner-only: revokes `delegate` from `account_id`.
+    fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address);
+
     /// Returns true when health factor is below one.
     fn is_liquidatable(env: Env, account_id: u64) -> bool;
 

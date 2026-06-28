@@ -40,7 +40,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
+    crate::helpers::require_owner_or_delegate(env, account_id, caller);
 
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);

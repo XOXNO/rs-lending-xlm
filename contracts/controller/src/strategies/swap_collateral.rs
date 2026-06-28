@@ -74,7 +74,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     );
 
     let mut account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
+    crate::helpers::require_owner_or_delegate(env, account_id, caller);
 
     let mut cache = Cache::new(env);
 

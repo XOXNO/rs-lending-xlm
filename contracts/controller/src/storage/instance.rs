@@ -5,7 +5,9 @@
 
 use crate::constants;
 use common::errors::GenericError;
-use controller_interface::types::{ControllerKey, HubConfig, MarketOracleConfig, PositionLimits};
+use controller_interface::types::{
+    ControllerKey, HubConfig, MarketOracleConfig, PositionLimits, PositionManagerConfig,
+};
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Cap on outstanding (approved but not yet consumed) token approvals.
@@ -284,6 +286,20 @@ pub(crate) fn set_hub(env: &Env, hub_id: u32, config: &HubConfig) {
     env.storage()
         .instance()
         .set(&ControllerKey::Hub(hub_id), config);
+}
+
+/// Reads a position-manager registry entry. Absence means the address is not a
+/// registered manager; `require_owner_or_delegate` then grants it no access.
+pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
+    env.storage()
+        .instance()
+        .get(&ControllerKey::PositionManager(addr.clone()))
+}
+
+pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionManagerConfig) {
+    env.storage()
+        .instance()
+        .set(&ControllerKey::PositionManager(addr.clone()), config);
 }
 
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {

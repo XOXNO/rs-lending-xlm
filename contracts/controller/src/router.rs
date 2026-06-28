@@ -45,6 +45,19 @@ impl Controller {
         renew_account(&env, &caller, account_id);
     }
 
+    /// Owner-only: opts `delegate` into acting on `account_id`. Effective only
+    /// while `delegate` is also a registered, active position manager.
+    pub fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
+        storage::renew_controller_instance(&env);
+        set_account_delegate(&env, &caller, account_id, &delegate, true);
+    }
+
+    /// Owner-only: revokes `delegate` from `account_id`.
+    pub fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address) {
+        storage::renew_controller_instance(&env);
+        set_account_delegate(&env, &caller, account_id, &delegate, false);
+    }
+
     /// One-time deployment of the central liquidity pool owned by this
     /// controller. Panics PoolAlreadyDeployed on repeat calls.
     #[only_owner]
@@ -322,6 +335,26 @@ pub fn renew_account(env: &Env, caller: &Address, account_id: u64) {
     assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
 
     storage::renew_user_account(env, account_id);
+}
+
+/// Owner-only mutation of an account's delegate list. Only the account owner
+/// manages delegates; a delegate cannot add or remove other delegates.
+fn set_account_delegate(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    delegate: &Address,
+    add: bool,
+) {
+    caller.require_auth();
+    let meta = storage::get_account_meta(env, account_id);
+    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+
+    if add {
+        storage::add_delegate(env, account_id, delegate);
+    } else {
+        storage::remove_delegate(env, account_id, delegate);
+    }
 }
 
 /// Syncs risk params on each supply position for one account, then runs a

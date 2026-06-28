@@ -74,6 +74,15 @@ pub struct HubConfig {
     pub is_active: bool,
 }
 
+/// Governance registry entry for a position manager. A manager only gains
+/// owner-gated access to an account while `is_active` holds and the account
+/// owner has listed it among the account's delegates.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PositionManagerConfig {
+    pub is_active: bool,
+}
+
 /// Persistent spoke definition. Spoke assets and per-asset usage totals live in
 /// discrete storage keys; this record only tracks deprecation and the
 /// (currently inert) liquidation-curve parameters.

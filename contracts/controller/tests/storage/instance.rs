@@ -40,3 +40,21 @@ fn test_token_approval_cap_rejects_overflowing_approval() {
         set_token_approved(&env, &Address::generate(&env), true);
     });
 }
+
+// An unregistered manager reads as absent; a write round-trips the active flag.
+#[test]
+fn position_manager_absent_then_active_flag_round_trips() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let manager = Address::generate(&env);
+        assert!(get_position_manager(&env, &manager).is_none());
+
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: true });
+        assert!(get_position_manager(&env, &manager).is_some_and(|c| c.is_active));
+
+        set_position_manager(&env, &manager, &PositionManagerConfig { is_active: false });
+        assert!(get_position_manager(&env, &manager).is_some_and(|c| !c.is_active));
+    });
+}

@@ -280,6 +280,16 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             vec![env, asset.clone().into_val(env)],
             DelayTier::Standard,
         ),
+        AdminOperation::SetPositionManager(manager, is_active) => (
+            storage::get_controller(env),
+            Symbol::new(env, "set_position_manager"),
+            vec![
+                env,
+                manager.clone().into_val(env),
+                is_active.into_val(env),
+            ],
+            DelayTier::Standard,
+        ),
         AdminOperation::UpgradeController(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             (

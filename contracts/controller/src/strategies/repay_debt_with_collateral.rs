@@ -73,7 +73,7 @@ pub fn process_repay_debt_with_collateral(
     validation::require_positive_amount(env, collateral_amount);
 
     let mut account = storage::get_account(env, account_id);
-    validation::require_account_owner_match(env, &account, caller);
+    crate::helpers::require_owner_or_delegate(env, account_id, caller);
 
     let mut cache = Cache::new(env);
 

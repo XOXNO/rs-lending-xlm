@@ -5,7 +5,7 @@ use common::errors::*;
 use common::math::fp::Wad;
 pub use common::validation::{require_positive_amount, require_wasm_receiver};
 use controller_interface::types::{Account, AccountPositionType, HubAssetKey};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
 use crate::positions::AggregatedPayments;
 
@@ -42,14 +42,6 @@ pub fn require_market_active(env: &Env, cache: &mut Cache, hub_asset: &HubAssetK
         env,
         storage::get_asset_oracle(env, &hub_asset.asset).is_some(),
         GenericError::PairNotActive
-    );
-}
-
-pub fn require_account_owner_match(env: &Env, account: &Account, caller: &Address) {
-    assert_with_error!(
-        env,
-        account.owner == *caller,
-        GenericError::AccountNotInMarket
     );
 }
 

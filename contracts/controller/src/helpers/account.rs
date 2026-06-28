@@ -81,15 +81,34 @@ pub fn load_or_create_account(
     match guard {
         AccountGuard::Supply => require_spoke_match(env, &account, spoke_id),
         AccountGuard::Migrate => {
-            crate::validation::require_account_owner_match(env, &account, caller);
+            require_owner_or_delegate(env, account_id, caller);
             require_spoke_match(env, &account, spoke_id);
         }
         AccountGuard::Multiply => {
-            crate::validation::require_account_owner_match(env, &account, caller);
+            require_owner_or_delegate(env, account_id, caller);
             assert_with_error!(env, account.mode == mode, GenericError::AccountModeMismatch);
         }
     }
     (account_id, account)
+}
+
+/// Authorizes `caller` for an owner-gated verb on `account_id`.
+///
+/// The account owner always passes. A delegate passes only when it is both a
+/// registered, active position manager and listed in the account's delegates.
+/// With no registered manager and no delegates this reduces exactly to the
+/// owner-only check it replaces.
+pub fn require_owner_or_delegate(env: &Env, account_id: u64, caller: &Address) {
+    let owner = storage::get_account_meta(env, account_id).owner;
+    if *caller == owner {
+        return;
+    }
+    let active_manager =
+        storage::get_position_manager(env, caller).is_some_and(|config| config.is_active);
+    if active_manager && storage::get_delegates(env, account_id).contains(caller.clone()) {
+        return;
+    }
+    panic_with_error!(env, GenericError::AccountNotInMarket);
 }
 
 /// Rejects a non-zero spoke arg that conflicts with the stored spoke.
@@ -143,3 +162,7 @@ pub fn update_or_remove_debt_position(
         false
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/helpers/account.rs"]
+mod tests;

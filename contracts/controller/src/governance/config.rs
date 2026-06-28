@@ -11,7 +11,8 @@ use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
     HubAssetKey, HubConfig, MarketOracleConfig, MarketOracleConfigOption, OraclePriceFluctuation,
-    OracleSourceConfig, PositionLimits, ReflectorBase, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
+    OracleSourceConfig, PositionLimits, PositionManagerConfig, ReflectorBase, SpokeAssetArgs,
+    SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
@@ -165,6 +166,15 @@ impl Controller {
     pub fn disable_token_oracle(env: Env, asset: Address) {
         storage::renew_controller_instance(&env);
         disable_token_oracle(&env, asset);
+    }
+
+    /// Registers (or updates) a position manager. Owners opt in per account via
+    /// `add_delegate`; a manager only acts on an account while active and listed
+    /// among that account's delegates.
+    #[only_owner]
+    pub fn set_position_manager(env: Env, manager: Address, is_active: bool) {
+        storage::renew_controller_instance(&env);
+        storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active });
     }
 }
 

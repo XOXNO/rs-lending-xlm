@@ -9,7 +9,11 @@ use controller_interface::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
     DebtPositionRaw, HubAssetKey,
 };
-use soroban_sdk::{panic_with_error, Env, Map};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+
+/// Cap on per-account delegates. The list loads as one persistent entry, so it
+/// stays bounded; mirrors the instance-tier approval caps.
+const MAX_DELEGATES: u32 = 16;
 
 pub(crate) fn account_from_parts(
     meta: AccountMeta,
@@ -151,6 +155,57 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     account_from_parts(meta, Map::new(env), borrow_positions)
 }
 
+/// Opt-in delegate list for an account; empty when none are set.
+pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&ControllerKey::Delegates(account_id))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Persists the delegate list, removing the entry when it becomes empty so a
+/// fully-revoked account leaves no residual storage.
+pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>) {
+    let key = ControllerKey::Delegates(account_id);
+    if delegates.is_empty() {
+        env.storage().persistent().remove(&key);
+    } else {
+        env.storage().persistent().set(&key, delegates);
+        renew_user_key(env, &key);
+    }
+}
+
+/// Adds `delegate` once; re-adding an existing delegate is a no-op. Rejects
+/// growth past `MAX_DELEGATES` so the persisted list stays bounded.
+pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) {
+    let mut delegates = get_delegates(env, account_id);
+    if delegates.contains(delegate.clone()) {
+        return;
+    }
+    assert_with_error!(
+        env,
+        delegates.len() < MAX_DELEGATES,
+        GenericError::InvalidPositionLimits
+    );
+    delegates.push_back(delegate.clone());
+    set_delegates(env, account_id, &delegates);
+}
+
+/// Removes `delegate` if present; absent removal is a no-op.
+pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) {
+    let delegates = get_delegates(env, account_id);
+    if !delegates.contains(delegate.clone()) {
+        return;
+    }
+    let mut next = Vec::new(env);
+    for existing in delegates.iter() {
+        if existing != *delegate {
+            next.push_back(existing);
+        }
+    }
+    set_delegates(env, account_id, &next);
+}
+
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
@@ -173,3 +228,7 @@ pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/storage/account.rs"]
+mod tests;
