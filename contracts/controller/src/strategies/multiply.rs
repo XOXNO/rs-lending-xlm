@@ -194,9 +194,13 @@ fn collect_initial_multiply_payment(
 
         // Only listed assets may invoke token contracts; payment token is the
         // user-supplied call target.
+        let payment_hub = HubAssetKey {
+            hub_id: 0,
+            asset: payment_token.clone(),
+        };
         assert_with_error!(
             env,
-            storage::has_market_config(env, payment_token),
+            storage::get_spoke_asset(env, 0, &payment_hub).is_some(),
             GenericError::AssetNotSupported
         );
 

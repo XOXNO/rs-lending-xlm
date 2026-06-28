@@ -9,7 +9,8 @@ pub use admin::{ControllerAdmin, ControllerAdminClient};
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 use types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
-    LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, PositionMode, SpokeConfig,
+    LiquidationEstimate, MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig,
+    SpokeConfig,
 };
 
 #[contractclient(name = "ControllerClient")]
@@ -168,8 +169,9 @@ pub trait ControllerInterface {
     /// Returns account mode and spoke attributes.
     fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes;
 
-    /// Returns market config for `asset`.
-    fn get_market_config(env: Env, asset: Address) -> MarketConfig;
+    /// Returns the per-spoke risk listing for `asset` on `spoke_id` (spoke 0 is
+    /// the general base listing). Panics `AssetNotSupported` when not listed.
+    fn get_spoke_asset(env: Env, spoke_id: u32, asset: Address) -> SpokeAssetConfig;
 
     /// Returns spoke config by id.
     fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig;

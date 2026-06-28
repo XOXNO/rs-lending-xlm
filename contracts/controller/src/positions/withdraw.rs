@@ -28,13 +28,13 @@ pub(crate) const WITHDRAW_ALL_SENTINEL: i128 = i128::MAX;
 
 /// Per-asset decision for refreshing supply risk params during withdraw.
 ///
-/// - `Frozen`: keep existing risk params.
-/// - `None`: refresh from current config with no spoke.
-/// - `From`: refresh from the given active spoke.
+/// - `Frozen`: keep the snapshotted risk params (liquidation, deprecated spoke,
+///   or asset removed from a named spoke).
+/// - `Refresh`: re-stamp risk params from the account's spoke config (spoke 0 or
+///   the active named spoke).
 pub(crate) enum SpokeRefresh {
     Frozen,
-    None,
-    From(SpokeConfig),
+    Refresh,
 }
 
 /// Per-call withdrawal inputs that travel together through the pipeline.
@@ -186,7 +186,7 @@ fn withdraw_refresh_spoke_for_asset(
     spoke: &Option<SpokeConfig>,
 ) -> SpokeRefresh {
     if account.spoke_id == 0 {
-        return SpokeRefresh::None;
+        return SpokeRefresh::Refresh;
     }
 
     let Some(spoke) = spoke else {
@@ -196,7 +196,7 @@ fn withdraw_refresh_spoke_for_asset(
         return SpokeRefresh::Frozen;
     }
 
-    SpokeRefresh::From(spoke.clone())
+    SpokeRefresh::Refresh
 }
 
 /// `refresh_spoke` refreshes risk params from current config or keeps them
@@ -218,13 +218,10 @@ pub(crate) fn finish_withdrawal(
         let delta = old_scaled - result_position.scaled_amount;
         ctx.apply_withdraw_after_pool(env, hub_asset, delta);
     }
-    let refresh_spoke = match refresh_spoke {
-        SpokeRefresh::Frozen => None,
-        SpokeRefresh::None => Some(None),
-        SpokeRefresh::From(spoke) => Some(Some(spoke.clone())),
-    };
-    if let Some(spoke) = &refresh_spoke {
-        let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, spoke);
+    // `Frozen` keeps the snapshotted params; `Refresh` re-stamps from the
+    // account's spoke config (spoke 0 base or the active named spoke).
+    if matches!(refresh_spoke, SpokeRefresh::Refresh) {
+        let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
         refresh_supply_risk_params(env, cache, account, hub_asset, &mut result_position, &config);
     }
     update_or_remove_supply_position(account, hub_asset, &result_position);

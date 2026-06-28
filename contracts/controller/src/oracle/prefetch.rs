@@ -30,11 +30,11 @@ pub(crate) fn prefetch_redstone_feeds(cache: &mut Cache, assets: &Vec<Address>) 
         if cache.prices_cache.contains_key(asset.clone()) {
             continue;
         }
-        // Flows reject unlisted assets; prefetch must not add a panic site.
-        let Some(market) = cache.try_cached_market_config(&asset) else {
+        // Pending/disabled assets have no `AssetOracle`; prefetch must not add a
+        // panic site, so skip them. Prefetch uses the token-rooted base config.
+        let Some(oracle_config) = crate::storage::get_asset_oracle(&env, &asset) else {
             continue;
         };
-        let oracle_config = market.oracle_config;
         collect_redstone_feed(cache, &env, &mut by_adapter, &oracle_config.primary);
         if let Some(anchor) = oracle_config.anchor.as_ref() {
             collect_redstone_feed(cache, &env, &mut by_adapter, anchor);

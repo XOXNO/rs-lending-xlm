@@ -36,7 +36,10 @@ pub fn refresh_supply_risk_params(
     );
 }
 
-/// Resolves spoke-adjusted config for `hub_asset`, then refreshes `position`.
+/// Resolves the account-spoke risk config for `hub_asset`, then refreshes
+/// `position`. A deprecated spoke or an asset removed from a named spoke keeps
+/// the position's snapshotted params (no refresh), so view-modeled exits do not
+/// reject on a governance change.
 pub fn refresh_supply_risk_params_for_asset(
     env: &Env,
     cache: &mut Cache,
@@ -44,20 +47,13 @@ pub fn refresh_supply_risk_params_for_asset(
     hub_asset: &HubAssetKey,
     position: &mut AccountPosition,
 ) {
-    // Views modeling exits must not reject only because governance deprecated a
-    // spoke or removed an asset from it.
-    let spoke = match cache.cached_spoke(account.spoke_id) {
-        Some(spoke) => {
-            if spoke.is_deprecated
-                || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none()
-            {
-                return;
-            }
-            Some(spoke)
+    if account.spoke_id != 0 {
+        let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+        if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+            return;
         }
-        None => None,
-    };
-    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &spoke);
+    }
+    let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
     refresh_supply_risk_params(env, cache, account, hub_asset, position, &config);
 }
 

@@ -1,7 +1,7 @@
 //! Public price entry point (`token_price`).
 
-use common::errors::{GenericError, OracleError};
-use controller_interface::types::{MarketStatus, OracleSourceConfig, PriceFeedRaw};
+use common::errors::OracleError;
+use controller_interface::types::{OracleSourceConfig, PriceFeedRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Address};
 
 use super::compose;
@@ -12,14 +12,8 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         return feed;
     }
 
-    let market = cache.cached_market_config(asset);
-    match market.status {
-        MarketStatus::PendingOracle | MarketStatus::Disabled => {
-            panic_with_error!(cache.env(), GenericError::PairNotActive);
-        }
-        _ => {}
-    }
-
+    // `resolve_oracle_config` panics `OracleNotConfigured` when `AssetOracle` is
+    // absent; that absence is the pending/disabled gate (no status read).
     let config = cache.resolve_oracle_config(asset);
 
     // Reject the `MarketOracleConfig::pending_for` self-pointer sentinel.

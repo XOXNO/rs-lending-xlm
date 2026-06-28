@@ -1,9 +1,8 @@
 use super::*;
 use controller_interface::types::{
-    AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketOracleConfigOption, MarketStatus,
-    OracleAssetRef, OraclePriceFluctuation, OracleReadMode, OracleSourceConfig,
-    OracleSourceConfigOption, OracleStrategy, PositionMode, ReflectorBase, ReflectorSourceConfig,
-    SpokeAssetConfig,
+    MarketOracleConfig, MarketOracleConfigOption, OracleAssetRef, OraclePriceFluctuation,
+    OracleReadMode, OracleSourceConfig, OracleSourceConfigOption, OracleStrategy, PositionMode,
+    ReflectorBase, ReflectorSourceConfig, SpokeAssetConfig,
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, vec, BytesN, Vec};
@@ -21,56 +20,53 @@ fn dummy_address(env: &Env) -> Address {
     Address::generate(env)
 }
 
-fn dummy_asset_config(env: &Env) -> AssetConfigRaw {
-    AssetConfigRaw {
+fn dummy_spoke_asset_config() -> SpokeAssetConfig {
+    SpokeAssetConfig {
+        is_collateralizable: true,
+        is_borrowable: true,
+        paused: false,
+        frozen: false,
         loan_to_value_bps: 7500,
         liquidation_threshold_bps: 8000,
         liquidation_bonus_bps: 500,
         liquidation_fees_bps: 100,
-        is_collateralizable: true,
-        is_borrowable: true,
-        e_mode_categories: soroban_sdk::Vec::new(env),
-        is_flashloanable: true,
-        flashloan_fee_bps: 9,
-        asset_decimals: 7,
+        supply_cap: 0,
+        borrow_cap: 0,
+        oracle_override: MarketOracleConfigOption::None,
     }
 }
 
-fn dummy_market_config(env: &Env) -> MarketConfig {
+fn dummy_oracle_config(env: &Env) -> MarketOracleConfig {
     let asset = dummy_address(env);
     let oracle = dummy_address(env);
-    MarketConfig {
-        status: MarketStatus::Active,
-        asset_config: dummy_asset_config(env),
-        oracle_config: MarketOracleConfig {
-            asset_decimals: 7,
-            max_price_stale_seconds: 900,
-            tolerance: OraclePriceFluctuation {
-                upper_ratio_bps: 10_500,
-                lower_ratio_bps: 9_500,
-            },
-            strategy: OracleStrategy::PrimaryWithAnchor,
-            primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
-                contract: oracle.clone(),
-                asset: OracleAssetRef::Stellar(asset.clone()),
-                read_mode: OracleReadMode::Twap(12),
-                decimals: 14,
+    MarketOracleConfig {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        tolerance: OraclePriceFluctuation {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_500,
+        },
+        strategy: OracleStrategy::PrimaryWithAnchor,
+        primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
+            contract: oracle.clone(),
+            asset: OracleAssetRef::Stellar(asset.clone()),
+            read_mode: OracleReadMode::Twap(12),
+            decimals: 14,
+            resolution_seconds: 300,
+            base: ReflectorBase::Usd,
+        }),
+        anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
+            ReflectorSourceConfig {
+                contract: oracle,
+                asset: OracleAssetRef::Stellar(asset),
+                read_mode: OracleReadMode::Spot,
+                decimals: 7,
                 resolution_seconds: 300,
                 base: ReflectorBase::Usd,
-            }),
-            anchor: OracleSourceConfigOption::Some(OracleSourceConfig::Reflector(
-                ReflectorSourceConfig {
-                    contract: oracle,
-                    asset: OracleAssetRef::Stellar(asset),
-                    read_mode: OracleReadMode::Spot,
-                    decimals: 7,
-                    resolution_seconds: 300,
-                    base: ReflectorBase::Usd,
-                },
-            )),
-            min_sanity_price_wad: 0,
-            max_sanity_price_wad: 0,
-        },
+            },
+        )),
+        min_sanity_price_wad: 0,
+        max_sanity_price_wad: 0,
     }
 }
 
@@ -132,11 +128,11 @@ fn event_account_attributes_from_account_meta_spoke() {
 }
 
 #[test]
-fn event_oracle_provider_from_market_builds_struct() {
+fn event_oracle_provider_from_oracle_builds_struct() {
     let env = Env::default();
-    let market = dummy_market_config(&env);
+    let oracle = dummy_oracle_config(&env);
     let asset = dummy_address(&env);
-    let provider = EventOracleProvider::from_market(&env, &asset, &market);
+    let provider = EventOracleProvider::from_oracle(&env, &asset, &oracle);
     assert_eq!(
         provider.primary_provider,
         OracleProviderKind::ReflectorSep40 as u32
@@ -185,10 +181,10 @@ fn update_asset_oracle_event_nests_oracle_fields_under_oracle_key() {
     let (env, contract) = setup();
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
-        let market = dummy_market_config(&env);
+        let oracle = dummy_oracle_config(&env);
         UpdateAssetOracleEvent {
             asset: asset.clone(),
-            oracle: EventOracleProvider::from_market(&env, &asset, &market),
+            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
         }
         .publish(&env);
     });
@@ -228,7 +224,7 @@ fn emit_helpers_publish_without_panicking() {
     env.as_contract(&contract, || {
         let asset = dummy_address(&env);
         let caller = dummy_address(&env);
-        let market = dummy_market_config(&env);
+        let oracle = dummy_oracle_config(&env);
 
         CreateMarketEvent {
             base_asset: asset.clone(),
@@ -242,7 +238,7 @@ fn emit_helpers_publish_without_panicking() {
             max_utilization: 0,
             reserve_factor: 0,
             market_address: asset.clone(),
-            config: dummy_asset_config(&env),
+            config: dummy_spoke_asset_config(),
         }
         .publish(&env);
 
@@ -288,15 +284,9 @@ fn emit_helpers_publish_without_panicking() {
         }
         .publish(&env);
 
-        UpdateAssetConfigEvent {
-            asset: asset.clone(),
-            config: dummy_asset_config(&env),
-        }
-        .publish(&env);
-
         UpdateAssetOracleEvent {
             asset: asset.clone(),
-            oracle: EventOracleProvider::from_market(&env, &asset, &market),
+            oracle: EventOracleProvider::from_oracle(&env, &asset, &oracle),
         }
         .publish(&env);
 

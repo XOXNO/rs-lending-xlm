@@ -11,7 +11,7 @@ use common::validation::cap_is_enabled;
 use controller_interface::types::{
     HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
 
@@ -223,31 +223,6 @@ fn enforce_spoke_borrow_cap(
         next_scaled <= cap_scaled,
         EModeError::SpokeBorrowCapReached
     );
-}
-
-/// Rejects hub caps that would sit below an asset's configured spoke caps.
-pub fn validate_hub_caps_against_spoke_assets(
-    env: &Env,
-    asset: &Address,
-    hub_supply_cap: i128,
-    hub_borrow_cap: i128,
-) {
-    let market = storage::get_market_config(env, asset);
-    for spoke_id in market.asset_config.e_mode_categories.iter() {
-        let hub_asset = HubAssetKey {
-            hub_id: 0,
-            asset: asset.clone(),
-        };
-        if let Some(cfg) = storage::get_spoke_asset(env, spoke_id, &hub_asset) {
-            validate_spoke_caps_against_hub(
-                env,
-                hub_supply_cap,
-                hub_borrow_cap,
-                cfg.supply_cap,
-                cfg.borrow_cap,
-            );
-        }
-    }
 }
 
 pub fn validate_spoke_caps_against_usage(

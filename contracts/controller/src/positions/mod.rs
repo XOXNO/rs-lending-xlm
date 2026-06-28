@@ -7,8 +7,8 @@
 
 use common::errors::{CollateralError, EModeError};
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, AssetConfigRaw, DebtPosition, HubAssetKey, PoolAction,
-    ScaledPositionRaw,
+    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, PoolAction, ScaledPositionRaw,
+    SpokeAssetConfig,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map, Vec};
 
@@ -88,24 +88,25 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Spoke-adjusted configs resolved once per aggregated asset, shared by
-/// validation and pool execution. Stores the raw form (`Map` values must be
-/// contract types); `get` decodes per read.
-pub(crate) struct AggregatedConfigs(Map<HubAssetKey, AssetConfigRaw>);
+/// Per-spoke risk configs resolved once per aggregated asset, shared by
+/// validation and pool execution. Stores the contract-type `SpokeAssetConfig`
+/// (`Map` values must be contract types); `get` projects to `AssetConfig`.
+pub(crate) struct AggregatedConfigs(Map<HubAssetKey, SpokeAssetConfig>);
 
 impl AggregatedConfigs {
-    /// Resolves the active spoke once and adjusts each aggregated asset.
+    /// Reads `SpokeAsset(account.spoke_id, hub_asset)` for each aggregated asset.
     pub fn resolve(
         env: &Env,
         account: &Account,
         aggregated: &AggregatedPayments,
         cache: &mut Cache,
     ) -> Self {
-        let spoke = cache.active_spoke(env, account.spoke_id);
-        let mut configs: Map<HubAssetKey, AssetConfigRaw> = Map::new(env);
+        // Rejects a deprecated named spoke before any per-asset read.
+        cache.active_spoke(env, account.spoke_id);
+        let mut configs: Map<HubAssetKey, SpokeAssetConfig> = Map::new(env);
         for (hub_asset, _) in aggregated.iter() {
-            let cfg = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &spoke);
-            configs.set(hub_asset, (&cfg).into());
+            let cfg = emode::resolve_spoke_asset_config(env, account.spoke_id, &hub_asset);
+            configs.set(hub_asset, cfg);
         }
         Self(configs)
     }

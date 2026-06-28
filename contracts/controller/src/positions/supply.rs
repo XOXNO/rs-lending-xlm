@@ -132,7 +132,7 @@ fn validate_deposit(
 
         let asset_config = configs.get(env, &hub_asset);
 
-        emode::validate_spoke_asset(env, cache, account.spoke_id, &hub_asset.asset);
+        emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new supply; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
 
@@ -184,16 +184,21 @@ fn settle_deposit(
         // Merge ONLY the scaled share back; the pool does not echo collateral
         // risk params, so preserve the ones the controller holds.
         position.scaled_amount = Ray::from(result.position.scaled_amount_ray);
-        if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-            // dimensional: both values are Ray<Share(asset, supply)>; supply adds usage.
-            let delta = position.scaled_amount - old_scaled;
-            ctx.apply_supply_after_pool(
-                env,
-                hub_asset,
-                delta,
-                &result.market_index,
-                asset_config.asset_decimals,
-            );
+        // Spoke-cap accounting (named spokes only) needs the asset decimals;
+        // source them from the active market's oracle config.
+        if account.spoke_id != 0 {
+            let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
+            if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
+                // dimensional: both values are Ray<Share(asset, supply)>; supply adds usage.
+                let delta = position.scaled_amount - old_scaled;
+                ctx.apply_supply_after_pool(
+                    env,
+                    hub_asset,
+                    delta,
+                    &result.market_index,
+                    asset_decimals,
+                );
+            }
         }
 
         // Cache the pool-returned index so post-action valuation reads it

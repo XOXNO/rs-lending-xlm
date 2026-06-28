@@ -142,16 +142,15 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new_collateral: &Address,
 ) {
-    let spoke = cache.active_spoke(env, account.spoke_id);
-    let config = emode::effective_asset_config(env, account, new_collateral, cache, &spoke);
-    emode::validate_spoke_asset(env, cache, account.spoke_id, new_collateral);
-
-    assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
-
     let new_hub = HubAssetKey {
         hub_id: 0,
         asset: new_collateral.clone(),
     };
+    emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &new_hub);
+    let config = emode::effective_asset_config(env, account.spoke_id, &new_hub);
+
+    assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
+
     if !account.supply_positions.contains_key(new_hub.clone()) {
         let new_assets = soroban_sdk::vec![env, (new_hub, 0i128)];
         validation::validate_bulk_position_limits(

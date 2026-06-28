@@ -43,9 +43,10 @@ pub(crate) use prefetch::prefetch_redstone_feeds;
 pub use price::token_price;
 
 pub fn price_components(cache: &mut Cache, asset: &Address) -> ResolvedOracleComponents {
-    // Guard parity: `cached_market_config` panics `AssetNotSupported` for unknown
-    // assets, matching resolution before the oracle moved to `AssetOracle`.
-    cache.cached_market_config(asset);
+    // Reject unlisted assets with `AssetNotSupported`; `resolve_oracle_config`
+    // then panics `OracleNotConfigured` for a listed-but-pending/disabled asset.
+    let env = cache.env().clone();
+    crate::validation::require_asset_supported(&env, cache, asset);
     let configs = cache.resolve_oracle_config(asset);
     compose::resolve_components(cache, &configs)
 }

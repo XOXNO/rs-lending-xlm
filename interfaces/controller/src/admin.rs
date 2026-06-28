@@ -1,6 +1,5 @@
 use crate::types::{
-    AssetConfigRaw, MarketConfig, MarketOracleConfig, OraclePriceFluctuation, PositionLimits,
-    SpokeAssetArgs,
+    MarketOracleConfig, OraclePriceFluctuation, PositionLimits, SpokeAssetArgs, SpokeAssetConfig,
 };
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractclient, Address, BytesN, Env};
@@ -11,7 +10,6 @@ pub trait ControllerAdmin {
     fn set_aggregator(env: Env, addr: Address);
     fn set_accumulator(env: Env, addr: Address);
     fn set_liquidity_pool_template(env: Env, hash: BytesN<32>);
-    fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw);
     fn set_position_limits(env: Env, limits: PositionLimits);
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128);
     fn add_spoke(env: Env) -> u32;
@@ -30,7 +28,7 @@ pub trait ControllerAdmin {
         env: Env,
         asset: Address,
         params: MarketParamsRaw,
-        config: AssetConfigRaw,
+        config: SpokeAssetConfig,
     ) -> Address;
     fn upgrade_liquidity_pool_params(env: Env, asset: Address, params: InterestRateModel);
     fn update_pool_caps(env: Env, asset: Address, supply_cap: i128, borrow_cap: i128);
@@ -41,6 +39,6 @@ pub trait ControllerAdmin {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     fn migrate(env: Env, new_version: u32);
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32);
-    /// Read-back used by governance oracle validation (quote-market checks).
-    fn get_market_config(env: Env, asset: Address) -> MarketConfig;
+    /// Per-spoke risk listing read-back (spoke 0 is the general base listing).
+    fn get_spoke_asset(env: Env, spoke_id: u32, asset: Address) -> SpokeAssetConfig;
 }

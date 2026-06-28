@@ -1,9 +1,9 @@
 use soroban_sdk::{contractevent, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
 
 use controller_interface::types::{
-    Account, AccountMeta, AccountPosition, AssetConfigRaw, DebtPosition, MarketConfig,
-    OracleAssetRef, OraclePriceFluctuation, OracleProviderKind, OracleReadMode, OracleSourceConfig,
-    OracleStrategy, PositionMode, ReflectorBase, SpokeAssetConfig, SpokeConfig,
+    Account, AccountMeta, AccountPosition, DebtPosition, MarketOracleConfig, OracleAssetRef,
+    OraclePriceFluctuation, OracleProviderKind, OracleReadMode, OracleSourceConfig, OracleStrategy,
+    PositionMode, ReflectorBase, SpokeAssetConfig, SpokeConfig,
 };
 
 #[contracttype]
@@ -113,11 +113,10 @@ pub struct EventOracleProvider {
 }
 
 impl EventOracleProvider {
-    pub fn from_market(_env: &Env, asset: &Address, market: &MarketConfig) -> Self {
-        let market_max_stale = market.oracle_config.max_price_stale_seconds;
-        let primary = EventOracleSource::from(&market.oracle_config.primary, market_max_stale);
-        let anchor = market
-            .oracle_config
+    pub fn from_oracle(_env: &Env, asset: &Address, oracle: &MarketOracleConfig) -> Self {
+        let market_max_stale = oracle.max_price_stale_seconds;
+        let primary = EventOracleSource::from(&oracle.primary, market_max_stale);
+        let anchor = oracle
             .anchor
             .as_ref()
             .map(|source| EventOracleSource::from(source, market_max_stale));
@@ -125,12 +124,12 @@ impl EventOracleProvider {
         Self {
             base_token_id: asset.clone(),
             quote_token_id: symbol_short!("USD"),
-            tolerance: market.oracle_config.tolerance.clone(),
-            pricing_method: market.oracle_config.strategy.into(),
+            tolerance: oracle.tolerance.clone(),
+            pricing_method: oracle.strategy.into(),
             oracle_type: EventOracleType::Normal,
-            strategy: market.oracle_config.strategy as u32,
-            asset_decimals: market.oracle_config.asset_decimals,
-            max_price_stale_seconds: market.oracle_config.max_price_stale_seconds,
+            strategy: oracle.strategy as u32,
+            asset_decimals: oracle.asset_decimals,
+            max_price_stale_seconds: oracle.max_price_stale_seconds,
             primary_provider: primary.provider,
             primary_contract: primary.contract,
             primary_asset: primary.asset,
@@ -159,8 +158,8 @@ impl EventOracleProvider {
             anchor_max_stale_seconds: anchor_or_zero(anchor.as_ref(), |source| {
                 source.max_stale_seconds
             }),
-            min_sanity_price_wad: market.oracle_config.min_sanity_price_wad,
-            max_sanity_price_wad: market.oracle_config.max_sanity_price_wad,
+            min_sanity_price_wad: oracle.min_sanity_price_wad,
+            max_sanity_price_wad: oracle.max_sanity_price_wad,
         }
     }
 }
@@ -256,7 +255,7 @@ pub struct CreateMarketEvent {
     pub max_utilization: i128,
     pub reserve_factor: u32,
     pub market_address: Address,
-    pub config: AssetConfigRaw,
+    pub config: SpokeAssetConfig,
 }
 
 #[contractevent(topics = ["market", "params_update"])]
@@ -385,13 +384,6 @@ pub struct FlashLoanEvent {
     pub caller: Address,
     pub amount: i128,
     pub fee: i128,
-}
-
-#[contractevent(topics = ["config", "asset"])]
-#[derive(Clone, Debug)]
-pub struct UpdateAssetConfigEvent {
-    pub asset: Address,
-    pub config: AssetConfigRaw,
 }
 
 #[contractevent(topics = ["config", "oracle"])]

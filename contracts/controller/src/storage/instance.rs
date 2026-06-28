@@ -184,6 +184,15 @@ pub(crate) fn set_asset_oracle(env: &Env, asset: &Address, config: &MarketOracle
     super::renew_protocol_shared_key(env, &key);
 }
 
+/// Removes the token-rooted oracle config. Absence is the protocol's
+/// disabled/pending signal: price resolution and `require_market_active` reject
+/// assets with no `AssetOracle` entry.
+pub(crate) fn remove_asset_oracle(env: &Env, asset: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&ControllerKey::AssetOracle(asset.clone()));
+}
+
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
     env.storage()
         .instance()

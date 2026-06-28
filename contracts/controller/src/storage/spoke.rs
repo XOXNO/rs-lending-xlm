@@ -22,8 +22,8 @@ pub(crate) fn get_spoke(env: &Env, id: u32) -> SpokeConfig {
 pub(crate) fn try_get_spoke(env: &Env, id: u32) -> Option<SpokeConfig> {
     let key = ControllerKey::Spoke(id);
     let spoke: Option<SpokeConfig> = env.storage().persistent().get(&key);
-    // Same read-renewal policy as `try_get_market_config`: stable spokes must
-    // not archive while accounts still rely on them.
+    // Read-renewal policy: stable spokes must not archive while accounts still
+    // rely on them.
     if spoke.is_some() {
         renew_protocol_shared_key(env, &key);
     }

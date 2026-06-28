@@ -3,9 +3,7 @@
 use common::math::fp::Ray;
 use common::rates::scaled_to_original;
 use common::validation::cap_is_enabled;
-use controller_interface::types::{
-    Account, AssetConfig, HubAssetKey, MarketStatus, SpokeUsageRaw,
-};
+use controller_interface::types::{Account, HubAssetKey, SpokeUsageRaw};
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
@@ -17,12 +15,14 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
     if stellar_contract_utils::pausable::paused(env) {
         return 0;
     }
-    let market_config = storage::get_market_config(env, asset);
-    if market_config.status != MarketStatus::Active {
-        return 0;
-    }
-    let config: AssetConfig = (&market_config.asset_config).into();
-    if !config.can_supply() {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    // Inactive: not listed, or listed without a token-rooted oracle.
+    if storage::get_spoke_asset(env, 0, &hub_asset).is_none()
+        || storage::get_asset_oracle(env, asset).is_none()
+    {
         return 0;
     }
     let account = match storage::try_get_account(env, account_id) {
@@ -30,18 +30,14 @@ pub fn max_supply(env: &Env, account_id: u64, asset: &Address) -> i128 {
         None => return 0,
     };
     let mut cache = Cache::new_view(env);
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
+    // Collateralizability is read from the base (spoke 0) config, as before.
+    if !cache.cached_asset_config(asset).can_supply() {
+        return 0;
+    }
     if account.spoke_id > 0
-        && (!market_config
-            .asset_config
-            .e_mode_categories
-            .contains(account.spoke_id)
-            || cache
-                .cached_spoke_asset(account.spoke_id, &hub_asset)
-                .is_none())
+        && cache
+            .cached_spoke_asset(account.spoke_id, &hub_asset)
+            .is_none()
     {
         return 0;
     }

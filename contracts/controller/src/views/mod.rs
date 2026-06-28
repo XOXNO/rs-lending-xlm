@@ -6,9 +6,10 @@ use crate::constants::{MAX_VIEW_INPUTS, WAD};
 use common::errors::GenericError;
 use controller_interface::types::{
     AccountAttributes, AccountPositionRaw, AssetExtendedConfigView, DebtPositionRaw, HubAssetKey,
-    LiquidationEstimate, MarketConfig, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeConfig,
+    LiquidationEstimate, MarketIndexRaw, MarketIndexView, PaymentTuple, SpokeAssetConfig,
+    SpokeConfig,
 };
-use soroban_sdk::{assert_with_error, contractimpl, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, Env, Map, Vec};
 
 #[cfg(not(feature = "certora"))]
 mod aggregates;
@@ -79,8 +80,10 @@ impl Controller {
         account_exists(&env, account_id)
     }
 
-    pub fn get_market_config(env: Env, asset: Address) -> MarketConfig {
-        storage::get_market_config(&env, &asset)
+    pub fn get_spoke_asset(env: Env, spoke_id: u32, asset: Address) -> SpokeAssetConfig {
+        let hub_asset = HubAssetKey { hub_id: 0, asset };
+        storage::get_spoke_asset(&env, spoke_id, &hub_asset)
+            .unwrap_or_else(|| panic_with_error!(&env, GenericError::AssetNotSupported))
     }
 
     pub fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig {
@@ -174,9 +177,7 @@ pub fn collateral_amount_for_token(env: &Env, account_id: u64, asset: &Address) 
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let decimals = storage::get_market_config(env, asset)
-        .asset_config
-        .asset_decimals;
+    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     // dimensional: scaled_amount * supply_index -> Token(asset), returned in asset decimals.
     position
@@ -197,9 +198,7 @@ pub fn borrow_amount_for_token(env: &Env, account_id: u64, asset: &Address) -> i
 
     let mut cache = Cache::new_view(env);
     let market_index = cache.cached_market_index(asset);
-    let decimals = storage::get_market_config(env, asset)
-        .asset_config
-        .asset_decimals;
+    let decimals = cache.cached_pool_sync_data(asset).params.asset_decimals;
 
     // dimensional: scaled_amount * borrow_index -> Token(asset), returned in asset decimals.
     position
@@ -264,9 +263,9 @@ pub fn get_all_markets_detailed(env: &Env, assets: &Vec<Address>) -> Vec<AssetEx
 
     for i in 0..assets.len() {
         let asset = validation::expect_invariant(env, assets.get(i));
-        // Discarded read panics on unsupported assets; pool address is
-        // resolved per-row, so the view is safe on empty input.
-        cache.cached_market_config(&asset);
+        // Panics on unsupported assets; pool address is resolved per-row, so the
+        // view is safe on empty input.
+        validation::require_asset_supported(env, &mut cache, &asset);
         let pool_address = cache.cached_pool_address();
         // dimensional: price_wad is Wad<USD/asset> raw.
         let final_price = token_price(&mut cache, &asset).price_wad;

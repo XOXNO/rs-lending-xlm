@@ -3,16 +3,15 @@
 
 use crate::events::{
     ApproveBlendPoolEvent, ApproveTokenEvent, EventOracleProvider, EventSpoke, OracleDisabledEvent,
-    RemoveSpokeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetConfigEvent,
-    UpdateAssetOracleEvent, UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent,
-    UpdatePositionLimitsEvent, UpdateSpokeAssetEvent, UpdateSpokeEvent,
+    RemoveSpokeAssetEvent, UpdateAccumulatorEvent, UpdateAggregatorEvent, UpdateAssetOracleEvent,
+    UpdateMinBorrowCollateralEvent, UpdatePoolTemplateEvent, UpdatePositionLimitsEvent,
+    UpdateSpokeAssetEvent, UpdateSpokeEvent,
 };
 use common::errors::{CollateralError, EModeError, GenericError, OracleError};
 
 use controller_interface::types::{
-    AssetConfigRaw, HubAssetKey, MarketOracleConfig, MarketOracleConfigOption, MarketStatus,
-    OraclePriceFluctuation, OracleSourceConfig, PositionLimits, ReflectorBase, SpokeAssetArgs,
-    SpokeAssetConfig, SpokeConfig,
+    HubAssetKey, MarketOracleConfig, MarketOracleConfigOption, OraclePriceFluctuation,
+    OracleSourceConfig, PositionLimits, ReflectorBase, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
 };
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, xdr::ToXdr, Address, BytesN, Env,
@@ -48,12 +47,6 @@ impl Controller {
         storage::renew_controller_instance(&env);
         storage::set_pool_template(&env, &hash);
         UpdatePoolTemplateEvent { wasm_hash: hash }.publish(&env);
-    }
-
-    #[only_owner]
-    pub fn edit_asset_config(env: Env, asset: Address, cfg: AssetConfigRaw) {
-        storage::renew_controller_instance(&env);
-        edit_asset_config(&env, asset, cfg);
     }
 
     #[only_owner]
@@ -179,26 +172,6 @@ fn set_token_approval(env: &Env, token: Address, approved: bool) {
     .publish(env);
 }
 
-pub fn edit_asset_config(env: &Env, asset: Address, mut next_config: AssetConfigRaw) {
-    common::validation::validate_risk_bounds(
-        env,
-        next_config.loan_to_value_bps,
-        next_config.liquidation_threshold_bps,
-        next_config.liquidation_bonus_bps,
-    );
-    let mut market = storage::get_market_config(env, &asset);
-    next_config.e_mode_categories = market.asset_config.e_mode_categories.clone();
-    next_config.asset_decimals = market.asset_config.asset_decimals;
-    market.asset_config = next_config.clone();
-    storage::set_market_config(env, &asset, &market);
-
-    UpdateAssetConfigEvent {
-        asset,
-        config: next_config,
-    }
-    .publish(env);
-}
-
 pub fn add_spoke(env: &Env) -> u32 {
     let id = storage::increment_spoke_id(env);
     // The liquidation-curve fields default to zero; they stay inert until a
@@ -245,12 +218,16 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let spoke = storage::get_spoke(env, args.spoke_id);
     assert_with_error!(env, !spoke.is_deprecated, EModeError::EModeCategoryDeprecated);
 
-    let mut market = storage::get_market_config(env, &args.asset);
-
     let hub_asset = HubAssetKey {
         hub_id: 0,
         asset: args.asset.clone(),
     };
+    // The asset must be listed (base `SpokeAsset(0)`) before a named spoke lists it.
+    assert_with_error!(
+        env,
+        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
+        GenericError::AssetNotSupported
+    );
     assert_with_error!(
         env,
         storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
@@ -293,11 +270,6 @@ pub fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
         oracle_override: MarketOracleConfigOption::None,
     };
     storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
-
-    if !market.asset_config.e_mode_categories.contains(args.spoke_id) {
-        market.asset_config.e_mode_categories.push_back(args.spoke_id);
-        storage::set_market_config(env, &args.asset, &market);
-    }
 
     UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
@@ -394,21 +366,22 @@ pub fn remove_asset_from_spoke(env: &Env, asset: Address, spoke_id: u32) {
 
     storage::remove_spoke_asset(env, spoke_id, &hub_asset);
 
-    remove_spoke_from_market_config(env, &asset, spoke_id);
-
     RemoveSpokeAssetEvent { asset, spoke_id }.publish(env);
 }
 
+/// Activates a listed asset by writing its token-rooted `AssetOracle` entry.
+/// Re-running it replaces the oracle config; presence of the entry is the
+/// "active" signal that price resolution and `require_market_active` read.
 pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOracleConfig) {
-    let mut market = storage::get_market_config(env, &asset);
-
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    // Only a listed asset (base `SpokeAsset(0)`) can be activated.
     assert_with_error!(
         env,
-        matches!(
-            market.status,
-            MarketStatus::PendingOracle | MarketStatus::Active | MarketStatus::Disabled
-        ),
-        GenericError::PairNotActive
+        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
+        GenericError::AssetNotSupported
     );
 
     // Re-validate the sanity band at the controller boundary. Governance
@@ -420,28 +393,25 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         config.max_sanity_price_wad,
     );
 
-    // Re-assert quote-market USD/Active invariant at execution time.
+    // Re-assert quote-market USD/active invariant at execution time.
     // Timelock delay can make the proposed quote market stale.
     require_quote_markets_active_usd(env, &asset, &config);
 
     // Test markets register pools with preset decimals that may diverge from
-    // the live token probe; keep the registered value authoritative.
-    if cfg!(feature = "testing") && market.oracle_config.asset_decimals != 0 {
-        config.asset_decimals = market.oracle_config.asset_decimals;
+    // the live token probe; keep the pool-registered value authoritative.
+    if cfg!(feature = "testing") {
+        let pool_addr = storage::get_pool(env);
+        let pool_decimals = fetch_pool_sync_data(env, &pool_addr, &asset).params.asset_decimals;
+        if pool_decimals != 0 {
+            config.asset_decimals = pool_decimals;
+        }
     }
 
-    // Dual-write: `AssetOracle` is the token-rooted source the price resolver
-    // reads; `MarketConfig.oracle_config` stays the source of truth for status
-    // until Task 1.4a. Both must hold the same config so spoke-0 pricing is
-    // byte-identical.
     storage::set_asset_oracle(env, &asset, &config);
-    market.oracle_config = config;
-    market.status = MarketStatus::Active;
-    storage::set_market_config(env, &asset, &market);
 
     UpdateAssetOracleEvent {
         asset: asset.clone(),
-        oracle: EventOracleProvider::from_market(env, &asset, &market),
+        oracle: EventOracleProvider::from_oracle(env, &asset, &config),
     }
     .publish(env);
 }
@@ -466,19 +436,15 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
     // A market quoted in itself would chain forever at read time; reject it here.
     assert_with_error!(env, quote != asset, OracleError::InvalidOracleBase);
 
-    let quote_market = match storage::try_get_market_config(env, quote) {
-        Some(market) => market,
+    // The quote must be active: a token-rooted `AssetOracle` entry must exist.
+    let quote_oracle = match storage::get_asset_oracle(env, quote) {
+        Some(oracle) => oracle,
         None => panic_with_error!(env, OracleError::InvalidOracleBase),
     };
-    assert_with_error!(
-        env,
-        matches!(quote_market.status, MarketStatus::Active),
-        OracleError::InvalidOracleBase
-    );
 
-    // The quote market's primary must itself be USD-based: keeps the conversion
-    // exactly one hop, forbidding a quote chain.
-    match &quote_market.oracle_config.primary {
+    // The quote's primary must itself be USD-based: keeps the conversion exactly
+    // one hop, forbidding a quote chain.
+    match &quote_oracle.primary {
         OracleSourceConfig::RedStone(_) => {}
         OracleSourceConfig::Reflector(quote_primary) => assert_with_error!(
             env,
@@ -489,41 +455,26 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
 }
 
 pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
-    let mut market = storage::get_market_config(env, &asset);
-    market.oracle_config.tolerance = tolerance;
-    // Keep `AssetOracle` in lockstep with `MarketConfig.oracle_config`.
-    storage::set_asset_oracle(env, &asset, &market.oracle_config);
-    storage::set_market_config(env, &asset, &market);
+    let mut oracle = storage::get_asset_oracle(env, &asset)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PairNotActive));
+    oracle.tolerance = tolerance;
+    storage::set_asset_oracle(env, &asset, &oracle);
 
     UpdateAssetOracleEvent {
         asset: asset.clone(),
-        oracle: EventOracleProvider::from_market(env, &asset, &market),
+        oracle: EventOracleProvider::from_oracle(env, &asset, &oracle),
     }
     .publish(env);
 }
 
+/// Disables an active asset by removing its `AssetOracle` entry. Absence is the
+/// disabled signal: price resolution then reverts for the asset.
 pub fn disable_token_oracle(env: &Env, asset: Address) {
-    let mut market = storage::get_market_config(env, &asset);
     assert_with_error!(
         env,
-        matches!(market.status, MarketStatus::Active),
+        storage::get_asset_oracle(env, &asset).is_some(),
         GenericError::PairNotActive
     );
-    market.status = MarketStatus::Disabled;
-    storage::set_market_config(env, &asset, &market);
+    storage::remove_asset_oracle(env, &asset);
     OracleDisabledEvent { asset }.publish(env);
-}
-
-fn remove_spoke_from_market_config(env: &Env, asset: &Address, spoke_id: u32) {
-    if let Some(mut market) = storage::try_get_market_config(env, asset) {
-        if let Some(idx) = market
-            .asset_config
-            .e_mode_categories
-            .iter()
-            .position(|id| id == spoke_id)
-        {
-            market.asset_config.e_mode_categories.remove(idx as u32);
-            storage::set_market_config(env, asset, &market);
-        }
-    }
 }

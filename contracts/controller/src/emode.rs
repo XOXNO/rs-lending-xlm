@@ -1,49 +1,49 @@
-//! Spoke risk-parameter overrides for correlated asset spokes.
-//! Applies active spoke overrides to market asset configs.
+//! Self-contained per-spoke risk resolution.
+//!
+//! An account on spoke S resolves its risk parameters from
+//! `SpokeAsset(S, hub_asset)` directly; the general spoke 0 holds every listed
+//! asset's base config. There is no base+overlay — each spoke is self-contained.
 
-use common::errors::EModeError;
-use common::math::fp::Bps;
-use controller_interface::types::{Account, AssetConfig, HubAssetKey, SpokeAssetConfig, SpokeConfig};
-use soroban_sdk::{assert_with_error, Address, Env};
+use common::errors::{EModeError, GenericError};
+use controller_interface::types::{AssetConfig, HubAssetKey, SpokeAssetConfig, SpokeConfig};
+use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
 use crate::storage;
 
-/// Applies active spoke flags to per-asset risk parameters.
-pub fn apply_spoke_to_asset_config(
-    _env: &Env,
-    asset_config: &mut AssetConfig,
-    spoke: &Option<SpokeConfig>,
-    asset_spoke_config: Option<SpokeAssetConfig>,
-) {
-    if let (Some(spoke), Some(aec)) = (spoke, asset_spoke_config) {
-        if spoke.is_deprecated {
-            return;
-        }
-        asset_config.is_collateralizable = aec.is_collateralizable;
-        asset_config.is_borrowable = aec.is_borrowable;
-        asset_config.loan_to_value = Bps::from(i128::from(aec.loan_to_value_bps));
-        asset_config.liquidation_threshold = Bps::from(i128::from(aec.liquidation_threshold_bps));
-        asset_config.liquidation_bonus = Bps::from(i128::from(aec.liquidation_bonus_bps));
-    }
+/// Per-spoke risk config for `hub_asset` on `spoke_id`. The general spoke 0 is
+/// every listed asset's base listing; named spokes hold their own
+/// self-contained config. Panics `AssetNotSupported` when the asset is not
+/// listed on the spoke.
+pub fn resolve_spoke_asset_config(
+    env: &Env,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+) -> SpokeAssetConfig {
+    storage::get_spoke_asset(env, spoke_id, hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AssetNotSupported))
 }
 
-/// Returns market asset config after applicable spoke overrides.
-pub fn effective_asset_config(
+/// Risk config for the account's spoke, projected to [`AssetConfig`]. Reads
+/// `SpokeAsset(spoke_id, hub_asset)` directly with no overlay onto spoke 0.
+pub fn effective_asset_config(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> AssetConfig {
+    (&resolve_spoke_asset_config(env, spoke_id, hub_asset)).into()
+}
+
+/// Effective risk config on the account's spoke, falling back to the base
+/// spoke-0 config when the named spoke is deprecated or no longer lists the
+/// asset. Used by threshold fan-out, where a deprecated/removed spoke keeps the
+/// asset re-stamped from its base listing rather than reverting.
+pub fn effective_or_base_asset_config(
     env: &Env,
-    account: &Account,
-    asset: &Address,
     cache: &mut Cache,
-    spoke: &Option<SpokeConfig>,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
 ) -> AssetConfig {
-    let mut asset_config = cache.cached_asset_config(asset);
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
-    let asset_spoke_config = cache.cached_spoke_asset(account.spoke_id, &hub_asset);
-    apply_spoke_to_asset_config(env, &mut asset_config, spoke, asset_spoke_config);
-    asset_config
+    let use_spoke = spoke_id != 0
+        && matches!(cache.cached_spoke(spoke_id), Some(s) if !s.is_deprecated)
+        && cache.cached_spoke_asset(spoke_id, hub_asset).is_some();
+    effective_asset_config(env, if use_spoke { spoke_id } else { 0 }, hub_asset)
 }
 
 pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
@@ -56,30 +56,27 @@ pub fn ensure_spoke_not_deprecated(env: &Env, spoke: &Option<SpokeConfig>) {
     }
 }
 
-pub fn validate_spoke_asset(env: &Env, cache: &mut Cache, spoke_id: u32, asset: &Address) {
+/// Asserts the asset is listed on `spoke_id` and the owning spoke is active.
+/// Spoke 0 always lists every created asset and is never deprecated, so this is
+/// a no-op there.
+pub fn validate_spoke_lists_asset(
+    env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+) {
     if spoke_id == 0 {
         return;
     }
-    let market = match cache.market_configs.get(asset.clone()) {
-        Some(m) => m,
-        None => {
-            let m = storage::get_market_config(env, asset);
-            cache.market_configs.set(asset.clone(), m.clone());
-            m
-        }
-    };
     assert_with_error!(
         env,
-        market.asset_config.e_mode_categories.contains(spoke_id),
+        cache.cached_spoke_asset(spoke_id, hub_asset).is_some(),
         EModeError::EModeCategoryNotFound
     );
-    let hub_asset = HubAssetKey {
-        hub_id: 0,
-        asset: asset.clone(),
-    };
-    assert_with_error!(
-        env,
-        cache.cached_spoke_asset(spoke_id, &hub_asset).is_some(),
-        EModeError::EModeCategoryNotFound
-    );
+    // Rejects a deprecated spoke (EModeCategoryDeprecated).
+    cache.active_spoke(env, spoke_id);
 }
+
+#[cfg(test)]
+#[path = "../tests/emode.rs"]
+mod tests;

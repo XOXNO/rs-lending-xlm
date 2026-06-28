@@ -3,9 +3,7 @@
 use common::math::fp::Ray;
 use common::rates::{scaled_to_original, utilization};
 use common::validation::cap_is_enabled;
-use controller_interface::types::{
-    Account, DebtPositionRaw, HubAssetKey, MarketStatus, SpokeUsageRaw,
-};
+use controller_interface::types::{Account, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
 use soroban_sdk::{Address, Env};
 
 use crate::cache::Cache;
@@ -24,14 +22,17 @@ pub fn max_borrow(env: &Env, account_id: u64, asset: &Address) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    if storage::get_market_config(env, asset).status != MarketStatus::Active {
-        return 0;
-    }
-
     let hub_asset = HubAssetKey {
         hub_id: 0,
         asset: asset.clone(),
     };
+    // Inactive: not listed, or listed without a token-rooted oracle.
+    if storage::get_spoke_asset(env, 0, &hub_asset).is_none()
+        || storage::get_asset_oracle(env, asset).is_none()
+    {
+        return 0;
+    }
+
     let mut cache = Cache::new_view(env);
     if !account_can_borrow_asset(env, &mut cache, &account, &hub_asset) {
         return 0;
@@ -88,28 +89,18 @@ fn account_can_borrow_asset(
     account: &Account,
     hub_asset: &HubAssetKey,
 ) -> bool {
-    let spoke = cache.cached_spoke(account.spoke_id);
-    if let Some(s) = &spoke {
-        // A deprecated spoke reverts the borrow in the mutating path.
-        if s.is_deprecated {
+    // A named spoke must be active and must list the asset (the spoke listing is
+    // the membership signal now that the global e-mode list is gone).
+    if account.spoke_id > 0 {
+        let active = matches!(cache.cached_spoke(account.spoke_id), Some(s) if !s.is_deprecated);
+        if !active || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
             return false;
         }
     }
 
-    let config = emode::effective_asset_config(env, account, &hub_asset.asset, cache, &spoke);
+    let config = emode::effective_asset_config(env, account.spoke_id, hub_asset);
     if !config.can_borrow() {
         return false;
-    }
-    if account.spoke_id > 0 {
-        let market = cache.cached_market_config(&hub_asset.asset);
-        if !market
-            .asset_config
-            .e_mode_categories
-            .contains(account.spoke_id)
-            || cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none()
-        {
-            return false;
-        }
     }
 
     // Borrow-position limit: a new borrowed asset needs a free slot.

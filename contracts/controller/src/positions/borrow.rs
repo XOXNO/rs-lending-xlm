@@ -6,7 +6,7 @@
 //! writes into the cache.
 
 use common::errors::CollateralError;
-use common::math::fp::Ray;
+use common::math::fp::{Bps, Ray};
 use controller_interface::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
 };
@@ -47,7 +47,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
 
     let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);
     validate_borrow(env, &account, &aggregated, &configs, &mut cache);
-    settle_borrow(env, caller, &mut account, &aggregated, &configs, &mut cache);
+    settle_borrow(env, caller, &mut account, &aggregated, &mut cache);
 
     // A failure in any gate panics and reverts the atomic tx.
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
@@ -82,7 +82,7 @@ fn validate_borrow(
     for (hub_asset, _) in aggregated {
         validation::require_market_active(env, cache, &hub_asset.asset);
         let asset_config = configs.get(env, &hub_asset);
-        emode::validate_spoke_asset(env, cache, account.spoke_id, &hub_asset.asset);
+        emode::validate_spoke_lists_asset(env, cache, account.spoke_id, &hub_asset);
         // Frozen blocks new borrow; paused blocks every verb.
         enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, true);
 
@@ -99,7 +99,6 @@ fn settle_borrow(
     caller: &Address,
     account: &mut Account,
     aggregated: &AggregatedPayments,
-    configs: &AggregatedConfigs,
     cache: &mut Cache,
 ) {
     // Build the whole batch's entries, make ONE pool call, then merge results
@@ -115,7 +114,6 @@ fn settle_borrow(
     let results = pool_borrow_call(env, &pool_addr, caller, &entries);
 
     for (i, entry) in entries.iter().enumerate() {
-        let asset_config = configs.get(env, &entry.action.hub_asset);
         let result = validation::expect_invariant(env, results.get(i as u32));
         merge_borrow_result(
             env,
@@ -123,7 +121,6 @@ fn settle_borrow(
             &entry.action.hub_asset,
             events::PositionAction::Borrow,
             &result,
-            asset_config.asset_decimals,
             cache,
         );
     }
@@ -136,7 +133,6 @@ fn merge_borrow_result(
     hub_asset: &HubAssetKey,
     action: events::PositionAction,
     result: &PoolPositionMutation,
-    asset_decimals: u32,
     cache: &mut Cache,
 ) {
     let old_scaled = account
@@ -146,9 +142,14 @@ fn merge_borrow_result(
         .unwrap_or(Ray::ZERO);
     let position: DebtPosition = DebtPosition::from(&result.position);
     // dimensional: scaled delta is Ray<Share(asset, borrow)>.
-    if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
-        let delta = position.scaled_amount - old_scaled;
-        ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+    // Spoke-cap accounting (named spokes only) needs the asset decimals; source
+    // them from the active market's oracle config before re-borrowing `cache`.
+    if account.spoke_id != 0 {
+        let asset_decimals = cache.cached_asset_oracle(&hub_asset.asset).asset_decimals;
+        if let Some(ctx) = cache.spoke_usage_mut(account.spoke_id) {
+            let delta = position.scaled_amount - old_scaled;
+            ctx.apply_borrow_after_pool(env, hub_asset, delta, &result.market_index, asset_decimals);
+        }
     }
     cache.put_market_index(&hub_asset.asset, &result.market_index);
     // dimensional: actual_amount is Token(asset); index is Ray<Index(asset, borrow)>.
@@ -224,9 +225,11 @@ fn borrow_strategy_inner(
     let configs = AggregatedConfigs::resolve(env, account, &aggregated, cache);
     validate_borrow(env, account, &aggregated, &configs, cache);
 
-    let debt_config = configs.get(env, &hub_debt);
-    let flash_fee =
-        fee_override.unwrap_or_else(|| debt_config.flashloan_fee.flash_loan_fee_on(env, amount));
+    // Flash-loan parameters live on the pool market params, not the spoke config.
+    let flash_fee = fee_override.unwrap_or_else(|| {
+        let fee_bps = cache.cached_pool_sync_data(debt_token).params.flashloan_fee_bps;
+        Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount)
+    });
     let borrow_position = account.get_or_create_debt_position(&hub_debt);
 
     let pool_addr = cache.cached_pool_address();
@@ -239,15 +242,7 @@ fn borrow_strategy_inner(
         flash_fee,
     );
     let mutation: PoolPositionMutation = PoolPositionMutation::from(&result);
-    merge_borrow_result(
-        env,
-        account,
-        &hub_debt,
-        event_action,
-        &mutation,
-        debt_config.asset_decimals,
-        cache,
-    );
+    merge_borrow_result(env, account, &hub_debt, event_action, &mutation, cache);
 
     result.amount_received
 }

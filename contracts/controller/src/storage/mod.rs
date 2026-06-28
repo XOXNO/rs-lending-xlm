@@ -1,12 +1,11 @@
 //! Controller storage accessors and Soroban TTL renewal.
 //!
 //! Account metadata, supply maps, and debt maps use separate persistent keys.
-//! Market, spoke, pool-list, instance, and session keys stay behind typed
-//! helpers to preserve storage-key stability.
+//! Spoke, oracle, instance, and session keys stay behind typed helpers to
+//! preserve storage-key stability.
 
 mod account;
 mod instance;
-mod market;
 mod spoke;
 mod ttl;
 #[cfg(feature = "certora")]
@@ -17,7 +16,6 @@ mod verification_storage;
 
 pub(crate) use account::*;
 pub(crate) use instance::*;
-pub(crate) use market::*;
 pub(crate) use spoke::*;
 pub(crate) use ttl::*;
 #[cfg(feature = "certora")]

@@ -7,8 +7,7 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use controller_interface::types::{
-    AccountPosition, AssetConfigRaw, InterestRateModel, MarketConfig, MarketOracleConfig,
-    MarketParamsRaw, MarketStatus,
+    AccountPosition, HubAssetKey, InterestRateModel, MarketParamsRaw, SpokeAssetConfig,
 };
 use soroban_sdk::{assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Vec};
 use stellar_macros::{only_owner, when_not_paused};
@@ -74,7 +73,7 @@ impl Controller {
         env: Env,
         asset: Address,
         params: MarketParamsRaw,
-        config: AssetConfigRaw,
+        config: SpokeAssetConfig,
     ) -> Address {
         create_liquidity_pool(&env, &asset, &params, &config)
     }
@@ -143,17 +142,23 @@ fn sync_market_indexes(env: &Env, cache: &mut Cache, assets: &Vec<Address>) {
     }
 }
 
-/// Registers the market in `PendingOracle` state on the central pool and
-/// consumes the token approval.
+/// Lists the asset on the general spoke 0 and registers its market on the
+/// central pool. The asset stays inactive (unpriceable) until
+/// `set_market_oracle_config` writes its `AssetOracle` entry. Consumes the
+/// token approval.
 pub fn create_liquidity_pool(
     env: &Env,
     asset: &Address,
     params: &MarketParamsRaw,
-    config: &AssetConfigRaw,
+    config: &SpokeAssetConfig,
 ) -> Address {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
     assert_with_error!(
         env,
-        !storage::has_market_config(env, asset),
+        storage::get_spoke_asset(env, 0, &hub_asset).is_none(),
         GenericError::AssetAlreadySupported
     );
 
@@ -167,16 +172,8 @@ pub fn create_liquidity_pool(
     // dimensional: params carries Ray rates/utilization, Bps reserve factor, and Token(asset) caps.
     pool_create_market_call(env, &pool_address, params);
 
-    let mut asset_config = config.clone();
-    asset_config.e_mode_categories = soroban_sdk::Vec::new(env);
-    // dimensional: asset_decimals is AssetDecimals(asset) copied from pool params into oracle config.
-    asset_config.asset_decimals = params.asset_decimals;
-    let market = MarketConfig {
-        status: MarketStatus::PendingOracle,
-        asset_config,
-        oracle_config: MarketOracleConfig::pending_for(asset.clone(), params.asset_decimals),
-    };
-    storage::set_market_config(env, asset, &market);
+    // The general spoke 0 holds every listed asset's base risk config.
+    storage::set_spoke_asset(env, 0, &hub_asset, config);
 
     storage::renew_controller_instance(env);
 
@@ -213,9 +210,10 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
     let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
     validation::require_asset_supported(env, &mut cache, asset);
-    crate::helpers::emode_caps::validate_hub_caps_against_spoke_assets(
-        env, asset, supply_cap, borrow_cap,
-    );
+    // The forward invariant (spoke cap <= hub cap) is enforced when each spoke
+    // asset is configured. Spoke listings are not enumerable from an asset, so
+    // the reverse check at cap-update time is dropped; at runtime the hub gate
+    // (pool) and spoke gate bind independently, the tighter one winning.
     let pool_addr = cache.cached_pool_address();
     pool_update_caps_call(env, &pool_addr, asset, supply_cap, borrow_cap);
 }
@@ -343,16 +341,14 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     storage::renew_user_account(env, account_id);
 
-    let spoke = cache.cached_spoke(meta.spoke_id);
     let mut account = storage::account_from_parts(meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
 
     for hub_asset in assets.iter() {
         validation::require_asset_supported(env, cache, &hub_asset.asset);
 
-        let mut asset_config = cache.cached_asset_config(&hub_asset.asset);
-        let asset_spoke_config = cache.cached_spoke_asset(account.spoke_id, &hub_asset);
-        emode::apply_spoke_to_asset_config(env, &mut asset_config, &spoke, asset_spoke_config);
+        let asset_config =
+            emode::effective_or_base_asset_config(env, cache, account.spoke_id, &hub_asset);
 
         let position =
             validation::expect_invariant(env, account.supply_positions.get(hub_asset.clone()));

@@ -7,11 +7,11 @@ use crate::constants::MS_PER_SECOND;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
-use common::errors::{EModeError, OracleError};
+use common::errors::{EModeError, GenericError, OracleError};
 use controller_interface::types::{
-    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, MarketConfig, MarketIndex,
-    MarketIndexRaw, MarketOracleConfig, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig,
-    SpokeConfig, SpokeUsageRaw,
+    Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, MarketIndex, MarketIndexRaw,
+    MarketOracleConfig, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
@@ -29,7 +29,6 @@ pub struct Cache {
     /// Stores provider data, not resolved prices, so per-flow policy checks
     /// (staleness, sanity, tolerance) are unaffected.
     redstone_prefetch: Map<(Address, String), RedStonePriceData>,
-    pub market_configs: Map<Address, MarketConfig>,
     /// Borrow/supply indexes, populated only from the pool: either returned by a
     /// pool mutation (`put_market_index`) or bulk-read via `bulk_get_indexes`.
     /// The controller never simulates indexes itself.
@@ -63,7 +62,6 @@ impl Cache {
             env: env.clone(),
             prices_cache: Map::new(env),
             redstone_prefetch: Map::new(env),
-            market_configs: Map::new(env),
             market_indexes: Map::new(env),
             pool_address: None,
             pool_sync_data: Map::new(env),
@@ -106,25 +104,18 @@ impl Cache {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
-    pub fn cached_market_config(&mut self, asset: &Address) -> MarketConfig {
-        self.try_cached_market_config(asset).unwrap_or_else(|| {
-            panic_with_error!(&self.env, common::errors::GenericError::AssetNotSupported)
-        })
-    }
-
-    /// Like [`Self::cached_market_config`], but returns `None` for assets
-    /// with no configured market instead of panicking.
-    pub fn try_cached_market_config(&mut self, asset: &Address) -> Option<MarketConfig> {
-        if let Some(config) = self.market_configs.get(asset.clone()) {
-            return Some(config);
-        }
-        let config = storage::try_get_market_config(&self.env, asset)?;
-        self.market_configs.set(asset.clone(), config.clone());
-        Some(config)
-    }
-
+    /// Base (general-spoke) risk config for `asset` under `SpokeAsset(0, asset)`.
+    /// The general spoke 0 is every listed asset's base listing, so this is the
+    /// non-spoke-adjusted config that liquidation and strategy paths read.
+    /// Panics `AssetNotSupported` when the asset is not listed.
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
-        (&self.cached_market_config(asset).asset_config).into()
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: asset.clone(),
+        };
+        let spoke_asset = storage::get_spoke_asset(&self.env, 0, &hub_asset)
+            .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::AssetNotSupported));
+        (&spoke_asset).into()
     }
 
     /// Active spoke for this transaction, or 0 when no account is loaded
@@ -137,8 +128,8 @@ impl Cache {
     }
 
     /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
-    /// `OracleNotConfigured` when absent; the `token_price` status gate rejects
-    /// unconfigured markets before this runs, so the panic is defensive.
+    /// `OracleNotConfigured` when absent. Absence is the pending/disabled gate:
+    /// price resolution reverts for any asset with no `AssetOracle` entry.
     pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
         storage::get_asset_oracle(&self.env, asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
@@ -190,9 +181,13 @@ impl Cache {
     pub fn prefetch_market_indexes(&mut self, assets: &Vec<Address>) {
         let mut missing: Vec<Address> = Vec::new(&self.env);
         for asset in assets.iter() {
+            let hub_asset = HubAssetKey {
+                hub_id: 0,
+                asset: asset.clone(),
+            };
             if self.market_indexes.contains_key(asset.clone())
                 || missing.first_index_of(asset.clone()).is_some()
-                || self.try_cached_market_config(&asset).is_none()
+                || storage::get_spoke_asset(&self.env, 0, &hub_asset).is_none()
             {
                 continue;
             }

@@ -4,7 +4,7 @@
 use common::errors::*;
 use common::math::fp::Wad;
 pub use common::validation::{require_positive_amount, require_wasm_receiver};
-use controller_interface::types::{Account, AccountPositionType, HubAssetKey, MarketStatus};
+use controller_interface::types::{Account, AccountPositionType, HubAssetKey};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::positions::AggregatedPayments;
@@ -18,17 +18,28 @@ pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// Panics with the market-config error when `asset` has no market; the cache
-/// entry populated by the read is the "supported" signal callers rely on.
-pub fn require_asset_supported(_env: &Env, cache: &mut Cache, asset: &Address) {
-    cache.cached_market_config(asset);
-}
-
-pub fn require_market_active(env: &Env, cache: &mut Cache, asset: &Address) {
-    let market = cache.cached_market_config(asset);
+/// A listed/supported asset is one with a base listing `SpokeAsset(0, asset)`.
+/// Panics `AssetNotSupported` otherwise.
+pub fn require_asset_supported(env: &Env, _cache: &mut Cache, asset: &Address) {
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
     assert_with_error!(
         env,
-        market.status == MarketStatus::Active,
+        storage::get_spoke_asset(env, 0, &hub_asset).is_some(),
+        GenericError::AssetNotSupported
+    );
+}
+
+/// An active asset is supported and has a token-rooted `AssetOracle` entry;
+/// oracle absence is the pending/disabled signal. Panics `PairNotActive` when
+/// supported but not yet (or no longer) oracle-configured.
+pub fn require_market_active(env: &Env, cache: &mut Cache, asset: &Address) {
+    require_asset_supported(env, cache, asset);
+    assert_with_error!(
+        env,
+        storage::get_asset_oracle(env, asset).is_some(),
         GenericError::PairNotActive
     );
 }

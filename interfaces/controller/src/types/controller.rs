@@ -1,4 +1,4 @@
-use crate::types::oracle::{MarketOracleConfig, MarketOracleConfigOption};
+use crate::types::oracle::MarketOracleConfigOption;
 use common::math::fp::{Bps, Ray};
 use common::types::pool::{
     AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
@@ -6,27 +6,11 @@ use common::types::pool::{
 use common::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
-/// Persistent asset risk configuration. Hub supply/borrow caps live on the pool
-/// [`common::types::pool::MarketParamsRaw`].
-///
-/// `*_bps` fields use basis points.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct AssetConfigRaw {
-    pub loan_to_value_bps: u32,
-    pub liquidation_threshold_bps: u32,
-    pub liquidation_bonus_bps: u32,
-    pub liquidation_fees_bps: u32,
-    pub is_collateralizable: bool,
-    pub is_borrowable: bool,
-    pub is_flashloanable: bool,
-    pub flashloan_fee_bps: u32,
-    /// SAC decimal count for this market; copied from pool params at create time.
-    pub asset_decimals: u32,
-    pub e_mode_categories: Vec<u32>,
-}
-
-/// Typed asset risk and limit configuration.
+/// Typed asset risk and collateral/borrow flags, projected from the per-spoke
+/// [`SpokeAssetConfig`] that lists the asset on the account's spoke. Hub
+/// supply/borrow caps and flash-loan parameters live on the pool
+/// [`common::types::pool::MarketParamsRaw`]; the SAC decimal count is sourced
+/// from the pool/oracle where a conversion needs it.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
     pub loan_to_value: Bps,
@@ -35,10 +19,6 @@ pub struct AssetConfig {
     pub liquidation_fees: Bps,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
-    pub is_flashloanable: bool,
-    pub flashloan_fee: Bps,
-    pub asset_decimals: u32,
-    pub e_mode_categories: Vec<u32>,
 }
 
 impl AssetConfig {
@@ -49,42 +29,17 @@ impl AssetConfig {
     pub fn can_borrow(&self) -> bool {
         self.is_borrowable
     }
-
-    pub fn has_emode(&self) -> bool {
-        !self.e_mode_categories.is_empty()
-    }
 }
 
-impl From<&AssetConfigRaw> for AssetConfig {
-    fn from(r: &AssetConfigRaw) -> Self {
+impl From<&SpokeAssetConfig> for AssetConfig {
+    fn from(c: &SpokeAssetConfig) -> Self {
         Self {
-            loan_to_value: Bps::from(i128::from(r.loan_to_value_bps)),
-            liquidation_threshold: Bps::from(i128::from(r.liquidation_threshold_bps)),
-            liquidation_bonus: Bps::from(i128::from(r.liquidation_bonus_bps)),
-            liquidation_fees: Bps::from(i128::from(r.liquidation_fees_bps)),
-            is_collateralizable: r.is_collateralizable,
-            is_borrowable: r.is_borrowable,
-            is_flashloanable: r.is_flashloanable,
-            flashloan_fee: Bps::from(i128::from(r.flashloan_fee_bps)),
-            asset_decimals: r.asset_decimals,
-            e_mode_categories: r.e_mode_categories.clone(),
-        }
-    }
-}
-
-impl From<&AssetConfig> for AssetConfigRaw {
-    fn from(t: &AssetConfig) -> Self {
-        Self {
-            loan_to_value_bps: t.loan_to_value.raw() as u32,
-            liquidation_threshold_bps: t.liquidation_threshold.raw() as u32,
-            liquidation_bonus_bps: t.liquidation_bonus.raw() as u32,
-            liquidation_fees_bps: t.liquidation_fees.raw() as u32,
-            is_collateralizable: t.is_collateralizable,
-            is_borrowable: t.is_borrowable,
-            is_flashloanable: t.is_flashloanable,
-            flashloan_fee_bps: t.flashloan_fee.raw() as u32,
-            asset_decimals: t.asset_decimals,
-            e_mode_categories: t.e_mode_categories.clone(),
+            loan_to_value: Bps::from(i128::from(c.loan_to_value_bps)),
+            liquidation_threshold: Bps::from(i128::from(c.liquidation_threshold_bps)),
+            liquidation_bonus: Bps::from(i128::from(c.liquidation_bonus_bps)),
+            liquidation_fees: Bps::from(i128::from(c.liquidation_fees_bps)),
+            is_collateralizable: c.is_collateralizable,
+            is_borrowable: c.is_borrowable,
         }
     }
 }
@@ -246,24 +201,6 @@ pub struct LiquidationResult {
 }
 
 #[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum MarketStatus {
-    PendingOracle = 0,
-    Active = 1,
-    Disabled = 2,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct MarketConfig {
-    /// Pending markets cannot be used until oracle config is active.
-    pub status: MarketStatus,
-    pub asset_config: AssetConfigRaw,
-    pub oracle_config: MarketOracleConfig,
-}
-
-#[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
     /// Account owner authorized for owner-gated account mutations.
@@ -344,51 +281,42 @@ mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Env};
 
-    fn sample_asset_config_raw(env: &Env) -> AssetConfigRaw {
-        let mut categories: Vec<u32> = Vec::new(env);
-        categories.push_back(1);
-        categories.push_back(2);
-        AssetConfigRaw {
+    fn sample_spoke_asset_config() -> SpokeAssetConfig {
+        SpokeAssetConfig {
+            is_collateralizable: true,
+            is_borrowable: true,
+            paused: false,
+            frozen: false,
             loan_to_value_bps: 7_500,
             liquidation_threshold_bps: 8_000,
             liquidation_bonus_bps: 500,
             liquidation_fees_bps: 100,
-            is_collateralizable: true,
-            is_borrowable: true,
-            is_flashloanable: true,
-            flashloan_fee_bps: 9,
-            asset_decimals: 7,
-            e_mode_categories: categories,
+            supply_cap: 0,
+            borrow_cap: 0,
+            oracle_override: MarketOracleConfigOption::None,
         }
     }
 
     #[test]
-    fn test_asset_config_raw_typed_roundtrip() {
-        let env = Env::default();
-        let raw = sample_asset_config_raw(&env);
-        let typed = AssetConfig::from(&raw);
-        let back = AssetConfigRaw::from(&typed);
-        assert_eq!(back.loan_to_value_bps, raw.loan_to_value_bps);
+    fn test_asset_config_projects_spoke_asset_risk() {
+        let spoke = sample_spoke_asset_config();
+        let cfg = AssetConfig::from(&spoke);
+        assert_eq!(cfg.loan_to_value.raw() as u32, spoke.loan_to_value_bps);
         assert_eq!(
-            back.liquidation_threshold_bps,
-            raw.liquidation_threshold_bps
+            cfg.liquidation_threshold.raw() as u32,
+            spoke.liquidation_threshold_bps
         );
-        assert_eq!(back.liquidation_bonus_bps, raw.liquidation_bonus_bps);
-        assert_eq!(back.liquidation_fees_bps, raw.liquidation_fees_bps);
-        assert_eq!(back.is_collateralizable, raw.is_collateralizable);
-        assert_eq!(back.is_borrowable, raw.is_borrowable);
-        assert_eq!(back.is_flashloanable, raw.is_flashloanable);
-        assert_eq!(back.flashloan_fee_bps, raw.flashloan_fee_bps);
-        assert_eq!(back.e_mode_categories, raw.e_mode_categories);
+        assert_eq!(cfg.liquidation_bonus.raw() as u32, spoke.liquidation_bonus_bps);
+        assert_eq!(cfg.liquidation_fees.raw() as u32, spoke.liquidation_fees_bps);
+        assert_eq!(cfg.is_collateralizable, spoke.is_collateralizable);
+        assert_eq!(cfg.is_borrowable, spoke.is_borrowable);
     }
 
     #[test]
     fn test_asset_config_accessors_collateralizable_borrowable() {
-        let env = Env::default();
-        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        let cfg = AssetConfig::from(&sample_spoke_asset_config());
         assert!(cfg.can_supply());
         assert!(cfg.can_borrow());
-        assert!(cfg.has_emode());
     }
 
     fn spoke_config() -> SpokeConfig {
@@ -516,7 +444,7 @@ mod tests {
             .supply_positions
             .set(hub_asset.clone(), stored.clone());
 
-        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        let cfg = AssetConfig::from(&sample_spoke_asset_config());
         let got = account.get_or_create_supply_position(&hub_asset, &cfg);
         assert_eq!(got.scaled_amount.raw(), stored.scaled_amount_ray);
     }
@@ -525,7 +453,7 @@ mod tests {
     fn test_get_or_create_supply_position_seeds_risk_from_config() {
         let env = Env::default();
         let account = empty_account(&env, account_meta(&env, 0));
-        let cfg = AssetConfig::from(&sample_asset_config_raw(&env));
+        let cfg = AssetConfig::from(&sample_spoke_asset_config());
         let hub_asset = HubAssetKey {
             hub_id: 0,
             asset: Address::generate(&env),
@@ -581,5 +509,4 @@ pub enum ControllerKey {
     Delegates(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
-    Market(Address),
 }
