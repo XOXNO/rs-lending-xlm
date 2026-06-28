@@ -20,7 +20,7 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         _ => {}
     }
 
-    let config = market.oracle_config;
+    let config = cache.resolve_oracle_config(asset);
 
     // Reject the `MarketOracleConfig::pending_for` self-pointer sentinel.
     let primary_contract = match &config.primary {

@@ -430,6 +430,11 @@ pub fn set_market_oracle_config(env: &Env, asset: Address, mut config: MarketOra
         config.asset_decimals = market.oracle_config.asset_decimals;
     }
 
+    // Dual-write: `AssetOracle` is the token-rooted source the price resolver
+    // reads; `MarketConfig.oracle_config` stays the source of truth for status
+    // until Task 1.4a. Both must hold the same config so spoke-0 pricing is
+    // byte-identical.
+    storage::set_asset_oracle(env, &asset, &config);
     market.oracle_config = config;
     market.status = MarketStatus::Active;
     storage::set_market_config(env, &asset, &market);
@@ -486,6 +491,8 @@ fn require_source_quote_active_usd(env: &Env, asset: &Address, source: &OracleSo
 pub fn set_oracle_tolerance(env: &Env, asset: Address, tolerance: OraclePriceFluctuation) {
     let mut market = storage::get_market_config(env, &asset);
     market.oracle_config.tolerance = tolerance;
+    // Keep `AssetOracle` in lockstep with `MarketConfig.oracle_config`.
+    storage::set_asset_oracle(env, &asset, &market.oracle_config);
     storage::set_market_config(env, &asset, &market);
 
     UpdateAssetOracleEvent {

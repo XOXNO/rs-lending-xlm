@@ -7,11 +7,11 @@ use crate::constants::MS_PER_SECOND;
 use crate::events::{
     EventBorrowDelta, EventDepositDelta, PositionAction, UpdatePositionBatchEvent,
 };
-use common::errors::EModeError;
+use common::errors::{EModeError, OracleError};
 use controller_interface::types::{
     Account, AccountPosition, AssetConfig, DebtPosition, HubAssetKey, MarketConfig, MarketIndex,
-    MarketIndexRaw, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig, SpokeConfig,
-    SpokeUsageRaw,
+    MarketIndexRaw, MarketOracleConfig, PoolSyncData, PriceFeed, PriceFeedRaw, SpokeAssetConfig,
+    SpokeConfig, SpokeUsageRaw,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String, Vec};
 
@@ -125,6 +125,42 @@ impl Cache {
 
     pub fn cached_asset_config(&mut self, asset: &Address) -> AssetConfig {
         (&self.cached_market_config(asset).asset_config).into()
+    }
+
+    /// Active spoke for this transaction, or 0 when no account is loaded
+    /// (views). Spoke 0 resolves oracles to the token-rooted base.
+    pub(crate) fn active_spoke_id(&self) -> u32 {
+        self.emode_usage
+            .as_ref()
+            .map(|ctx| ctx.spoke_id())
+            .unwrap_or(0)
+    }
+
+    /// Token-rooted oracle config under `AssetOracle(asset)`. Panics
+    /// `OracleNotConfigured` when absent; the `token_price` status gate rejects
+    /// unconfigured markets before this runs, so the panic is defensive.
+    pub(crate) fn cached_asset_oracle(&mut self, asset: &Address) -> MarketOracleConfig {
+        storage::get_asset_oracle(&self.env, asset)
+            .unwrap_or_else(|| panic_with_error!(&self.env, OracleError::OracleNotConfigured))
+    }
+
+    /// Oracle config for `asset`: a `Some` per-spoke override on the active
+    /// spoke wins; otherwise the token-rooted `AssetOracle` base. Spoke 0 (no
+    /// account) always takes the base, so default pricing is unchanged.
+    pub(crate) fn resolve_oracle_config(&mut self, asset: &Address) -> MarketOracleConfig {
+        let spoke_id = self.active_spoke_id();
+        if spoke_id != 0 {
+            let hub_asset = HubAssetKey {
+                hub_id: 0,
+                asset: asset.clone(),
+            };
+            if let Some(spoke_asset) = self.cached_spoke_asset(spoke_id, &hub_asset) {
+                if let Some(override_config) = spoke_asset.oracle_override.as_ref() {
+                    return override_config.clone();
+                }
+            }
+        }
+        self.cached_asset_oracle(asset)
     }
 
     /// Address of the central liquidity pool, memoized for the transaction.
@@ -322,3 +358,7 @@ impl Cache {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/cache/resolve.rs"]
+mod tests;
