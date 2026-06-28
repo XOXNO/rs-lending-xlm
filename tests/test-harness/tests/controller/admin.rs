@@ -2,7 +2,7 @@ use common::errors::{EModeError, GenericError};
 use controller::types::{ControllerKey, EModeCategoryRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
-use test_harness::{assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
+use test_harness::{hub_asset, HubAssetKey, assert_contract_error, usdc_preset, LendingTest, ALICE, STABLECOIN_EMODE};
 
 // 1. upgrade_pool -- admin path. Reuses the pool template hash so the Soroban
 //    host accepts a no-op upgrade without a second wasm blob.
@@ -164,8 +164,8 @@ fn test_supply_panics_on_deprecated_emode_category() {
     let amount = test_harness::f64_to_i128(100.0, market.decimals);
     market.token_admin.mint(&alice_addr, &amount);
 
-    let payments: soroban_sdk::Vec<(Address, i128)> =
-        soroban_sdk::vec![&t.env, (asset_addr, amount)];
+    let payments: soroban_sdk::Vec<(HubAssetKey, i128)> =
+        soroban_sdk::vec![&t.env, (hub_asset(asset_addr), amount)];
     let ctrl = t.ctrl_client();
     let result = match ctrl.try_supply(&alice_addr, &account_id, &0u32, &payments) {
         Ok(Ok(id)) => Ok(id),

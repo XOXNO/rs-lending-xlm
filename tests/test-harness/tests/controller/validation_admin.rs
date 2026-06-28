@@ -1,6 +1,6 @@
 use controller::constants::MAX_FLASHLOAN_FEE_BPS;
-use soroban_sdk::{vec, Address};
-use test_harness::{usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE};
+use soroban_sdk::vec;
+use test_harness::{hub_asset, HubAssetKey, usdc_preset, usdt_stable_preset, EModeCategoryPreset, LendingTest, ALICE};
 // edit_asset_config is a thin setter: it persists the config as given
 // (input validation lives in governance).
 
@@ -51,6 +51,6 @@ fn test_emode_user_supply_rejects_deprecated_category() {
     let usdc_addr = usdc.asset.clone();
     // 1_000 USDC at 7 decimals.
     usdc.token_admin.mint(&alice, &10_000_000_000_i128);
-    let assets: soroban_sdk::Vec<(Address, i128)> = vec![&t.env, (usdc_addr, 10_000_000_000_i128)];
+    let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env, (hub_asset(usdc_addr), 10_000_000_000_i128)];
     t.ctrl_client().supply(&alice, &0u64, &1u32, &assets);
 }

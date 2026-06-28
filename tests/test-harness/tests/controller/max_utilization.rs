@@ -1,5 +1,5 @@
 use controller::constants::RAY;
-use test_harness::{
+use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, BOB,
 };
 // Borrow gate
@@ -143,8 +143,8 @@ fn test_zero_supply_with_outstanding_borrow_rejected() {
     let asset_addr = t.resolve_asset("USDC");
     let alice_addr = t.get_or_create_user(ALICE);
     let account_id = t.resolve_account_id(ALICE);
-    let withdrawals: SorobanVec<(soroban_sdk::Address, i128)> =
-        soroban_sdk::vec![&t.env, (asset_addr, 0i128)];
+    let withdrawals: SorobanVec<(HubAssetKey, i128)> =
+        soroban_sdk::vec![&t.env, (hub_asset(asset_addr), 0i128)];
     let ctrl = t.ctrl_client();
     let result = match ctrl.try_withdraw(&alice_addr, &account_id, &withdrawals, &None) {
         Ok(Ok(_)) => Ok(()),

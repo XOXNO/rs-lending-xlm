@@ -1,7 +1,8 @@
-use soroban_sdk::{vec, Address, Vec};
+use common::types::HubAssetKey;
+use soroban_sdk::{vec, Vec};
 
 use crate::core::LendingTest;
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset};
 
 impl LendingTest {
     pub fn repay(&mut self, user: &str, asset_name: &str, amount: f64) {
@@ -19,7 +20,7 @@ impl LendingTest {
         market.token_admin.mint(&addr, &amount);
 
         let ctrl = self.ctrl_client();
-        let payments: Vec<(Address, i128)> = vec![&self.env, (asset_addr, amount)];
+        let payments: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), amount)];
         ctrl.repay(&addr, &account_id, &payments);
     }
 
@@ -29,12 +30,12 @@ impl LendingTest {
         let account_id = self.resolve_account_id(user);
         let addr = self.users.get(user).unwrap().address.clone();
 
-        let mut soroban_payments: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut soroban_payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for (asset_name, amount) in assets {
             let market = self.resolve_market(asset_name);
             let raw = f64_to_i128(*amount, market.decimals);
             market.token_admin.mint(&addr, &raw);
-            soroban_payments.push_back((market.asset.clone(), raw));
+            soroban_payments.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let ctrl = self.ctrl_client();
@@ -56,7 +57,7 @@ impl LendingTest {
         market.token_admin.mint(&addr, &raw_amount);
 
         let ctrl = self.ctrl_client();
-        let payments: Vec<(Address, i128)> = vec![&self.env, (asset_addr, raw_amount)];
+        let payments: Vec<(HubAssetKey, i128)> = vec![&self.env, (hub_asset(asset_addr), raw_amount)];
         match ctrl.try_repay(&addr, &account_id, &payments) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),

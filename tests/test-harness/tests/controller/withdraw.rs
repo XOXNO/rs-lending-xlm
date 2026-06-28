@@ -1,13 +1,13 @@
-use soroban_sdk::{vec, Address, Vec};
-use test_harness::{
+use soroban_sdk::{vec, Vec};
+use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, PositionType, ALICE,
 };
 
 fn try_withdraw_payments(
     t: &mut LendingTest,
     user: &str,
-    withdrawals: Vec<(Address, i128)>,
-) -> Result<Vec<(Address, i128)>, soroban_sdk::Error> {
+    withdrawals: Vec<(HubAssetKey, i128)>,
+) -> Result<Vec<(HubAssetKey, i128)>, soroban_sdk::Error> {
     let account_id = t.resolve_account_id(user);
     let caller = t.users.get(user).unwrap().address.clone();
     let ctrl = t.ctrl_client();
@@ -465,8 +465,8 @@ fn test_withdraw_aggregates_duplicate_assets() {
     let wallet_before = t.token_balance_raw(ALICE, "USDC");
     let withdrawals = vec![
         &t.env,
-        (usdc.clone(), 10_000_000_000i128),
-        (usdc, 25_000_000_000i128),
+        (hub_asset(usdc.clone()), 10_000_000_000i128),
+        (hub_asset(usdc), 25_000_000_000i128),
     ];
 
     let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
@@ -493,9 +493,9 @@ fn test_withdraw_duplicate_zero_full_close_is_sticky() {
     let wallet_before = t.token_balance_raw(ALICE, "USDC");
     let withdrawals = vec![
         &t.env,
-        (usdc.clone(), 10_000_000_000i128),
-        (usdc.clone(), 0i128),
-        (usdc, 5_000_000_000i128),
+        (hub_asset(usdc.clone()), 10_000_000_000i128),
+        (hub_asset(usdc.clone()), 0i128),
+        (hub_asset(usdc), 5_000_000_000i128),
     ];
 
     let paid = try_withdraw_payments(&mut t, ALICE, withdrawals).unwrap();
@@ -523,7 +523,7 @@ fn test_withdraw_rejects_negative_raw_amount() {
 
     t.supply(ALICE, "USDC", 10_000.0);
     let usdc = t.resolve_asset("USDC");
-    let withdrawals = vec![&t.env, (usdc, -1i128)];
+    let withdrawals = vec![&t.env, (hub_asset(usdc), -1i128)];
 
     let result = try_withdraw_payments(&mut t, ALICE, withdrawals);
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);

@@ -29,6 +29,7 @@ pub use fixtures::{
     liquidatable_usdc_eth, seed_liquidatable_usdc_eth, seed_liquidator_usdc,
     seed_standard_liquidity,
 };
+pub use common::types::HubAssetKey;
 pub use helpers::*;
 pub use ops::internal::{amount_raw, asset_payment_vec};
 pub use prelude::*;

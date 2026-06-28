@@ -144,6 +144,8 @@ fn make_test_params() -> controller::types::MarketParams {
         reserve_factor: Bps::from(1000),                // 10%.
         supply_cap: 0,
         borrow_cap: 0,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: soroban_sdk::Address::from_str(
             &Env::default(),
             "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",

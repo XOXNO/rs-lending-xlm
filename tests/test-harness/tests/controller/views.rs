@@ -1,5 +1,5 @@
 use controller::constants::{RAY, WAD};
-use test_harness::{
+use test_harness::{hub_asset,
     eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest, ALICE,
     STABLECOIN_EMODE,
 };
@@ -306,7 +306,7 @@ fn test_liquidation_estimations_basic() {
 
     let account_id = t.resolve_account_id(ALICE);
     let ctrl = t.ctrl_client();
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments = soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
     let hf = ctrl.get_health_factor(&account_id);
 

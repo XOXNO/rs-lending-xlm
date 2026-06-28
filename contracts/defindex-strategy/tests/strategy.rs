@@ -8,7 +8,7 @@ use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient
 use soroban_sdk::testutils::{Address as _, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{vec, Address, Env, IntoVal, Val, Vec};
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{hub_asset, eth_preset, usdc_preset, LendingTest, ALICE, BOB};
 
 const UNIT: i128 = 10_000_000; // 1.0 at the presets' 7 decimals
 const PPS_SCALAR: i128 = 1_000_000_000_000;
@@ -406,7 +406,7 @@ fn poc_third_party_inflates_strategy_balance_via_controller_supply() {
         &attacker,
         &account_id,
         &0u32,
-        &vec![&s.t.env, (s.asset.clone(), 500 * UNIT)],
+        &vec![&s.t.env, (hub_asset(s.asset.clone()), 500 * UNIT)],
     );
 
     // Strategy reports the donation as the vault's balance/NAV.

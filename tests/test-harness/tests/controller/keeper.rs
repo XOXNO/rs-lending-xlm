@@ -1,5 +1,5 @@
 use controller::types::ControllerKey;
-use test_harness::{
+use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, days, errors, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE,
     BOB, STABLECOIN_EMODE,
 };
@@ -7,13 +7,13 @@ use test_harness::{
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw> = t
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
             .env
             .storage()
             .persistent()
             .get(&ControllerKey::SupplyPositions(account_id))
             .expect("supply side map should exist");
-        map.get(asset)
+        map.get(hub_asset(asset))
             .expect("supply position should exist for asset")
             .liquidation_threshold_bps
     })
@@ -23,14 +23,14 @@ fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u
 fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32, u32) {
     let asset = t.resolve_asset(asset_name);
     t.env.as_contract(&t.controller_address(), || {
-        let map: soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw> = t
+        let map: soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw> = t
             .env
             .storage()
             .persistent()
             .get(&ControllerKey::SupplyPositions(account_id))
             .expect("supply side map should exist");
         let p = map
-            .get(asset)
+            .get(hub_asset(asset))
             .expect("supply position should exist for asset");
         (
             p.liquidation_threshold_bps,

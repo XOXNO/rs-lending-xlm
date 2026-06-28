@@ -3,7 +3,7 @@
 //! Test-only flash-loan receiver for protocol smoke tests.
 
 use common::errors::GenericError;
-use common::types::Payment;
+use common::types::HubAssetKey;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, contract, contractclient, contracterror, contractimpl, contracttype,
@@ -32,7 +32,7 @@ pub trait Controller {
         caller: Address,
         account_id: u64,
         e_mode_category: u32,
-        assets: Vec<Payment>,
+        assets: Vec<(HubAssetKey, i128)>,
     ) -> u64;
 }
 
@@ -179,8 +179,14 @@ fn reenter_pool_flash_loan(env: &Env, asset: &Address, pool: &Address) {
 fn reenter_controller_supply(env: &Env, asset: &Address) {
     let controller = Address::from_str(env, TESTNET_CONTROLLER);
     let caller = env.current_contract_address();
-    let mut assets: Vec<Payment> = Vec::new(env);
-    assets.push_back((asset.clone(), 1i128));
+    let mut assets: Vec<(HubAssetKey, i128)> = Vec::new(env);
+    assets.push_back((
+        HubAssetKey {
+            hub_id: 0,
+            asset: asset.clone(),
+        },
+        1i128,
+    ));
 
     authorize_controller_supply(env, &controller, &caller, &assets);
     ControllerClient::new(env, &controller).supply(&caller, &0u64, &0u32, &assets);
@@ -190,7 +196,7 @@ fn authorize_controller_supply(
     env: &Env,
     controller: &Address,
     caller: &Address,
-    assets: &Vec<Payment>,
+    assets: &Vec<(HubAssetKey, i128)>,
 ) {
     let controller_supply = InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {

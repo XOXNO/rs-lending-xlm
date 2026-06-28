@@ -1,5 +1,5 @@
 use controller::constants::{RAY, WAD};
-use test_harness::{eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
+use test_harness::{hub_asset, eth_preset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 // Rigorous liquidation math tests -- verify EXACT bonus, seizure, and HF.
 //
 // Liquidation formula:
@@ -94,7 +94,7 @@ fn test_bonus_formula_at_specific_hf_levels() {
     t.set_price("USDC", usd_cents(74));
 
     let account_id = t.resolve_account_id(ALICE);
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments = soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let estimate = t
         .ctrl_client()
         .get_liquidation_estimate(&account_id, &payments);
@@ -133,7 +133,7 @@ fn test_deep_underwater_higher_bonus() {
     t.set_price("USDC", usd_cents(74));
 
     let id_alice = t.resolve_account_id(ALICE);
-    let payments = soroban_sdk::Vec::from_array(&t.env, [(t.resolve_asset("ETH"), 3_0000000)]);
+    let payments = soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
     let light = t
         .ctrl_client()
         .get_liquidation_estimate(&id_alice, &payments);

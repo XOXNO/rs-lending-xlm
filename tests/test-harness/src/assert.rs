@@ -1,8 +1,10 @@
+use common::types::HubAssetKey;
 use controller::constants::WAD;
 use controller::types::ControllerKey;
-use soroban_sdk::{Address, Env, Map};
+use soroban_sdk::{Env, Map};
 
 use crate::context::LendingTest;
+use crate::helpers::hub_asset;
 use crate::view::PositionType;
 
 fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
@@ -12,7 +14,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
     };
     env.storage()
         .persistent()
-        .get::<_, Map<Address, controller::types::AccountPositionRaw>>(&key)
+        .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(&key)
         .map(|m| m.len())
         .unwrap_or(0)
 }
@@ -114,10 +116,10 @@ impl LendingTest {
                 .env
                 .storage()
                 .persistent()
-                .get::<_, soroban_sdk::Map<soroban_sdk::Address, controller::types::AccountPositionRaw>>(
+                .get::<_, soroban_sdk::Map<HubAssetKey, controller::types::AccountPositionRaw>>(
                     &map_key,
                 )
-                .map(|m| m.contains_key(asset.clone()))
+                .map(|m| m.contains_key(hub_asset(asset.clone())))
                 .unwrap_or(false);
             assert!(
                 has_pos,

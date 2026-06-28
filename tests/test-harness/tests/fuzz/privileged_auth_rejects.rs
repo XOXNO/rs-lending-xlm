@@ -210,6 +210,8 @@ proptest! {
                 reserve_factor_bps: 0,
                 supply_cap: 0,
                 borrow_cap: 0,
+                is_flashloanable: false,
+                flashloan_fee_bps: 0,
                 asset_id: usdc.clone(),
                 asset_decimals: 7,
             };

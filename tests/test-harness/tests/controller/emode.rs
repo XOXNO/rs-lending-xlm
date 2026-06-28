@@ -1,5 +1,5 @@
 use controller::types::EModeAssetArgs;
-use test_harness::{
+use test_harness::{hub_asset,
     assert_contract_error, errors, eth_preset, f64_to_i128, usd_cents, usdc_preset,
     usdt_stable_preset, LendingTest, PositionType, ALICE, LIQUIDATOR, STABLECOIN_EMODE,
 };
@@ -829,7 +829,7 @@ fn test_emode_per_asset_divergent_params() {
     let (supplies, _) = t.ctrl_client().get_account_positions(&account_id);
 
     // USDC position keeps the stablecoin-category params.
-    let usdc_pos = supplies.get(usdc).expect("USDC position");
+    let usdc_pos = supplies.get(hub_asset(usdc)).expect("USDC position");
     assert_eq!(
         usdc_pos.loan_to_value_bps, 9_700,
         "USDC keeps its 97% e-mode LTV"
@@ -837,7 +837,7 @@ fn test_emode_per_asset_divergent_params() {
     assert_eq!(usdc_pos.liquidation_threshold_bps, 9_800);
 
     // USDT position carries its own, divergent params in the same category.
-    let usdt_pos = supplies.get(usdt).expect("USDT position");
+    let usdt_pos = supplies.get(hub_asset(usdt)).expect("USDT position");
     assert_eq!(
         usdt_pos.loan_to_value_bps, 9_000,
         "USDT carries its own tighter LTV"
@@ -924,7 +924,7 @@ fn emode_supply_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i1
     let asset = t.resolve_asset(asset_name);
     let cat = t.ctrl_client().get_e_mode_category(&category_id);
     cat.usage
-        .get(asset)
+        .get(hub_asset(asset))
         .map(|u| u.supplied_scaled_ray)
         .unwrap_or(0)
 }
@@ -933,7 +933,7 @@ fn emode_borrow_usage(t: &LendingTest, category_id: u32, asset_name: &str) -> i1
     let asset = t.resolve_asset(asset_name);
     let cat = t.ctrl_client().get_e_mode_category(&category_id);
     cat.usage
-        .get(asset)
+        .get(hub_asset(asset))
         .map(|u| u.borrowed_scaled_ray)
         .unwrap_or(0)
 }

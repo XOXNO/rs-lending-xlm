@@ -7,7 +7,7 @@ use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
 use crate::core::types::{LendingTest, MarketState, PendingEMode, PendingMarket};
-use crate::helpers::f64_to_i128;
+use crate::helpers::{f64_to_i128, hub_asset};
 use crate::presets::{
     AssetConfigPreset, EModeCategoryPreset, MarketParamsPreset, MarketPreset, DEFAULT_TOLERANCE,
 };
@@ -275,7 +275,7 @@ impl LendingTestBuilder {
             token_admin.mint(&pool_address, &liquidity_amount);
 
             env.as_contract(&pool_address, || {
-                let key = controller::types::PoolKey::State(asset_address.clone());
+                let key = controller::types::PoolKey::State(hub_asset(asset_address.clone()));
                 let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
                 state.cash += liquidity_amount;

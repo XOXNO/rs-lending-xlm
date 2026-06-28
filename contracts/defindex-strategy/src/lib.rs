@@ -10,6 +10,7 @@
 //! - `harvest` publishes Blend-compatible `price_per_share` from the supply index.
 
 use common::constants::RAY;
+use controller_interface::types::HubAssetKey;
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -125,9 +126,18 @@ impl<'a> Ctx<'a> {
             .ok_or(DeFindexStrategyError::ArithmeticError)
     }
 
-    fn to_payment(&self, amount: i128) -> Vec<(Address, i128)> {
+    fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
         // dimensional: payment preserves D{AssetDecimals(asset)}{Token(asset)}.
-        vec![self.env, (self.cfg.asset.clone(), amount)]
+        vec![
+            self.env,
+            (
+                HubAssetKey {
+                    hub_id: 0,
+                    asset: self.cfg.asset.clone(),
+                },
+                amount,
+            ),
+        ]
     }
 
     fn authorize_supply_to_pool(&self, amount: i128) {

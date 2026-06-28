@@ -31,6 +31,8 @@ fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
         reserve_factor_bps: 1_000,
         supply_cap: 5_000_000,
         borrow_cap: 1_000_000,
+        is_flashloanable: false,
+        flashloan_fee_bps: 0,
         asset_id: asset.clone(),
         asset_decimals: decimals,
     }

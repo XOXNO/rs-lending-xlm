@@ -1,5 +1,5 @@
 use soroban_sdk::vec;
-use test_harness::{
+use test_harness::{hub_asset, HubAssetKey,
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
     LendingTest, PositionType, ALICE, BOB, STABLECOIN_EMODE,
 };
@@ -161,7 +161,7 @@ fn test_supply_rejects_empty_asset_vector() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
 
     let caller = t.get_or_create_user(ALICE);
-    let assets: soroban_sdk::Vec<(soroban_sdk::Address, i128)> = vec![&t.env];
+    let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -176,7 +176,7 @@ fn test_supply_rejects_negative_raw_amount() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let assets = vec![&t.env, (usdc, -1i128)];
+    let assets = vec![&t.env, (hub_asset(usdc), -1i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -191,7 +191,7 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
-    let assets = vec![&t.env, (usdc.clone(), i128::MAX), (usdc, 1i128)];
+    let assets = vec![&t.env, (hub_asset(usdc.clone()), i128::MAX), (hub_asset(usdc), 1i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -208,7 +208,7 @@ fn test_supply_rejects_disabled_market_with_pair_not_active() {
     let usdc = t.resolve_asset("USDC");
     t.ctrl_client().disable_token_oracle(&usdc);
 
-    let assets = vec![&t.env, (usdc, 10_000_000i128)];
+    let assets = vec![&t.env, (hub_asset(usdc), 10_000_000i128)];
     let result = match t.ctrl_client().try_supply(&caller, &0u64, &0u32, &assets) {
         Ok(res) => res,
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
@@ -383,8 +383,7 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
         .expect("third-party top-up should still be allowed");
 
     let (supplies, _borrows) = t.ctrl_client().get_account_positions(&account_id);
-    let position = supplies
-        .get(usdc)
+    let position = supplies.get(hub_asset(usdc))
         .expect("USDC supply position should remain");
     assert_eq!(
         position.liquidation_threshold_bps, 8000,
@@ -410,8 +409,8 @@ fn test_bulk_supply_duplicate_asset_counts_once() {
 
     let assets = vec![
         &t.env,
-        (usdc.asset.clone(), 500_000_000_000_i128),
-        (usdc.asset.clone(), 250_000_000_000_i128),
+        (hub_asset(usdc.asset.clone()), 500_000_000_000_i128),
+        (hub_asset(usdc.asset.clone()), 250_000_000_000_i128),
     ];
     t.ctrl_client().supply(&alice, &account_id, &0u32, &assets);
     t.assert_supply_near(ALICE, "USDC", 75_000.0, 1.0);
@@ -442,7 +441,7 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
     let mut last_id: u64 = 0;
     for _ in 0..N {
         // account_id = 0 forces a brand-new account every call.
-        let dust = vec![&t.env, (asset.clone(), 1i128)];
+        let dust = vec![&t.env, (hub_asset(asset.clone()), 1i128)];
         let id = ctrl.supply(&attacker, &0u64, &0u32, &dust);
         assert!(id > 0, "1-unit deposit must be accepted (no dust floor)");
         // Strictly increasing => each call minted a fresh, distinct account.
@@ -484,7 +483,7 @@ fn poc_non_owner_can_supply_into_victims_account() {
         .mint(&alice, &100_000_000);
     let alice_id =
         t.ctrl_client()
-            .supply(&alice, &0u64, &0u32, &vec![&t.env, (usdc, 100_000_000i128)]);
+            .supply(&alice, &0u64, &0u32, &vec![&t.env, (hub_asset(usdc), 100_000_000i128)]);
     assert!(alice_id > 0);
 
     // BOB — a stranger, not the owner — supplies ETH straight into ALICE's account.
@@ -493,7 +492,7 @@ fn poc_non_owner_can_supply_into_victims_account() {
     t.resolve_market("ETH").token_admin.mint(&bob, &50_000_000);
     let returned =
         t.ctrl_client()
-            .supply(&bob, &alice_id, &0u32, &vec![&t.env, (eth, 50_000_000i128)]);
+            .supply(&bob, &alice_id, &0u32, &vec![&t.env, (hub_asset(eth), 50_000_000i128)]);
 
     // No owner-match revert: the deposit lands on ALICE's account, BOB consumed
     // one of her supply-position slots, and ALICE still owns the account.

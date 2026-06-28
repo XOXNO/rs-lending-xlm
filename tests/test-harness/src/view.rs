@@ -4,7 +4,7 @@ use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
 
 use crate::context::LendingTest;
-use crate::helpers::{i128_to_f64, wad_to_f64};
+use crate::helpers::{hub_asset, i128_to_f64, wad_to_f64};
 
 /// Re-export for use in assertions.
 pub enum PositionType {
@@ -107,9 +107,9 @@ impl LendingTest {
         // scaled share each carries.
         let scaled_ray = match position_type {
             AccountPositionType::Deposit => {
-                supplies.get(asset.clone()).map(|p| p.scaled_amount_ray)
+                supplies.get(hub_asset(asset.clone())).map(|p| p.scaled_amount_ray)
             }
-            AccountPositionType::Borrow => borrows.get(asset.clone()).map(|p| p.scaled_amount_ray),
+            AccountPositionType::Borrow => borrows.get(hub_asset(asset.clone())).map(|p| p.scaled_amount_ray),
         };
 
         if let Some(scaled_amount_ray) = scaled_ray {

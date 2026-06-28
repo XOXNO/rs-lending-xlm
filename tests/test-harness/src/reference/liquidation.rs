@@ -584,7 +584,8 @@ pub fn snapshot_collateral(t: &LendingTest, user: &str) -> Vec<RefCollateralPosi
     let (supplies, _borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefCollateralPosition> = Vec::new();
-    for (i, (asset, position)) in supplies.iter().enumerate() {
+    for (i, (key, position)) in supplies.iter().enumerate() {
+        let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&asset);
         // Liquidation fee is a market-level parameter sourced from the current
@@ -619,7 +620,8 @@ pub fn snapshot_debt(t: &LendingTest, user: &str) -> Vec<RefDebtPosition> {
     let (_supplies, borrows) = ctrl.get_account_positions(&account_id);
 
     let mut out: Vec<RefDebtPosition> = Vec::new();
-    for (i, (asset, position)) in borrows.iter().enumerate() {
+    for (i, (key, position)) in borrows.iter().enumerate() {
+        let asset = key.asset;
         let market = t.resolve_market_by_asset(&asset);
         let sync = pool::LiquidityPoolClient::new(&t.env, &market.pool).get_sync_data(&asset);
         out.push(RefDebtPosition {

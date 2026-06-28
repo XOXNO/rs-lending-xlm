@@ -210,6 +210,8 @@ impl MarketParamsPreset {
             reserve_factor_bps: self.reserve_factor_bps,
             supply_cap: self.supply_cap,
             borrow_cap: self.borrow_cap,
+            is_flashloanable: false,
+            flashloan_fee_bps: 0,
             asset_id: asset.clone(),
             asset_decimals: decimals,
         }

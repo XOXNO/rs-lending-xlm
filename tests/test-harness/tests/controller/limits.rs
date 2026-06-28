@@ -5,7 +5,7 @@
 
 use controller::constants::RAY;
 use soroban_sdk::Vec as SorobanVec;
-use test_harness::{
+use test_harness::{hub_asset,
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
     BOB, STABLECOIN_EMODE,
 };
@@ -72,10 +72,10 @@ fn test_max_withdraw_unconstrained_closes_position() {
     let balance = ctrl.get_collateral_amount(&account_id, &asset);
     assert_eq!(max, balance, "unconstrained max must be the full balance");
 
-    let withdrawals: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max)];
+    let withdrawals: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max)];
     let paid = ctrl.withdraw(&alice, &account_id, &withdrawals, &None);
     let (paid_asset, paid_amount) = paid.get(0).unwrap();
-    assert_eq!(paid_asset, asset);
+    assert_eq!(paid_asset.asset, asset);
     // Full close pays the floor rounding of the half-up valuation.
     assert!(
         paid_amount == max || paid_amount == max - 1,
@@ -110,7 +110,7 @@ fn test_max_withdraw_bounded_by_utilization_and_executable() {
 
     // One stroop above the preview trips the utilization gate.
     let alice = t.get_or_create_user(ALICE);
-    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max + 2)];
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max + 2)];
     let res = match t
         .ctrl_client()
         .try_withdraw(&alice, &account_id, &over, &None)
@@ -182,7 +182,7 @@ fn test_max_withdraw_pool_bounds_partial_when_full_close_blocked() {
 
     // Anything meaningfully above the preview fails (pool cash / solvency).
     let alice = t.get_or_create_user(ALICE);
-    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max + 3)];
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max + 3)];
     let res = match t
         .ctrl_client()
         .try_withdraw(&alice, &account_id, &over, &None)
@@ -225,7 +225,7 @@ fn test_max_withdraw_with_debt_respects_ltv() {
 
     // $1 above the preview violates the LTV gate.
     let alice = t.get_or_create_user(ALICE);
-    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (asset.clone(), max + UNIT)];
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(asset.clone()), max + UNIT)];
     let res = match t
         .ctrl_client()
         .try_withdraw(&alice, &account_id, &over, &None)
@@ -562,7 +562,7 @@ fn test_max_withdraw_emode_account_respects_stored_emode_ltv() {
 
     // A dollar above the preview violates the LTV gate the preview modeled.
     let alice = t.get_or_create_user(ALICE);
-    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (usdc.clone(), max + UNIT)];
+    let over: SorobanVec<_> = soroban_sdk::vec![&t.env, (hub_asset(usdc.clone()), max + UNIT)];
     let res = match t
         .ctrl_client()
         .try_withdraw(&alice, &account_id, &over, &None)

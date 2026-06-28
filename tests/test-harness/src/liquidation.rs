@@ -1,6 +1,8 @@
-use soroban_sdk::{Address, Vec};
+use common::types::HubAssetKey;
+use soroban_sdk::Vec;
 
 use crate::context::LendingTest;
+use crate::helpers::hub_asset;
 use crate::ops::internal::{amount_raw, asset_payment_vec, map_try_ok_unit};
 
 impl LendingTest {
@@ -60,12 +62,12 @@ impl LendingTest {
         let liquidator_addr = self.get_or_create_user(liquidator);
         let account_id = self.resolve_account_id(target_user);
 
-        let mut payments: Vec<(Address, i128)> = Vec::new(&self.env);
+        let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
         for &(asset_name, amount) in debts {
             let market = self.resolve_market(asset_name);
             let raw = amount_raw(amount, market.decimals);
             market.token_admin.mint(&liquidator_addr, &raw);
-            payments.push_back((market.asset.clone(), raw));
+            payments.push_back((hub_asset(market.asset.clone()), raw));
         }
 
         let ctrl = self.ctrl_client();
