@@ -20,7 +20,6 @@ use crate::cache::Cache;
 use crate::events;
 use crate::external::pool::pool_seize_position_call;
 use crate::external::sac::sac_transfer_call;
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 use crate::{
@@ -64,7 +63,7 @@ pub fn process_liquidation(
     // Liquidation denies stale, deviation, and TWAP loosening. Outside the last
     // tolerance band, `UnsafePriceNotAllowed` prevents seizure at a single-source
     // price; inside the bands the standard primary/midpoint selection applies.
-    let mut cache = Cache::new(env, OraclePolicy::Liquidation);
+    let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, &aggregated, &mut cache);
 
@@ -277,7 +276,7 @@ fn check_bad_debt_after_liquidation(
 pub fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     // Success removes the account; failure reverts atomically, so no keep-alive is needed.
     // Cleanup uses the same `Liquidation` policy as inline post-liquidation cleanup.
-    let mut cache = Cache::new(env, OraclePolicy::Liquidation);
+    let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
 
     assert_with_error!(

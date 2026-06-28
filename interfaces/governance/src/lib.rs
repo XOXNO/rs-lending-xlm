@@ -72,8 +72,7 @@ pub struct ConfigureOracleArgs {
 #[derive(Clone, Debug)]
 pub struct EditToleranceArgs {
     pub asset: Address,
-    pub first_tolerance: u32,
-    pub last_tolerance: u32,
+    pub tolerance: u32,
 }
 
 #[contracttype]
@@ -180,11 +179,7 @@ pub trait GovernanceInterface {
 
     /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` the
     /// matching proposer schedules; read-only.
-    fn resolve_oracle_tolerance(
-        env: Env,
-        first_tolerance: u32,
-        last_tolerance: u32,
-    ) -> OraclePriceFluctuation;
+    fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation;
 
     // --- forward.rs: generic proposer ---
 

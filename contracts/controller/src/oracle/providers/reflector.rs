@@ -1,6 +1,5 @@
 //! Reflector SEP-40 price provider: spot or TWAP read, repricing a quoted base
-//! into USD. Policy-tolerated TWAP degradation falls back to spot and emits
-//! `OracleTwapDegradedEvent`.
+//! into USD. A TWAP that cannot be computed reverts; there is no spot fallback.
 
 use common::errors::{GenericError, OracleError};
 use common::math::fp::Wad;
@@ -17,7 +16,6 @@ use controller_interface::types::{
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
 
 use crate::cache::Cache;
-use crate::events::OracleTwapDegradedEvent;
 use crate::oracle;
 use crate::oracle::observation::{reflector_observation_from_price_data, OracleObservation};
 
@@ -90,53 +88,38 @@ fn read_spot(env: &Env, config: &ReflectorSourceConfig) -> Option<OracleObservat
 }
 
 /// TWAP read via Reflector price history, averaged over the returned samples.
-/// Degrades to spot (policy permitting) when history is missing, insufficient,
-/// or stale; otherwise reverts.
+/// Reverts when history is missing, insufficient, stale, or contains a
+/// non-positive price; there is no spot fallback.
 fn read_twap(
     cache: &mut Cache,
     config: &ReflectorSourceConfig,
     records: u32,
     max_stale: u64,
 ) -> Option<OracleObservation> {
+    let env = cache.env();
     if records == 0 {
-        return twap_fallback_or_panic(
-            cache,
-            config,
-            None,
-            OracleError::TwapInsufficientObservations,
-        );
+        panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
     assert_with_error!(
-        cache.env(),
+        env,
         records <= MAX_TWAP_RECORDS,
         OracleError::InvalidOracleTokenType
     );
 
-    let env = cache.env();
     let asset = to_reflector_asset(env, &config.asset);
     let Some(history) = reflector_prices_call(env, &config.contract, &asset, records) else {
-        return twap_fallback_or_panic(cache, config, None, OracleError::ReflectorHistoryEmpty);
+        panic_with_error!(env, OracleError::ReflectorHistoryEmpty);
     };
     if history.is_empty() {
-        return twap_fallback_or_panic(cache, config, None, OracleError::ReflectorHistoryEmpty);
+        panic_with_error!(env, OracleError::ReflectorHistoryEmpty);
     }
 
     let mut sum: i128 = 0;
     let mut oldest_ts = u64::MAX;
-    let mut newest_valid: Option<OracleObservation> = None;
-    let mut has_invalid_price = false;
     for pd in history.iter() {
         check_not_future_at(env, cache.ledger_timestamp_secs(), pd.timestamp);
         if pd.price <= 0 {
-            has_invalid_price = true;
-            continue;
-        }
-        let candidate = reflector_observation_from_price_data(env, &pd, config.decimals);
-        if newest_valid
-            .as_ref()
-            .is_none_or(|current| candidate.observed_at > current.observed_at)
-        {
-            newest_valid = Some(candidate);
+            panic_with_error!(env, OracleError::InvalidPrice);
         }
         sum = sum
             .checked_add(pd.price)
@@ -146,19 +129,11 @@ fn read_twap(
         }
     }
 
-    if has_invalid_price {
-        return twap_fallback_or_panic(cache, config, newest_valid, OracleError::InvalidPrice);
-    }
     if history.len() < min_twap_observations(records) {
-        return twap_fallback_or_panic(
-            cache,
-            config,
-            newest_valid,
-            OracleError::TwapInsufficientObservations,
-        );
+        panic_with_error!(env, OracleError::TwapInsufficientObservations);
     }
     if is_stale(cache.ledger_timestamp_secs(), oldest_ts, max_stale) {
-        return twap_fallback_or_panic(cache, config, newest_valid, OracleError::PriceFeedStale);
+        panic_with_error!(env, OracleError::PriceFeedStale);
     }
 
     // Average over returned samples, not the requested count.
@@ -168,22 +143,4 @@ fn read_twap(
         observed_at: oldest_ts,
         published_at: None,
     })
-}
-
-fn twap_fallback_or_panic(
-    cache: &Cache,
-    config: &ReflectorSourceConfig,
-    fallback: Option<OracleObservation>,
-    err: OracleError,
-) -> Option<OracleObservation> {
-    if cache.oracle_policy.allows_degraded_dual_source() {
-        OracleTwapDegradedEvent {
-            oracle: config.contract.clone(),
-            reason_code: err as u32,
-        }
-        .publish(cache.env());
-        fallback.or_else(|| read_spot(cache.env(), config))
-    } else {
-        panic_with_error!(cache.env(), err);
-    }
 }

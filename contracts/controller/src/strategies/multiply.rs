@@ -10,7 +10,6 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::helpers;
-use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, strategy_finalize, swap_tokens,
 };
@@ -107,7 +106,7 @@ pub fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>)
     );
 
     // Strategy borrows are risk-increasing.
-    let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
+    let mut cache = Cache::new(env);
 
     let collateral_config = cache.cached_asset_config(collateral_token);
     assert_with_error!(

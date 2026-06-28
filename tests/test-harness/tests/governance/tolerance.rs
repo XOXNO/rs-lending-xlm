@@ -8,15 +8,13 @@ use test_harness::{assert_contract_error, usdc_preset, LendingTest};
 fn try_tolerance(
     t: &LendingTest,
     asset: &Address,
-    first: u32,
-    last: u32,
+    tolerance: u32,
 ) -> Result<(), soroban_sdk::Error> {
     match t.gov_client().try_execute_immediate(
         &t.admin(),
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
             asset: asset.clone(),
-            first_tolerance: first,
-            last_tolerance: last,
+            tolerance,
         }),
     ) {
         Ok(res) => res.map(|_| ()).map_err(|e| e.into()),
@@ -24,57 +22,30 @@ fn try_tolerance(
     }
 }
 
-// MIN_FIRST_TOLERANCE = 50 BPS.
+// MIN_TOLERANCE = 150 BPS.
 #[test]
-fn test_tolerance_config_rejects_first_below_min() {
+fn test_tolerance_config_rejects_below_min() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
-    let result = try_tolerance(&t, &asset, 10, 500);
-    assert_contract_error(result, OracleError::BadFirstTolerance as u32);
-}
-
-// MAX_FIRST_TOLERANCE = 500 BPS.
-#[test]
-fn test_tolerance_config_rejects_first_above_max() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let result = try_tolerance(&t, &asset, 6000, 7000);
-    assert_contract_error(result, OracleError::BadFirstTolerance as u32);
-}
-
-// MIN_LAST_TOLERANCE = 150 BPS, first=100 is valid.
-#[test]
-fn test_tolerance_config_rejects_last_below_min() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let result = try_tolerance(&t, &asset, 100, 100);
+    let result = try_tolerance(&t, &asset, 10);
     assert_contract_error(result, OracleError::BadLastTolerance as u32);
 }
 
-// MAX_LAST_TOLERANCE = 10000 BPS.
+// MAX_TOLERANCE = 5000 BPS.
 #[test]
-fn test_tolerance_config_rejects_last_above_max() {
+fn test_tolerance_config_rejects_above_max() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
-    let result = try_tolerance(&t, &asset, 200, 11000);
+    let result = try_tolerance(&t, &asset, 6000);
     assert_contract_error(result, OracleError::BadLastTolerance as u32);
-}
-
-// last (200) < first (300): the second band must be wider than the first.
-#[test]
-fn test_tolerance_config_rejects_last_less_than_first() {
-    let t = LendingTest::new().with_market(usdc_preset()).build();
-    let asset = t.resolve_market("USDC").asset.clone();
-    let result = try_tolerance(&t, &asset, 300, 200);
-    assert_contract_error(result, OracleError::BadAnchorTolerances as u32);
 }
 
 #[test]
 fn test_tolerance_config_accepts_valid_bounds() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
-    let expected = t.gov_iface_client().resolve_oracle_tolerance(&200, &500);
-    try_tolerance(&t, &asset, 200, 500).expect("valid tolerance pair should be accepted");
+    let expected = t.gov_iface_client().resolve_oracle_tolerance(&500);
+    try_tolerance(&t, &asset, 500).expect("valid tolerance should be accepted");
 
     let stored = t
         .ctrl_client()

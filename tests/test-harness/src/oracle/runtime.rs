@@ -52,8 +52,7 @@ impl LendingTest {
             &self.admin,
             &AdminOperation::EditOracleTolerance(EditToleranceArgs {
                 asset,
-                first_tolerance: preset.first_upper_bps,
-                last_tolerance: preset.last_upper_bps,
+                tolerance: preset.tolerance_bps,
             }),
         );
     }

@@ -46,13 +46,11 @@ pub fn redstone_source_with_max_stale(
 pub fn reflector_primary_anchor_config(
     oracle: &Address,
     asset: &Address,
-    first_tolerance_bps: u32,
-    last_tolerance_bps: u32,
+    tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps,
-        last_tolerance_bps,
+        tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
         max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
         strategy: OracleStrategy::PrimaryWithAnchor,
@@ -68,13 +66,11 @@ pub fn reflector_primary_anchor_config(
 pub fn reflector_single_spot_config(
     oracle: &Address,
     asset: &Address,
-    first_tolerance_bps: u32,
-    last_tolerance_bps: u32,
+    tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps,
-        last_tolerance_bps,
+        tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
         max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
         strategy: OracleStrategy::Single,
@@ -86,13 +82,11 @@ pub fn reflector_single_spot_config(
 pub fn redstone_single_config(
     contract: &Address,
     feed_id: &String,
-    first_tolerance_bps: u32,
-    last_tolerance_bps: u32,
+    tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps,
-        last_tolerance_bps,
+        tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
         max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
         strategy: OracleStrategy::Single,
@@ -106,13 +100,11 @@ pub fn reflector_primary_redstone_anchor_config(
     asset: &Address,
     redstone_contract: &Address,
     feed_id: &String,
-    first_tolerance_bps: u32,
-    last_tolerance_bps: u32,
+    tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps,
-        last_tolerance_bps,
+        tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
         max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
         strategy: OracleStrategy::PrimaryWithAnchor,
@@ -127,13 +119,11 @@ pub fn reflector_primary_redstone_anchor_config_with_anchor_stale(
     redstone_contract: &Address,
     feed_id: &String,
     redstone_max_stale_seconds: u64,
-    first_tolerance_bps: u32,
-    last_tolerance_bps: u32,
+    tolerance_bps: u32,
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps,
-        last_tolerance_bps,
+        tolerance_bps,
         min_sanity_price_wad: DEFAULT_MIN_SANITY_PRICE_WAD,
         max_sanity_price_wad: DEFAULT_MAX_SANITY_PRICE_WAD,
         strategy: OracleStrategy::PrimaryWithAnchor,

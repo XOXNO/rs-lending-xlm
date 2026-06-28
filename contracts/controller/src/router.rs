@@ -21,7 +21,6 @@ use crate::external::pool::{
     pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
 use crate::external::sac::sac_transfer_call;
-use crate::oracle::policy::OraclePolicy;
 use crate::{
     helpers::{self, utils, THRESHOLD_UPDATE_MIN_HF_RAW},
     storage, validation, Controller, ControllerArgs, ControllerClient,
@@ -38,7 +37,7 @@ impl Controller {
         caller.require_auth();
         validation::require_not_flash_loaning(&env);
 
-        let mut cache = Cache::new(&env, OraclePolicy::RiskDecreasing);
+        let mut cache = Cache::new(&env);
         sync_market_indexes(&env, &mut cache, &assets);
     }
 
@@ -125,11 +124,7 @@ impl Controller {
         validation::require_not_flash_loaning(&env);
 
         // Propagates risk-param updates for each supplied asset on each account.
-        let risk = match has_risks {
-            true => OraclePolicy::RiskIncreasing,
-            false => OraclePolicy::RiskDecreasing,
-        };
-        let mut cache = Cache::new(&env, risk);
+        let mut cache = Cache::new(&env);
 
         for account_id in account_ids {
             sync_account_thresholds(&env, account_id, has_risks, &mut cache);
@@ -215,7 +210,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
         supply_cap >= 0 && borrow_cap >= 0,
         CollateralError::InvalidBorrowParams
     );
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
     validation::require_asset_supported(env, &mut cache, asset);
     crate::helpers::emode_caps::validate_hub_caps_against_category_spokes(
@@ -227,7 +222,7 @@ pub fn update_pool_caps(env: &Env, asset: &Address, supply_cap: i128, borrow_cap
 
 /// Accrues pool indexes before replacing the market's interest-rate model.
 pub fn upgrade_liquidity_pool_params(env: &Env, asset: &Address, params: &InterestRateModel) {
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     storage::renew_controller_instance(env);
 
     validation::require_asset_supported(env, &mut cache, asset);
@@ -283,7 +278,7 @@ fn claim_revenue_for_asset_with_cache(env: &Env, asset: &Address, cache: &mut Ca
 /// Claims protocol revenue per market and forwards SAC balances to the accumulator.
 pub fn claim_revenue(env: &Env, assets: soroban_sdk::Vec<Address>) -> soroban_sdk::Vec<i128> {
     let mut results = soroban_sdk::Vec::new(env);
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     for asset in assets.iter() {
         let amount = claim_revenue_for_asset_with_cache(env, &asset, &mut cache);
         results.push_back(amount);
@@ -312,7 +307,7 @@ pub fn add_reward(env: &Env, caller: &Address, asset: &Address, amount: i128, ca
 }
 
 pub fn add_rewards_batch(env: &Env, caller: &Address, rewards: Vec<(Address, i128)>) {
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     for (asset, amount) in rewards.iter() {
         add_reward(env, caller, &asset, amount, &mut cache);
     }

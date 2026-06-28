@@ -44,12 +44,7 @@ fn test_dex_quoted_source_repriced_to_usd() {
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2)); // XLM = 2.0 USDC on the DEX
 
-    let cfg = reflector_single_spot_config(
-        &dex,
-        &xlm,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg = reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&xlm, &cfg);
 
     // 2.0 USDC * $1.001/USDC = $2.002
@@ -86,8 +81,7 @@ fn test_dex_quoted_market_priced_within_default_budget() {
         &xlm,
         &redstone,
         &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&xlm, &cfg);
 
@@ -118,12 +112,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         .set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(
-            &dex_usdc,
-            &xlm,
-            DEFAULT_TOLERANCE.first_upper_bps,
-            DEFAULT_TOLERANCE.last_upper_bps,
-        ),
+        &reflector_single_spot_config(&dex_usdc, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Reconfigure USDC itself to quote in ETH (another USD market): USDC is now
@@ -133,12 +122,7 @@ fn test_dex_read_rejects_quote_reconfigured_to_non_usd() {
         .set_price(&usdc, &usd(1));
     t.configure_market_oracle(
         &usdc,
-        &reflector_single_spot_config(
-            &dex_eth,
-            &usdc,
-            DEFAULT_TOLERANCE.first_upper_bps,
-            DEFAULT_TOLERANCE.last_upper_bps,
-        ),
+        &reflector_single_spot_config(&dex_eth, &usdc, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Reading XLM must revert: USDC is no longer a direct USD market.
@@ -162,12 +146,7 @@ fn test_dex_read_rejects_disabled_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(
-            &dex,
-            &xlm,
-            DEFAULT_TOLERANCE.first_upper_bps,
-            DEFAULT_TOLERANCE.last_upper_bps,
-        ),
+        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Disable USDC, then read XLM -> must revert (cannot price off a disabled quote).
@@ -196,12 +175,7 @@ fn test_oracle_config_execute_rejects_disabled_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(
-            &dex,
-            &xlm,
-            DEFAULT_TOLERANCE.first_upper_bps,
-            DEFAULT_TOLERANCE.last_upper_bps,
-        ),
+        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     // Capture the resolved config governance scheduled for the controller setter.
@@ -231,12 +205,7 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
     test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex).set_price(&xlm, &usd(2));
     t.configure_market_oracle(
         &xlm,
-        &reflector_single_spot_config(
-            &dex,
-            &xlm,
-            DEFAULT_TOLERANCE.first_upper_bps,
-            DEFAULT_TOLERANCE.last_upper_bps,
-        ),
+        &reflector_single_spot_config(&dex, &xlm, DEFAULT_TOLERANCE.tolerance_bps),
     );
 
     let resolved = t.ctrl_client().get_market_config(&xlm).oracle_config;
@@ -252,6 +221,7 @@ fn test_oracle_config_execute_accepts_active_usd_quote_market() {
 /// band. If conversion happened after composition, the band would compare
 /// USDC-quoted vs USD and the depeg would be invisible.
 #[test]
+#[should_panic(expected = "Error(Contract, #205)")]
 fn test_dex_primary_redstone_anchor_tolerance_evaluated_in_usd() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -283,21 +253,18 @@ fn test_dex_primary_redstone_anchor_tolerance_evaluated_in_usd() {
         &xlm,
         &redstone,
         &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&xlm, &cfg);
 
-    // Pegged: converted primary 2.0*1.0 = 2.0 USD == anchor 2.0 USD → in band.
-    let healthy = index_view(&t, &xlm);
-    assert_eq!(healthy.price_wad, usd(2));
-    assert!(healthy.within_first_tolerance);
-    assert!(healthy.within_second_tolerance);
+    // Pegged: converted primary 2.0*1.0 = 2.0 USD == anchor 2.0 USD → in band,
+    // blended to the midpoint $2.
+    assert_eq!(index_view(&t, &xlm).price_wad, usd(2));
 
     // Depeg USDC to $0.90: converted primary 2.0*0.9 = 1.8 USD vs anchor 2.0
-    // USD = 10% gap, beyond both the 2% and 5% bands.
+    // USD = 10% gap, beyond the band → fail-closed revert UnsafePriceNotAllowed
+    // (#205). If conversion happened after composition the gap would be
+    // invisible and the read would not revert.
     t.set_price("USDC", usd_frac(90, 100));
-    let depegged = index_view(&t, &xlm);
-    assert!(!depegged.within_first_tolerance);
-    assert!(!depegged.within_second_tolerance);
+    let _ = index_view(&t, &xlm);
 }

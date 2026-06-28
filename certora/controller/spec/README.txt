@@ -12,9 +12,9 @@ Assumptions
 -----------
 - Pool responses may be summarized via shared/summaries/ for tractability.
 - Pool summary soundness is proved in pool/spec/summary_contract_rules.rs first.
-- Oracle price resolution may be harness-summarised; policy branches are proved
-  in oracle_rules, compose logic in oracle_compose_rules, ratio math in
-  tolerance_math_rules (lemma layer).
+- Oracle price resolution may be harness-summarised; the strict fail-closed
+  band behaviour is proved in oracle_rules, ratio math in tolerance_math_rules
+  (lemma layer).
 
 Conf → spec map (by theme)
 --------------------------
@@ -35,8 +35,8 @@ Health / positions
   spec/health_rules.rs, position_rules.rs
 
 Oracle
-  oracle.conf, oracle-compose.conf, tolerance-math.conf
-  spec/oracle_rules.rs, oracle_compose_rules.rs, tolerance_math_rules.rs
+  oracle.conf, tolerance-math.conf
+  spec/oracle_rules.rs, tolerance_math_rules.rs
 
 Rates / indexes / interest / math
   indexes.conf, interest.conf, math.conf, boundary-math.conf,

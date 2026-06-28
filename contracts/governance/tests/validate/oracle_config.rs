@@ -17,8 +17,7 @@ fn sample_config(
 ) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
+        tolerance_bps: 500,
         min_sanity_price_wad: 1,
         max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
         strategy,

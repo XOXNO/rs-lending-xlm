@@ -215,17 +215,15 @@ fn test_bad_debt_gap_band_resolved_by_liquidation() {
 }
 // 4b. test_clean_bad_debt_rejected_under_oracle_deviation
 //
-// Standalone bad-debt cleanup runs under `OraclePolicy::Liquidation`, which
-// hardens the unsafe-deviation gate: when the primary and anchor sources
-// diverge beyond the last tolerance band, the price read rejects with
-// `UnsafePriceNotAllowed` instead of resolving to a price only one source
-// corroborates. Cleanup is only permitted on prices both independent sources
-// agree on within tolerance.
+// Standalone bad-debt cleanup reads the live price under the fail-closed
+// oracle: when the primary and anchor sources diverge beyond the tolerance
+// band, the read rejects with `UnsafePriceNotAllowed` instead of resolving to
+// a price only one source corroborates. Cleanup is only permitted on prices
+// both independent sources agree on within tolerance.
 //
-// Deliberate manipulation-over-availability tradeoff (auditors: this reverses
-// the deviation-tolerance posture recorded in §4.5). The two oracles are
-// independent, so sustained out-of-band divergence is implausible — transient
-// gaps stay inside the tolerated bands — making the rejection window narrow.
+// The two oracles are independent, so sustained out-of-band divergence is
+// implausible — transient gaps stay inside the tolerated band — making the
+// rejection window narrow.
 #[test]
 fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     use test_harness::TIGHT_TOLERANCE;
@@ -249,18 +247,14 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     // below the $5 threshold.
     t.set_price("USDC", usd_cents(1));
 
-    // Skew the TWAP/safe source so primary and anchor disagree — a
-    // `RiskIncreasing` cache would have reverted on the unsafe-
-    // deviation read. (`can_be_liquidated` is a view path that uses
-    // `OraclePolicy::View` and the safe source, so it would NOT see
-    // Alice as liquidatable here — but the standalone cleanup path
-    // does use the live aggregator under the new `Liquidation`
-    // policy.)
+    // Skew the TWAP/anchor source so primary and anchor disagree beyond the
+    // tolerance band; the fail-closed read rejects rather than resolving to a
+    // singly-corroborated price.
     t.set_safe_price("USDC", usd_cents(100), false, false);
 
-    // `clean_bad_debt_standalone` runs under the `Liquidation` policy: the
-    // out-of-band primary/anchor gap is rejected with `UnsafePriceNotAllowed`
-    // rather than resolving to the deviated aggregator price.
+    // `clean_bad_debt` reads the live price: the out-of-band primary/anchor gap
+    // is rejected with `UnsafePriceNotAllowed` rather than resolving to the
+    // deviated aggregator price.
     let account_id = t.resolve_account_id(ALICE);
     let result = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(result, errors::UNSAFE_PRICE);

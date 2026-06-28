@@ -17,7 +17,6 @@ use crate::events;
 use crate::external::pool::pool_withdraw_call;
 use crate::helpers::utils::{self, EventContext};
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::{
     finalize_position_flow, get_supply_position_or_panic, make_pool_action, AggregatedPayments,
     PositionSides,
@@ -78,12 +77,7 @@ pub fn process_withdraw(
 
     let recipient = to.unwrap_or_else(|| caller.clone());
 
-    let policy = if account.borrow_positions.is_empty() {
-        OraclePolicy::RiskDecreasing
-    } else {
-        OraclePolicy::RiskIncreasing
-    };
-    let mut cache = Cache::new(env, policy);
+    let mut cache = Cache::new(env);
 
     let aggregated = utils::aggregate_payments(env, withdrawals, true);
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);

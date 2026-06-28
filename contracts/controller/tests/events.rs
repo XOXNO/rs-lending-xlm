@@ -45,10 +45,8 @@ fn dummy_market_config(env: &Env) -> MarketConfig {
             asset_decimals: 7,
             max_price_stale_seconds: 900,
             tolerance: OraclePriceFluctuation {
-                first_upper_ratio_bps: 10_200,
-                first_lower_ratio_bps: 9_800,
-                last_upper_ratio_bps: 10_500,
-                last_lower_ratio_bps: 9_500,
+                upper_ratio_bps: 10_500,
+                lower_ratio_bps: 9_500,
             },
             strategy: OracleStrategy::PrimaryWithAnchor,
             primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {

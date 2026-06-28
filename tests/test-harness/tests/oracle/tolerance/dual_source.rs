@@ -68,8 +68,8 @@ fn test_mixed_tolerance_states() {
 #[test]
 fn test_liquidation_blocked_under_flash_crash() {
     // When the spot price and the slower-moving anchor disagree beyond the
-    // second tolerance (the canonical flash-crash signature), liquidation runs
-    // under `OraclePolicy::Liquidation` and rejects with
+    // tolerance band (the canonical flash-crash signature), the fail-closed
+    // price read rejects with
     // `OracleError::UnsafePriceNotAllowed`: the protocol will not seize
     // collateral at a price only the spot source corroborates.
     //

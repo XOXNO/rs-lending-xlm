@@ -10,7 +10,6 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::events;
-use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     open_strategy_borrow, prefetch_strategy_oracles, repay_debt_from_controller, strategy_finalize,
     swap_tokens, StrategyRepay,
@@ -73,7 +72,7 @@ pub fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
+    let mut cache = Cache::new(env);
 
     validation::require_positive_amount(env, new_debt_amount);
 

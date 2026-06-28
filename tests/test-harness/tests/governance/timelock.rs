@@ -358,12 +358,8 @@ fn resolve_market_oracle_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let cfg = reflector_single_spot_config(
-        &t.mock_reflector,
-        &asset,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg =
+        reflector_single_spot_config(&t.mock_reflector, &asset, DEFAULT_TOLERANCE.tolerance_bps);
 
     // Resolve independently through the read-only view (no schedule, no state
     // change): this is exactly what the CLI invokes under `--send=no`.
@@ -425,17 +421,15 @@ fn resolve_oracle_tolerance_view_matches_scheduled_and_executes() {
 
     assert_harness_delay(&t);
 
-    let first = DEFAULT_TOLERANCE.first_upper_bps;
-    let last = DEFAULT_TOLERANCE.last_upper_bps;
+    let tolerance = DEFAULT_TOLERANCE.tolerance_bps;
 
-    let resolved = gov.resolve_oracle_tolerance(&first, &last);
+    let resolved = gov.resolve_oracle_tolerance(&tolerance);
 
     let id = gov.propose(
         &admin,
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
             asset: asset.clone(),
-            first_tolerance: first,
-            last_tolerance: last,
+            tolerance,
         }),
         &s,
     );

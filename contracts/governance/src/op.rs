@@ -298,11 +298,8 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             )
         }
         AdminOperation::ConfigureMarketOracle(args) => {
-            let tolerance = validate::tolerance::validate_and_calculate_tolerances(
-                env,
-                args.cfg.first_tolerance_bps,
-                args.cfg.last_tolerance_bps,
-            );
+            let tolerance =
+                validate::tolerance::validate_and_calculate_tolerances(env, args.cfg.tolerance_bps);
             let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
@@ -323,11 +320,8 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             )
         }
         AdminOperation::EditOracleTolerance(args) => {
-            let tolerance = validate::tolerance::validate_and_calculate_tolerances(
-                env,
-                args.first_tolerance,
-                args.last_tolerance,
-            );
+            let tolerance =
+                validate::tolerance::validate_and_calculate_tolerances(env, args.tolerance);
             (
                 storage::get_controller(env),
                 Symbol::new(env, "set_oracle_tolerance"),

@@ -20,7 +20,6 @@ use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{
     blend_submit_call, BlendRequest, REQ_REPAY, REQ_WITHDRAW, REQ_WITHDRAW_COLLATERAL,
 };
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::supply;
 use crate::strategies::swap::balance_delta;
 use crate::strategies::{
@@ -97,7 +96,7 @@ pub fn process_migrate_blend(env: &Env, caller: &Address, params: MigrateBlendPa
     );
 
     // Debt-opening flow: prices must be risk-increasing.
-    let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
+    let mut cache = Cache::new(env);
 
     let (account_id, mut account) = helpers::load_or_create_account(
         env,

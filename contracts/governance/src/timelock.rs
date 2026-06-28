@@ -124,11 +124,7 @@ fn resolve_market_oracle(
     asset: &Address,
     cfg: &MarketOracleConfigInput,
 ) -> controller_interface::types::MarketOracleConfig {
-    let tolerance = validate::tolerance::validate_and_calculate_tolerances(
-        env,
-        cfg.first_tolerance_bps,
-        cfg.last_tolerance_bps,
-    );
+    let tolerance = validate::tolerance::validate_and_calculate_tolerances(env, cfg.tolerance_bps);
     let controller = storage::get_controller(env);
     validate::oracle_probe::validate_market_oracle_sources(env, &controller, asset, cfg, tolerance)
 }
@@ -274,16 +270,8 @@ impl Governance {
 
     /// Resolves tolerance BPS inputs to the `OraclePriceFluctuation` scheduled
     /// by `propose` for `EditOracleTolerance`. Uses the proposer's computation.
-    pub fn resolve_oracle_tolerance(
-        env: Env,
-        first_tolerance: u32,
-        last_tolerance: u32,
-    ) -> OraclePriceFluctuation {
-        validate::tolerance::validate_and_calculate_tolerances(
-            &env,
-            first_tolerance,
-            last_tolerance,
-        )
+    pub fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OraclePriceFluctuation {
+        validate::tolerance::validate_and_calculate_tolerances(&env, tolerance)
     }
 }
 

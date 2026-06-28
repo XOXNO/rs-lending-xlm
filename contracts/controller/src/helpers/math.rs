@@ -1,8 +1,7 @@
 //! Health-factor, LTV, and debt aggregation over position maps.
 //!
-//! These helpers compute over data supplied by callers. Price and index reads
-//! still go through `Cache`, so the active `OraclePolicy` remains the
-//! caller's responsibility.
+//! These helpers compute over data supplied by callers; price and index reads
+//! go through `Cache`.
 
 use common::math::fp::{Bps, Ray, Wad};
 use controller_interface::types::{AccountPositionRaw, DebtPositionRaw};

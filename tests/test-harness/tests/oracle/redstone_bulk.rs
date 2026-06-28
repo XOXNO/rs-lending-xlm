@@ -105,12 +105,10 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
     // ETH is absent; the prefetch map stays empty and the lazy per-feed path
     // takes over.
     //
-    // Supply (OraclePolicy::RiskDecreasing) tolerates a missing anchor and
-    // falls back to the Reflector primary — setup supplies succeed.
-    // Borrow (OraclePolicy::RiskIncreasing) does NOT tolerate a degraded
-    // dual-source; the per-feed path also finds ETH absent and compose calls
-    // fallback_to_primary which panics OracleError::NoLastPrice (#210) —
-    // the same error the per-feed-only path produces.
+    // Supply is oracle-free, so the missing ETH anchor never blocks the setup
+    // supplies. Fail-closed borrow requires the RedStone anchor: the per-feed
+    // path finds the ETH feed absent and reverts InvalidTicker (#3); there is
+    // no fallback to the Reflector primary.
     //
     // Counter deltas are asserted on committed txs only: try_borrow rolls
     // back its own storage changes, so the failed tx leaves no bumps.
@@ -159,12 +157,12 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
 
     // Borrow: HF check collects [USDC, ETH] → two feeds → bulk attempted →
     // ETH absent → bulk fails → prefetch map empty → per-feed lazy: USDC
-    // anchor found, ETH anchor missing → compose fallback_to_primary with
-    // RiskIncreasing → panics #210.  try_borrow catches the panic and rolls
-    // back all storage changes from that transaction, so the counter increments
-    // from the failed borrow are NOT visible after this call.
+    // anchor found, ETH anchor missing → required RedStone read reverts
+    // InvalidTicker (#3).  try_borrow catches the panic and rolls back all
+    // storage changes from that transaction, so the counter increments from
+    // the failed borrow are NOT visible after this call.
     let result = t.try_borrow(ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::OracleError::NoLastPrice as u32);
+    assert_contract_error(result, errors::GenericError::InvalidTicker as u32);
 }
 
 #[test]
@@ -516,18 +514,8 @@ fn test_shared_feed_two_assets_single_redstone_call() {
     // Configure both USDC and ETH with RedStone Single strategy on "SHARED".
     // Both markets now resolve to the same (adapter, feed_id) — the degenerate
     // shared-feed case that exposes the 2-call bug.
-    let usdc_cfg = redstone_single_config(
-        &redstone,
-        &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    let eth_cfg = redstone_single_config(
-        &redstone,
-        &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let usdc_cfg = redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
+    let eth_cfg = redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
@@ -628,18 +616,8 @@ fn test_redstone_primary_markets_fire_one_bulk() {
     let eth_feed = String::from_str(&t.env, "ETH");
 
     // Both markets use RedStone Single strategy (primary = RedStone, no anchor).
-    let usdc_cfg = redstone_single_config(
-        &redstone,
-        &usdc_feed,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
-    let eth_cfg = redstone_single_config(
-        &redstone,
-        &eth_feed,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let usdc_cfg = redstone_single_config(&redstone, &usdc_feed, DEFAULT_TOLERANCE.tolerance_bps);
+    let eth_cfg = redstone_single_config(&redstone, &eth_feed, DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&t.resolve_asset("USDC"), &usdc_cfg);
     t.configure_market_oracle(&t.resolve_asset("ETH"), &eth_cfg);
 
@@ -782,24 +760,14 @@ fn test_mixed_adapter_groups() {
     );
 }
 
+// Fail-closed: a committed view cannot degrade past a missing required anchor.
+// The ETH feed is removed after configure-time validation; the bulk prefetch
+// finds it absent and the lazy per-feed read finds it absent too, so the
+// required RedStone read reverts InvalidTicker (#3) — even on the view path.
+// There is no fallback to the Reflector primary.
 #[test]
-fn test_committed_bulk_failure_degrades_to_singles() {
-    // Two anchored markets on one adapter; ETH feed is removed after
-    // configure-time validation so it is absent at runtime.  A view that
-    // prices both supplies exercises the same bulk-fail → lazy-single path
-    // supply used to hit via the removed dust gate.
-    //
-    // Inside the view the sequence is:
-    //   1. prefetch bulk [USDC, ETH] → ETH absent → whole-call Err → bulk
-    //      counter bump rolls back with the Err frame → prefetch map empty.
-    //   2. USDC cached_price: lazy single → feed found → USDC single commits.
-    //   3. ETH cached_price: lazy single → ETH absent → Err frame rolls back;
-    //      View policy falls back to the Reflector primary.
-    //
-    // Observable after the committed view:
-    //   • view succeeds (View tolerates missing anchor).
-    //   • committed bulk delta == 0 (Err frame rolled back).
-    //   • committed single delta == 1 (only USDC's read committed).
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_committed_bulk_failure_reverts_on_missing_anchor() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -816,23 +784,7 @@ fn test_committed_bulk_failure_degrades_to_singles() {
         t.env.storage().temporary().remove(&key);
     });
 
-    let rs = redstone_counters(&t, &redstone);
-    let bulk_before = rs.bulk_calls();
-    let single_before = rs.single_calls();
-
     let _ = t.total_collateral(ALICE);
-
-    let rs = redstone_counters(&t, &redstone);
-    assert_eq!(
-        rs.bulk_calls() - bulk_before,
-        0,
-        "bulk attempt Err-frame rolls back with its counter bump"
-    );
-    assert_eq!(
-        rs.single_calls() - single_before,
-        1,
-        "only USDC's successful single read commits; ETH's Err-frame rolls back"
-    );
 }
 
 #[test]
@@ -840,16 +792,13 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
     // Two anchored markets on one adapter.  ONE feed (ETH) has stale timestamps
     // (older than DEFAULT_REDSTONE_MAX_STALE_SECONDS=900s).  The bulk prefetch
     // SUCCEEDS (the mock returns data for both feeds regardless of age) and
-    // caches the stale payload.  Policy enforcement runs at compose time:
+    // caches the stale payload, but freshness is enforced at compose time on
+    // every consume.
     //
-    //   (a) Supply (RiskDecreasing): stale anchor → anchor_is_usable=false →
-    //       fallback_to_primary → supply succeeds.  Bulk delta == 1.
-    //
-    //   (b) Borrow (RiskIncreasing): stale anchor → anchor_is_usable panics
-    //       PriceFeedStale (#207).  The failed tx rolls back its counter bumps.
-    //
-    // This pins that the bulk path does NOT bypass the staleness policy — only
-    // the raw payload is cached; policy reruns on every consume.
+    // Fail-closed: supply is oracle-free, so the stale ETH anchor never blocks
+    // the setup supplies. A borrow prices ETH and the required anchor's
+    // staleness check reverts PriceFeedStale (#206); the bulk cache does NOT
+    // bypass the freshness check.
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -872,29 +821,7 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
     t.supply(BOB, "ETH", 100.0);
     t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
-    let rs = redstone_counters(&t, &redstone);
-    let bulk_before = rs.bulk_calls();
-    let single_before = rs.single_calls();
-
-    // total_collateral_in_usd prefetches [USDC, ETH]:
-    //   bulk succeeds → cache holds stale ETH payload.
-    // View policy tolerates stale anchors, so the read completes.
-    let _ = t.total_collateral(ALICE);
-
-    let rs = redstone_counters(&t, &redstone);
-    assert_eq!(
-        rs.bulk_calls() - bulk_before,
-        1,
-        "bulk prefetch fires once for [USDC, ETH] even when ETH anchor is stale"
-    );
-    assert_eq!(
-        rs.single_calls() - single_before,
-        0,
-        "no single calls: bulk cached both payloads"
-    );
-
-    // (b) Borrow: RiskIncreasing + stale ETH anchor → PriceFeedStale panic.
-    // The failed tx rolls back its counter bumps — no counter assertions here.
+    // Borrow prices ETH; the stale required anchor reverts PriceFeedStale.
     let result = t.try_borrow(ALICE, "ETH", 0.001);
     assert_contract_error(result, errors::OracleError::PriceFeedStale as u32);
 }

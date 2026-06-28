@@ -68,10 +68,8 @@ fn sample_oracle_cfg(t: &LendingTest) -> controller::types::MarketOracleConfig {
 
 fn sample_tolerance() -> controller::types::OraclePriceFluctuation {
     controller::types::OraclePriceFluctuation {
-        first_upper_ratio_bps: 10_100,
-        first_lower_ratio_bps: 9_901,
-        last_upper_ratio_bps: 10_200,
-        last_lower_ratio_bps: 9_804,
+        upper_ratio_bps: 10_200,
+        lower_ratio_bps: 9_804,
     }
 }
 

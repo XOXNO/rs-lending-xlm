@@ -293,8 +293,6 @@ pub fn get_all_market_indexes_detailed(env: &Env, assets: &Vec<Address>) -> Vec<
             price_wad: components.final_price_wad,
             safe_price_wad,
             aggregator_price_wad,
-            within_first_tolerance: components.within_first_tolerance,
-            within_second_tolerance: components.within_second_tolerance,
         });
     }
 

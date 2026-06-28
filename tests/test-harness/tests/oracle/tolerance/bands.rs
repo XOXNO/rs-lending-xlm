@@ -262,7 +262,7 @@ fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
 #[test]
 fn test_unsafe_price_blocks_liquidation() {
     // Liquidation hard-blocks when the primary and anchor sources diverge
-    // beyond the last tolerance band: `OraclePolicy::Liquidation` rejects with
+    // beyond the tolerance band: the fail-closed price read rejects with
     // `OracleError::UnsafePriceNotAllowed` rather than seizing collateral at a
     // price only the spot source corroborates.
     //

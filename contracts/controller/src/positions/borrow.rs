@@ -1,9 +1,9 @@
 //! Borrow and strategy-internal borrow flows.
 //!
 //! Pipeline: auth → aggregate → cache → configs → validate → settle →
-//! post-pool gates → persist → emit. Borrows use `OraclePolicy::RiskIncreasing`,
-//! update scaled debt shares. LTV and health gates run post-pool against the
-//! market indexes the pool borrow writes into the cache.
+//! post-pool gates → persist → emit. Borrows update scaled debt shares; LTV
+//! and health gates run post-pool against the market indexes the pool borrow
+//! writes into the cache.
 
 use common::errors::CollateralError;
 use common::math::fp::Ray;
@@ -19,7 +19,6 @@ use crate::emode;
 use crate::events;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call};
 use crate::helpers::update_or_remove_debt_position;
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
 use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -40,7 +39,7 @@ pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Ve
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    let mut cache = Cache::new(env, OraclePolicy::RiskIncreasing);
+    let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
     let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);

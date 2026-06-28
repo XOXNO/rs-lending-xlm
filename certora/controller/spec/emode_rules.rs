@@ -238,9 +238,8 @@ fn emode_overrides_asset_params(e: Env, asset: Address, category_id: u32) {
     let mut asset_config = crate::types::AssetConfig::from(
         &crate::storage::get_market_config(&e, &asset).asset_config,
     );
-    let emode_cat = crate::emode::e_mode_category(&e, category_id);
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
+    let emode_cat = cache.active_e_mode_category(&e, category_id);
     let emode_asset_cfg = cache.cached_emode_asset(category_id, &asset);
     crate::emode::apply_e_mode_to_asset_config(&e, &mut asset_config, &emode_cat, emode_asset_cfg);
 

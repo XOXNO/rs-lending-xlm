@@ -202,8 +202,6 @@ pub struct MarketIndexView {
     pub price_wad: i128,
     pub safe_price_wad: i128,
     pub aggregator_price_wad: i128,
-    pub within_first_tolerance: bool,
-    pub within_second_tolerance: bool,
 }
 
 #[contracttype]

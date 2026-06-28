@@ -1,8 +1,7 @@
-//! Transaction-local cache for oracle policy and market reads.
+//! Transaction-local cache for oracle and market reads.
 //!
-//! Each mutating entrypoint creates a cache with its `OraclePolicy`. Price
-//! and index reads follow that policy for the call. Position deltas buffer
-//! until storage writes, then emit as one batch event.
+//! Price and index reads are memoized per call. Position deltas buffer until
+//! storage writes, then emit as one batch event.
 
 use crate::constants::MS_PER_SECOND;
 use crate::events::{
@@ -18,7 +17,6 @@ use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, String
 
 use crate::external::pool::{fetch_pool_bulk_indexes, fetch_pool_sync_data};
 use crate::helpers::EModeUsageContext;
-use crate::oracle::policy::OraclePolicy;
 use crate::oracle::token_price;
 use crate::storage;
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -44,22 +42,21 @@ pub struct Cache {
     borrow_updates: Vec<EventBorrowDelta>,
 
     pub current_timestamp_ms: u64,
-    pub oracle_policy: OraclePolicy,
 }
 
 impl Cache {
     /// Creates a cache for mutating flows and renews controller instance TTL.
-    pub fn new(env: &Env, oracle_policy: OraclePolicy) -> Self {
+    pub fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
-        Self::build(env, oracle_policy)
+        Self::build(env)
     }
 
-    /// Creates a read-only cache with permissive view oracle policy.
+    /// Creates a read-only cache that does not renew instance TTL.
     pub fn new_view(env: &Env) -> Self {
-        Self::build(env, OraclePolicy::View)
+        Self::build(env)
     }
 
-    pub(crate) fn build(env: &Env, oracle_policy: OraclePolicy) -> Self {
+    pub(crate) fn build(env: &Env) -> Self {
         let current_timestamp_ms = env.ledger().timestamp() * MS_PER_SECOND;
 
         Cache {
@@ -74,17 +71,11 @@ impl Cache {
             deposit_updates: Vec::new(env),
             borrow_updates: Vec::new(env),
             current_timestamp_ms,
-            oracle_policy,
         }
     }
 
     pub fn env(&self) -> &Env {
         &self.env
-    }
-
-    /// Drops resolved oracle feeds so the next read re-runs policy checks.
-    pub(crate) fn clear_resolved_prices(&mut self) {
-        self.prices_cache = Map::new(&self.env);
     }
 
     /// Ledger timestamp in whole seconds (derived from `current_timestamp_ms`).

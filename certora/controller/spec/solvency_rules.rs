@@ -32,8 +32,7 @@ fn ltv_borrow_bound_enforced(e: Env, caller: Address, asset: Address, amount: i1
 
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let post_account = crate::storage::get_account(&e, account_id);
 
     let ltv_collateral = crate::helpers::calculate_ltv_collateral_wad(
@@ -218,8 +217,7 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address, amount: i128) 
 /// cached_market_index returns the same snapshot within one transaction.
 #[rule]
 fn index_cache_single_snapshot(e: Env, asset: Address) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
 
     let index1 = cache.cached_market_index(&asset);
     let index2 = cache.cached_market_index(&asset);
@@ -261,8 +259,7 @@ fn borrow_repay_roundtrip_no_profit(e: Env) {
 /// Clearing prices_cache forces a fresh oracle fetch.
 #[rule]
 fn price_cache_invalidation_after_swap(e: Env, asset: Address) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
 
     let _feed1 = cache.cached_price(&asset);
 
@@ -317,8 +314,7 @@ fn compound_interest_no_wrap(e: Env) {
 
 #[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let index = cache.cached_market_index(&asset);
     cvlr_satisfy!(index.supply_index.raw() >= RAY);
 }

@@ -5,14 +5,10 @@ pub use common::types::OracleAssetRef;
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OraclePriceFluctuation {
-    /// Upper bound against the primary source's first comparison, in BPS.
-    pub first_upper_ratio_bps: u32,
-    /// Lower bound against the primary source's first comparison, in BPS.
-    pub first_lower_ratio_bps: u32,
-    /// Upper bound for primary/anchor last comparison, in BPS.
-    pub last_upper_ratio_bps: u32,
-    /// Lower bound for primary/anchor last comparison, in BPS.
-    pub last_lower_ratio_bps: u32,
+    /// Upper bound for the primary/anchor ratio, in BPS.
+    pub upper_ratio_bps: u32,
+    /// Lower bound for the primary/anchor ratio, in BPS.
+    pub lower_ratio_bps: u32,
 }
 
 #[contracttype]
@@ -211,10 +207,8 @@ impl MarketOracleConfig {
             asset_decimals: decimals,
             max_price_stale_seconds: 0,
             tolerance: OraclePriceFluctuation {
-                first_upper_ratio_bps: 0,
-                first_lower_ratio_bps: 0,
-                last_upper_ratio_bps: 0,
-                last_lower_ratio_bps: 0,
+                upper_ratio_bps: 0,
+                lower_ratio_bps: 0,
             },
             strategy: OracleStrategy::Single,
             primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
@@ -237,8 +231,7 @@ impl MarketOracleConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketOracleConfigInput {
     pub max_price_stale_seconds: u64,
-    pub first_tolerance_bps: u32,
-    pub last_tolerance_bps: u32,
+    pub tolerance_bps: u32,
     pub strategy: OracleStrategy,
     pub primary: OracleSourceConfigInput,
     pub anchor: OracleSourceConfigInputOption,
@@ -363,10 +356,8 @@ mod tests {
         let env = Env::default();
         let asset = Address::generate(&env);
         let _fluctuation = OraclePriceFluctuation {
-            first_upper_ratio_bps: 100,
-            first_lower_ratio_bps: 100,
-            last_upper_ratio_bps: 200,
-            last_lower_ratio_bps: 200,
+            upper_ratio_bps: 200,
+            lower_ratio_bps: 200,
         };
         let _provider_kinds = [
             OracleProviderKind::ReflectorSep40,
@@ -386,8 +377,7 @@ mod tests {
         let _ = OracleSourceConfig::RedStone(redstone_resolved(&env));
         let _input = MarketOracleConfigInput {
             max_price_stale_seconds: 900,
-            first_tolerance_bps: 100,
-            last_tolerance_bps: 200,
+            tolerance_bps: 200,
             strategy: OracleStrategy::PrimaryWithAnchor,
             primary: OracleSourceConfigInput::Reflector(reflector_input(&env)),
             anchor: OracleSourceConfigInputOption::None,
@@ -398,10 +388,8 @@ mod tests {
             asset_decimals: 7,
             max_price_stale_seconds: 900,
             tolerance: OraclePriceFluctuation {
-                first_upper_ratio_bps: 100,
-                first_lower_ratio_bps: 100,
-                last_upper_ratio_bps: 200,
-                last_lower_ratio_bps: 200,
+                upper_ratio_bps: 200,
+                lower_ratio_bps: 200,
             },
             strategy: OracleStrategy::Single,
             primary: OracleSourceConfig::Reflector(reflector_resolved(&env)),

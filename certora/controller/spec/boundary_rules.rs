@@ -149,24 +149,26 @@ fn rescale_wad_to_7_decimals() {
 
 #[rule]
 fn tolerance_at_exact_first_bound_sanity() {
-    let first_tolerance: i128 = 200;
+    // Deviation exactly at the single tolerance band edge is in-band.
+    let tolerance: i128 = 200;
     let deviation: i128 = 200;
-    cvlr_satisfy!(deviation <= first_tolerance);
+    cvlr_satisfy!(deviation <= tolerance);
 }
 
 #[rule]
 fn tolerance_at_exact_second_bound_sanity() {
-    let first_tolerance: i128 = 200;
-    let second_tolerance: i128 = 500;
-    let deviation: i128 = 500;
-    cvlr_satisfy!(deviation > first_tolerance && deviation <= second_tolerance);
+    // Deviation strictly inside the single tolerance band is in-band.
+    let tolerance: i128 = 200;
+    let deviation: i128 = 100;
+    cvlr_satisfy!(deviation <= tolerance);
 }
 
 #[rule]
 fn tolerance_just_beyond_second_sanity() {
-    let second_tolerance: i128 = 500;
-    let deviation: i128 = 501;
-    cvlr_satisfy!(deviation > second_tolerance);
+    // Deviation just past the single tolerance band is out-of-band.
+    let tolerance: i128 = 200;
+    let deviation: i128 = 201;
+    cvlr_satisfy!(deviation > tolerance);
 }
 
 #[rule]

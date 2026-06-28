@@ -1,19 +1,21 @@
 //! # Oracle — USD price resolution for Reflector and RedStone sources.
 //!
-//! Each entrypoint sets a [`policy::OraclePolicy`] on the `Cache` that decides which
-//! degradations the flow tolerates; risk-increasing flows fail closed.
+//! One strict, fail-closed path: every source is required and must be fresh,
+//! and dual-source markets blend within the tolerance band or revert. Views
+//! resolve prices the same way, so a view reverts exactly when a transaction
+//! would.
 //!
 //! Call trace: `token_price` (status/sanity gates + price cache) →
-//! `compose::resolve_components`, which calls `providers::read_source` for the primary
-//! (required) and, in dual-source markets, the anchor (optional) — each normalized via
-//! `observation` — then resolves the pair through `tolerance::calculate_final_price`. A
-//! quoted-base Reflector source reprices by recursing through `token_price` for the quote
-//! asset (`providers::reflector::resolve_usd_quote`). `price_components` exposes the same
-//! resolution to views without the gates.
+//! `compose::resolve_components`, which reads the primary and, in dual-source
+//! markets, the anchor via `providers::read_required_source` — each normalized
+//! via `observation` — then blends the pair through
+//! `tolerance::calculate_final_price`. A quoted-base Reflector source reprices
+//! by recursing through `token_price` for the quote asset
+//! (`providers::reflector::resolve_usd_quote`). `price_components` exposes the
+//! same resolution to views.
 
 mod compose;
 mod observation;
-pub mod policy;
 mod prefetch;
 #[cfg(not(feature = "certora"))]
 mod price;
@@ -35,10 +37,7 @@ pub use compose::ResolvedOracleComponents;
 
 // Certora rules reach tolerance helpers through `crate::oracle::*`.
 #[cfg(feature = "certora")]
-pub(crate) use tolerance::{calculate_final_price, is_within_anchor};
-
-#[cfg(feature = "certora")]
-pub(crate) use compose::certora;
+pub(crate) use tolerance::calculate_final_price;
 
 pub(crate) use prefetch::prefetch_redstone_feeds;
 pub use price::token_price;

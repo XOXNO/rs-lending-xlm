@@ -42,8 +42,7 @@ pub fn anchor_market_with_redstone_feed(
         &asset,
         adapter,
         &feed,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&asset, &cfg);
 }

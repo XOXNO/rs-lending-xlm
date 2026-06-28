@@ -29,17 +29,6 @@ pub fn token_price_summary(cache: &mut Cache, _asset: &Address) -> PriceFeedRaw 
     }
 }
 
-/// Anchor check: nondet bool (either outcome valid).
-pub fn is_within_anchor_summary(
-    _env: &Env,
-    _aggregator: i128,
-    _safe: i128,
-    _upper_bound_ratio: u32,
-    _lower_bound_ratio: u32,
-) -> bool {
-    nondet()
-}
-
 /// Pool market index for one asset: indexes >= production floors. Models the
 /// pool's `bulk_get_indexes` accrual that the controller caches.
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {

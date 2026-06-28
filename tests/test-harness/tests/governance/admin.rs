@@ -3,7 +3,7 @@
 use governance::op::{AdminOperation, ConfigureOracleArgs, CreatePoolArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, DEFAULT_TOLERANCE};
+use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest};
 
 // `validate_and_fetch_token_decimals` rejects SACs without a `symbol` (#6).
 #[test]
@@ -78,19 +78,14 @@ fn test_edit_asset_config_rejects_threshold_above_bps() {
         .execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
 }
 
-// Configure-time bad first tolerance (#207).
+// Configure-time tolerance below the minimum (#208).
 #[test]
-#[should_panic(expected = "Error(Contract, #207)")]
-fn test_configure_market_oracle_rejects_first_tolerance_below_min() {
+#[should_panic(expected = "Error(Contract, #208)")]
+fn test_configure_market_oracle_rejects_tolerance_below_min() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_market("USDC").asset.clone();
     let admin = t.admin();
-    let cfg = test_harness::reflector_primary_anchor_config(
-        &t.mock_reflector,
-        &asset,
-        10,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg = test_harness::reflector_primary_anchor_config(&t.mock_reflector, &asset, 10);
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs { asset, cfg }),

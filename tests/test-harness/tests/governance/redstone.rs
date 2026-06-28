@@ -42,8 +42,7 @@ fn test_redstone_source_stale_window_rejects_invalid_config() {
         &redstone,
         &feed_id,
         30,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.gov_client().execute_immediate(
         &admin,
@@ -61,12 +60,8 @@ fn test_redstone_stale_package_timestamp_rejects_config() {
     let stale_package = now_ms.saturating_sub(901_000);
     client.set_price_data(&feed_id, &usd(1), &stale_package, &now_ms);
 
-    let cfg = test_harness::redstone_single_config(
-        &redstone,
-        &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg =
+        test_harness::redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
 }
 
@@ -80,12 +75,8 @@ fn test_redstone_stale_write_timestamp_rejects_config() {
     let stale_write = now_ms.saturating_sub(901_000);
     client.set_price_data(&feed_id, &usd(1), &now_ms, &stale_write);
 
-    let cfg = test_harness::redstone_single_config(
-        &redstone,
-        &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg =
+        test_harness::redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
 }
 
@@ -98,12 +89,8 @@ fn test_redstone_future_timestamps_reject_config() {
     let future_ms = (t.env.ledger().timestamp() + 120) * 1000;
     client.set_price_data(&feed_id, &usd(1), &future_ms, &future_ms);
 
-    let cfg = test_harness::redstone_single_config(
-        &redstone,
-        &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg =
+        test_harness::redstone_single_config(&redstone, &feed_id, DEFAULT_TOLERANCE.tolerance_bps);
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::PRICE_FEED_STALE);
 }
 
@@ -116,8 +103,7 @@ fn test_redstone_missing_feed_id_rejects_config() {
     let cfg = test_harness::redstone_single_config(
         &redstone,
         &configured_feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     assert_contract_error(try_configure_usdc(&t, &cfg), errors::INVALID_TICKER);
 }

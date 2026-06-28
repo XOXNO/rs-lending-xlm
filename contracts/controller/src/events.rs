@@ -529,13 +529,6 @@ pub struct OracleDisabledEvent {
     pub asset: Address,
 }
 
-#[contractevent(topics = ["oracle", "twap_degraded"])]
-#[derive(Clone, Debug)]
-pub struct OracleTwapDegradedEvent {
-    pub oracle: Address,
-    pub reason_code: u32,
-}
-
 #[cfg(test)]
 #[path = "../tests/events.rs"]
 mod tests;

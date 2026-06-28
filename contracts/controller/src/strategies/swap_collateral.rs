@@ -10,7 +10,6 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::events;
-use crate::oracle::policy::OraclePolicy;
 use crate::strategies::{
     prefetch_strategy_oracles, strategy_finalize, swap_tokens, withdraw_collateral_to_controller,
     StrategyWithdraw,
@@ -75,12 +74,7 @@ pub fn process_swap_collateral(env: &Env, caller: &Address, params: SwapCollater
     let mut account = storage::get_account(env, account_id);
     validation::require_account_owner_match(env, &account, caller);
 
-    let policy = if account.borrow_positions.is_empty() {
-        OraclePolicy::RiskDecreasing
-    } else {
-        OraclePolicy::RiskIncreasing
-    };
-    let mut cache = Cache::new(env, policy);
+    let mut cache = Cache::new(env);
 
     validation::require_positive_amount(env, from_amount);
 

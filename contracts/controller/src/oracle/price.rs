@@ -14,10 +14,7 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
 
     let market = cache.cached_market_config(asset);
     match market.status {
-        MarketStatus::PendingOracle => {
-            panic_with_error!(cache.env(), GenericError::PairNotActive);
-        }
-        MarketStatus::Disabled if !cache.oracle_policy.allows_disabled_market() => {
+        MarketStatus::PendingOracle | MarketStatus::Disabled => {
             panic_with_error!(cache.env(), GenericError::PairNotActive);
         }
         _ => {}
@@ -41,11 +38,9 @@ pub fn token_price(cache: &mut Cache, asset: &Address) -> PriceFeedRaw {
         resolved.final_price_wad > 0,
         OracleError::InvalidPrice
     );
-    // Risk-increasing flows enforce sanity bounds; others tolerate violations.
-    if !cache.oracle_policy.allows_sanity_violation()
-        && (config.max_sanity_price_wad <= 0
-            || resolved.final_price_wad < config.min_sanity_price_wad
-            || resolved.final_price_wad > config.max_sanity_price_wad)
+    if config.max_sanity_price_wad <= 0
+        || resolved.final_price_wad < config.min_sanity_price_wad
+        || resolved.final_price_wad > config.max_sanity_price_wad
     {
         panic_with_error!(cache.env(), OracleError::SanityBoundViolated);
     }

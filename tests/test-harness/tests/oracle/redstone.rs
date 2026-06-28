@@ -7,12 +7,8 @@ use test_harness::{usd, usdc_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE}
 
 fn configure_usdc_with_redstone_single(t: &LendingTest, redstone: &Address, feed_id: &String) {
     let asset = t.resolve_asset("USDC");
-    let cfg = test_harness::redstone_single_config(
-        redstone,
-        feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
-    );
+    let cfg =
+        test_harness::redstone_single_config(redstone, feed_id, DEFAULT_TOLERANCE.tolerance_bps);
     t.configure_market_oracle(&asset, &cfg);
 }
 
@@ -40,8 +36,7 @@ fn test_reflector_primary_redstone_anchor_market_works() {
         &asset,
         &redstone,
         &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&asset, &cfg);
 
@@ -51,9 +46,8 @@ fn test_reflector_primary_redstone_anchor_market_works() {
         .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
+    // Both feeds agree at $1, so the in-band blend is the midpoint $1.
     assert_eq!(view.price_wad, usd(1));
-    assert!(view.within_first_tolerance);
-    assert!(view.within_second_tolerance);
 }
 
 #[test]
@@ -77,8 +71,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
         &redstone,
         &feed_id,
         86_400,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&asset, &cfg);
 
@@ -88,13 +81,16 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
         .get_market_indexes_detailed(&assets)
         .get(0)
         .unwrap();
+    // Anchor is within its source-specific 86_400s window, so the read
+    // succeeds and the in-band blend is the midpoint $1.
     assert_eq!(view.price_wad, usd(1));
-    assert!(view.within_first_tolerance);
-    assert!(view.within_second_tolerance);
 }
 
+// Fail-closed: a required RedStone anchor that cannot be read reverts
+// `InvalidTicker` (#3); there is no fallback to the primary.
 #[test]
-fn test_redstone_optional_anchor_read_failure_falls_back_for_view() {
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_redstone_anchor_read_failure_reverts_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
@@ -105,8 +101,7 @@ fn test_redstone_optional_anchor_read_failure_falls_back_for_view() {
         &asset,
         &redstone,
         &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&asset, &cfg);
 
@@ -124,18 +119,15 @@ fn test_redstone_optional_anchor_read_failure_falls_back_for_view() {
     });
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
-    let view = t
-        .ctrl_client()
-        .get_market_indexes_detailed(&assets)
-        .get(0)
-        .unwrap();
-    assert_eq!(view.price_wad, usd(1));
-    assert!(!view.within_first_tolerance);
-    assert!(!view.within_second_tolerance);
+    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
+// Fail-closed: primary $1 and anchor $2 are 100% apart, far outside the
+// tolerance band, so the dual-source read reverts `UnsafePriceNotAllowed`
+// (#205) instead of degrading to a single source.
 #[test]
-fn test_redstone_anchor_outside_second_tolerance_blocks_strict_view() {
+#[should_panic(expected = "Error(Contract, #205)")]
+fn test_redstone_anchor_outside_tolerance_reverts_view() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let asset = t.resolve_asset("USDC");
     let feed_id = String::from_str(&t.env, "USDC");
@@ -146,19 +138,12 @@ fn test_redstone_anchor_outside_second_tolerance_blocks_strict_view() {
         &asset,
         &redstone,
         &feed_id,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.configure_market_oracle(&asset, &cfg);
 
     let assets = soroban_sdk::Vec::from_array(&t.env, [asset]);
-    let view = t
-        .ctrl_client()
-        .get_market_indexes_detailed(&assets)
-        .get(0)
-        .unwrap();
-    assert_eq!(view.price_wad, usd(1));
-    assert!(!view.within_second_tolerance);
+    let _ = t.ctrl_client().get_market_indexes_detailed(&assets);
 }
 
 // Runtime path: configure-time succeeds (price is set), then the feed is

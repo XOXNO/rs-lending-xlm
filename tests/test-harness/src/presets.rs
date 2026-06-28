@@ -1,5 +1,4 @@
 use controller::constants::RAY;
-use controller::types::OraclePriceFluctuation;
 
 use crate::helpers::usd;
 // Wallet name constants
@@ -58,10 +57,8 @@ pub struct EModeCategoryPreset {
 
 #[derive(Clone)]
 pub struct TolerancePreset {
-    pub first_upper_bps: u32,
-    pub first_lower_bps: u32,
-    pub last_upper_bps: u32,
-    pub last_lower_bps: u32,
+    /// Primary/anchor deviation tolerance in BPS.
+    pub tolerance_bps: u32,
 }
 // Default configs
 
@@ -163,25 +160,12 @@ pub const STABLECOIN_EMODE: EModeCategoryPreset = EModeCategoryPreset {
 };
 // Tolerance presets
 
-pub const TIGHT_TOLERANCE: TolerancePreset = TolerancePreset {
-    first_upper_bps: 100,
-    first_lower_bps: 100,
-    last_upper_bps: 300,
-    last_lower_bps: 300,
-};
+pub const TIGHT_TOLERANCE: TolerancePreset = TolerancePreset { tolerance_bps: 300 };
 
-pub const DEFAULT_TOLERANCE: TolerancePreset = TolerancePreset {
-    first_upper_bps: 200,
-    first_lower_bps: 200,
-    last_upper_bps: 500,
-    last_lower_bps: 500,
-};
+pub const DEFAULT_TOLERANCE: TolerancePreset = TolerancePreset { tolerance_bps: 500 };
 
 pub const LOOSE_TOLERANCE: TolerancePreset = TolerancePreset {
-    first_upper_bps: 500,
-    first_lower_bps: 500,
-    last_upper_bps: 1000,
-    last_lower_bps: 1000,
+    tolerance_bps: 1000,
 };
 // Conversion helpers (preset -> contract types)
 
@@ -228,17 +212,6 @@ impl MarketParamsPreset {
             borrow_cap: self.borrow_cap,
             asset_id: asset.clone(),
             asset_decimals: decimals,
-        }
-    }
-}
-
-impl TolerancePreset {
-    pub fn to_oracle_tolerance(&self) -> OraclePriceFluctuation {
-        OraclePriceFluctuation {
-            first_upper_ratio_bps: self.first_upper_bps,
-            first_lower_ratio_bps: self.first_lower_bps,
-            last_upper_ratio_bps: self.last_upper_bps,
-            last_lower_ratio_bps: self.last_lower_bps,
         }
     }
 }

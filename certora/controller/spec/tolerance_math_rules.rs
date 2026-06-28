@@ -11,9 +11,10 @@ use crate::types::OraclePriceFluctuation;
 use common::errors::{GenericError, OracleError};
 use soroban_sdk::panic_with_error;
 
-use crate::cache::Cache;
-
-fn production_is_within_anchor(
+/// Local copy of production `oracle::tolerance` ratio-in-band math: the
+/// primary/anchor ratio (in BPS) must sit inside the single inclusive
+/// `[lower_ratio_bps, upper_ratio_bps]` band.
+fn production_ratio_in_band(
     env: &Env,
     anchor: i128,
     primary: i128,
@@ -30,60 +31,45 @@ fn production_is_within_anchor(
     ratio_bps <= upper && ratio_bps >= lower
 }
 
+/// Local copy of production `oracle::tolerance::calculate_final_price`: a
+/// required primary/anchor pair blends to the midpoint inside the tolerance
+/// band, otherwise it reverts `UnsafePriceNotAllowed`.
 fn production_calculate_final_price(
-    cache: &Cache,
-    anchor: Option<i128>,
-    primary: Option<i128>,
+    env: &Env,
+    anchor: i128,
+    primary: i128,
     tolerance: &OraclePriceFluctuation,
 ) -> i128 {
-    let env = cache.env();
-    match (anchor, primary) {
-        (Some(anchor_price), Some(primary_price)) => {
-            if production_is_within_anchor(
-                env,
-                anchor_price,
-                primary_price,
-                tolerance.first_upper_ratio_bps,
-                tolerance.first_lower_ratio_bps,
-            ) {
-                primary_price
-            } else if production_is_within_anchor(
-                env,
-                anchor_price,
-                primary_price,
-                tolerance.last_upper_ratio_bps,
-                tolerance.last_lower_ratio_bps,
-            ) {
-                anchor_price
-                    .checked_add(primary_price)
-                    .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-                    / 2
-            } else if !cache.oracle_policy.allows_unsafe_deviation() {
-                panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
-            } else {
-                primary_price
-            }
-        }
-        (Some(anchor_price), None) => anchor_price,
-        (None, Some(primary_price)) => primary_price,
-        (None, None) => panic_with_error!(env, OracleError::NoLastPrice),
+    let within_band = production_ratio_in_band(
+        env,
+        anchor,
+        primary,
+        tolerance.upper_ratio_bps,
+        tolerance.lower_ratio_bps,
+    );
+    if !within_band {
+        panic_with_error!(env, OracleError::UnsafePriceNotAllowed);
     }
+    anchor
+        .checked_add(primary)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
+        / 2
 }
 
 /// Zero anchor is always outside the tolerance band.
 #[rule]
 fn zero_anchor_returns_false(e: Env, primary: i128) {
     cvlr_assume!(primary > 0 && primary <= 1_000_000 * WAD);
-    let within = production_is_within_anchor(&e, 0, primary, 20_000, 1);
+    let within = production_ratio_in_band(&e, 0, primary, 20_000, 1);
     cvlr_assert!(!within);
 }
 
-/// Equal prices fall within a symmetric first band.
+/// Equal prices fall within a symmetric band.
 #[rule]
 fn equal_prices_within_symmetric_first_band(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= 1_000_000 * WAD);
 
-    let within = production_is_within_anchor(&e, price, price, 10_200, 9_800);
+    let within = production_ratio_in_band(&e, price, price, 10_200, 9_800);
     cvlr_assert!(within);
 }
 
@@ -97,62 +83,31 @@ fn par_ratio_is_bps(e: Env, price: i128) {
     cvlr_assert!(ratio_bps == BPS);
 }
 
-/// 2x price divergence falls outside a tight first band.
+/// 2x price divergence falls outside a tight band.
 #[rule]
 fn divergent_prices_outside_tight_first_band(e: Env, anchor: i128, primary: i128) {
     cvlr_assume!(anchor > 0 && anchor <= 1_000_000 * WAD);
     cvlr_assume!(primary == 2 * anchor);
 
-    let within = production_is_within_anchor(&e, anchor, primary, 10_010, 9_990);
+    let within = production_ratio_in_band(&e, anchor, primary, 10_010, 9_990);
     cvlr_assert!(!within);
 }
 
-/// Permissive policy returns primary when both prices diverge beyond the last band.
-#[rule]
-fn beyond_tolerance_permissive_returns_primary(e: Env, anchor_price: i128, primary_price: i128) {
-    cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
-    cvlr_assume!(primary_price > 0 && primary_price <= 1_000_000 * WAD);
-    cvlr_assume!(primary_price == 2 * anchor_price);
-
-    let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
-    let tolerance = OraclePriceFluctuation {
-        first_upper_ratio_bps: 10_010,
-        first_lower_ratio_bps: 9_990,
-        last_upper_ratio_bps: 10_020,
-        last_lower_ratio_bps: 9_980,
-    };
-
-    let final_price = production_calculate_final_price(
-        &cache,
-        Some(anchor_price),
-        Some(primary_price),
-        &tolerance,
-    );
-
-    cvlr_assert!(final_price == primary_price);
-}
-
-/// Liquidation policy reverts when dual-source prices diverge beyond the last band.
+/// Out-of-band dual-source prices revert: `calculate_final_price` is
+/// unreachable past the band check when the pair diverges beyond tolerance.
 #[rule]
 fn liquidation_rejects_unsafe_dual_source_prices(e: Env, anchor_price: i128, primary_price: i128) {
     cvlr_assume!(anchor_price > 0 && anchor_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price > 0 && primary_price <= 1_000_000 * WAD);
     cvlr_assume!(primary_price == 2 * anchor_price);
 
-    let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::Liquidation);
     let tolerance = OraclePriceFluctuation {
-        first_upper_ratio_bps: 10_010,
-        first_lower_ratio_bps: 9_990,
-        last_upper_ratio_bps: 10_020,
-        last_lower_ratio_bps: 9_980,
+        upper_ratio_bps: 10_020,
+        lower_ratio_bps: 9_980,
     };
 
-    let _final_price = production_calculate_final_price(
-        &cache,
-        Some(anchor_price),
-        Some(primary_price),
-        &tolerance,
-    );
+    let _final_price =
+        production_calculate_final_price(&e, anchor_price, primary_price, &tolerance);
 
     cvlr_satisfy!(false);
 }
@@ -160,6 +115,6 @@ fn liquidation_rejects_unsafe_dual_source_prices(e: Env, anchor_price: i128, pri
 #[rule]
 fn tolerance_math_reachability(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= WAD * 1000);
-    let within = production_is_within_anchor(&e, price, price, 10_200, 9_800);
+    let within = production_ratio_in_band(&e, price, price, 10_200, 9_800);
     cvlr_satisfy!(within);
 }

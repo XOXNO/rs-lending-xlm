@@ -10,7 +10,6 @@ use stellar_macros::when_not_paused;
 
 use crate::cache::Cache;
 use crate::external::pool::pool_flash_loan_call;
-use crate::oracle::policy::OraclePolicy;
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
 #[contractimpl]
@@ -41,7 +40,7 @@ pub fn process_flash_loan(
     validation::require_not_flash_loaning(env);
     validation::require_positive_amount(env, amount);
 
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     validation::require_market_active(env, &mut cache, asset);
 
     let asset_config = cache.cached_asset_config(asset);

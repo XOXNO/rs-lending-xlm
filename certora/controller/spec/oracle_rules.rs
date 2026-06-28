@@ -5,9 +5,7 @@ use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
-use crate::constants::{
-    MAX_FIRST_TOLERANCE, MAX_LAST_TOLERANCE, MIN_FIRST_TOLERANCE, MIN_LAST_TOLERANCE, WAD,
-};
+use crate::constants::{MAX_TOLERANCE, MIN_TOLERANCE, WAD};
 use crate::types::{
     AssetConfigRaw, MarketConfig, MarketOracleConfig, MarketStatus, OracleAssetRef,
     OraclePriceFluctuation, OracleReadMode, OracleSourceConfig, OracleSourceConfigOption,
@@ -43,10 +41,8 @@ fn pinned_market_config(
             asset_decimals: 7,
             max_price_stale_seconds: 900,
             tolerance: OraclePriceFluctuation {
-                first_upper_ratio_bps: 10_200,
-                first_lower_ratio_bps: 9_800,
-                last_upper_ratio_bps: 11_000,
-                last_lower_ratio_bps: 9_000,
+                upper_ratio_bps: 10_200,
+                lower_ratio_bps: 9_800,
             },
             strategy: OracleStrategy::Single,
             primary: OracleSourceConfig::Reflector(ReflectorSourceConfig {
@@ -65,171 +61,73 @@ fn pinned_market_config(
 }
 
 // `price_staleness_enforced` removed: it re-asserted the harness summary's own
-// `timestamp <= now + 60` assume (tautology). Real staleness is proven against
-// the unsummarised compose pipeline in `oracle_compose_rules`.
+// `timestamp <= now + 60` assume (tautology). Real staleness is enforced by the
+// unsummarised compose pipeline, which reverts on any stale required source.
 
-/// First-band tolerance: the blended price stays within [min, max] of its inputs.
-/// Which band is selected is modelled nondeterministically by the harness
-/// `calculate_final_price`; the real band math is proven in `tolerance_math_rules`.
-#[rule]
-fn first_band_price_within_inputs(
-    e: Env,
-    _base_asset: Address,
+/// Par ratio (100%) in BPS; tolerance bands open symmetrically around it.
+const PAR_RATIO_BPS: u32 = 10_000;
+
+/// Single-band blend property: an in-band primary/anchor pair resolves to the
+/// midpoint, which always sits within [min, max] of its inputs. Out-of-band the
+/// harness `calculate_final_price` reverts, so the assertion is vacuous there.
+/// The real band math is proven in `tolerance_math_rules`.
+fn assert_blend_within_inputs(
+    e: &Env,
     aggregator_price: i128,
     safe_price: i128,
-    first_upper_bps: u32,
-    first_lower_bps: u32,
+    tolerance_bps: u32,
 ) {
-    cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
-
-    let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
     let tolerance = OraclePriceFluctuation {
-        first_upper_ratio_bps: first_upper_bps,
-        first_lower_ratio_bps: first_lower_bps,
-        last_upper_ratio_bps: MAX_LAST_TOLERANCE as u32,
-        last_lower_ratio_bps: MIN_LAST_TOLERANCE as u32,
+        upper_ratio_bps: PAR_RATIO_BPS + tolerance_bps,
+        lower_ratio_bps: PAR_RATIO_BPS - tolerance_bps,
     };
 
-    let final_price = crate::oracle::calculate_final_price(
-        &cache,
-        Some(aggregator_price),
-        Some(safe_price),
-        &tolerance,
-    )
-    .price_wad;
+    let final_price =
+        crate::oracle::calculate_final_price(e, aggregator_price, safe_price, &tolerance);
 
-    let min_price = if aggregator_price < safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
-    let max_price = if aggregator_price > safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
+    let min_price = aggregator_price.min(safe_price);
+    let max_price = aggregator_price.max(safe_price);
     cvlr_assert!(final_price >= min_price);
     cvlr_assert!(final_price <= max_price);
 }
 
-/// Second-band tolerance: the final price stays within [min, max] of its inputs.
+/// Tightest band (MIN_TOLERANCE): the blended price stays within [min, max].
+#[rule]
+fn first_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i128) {
+    cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
+    cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
+
+    assert_blend_within_inputs(&e, aggregator_price, safe_price, MIN_TOLERANCE);
+}
+
+/// Arbitrary in-range band: the blended price stays within [min, max].
 #[rule]
 fn second_band_price_within_inputs(
     e: Env,
-    _base_asset: Address,
     aggregator_price: i128,
     safe_price: i128,
-    first_upper_bps: u32,
-    first_lower_bps: u32,
-    last_upper_bps: u32,
-    last_lower_bps: u32,
+    tolerance_bps: u32,
 ) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(last_upper_bps >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(last_upper_bps <= MAX_LAST_TOLERANCE);
-    cvlr_assume!(last_lower_bps >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(last_lower_bps <= MAX_LAST_TOLERANCE);
-    cvlr_assume!(last_upper_bps >= first_upper_bps);
-    cvlr_assume!(last_lower_bps >= first_lower_bps);
+    cvlr_assume!(tolerance_bps >= MIN_TOLERANCE && tolerance_bps <= MAX_TOLERANCE);
 
-    let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
-    let tolerance = OraclePriceFluctuation {
-        first_upper_ratio_bps: first_upper_bps,
-        first_lower_ratio_bps: first_lower_bps,
-        last_upper_ratio_bps: last_upper_bps,
-        last_lower_ratio_bps: last_lower_bps,
-    };
-
-    let final_price = crate::oracle::calculate_final_price(
-        &cache,
-        Some(aggregator_price),
-        Some(safe_price),
-        &tolerance,
-    )
-    .price_wad;
-
-    let min_price = if aggregator_price < safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
-    let max_price = if aggregator_price > safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
-    cvlr_assert!(final_price >= min_price);
-    cvlr_assert!(final_price <= max_price);
+    assert_blend_within_inputs(&e, aggregator_price, safe_price, tolerance_bps);
 }
 
-/// Beyond-band tolerance: the final price stays within [min, max] of its inputs.
+/// Widest band (MAX_TOLERANCE): the blended price stays within [min, max].
 #[rule]
-fn beyond_band_price_within_inputs(
-    e: Env,
-    _base_asset: Address,
-    aggregator_price: i128,
-    safe_price: i128,
-    first_upper_bps: u32,
-    first_lower_bps: u32,
-    last_upper_bps: u32,
-    last_lower_bps: u32,
-) {
+fn beyond_band_price_within_inputs(e: Env, aggregator_price: i128, safe_price: i128) {
     cvlr_assume!(aggregator_price > 0 && aggregator_price <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe_price > 0 && safe_price <= MAX_REALISTIC_PRICE);
-    cvlr_assume!(first_upper_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_upper_bps <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps >= MIN_FIRST_TOLERANCE);
-    cvlr_assume!(first_lower_bps <= MAX_FIRST_TOLERANCE);
-    cvlr_assume!(last_upper_bps >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(last_upper_bps <= MAX_LAST_TOLERANCE);
-    cvlr_assume!(last_lower_bps >= MIN_LAST_TOLERANCE);
-    cvlr_assume!(last_lower_bps <= MAX_LAST_TOLERANCE);
 
-    let cache = crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
-    let tolerance = OraclePriceFluctuation {
-        first_upper_ratio_bps: first_upper_bps,
-        first_lower_ratio_bps: first_lower_bps,
-        last_upper_ratio_bps: last_upper_bps,
-        last_lower_ratio_bps: last_lower_bps,
-    };
-
-    let final_price = crate::oracle::calculate_final_price(
-        &cache,
-        Some(aggregator_price),
-        Some(safe_price),
-        &tolerance,
-    )
-    .price_wad;
-
-    let min_price = if aggregator_price < safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
-    let max_price = if aggregator_price > safe_price {
-        aggregator_price
-    } else {
-        safe_price
-    };
-    cvlr_assert!(final_price >= min_price);
-    cvlr_assert!(final_price <= max_price);
+    assert_blend_within_inputs(&e, aggregator_price, safe_price, MAX_TOLERANCE);
 }
 
 /// On a cache hit, `token_price` returns the stored feed unchanged.
 #[rule]
 fn price_cache_consistency(e: Env, asset: Address) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
 
     let price_wad: i128 = nondet();
     let asset_decimals: u32 = nondet();
@@ -259,15 +157,18 @@ fn oracle_tolerance_sanity(e: Env) {
     cvlr_assume!(agg > 0 && agg <= MAX_REALISTIC_PRICE);
     cvlr_assume!(safe > 0 && safe <= MAX_REALISTIC_PRICE);
 
-    let within = crate::oracle::is_within_anchor(&e, agg, safe, 200, 200);
-    cvlr_satisfy!(within);
+    let tolerance = OraclePriceFluctuation {
+        upper_ratio_bps: 10_200,
+        lower_ratio_bps: 9_800,
+    };
+    let final_price = crate::oracle::calculate_final_price(&e, agg, safe, &tolerance);
+    cvlr_satisfy!(final_price > 0);
 }
 
 /// `token_price` can return a positive feed under Active + Single configuration.
 #[rule]
 fn price_cache_sanity(e: Env, asset: Address, pool: Address, oracle: Address) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskDecreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let market = pinned_market_config(&e, &asset, &pool, oracle, MarketStatus::Active);
     cache.market_configs.set(asset.clone(), market);
 

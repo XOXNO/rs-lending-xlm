@@ -16,7 +16,6 @@ use crate::events;
 use crate::external::pool::pool_repay_call;
 use crate::helpers::update_or_remove_debt_position;
 use crate::helpers::utils::{self, EventContext};
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::{get_debt_position_or_panic, make_pool_action};
 use crate::{storage, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -47,7 +46,7 @@ pub fn process_repay(env: &Env, caller: &Address, account_id: u64, payments: &Ve
     validation::require_non_empty_payments(env, payments);
 
     let mut account = storage::get_account_borrow_only(env, account_id);
-    let mut cache = Cache::new(env, OraclePolicy::Repay);
+    let mut cache = Cache::new(env);
 
     let aggregated = utils::aggregate_positive_payments(env, payments);
     validation::require_non_empty_payments(env, &aggregated);

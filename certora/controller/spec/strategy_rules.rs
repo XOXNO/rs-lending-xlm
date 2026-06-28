@@ -191,8 +191,7 @@ fn multiply_requires_collateralizable(
     cvlr_assume!(collateral_token != debt_token);
     cvlr_assume!((1..=3).contains(&mode));
 
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let config = cache.cached_asset_config(&collateral_token);
     cvlr_assume!(!config.is_collateralizable);
 
@@ -479,8 +478,7 @@ fn repay_with_collateral_full_close_removes_account(
 /// clean_bad_debt reverts when the account does not qualify for cleanup.
 #[rule]
 fn clean_bad_debt_requires_qualification(e: Env, account_id: u64) {
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
 
     let account = crate::storage::get_account(&e, account_id);
     cvlr_assume!(!account.borrow_positions.is_empty());

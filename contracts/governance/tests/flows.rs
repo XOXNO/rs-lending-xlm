@@ -55,8 +55,7 @@ fn upload_controller_wasm(env: &Env) -> BytesN<32> {
 fn sample_oracle_input(env: &Env) -> MarketOracleConfigInput {
     MarketOracleConfigInput {
         max_price_stale_seconds: 900,
-        first_tolerance_bps: 200,
-        last_tolerance_bps: 500,
+        tolerance_bps: 500,
         strategy: OracleStrategy::Single,
         primary: OracleSourceConfigInput::Reflector(ReflectorSourceConfigInput {
             contract: Address::generate(env),
@@ -221,10 +220,10 @@ fn configure_market_oracle_requires_oracle_role() {
     );
 }
 
-// With no controller set, BadFirstTolerance confirms tolerance validation runs
-// before controller lookup.
+// With no controller set, the out-of-range tolerance check (#208) confirms
+// tolerance validation runs before controller lookup.
 #[test]
-#[should_panic(expected = "Error(Contract, #207)")]
+#[should_panic(expected = "Error(Contract, #208)")]
 fn edit_oracle_tolerance_validates_before_any_cross_call() {
     let env = Env::default();
     env.mock_all_auths();
@@ -235,8 +234,7 @@ fn edit_oracle_tolerance_validates_before_any_cross_call() {
         &admin,
         &AdminOperation::EditOracleTolerance(EditToleranceArgs {
             asset,
-            first_tolerance: 0,
-            last_tolerance: 200,
+            tolerance: 0,
         }),
     );
 }

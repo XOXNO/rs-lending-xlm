@@ -1,9 +1,8 @@
 //! Supply flow: deposits collateral, creating the account when `account_id == 0`.
 //!
 //! Pipeline: auth → aggregate → cache → [account resolution] → configs →
-//! validate → settle → persist → emit. Supply uses
-//! `OraclePolicy::RiskDecreasing`; deposits cannot worsen account health, so
-//! no LTV, health, or min-collateral gates run at the entrypoint.
+//! validate → settle → persist → emit. Deposits cannot worsen account health,
+//! so no LTV, health, or min-collateral gates run at the entrypoint.
 
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::Ray;
@@ -20,7 +19,6 @@ use crate::events;
 use crate::external::pool::pool_supply_call;
 use crate::helpers;
 use crate::helpers::{refresh_supply_risk_params, update_or_remove_supply_position};
-use crate::oracle::policy::OraclePolicy;
 use crate::positions::make_pool_action;
 use crate::{helpers::utils, validation, Controller, ControllerArgs, ControllerClient};
 
@@ -53,7 +51,7 @@ pub fn process_supply(
     validation::require_not_flash_loaning(env);
 
     let aggregated = utils::aggregate_positive_payments(env, assets);
-    let mut cache = Cache::new(env, OraclePolicy::RiskDecreasing);
+    let mut cache = Cache::new(env);
     let (acct_id, mut account) = resolve_supply_account(
         env,
         caller,

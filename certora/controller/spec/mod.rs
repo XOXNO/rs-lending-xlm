@@ -12,7 +12,6 @@ pub mod interest_rules;
 pub mod liquidation_rules;
 pub mod market_guard_rules;
 pub mod math_rules;
-pub mod oracle_compose_rules;
 pub mod oracle_rules;
 pub mod position_rules;
 pub mod solvency_rules;

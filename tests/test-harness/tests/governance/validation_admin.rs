@@ -144,8 +144,7 @@ fn base_oracle_config(t: &LendingTest) -> MarketOracleConfigInput {
     test_harness::reflector_primary_anchor_config(
         &t.mock_reflector,
         &asset,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     )
 }
 

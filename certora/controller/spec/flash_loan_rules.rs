@@ -37,8 +37,7 @@ fn flash_loan_guard_cleared_after_completion(
     cvlr_assume!(amount > 0);
     cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
 
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);
@@ -65,8 +64,7 @@ fn flash_loan_guard_cleared_sanity(
     cvlr_assume!(amount > 0);
     cvlr_assume!(!crate::storage::is_flash_loan_ongoing(&e));
 
-    let mut cache =
-        crate::cache::Cache::new(&e, crate::oracle::policy::OraclePolicy::RiskIncreasing);
+    let mut cache = crate::cache::Cache::new(&e);
     let cfg = cache.cached_asset_config(&asset);
     cvlr_assume!(cfg.is_flashloanable);
     let market = crate::storage::get_market_config(&e, &asset);

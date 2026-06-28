@@ -32,10 +32,8 @@ fn resolved_reflector_primary_anchor_config(
         asset_decimals: 7,
         max_price_stale_seconds: 900,
         tolerance: OraclePriceFluctuation {
-            first_upper_ratio_bps: 10_200,
-            first_lower_ratio_bps: 9_804,
-            last_upper_ratio_bps: 10_500,
-            last_lower_ratio_bps: 9_524,
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
         },
         strategy: OracleStrategy::PrimaryWithAnchor,
         primary: source(OracleReadMode::Twap(3)),
@@ -309,13 +307,11 @@ fn test_set_aggregator() {
 }
 // 9. set_oracle_tolerance — thin owner setter
 
-/// 300/600 BPS tolerance bands as governance computes them in-path.
+/// 600 BPS tolerance band as governance computes it in-path.
 fn bands_300_600() -> OraclePriceFluctuation {
     OraclePriceFluctuation {
-        first_upper_ratio_bps: 10_300,
-        first_lower_ratio_bps: 9_709,
-        last_upper_ratio_bps: 10_600,
-        last_lower_ratio_bps: 9_434,
+        upper_ratio_bps: 10_600,
+        lower_ratio_bps: 9_434,
     }
 }
 
@@ -451,8 +447,7 @@ fn test_market_initialization_cascade() {
     let reflector_cfg = test_harness::reflector_primary_anchor_config(
         &t.mock_reflector,
         &asset,
-        DEFAULT_TOLERANCE.first_upper_bps,
-        DEFAULT_TOLERANCE.last_upper_bps,
+        DEFAULT_TOLERANCE.tolerance_bps,
     );
     t.mock_reflector_client().set_price(&asset, &1_0000000i128);
     t.configure_market_oracle(&asset, &reflector_cfg);

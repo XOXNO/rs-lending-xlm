@@ -27,17 +27,11 @@ pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 /// Maximum supply/borrow positions configurable per account (protocol-wide).
 pub const POSITION_LIMIT_MAX: u32 = 10;
 
-/// Minimum first-price tolerance input (BPS) for oracle config validation.
-pub const MIN_FIRST_TOLERANCE: u32 = 50;
+/// Minimum primary/anchor tolerance input (BPS) for oracle config validation.
+pub const MIN_TOLERANCE: u32 = 150;
 
-/// Maximum first-price tolerance input (BPS).
-pub const MAX_FIRST_TOLERANCE: u32 = 500;
-
-/// Minimum last-price tolerance input (BPS).
-pub const MIN_LAST_TOLERANCE: u32 = 150;
-
-/// Maximum last-price tolerance input (BPS).
-pub const MAX_LAST_TOLERANCE: u32 = 5_000;
+/// Maximum primary/anchor tolerance input (BPS).
+pub const MAX_TOLERANCE: u32 = 5_000;
 
 pub const MS_PER_SECOND: u64 = 1_000;
 
