@@ -26,7 +26,15 @@ pub trait ControllerInterface {
     ) -> u64;
 
     /// Borrows assets after collateral, health-factor, cap, and oracle checks.
-    fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>);
+    /// Tokens go to `to` when provided, else to `caller`; the debt is recorded
+    /// on `account_id` regardless of destination.
+    fn borrow(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        borrows: Vec<(HubAssetKey, i128)>,
+        to: Option<Address>,
+    );
 
     /// Withdraws collateral and rejects post-state LTV or health-factor
     /// violations. Tokens go to `to` when provided, else to `caller`; returns

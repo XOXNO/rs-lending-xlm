@@ -105,6 +105,17 @@ impl LendingTest {
         }
     }
 
+    /// Registers `delegate` as an active position manager and opts it into
+    /// `account_id` on `owner`'s behalf -- the two owner-gated steps a real
+    /// delegate setup requires before it can act on the account.
+    pub fn enable_delegate(&mut self, owner: &str, delegate: &str, account_id: u64) {
+        let owner_addr = self.get_or_create_user(owner);
+        let delegate_addr = self.get_or_create_user(delegate);
+        let ctrl = self.ctrl_client();
+        ctrl.set_position_manager(&delegate_addr, &true);
+        ctrl.add_delegate(&owner_addr, &account_id, &delegate_addr);
+    }
+
     // Account removal
 
     /// Remove an account (must have no positions).

@@ -134,7 +134,7 @@ impl LendingTest {
                 raw_amount,
             ),
         ];
-        ctrl.borrow(&addr, &account_id, &borrows);
+        ctrl.borrow(&addr, &account_id, &borrows, &None);
     }
 
     /// Try-borrow on `hub_id`; returns the contract error instead of panicking.
@@ -162,7 +162,7 @@ impl LendingTest {
                 raw_amount,
             ),
         ];
-        match ctrl.try_borrow(&addr, &account_id, &borrows) {
+        match ctrl.try_borrow(&addr, &account_id, &borrows, &None) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),

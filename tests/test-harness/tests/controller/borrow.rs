@@ -1,6 +1,6 @@
 use test_harness::{
     assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    xlm_preset, LendingTest, PositionType, ALICE, STABLECOIN_EMODE,
+    xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_EMODE,
 };
 // 1. test_borrow_basic
 
@@ -311,5 +311,66 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
         "WBTC wallet ~0.005, got {}",
         wbtc_wallet
     );
+    t.assert_healthy(ALICE);
+}
+// 16. test_delegated_borrow_routes_funds_to_owner
+
+#[test]
+fn test_delegated_borrow_routes_funds_to_owner() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // ALICE owns the account and the collateral; BOB is her delegate.
+    t.supply(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    t.enable_delegate(ALICE, BOB, account_id);
+
+    let alice_before = t.token_balance(ALICE, "ETH");
+    let bob_before = t.token_balance(BOB, "ETH");
+
+    // BOB borrows on ALICE's account, routing the funds to ALICE via `to`.
+    t.borrow_as_to(BOB, account_id, "ETH", 1.0, ALICE);
+
+    let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
+    let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
+
+    // Funds land on the owner, not the delegate caller.
+    assert!(alice_gain > 0.99, "owner should receive ~1 ETH, got {}", alice_gain);
+    assert!(bob_gain < 0.01, "delegate must receive nothing, got {}", bob_gain);
+
+    // Debt is recorded on the account regardless of destination.
+    t.assert_position_exists(ALICE, "ETH", PositionType::Borrow);
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
+    t.assert_healthy(ALICE);
+}
+// 17. test_delegated_borrow_to_none_routes_to_caller
+
+#[test]
+fn test_delegated_borrow_to_none_routes_to_caller() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    t.enable_delegate(ALICE, BOB, account_id);
+
+    let alice_before = t.token_balance(ALICE, "ETH");
+    let bob_before = t.token_balance(BOB, "ETH");
+
+    // `to = None` keeps today's behavior: funds go to the caller (BOB here).
+    t.borrow_to(BOB, account_id, "ETH", 1.0);
+
+    let alice_gain = t.token_balance(ALICE, "ETH") - alice_before;
+    let bob_gain = t.token_balance(BOB, "ETH") - bob_before;
+
+    assert!(bob_gain > 0.99, "caller should receive ~1 ETH, got {}", bob_gain);
+    assert!(alice_gain.abs() < 0.01, "owner wallet must be unchanged, got {}", alice_gain);
+
+    // Debt still lands on the account, not the caller.
+    t.assert_borrow_near(ALICE, "ETH", 1.0, 0.01);
     t.assert_healthy(ALICE);
 }

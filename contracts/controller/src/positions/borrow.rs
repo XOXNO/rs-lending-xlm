@@ -28,26 +28,42 @@ use crate::{helpers::utils, storage, validation, Controller, ControllerArgs, Con
 #[contractimpl]
 impl Controller {
     #[when_not_paused]
-    pub fn borrow(env: Env, caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>) {
-        process_borrow(&env, &caller, account_id, &borrows);
+    pub fn borrow(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        borrows: Vec<(HubAssetKey, i128)>,
+        to: Option<Address>,
+    ) {
+        process_borrow(&env, &caller, account_id, &borrows, to);
     }
 }
 
 /// Borrows one or more assets; LTV and health validation run post-pool so the
 /// valuation reuses the market indexes the borrow itself wrote into the cache.
-pub fn process_borrow(env: &Env, caller: &Address, account_id: u64, borrows: &Vec<HubPayment>) {
+/// Tokens go to `to` when provided, else to `caller`; the debt is recorded on
+/// `account_id` regardless of destination.
+pub fn process_borrow(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    borrows: &Vec<HubPayment>,
+    to: Option<Address>,
+) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
     crate::helpers::require_owner_or_delegate(env, account_id, caller);
 
+    let recipient = to.unwrap_or_else(|| caller.clone());
+
     let mut cache = Cache::new(env);
     let aggregated = utils::aggregate_positive_payments(env, borrows);
 
     let configs = AggregatedConfigs::resolve(env, &account, &aggregated, &mut cache);
     validate_borrow(env, &account, &aggregated, &configs, &mut cache);
-    settle_borrow(env, caller, &mut account, &aggregated, &mut cache);
+    settle_borrow(env, &recipient, &mut account, &aggregated, &mut cache);
 
     // A failure in any gate panics and reverts the atomic tx.
     validation::require_post_pool_risk_gates(env, &mut cache, &account);
@@ -97,7 +113,7 @@ fn validate_borrow(
 
 fn settle_borrow(
     env: &Env,
-    caller: &Address,
+    recipient: &Address,
     account: &mut Account,
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
@@ -112,7 +128,7 @@ fn settle_borrow(
         });
     }
     let pool_addr = cache.cached_pool_address();
-    let results = pool_borrow_call(env, &pool_addr, caller, &entries);
+    let results = pool_borrow_call(env, &pool_addr, recipient, &entries);
 
     for (i, entry) in entries.iter().enumerate() {
         let result = validation::expect_invariant(env, results.get(i as u32));
