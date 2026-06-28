@@ -94,12 +94,13 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 DelayTier::Standard,
             )
         }
-        AdminOperation::EditAssetConfig(asset, cfg) => {
+        AdminOperation::EditAssetConfig(hub_asset, cfg) => {
             validate::asset::validate_asset_config(env, cfg);
             // The general spoke 0 holds the base risk listing; editing it is the
-            // canonical path for the asset's base config.
+            // canonical path for the asset's base config on its hub.
             let args = SpokeAssetArgs {
-                asset: asset.clone(),
+                hub_id: hub_asset.hub_id,
+                asset: hub_asset.asset.clone(),
                 spoke_id: 0,
                 can_collateral: cfg.is_collateralizable,
                 can_borrow: cfg.is_borrowable,
@@ -194,7 +195,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             Symbol::new(env, "remove_asset_from_spoke"),
             vec![
                 env,
-                args.asset.clone().into_val(env),
+                args.hub_asset.clone().into_val(env),
                 args.spoke_id.into_val(env),
             ],
             DelayTier::Standard,
@@ -328,7 +329,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
             let controller = storage::get_controller(env);
             let resolved_config = validate::oracle_probe::validate_market_oracle_sources(
                 env,
-                &args.asset,
+                &args.hub_asset.asset,
                 &args.cfg,
                 tolerance,
             );
@@ -337,7 +338,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> (Address, Symbol, Ve
                 Symbol::new(env, "set_market_oracle_config"),
                 vec![
                     env,
-                    args.asset.clone().into_val(env),
+                    args.hub_asset.clone().into_val(env),
                     resolved_config.into_val(env),
                 ],
                 DelayTier::Standard,

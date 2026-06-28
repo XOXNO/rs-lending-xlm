@@ -35,7 +35,7 @@ pub struct PoolCapsArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct RemoveAssetFromSpokeArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub spoke_id: u32,
 }
 
@@ -65,7 +65,7 @@ pub struct TransferOwnershipArgs {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct ConfigureOracleArgs {
-    pub asset: Address,
+    pub hub_asset: HubAssetKey,
     pub cfg: MarketOracleConfigInput,
 }
 
@@ -94,7 +94,7 @@ pub enum AdminOperation {
     SetAggregator(Address),
     SetAccumulator(Address),
     SetLiquidityPoolTemplate(BytesN<32>),
-    EditAssetConfig(Address, SpokeAssetConfig),
+    EditAssetConfig(HubAssetKey, SpokeAssetConfig),
     SetPositionLimits(PositionLimits),
     SetMinBorrowCollateralUsd(i128),
     CreateHub,

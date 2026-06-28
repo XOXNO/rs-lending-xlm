@@ -7,7 +7,7 @@ extern crate std;
 
 use crate::op::{AdminOperation, ConfigureOracleArgs, EditToleranceArgs, RoleArgs};
 use controller_interface::types::{
-    ControllerKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
+    ControllerKey, HubAssetKey, MarketOracleConfigInput, OracleAssetRef, OracleReadMode,
     OracleSourceConfigInput, OracleSourceConfigInputOption, OracleStrategy, PositionLimits,
     ReflectorSourceConfigInput,
 };
@@ -214,7 +214,7 @@ fn configure_market_oracle_requires_oracle_role() {
     gov.execute_immediate(
         &stranger,
         &AdminOperation::ConfigureMarketOracle(ConfigureOracleArgs {
-            asset,
+            hub_asset: HubAssetKey { hub_id: 0, asset },
             cfg: sample_oracle_input(&env),
         }),
     );
@@ -346,7 +346,10 @@ fn edit_asset_config_rejects_bad_risk_bounds_before_any_cross_call() {
         borrow_cap: 0,
         oracle_override: controller_interface::types::MarketOracleConfigOption::None,
     };
-    gov.execute_immediate(&admin, &AdminOperation::EditAssetConfig(asset, cfg));
+    gov.execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetConfig(HubAssetKey { hub_id: 0, asset }, cfg),
+    );
 }
 
 // Admin entrypoints renew instance TTL for ownable, role, and controller keys.
