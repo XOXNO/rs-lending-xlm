@@ -84,8 +84,9 @@ pub struct PositionManagerConfig {
 }
 
 /// Persistent spoke definition. Spoke assets and per-asset usage totals live in
-/// discrete storage keys; this record only tracks deprecation and the
-/// (currently inert) liquidation-curve parameters.
+/// discrete storage keys; this record tracks deprecation and the spoke's
+/// liquidation-curve parameters (target HF, max-bonus HF threshold, bonus
+/// factor) applied when an account bound to this spoke is liquidated.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeConfig {
@@ -97,8 +98,11 @@ pub struct SpokeConfig {
 
 /// Per-asset spoke configuration: collateral/borrow flags plus the risk
 /// parameters applied while the owning spoke is active. `*_bps` fields use
-/// basis points. `paused`, `frozen`, `liquidation_fees_bps`, and
-/// `oracle_override` are reserved for later phases and read by nothing yet.
+/// basis points. `paused` blocks risk-increasing actions on this spoke-asset,
+/// `frozen` additionally blocks position increases while still allowing exits,
+/// `liquidation_fees_bps` is the protocol fee taken from seized collateral, and
+/// `oracle_override` supplies an optional per-spoke price source over the
+/// token-rooted base.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetConfig {
